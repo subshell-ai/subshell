@@ -235,6 +235,11 @@ export function createResetView(host: AssistantHost): ResetView {
       // RE-ARMS on every press, so a plan staged here was never a
       // precondition for the screen being correct — only for it being able
       // to say "no" sooner.
+      // A refusal belongs to the arming that produced it. Showing first is
+      // what makes the screen appear at once, so a leftover from the last
+      // open would be the first thing drawn — the old "no", with the button
+      // disabled, over a machine that may well now be resettable.
+      armingProblem = null;
       show();
       armingProblem = await armReset();
       render();

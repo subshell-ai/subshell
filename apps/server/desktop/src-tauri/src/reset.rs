@@ -179,11 +179,32 @@ const RESTART_GRACE: std::time::Duration = std::time::Duration::from_millis(400)
 /// on and a `main` window exists, and `main` may merely have been HIDDEN by
 /// that same preference a moment ago rather than closed. On the main thread
 /// Tauri skips those events and restarts the process directly, so the one
-/// preference that could swallow this cannot.
+/// preference that could swallow this cannot. (Off the main thread the
+/// prevented exit does not even fail loudly: that arm parks the caller in
+/// `loop { sleep(Duration::MAX) }` forever — tauri 2.11.5 `app.rs`.)
+///
+/// **It also refuses to start something it cannot finish.** `restart()` is
+/// `-> !`: when it cannot resolve the current binary it `exit(0)`s, taking
+/// the app down with nothing respawned and nothing said (`process.rs`).
+/// `current_binary` reads `/proc/self/exe` or `current_exe()`, so a bundle
+/// reached through a symlink is a real way to land there. Resolving it first
+/// turns a silent disappearance into a window that is still on screen — the
+/// machine is wiped either way, but one of those reads as a crash and the
+/// other as the app waiting for the user to set it up again.
 fn schedule_restart(app: &AppHandle) {
     let handle = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(RESTART_GRACE);
+        if let Err(err) = tauri::process::current_binary(&handle.env()) {
+            eprintln!("subshell: not restarting after the reset — this app's own path did not resolve: {err}");
+            // The assistant is up and on `home`, which on a wiped machine is
+            // first run. Leave the person with it rather than with nothing.
+            if let Some(w) = handle.get_webview_window("wizard") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            return;
+        }
         let on_main = handle.clone();
         if let Err(err) = handle.run_on_main_thread(move || {
             on_main.restart();
@@ -381,10 +402,19 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     // was reported.
     //
     // The window steps below stay as the fallback for a restart that does not
-    // happen, and because closing `main` immediately is what makes the press
-    // feel answered.
+    // happen, and because getting rid of `main` immediately is what makes the
+    // press feel answered.
+    //
+    // DESTROY, not close. `close()` raises `CloseRequested`, and this app
+    // answers that on `main` by PREVENTING it and hiding the window whenever
+    // close-to-tray is on (`lib.rs`) — so the dashboard would still be there,
+    // merely invisible, one tray or Dock click from being pointed at a port
+    // that no longer answers. That is half of what "the dashboard stayed" was
+    // reporting. The preference exists so a click on the red button does not
+    // quit the app; it is not a veto on a reset that has already deleted the
+    // instance behind the window.
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.close();
+        let _ = w.destroy();
     }
     if let Some(w) = app.get_webview_window("wizard") {
         let _ = w.emit("desktop-screen", Screen::Home.as_str());

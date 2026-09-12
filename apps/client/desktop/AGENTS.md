@@ -450,6 +450,16 @@ for, which no probe ever implies. The routes to it:
   and tells nothing. A screen id this build does not know is ignored rather
   than being an error, so a menu item and the page can ship independently.
 
+**The emit fires on "a page is LISTENING", never on "a window exists".** The
+request is stashed first and a booting page PULLS it (`node_pending_screen`),
+because a window's existence is true the moment the builder returns and a
+`listen()` registers over IPC well after that — Tauri queues nothing in
+between. `PendingScreen.listening` is the flag that tells the two apart: the
+pull sets it, building a window clears it, and only a set flag takes the emit
+path. Window existence was the proxy here until 2026-09-12, and two About
+clicks in quick succession were enough to lose the second one entirely — the
+same defect `apps/server/desktop`'s reset screen was reported for.
+
 The content still comes from one `node_about` call, so the facts live only in
 `crates/desktop-core/src/legal.rs`, which `scripts/license-fields.ts` holds
 equal to the TypeScript copy and to the root LICENSE. The AGENT's version comes

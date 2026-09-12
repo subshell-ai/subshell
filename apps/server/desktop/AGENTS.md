@@ -174,8 +174,8 @@ config file is a deletion target, not a keepsake; only the binary is kept.
 The order is the confirmation screen's: stop, close the pane servers,
 uninstall, delete (database file, pane logs, node artifacts, data dir minus
 config.env, config.env last), clear this app's choices, move the windows —
-close `main`, and send THIS page back to `home`, which its own re-probe (now
-`onboarded: false`) agrees with. With one bundled page the zero-window hazard
+destroy `main`, send THIS page back to `home`, and **restart the app**, which
+its own re-probe (now `onboarded: false`) agrees with. With one bundled page the zero-window hazard
 (N2) reduces to a single rule: **never close the assistant from inside the
 chain.** It is the window the command is running in, and closing it once
 `main` is already gone runs the last-window path and quits the app mid-reset.
@@ -193,6 +193,33 @@ answers `Ok(ActionResult { ok: false, stdout: log, stderr })` with every word
 the CLI said up to the stop — `Err` belongs only to refusals that fire before
 anything mutated. The screen renders the half-run's log where the human still
 is, styled as a failure, with the button re-labelled Retry.
+
+**The reset ends by restarting the app, and three details hold that up.**
+Reaching first run by RESTARTING is by construction; reaching it by closing a
+window and telling the page to go back was by inference, against a machine
+still settling — a draining port answers `ready` for a moment longer, and the
+ready path re-opens the dashboard and closes the assistant. Reported on
+2026-09-12 as "the reset window closed and the dashboard stayed".
+
+- **`destroy()`, not `close()`, for `main`.** `close()` raises
+  `CloseRequested`, which this app answers on `main` by preventing it and
+  HIDING the window while close-to-tray is on — the default. A hidden
+  dashboard is one tray click from being back on screen pointed at a port that
+  no longer answers, which is the other half of that report.
+- **`restart()` on the MAIN THREAD.** Off it, Tauri routes through
+  `RunEvent::ExitRequested`, which this app prevents while close-to-tray is on
+  and a `main` window exists — and then parks the calling thread in
+  `loop { sleep(Duration::MAX) }` forever (tauri 2.11.5 `app.rs`). A
+  "simplification" to a bare `app.restart()` off-thread hangs silently.
+- **The binary is resolved before the restart is attempted.** `restart()` is
+  `-> !` and `exit(0)`s when it cannot find the current executable
+  (`process.rs`) — a bundle reached through a symlink is enough — so the app
+  would vanish with nothing respawned and nothing said. Resolving
+  `current_binary` first turns that into the assistant staying on screen.
+
+To check it by hand — it has no automated coverage — reset with close-to-tray
+ON and confirm the whole app relaunches into first run, with no dashboard
+recoverable from the tray.
 
 **The Reset screen replaces the frame rather than filling it**: `#screen` and
 `#bar` are hidden while it is up. The reason survived the console's sidebar

@@ -163,6 +163,12 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
     // instead of leaving bigger text less room to say the same thing, and why
     // it is clamped to the display: a non-resizable window whose bottom edge
     // is past the work area takes its bar with it.
+    // A page that has not loaded cannot be listening, and the flag must not
+    // survive the window whose page set it — a reload otherwise leaves it true
+    // and `show_node_screen` emits into the gap again.
+    app.state::<PendingScreen>()
+        .listening
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     let level = crate::zoom::level(app);
     let (width, height) = assistant_frame(level, work_area(app));
     WebviewWindowBuilder::new(app, NODE_LABEL, WebviewUrl::App("index.html".into()))
@@ -363,11 +369,21 @@ pub fn show_node_screen(app: &AppHandle, screen: &str) {
     //
     // A live window is told directly, because it has no page load to wait for.
     // Whichever path gets there takes the stash, so a request is applied once.
-    *app.state::<PendingScreen>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(screen.to_string());
-    let existed = app.get_webview_window(NODE_LABEL).is_some();
+    // "Is a page LISTENING", not "does a window exist" — the same distinction
+    // the pull was added to make, which the emit path here was still deciding
+    // by proxy. Two About clicks in quick succession are enough: the first
+    // stashes and starts building, the second sees a window and `take()`s the
+    // stash into a page that has not registered a listener, so the pull that
+    // follows finds nothing and About never opens. The flag below is set by
+    // the pull itself — the one event that proves a page got far enough to
+    // ask — and cleared when a window is built, so a reload cannot leave it
+    // lying true.
+    let state = app.state::<PendingScreen>();
+    *state.screen.lock().unwrap_or_else(|e| e.into_inner()) = Some(screen.to_string());
+    let listening = state.listening.load(std::sync::atomic::Ordering::SeqCst);
     let Ok(window) = open_node(app) else { return };
     show(&window);
-    if existed {
+    if listening {
         if let Some(pending) = take_pending_screen(app) {
             use tauri::Emitter;
             let _ = window.emit("desktop-screen", pending);
@@ -380,21 +396,40 @@ pub fn show_node_screen(app: &AppHandle, screen: &str) {
 /// Managed state rather than an argument, because the two deliverers are a
 /// menu click and a page boot and they do not meet: one writes it, the other
 /// asks for it (`node_pending_screen`).
-pub struct PendingScreen(pub std::sync::Mutex<Option<String>>);
+pub struct PendingScreen {
+    pub screen: std::sync::Mutex<Option<String>>,
+    /// Whether a page has proved it is listening, by pulling at least once.
+    ///
+    /// The only fact that separates "a window exists" from "a window can hear
+    /// an event", which is what the emit path in `show_node_screen` needs.
+    /// Set by the pull (`node_pending_screen`), cleared when a window is
+    /// built, so a reload cannot leave it lying true.
+    pub listening: std::sync::atomic::AtomicBool,
+}
 
 impl PendingScreen {
     pub fn new() -> Self {
-        Self(std::sync::Mutex::new(None))
+        Self {
+            screen: std::sync::Mutex::new(None),
+            listening: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 }
 
 /// Take the pending screen, exactly once.
 pub fn take_pending_screen(app: &AppHandle) -> Option<String> {
     app.state::<PendingScreen>()
-        .0
+        .screen
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .take()
+}
+
+/// Record that a page asked — the proof `show_node_screen` emits on.
+pub fn mark_page_listening(app: &AppHandle) {
+    app.state::<PendingScreen>()
+        .listening
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 fn show(window: &WebviewWindow) {
@@ -495,6 +530,26 @@ mod tests {
         assert_eq!(floor.width, PLANE_MIN_WIDTH * 1.5);
         assert_eq!(floor.height, PLANE_MIN_HEIGHT * 1.5);
         assert_eq!(floor_at(1.0).width, PLANE_MIN_WIDTH);
+    }
+
+    /// A page that has not asked is not listening, and the flag says so.
+    ///
+    /// The emit path in `show_node_screen` used to read window EXISTENCE,
+    /// which is true the instant the builder returns and long before any
+    /// `listen()` has registered — so a second About click while the first
+    /// window was still loading took the stash and emitted it into nothing.
+    /// This is the value that replaced the proxy; only the pull sets it, and
+    /// building a window clears it so a reload cannot leave it lying true.
+    #[test]
+    fn a_window_is_not_a_listening_page() {
+        use std::sync::atomic::Ordering;
+        let state = super::PendingScreen::new();
+        assert!(!state.listening.load(Ordering::SeqCst), "nothing has asked yet");
+        state.listening.store(true, Ordering::SeqCst);
+        assert!(state.listening.load(Ordering::SeqCst));
+        // What `open_node` does when it builds: the new page has not asked.
+        state.listening.store(false, Ordering::SeqCst);
+        assert!(!state.listening.load(Ordering::SeqCst));
     }
 
     // The node window is the SAME frame as Subshell Server's assistant. The

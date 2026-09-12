@@ -1389,6 +1389,10 @@ pub fn node_open_web(app: AppHandle, target: WebTarget) -> Result<(), String> {
 /// whenever the page is ready to act on an answer, it asks for one.
 #[tauri::command(async)]
 pub fn node_pending_screen(app: AppHandle) -> Option<String> {
+    // Asking is the proof. Until a page has done it once, `show_node_screen`
+    // has no evidence that an emit would reach anything, so this call is what
+    // arms the live-window path for every later request.
+    crate::windows::mark_page_listening(&app);
     crate::windows::take_pending_screen(&app)
 }
 
