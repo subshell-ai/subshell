@@ -1,10 +1,16 @@
 export enum BackendErrorCodes {
   ACCESS_DENIED = "ACCESS_DENIED",
   BAD_REQUEST = "BAD_REQUEST",
+  /** `PATCH /api/admin/server/config`: a value failed the CLI's `validateValue`; the message names the key and its reason. */
+  CONFIG_INVALID = "CONFIG_INVALID",
+  /** `PATCH /api/admin/server/config`: the key is set in the server's environment, so a config.env write would be masked at the next boot. */
+  CONFIG_KEY_FROM_ENV = "CONFIG_KEY_FROM_ENV",
   EXISTS_ERROR = "EXISTS_ERROR",
   INPUT_VALIDATION_ERROR = "INPUT_VALIDATION_ERROR",
   INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR",
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
+  /** `PUT /api/admin/server/logging`: `SUBSHELL_DEBUG_LOGGING` is set in the environment, so the setting is read-only. */
+  LOGGING_FROM_ENV = "LOGGING_FROM_ENV",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
   /**
    * The phase-1 placeholder refusing any non-local `POST /api/subshells` body.
@@ -17,7 +23,11 @@ export enum BackendErrorCodes {
    * NODE_OFFLINE, and the plain 403/404s it produces).
    */
   NODE_LAUNCH_NOT_READY = "NODE_LAUNCH_NOT_READY",
+  /** `POST /api/nodes/:id/restart`: the node's agent predates the `restart` command. */
+  NODE_AGENT_TOO_OLD = "NODE_AGENT_TOO_OLD",
   NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
+  /** `POST /api/nodes/:id/restart`: the agent is not the process its service manager started, so exiting would not be a restart. */
+  NODE_NOT_SUPERVISED = "NODE_NOT_SUPERVISED",
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_ONLINE = "NODE_ONLINE",
   /**
@@ -29,8 +39,14 @@ export enum BackendErrorCodes {
    */
   NODE_OUTDATED = "NODE_OUTDATED",
   NODE_REQUIRED = "NODE_REQUIRED",
+  /** `POST /api/nodes/:id/restart`: the node's service definition would close its live panes; pass `force`. */
+  NODE_RESTART_KILLS_PANES = "NODE_RESTART_KILLS_PANES",
   NODE_RUNNING_SUBSHELLS = "NODE_RUNNING_SUBSHELLS",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
+  /** `POST /api/admin/server/restart`: the installed service definition would close live panes; pass `force`. */
+  RESTART_KILLS_PANES = "RESTART_KILLS_PANES",
+  /** `POST /api/admin/server/restart`: this server is not running under a service manager, so exiting would stop it. */
+  RESTART_UNAVAILABLE = "RESTART_UNAVAILABLE",
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
   SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
   SETUP_KEY_INVALID = "SETUP_KEY_INVALID",
@@ -44,6 +60,14 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.BAD_REQUEST]: {
     message: "Bad request",
     statusCode: 400,
+  },
+  [BackendErrorCodes.CONFIG_INVALID]: {
+    message: "Invalid configuration value",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.CONFIG_KEY_FROM_ENV]: {
+    message: "That setting is fixed by the server's environment",
+    statusCode: 409,
   },
   [BackendErrorCodes.EXISTS_ERROR]: {
     message: "Resource already exists",
@@ -69,12 +93,24 @@ export const BackendErrorCodeDefs = {
     message: "Remote node launch is not available yet",
     statusCode: 409,
   },
+  [BackendErrorCodes.LOGGING_FROM_ENV]: {
+    message: "Debug logging is fixed by the server's environment",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_AGENT_TOO_OLD]: {
+    message: "Node agent is too old for this command",
+    statusCode: 409,
+  },
   [BackendErrorCodes.NODE_NAME_TAKEN]: {
     message: "You already have a node with this name",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_OFFLINE]: {
     message: "Node is offline",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_NOT_SUPERVISED]: {
+    message: "Node agent is not running under a service manager",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_ONLINE]: {
@@ -93,8 +129,20 @@ export const BackendErrorCodeDefs = {
     message: "Node has running subshells",
     statusCode: 409,
   },
+  [BackendErrorCodes.NODE_RESTART_KILLS_PANES]: {
+    message: "Restarting this node would close its running subshells",
+    statusCode: 409,
+  },
   [BackendErrorCodes.NODE_UNREACHABLE]: {
     message: "Node did not respond",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.RESTART_KILLS_PANES]: {
+    message: "Restarting would close every running subshell",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.RESTART_UNAVAILABLE]: {
+    message: "This server is not running under a service manager",
     statusCode: 409,
   },
   [BackendErrorCodes.SETUP_KEY_CONSUMED]: {
