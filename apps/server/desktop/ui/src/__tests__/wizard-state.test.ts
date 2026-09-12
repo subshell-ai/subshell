@@ -233,8 +233,11 @@ describe("prereqState", () => {
  * had that rule for `update` alone, hard-coded at its one call site.
  */
 describe("screens entered by request", () => {
-  it("names both of them, and neither is ever in a probe's list", () => {
-    expect([...REQUESTED_SCREENS].sort()).toEqual(["reset", "update"]);
+  it("names all of them, and none is ever in a probe's list", () => {
+    // Three now: "How Your Server Runs" joined them (spec 2026-09-12
+    // server-supervision), and it is the same kind of screen — a question a
+    // PERSON asks, which no probe ever implies.
+    expect([...REQUESTED_SCREENS].sort()).toEqual(["reset", "supervision", "update"]);
     const ready = virgin({ next: "ready", onboarded: true });
     for (const requested of REQUESTED_SCREENS) {
       expect(screensFor(ready, true)).not.toContain(requested);
@@ -249,6 +252,7 @@ describe("screens entered by request", () => {
     expect(screensFor(ready, true)).toEqual([]);
     expect(isRequestedScreen("reset")).toBe(true);
     expect(isRequestedScreen("update")).toBe(true);
+    expect(isRequestedScreen("supervision")).toBe(true);
   });
 
   it("lets every probe-implied screen through", () => {

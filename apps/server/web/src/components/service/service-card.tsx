@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { ServerRestart } from "@/hooks/use-server-restart";
+import { desktopInvoke, isDesktop } from "@/lib/desktop";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /** What the supervisor is CALLED in a sentence; the id `app` is not a name. */
@@ -109,6 +110,25 @@ export function ServiceCard({
           Restart server
         </Button>
       </div>
+      {isDesktop() && (
+        <div className="col-span-full">
+          {/* The DOOR, not the act. Installing or uninstalling a service
+              leaves the server unreachable for a moment, which is the
+              standing reason those verbs have no route — so this names a
+              SCREEN in the assistant and the person presses Apply there.
+              Shown only inside the desktop shell, because in a browser
+              there is no assistant to raise. An older desktop build knows
+              no such screen and lands on its own home, which is a harmless
+              skew rather than an error. */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void desktopInvoke("desktop_open_assistant", { screen: "supervision" })}
+          >
+            {service.manager === "app" ? "Run as a background service…" : "Run with the app instead…"}
+          </Button>
+        </div>
+      )}
       <RestartStrip view={view} restart={restart} />
       <RestartDialog
         open={confirming}

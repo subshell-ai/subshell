@@ -152,6 +152,7 @@ pub fn run() {
             control::desktop_install_tmux,
             control::desktop_service,
             control::desktop_set_server_bin,
+            control::desktop_set_supervision,
             control::desktop_open_main,
             control::desktop_open_assistant,
             reset::desktop_reset,

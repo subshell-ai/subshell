@@ -105,3 +105,8 @@ commands.allow = ["desktop_about"]
 identifier = "allow-desktop-open-web"
 description = "Open ONE of three fixed pages in the system browser: the product's site, the repository's LICENSE, or the copyright holder's site. A closed enum, never a URL, so the page names which of the three and this side decides what it is."
 commands.allow = ["desktop_open_web"]
+
+[[permission]]
+identifier = "allow-desktop-set-supervision"
+description = "Switch who runs the server — a launchd/systemd service, or this app as its own child — and set whether that service starts at login. Both directions leave the server unreachable for a moment (an uninstall stops it; a switch restarts it), which is exactly why it is assistant-only: the page the server serves may name this SCREEN, never run it."
+commands.allow = ["desktop_set_supervision"]

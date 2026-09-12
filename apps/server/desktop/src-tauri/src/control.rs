@@ -1126,6 +1126,145 @@ pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force:
     run(&cmd, ACTION_TIMEOUT).into()
 }
 
+/// Move this machine between "a background service runs the server" and "this
+/// app runs it", and set whether that service starts at login.
+///
+/// **Assistant-only, and it must be**: both directions leave the server
+/// unreachable for a moment — an uninstall stops it, a mode switch restarts
+/// it — which is the standing rule for what a page the server serves may not
+/// drive. The SPA's Service page names this SCREEN and the person presses
+/// Apply here.
+///
+/// Channel discipline is `desktop_setup`'s: every step's words accumulate in
+/// `stdout`, a failure stops the chain and answers `ok: false` with the CLI's
+/// own stderr, and the setting is written only AFTER the step that makes it
+/// true has succeeded — so a half-run leaves a machine whose stored mode
+/// still matches what is on disk.
+#[tauri::command(async)]
+pub fn desktop_set_supervision(app: AppHandle, mode: String, autostart: bool) -> Result<ActionResult, String> {
+    let _guard = ActionGuard::new();
+    let want = match mode.as_str() {
+        "app" => Supervision::App,
+        "service" => Supervision::Service,
+        // A closed set, like every other argument a page supplies: an
+        // unrecognised word is a refusal before anything is touched.
+        other => return Err(format!("unknown supervision mode '{other}'")),
+    };
+    let settings = app.state::<SettingsState>();
+    let installed = installed_now(&settings) == Some(true);
+    let current = effective_supervision(settings.get().supervision, Some(installed));
+    let mut log = String::new();
+    /// The CLI's own words, accumulated — a free function rather than a
+    /// closure so the borrow ends with the call and `log` stays writable
+    /// between steps.
+    fn push(log: &mut String, r: &ActionResult) {
+        if !r.stdout.trim().is_empty() {
+            log.push_str(r.stdout.trim_end());
+            log.push('\n');
+        }
+    }
+
+    match (current, want) {
+        (Supervision::Service, Supervision::App) => {
+            let un = service_now(&settings, ServiceCommand::Uninstall, false);
+            push(&mut log, &un);
+            if !un.ok {
+                return Ok(ActionResult {
+                    ok: false,
+                    stdout: log,
+                    stderr: un.stderr,
+                });
+            }
+            settings.update(|s| s.supervision = Supervision::App)?;
+            let spawner = server_spawner(&app)?;
+            app.state::<supervisor::Supervisor>().start(spawner);
+            log.push_str("subshell-server is running with this app.\n");
+        }
+        (Supervision::App, Supervision::Service) => {
+            if let Ok(spawner) = server_spawner(&app) {
+                app.state::<supervisor::Supervisor>().stop(spawner.as_ref());
+            }
+            log.push_str("Stopped the server this app was running.\n");
+            // BEFORE the install, so a failure leaves a machine in service
+            // mode with nothing running — which the recovery screen can fix —
+            // rather than in app mode with a service half-installed.
+            settings.update(|s| s.supervision = Supervision::Service)?;
+            let install = install_service_now(&settings, autostart);
+            push(&mut log, &install);
+            if !install.ok {
+                return Ok(ActionResult {
+                    ok: false,
+                    stdout: log,
+                    stderr: install.stderr,
+                });
+            }
+            let start = service_now(&settings, ServiceCommand::Start, false);
+            push(&mut log, &start);
+            if !start.ok {
+                return Ok(ActionResult {
+                    ok: false,
+                    stdout: log,
+                    stderr: start.stderr,
+                });
+            }
+        }
+        (Supervision::Service, Supervision::Service) => {
+            // Same mode: the only thing that can differ is the login arming,
+            // and that is the one change here that touches no process.
+            let armed = installed && service_enabled(&settings) == Some(true);
+            if armed == autostart {
+                return Ok(ActionResult {
+                    ok: true,
+                    stdout: "Nothing to change.\n".into(),
+                    stderr: String::new(),
+                });
+            }
+            let res = autostart_now(&settings, autostart);
+            push(&mut log, &res);
+            if !res.ok {
+                return Ok(ActionResult {
+                    ok: false,
+                    stdout: log,
+                    stderr: res.stderr,
+                });
+            }
+        }
+        (Supervision::App, Supervision::App) => {
+            return Ok(ActionResult {
+                ok: true,
+                stdout: "Nothing to change.\n".into(),
+                stderr: String::new(),
+            });
+        }
+    }
+    Ok(ActionResult {
+        ok: true,
+        stdout: log,
+        stderr: String::new(),
+    })
+}
+
+/// `service enable|disable` — the login arming, which touches no process.
+fn autostart_now(settings: &SettingsState, enabled: bool) -> ActionResult {
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
+    let verb = if enabled { "enable" } else { "disable" };
+    let Some(cmd) = server_cmd(&server, &["service", verb]) else {
+        return ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "no subshell-server found".into(),
+        };
+    };
+    run(&cmd, ACTION_TIMEOUT).into()
+}
+
+/// `service status --json`'s `enabled` for the machine right now.
+fn service_enabled(settings: &SettingsState) -> Option<bool> {
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
+    let cmd = server_cmd(&server, &["service", "status", "--json"])?;
+    field(&json_of(&run(&cmd, QUERY_TIMEOUT)), "enabled")?.as_bool()
+}
+
 /// Remember an explicitly chosen server binary.
 ///
 /// Validated before it is persisted: this path is EXECUTED on every launch, so

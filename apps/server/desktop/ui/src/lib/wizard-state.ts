@@ -21,7 +21,7 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
  * and `reset` are entered by REQUEST — a `desktop-screen` event from the SPA,
  * or the recovery footer — over whatever is showing.
  */
-export type ScreenId = "welcome" | "tmux" | "setup" | "recovery" | "update" | "reset";
+export type ScreenId = "welcome" | "tmux" | "setup" | "recovery" | "update" | "reset" | "supervision";
 
 /** The first-run trio, which is also every position a dot can take. */
 const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
@@ -109,7 +109,7 @@ export function prereqState(probe: Probe): PrereqState {
  * which is what lets them appear over a first run as readily as over a
  * recovery without either family having to name them.
  */
-export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset"];
+export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision"];
 
 /**
  * Whether this screen was asked for rather than implied by the probe.

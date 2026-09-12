@@ -52,6 +52,8 @@ pub enum Screen {
     Reset,
     /// The bundled server is newer than the installed one (spec § 5.3).
     Update,
+    /// Who runs the server here, and whether it starts at login.
+    Supervision,
 }
 
 impl Screen {
@@ -60,6 +62,7 @@ impl Screen {
             Screen::Home => "home",
             Screen::Reset => "reset",
             Screen::Update => "update",
+            Screen::Supervision => "supervision",
         }
     }
 }
@@ -69,6 +72,7 @@ pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
         Some("reset") => Screen::Reset,
         Some("update") => Screen::Update,
+        Some("supervision") => Screen::Supervision,
         _ => Screen::Home,
     }
 }

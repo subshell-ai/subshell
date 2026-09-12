@@ -94,6 +94,8 @@ export interface ServiceBody {
   definitionPath?: string;
   /** Whether a teardown kills live panes. `PaneSafety`: "keeps" | "kills" | "unknown". */
   paneSafety?: string | null;
+  /** Whether the definition starts at login; null when the manager would not say. */
+  enabled?: boolean | null;
   /** The plist's log file on macOS; null on Linux (journal); absent on an old server. */
   logPath?: string | null;
 }
@@ -273,3 +275,14 @@ export const about = (): Promise<About> => invoke<About>("desktop_about");
 
 /** Open one of three fixed pages in the SYSTEM browser. A member, never a URL. */
 export const openWeb = (target: WebTarget): Promise<void> => invoke<void>("desktop_open_web", { target });
+
+/**
+ * Move this machine between a background service and this app running the
+ * server, and set whether that service starts at login.
+ *
+ * `mode` is a closed word — `"service"` or `"app"` — and Rust refuses
+ * anything else before touching the machine. `autostart` is read only in
+ * service mode; there is nothing to arm in the other.
+ */
+export const setSupervision = (mode: "service" | "app", autostart: boolean): Promise<ActionResult> =>
+  invoke<ActionResult>("desktop_set_supervision", { mode, autostart });

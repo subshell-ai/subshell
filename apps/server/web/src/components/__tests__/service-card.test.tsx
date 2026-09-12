@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 import { deploymentView, idleRestart, stubAutostart } from "@/components/__tests__/helpers/deployment-view";
 import { ServiceCard } from "@/components/service/service-card";
+import { resetDesktopShellForTests } from "@/lib/desktop";
 
 afterEach(cleanup);
 
@@ -133,5 +134,58 @@ describe("ServiceCard — start at login", () => {
     // "app" is an id, not a name — a person reads the product's name here.
     expect(screen.getByText(/Running under Subshell Server/)).toBeTruthy();
     expect(screen.getByText(/stops when the app quits/)).toBeTruthy();
+  });
+});
+
+/**
+ * The door to "How Your Server Runs" (spec 2026-09-12 § 6.4).
+ *
+ * It is a door rather than a control on purpose: installing or uninstalling
+ * a service leaves the server unreachable for a moment, which is the standing
+ * reason those verbs have no route at all. The card names a SCREEN.
+ */
+describe("ServiceCard — the supervision door", () => {
+  /**
+   * Bun runs every test FILE in one process, so a UA left overwritten here is
+   * the UA the next file's components read — the trap `about-dialog.test.tsx`
+   * documents. Restored after each case.
+   */
+  let previousUserAgent: PropertyDescriptor | undefined;
+
+  function asShell(userAgent: string): void {
+    const nav = globalThis.navigator as unknown as Record<string, unknown>;
+    previousUserAgent ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
+    Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true, writable: true });
+    resetDesktopShellForTests();
+  }
+
+  afterEach(() => {
+    if (previousUserAgent) {
+      Object.defineProperty(globalThis.navigator, "userAgent", previousUserAgent);
+      previousUserAgent = undefined;
+    }
+    resetDesktopShellForTests();
+  });
+
+  const door = () => screen.queryByRole("button", { name: /Run (with the app|as a background service)/ });
+
+  it("is absent in a browser, where there is no assistant to raise", () => {
+    asShell("Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Safari/605.1.15");
+    render(<ServiceCard view={deploymentView()} restart={idleRestart} autostart={stubAutostart()} />);
+    expect(door()).toBeNull();
+  });
+
+  it("offers the other mode, whichever this machine is in", () => {
+    asShell("SubshellDesktop/0.2.0 (macos; p=1)");
+    const { unmount } = render(
+      <ServiceCard view={deploymentView()} restart={idleRestart} autostart={stubAutostart()} />,
+    );
+    expect(door()?.textContent).toContain("Run with the app instead");
+    unmount();
+
+    const app = deploymentView();
+    app.service.manager = "app";
+    render(<ServiceCard view={app} restart={idleRestart} autostart={stubAutostart()} />);
+    expect(door()?.textContent).toContain("Run as a background service");
   });
 });

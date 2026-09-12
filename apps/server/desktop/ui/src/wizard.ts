@@ -110,6 +110,13 @@ const form: FormValues = effectiveForm(undefined);
 const explicit: ExplicitMap = {};
 /** The two supervision boxes on the setup screen; reset with the form. */
 let supervision: SupervisionChoice = DEFAULT_SUPERVISION;
+/**
+ * The supervision screen's own pending choice, held across renders because
+ * the poll re-renders twice a second and a radio read from the probe alone
+ * would undo the person's selection before they reached Apply. Cleared when
+ * the screen is left, so it always opens showing the machine's real state.
+ */
+let supervisionForm: SupervisionChoice | null = null;
 let seeded = false;
 
 // ---------------------------------------------------------------------------
@@ -208,6 +215,9 @@ const host: AssistantHost = {
   fail: (err: unknown) => setProblem(err),
   close: () => {
     resetView.hide();
+    // A pending selection belongs to one visit: leaving and coming back must
+    // show the machine's real state, not what someone half-chose last time.
+    supervisionForm = null;
     screen = null;
     render();
   },
@@ -457,6 +467,11 @@ function renderRecovery(p: Probe): void {
     tmuxWarn.hidden = false;
     content.append(tmuxWarn);
   }
+  // Reachable HERE as well as from the dashboard, and that is the point: a
+  // machine whose service definition is broken has no dashboard to open the
+  // door from, and switching to app mode is one of the few things that can
+  // get such a machine running again.
+  content.append(button("Change how it runs…", () => go("supervision"), "linkish"));
   content.append(detailsDisclosure());
   // The ellipsis stays: it correctly says a screen follows rather than an act.
   el("bar-left").append(button(`${RESET_LABEL}…`, () => void openReset(), "ghost"));
@@ -616,6 +631,112 @@ function renderUpdate(p: Probe): void {
     ),
   );
   el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
+}
+
+/**
+ * **How Your Server Runs** — the screen behind the dashboard's door.
+ *
+ * Reached by request (the SPA's Service card names this screen; the recovery
+ * screen links to it), never from `screensFor`: it is a question a person
+ * asks, not one a probe implies.
+ *
+ * It lives HERE rather than on a page the server serves because both
+ * directions leave the server unreachable for a moment — an uninstall stops
+ * it, a switch restarts it — which is the standing rule for what the served
+ * page may not drive.
+ */
+function renderSupervision(p: Probe): void {
+  setFrame("server", "How Your Server Runs", "Change who starts it, and when.");
+  const content = el("content");
+  const chosen = supervisionForm ?? {
+    background: p.supervision !== "app",
+    autostart: p.service?.enabled === true,
+  };
+  supervisionForm = chosen;
+
+  const option = (opts: { id: string; on: boolean; title: string; body: string; onPick: () => void }): HTMLElement => {
+    const row = document.createElement("label");
+    row.className = "choice-row";
+    row.htmlFor = opts.id;
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "supervision-mode";
+    radio.id = opts.id;
+    radio.checked = opts.on;
+    radio.disabled = busy || running;
+    radio.addEventListener("change", () => {
+      opts.onPick();
+      render();
+    });
+    const copy = document.createElement("div");
+    copy.append(text("div", opts.title, "label"), text("div", opts.body, "hint"));
+    row.append(radio, copy);
+    return row;
+  };
+
+  content.append(
+    option({
+      id: "sup-service",
+      on: chosen.background,
+      title: "In the background",
+      body:
+        p.platform === "darwin"
+          ? "A launchd agent runs it, even when this app is closed."
+          : "A systemd user service runs it, even when this app is closed.",
+      onPick: () => {
+        supervisionForm = applySupervisionChoice(chosen, { background: true });
+      },
+    }),
+  );
+  // Nested under the option it belongs to, and only live while that option is
+  // the one selected — arming login means nothing without a service.
+  const login = document.createElement("label");
+  login.className = "choice-sub";
+  login.htmlFor = "sup-login";
+  const loginBox = document.createElement("input");
+  loginBox.type = "checkbox";
+  loginBox.id = "sup-login";
+  loginBox.checked = chosen.autostart;
+  loginBox.disabled = !chosen.background || busy || running;
+  loginBox.addEventListener("change", () => {
+    supervisionForm = applySupervisionChoice(chosen, { autostart: loginBox.checked });
+    render();
+  });
+  login.append(loginBox, text("span", "Start it at every login", "label"));
+  content.append(login);
+
+  content.append(
+    option({
+      id: "sup-app",
+      on: !chosen.background,
+      title: "With this app",
+      body: "Runs while Subshell Server is open; quitting stops it. Running subshells keep running.",
+      onPick: () => {
+        supervisionForm = applySupervisionChoice(chosen, { background: false });
+      },
+    }),
+  );
+
+  if (failure) {
+    // The CLI's own words where the person still is, styled as a failure —
+    // the same treatment the reset screen's half-run log gets, so two
+    // surfaces never phrase one outcome differently.
+    const box = document.createElement("pre");
+    box.className = "output";
+    if (renderOutput(box, failure)) content.append(box);
+  }
+
+  const current = { background: p.supervision !== "app", autostart: p.service?.enabled === true };
+  const unchanged = current.background === chosen.background && current.autostart === chosen.autostart;
+  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-right").append(
+    button(
+      "Apply",
+      () => void act(async () => ipc.setSupervision(chosen.background ? "service" : "app", chosen.autostart), true),
+      "primary",
+      unchanged || busy || running,
+    ),
+  );
 }
 
 /** Arm a plan and raise the Reset screen. */
@@ -876,6 +997,7 @@ function render(): void {
   if (isRequestedScreen(screen)) {
     renderDots();
     if (screen === "update") renderUpdate(p);
+    if (screen === "supervision") renderSupervision(p);
     return;
   }
   const list = screensFor(p, p.onboarded);
