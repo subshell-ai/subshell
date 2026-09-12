@@ -1,56 +1,65 @@
 /**
- * Subshell Client's bundled page — the `node` window.
+ * Subshell Client's bundled page — the `node` window, as an assistant.
  *
- * NOT the app's only window. `main` shows a control plane's own UI, loaded from
- * the plane's own origin and granted no commands at all; this page is the other
- * half, and the only surface that drives the `subshell` CLI. Its sentence:
- * paste a server URL and a setup key, and this machine becomes a node that
- * agents can be launched on, without ever meeting the CLI.
+ * NOT the app's only window. `main` shows a control plane's own UI, loaded
+ * from the plane's own origin and granted no commands at all; this page is the
+ * other half, and the only surface that drives the `subshell` CLI.
  *
- * The composition behind that — `hooks/use-node-state` reads the machine,
- * `hooks/use-node-commands` acts on it, `components/step-screens` holds the
- * words, and this decides which of them is on screen — plus
- * `components/plane-card`, which is the door to the other window.
+ * It used to be seven stacked cards that showed everything at once and asked
+ * nothing in particular. It is now one screen at a time, each asking exactly
+ * one question, in the same frame Subshell Server's setup assistant uses, so
+ * the two apps read as one product (spec 2026-09-12 § 6.4). The facts moved
+ * under Show Details rather than a permanent status card, because a person
+ * opens this window to DO something.
  *
- * There is no router: one page and a step machine. The step is the probe's own
- * `step`, except while the user has explicitly asked for a screen the machine's
- * state does not imply — today only re-enrolment.
+ * This file is the HOST and nothing else: it reads the machine
+ * (`use-node-state`), holds the action runner and the enroll form, asks
+ * `screenFor` which screen the machine implies, and composes the shared half
+ * of the frame — title, subtitle, the problem line, the confirmation and the
+ * footer. Each screen owns its own icon, content and bottom bar.
  */
 import { useState } from "react";
 import { AboutFooter } from "@/components/about-footer";
-import { NodePlaneCard } from "@/components/node-plane-card";
-import { OutputBlock } from "@/components/output-block";
-import { PlaneCard } from "@/components/plane-card";
-import { PrefsCard } from "@/components/prefs-card";
-import { StatusCard } from "@/components/status-card";
-import { StepCard } from "@/components/step-card";
+import { ConnectScreen } from "@/components/assistant/connect-screen";
+import { ConnectedScreen } from "@/components/assistant/connected-screen";
+import { EnrollScreen } from "@/components/assistant/enroll-screen";
+import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { InstallAgentScreen } from "@/components/assistant/install-agent-screen";
+import { ResetScreen } from "@/components/assistant/reset-screen";
+import { ServiceScreen } from "@/components/assistant/service-screen";
+import { subtitleFor } from "@/components/assistant/subtitles";
+import { ConfirmPanel } from "@/components/confirm-panel";
+import { Button } from "@/components/ui/button";
 import { useActionRunner } from "@/hooks/use-action-runner";
 import { useEnrollForm } from "@/hooks/use-enroll-form";
 import { useNodeCommands } from "@/hooks/use-node-commands";
 import { useNodeState } from "@/hooks/use-node-state";
 import type { EnrolledNodeBody } from "@/lib/ipc";
-import type { StepKey, UserStep } from "@/lib/steps";
+import { type NodeUserScreen, screenFor, screenTitle } from "@/lib/node-assistant-state";
+
+/**
+ * Which platform's words to use.
+ *
+ * Read off the user agent rather than the probe: unlike Subshell Server's, this
+ * app's `Probe` carries no platform field, and adding one to reach a copy
+ * decision would be a Rust change for a string. The webview's UA is the same
+ * fact.
+ */
+function desktopPlatform(): string {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent) ? "darwin" : "linux";
+}
 
 export function App() {
   const runner = useActionRunner();
-  const { probe, settings, firstProbePending, readError, recheckSettings, settingsFetching } = useNodeState(
-    runner.busy,
-  );
+  const { probe, settings, firstProbePending, readError } = useNodeState(runner.busy);
   const form = useEnrollForm();
 
+  /** A screen the USER chose rather than one the machine implies. */
+  const [override, setOverride] = useState<NodeUserScreen | null>(null);
   /**
-   * A step the USER chose rather than one the machine implies. Cleared as soon
-   * as the flow moves on.
-   */
-  const [override, setOverride] = useState<UserStep | null>(null);
-  /**
-   * The `enroll --json` body from a successful enrollment in THIS session.
-   *
-   * The only place the node's display NAME is knowable: `status --json` reports
-   * `nodeId`/`serverUrl`/`online` and no name, and `config.json`'s name is not
-   * among the facts the Rust side is willing to hand out. So the name is shown
-   * when this app just chose it and is silently absent otherwise, rather than
-   * being guessed at from the hostname — which is a default, not a fact.
+   * The `enroll --json` body from a successful enrollment in THIS session —
+   * the only place the node's display NAME is knowable, since `status --json`
+   * reports no name and `config.json`'s is not among the facts Rust hands out.
    */
   const [enrolledNode, setEnrolledNode] = useState<EnrolledNodeBody | null>(null);
 
@@ -64,91 +73,101 @@ export function App() {
     },
   });
 
-  const step: StepKey | null = override ?? probe?.step ?? null;
+  const platform = desktopPlatform();
+  const screen = screenFor(probe, settings, override);
 
   /**
    * The action's own refusal answers what was clicked, so it outranks a probe
-   * failure, which is background weather. That precedence is the fix for the
-   * defect this rewrite had to preserve: a re-probe must never be able to
-   * replace the message an action just produced.
+   * failure, which is background weather. That precedence is the fix for a
+   * defect this page had to preserve through two rewrites: a re-probe must
+   * never be able to replace the message an action just produced.
    */
   const problem = runner.failure || readError || probe?.error || "";
 
-  return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-3 px-6 pt-5 pb-7">
-      <header>
-        <h1 className="font-semibold text-[15px] tracking-tight">Subshell Client</h1>
-        <p className="mt-0.5 text-muted-foreground text-xs">
-          Watch a Subshell control plane, and register this machine with it as a node.
-        </p>
-      </header>
+  const shell: FrameShell = {
+    title: screen ? screenTitle(screen, probe, platform) : "Checking This Machine",
+    subtitle: screen ? subtitleFor(screen, probe, settings, platform) : undefined,
+    problem,
+    confirm: runner.pending ? (
+      <ConfirmPanel pending={runner.pending} busy={runner.busy} onAccept={runner.accept} onCancel={runner.cancel} />
+    ) : undefined,
+    footer: <AboutFooter probe={probe} />,
+  };
 
-      <PlaneCard
-        settings={settings}
-        busy={runner.busy}
-        onOpen={commands.openPlane}
-        onOpenBrowser={commands.openPlaneUrl}
+  if (screen === null) {
+    // Nothing read yet, or the probe itself could not be read. The second is
+    // not a state to sit in silently: `problem` names it and Retry is the one
+    // thing that can change it.
+    const failed = !firstProbePending && probe === undefined;
+    return (
+      <Frame
+        {...shell}
+        subtitle={failed ? undefined : "Reading this machine's agent, service and configuration."}
+        barRight={
+          failed ? (
+            <Button className="min-w-[120px]" disabled={runner.busy} onClick={commands.refresh}>
+              Retry
+            </Button>
+          ) : undefined
+        }
       />
+    );
+  }
 
-      {/*
-       * Between the two: `PlaneCard` is which plane this APP shows, and this
-       * is which plane this MACHINE reports to. Adjacent because the whole
-       * point is that they can disagree — the notice lives here, next to the
-       * value it would have you change.
-       */}
-      <NodePlaneCard probe={probe} settings={settings} busy={runner.busy} onRepoint={commands.repoint} />
+  const facts = { probe, settings, enrolledNode, output: runner.output };
 
-      <StatusCard
-        probe={probe}
-        settings={settings}
-        enrolledNode={enrolledNode}
-        busy={runner.busy}
-        firstProbePending={firstProbePending}
-        onRefresh={commands.refresh}
-      />
-
-      <StepCard
-        step={step}
-        context={{
-          probe,
-          settings,
-          commands,
-          probeFailed: !firstProbePending && probe === undefined,
-          onShowEnroll: () => {
+  switch (screen) {
+    case "connect":
+      return <ConnectScreen shell={shell} commands={commands} busy={runner.busy} />;
+    case "install-agent":
+      return <InstallAgentScreen shell={shell} {...facts} commands={commands} busy={runner.busy} />;
+    case "enroll":
+      return (
+        <EnrollScreen
+          shell={shell}
+          {...facts}
+          form={form}
+          commands={commands}
+          busy={runner.busy}
+          onCancel={
+            override === "enroll"
+              ? () => {
+                  if (runner.busy) return;
+                  form.clearErrors();
+                  setOverride(null);
+                }
+              : undefined
+          }
+        />
+      );
+    case "service":
+      return (
+        <ServiceScreen
+          shell={shell}
+          {...facts}
+          commands={commands}
+          busy={runner.busy}
+          platform={platform}
+          onReset={() => setOverride("reset")}
+        />
+      );
+    case "connected":
+      return (
+        <ConnectedScreen
+          shell={shell}
+          {...facts}
+          commands={commands}
+          busy={runner.busy}
+          platform={platform}
+          onReenroll={() => {
             if (runner.busy) return;
-            form.seedServer(probe?.status?.serverUrl ?? "");
+            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
             setOverride("enroll");
-          },
-          onCancelEnroll: () => {
-            if (runner.busy) return;
-            form.clearErrors();
-            setOverride(null);
-          },
-        }}
-        form={form}
-        busy={runner.busy}
-        problem={problem}
-        pending={runner.pending}
-        onAccept={runner.accept}
-        onCancel={runner.cancel}
-      />
-
-      <PrefsCard
-        settings={settings}
-        busy={runner.busy}
-        rechecking={settingsFetching}
-        onCloseToTrayChange={commands.setCloseToTray}
-        onRecheckTray={recheckSettings}
-      />
-
-      <OutputBlock result={runner.output} />
-
-      {/*
-       * Last, and quiet. Everything above is something to do; this is what the
-       * app IS — the same content Subshell Server's console puts under About,
-       * in the shape this single-flow page can hold.
-       */}
-      <AboutFooter probe={probe} />
-    </main>
-  );
+          }}
+          onReset={() => setOverride("reset")}
+        />
+      );
+    case "reset":
+      return <ResetScreen shell={shell} busy={runner.busy} platform={platform} onCancel={() => setOverride(null)} />;
+  }
 }

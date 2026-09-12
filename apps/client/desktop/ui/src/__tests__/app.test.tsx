@@ -1,14 +1,22 @@
 /**
- * The behaviour that must survive the rewrite.
+ * The behaviour that must survive the assistant rewrite.
  *
- * Every case here corresponds to a rule the vanilla page carried, and several
- * of those rules exist because they were bugs first — most notably case 1, the
- * re-probe that used to clobber an action's own failure message.
+ * Every case here corresponds to a rule the page carried before it became one
+ * screen at a time, and several of those rules exist because they were bugs
+ * first — most notably case 1, the re-probe that used to clobber an action's
+ * own failure message.
+ *
+ * What the assistant CHANGED, and why these cases now drive different screens:
+ * a healthy node's screen offers one decision (open the control plane), so the
+ * service verbs are reached from the screen the machine's own state implies.
+ * Restart is the answer to "not responding", Start to "stopped". Stop and
+ * Uninstall left the app entirely (spec 2026-09-12 § 6.4): restarting a node is
+ * now also a control-plane action (§ 6.3), and removing the service is what
+ * Reset does.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { App } from "@/app";
-import { TRAY_NOT_DETECTED } from "@/components/prefs-card";
 import { SETTLE_ATTEMPTS, SETTLE_DELAY_MS } from "@/hooks/use-action-runner";
 import { PROBE_POLL_MS } from "@/hooks/use-node-state";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe, makeSettings, renderApp } from "./harness";
@@ -16,6 +24,29 @@ import { deferred, type FakeIpc, installFakeIpc, makeProbe, makeSettings, render
 const GOOD_KEY = "nsk_0123456789012345678901234567890a";
 
 const JOURNALCTL = "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`";
+
+/** A registered machine whose service is installed but not running. */
+const STOPPED = makeProbe({
+  step: "stopped",
+  status: {
+    nodeId: "11111111-2222-3333-4444-555555555555",
+    serverUrl: "https://subshell.example.com",
+    online: false,
+    agentVersion: "1.9.0",
+  },
+  service: {
+    installed: true,
+    definitionPath: "/home/u/.config/systemd/user/subshell.service",
+    state: "stopped",
+    pid: null,
+    enabled: true,
+    paneSafety: "keeps",
+    detail: "",
+  },
+});
+
+/** A machine with no agent at all — nothing to stop, overwrite or downgrade. */
+const FRESH = makeProbe({ step: "no-agent", agent: null, status: null, service: null });
 
 let ipc: FakeIpc | undefined;
 
@@ -39,9 +70,10 @@ const buttonOrNull = (name: string) => screen.queryByRole("button", { name }) as
 /**
  * The confirmation panel, which is a labelled region.
  *
- * Its accept button deliberately carries the same words as the button that
- * raised it — "Enroll this machine" asks, then "Enroll this machine" does it —
- * so a query has to be scoped to tell the two apart.
+ * Scoped queries still matter even though the assistant's own buttons got
+ * shorter: the panel's accept button often carries the words of the action it
+ * is about ("Uninstall the service", "Rewrite the definition"), and a test has
+ * to be able to tell the panel's copy from the screen's.
  */
 const confirmPanel = () => within(screen.getByRole("region"));
 const confirmPanelOrNull = () => screen.queryByRole("region");
@@ -49,6 +81,40 @@ const confirmPanelOrNull = () => screen.queryByRole("region");
 const typeInto = (label: string, value: string) => {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 };
+
+// ---------------------------------------------------------------------------
+// 0. The frame: one screen at a time, each asking one question
+// ---------------------------------------------------------------------------
+
+describe("the assistant frame", () => {
+  it("asks for a server first, ahead of anything the probe says", async () => {
+    // Without an address this app has nothing to show in its other window, and
+    // "enroll this machine" is a question about a server nobody has named.
+    await boot({ settings: makeSettings({ planeUrl: null }) });
+    expect(screen.getByRole("heading", { name: "Connect to a Server" })).toBeTruthy();
+    expect(buttonOrNull("Open")).not.toBeNull();
+  });
+
+  it("shows a working machine one decision, and the rest under More…", async () => {
+    await boot();
+    expect(screen.getByRole("heading", { name: "This Machine Is a Node" })).toBeTruthy();
+    expect(buttonOrNull("Open Subshell Client")).not.toBeNull();
+    expect(screen.getByText("More…")).toBeTruthy();
+    expect(buttonOrNull("Re-enroll…")).not.toBeNull();
+  });
+
+  it("names which service failure it is looking at", async () => {
+    await boot({ probe: STOPPED });
+    expect(screen.getByRole("heading", { name: "The Node Service Is Stopped" })).toBeTruthy();
+    expect(buttonOrNull("Start")).not.toBeNull();
+    cleanup();
+    ipc?.restore();
+
+    await boot({ probe: makeProbe({ step: "offline", status: { ...STOPPED.status, online: false } }) });
+    expect(screen.getByRole("heading", { name: "The Node Service Isn't Responding" })).toBeTruthy();
+    expect(buttonOrNull("Restart")).not.toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 1. A failure message always reaches the screen
@@ -62,6 +128,7 @@ describe("a failure message always reaches the screen", () => {
   // user learns it, rendered as nothing at all.
   it("survives the re-probe that follows the action", async () => {
     const fake = await boot({
+      probe: STOPPED,
       handlers: {
         node_open_path: () => {
           throw JOURNALCTL;
@@ -73,25 +140,24 @@ describe("a failure message always reaches the screen", () => {
     fireEvent.click(button("Open the agent log"));
 
     // Scoped to the FAILURE LINE (a <p>), not the page: the same sentence is
-    // also the `logs` fact's value now, and a duplicate would make a bare
+    // also the `logs` fact's value, and a duplicate would make a bare
     // getByText ambiguous — and ambiguity is how this regression could hide.
     const problemShown = () => screen.getAllByText(JOURNALCTL).some((el) => el.tagName === "P");
     await waitFor(() => expect(problemShown()).toBe(true));
-    // The re-probe definitely happened, and the message is still on screen.
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(probesBefore);
     expect(problemShown()).toBe(true);
   });
 
   it("shows a probe's own error when no action has anything to say", async () => {
     await boot({ probe: makeProbe({ error: "`status --json` failed: exit 2" }) });
-    await waitFor(() => expect(screen.getByText("`status --json` failed: exit 2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/`status --json` failed: exit 2/)).toBeTruthy());
   });
 
   // The action's own refusal answers what was clicked; a probe error is
   // background weather.
   it("prefers the action's failure over a probe error", async () => {
     const fake = await boot({
-      probe: makeProbe({ error: "background weather" }),
+      probe: makeProbe({ ...STOPPED, error: "background weather" }),
       handlers: {
         node_open_path: () => {
           throw "that path does not exist yet";
@@ -100,17 +166,18 @@ describe("a failure message always reaches the screen", () => {
     });
     fireEvent.click(button("Open the agent log"));
     await waitFor(() => expect(screen.getByText("that path does not exist yet")).toBeTruthy());
-    expect(screen.queryByText("background weather")).toBeNull();
+    expect(screen.queryByText(/background weather/)).toBeNull();
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(1);
   });
 
   it("says something when an action reports ok:false with output", async () => {
     await boot({
+      probe: STOPPED,
       handlers: {
-        node_service: () => ({ ok: false, stdout: "", stderr: "Failed to stop subshell.service" }),
+        node_service: () => ({ ok: false, stdout: "", stderr: "Failed to start subshell.service" }),
       },
     });
-    fireEvent.click(button("Stop"));
+    fireEvent.click(button("Start"));
     await waitFor(() => expect(screen.getByText(/That did not work/)).toBeTruthy());
   });
 });
@@ -121,14 +188,14 @@ describe("a failure message always reaches the screen", () => {
 
 describe("the CLI's own words", () => {
   it("renders stdout and stderr verbatim, in a monospace block", async () => {
-    const stdout = "subshell stopped.";
+    const stdout = "Installed subshell 1.9.0.";
     const stderr = "warning: this unit does not spare live panes — mint a new key if enroll fails";
-    await boot({ handlers: { node_service: () => ({ ok: true, stdout, stderr }) } });
+    await boot({ probe: FRESH, handlers: { node_install_agent: () => ({ ok: true, stdout, stderr }) } });
 
-    fireEvent.click(button("Stop"));
+    fireEvent.click(button("Install"));
 
-    await waitFor(() => expect(screen.getByText(/subshell stopped\./)).toBeTruthy());
-    const block = screen.getByText(/subshell stopped\./);
+    await waitFor(() => expect(screen.getByText(/Installed subshell 1\.9\.0\./)).toBeTruthy());
+    const block = screen.getByText(/Installed subshell 1\.9\.0\./);
     expect(block.tagName).toBe("PRE");
     expect(block.className).toContain("font-mono");
     // Verbatim, not re-worded and not normalized: the exact bytes the CLI
@@ -144,33 +211,33 @@ describe("the CLI's own words", () => {
 describe("actions serialize", () => {
   it("ignores a second submission while one is in flight, and disables the UI", async () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
-    const fake = await boot({ handlers: { node_service: () => gate.promise } });
+    const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
 
-    fireEvent.click(button("Stop"));
-    await waitFor(() => expect(button("Stop").disabled).toBe(true));
+    fireEvent.click(button("Install"));
+    await waitFor(() => expect(button("Install").disabled).toBe(true));
 
     // Both the guard and the disabled attribute; a click dispatched anyway
     // (a stale reference, a synthetic event) must still not reach the CLI.
-    fireEvent.click(button("Stop"));
-    fireEvent.click(button("Restart"));
-    expect(fake.callsTo("node_service").length).toBe(1);
-    expect(button("Refresh").disabled).toBe(true);
+    fireEvent.click(button("Install"));
+    fireEvent.click(button("Choose an existing agent…"));
+    expect(fake.callsTo("node_install_agent").length).toBe(1);
+    expect(button("Choose an existing agent…").disabled).toBe(true);
 
-    gate.resolve({ ok: true, stdout: "subshell stopped.", stderr: "" });
-    await waitFor(() => expect(button("Stop").disabled).toBe(false));
+    gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
+    await waitFor(() => expect(button("Install").disabled).toBe(false));
   });
 
   it("keeps the UI disabled until the re-probe has landed", async () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
-    const fake = await boot({ handlers: { node_service: () => gate.promise } });
+    const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
     const probesBefore = fake.callsTo("node_probe").length;
 
-    fireEvent.click(button("Stop"));
-    gate.resolve({ ok: true, stdout: "subshell stopped.", stderr: "" });
+    fireEvent.click(button("Install"));
+    gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
 
     // A button that came back alive before the re-probe would be a button
     // acting on a machine that has moved on.
-    await waitFor(() => expect(button("Stop").disabled).toBe(false));
+    await waitFor(() => expect(button("Install").disabled).toBe(false));
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(probesBefore);
   });
 });
@@ -178,6 +245,7 @@ describe("actions serialize", () => {
 describe("after every action, re-probe", () => {
   it("re-reads the machine after a success, a failure and a rejection", async () => {
     const fake = await boot({
+      probe: STOPPED,
       handlers: {
         node_service: () => ({ ok: false, stdout: "", stderr: "nope" }),
         node_open_path: () => {
@@ -187,26 +255,11 @@ describe("after every action, re-probe", () => {
     });
 
     let seen = fake.callsTo("node_probe").length;
-    for (const label of ["Stop", "Open the agent log", "Reveal configuration"]) {
+    for (const label of ["Start", "Open the agent log", "Reveal configuration"]) {
       fireEvent.click(button(label));
       await waitFor(() => expect(fake.callsTo("node_probe").length).toBeGreaterThan(seen));
       seen = fake.callsTo("node_probe").length;
     }
-  });
-
-  // A checkbox is not worth two CLI spawns, and it changes nothing the probe
-  // reports. It still serializes and still surfaces a rejection.
-  it("except the tray switch, which re-reads only the settings", async () => {
-    const fake = await boot({ settings: makeSettings({ traySupported: true }) });
-    const probesBefore = fake.callsTo("node_probe").length;
-    const settingsBefore = fake.callsTo("node_settings").length;
-
-    fireEvent.click(screen.getByRole("switch"));
-
-    await waitFor(() => expect(fake.callsTo("node_set_close_to_tray").length).toBe(1));
-    await waitFor(() => expect(fake.callsTo("node_settings").length).toBeGreaterThan(settingsBefore));
-    expect(fake.callsTo("node_probe").length).toBe(probesBefore);
-    expect(fake.callsTo("node_set_close_to_tray")[0]).toEqual({ enabled: true });
   });
 });
 
@@ -255,11 +308,11 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "http://localhost:3080");
     typeInto("Setup key", GOOD_KEY);
-    fireEvent.click(button("Enroll this machine"));
+    fireEvent.click(button("Enroll"));
 
     // Phase one: every message rendered, and exactly ONE call so far — nothing
     // was spawned and no setup key was spent.
-    await waitFor(() => expect(screen.getByText(/is a loopback address/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/is a loopback address, so this node…/)).toBeTruthy());
     expect(fake.callsTo("node_enroll").length).toBe(1);
     expect(fake.callsTo("node_enroll")[0]?.confirm).toBe(false);
 
@@ -290,7 +343,7 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
-    fireEvent.click(button("Enroll this machine"));
+    fireEvent.click(button("Enroll"));
 
     // The CLI's own sentence, verbatim, and exactly one attempt.
     await waitFor(() => expect(screen.getByText(/mint a new key and try again/)).toBeTruthy());
@@ -314,7 +367,7 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
-    fireEvent.click(button("Enroll this machine"));
+    fireEvent.click(button("Enroll"));
 
     await waitFor(() => expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe(""));
     // The server URL survives: the common re-enroll is the same server.
@@ -326,7 +379,7 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "subshell.example.com");
     typeInto("Setup key", "nsk_short");
-    fireEvent.click(button("Enroll this machine"));
+    fireEvent.click(button("Enroll"));
 
     await waitFor(() => expect(screen.getByText(/Include the scheme/)).toBeTruthy());
     expect(screen.getByText(/partial paste/)).toBeTruthy();
@@ -361,18 +414,22 @@ describe("enrolment is two-phase", () => {
     typeInto("Setup key", GOOD_KEY);
 
     await waitFor(() => expect(screen.getByText(/This is a loopback address/)).toBeTruthy());
-    expect(button("Enroll this machine").disabled).toBe(false);
-    fireEvent.click(button("Enroll this machine"));
+    expect(button("Enroll").disabled).toBe(false);
+    fireEvent.click(button("Enroll"));
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
   });
 
   it("seeds the re-enroll form from the server this machine already answers to", async () => {
     await boot();
-    fireEvent.click(button("Re-enroll this machine…"));
+    fireEvent.click(button("Re-enroll…"));
     await waitFor(() =>
       expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com"),
     );
     expect(screen.getByText(/registers a SECOND node on the control plane/)).toBeTruthy();
+    // Asked for, so it can be taken back — and the machine's own screen is
+    // what it goes back to.
+    fireEvent.click(button("Cancel"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "This Machine Is a Node" })).toBeTruthy());
   });
 });
 
@@ -386,7 +443,9 @@ describe("a restart refused for pane safety", () => {
     "every subshell on this machine. Rewrite the service definition with `subshell service install`, or pass " +
     "--force.";
 
+  /** Not responding, on a definition that would take live panes down. */
   const risky = makeProbe({
+    step: "offline",
     service: {
       installed: true,
       definitionPath: "/home/u/.config/systemd/user/subshell.service",
@@ -448,7 +507,7 @@ describe("a restart refused for pane safety", () => {
 
     fireEvent.click(button("Restart"));
     await waitFor(() => expect(buttonOrNull("Restart anyway (--force)")).not.toBeNull());
-    fireEvent.click(button("Cancel"));
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Cancel" }));
 
     await waitFor(() => expect(buttonOrNull("Restart anyway (--force)")).toBeNull());
     // The verbatim refusal is the most useful thing on the screen; dismissing
@@ -472,7 +531,7 @@ describe("a restart refused for pane safety", () => {
     // macOS: launchd has no reload, so the remedy costs the very sessions it
     // is protecting — once.
     await boot({
-      probe: makeProbe({ service: risky.service, rewriteTearsDown: true }),
+      probe: makeProbe({ ...risky, rewriteTearsDown: true }),
       handlers: { node_service: () => ({ ok: false, stdout: "", stderr: REFUSAL }) },
     });
     fireEvent.click(button("Restart"));
@@ -497,18 +556,20 @@ describe("rewriting the service definition", () => {
   };
 
   it("is offered only when the installed definition would kill panes", async () => {
-    await boot();
+    await boot({ probe: STOPPED });
     expect(buttonOrNull("Rewrite the service definition")).toBeNull();
     cleanup();
     ipc?.restore();
 
-    await boot({ probe: makeProbe({ service: riskyService }) });
+    await boot({ probe: makeProbe({ ...STOPPED, service: riskyService }) });
     expect(buttonOrNull("Rewrite the service definition")).not.toBeNull();
+    // And the reason it is offered is said out loud, not left to the facts.
+    expect(screen.getByText(/does not spare live panes/)).toBeTruthy();
   });
 
   it("runs straight through where the rewrite is free", async () => {
     const fake = await boot({
-      probe: makeProbe({ service: riskyService, rewriteTearsDown: false }),
+      probe: makeProbe({ ...STOPPED, service: riskyService, rewriteTearsDown: false }),
       handlers: { node_service: () => ({ ok: true, stdout: "wrote the unit", stderr: "" }) },
     });
     fireEvent.click(button("Rewrite the service definition"));
@@ -518,7 +579,7 @@ describe("rewriting the service definition", () => {
 
   it("asks first where the rewrite itself costs the panes it is repairing", async () => {
     const fake = await boot({
-      probe: makeProbe({ service: riskyService, rewriteTearsDown: true }),
+      probe: makeProbe({ ...STOPPED, service: riskyService, rewriteTearsDown: true }),
       handlers: { node_service: () => ({ ok: true, stdout: "wrote the plist", stderr: "" }) },
     });
 
@@ -528,41 +589,13 @@ describe("rewriting the service definition", () => {
     expect(fake.callsTo("node_service").length).toBe(0);
     expect(screen.getByText(/It is the last time that happens/)).toBeTruthy();
 
-    fireEvent.click(button("Rewrite the definition"));
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Rewrite the definition" }));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
   });
 });
 
-describe("teardown confirmations", () => {
-  it("names the pane cost when uninstalling a definition that does not spare them", async () => {
-    const fake = await boot({
-      probe: makeProbe({
-        service: {
-          installed: true,
-          definitionPath: "/home/u/.config/systemd/user/subshell.service",
-          state: "running",
-          pid: 42,
-          enabled: true,
-          paneSafety: "kills",
-          detail: "",
-        },
-      }),
-      handlers: { node_service: () => ({ ok: true, stdout: "removed", stderr: "" }) },
-    });
-
-    fireEvent.click(button("Uninstall the service"));
-
-    await waitFor(() => expect(confirmPanelOrNull()).not.toBeNull());
-    expect(confirmPanel().getByText(/Uninstall the background service/)).toBeTruthy();
-    expect(confirmPanel().getByText(/kills every subshell running on this machine/)).toBeTruthy();
-    expect(fake.callsTo("node_service").length).toBe(0);
-
-    fireEvent.click(confirmPanel().getByRole("button", { name: "Uninstall the service" }));
-    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
-    expect(fake.callsTo("node_service")[0]).toEqual({ verb: "uninstall", force: false });
-  });
-
-  it("confirms replacing the installed agent, and never applies it unasked", async () => {
+describe("replacing the installed agent", () => {
+  it("confirms first, and never applies it unasked", async () => {
     const fake = await boot({
       probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "1.10.0" }),
       handlers: { node_install_agent: () => ({ ok: true, stdout: "Installed subshell", stderr: "" }) },
@@ -575,95 +608,33 @@ describe("teardown confirmations", () => {
     expect(confirmPanel().getByText(/Nothing is downloaded/)).toBeTruthy();
     expect(confirmPanel().getByText(/is NOT started again/)).toBeTruthy();
 
-    fireEvent.click(button("Update the agent"));
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Update the agent" }));
     await waitFor(() => expect(fake.callsTo("node_install_agent").length).toBe(1));
   });
 
   it("does not put the upgrade offer on the re-enroll screen", async () => {
     await boot({ probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
     expect(buttonOrNull("Update the agent to 1.10.0")).not.toBeNull();
-    fireEvent.click(button("Re-enroll this machine…"));
-    // That row already ends in a destructive button; an unrelated one first is
+    fireEvent.click(button("Re-enroll…"));
+    // That screen ends in a destructive button; an unrelated one beside it is
     // how the wrong one gets clicked.
     await waitFor(() => expect(buttonOrNull("Update the agent to 1.10.0")).toBeNull());
   });
 });
 
 // ---------------------------------------------------------------------------
-// 9. The tray switch
-// ---------------------------------------------------------------------------
-
-describe("the close-to-tray switch", () => {
-  // No tray on this platform at all: nothing to offer and nothing to explain.
-  it("is absent where the platform has no tray", async () => {
-    await boot({ settings: makeSettings({ traySupported: false, trayStatus: "unsupported" }) });
-    expect(screen.queryByRole("switch")).toBeNull();
-  });
-
-  it("renders, and reflects what the app will ACT on", async () => {
-    await boot({ settings: makeSettings({ traySupported: true, closeToTray: true }) });
-    const toggle = screen.getByRole("switch");
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    // Live: nothing to explain, so no reason and no re-check.
-    expect(screen.queryByText(TRAY_NOT_DETECTED)).toBeNull();
-    expect(buttonOrNull("Check again")).toBeNull();
-  });
-
-  // The case the platform check used to swallow: a Linux desktop where no
-  // StatusNotifier host answered. Hiding the control would leave a GNOME user
-  // with no way to learn that an AppIndicator extension is all this needs.
-  it("is offered DISABLED, with the reason, where no host was detected", async () => {
-    const fake = await boot({ settings: makeSettings({ traySupported: false, trayStatus: "not-detected" }) });
-    const toggle = screen.getByRole("switch");
-    expect(toggle.getAttribute("data-disabled")).not.toBeNull();
-    expect(screen.getByText(TRAY_NOT_DETECTED)).not.toBeNull();
-
-    // And it cannot be turned on from there. One tick, so a command that was
-    // going to fire has fired.
-    fireEvent.click(toggle);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fake.callsTo("node_set_close_to_tray").length).toBe(0);
-  });
-
-  // The reason has to stay true for a user looking at their own tray icon:
-  // the probe is a false negative on the older XEmbed tray.
-  it("never claims the tray does not exist, only that none was detected", async () => {
-    await boot({ settings: makeSettings({ traySupported: false, trayStatus: "not-detected" }) });
-    expect(screen.getByText(TRAY_NOT_DETECTED).textContent).toContain("detected");
-    expect(screen.getByText(TRAY_NOT_DETECTED).textContent).toContain("AppIndicator");
-  });
-
-  // Installing the extension flips the answer with the app already running,
-  // and the Rust side holds no cached answer — so a re-read is the re-check.
-  it("re-reads the machine when asked to check again", async () => {
-    const fake = await boot({ settings: makeSettings({ traySupported: false, trayStatus: "not-detected" }) });
-    const before = fake.callsTo("node_settings").length;
-    fireEvent.click(button("Check again"));
-    await waitFor(() => expect(fake.callsTo("node_settings").length).toBeGreaterThan(before));
-    // Only the settings: the tray says nothing about the machine's state, and
-    // a re-check is not worth two CLI spawns.
-    expect(fake.callsTo("node_probe").length).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 10 + 12. The invocations that must not exist, and the pacing
+// 9. What the page never asks for
 // ---------------------------------------------------------------------------
 
 describe("what the page never asks for", () => {
-  it("drives no command outside the nine it declares", async () => {
+  it("drives no command outside the set it declares", async () => {
     const fake = await boot({
-      settings: makeSettings({ traySupported: true }),
-      handlers: {
-        node_service: () => ({ ok: true, stdout: "", stderr: "" }),
-        node_set_close_to_tray: () => null,
-      },
+      probe: STOPPED,
+      handlers: { node_service: () => ({ ok: true, stdout: "", stderr: "" }) },
     });
 
-    fireEvent.click(button("Stop"));
+    fireEvent.click(button("Start"));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
-    fireEvent.click(screen.getByRole("switch"));
-    await waitFor(() => expect(fake.callsTo("node_set_close_to_tray").length).toBe(1));
 
     const allowed = new Set([
       "node_probe",
@@ -673,7 +644,6 @@ describe("what the page never asks for", () => {
       "node_enroll",
       "node_set_agent_bin",
       "node_open_path",
-      "node_set_close_to_tray",
       // Read once for the About footer. Read-only, no machine state, no path —
       // `node_open_web` is NOT here because nothing on a rendered page invokes
       // it until a link is clicked, which this case does not do.
@@ -682,6 +652,14 @@ describe("what the page never asks for", () => {
     for (const call of fake.calls) expect(allowed.has(call.cmd)).toBe(true);
     // No `service run` — it never resolves and flaps against the service.
     for (const args of fake.callsTo("node_service")) expect(args.verb).not.toBe("run");
+  });
+
+  // The tray preference is no longer a control on this page at all: it is a
+  // check item in the tray menu, so nothing here can invoke it.
+  it("never touches the tray preference", async () => {
+    const fake = await boot({ settings: makeSettings({ traySupported: true }) });
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(fake.callsTo("node_set_close_to_tray").length).toBe(0);
   });
 });
 
@@ -697,54 +675,44 @@ describe("pacing", () => {
 
   it("does not poll while an action is in flight", async () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
-    const fake = await boot({ handlers: { node_service: () => gate.promise } });
+    const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
 
-    fireEvent.click(button("Stop"));
-    await waitFor(() => expect(button("Stop").disabled).toBe(true));
+    fireEvent.click(button("Install"));
+    await waitFor(() => expect(button("Install").disabled).toBe(true));
     const during = fake.callsTo("node_probe").length;
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(fake.callsTo("node_probe").length).toBe(during);
 
     gate.resolve({ ok: true, stdout: "", stderr: "" });
-    await waitFor(() => expect(button("Stop").disabled).toBe(false));
+    await waitFor(() => expect(button("Install").disabled).toBe(false));
   });
 });
 
 // ---------------------------------------------------------------------------
-// The steps a machine walks
+// The screens a machine walks
 // ---------------------------------------------------------------------------
 
-describe("the step screens", () => {
+describe("the screens", () => {
   it("offers the install only when nothing answered at all", async () => {
     await boot({ probe: makeProbe({ step: "no-agent", agent: null, status: null, service: null }) });
-    expect(buttonOrNull("Install the agent")).not.toBeNull();
-    expect(screen.getByText("No subshell agent was found on this machine.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Install the Agent" })).toBeTruthy();
+    expect(buttonOrNull("Install")).not.toBeNull();
+    expect(screen.getByText(/No subshell agent was found/)).toBeTruthy();
     cleanup();
     ipc?.restore();
 
     // An agent that answered `version` but not `status --json`: enrolling here
     // would overwrite a live config and discard its node key.
     await boot({ probe: makeProbe({ step: "no-agent", status: null }) });
-    expect(buttonOrNull("Install the agent")).toBeNull();
-    expect(buttonOrNull("Enroll this machine")).toBeNull();
+    expect(buttonOrNull("Install")).toBeNull();
+    expect(buttonOrNull("Enroll")).toBeNull();
+    expect(buttonOrNull("Retry")).not.toBeNull();
     expect(screen.getByText(/could not report its status/)).toBeTruthy();
   });
 
-  it("settles after a start rather than reporting Offline", async () => {
+  it("settles after a start rather than reporting the service still stopped", async () => {
     const fake = await boot({
-      probe: makeProbe({
-        step: "stopped",
-        status: { nodeId: "abc", serverUrl: "https://x.example", online: false },
-        service: {
-          installed: true,
-          definitionPath: "/home/u/.config/systemd/user/subshell.service",
-          state: "stopped",
-          pid: null,
-          enabled: true,
-          paneSafety: "keeps",
-          detail: "",
-        },
-      }),
+      probe: STOPPED,
       handlers: { node_service: () => ({ ok: true, stdout: "subshell started.", stderr: "" }) },
     });
 
@@ -752,15 +720,17 @@ describe("the step screens", () => {
     fake.setProbe(makeProbe());
     fireEvent.click(button("Start"));
 
-    await waitFor(() => expect(screen.getByText("Online")).toBeTruthy(), {
+    await waitFor(() => expect(screen.getByRole("heading", { name: "This Machine Is a Node" })).toBeTruthy(), {
       timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 1),
     });
     expect(fake.callsTo("node_service")).toEqual([{ verb: "start", force: false }]);
   });
 
+  // A step this build predates lands on the screen that shows the facts and
+  // the last output, which are what make an unrecognised state diagnosable.
   it("says it does not recognise a step this build predates", async () => {
     await boot({ probe: makeProbe({ step: "quantum-superposition" as never }) });
-    expect(screen.getByText(/does not know what to do about "quantum-superposition"/)).toBeTruthy();
+    expect(screen.getByText(/does not recognise the state "quantum-superposition"/)).toBeTruthy();
     expect(screen.getByText(/older than the agent it is managing/)).toBeTruthy();
     expect(buttonOrNull("Retry")).not.toBeNull();
   });
@@ -780,10 +750,12 @@ describe("the step screens", () => {
 });
 
 describe("the facts", () => {
+  // Behind Show Details now, rather than a permanent card: a person opens this
+  // window to DO something. Nothing was dropped in the move.
   it("names the config file, the control plane and tmux", async () => {
     await boot();
     expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
-    expect(screen.getByText("https://subshell.example.com")).toBeTruthy();
+    expect(screen.getAllByText(/https:\/\/subshell\.example\.com/).length).toBeGreaterThan(0);
     expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
     expect(screen.getByText(/online \(last heartbeat 4s ago\)/)).toBeTruthy();
   });
@@ -807,65 +779,69 @@ describe("the facts", () => {
         }),
       },
     });
-    // Before: `status --json` carries no name, so none is shown.
-    expect(screen.queryByText(/"workstation"/)).toBeNull();
+    // Before: a machine whose name this session did not choose says nothing
+    // about one, rather than guessing it from the hostname.
+    expect(screen.queryByText(/workstation/)).toBeNull();
 
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
     ipc?.setProbe(makeProbe());
-    fireEvent.click(button("Enroll this machine"));
+    fireEvent.click(button("Enroll"));
 
-    await waitFor(() => expect(screen.getByText(/11111111-2222-3333-4444-555555555555 "workstation"/)).toBeTruthy());
+    // Twice over, and both are the same fact: the connected screen greets the
+    // machine by name, and the facts list carries it beside the node id.
+    await waitFor(() => expect(screen.getAllByText(/workstation/).length).toBeGreaterThan(0));
+    expect(screen.getByText(/Enrolled as/)).toBeTruthy();
   });
 });
 
-// ---------------------------------------------------------------------------
-// The tmux hard stop, and the plane's second door
-// ---------------------------------------------------------------------------
-
 describe("tmux is a hard stop, not a hint", () => {
-  // Ported from the server console: the CLI refuses (or degrades far from the
-  // cause), and a live button that only produces that outcome trains the user
-  // to click through warnings. The buttons that DO work without tmux — Stop,
-  // Uninstall, the reveals — must stay live; disabling those strands the box.
+  // The CLI refuses (or degrades far from the cause), and a live button that
+  // only produces that outcome trains the user to click through warnings. The
+  // buttons that DO work without tmux — the reveals, the re-read — must stay
+  // live; disabling those strands the box.
   it("disables what cannot work without tmux, and nothing else", async () => {
-    await boot({ probe: makeProbe({ tmux: null, step: "stopped" }) });
+    await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
     expect(button("Start").disabled).toBe(true);
-    expect(button("Uninstall the service").disabled).toBe(false);
+    expect(button("Refresh").disabled).toBe(false);
     expect(button("Open the agent log").disabled).toBe(false);
+    expect(button("Reveal configuration").disabled).toBe(false);
     // The hint names the install command, so the refusal is one step from action.
     expect(screen.getByText(/brew install tmux|sudo apt-get install tmux/)).toBeTruthy();
   });
 
   it("re-enables on the probe that finds tmux — the gate is not remembered", async () => {
-    const fake = await boot({ probe: makeProbe({ tmux: null, step: "stopped" }) });
+    const fake = await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
     expect(button("Start").disabled).toBe(true);
-    fake.setProbe(makeProbe({ step: "stopped" }));
+    fake.setProbe(STOPPED);
     fireEvent.click(button("Refresh"));
     await waitFor(() => expect(button("Start").disabled).toBe(false));
   });
 
-  it("gates the online Restart too — a tmux-less node 409s every launch", async () => {
-    await boot({ probe: makeProbe({ tmux: null }) });
-    expect(button("Restart").disabled).toBe(true);
-    expect(button("Stop").disabled).toBe(false);
+  it("gates enrolment too — enroll preflights tmux before spending the key", async () => {
+    await boot({
+      probe: makeProbe({
+        step: "not-enrolled",
+        tmux: null,
+        status: { nodeId: null, online: false, reason: "no config" },
+      }),
+    });
+    expect(button("Enroll").disabled).toBe(true);
+    expect(screen.getByText(/so enrolling is disabled/)).toBeTruthy();
   });
 
   it("the install button says it also starts, because the CLI's install does", async () => {
-    await boot({ probe: makeProbe({ step: "no-service" }) });
-    expect(button("Install and start the background service")).toBeTruthy();
+    await boot({ probe: makeProbe({ ...STOPPED, step: "no-service" }) });
+    expect(button("Install and Start")).toBeTruthy();
   });
 });
 
-describe("the plane's second door", () => {
+describe("the plane's two doors", () => {
   // The in-app window stays primary; this opens the SAME settled address in
   // the system browser, and the command takes no URL argument by design.
   it("opens the settled plane URL in the system browser", async () => {
-    const fake = await boot({
-      settings: makeSettings({ planeUrl: "https://plane.example" }),
-      handlers: { node_open_plane_url: () => null },
-    });
-    fireEvent.click(button("In browser"));
+    const fake = await boot({ handlers: { node_open_plane_url: () => null } });
+    fireEvent.click(button("Open in browser instead"));
     await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
     // And it asked for NOTHING but the intent — no URL crossed the boundary.
     expect(fake.callsTo("node_open_plane_url")[0]).toEqual({});
@@ -873,16 +849,43 @@ describe("the plane's second door", () => {
 
   it("rejection reaches the problem line, like every command", async () => {
     await boot({
-      settings: makeSettings({ planeUrl: "https://plane.example" }),
       handlers: {
         node_open_plane_url: () => {
           throw "no control plane yet — enter its URL, or enrol this machine first";
         },
       },
     });
-    fireEvent.click(button("In browser"));
+    fireEvent.click(button("Open in browser instead"));
     await waitFor(() =>
       expect(screen.getByText("no control plane yet — enter its URL, or enrol this machine first")).toBeTruthy(),
     );
+  });
+
+  it("opens the app window at the address the connect screen was given", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      handlers: { node_open_plane: (args) => String(args.url) },
+    });
+    typeInto("Server URL", "https://plane.example");
+    fireEvent.click(button("Open"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: "https://plane.example" }]));
+  });
+
+  // `node_open_plane_url` re-reads the settled address rather than taking one
+  // from the page, so an address that has never been saved has to be persisted
+  // before the browser can be sent to it — and the runner serializes, so the
+  // two cannot be fired together.
+  it("persists the typed address before opening a browser on it", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      handlers: { node_open_plane: (args) => String(args.url), node_open_plane_url: () => null },
+    });
+    typeInto("Server URL", "https://plane.example");
+    fireEvent.click(button("Open in browser instead"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane_url").length).toBe(1));
+    expect(fake.callsTo("node_open_plane")).toEqual([{ url: "https://plane.example" }]);
+    // Order matters: saving comes first, or the browser opens on nothing.
+    const order = fake.calls.filter((c) => c.cmd.startsWith("node_open_plane")).map((c) => c.cmd);
+    expect(order).toEqual(["node_open_plane", "node_open_plane_url"]);
   });
 });

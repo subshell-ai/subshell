@@ -29,7 +29,6 @@ import {
   nodeOpenPlaneUrl,
   nodeService,
   nodeSetAgentBin,
-  nodeSetCloseToTray,
   type OpenTarget,
   type Probe,
   type ServiceVerb,
@@ -63,8 +62,6 @@ export interface NodeCommands {
   pickBinary: () => void;
   /** Forget the hand-chosen binary. */
   clearBinary: () => void;
-  /** The close-to-tray preference. */
-  setCloseToTray: (enabled: boolean) => void;
   /** Show a control plane's UI. `null` opens the address already settled. */
   openPlane: (url: string | null) => void;
   /** Open the settled control-plane address in the SYSTEM browser. */
@@ -298,24 +295,10 @@ export function useNodeCommands(args: {
       }),
 
     /**
-     * Not worth two CLI spawns, so this is the one action that does not
-     * re-probe — it changes nothing the probe reports. It still goes through
-     * the runner, so it serializes with everything else and its rejection
-     * reaches the same message line.
-     */
-    setCloseToTray: (enabled) =>
-      runner.run(
-        async () => {
-          await nodeSetCloseToTray({ enabled });
-          return finished(null);
-        },
-        { reprobe: false },
-      ),
-
-    /**
-     * Opening a plane changes nothing about this machine, so it does not
-     * re-probe either. It still goes through the runner: an unusable URL comes
-     * back as a rejection, and this is the line that reads it out.
+     * Opening a plane changes nothing about THIS MACHINE, so it is the one
+     * action that does not re-probe. It still goes through the runner, so it
+     * serializes with everything else and an unusable URL comes back as a
+     * rejection on the same message line.
      */
     openPlane: (url) =>
       runner.run(

@@ -62,12 +62,18 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
 }
 
 /**
- * Default settings for a machine with no tray at all.
+ * Default settings for a machine that has a control plane address.
  *
- * `trayStatus` follows `traySupported` unless a test says otherwise, mirroring
- * the Rust side, where both fields come from one probe answer and cannot
- * disagree. Pass `trayStatus: "not-detected"` for the Linux-without-a-host
- * case, which is the one where the switch is drawn but not live.
+ * `planeUrl` defaults to the SAME address {@link makeProbe}'s node reports to,
+ * for two reasons: without one the assistant shows Connect and no probe-driven
+ * screen is reachable at all, and a different one would put every case behind
+ * a plane-divergence notice. Pass `planeUrl: null` for the Connect screen and a
+ * different address for the divergence cases.
+ *
+ * `trayStatus` follows `traySupported`, mirroring the Rust side, where both
+ * fields come from one probe answer and cannot disagree. The tray preference
+ * is no longer rendered by the page (it is a tray menu item), so these two
+ * fields are inert here until the Rust side drops them.
  */
 export function makeSettings(overrides: Partial<NodeSettings> = {}): NodeSettings {
   const traySupported = overrides.traySupported ?? false;
@@ -76,7 +82,7 @@ export function makeSettings(overrides: Partial<NodeSettings> = {}): NodeSetting
     closeToTray: false,
     traySupported,
     trayStatus: traySupported ? "supported" : "unsupported",
-    planeUrl: null,
+    planeUrl: "https://subshell.example.com",
     ...overrides,
   };
 }
