@@ -20,9 +20,10 @@ describe("initialsOf", () => {
 });
 
 describe("UserMenu", () => {
-  it("shows the user and offers Preferences, Account settings + Sign out", async () => {
+  it("shows the user and offers Preferences, Account settings, About + Sign out", async () => {
     const prefs: string[] = [];
     const account: string[] = [];
+    const about: string[] = [];
     const signed: string[] = [];
     render(
       <UserMenu
@@ -31,6 +32,7 @@ describe("UserMenu", () => {
         collapsed={false}
         onPreferences={() => prefs.push("p")}
         onAccountSettings={() => account.push("a")}
+        onAbout={() => about.push("i")}
         onSignOut={() => signed.push("s")}
       />,
     );
@@ -41,6 +43,10 @@ describe("UserMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: /Thea|thea@example.com/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Account settings" }));
     expect(account).toEqual(["a"]);
+    // About carries no admin gate: it is offered to whoever the menu is for.
+    fireEvent.click(screen.getByRole("button", { name: /Thea|thea@example.com/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "About Subshell" }));
+    expect(about).toEqual(["i"]);
     fireEvent.click(screen.getByRole("button", { name: /Thea|thea@example.com/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(signed).toEqual(["s"]);

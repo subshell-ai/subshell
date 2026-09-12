@@ -18,6 +18,7 @@ import {
   Users,
 } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { AboutDialog } from "@/components/about-dialog";
 import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
@@ -248,6 +249,10 @@ export function AppSidebar({
   // (no server call — the list is already client-side). Same predicate as
   // the home page and the add-subshell dialog (lib/subshell-filter).
   const [subshellQuery, setSubshellQuery] = useState("");
+  // The About dialog the user menu raises. Held here rather than in the menu
+  // because choosing an item closes the menu, which would take the dialog
+  // with it.
+  const [aboutOpen, setAboutOpen] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
   const q = subshellQuery.trim();
   // Sorted by liveness BEFORE the recents slice (band order documented in
@@ -586,8 +591,12 @@ export function AppSidebar({
           collapsed={collapsed}
           onPreferences={() => void navigate({ to: "/preferences" })}
           onAccountSettings={() => void navigate({ to: "/account" })}
+          onAbout={() => setAboutOpen(true)}
           onSignOut={() => void signOutAndRedirect()}
         />
+        {/* Beside the menu rather than inside it: choosing an item closes the
+            menu, and a dialog mounted in a closing menu goes with it. */}
+        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
       </div>
     </aside>
   );

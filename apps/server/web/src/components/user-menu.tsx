@@ -1,4 +1,4 @@
-import { ChevronUp, LogOut, SlidersHorizontal, UserRound } from "lucide-react";
+import { ChevronUp, Info, LogOut, SlidersHorizontal, UserRound } from "lucide-react";
 import type { JSX } from "react";
 import {
   DropdownMenu,
@@ -37,6 +37,8 @@ export interface UserMenuProps {
   onPreferences: () => void;
   /** Opens the account surface (routing belongs to the caller) */
   onAccountSettings: () => void;
+  /** Opens the About dialog — no admin gate; anyone may ask what this is */
+  onAbout: () => void;
   /** Runs sign-out */
   onSignOut: () => void;
 }
@@ -47,6 +49,7 @@ export function UserMenu({
   collapsed,
   onPreferences,
   onAccountSettings,
+  onAbout,
   onSignOut,
 }: UserMenuProps): JSX.Element {
   const display = name.trim() || email || "Signed in";
@@ -92,6 +95,9 @@ export function UserMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onAccountSettings}>
           <UserRound className="h-4 w-4" /> Account settings
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onAbout}>
+          <Info className="h-4 w-4" /> About Subshell
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {/* Destructive styling via className — this wrapper has no Radix-style
