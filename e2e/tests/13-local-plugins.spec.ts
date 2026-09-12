@@ -97,15 +97,19 @@ test.describe("instance plugins", () => {
       removed = false;
       await expect(piRow(page).getByRole("button", { name: "Uninstall pi" })).toBeVisible();
       // "Keep" really meant keep: the Default profile is selectable again with
-      // no re-seeding, and the Server node is a clean option.
+      // no re-seeding, and this host is a clean target for it.
       await page.goto("/new");
+      // The node picker is GONE on this instance (2026-09-12): the host is the
+      // only place a subshell could run, so the field hides. That moves where
+      // "the host has pi again" is observable — a profile the selected node
+      // cannot run renders DISABLED, so `pickProfile` committing this one is
+      // the same fact the old option-row assertion made.
+      await expect(page.getByLabel("Node")).toHaveCount(0);
       await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
-      await page.getByPlaceholder("Choose a node").click();
-      const serverOption = page.getByRole("option", { name: "Server" });
-      await expect(serverOption).toHaveCount(1);
-      await expect(serverOption).toBeEnabled();
-      await expect(serverOption.getByText("no pi here")).toHaveCount(0);
-      await page.keyboard.press("Escape");
+      await expect(page.getByPlaceholder("Choose a profile")).toHaveValue(/pi/);
+      // And the form is launchable, which is the other half of "clean": the
+      // empty state that replaces it when nothing can run is not on screen.
+      await expect(page.getByText("No machine can run a subshell")).toHaveCount(0);
     } finally {
       if (removed) {
         const res = await page.request.post("/api/plugins", { data: { pluginId: "pi" } });

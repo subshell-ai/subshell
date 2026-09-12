@@ -101,7 +101,12 @@ test("launch dialog survives the profile dropdown's scroll shift", async ({ page
   // which would shift the scroller BEFORE the app can capture it.
   test.skip(!isPhone(), "needs the touch profile; geometry forced below");
   page.on("pageerror", (e) => console.log("PAGEERROR:", String(e).slice(0, 300)));
-  await page.setViewportSize({ width: 1024, height: 420 });
+  // 320, not 420: the dialog has to OVERFLOW for this test to prove anything,
+  // and it lost a field when the node picker began hiding itself on a
+  // single-target instance (2026-09-12) — at 420 it now fits, `parked` came
+  // back 0, and the assertion below caught exactly that. The comment on that
+  // assertion predicted this day; this is it.
+  await page.setViewportSize({ width: 1024, height: 320 });
   await page.goto("/");
 
   // The rail's + specifically (the home page has its own "New subshell").

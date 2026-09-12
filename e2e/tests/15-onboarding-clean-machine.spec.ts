@@ -176,8 +176,14 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   // the first screen after "Add an Agent" never says "Node" or "Profile" to an
   // account ninety seconds old. Every other launch surface keeps the nouns —
   // `fieldCopy` pins that half.
-  await expect(page.getByLabel("Machine")).toBeVisible();
   await expect(page.getByLabel("Agent")).toBeVisible();
+  // And it does not ask WHERE (2026-09-12). This machine is the only place a
+  // subshell could run, so the field would be a control with one option — and
+  // on the first screen of a ninety-second-old account it would also be the
+  // first jargon the product says. The rule is the host being the SOLE target,
+  // not first run: spec 12 picks a node on this same form once a second
+  // machine is enrolled.
+  await expect(page.getByLabel("Machine")).toHaveCount(0);
   // And it asks for no name: the server names it, renaming is its own act.
   await expect(page.getByLabel(/name/i)).toHaveCount(0);
   const start = page.getByRole("button", { name: "Start" });
