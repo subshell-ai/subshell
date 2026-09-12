@@ -22,7 +22,7 @@ once.
 | window | page | granted |
 |---|---|---|
 | `main` | the control plane's own UI, at the plane's origin | **nothing** |
-| `node` | `ui/dist/index.html`, from the bundle | every `node_*` command |
+| `node` | `ui/dist/index.html`, from the bundle — the assistant | every `node_*` command |
 
 `main` loads the plane's own page rather than a bundled copy because
 `apps/server/web` is hard same-origin — relative `apiFetch` with
@@ -46,6 +46,15 @@ time gets no commands at all. Two consequences follow and are deliberate:
   (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
   drag-a-subshell-into-a-workspace and the terminal's uploads), and the 1024px
   minimum width that keeps the SPA off its phone drawer.
+
+**The node window is a FIXED 1024x720 assistant frame** (spec 2026-09-12 § 6.4),
+non-resizable and centred, and the window-state plugin is DENYLISTED for it.
+Both halves matter: the screens are drawn to that arithmetic, and the plugin
+restores geometry after the builder sets it, so a saved size from the window's
+resizable 760x720 era wins silently. `apps/server/desktop` found exactly this
+by running its app (43f6682) and the fix is the same — denylist the label
+rather than drop `StateFlags::SIZE`, because `main` shows a control plane's UI
+and THAT window's size is a real user choice.
 
 **The node window existing is the whole "node functionality" toggle.** A client
 used only to watch subshells never opens it; there is no mode flag for the two
@@ -257,17 +266,21 @@ are free-form and are not `productName`.
 ```
 src-tauri/src/
 ├── agent_bin.rs   the resolution ladder for `subshell`, and the bundled-vs-installed policy
-├── control.rs     the thirteen `node_*` commands, and Probe
-├── windows.rs     the two windows — the plane's page, and the bundled node page
-├── tray.rs        tray icon + menu (an explicit id; a Menu attached, or Linux may not register it)
+├── control.rs     the `node_*` commands, and Probe
+├── reset.rs       the delete plan, the stashed consent, and the chain that honours it
+├── windows.rs     the two windows — the plane's page, and the bundled node assistant
+├── tray.rs        tray icon + menu (an explicit id; a Menu attached, or Linux may not register it;
+│                  the close-to-tray CheckMenuItem lives here)
 ├── menu.rs        the macOS menu bar — module-gated, because Linux has none
 └── lib.rs         plugins, environment scrubbing, lifecycle
 
 ui/                the bundled page (React + Vite + Tailwind), built to ui/dist
-├── src/lib/       ipc.ts (the typed command contract), steps.ts, copy.ts, cn.ts
+├── src/lib/       ipc.ts (the typed command contract), node-assistant-state.ts (which
+│                  screen this machine sees), probe-facts.ts, plane-coherence.ts, copy.ts
 ├── src/hooks/     the two queries, the serializing action runner, the commands
 ├── src/components/ui/   primitives copied from apps/server/web
-└── src/components/      the screens (step-screens.ts holds the words)
+├── src/components/assistant/   the frame and the six screens
+└── src/components/      what the screens compose (enroll fields, the confirmation, the footer)
 vite.config.ts     the web build; `ui/` is its root
 src/scripts/       the release script (TS) — `bun run compile:release`
 ```
@@ -296,48 +309,144 @@ reads both files and the invocations in `ui/src/lib/ipc.ts`, and fails on any
 three-way mismatch — add the command in all three or the test names the one
 you missed.
 
-## The node page is the console (parity with the server app)
+## The node page is an assistant
 
-The same rules the Subshell Server console enforces, and for the same reasons
-(2026-09-08 port):
+One screen at a time, each asking exactly one question, in the same frame
+Subshell Server's setup assistant uses — so the two apps read as one product
+(spec 2026-09-12 § 6.4). It was seven stacked cards that showed everything at
+once and asked nothing in particular.
+
+`lib/node-assistant-state.ts` holds the routing, pure: `screenFor(probe,
+settings, override)` answers one of **connect**, **install-agent**, **enroll**,
+**service**, **connected**, **reset**, and `screenTitle` names it. A plane
+address comes FIRST, ahead of anything the probe says — without one this app
+has nothing to show in its other window, and "enroll this machine" is a
+question about a server nobody has named yet. Two screens are things a person
+ASKS for rather than states a machine implies (re-enrol, reset); those arrive
+as the `override`, which is why they are a separate argument rather than a
+seventh probe step.
+
+`app.tsx` is a host and nothing else: it reads the machine, holds the action
+runner and the enroll form, and composes the shared half of the frame (title,
+subtitle, the problem line, the confirmation, the footer). Each screen owns its
+icon, its content and its bottom bar.
+
+What the shape changed, and why:
+
+- **Facts moved under "Show Details".** A person opens this window to DO
+  something, not to read twelve fields. `lib/probe-facts.ts` is unchanged and
+  still the only reader of the probe's shapes; only where it renders moved.
+- **Stop and Uninstall left the app.** Restarting a node is a control-plane
+  action now (spec 2026-09-12 § 6.3, `POST /api/nodes/:id/restart`), and
+  removing the service is what Reset does. What survived is the one REMEDY the
+  restart refusal names by label — rewriting a definition that would SIGKILL
+  live panes — because the confirmation text points at that button.
+- **"this Mac" comes from the USER AGENT, not the probe.** Unlike the server
+  app's, this app's `Probe` carries no platform field, and adding one to reach
+  a copy decision would be a Rust change for a string.
+- **The About footer is ONE LINE** under the bottom bar. It still owns no
+  strings — `node_about`, so the facts live only in
+  `crates/desktop-core/src/legal.rs` — but the colophon it used to render
+  competed with the one question each screen asks. It also sets
+  `retryOnMount: false`: swapping screens remounts the footer, and a failed
+  read of a compiled-in constant has nothing to retry for.
+
+The rules ported from the Subshell Server console in 2026-09-08 are unchanged
+by any of that:
 
 - **Reveals name an intent, never a path.** `node_open_path` takes the closed
   `config-dir | data-dir | agent-log` enum; the Linux `agent-log` rejection IS
-  the `journalctl` command, and the facts list now also shows the log location
-  (the CLI's `logPath` shape: a file on macOS, the journal sentence on Linux)
-  so it is readable without clicking.
-- **About is a FOOTER, and it owns no strings.** `components/about-footer.tsx`
-  renders the same content as the Subshell Server console's About section —
-  mark, app name, both versions, links, terms, copyright, centred — from one
-  `node_about` call, so the facts live only in `crates/desktop-core/src/legal.rs`
-  (which `scripts/license-fields.ts` holds equal to the TypeScript copy and to
-  the root LICENSE). A footer rather than a section because this window is one
-  flow with nothing to navigate between, and rather than a dialog because the
-  CSP rules below put portalled primitives out of reach. macOS already has an
-  About box in the app menu from the same constants; Linux has no menu bar, and
-  nobody should need to know which platform convention applies to find a
-  version number. Its three links go through `node_open_web`, a closed enum —
-  the addresses travel to the page for DISPLAY and never travel back.
+  the `journalctl` command, and the facts list also shows the log location (the
+  CLI's `logPath` shape: a file on macOS, the journal sentence on Linux) so it
+  is readable without clicking.
 - **The plane's second door.** `node_open_plane_url` opens the settled control
-  plane in the SYSTEM browser — for the browser the in-app window is wrong
-  for (a different profile, a share, passkeys). Like the server app's twin,
-  the page passes NO URL: the command re-reads the same ladder
-  `node_open_plane` points a window at, and `validate_server_url` admits
-  http(s) only.
-- **tmux is a gate, not a caption.** `StepAction.needsTmux` disables Enroll /
-  Install-and-start / Start / Restart while the probe cannot find tmux —
-  `enroll` refuses CLI-side and a tmux-less node comes up online with no
-  harnesses, so a live button only manufactures the failure. Stop, Uninstall
-  and the reveals stay live (disabling those strands the box), the hint names
-  the install command (`TMUX_INSTALL_CMD`), and the gate reads the CURRENT
-  probe, so installing tmux and refreshing re-arms the buttons.
+  plane in the SYSTEM browser — for what the in-app window is wrong for (a
+  different profile, a share, passkeys). The page passes NO URL: the command
+  re-reads the same ladder `node_open_plane` points a window at. On the Connect
+  screen it therefore has to PERSIST the typed address first and open the
+  browser once that lands, because an address never saved cannot be re-read —
+  and the action runner drops a concurrent submission, so the two cannot be
+  fired together.
+- **tmux is a gate, not a caption.** Enroll and the service verbs are disabled
+  while the probe cannot find tmux — `enroll` refuses CLI-side and a tmux-less
+  node comes up online with no harnesses, so a live button only manufactures
+  the failure. The reveals and Refresh stay live (disabling those strands the
+  box), the hint names the install command (`TMUX_INSTALL_CMD`), and the gate
+  reads the CURRENT probe, so installing tmux and refreshing re-arms it.
 - **The manager row says what the manager said.** `probe-facts` appends the
   service `detail` verbatim (`launchd: spawn scheduled` is the crash-throttle
   wait) and paints `state: unknown` bad — a manager that would not answer is
-  not the same fact as a stopped agent. That detail is the AGENT CLI's: the
-  classification was ported into `apps/node/agent/src/service.ts` from the
-  server CLI's 2026-09-07 hardening, plist association included
-  (`AssociatedBundleIdentifiers`, one constant with the app's bundle id).
+  not the same fact as a stopped agent.
+
+## The tray preference is in the tray
+
+`close_to_tray` is a `CheckMenuItem` in the tray menu, and `node_settings` no
+longer carries it. The preference is ABOUT the tray, so it belongs there — and
+putting it there REMOVED two commands (`node_set_close_to_tray` and the
+settings payload's tray trio) rather than moving them to a screen that now asks
+one question at a time.
+
+Two properties, neither re-derived here: muda flips the item's own state BEFORE
+the menu event fires, so the handler reads the item rather than toggling a
+stored copy (two places deciding what "checked" means is how a menu disagrees
+with itself), and `is_checked()` from a menu handler does not deadlock. Both
+were measured against muda 0.19.3 on the macOS and GTK backends by
+`apps/server/desktop`'s own check item.
+
+**The clamp is what makes the ON default safe**, and it survives the move
+intact: `close_to_tray_now` is what the check item seeds from and what the
+window-close handler reads, so a desktop with no StatusNotifier host cannot
+hide a window into an icon nothing draws. The item shows the CLAMPED value,
+because a check mark claiming behaviour the app will not honour is a check mark
+that lies.
+
+## Reset — returning this machine to un-enrolled
+
+`src-tauri/src/reset.rs`, and the shape is `apps/server/desktop`'s deliberately:
+**the page supplies a hostname, never a path.**
+
+`node_arm_reset` reads the machine NOW and stashes a delete plan parsed from the
+agent's own `subshell status --json` `paths` block; `node_reset` deletes exactly
+that, gated on the typed hostname. The plan is stashed at press time rather than
+re-read inside the chain because the chain UNINSTALLS the very agent whose
+report names those paths — re-reading afterwards would be asking a removed
+binary where its own data lived.
+
+- **All-or-nothing.** Every one of `configFile`, `lockFile`, `dataDir` present,
+  non-empty and absolute, or there is no plan. A status with no `paths` key at
+  all is the not-enrolled case (the CLI omits the block when no config loaded),
+  and the screen renders its own refusal rather than offering a button.
+- **config.json is deleted LAST.** It is what makes this machine a node, so
+  while it survives the reset is resumable: a half-run that died after the data
+  dir still has the config the next attempt reads its plan from. `deletion_order`
+  is a pure function returning a `Vec<PathBuf>` precisely so that property is a
+  test rather than something only a real wipe would show.
+- **The guards are the shared ones** in `subshell_desktop_core::reset_guards`:
+  `path_rules_ok`, `delete_guard_ok`, `is_subshell_socket`, `consent_granted`,
+  and `machine_hostname` — which moved there in 2026-09-12 when this chain
+  needed it, because it is the value `consent_granted` compares against and two
+  copies of a fail-closed rule is one copy that can drift open.
+- **The probe reports the hostname so the screen can SHOW it.** The gate is
+  deliberate consent, not a memory test, and a box demanding a string the page
+  cannot display would be both. An empty memo (hostname(1) would not run) is
+  refused by name — the empty box it would otherwise match is the one thing
+  this gate may never accept.
+- **Three paths, not the server's five, and NO window dance.** That app has one
+  manage window and a zero-window moment quits it; resetting a node here
+  invalidates neither of this app's windows, and the page's own re-probe lands
+  it on Enroll.
+- **`planeUrl` is KEPT.** The control plane this person watches is not what they
+  reset; making them retype its address to get their dashboard back would be
+  the reset reaching past what it promised.
+- **Channel discipline:** `Err` only for refusals BEFORE the first mutation. A
+  half-run is `Ok(ActionResult { ok: false })` with the verbatim log and the
+  plan still stashed, so a Retry converges.
+
+What it deliberately does not reach is on the screen, because each is something
+a person would assume it handled: the control plane keeps a node row (now
+permanently offline, for its owner to delete there), the installed
+`~/.local/bin/subshell` stays (the containment guard refuses any delete that
+would take it), and a Subshell Server on the same machine is untouched.
 
 ## Things that will bite
 
@@ -378,16 +487,16 @@ The same rules the Subshell Server console enforces, and for the same reasons
   is unset, so once a preference exists the two drift freely — and every
   surface showed exactly one of them, which made a drift invisible: the app
   would show a plane while this machine's subshells reported to another.
-  `node_configure` now writes BOTH, and `lib/plane-coherence.ts` +
-  `components/node-plane-card.tsx` name the pairs that predate it (or that a
-  CLI `subshell enroll` made behind the app's back). One address known is not a
-  drift — an un-enrolled client has no `serverUrl`, a CLI-enrolled machine no
-  stored `planeUrl` — so the notice stays silent there.
-- **The node's plane address is shown in ONE place**,
-  `components/node-plane-card.tsx`, and deliberately not as a `probe-facts`
-  row: it is the only address on the page that can be changed, so it lives with
-  the control that changes it, and the enroll-time loopback warning moved with
-  it. A `probe-facts` test pins its absence.
+  `node_configure` now writes BOTH, and `lib/plane-coherence.ts` names the pairs
+  that predate it (or that a CLI `subshell enroll` made behind the app's back).
+  One address known is not a drift — an un-enrolled client has no `serverUrl`, a
+  CLI-enrolled machine no stored `planeUrl` — so the notice stays silent there.
+- **Both addresses are shown in ONE place**, the connected screen's **More…**,
+  and deliberately not as `probe-facts` rows: they are the only addresses on
+  the page that can be CHANGED, so they live with the controls that change
+  them — and they sit adjacent because the whole point is that they can
+  disagree. The enroll-time loopback warning is there with them. A
+  `probe-facts` test pins the node address's absence from the facts list.
 - **A setup key is single-use and lasts 24 hours.** Everything checkable is
   checked before the server consumes it, but a 409 (name already taken) or a 500
   arrives AFTER — and spends it. Those say "mint a new key", never "retry".
