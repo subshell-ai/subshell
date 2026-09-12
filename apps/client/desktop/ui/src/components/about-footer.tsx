@@ -9,13 +9,16 @@
  * `scripts/license-fields.ts` holds equal to the TypeScript copy and to the
  * root LICENSE. A copy in this file would be the one that detector cannot see.
  *
- * A FOOTER rather than a section or a dialog, and both halves of that are the
- * page's own shape rather than a preference. This window is one flow — paste a
- * URL and a key, and this machine becomes a node — so there is nothing to
- * navigate between and a sidebar would be inventing a structure to hold one
- * page. And a modal is out on principle here: the bundle's CSP has no
- * `'unsafe-inline'` in `style-src`, so a portalled primitive that positions
- * itself with a `style` prop renders unstyled in the wrong place, which is why
+ * ONE LINE, under the assistant's bottom bar (spec 2026-09-12 § 6.4). The card
+ * page had room for a full colophon — mark, heading, blurb, licence, copyright
+ * — and the assistant does not: every screen is one question, and a block of
+ * ownership prose under it competes with the answer. What a person opens an
+ * About for is the version pair, to put in a bug report, so that is what stays
+ * on the face; the terms and the owner stay one click away as named links.
+ *
+ * A modal is out on principle here: the bundle's CSP has no `'unsafe-inline'`
+ * in `style-src`, so a portalled primitive that positions itself with a
+ * `style` prop renders unstyled in the wrong place, which is why
  * `confirm-panel.tsx` is in the page too.
  *
  * macOS already has this in the app menu (`menu.rs` builds an `AboutMetadata`
@@ -55,6 +58,12 @@ export function AboutFooter(props: { probe: Probe | undefined }) {
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
     retry: false,
+    // …and not re-attempted on a remount either. The assistant swaps whole
+    // screens, so this footer unmounts and mounts again whenever the machine's
+    // state moves it — and a query left in an error state is retried on mount
+    // by default. There is nothing to retry FOR: these are strings compiled
+    // into the binary, so a read that failed once fails the same way.
+    retryOnMount: false,
   });
   if (!data) return null;
 
@@ -63,34 +72,25 @@ export function AboutFooter(props: { probe: Probe | undefined }) {
   // to put in a bug report. The agent's comes from the probe the page already
   // holds, so it cannot disagree with what the status card is showing.
   const agent = props.probe?.agent?.version;
-  const versions = agent ? `Version ${data.appVersion} · Agent ${agent}` : `Version ${data.appVersion}`;
+  const versions = agent ? `${data.appVersion} · Agent ${agent}` : data.appVersion;
 
   return (
-    <footer className="mt-2 flex flex-col items-center gap-1 border-border/60 border-t pt-6 pb-1 text-center">
-      <img
-        src="./wordmark-192.png"
-        srcSet="./wordmark-96.png 1x, ./wordmark-192.png 2x"
-        alt="Subshell"
-        className="h-9 w-auto"
-      />
-      <h2 className="mt-3 font-semibold text-[15px] tracking-tight">{data.appName}</h2>
-      <p className="text-muted-foreground text-xs">{versions}</p>
-      <p className="mt-2 max-w-md text-muted-foreground text-xs">
-        Watch a Subshell control plane, and register this machine with it as a node.
-      </p>
-      <p className="mt-3 flex flex-wrap items-baseline justify-center gap-x-2 text-xs">
-        <AboutLink label="Website" target="website" />
-        <span aria-hidden className="text-border">
-          ·
-        </span>
-        <AboutLink label="Licence" target="license" />
-        <span aria-hidden className="text-border">
-          ·
-        </span>
-        <AboutLink label={data.company} target="company" />
-      </p>
-      <p className="mt-4 text-[11px] text-muted-foreground">{data.licenseSummary}</p>
-      <p className="text-[11px] text-muted-foreground">{data.copyright}</p>
+    <footer className="flex flex-wrap items-baseline justify-center gap-x-2 text-[11px] text-muted-foreground">
+      <span>
+        {data.appName} {versions}
+      </span>
+      <span aria-hidden className="text-border">
+        ·
+      </span>
+      <AboutLink label="Website" target="website" />
+      <span aria-hidden className="text-border">
+        ·
+      </span>
+      <AboutLink label="Licence" target="license" />
+      <span aria-hidden className="text-border">
+        ·
+      </span>
+      <AboutLink label={data.company} target="company" />
     </footer>
   );
 }
