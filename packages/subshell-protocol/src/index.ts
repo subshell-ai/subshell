@@ -35,6 +35,7 @@ export {
   LICENSE_URL,
   licenseNotice,
   PRODUCT_NAME,
+  PRODUCT_URL,
 } from "./legal.js";
 export {
   type DetectSpecWire,
