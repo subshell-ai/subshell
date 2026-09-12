@@ -81,6 +81,14 @@ was for an onboarded machine: state, logs, settings, repair actions. Subshell
 Client does the same for the `subshell` agent, from a second window reached
 from its tray ("This machine…").
 
+Setup asks two things it used to assume. **Start it in the background** is
+what registers a launchd agent or systemd user service; with it unchecked the
+app runs the server itself, alive while the app is open and stopped when you
+quit (running subshells keep running either way). **Start it at every login**
+arms that service for the next login, and is the switch on Settings → Service
+afterwards. Changing your mind later is one button on that page, which opens
+the app's "How Your Server Runs" screen.
+
 Undoing all of it is deliberately a Settings action, not a window state: the
 dashboard's danger zone carries an admin-only "Reset this server" card, which
 raises the Subshell Server window at a confirmation listing every path the

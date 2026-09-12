@@ -1263,6 +1263,42 @@ wrong place to drive them; they stay with the CLI and the desktop assistant.
 `DATABASE_PATH` is not settable here either — moving the database from a web
 form is a footgun with no undo, and the CLI's `--db-path` remains.
 
+**One service preference IS reachable from the page, and it is inside that
+rule rather than an exception to it.** `POST /api/admin/server/autostart`
+arms or disarms "start at login" for an installed service, and it changes
+nothing about the running process — on Linux it is `systemctl --user
+enable|disable` with no `--now`, and on macOS it MOVES the plist between
+`~/Library/LaunchAgents` (which launchd scans at login) and the config home
+(which it does not), leaving the loaded job untouched. So the page asking for
+it cannot take itself down. Cookie-admin, bearer refused, audited as
+`server.autostart.update` with `{from, to}`, and refused with 409 on the three
+machines where the question has no answer: nothing installed, the desktop app
+running this server, or a manager that would not say. Switching who runs the
+server at all still has no route, for the original reason — the dashboard
+offers a door into the desktop assistant instead.
+
+### The desktop app as supervisor
+
+Subshell Server can run the control plane as its own child instead of
+installing a launchd agent or systemd unit (spec 2026-09-12
+server-supervision). The server learns this from three environment variables
+the app sets on the child — `SUBSHELL_SUPERVISOR`, `SUBSHELL_SUPERVISOR_PID`,
+`SUBSHELL_SUPERVISOR_LOG` — and **believes the claim only when the named pid
+is genuinely its own parent** (`appSupervised`).
+
+Be exact about what that check is worth. The variables are a claim any process
+could make; parentage narrows a forged one to a shell that set them and exec'd
+the server itself. What a successful forgery buys is `restart.available: true`
+— an admin exiting the server into a parent that will not respawn it. That is
+an operator lying to themselves in variables they own, on a host they already
+control, and it is the same class as hand-editing config.env. Accepted, not
+defended against.
+
+The app earns the `paneSafety: "keeps"` it reports: its supervisor signals the
+main pid and never the process group, which is what `KillMode=process` and
+`AbandonProcessGroup=true` buy under the two managers. A person quitting the
+app stops the server and keeps every live pane.
+
 ## 12. Hardening checklist for a wider deployment
 
 If this is ever exposed beyond a trusted network, the posture in §0 no longer

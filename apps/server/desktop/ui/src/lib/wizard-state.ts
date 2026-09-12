@@ -299,6 +299,38 @@ export function setupRows(
 }
 
 /**
+ * The first `subshell-server` that understands `service enable|disable` and
+ * `service install --no-autostart` — i.e. the version this shipped in.
+ *
+ * The app may be driving an OLDER installed server: the ladder adopts a newer
+ * installed copy, and a machine set up before this release has one. Offering
+ * a login choice such a server will refuse would be a checkbox that silently
+ * does nothing, so the surfaces that depend on those verbs say why instead.
+ */
+export const MIN_AUTOSTART_SERVER_VERSION = "0.3.0";
+
+/** Whether the resolved server is new enough to control start-at-login. */
+export function autostartSupported(probe: Probe): boolean {
+  const found = probe.server?.version;
+  // Unknown version: assume capable rather than disable a working control on
+  // a version string we simply could not parse. The CLI's own refusal is the
+  // backstop, and it arrives with the manager's words.
+  if (!found) return true;
+  return !isOlder(found, MIN_AUTOSTART_SERVER_VERSION);
+}
+
+/** Numeric semver compare — `1.10.0` is newer than `1.9.0`, which a string compare denies. */
+function isOlder(a: string, b: string): boolean {
+  const parts = (v: string) => v.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
+}
+
+/**
  * The two boxes, as one value with the dependency between them enforced.
  *
  * "Start it at every login" is meaningless without a service to start, so

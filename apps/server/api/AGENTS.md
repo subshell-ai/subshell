@@ -350,6 +350,7 @@ exactly like `GET /api/admin/status`:
 | `GET /api/admin/server` | how this server is DEPLOYED, as against `admin/status`, which is what is HAPPENING on it: config.env saved-versus-running, the service manager's answer, the data locations, whether a self-restart is possible |
 | `PATCH /api/admin/server/config` | rewrite config.env through the CLI's own writer (below). `DATABASE_PATH` is deliberately absent — moving the database from a web page is a footgun with no undo |
 | `POST /api/admin/server/restart` | exit for the service manager to respawn |
+| `POST /api/admin/server/autostart` | arm or disarm start-at-login for the installed service. Inside the no-route rule rather than an exception to it: it touches nothing about the running process |
 | `GET /api/admin/server/logs` | the tail of the server's own log file |
 | `PUT /api/admin/server/logging` | the debug switch, applied live |
 
@@ -557,8 +558,9 @@ it, so never make a bare invocation mean anything else.
 | `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, plugin registry, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
 | `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
 | `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes` |
-| `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first) |
+| `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first). `--no-autostart` installs one that runs NOW but does not come back at login |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
+| `service enable` / `service disable` | arm or disarm start-at-login, WITHOUT touching the running process. Linux: `systemctl --user enable\|disable` with no `--now` — that flag is the whole difference between a preference and an outage. macOS: the plist MOVES (below) |
 | `service status` | what the MANAGER reports — run state, pid, starts-at-login, and whether a teardown keeps live panes; `--json` for scripts. Always exits 0: a view must not make a caller distinguish "not running" from "the call failed" |
 | `service start\|stop\|restart` | drive an already-installed service. Never installs one — `start` must not become a way to background a server whose config was never checked |
 | `mcp` | serve the pane-spawned stdio MCP server (the self rung of MCP resolution below); the one long-running command — spawned by harnesses, not typed by humans |
@@ -768,7 +770,34 @@ cannot see drop-ins under `subshell-server.service.d/`), `service restart`
 refuses on a host whose definition would kill panes (`--force` overrides),
 `service stop` warns and proceeds, and `service status` reports it as
 `teardown keeps panes`. Both destructive verbs fail CLOSED on an unreadable
-definition — `unknown` is not evidence of safety. macOS: launchd agent `dev.subshell.server` →
+definition — `unknown` is not evidence of safety.
+
+**On macOS "starts at login" is the plist's LOCATION, not a key inside it**
+(spec 2026-09-12 server-supervision), and both flag-shaped alternatives were
+measured and rejected — read this before "simplifying" it back to `RunAtLoad`:
+
+- `RunAtLoad=false` does not stop it. The plist carries `KeepAlive=true`,
+  which starts a job when it is LOADED regardless. Measured on macOS 26.6.2: a
+  throwaway agent with that exact pair reported `state = running, runs = 1`
+  two seconds after `bootstrap`, while the same agent without `KeepAlive`
+  reported `runs = 0`. Switching `KeepAlive` to its dictionary form to dodge
+  that would break restart-by-exit, which `performRestart` relies on.
+- `launchctl disable gui/<uid>/<label>` is worse: a disabled service refuses
+  `bootstrap`, so "running now but not at login" cannot be expressed at all —
+  and the mark lives in launchd's per-uid override database, survives
+  `service uninstall`, and makes the next fresh install fail with the generic
+  EIO `bootstrapDarwin` already has to apologise for.
+
+launchd auto-loads exactly `~/Library/LaunchAgents` at login, so **enabled =
+the plist is there; disabled = the same document lives in the config home**
+and only an explicit `bootstrap` (which `service start` does) loads it. Moving
+it restarts nothing — launchd holds the loaded job, not the file — which is
+what makes `enable`/`disable` safe for a running server. `queryService` reads
+`enabled` from WHERE the definition is, `uninstall` removes both locations,
+and the control verbs bootstrap `state.definitionPath` rather than assuming
+the login path.
+
+macOS: launchd agent `dev.subshell.server` →
 `~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log` (reported as
 `logPath` in `service status --json` — the desktop app reveals it rather than
 re-deriving the platform path; Linux reports `null` because the journal holds

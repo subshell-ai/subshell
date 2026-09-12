@@ -39,11 +39,13 @@ import * as ipc from "./lib/ipc";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
   applySupervisionChoice,
+  autostartSupported,
   canSetup,
   DEFAULT_SUPERVISION,
   dots,
   failureLine,
   isRequestedScreen,
+  MIN_AUTOSTART_SERVER_VERSION,
   prereqState,
   RESET_LABEL,
   type RecoveryActionKind,
@@ -378,10 +380,15 @@ function planRows(p: Probe): HTMLUListElement {
     question({
       id: "plan-autostart",
       label: "Start it at every login",
-      detail: supervision.background ? "" : "needs the box above",
-      checked: supervision.autostart,
-      // Nothing to start at login without a service to start.
-      disabled: !supervision.background || busy || running,
+      detail: !autostartSupported(p)
+        ? `needs subshell-server ${MIN_AUTOSTART_SERVER_VERSION}`
+        : supervision.background
+          ? ""
+          : "needs the box above",
+      checked: supervision.autostart && autostartSupported(p),
+      // Nothing to start at login without a service to start — and nothing to
+      // ask an older server, which has no verb for it.
+      disabled: !supervision.background || !autostartSupported(p) || busy || running,
       onChange: (next) => {
         supervision = applySupervisionChoice(supervision, { autostart: next });
         render();
@@ -696,13 +703,16 @@ function renderSupervision(p: Probe): void {
   const loginBox = document.createElement("input");
   loginBox.type = "checkbox";
   loginBox.id = "sup-login";
-  loginBox.checked = chosen.autostart;
-  loginBox.disabled = !chosen.background || busy || running;
+  loginBox.checked = chosen.autostart && autostartSupported(p);
+  loginBox.disabled = !chosen.background || !autostartSupported(p) || busy || running;
   loginBox.addEventListener("change", () => {
     supervisionForm = applySupervisionChoice(chosen, { autostart: loginBox.checked });
     render();
   });
   login.append(loginBox, text("span", "Start it at every login", "label"));
+  if (!autostartSupported(p)) {
+    login.append(text("span", `Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`, "hint"));
+  }
   content.append(login);
 
   content.append(

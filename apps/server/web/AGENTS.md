@@ -78,6 +78,23 @@ while switching the host back on is a manage act and appears only when the
 server says this viewer manages it. Both rules are pure exports
 (`hideMachineField`, `launchableNodes`) tested without opening a dropdown.
 
+**The Service page's one writable service preference is start-at-login.**
+`ServiceCard` carries a switch over `POST /api/admin/server/autostart`, and it
+is the only service control the SPA gets for the reason the others do not:
+arming login changes nothing about the running process, so the page asking
+cannot take itself down. It reads the server's own `service.enabled` and
+renders DISABLED with the reason in three cases that mirror the route's own
+409s — nothing installed, the desktop app running this server, or a manager
+that would not say — because a dead control with no explanation reads as a
+bug. `autostartDisabledReason` is a pure export, tested without a switch.
+
+Beside it, inside the desktop shell only, a DOOR: "Run with the app
+instead…" / "Run as a background service…" calls
+`desktop_open_assistant({ screen: "supervision" })`. Switching who runs the
+server installs or uninstalls a service, which leaves it unreachable — so the
+card names a screen and the assistant does the work, exactly as the reset card
+does.
+
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 Add-node dialog renders the install one-liner from `GET /api/settings/public →

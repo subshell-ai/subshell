@@ -4,11 +4,13 @@ import { join } from "node:path";
 import type { ActionResult, Probe } from "../lib/ipc";
 import {
   applySupervisionChoice,
+  autostartSupported,
   canSetup,
   DEFAULT_SUPERVISION,
   dots,
   failureLine,
   isRequestedScreen,
+  MIN_AUTOSTART_SERVER_VERSION,
   prereqState,
   REQUESTED_SCREENS,
   RESET_LABEL,
@@ -332,5 +334,39 @@ describe("setupRows follows the choice", () => {
   it("keeps its old meaning for every caller that passes no choice", () => {
     const probe = { ...virgin(), service: { installed: true } } as unknown as Probe;
     expect(serviceRow(probe)).toMatchObject({ label: "Background service", detail: "starts at login" });
+  });
+});
+
+/**
+ * An OLDER installed server has no `service enable|disable` (spec § 11).
+ *
+ * The app's ladder adopts a newer installed copy, so a machine set up before
+ * this release is driving one — and offering a login checkbox that server
+ * will refuse is a control that silently does nothing.
+ */
+describe("autostartSupported", () => {
+  it("refuses a server older than the verbs", () => {
+    expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: "0.2.0" } }))).toBe(false);
+    expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: "0.1.9" } }))).toBe(false);
+  });
+
+  it("accepts the version it shipped in, and anything after", () => {
+    for (const version of [MIN_AUTOSTART_SERVER_VERSION, "0.3.1", "1.0.0"]) {
+      expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version } }))).toBe(true);
+    }
+  });
+
+  it("compares numerically, so 0.10 is newer than 0.9", () => {
+    expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: "0.10.0" } }))).toBe(true);
+    // The string comparison this replaces would call "0.10.0" older than
+    // "0.3.0" and disable a control on a perfectly capable server.
+  });
+
+  it("assumes capable when there is no version to read", () => {
+    // A server whose version string would not parse is not evidence of an old
+    // one, and the CLI's own refusal — with the manager's words — is the
+    // backstop that makes optimism safe here.
+    expect(autostartSupported(virgin())).toBe(true);
+    expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: null } }))).toBe(true);
   });
 });

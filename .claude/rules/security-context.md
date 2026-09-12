@@ -75,6 +75,12 @@ together, and each is load-bearing:
 **Stop, start, install, uninstall and reset have no route, deliberately** —
 each leaves the server unreachable, so a page the server serves is the wrong
 place to drive them. They stay with the CLI and the desktop assistant.
+**`POST /api/admin/server/autostart` is inside that rule, not an exception**:
+arming or disarming start-at-login touches nothing about the running process
+(`systemctl --user enable|disable` without `--now`; on macOS the plist MOVES
+between `~/Library/LaunchAgents` and the config home, and the loaded job does
+not care), so the page asking for it cannot take itself down. Cookie-admin,
+audited `server.autostart.update`, 409 where the question has no answer.
 
 **Admin user management** (spec 2026-09-05): an admin may create users, assign
 roles (`PATCH /api/users/:id/role`) and **reset another user's password**
@@ -540,6 +546,16 @@ whatever CSP the plane sends.
   path already has. Bounded — single-use, 24 h, consumed by that enroll, and it
   confers only the right to register one node. The node key enroll returns is
   never surfaced: the CLI writes it 0600 and `enroll --json` omits it.
+- **Subshell Server can run the control plane as its OWN CHILD** instead of
+  installing a service (spec 2026-09-12 server-supervision), and the server
+  learns this from `SUBSHELL_SUPERVISOR*` in its environment — a claim it
+  believes only when the named pid is its actual parent. A forged claim needs
+  the forger to BE the parent, and buys only `restart.available: true`, i.e.
+  exiting into something that will not respawn: an operator lying to
+  themselves on a host they already control, accepted like a hand-edited
+  config.env. The supervisor signals the MAIN PID and never the process group,
+  which is what earns its `paneSafety: "keeps"` — quitting the app stops the
+  server and keeps every live pane.
 - **Enrolling twice is destructive**, so the node app spawns nothing until the
   caller confirms: `enroll` overwrites `config.json`, mints a SECOND node row on
   the control plane, and discards the previous node key whose only home was that
