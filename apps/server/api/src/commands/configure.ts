@@ -8,6 +8,7 @@ import {
   FLAG_FOR_KEY,
   isLoopbackUrl,
   normalizeTrustedOrigins,
+  OPTIONAL_KEYS,
   OWNED_KEYS,
   validateValue,
 } from "./config-values.js";
@@ -268,14 +269,185 @@ export function writeConfigEnv(dir: string, values: Record<string, string>): str
   return target;
 }
 
+/** What a caller wants changed; an absent field means "keep the stored value, or the built-in default". */
+export interface ApplyConfigInput {
+  /** `SERVER_PORT` as text (the CLI passes flag text; the route stringifies its number). */
+  port?: string;
+  /** `HOST`. */
+  host?: string;
+  /** `APP_BASE_URL`. */
+  baseUrl?: string;
+  /** `TRUSTED_ORIGINS`, comma-joined; the empty string CLEARS the key. */
+  trustedOrigins?: string;
+  /** `DATABASE_PATH` (CLI only; the route never sends it). */
+  dbPath?: string;
+}
+
+/** One key the caller asked to change whose stored value the write actually changed. */
+export interface ConfigChange {
+  /** The config.env key. */
+  key: ConfigKey;
+  /** What the file held before, or undefined when the key was absent. */
+  from: string | undefined;
+  /** What the file holds now, or undefined when the key was removed. */
+  to: string | undefined;
+}
+
+/** Outcome of {@link applyConfig}: the written file, or the first key that failed validation. */
+export type ApplyConfigResult =
+  | {
+      ok: true;
+      /** Absolute path written. */
+      path: string;
+      /** Every key in the file after the write (foreign keys included). */
+      values: Record<string, string>;
+      /** Advisory sentences the caller renders; never a refusal. */
+      warnings: string[];
+      /** The changes an audit log should record. */
+      changed: ConfigChange[];
+    }
+  | {
+      ok: false;
+      /** The key that failed. */
+      key: ConfigKey;
+      /** `validateValue`'s sentence, verbatim — the same one the CLI prints. */
+      reason: string;
+    };
+
+/** The body fields {@link ApplyConfigInput} carries, paired with the key each one writes. */
+const INPUT_FIELD_FOR_KEY = {
+  SERVER_PORT: "port",
+  HOST: "host",
+  APP_BASE_URL: "baseUrl",
+  DATABASE_PATH: "dbPath",
+  TRUSTED_ORIGINS: "trustedOrigins",
+} as const satisfies Record<ConfigKey, keyof ApplyConfigInput>;
+
+/**
+ * THE config.env writer: merge the input over the stored values (or the
+ * built-in defaults), validate every key with `validateValue`, canonicalize
+ * the origins, compute the two advisory warnings, and write the file
+ * atomically, carrying every key this tool does not own forward verbatim.
+ *
+ * Shared by `configure`/`init` and by `PATCH /api/admin/server/config`, so
+ * the CLI and the SPA cannot disagree about what a valid file is. No prompt,
+ * no exit, no output: the caller renders the result.
+ *
+ * A value BYTE-IDENTICAL to what is already stored is kept (with a warning)
+ * rather than refused — the CLI's long-standing leniency, so a hand-written
+ * wildcard in `TRUSTED_ORIGINS` does not wedge a port change. Only a CHANGED
+ * value has to satisfy the validator.
+ *
+ * `changed` reports only keys the CALLER named. A key the input omits is
+ * resolved from the file or the built-in default, so materializing it (an
+ * absent `HOST` becoming the `HOST=0.0.0.0` line it already meant) is not a
+ * change anyone made, and an audit log that claimed otherwise would describe
+ * a decision nobody took.
+ */
+export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyConfigResult {
+  let existing: Record<string, string>;
+  try {
+    existing = readExistingConfig(configDir);
+  } catch (err) {
+    return {
+      ok: false,
+      key: "SERVER_PORT",
+      reason: `refusing to rewrite ${join(configDir, "config.env")}: ${(err as Error).message}`,
+    };
+  }
+  const warnings: string[] = [];
+  /** Resolve + validate one key: given value, else the stored one, else the built-in. */
+  const pick = (
+    key: ConfigKey,
+    given: string | undefined,
+    builtin: string,
+  ): { ok: true; value: string } | { ok: false; reason: string } => {
+    const value = given === undefined ? (existing[key] ?? builtin) : given.trim();
+    const invalid = validateValue(key, value);
+    if (invalid === null) return { ok: true, value };
+    // Preserving what the boot already reads grants nothing new, and refusing
+    // it wedged every other key (see `runConfigure`'s own note).
+    if (existing[key] === value) {
+      warnings.push(
+        `${key} kept as found in ${join(configDir, "config.env")}: ${invalid}. ` +
+          `This tool will not write that value; pass ${FLAG_FOR_KEY[key]} to replace it.`,
+      );
+      return { ok: true, value };
+    }
+    return { ok: false, reason: invalid };
+  };
+
+  const port = pick("SERVER_PORT", input.port, "3080");
+  if (!port.ok) return { ok: false, key: "SERVER_PORT", reason: port.reason };
+  const host = pick("HOST", input.host, "0.0.0.0");
+  if (!host.ok) return { ok: false, key: "HOST", reason: host.reason };
+  const baseUrl = pick("APP_BASE_URL", input.baseUrl, `http://localhost:${port.value}`);
+  if (!baseUrl.ok) return { ok: false, key: "APP_BASE_URL", reason: baseUrl.reason };
+  const origins = pick("TRUSTED_ORIGINS", input.trustedOrigins, "");
+  if (!origins.ok) return { ok: false, key: "TRUSTED_ORIGINS", reason: origins.reason };
+  const dbPath = pick("DATABASE_PATH", input.dbPath, join(configDir, "subshell.db"));
+  if (!dbPath.ok) return { ok: false, key: "DATABASE_PATH", reason: dbPath.reason };
+
+  // The enroll-time loopback trap (spec 2026-08-31), warned at write time: a
+  // LAN bind with a loopback base URL makes every REMOTE node dial its own
+  // box. Warned, then accepted — flags and scripted answers outrank taste.
+  if (host.value === "0.0.0.0" && isLoopbackUrl(baseUrl.value)) {
+    warnings.push(
+      `HOST=0.0.0.0 (LAN bind) but APP_BASE_URL is loopback (${baseUrl.value}); remote nodes will dial ` +
+        "their OWN machine, not this server. Set a reachable APP_BASE_URL (e.g. http://<lan-ip>:" +
+        `${port.value}) unless every node is this box.`,
+    );
+  }
+  // The other half of the same trap: a stored base URL naming a port the
+  // server will not listen on is the exact 403 "Invalid origin" this key
+  // exists to prevent. A default-port base URL is a proxy, not a mismatch.
+  const dialPort = baseUrlPort(baseUrl.value);
+  if (dialPort !== null && dialPort !== 80 && dialPort !== 443 && String(dialPort) !== port.value) {
+    warnings.push(
+      `APP_BASE_URL is ${baseUrl.value} but the server will listen on ${port.value}; unless a proxy or an ` +
+        `SSH forward on this host maps port ${dialPort} to ${port.value}, a browser dialing ${dialPort} reaches ` +
+        `nothing, and one dialing ${port.value} sends an origin this instance does not trust (403 "Invalid ` +
+        `origin"). Set --base-url to the address you actually browse, or add it to --trusted-origins.`,
+    );
+  }
+
+  const values: Record<string, string> = {
+    ...existing,
+    SERVER_PORT: port.value,
+    HOST: host.value,
+    APP_BASE_URL: baseUrl.value,
+    DATABASE_PATH: dbPath.value,
+  };
+  // Present-or-absent, never present-and-empty (see OPTIONAL_KEYS): an empty
+  // value beats `.env` in the precedence ladder and silently strips the
+  // built-in dev origins, which is the footgun this key exists to avoid.
+  const normalizedOrigins = normalizeTrustedOrigins(origins.value);
+  if (normalizedOrigins === "") delete values.TRUSTED_ORIGINS;
+  else values.TRUSTED_ORIGINS = normalizedOrigins;
+
+  const changed: ConfigChange[] = [];
+  for (const key of [...OWNED_KEYS, ...OPTIONAL_KEYS] as ConfigKey[]) {
+    if (input[INPUT_FIELD_FOR_KEY[key]] === undefined) continue;
+    if (existing[key] !== values[key]) changed.push({ key, from: existing[key], to: values[key] });
+  }
+  const path = writeConfigEnv(configDir, values);
+  return { ok: true, path, values, warnings, changed };
+}
+
 /**
  * Run the configure flow: tmux preflight → read the existing config.env (an
  * unreadable one is refused BEFORE any question is spent) → resolve each
- * answer (flag > prompt under TTY-and-no-`--yes` > default) with immediate
- * per-answer validation → address warnings (loopback base URL on a LAN bind;
- * a base URL naming a port the server will not listen on) → atomic
- * preservation-preserving rewrite of config.env. NOTHING is written before
- * the last validation passes.
+ * answer (flag > prompt under TTY-and-no-`--yes` > default) → hand the five
+ * answers to {@link applyConfig}, which validates them, computes the address
+ * warnings and performs the atomic preservation-preserving rewrite. NOTHING
+ * is written before every value validates.
+ *
+ * Validation moved into `applyConfig` when the SPA's `PATCH
+ * /api/admin/server/config` became a second caller: one writer is what keeps
+ * the two from disagreeing about what a valid file is. The visible
+ * consequence is ordering — an invalid interactive answer is now reported
+ * after the last question rather than at the prompt that produced it. The
+ * messages are unchanged.
  *
  * Defaults are the CURRENT stored values in EVERY mode, falling back to the
  * built-ins per key when the file has none — see `dflt` below for why
@@ -335,51 +507,22 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     return trimmed === "" ? def : trimmed;
   };
   /**
-   * Resolve + validate one owned key. Null means "aborted": the reason is
-   * already on stderr (EOF notice or the validation message) and the caller
-   * returns 1 — every question is validated the moment it is answered, so an
-   * interactive typo dies at that prompt, never after collecting the rest.
+   * Resolve one owned key. Null means "aborted on EOF": the notice is already
+   * on stderr and the caller returns 1. Validation happens later, once, in
+   * {@link applyConfig}.
    */
-  const resolve = (key: ConfigKey, question: string, def: string, flag: string | undefined): string | null => {
+  const resolve = (question: string, def: string, flag: string | undefined): string | null => {
     const value = ask(question, def, flag);
     if (value === null) {
       deps.error("stdin closed before all answers were given. Nothing was written.");
       return null;
     }
-    const invalid = validateValue(key, value);
-    if (invalid) {
-      // A value BYTE-IDENTICAL to what is already stored is preserved, not
-      // refused, because preserving what the boot already reads grants
-      // nothing new — and refusing it wedged the whole command.
-      //
-      // The reachable case was the documented escape hatch: `docs/security.md`
-      // says an env var or a hand-edit bypasses this validator, so a wildcard
-      // (which better-auth genuinely honours) can be in config.env. But the
-      // desktop console seeds stored values and sends EVERY field on save, so
-      // changing the port re-sent the stored wildcard, this refused it, and the
-      // console could never save again — with nothing on the page explaining
-      // it, since `status` is deliberately silent about wildcards. The same
-      // shape blocked a hand-written unusable APP_BASE_URL.
-      //
-      // Only a CHANGED value has to satisfy the validator, so this is not an
-      // escape: a newly typed wildcard is still refused.
-      if (existing[key] === value) {
-        deps.log(
-          `warning: ${key} kept as found in ${join(deps.configDir, "config.env")}: ${invalid}. ` +
-            `This tool will not write that value; pass ${FLAG_FOR_KEY[key]} to replace it.`,
-        );
-        return value;
-      }
-      deps.error(invalid);
-      return null;
-    }
     return value;
   };
 
-  const port = resolve("SERVER_PORT", "Server port", dflt("SERVER_PORT", "3080"), opts.port);
+  const port = resolve("Server port", dflt("SERVER_PORT", "3080"), opts.port);
   if (port === null) return 1;
   const host = resolve(
-    "HOST",
     "Bind address. 0.0.0.0 serves the LAN (what remote nodes and devices need); type 127.0.0.1 to stay loopback-only",
     dflt("HOST", "0.0.0.0"),
     opts.host,
@@ -389,7 +532,6 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   // from SERVER_PORT at boot too — mirrors each other) unless the file stores
   // one — then the stored URL is the default, unchanged.
   const baseUrl = resolve(
-    "APP_BASE_URL",
     "Public base URL (browsers and remote nodes dial this)",
     dflt("APP_BASE_URL", `http://localhost:${port}`),
     opts.baseUrl,
@@ -415,69 +557,31 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     storedOrigins === ""
       ? "Other addresses browsers will use (comma-separated origins; blank for none)"
       : 'Other addresses browsers will use (comma-separated origins; ENTER keeps the list shown, `--trusted-origins ""` clears it)';
-  const trustedOrigins = resolve("TRUSTED_ORIGINS", originsQuestion, storedOrigins, opts.trustedOrigins);
+  const trustedOrigins = resolve(originsQuestion, storedOrigins, opts.trustedOrigins);
   if (trustedOrigins === null) return 1;
   const dbPath = resolve(
-    "DATABASE_PATH",
     "SQLite database file",
     dflt("DATABASE_PATH", join(deps.configDir, "subshell.db")),
     opts.dbPath,
   );
   if (dbPath === null) return 1;
 
-  // The enroll-time loopback trap (spec 2026-08-31), warned at write time:
-  // a LAN bind with a loopback base URL makes every REMOTE node dial its own
-  // box. Warned, then accepted — flags and scripted answers outrank taste.
-  if (host === "0.0.0.0" && isLoopbackUrl(baseUrl)) {
-    deps.log(
-      `warning: HOST=0.0.0.0 (LAN bind) but APP_BASE_URL is loopback (${baseUrl}); remote nodes will dial ` +
-        "their OWN machine, not this server. Set a reachable APP_BASE_URL (e.g. http://<lan-ip>:" +
-        `${port}) unless every node is this box.`,
-    );
+  // ONE writer, shared with `PATCH /api/admin/server/config`: it validates
+  // every answer, computes the two address warnings, and performs the atomic
+  // preservation-preserving rewrite. Every answer is passed EXPLICITLY, even
+  // one that equals the stored default, so the flow's own "defaults follow
+  // the file" resolution is what decides the values, not applyConfig's.
+  const result = applyConfig({ port, host, baseUrl, trustedOrigins, dbPath }, deps.configDir);
+  if (!result.ok) {
+    deps.error(result.reason);
+    return 1;
   }
-
-  // The other half of the same trap, and a consequence of defaults now
-  // following the file: `--yes --port 4000` KEEPS a stored
-  // `http://box.local:3080` (correctly — it is not ours to rewrite), but that
-  // URL now names a dead port, so the derived allowlist covers `:4000`
-  // loopback and `box.local:3080` and browsing `box.local:4000` gets the exact
-  // 403 this key exists to prevent. An interactive run shows the stored URL as
-  // an editable default and the desktop form shows both fields; a scripted run
-  // is the one path where nothing would say it. A default-port base URL is a
-  // proxy, not a mismatch — see baseUrlPort.
-  const dialPort = baseUrlPort(baseUrl);
-  if (dialPort !== null && dialPort !== 80 && dialPort !== 443 && String(dialPort) !== port) {
-    deps.log(
-      `warning: APP_BASE_URL is ${baseUrl} but the server will listen on ${port}; unless a proxy or an ` +
-        `SSH forward on this host maps port ${dialPort} to ${port}, a browser dialing ${dialPort} reaches ` +
-        `nothing, and one dialing ${port} sends an origin this instance does not trust (403 "Invalid ` +
-        `origin"). Set --base-url to the address you actually browse, or add it to --trusted-origins.`,
-    );
-  }
-
-  const values: Record<string, string> = {
-    ...existing,
-    SERVER_PORT: port,
-    HOST: host,
-    APP_BASE_URL: baseUrl,
-    DATABASE_PATH: dbPath,
-  };
-  // Present-or-absent, never present-and-empty (see OPTIONAL_KEYS). The delete
-  // is what makes "clear the extras" expressible at all: with the stored value
-  // as every default, omitting the flag PRESERVES the list, so an empty answer
-  // has to be the way to say "drop it".
-  const normalizedOrigins = normalizeTrustedOrigins(trustedOrigins);
-  if (normalizedOrigins === "") {
-    delete values.TRUSTED_ORIGINS;
-  } else {
-    values.TRUSTED_ORIGINS = normalizedOrigins;
-  }
-  const target = writeConfigEnv(deps.configDir, values);
-  deps.log(`wrote ${target} (0600)`);
-  for (const key of OWNED_KEYS) deps.log(`  ${key} = ${values[key]}`);
+  for (const warning of result.warnings) deps.log(`warning: ${warning}`);
+  deps.log(`wrote ${result.path} (0600)`);
+  for (const key of OWNED_KEYS) deps.log(`  ${key} = ${result.values[key]}`);
   // Only when set: a line reading `TRUSTED_ORIGINS = ` invites the reader to
   // think an empty list was written, which is the one thing that never happens.
-  if (values.TRUSTED_ORIGINS) deps.log(`  TRUSTED_ORIGINS = ${values.TRUSTED_ORIGINS}`);
+  if (result.values.TRUSTED_ORIGINS) deps.log(`  TRUSTED_ORIGINS = ${result.values.TRUSTED_ORIGINS}`);
   deps.log("restart the server (or start it with: subshell-server) to apply.");
   return 0;
 }
