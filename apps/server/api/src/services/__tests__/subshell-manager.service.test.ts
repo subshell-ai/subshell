@@ -25,6 +25,7 @@ import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
+import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
@@ -75,6 +76,21 @@ beforeAll(async () => {
   // back alive — so this file passed only when some earlier file happened to
   // migrate the shared db first, and failed whenever it ran alone.
   await runMigrations();
+
+  // …and seed the instance plugin store, for the SAME reason one line up.
+  // `harnessUsable` is (installed ∧ enabled ∧ detected), and an instance with
+  // no plugins installed has every harness unusable — correct behaviour, and
+  // almost never what a test means. Production seeds this at boot; the route
+  // suites get it through `setupAuthTables`, and this file got it only when
+  // one of them happened to run first. That is why the auto-restart case
+  // passed in a full run and failed whenever this file ran alone: the restart
+  // gate deferred on an unusable harness and the row stayed parked.
+  //
+  // `prepareLocalPlugins` rather than the route suites' `seedLocalPluginsForTests`,
+  // which also calls `ensureLocalNode` and so needs better-auth's own tables.
+  // This file migrates the app schema only, and the plugin store is the whole
+  // of what the gate reads.
+  await prepareLocalPlugins();
 
   // Hermetic harness. These tests used to resolve the real `claude` binary off
   // the host, so they passed on a developer machine and failed anywhere without
