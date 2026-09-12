@@ -6,7 +6,9 @@ import {
   canSetup,
   dots,
   failureLine,
+  isRequestedScreen,
   prereqState,
+  REQUESTED_SCREENS,
   RESET_LABEL,
   recoveryAction,
   recoveryTitle,
@@ -214,4 +216,43 @@ describe("prereqState", () => {
   it("found when tmux answers", () => expect(prereqState(virgin(WITH_TMUX))).toBe("found"));
   it("install where a plan exists", () => expect(prereqState(virgin({ hasBrew: true }))).toBe("install"));
   it("manual on a Mac without Homebrew", () => expect(prereqState(virgin({ hasBrew: false }))).toBe("manual"));
+});
+
+/**
+ * The bug this pins (2026-09-12): pressing "Reset this machine" on the
+ * dashboard opened the assistant, which said "Opening your dashboard…" and
+ * closed itself again.
+ *
+ * `screensFor` empties on a READY machine in either family, and the page
+ * reads an empty list as "hand off to the dashboard and step back". Both
+ * screens that are entered BY REQUEST render over a ready machine — Update
+ * deep-links onto a running server, Reset is asked for from that server's own
+ * dashboard — so the requested screen has to outrank the empty list. The page
+ * had that rule for `update` alone, hard-coded at its one call site.
+ */
+describe("screens entered by request", () => {
+  it("names both of them, and neither is ever in a probe's list", () => {
+    expect([...REQUESTED_SCREENS].sort()).toEqual(["reset", "update"]);
+    const ready = virgin({ next: "ready", onboarded: true });
+    for (const requested of REQUESTED_SCREENS) {
+      expect(screensFor(ready, true)).not.toContain(requested);
+      expect(screensFor(virgin(), false)).not.toContain(requested);
+    }
+  });
+
+  it("outranks the ready handoff, which is the whole point", () => {
+    const ready = virgin({ next: "ready", onboarded: true });
+    // The list is empty, so nothing but this answer stands between a
+    // requested screen and the window closing itself.
+    expect(screensFor(ready, true)).toEqual([]);
+    expect(isRequestedScreen("reset")).toBe(true);
+    expect(isRequestedScreen("update")).toBe(true);
+  });
+
+  it("lets every probe-implied screen through", () => {
+    for (const implied of ["welcome", "tmux", "setup", "recovery"] as const) {
+      expect(isRequestedScreen(implied)).toBe(false);
+    }
+    expect(isRequestedScreen(null)).toBe(false);
+  });
 });

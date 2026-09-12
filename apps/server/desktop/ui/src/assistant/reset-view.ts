@@ -219,11 +219,25 @@ export function createResetView(host: AssistantHost): ResetView {
     render,
     hide,
     async open(): Promise<void> {
-      // `await` then show regardless: a refused or failed arming must still
-      // raise the screen, because the screen is what explains the refusal
-      // (`render`'s `why`).
-      armingProblem = await armReset();
+      // SHOW FIRST, then arm. The screen is open from the moment it was
+      // asked for, and the plan is content that arrives after.
+      //
+      // Arming is an IPC round trip that spawns the server CLI, and this
+      // used to `await` it before flipping `open` — so `isOpen()` answered
+      // FALSE for a few hundred milliseconds after the screen had been
+      // requested. The page's own boot (`await refresh(); render()`) resolves
+      // inside that window, sees a ready machine with no screens left, and
+      // hands off: "Opening your dashboard…", dashboard opened, assistant
+      // closed. Measured on 2026-09-12 by pressing Reset on the dashboard.
+      //
+      // Nothing is lost by showing early. A refused arming still explains
+      // itself (`render`'s `why`) the moment it answers, and the run button
+      // RE-ARMS on every press, so a plan staged here was never a
+      // precondition for the screen being correct — only for it being able
+      // to say "no" sooner.
       show();
+      armingProblem = await armReset();
+      render();
     },
   };
 }

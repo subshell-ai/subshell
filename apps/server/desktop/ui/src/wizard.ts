@@ -41,6 +41,7 @@ import {
   canSetup,
   dots,
   failureLine,
+  isRequestedScreen,
   prereqState,
   RESET_LABEL,
   type RecoveryActionKind,
@@ -784,13 +785,21 @@ function render(): void {
     return;
   }
   const p = probe;
-  // A REQUESTED screen outranks the probe's own family. The SPA's Update card
-  // deep-links here on a machine whose server is running, and the ready
-  // handoff below would otherwise send the window straight back to the
-  // dashboard it was just asked to leave.
-  if (screen === "update") {
+  // A REQUESTED screen outranks the probe's own family — BOTH of them, which
+  // is the rule `isRequestedScreen` states beside the `screensFor` that
+  // explains why neither is ever in a probe's list. The SPA deep-links here on
+  // a machine whose server is running (Update from its card, Reset from its
+  // danger card), and the ready handoff below would otherwise send the window
+  // straight back to the dashboard it was just asked to leave.
+  //
+  // `update` draws itself here. `reset` does not: its screen replaces the
+  // frame from `resetView` at the top of this function, and it raises itself
+  // ASYNCHRONOUSLY — so between the request and `open()` flipping `isOpen()`,
+  // returning here is the only thing standing between this window and the
+  // handoff.
+  if (isRequestedScreen(screen)) {
     renderDots();
-    renderUpdate(p);
+    if (screen === "update") renderUpdate(p);
     return;
   }
   const list = screensFor(p, p.onboarded);

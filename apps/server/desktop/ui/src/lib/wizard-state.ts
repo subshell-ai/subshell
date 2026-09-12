@@ -105,6 +105,26 @@ export function prereqState(probe: Probe): PrereqState {
  * which is what lets them appear over a first run as readily as over a
  * recovery without either family having to name them.
  */
+export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset"];
+
+/**
+ * Whether this screen was asked for rather than implied by the probe.
+ *
+ * The page must let a requested screen OUTRANK an empty {@link screensFor},
+ * and that is not a nicety: an empty list means "ready", which the page reads
+ * as "open the dashboard and step this window back". Both requested screens
+ * render over a ready machine by definition — Update deep-links onto a running
+ * server, and Reset is asked for from that server's own dashboard — so without
+ * this the window closes itself the moment the probe answers.
+ *
+ * Measured on 2026-09-12: pressing "Reset this machine" opened the assistant,
+ * which said "Opening your dashboard…" and vanished. The page had this rule
+ * for `update` alone, written at its one call site, so `reset` never got it.
+ */
+export function isRequestedScreen(screen: ScreenId | null): boolean {
+  return screen !== null && REQUESTED_SCREENS.includes(screen);
+}
+
 export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
   if (probe.next === "ready") return [];
   if (!onboarded) return FIRST_RUN.filter((s) => s !== "tmux" || probe.tmux === null);
