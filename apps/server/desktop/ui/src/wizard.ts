@@ -57,6 +57,7 @@ import {
   screenForRequest,
   screensFor,
   setupRows,
+  supervisionModeRequested,
 } from "./lib/wizard-state";
 import "./styles.css";
 
@@ -120,6 +121,12 @@ let supervision: SupervisionChoice = DEFAULT_SUPERVISION;
  * the screen is left, so it always opens showing the machine's real state.
  */
 let supervisionForm: SupervisionChoice | null = null;
+/**
+ * The mode the DASHBOARD already chose, when this screen was opened to
+ * confirm one rather than to ask. `null` on the recovery route, which has no
+ * dashboard to have chosen in.
+ */
+let supervisionAsked: "app" | "service" | null = null;
 let seeded = false;
 
 // ---------------------------------------------------------------------------
@@ -221,6 +228,7 @@ const host: AssistantHost = {
     // A pending selection belongs to one visit: leaving and coming back must
     // show the machine's real state, not what someone half-chose last time.
     supervisionForm = null;
+    supervisionAsked = null;
     screen = null;
     render();
   },
@@ -645,6 +653,74 @@ function renderUpdate(p: Probe): void {
 }
 
 /**
+ * The same screen when the dashboard already chose — a confirmation, not a
+ * second asking.
+ *
+ * It lists what the switch DOES rather than restating the options, because
+ * the person has just read those on the Service page and picking twice is the
+ * thing this variant exists to avoid. The consequences are worth naming
+ * explicitly: one of them ends the server when the app quits, and one of them
+ * is that running subshells survive either way — which is the question anyone
+ * hesitating here is actually asking.
+ */
+function renderSupervisionConfirm(p: Probe, mode: "app" | "service"): void {
+  const toApp = mode === "app";
+  setFrame(
+    "server",
+    toApp ? "Run With This App?" : "Run in the Background?",
+    toApp
+      ? "The server will live as long as Subshell Server does."
+      : "The server will run whether or not this app is open.",
+  );
+  const content = el("content");
+  const list = document.createElement("ul");
+  list.className = "consequences";
+  const lines = toApp
+    ? [
+        p.platform === "darwin" ? "Removes the launchd agent" : "Removes the systemd user service",
+        "Starts the server inside Subshell Server",
+        "Quitting the app will stop the server",
+        "Running subshells keep running",
+      ]
+    : [
+        "Stops the server this app is running",
+        p.platform === "darwin"
+          ? "Installs a launchd agent and starts it"
+          : "Installs a systemd user service and starts it",
+        supervisionForm?.autostart === false ? "Will NOT start at login" : "Starts it again at every login",
+        "Running subshells keep running",
+      ];
+  for (const line of lines) {
+    const li = document.createElement("li");
+    li.textContent = line;
+    list.append(li);
+  }
+  content.append(list);
+  if (lastResult && !lastResult.ok) {
+    const box = document.createElement("pre");
+    box.className = "pane-pre";
+    if (renderOutput(box, lastResult)) content.append(box);
+  }
+  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-right").append(
+    button(
+      toApp ? "Run With This App" : "Run in the Background",
+      () =>
+        void act(async () => {
+          // The login answer is the dashboard's too: it sends the mode, and
+          // the box it showed nested under it rides in `supervisionForm`.
+          const autostart = supervisionForm?.autostart ?? true;
+          const result = await ipc.setSupervision(mode === "app" ? "app" : "service", autostart);
+          if (result.ok) host.close();
+          return result;
+        }, true),
+      "primary",
+      busy || running,
+    ),
+  );
+}
+
+/**
  * **How Your Server Runs** — the screen behind the dashboard's door.
  *
  * Reached by request (the SPA's Service card names this screen; the recovery
@@ -657,6 +733,10 @@ function renderUpdate(p: Probe): void {
  * page may not drive.
  */
 function renderSupervision(p: Probe): void {
+  if (supervisionAsked !== null) {
+    renderSupervisionConfirm(p, supervisionAsked);
+    return;
+  }
   setFrame("server", "How Your Server Runs", "Change who starts it, and when.");
   const content = el("content");
   const chosen = supervisionForm ?? {
@@ -1149,6 +1229,9 @@ function applyScreen(payload: string): void {
   // this is its other exit: the sidebar pill, an Update request or a Reset
   // request all land here while that screen may be showing.
   supervisionForm = null;
+  // A request that already carries a mode turns this screen into a
+  // confirmation of that mode; one that does not leaves it asking.
+  supervisionAsked = supervisionModeRequested(payload);
   screen = screenForRequest(payload);
   // A reset returns this page to a machine with nothing set up, so the
   // handoff guard has to be released or a later ready probe renders nothing.

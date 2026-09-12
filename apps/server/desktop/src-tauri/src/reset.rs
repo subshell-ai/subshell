@@ -52,8 +52,18 @@ pub enum Screen {
     Reset,
     /// The bundled server is newer than the installed one (spec § 5.3).
     Update,
-    /// Who runs the server here, and whether it starts at login.
+    /// Who runs the server here, and whether it starts at login — ASKED.
+    /// Reached from recovery, where there is no dashboard to have chosen in.
     Supervision,
+    /// The same screen, CONFIRMING a mode the dashboard already picked.
+    ///
+    /// Two more members rather than an argument, because the rule for this
+    /// boundary is that a served page names a member of a closed set and
+    /// nothing else. A mode is part of what is being named, not a parameter
+    /// smuggled beside it — and the alternative, asking again in the
+    /// assistant, puts the same question to a person twice.
+    SupervisionApp,
+    SupervisionService,
 }
 
 impl Screen {
@@ -63,17 +73,21 @@ impl Screen {
             Screen::Reset => "reset",
             Screen::Update => "update",
             Screen::Supervision => "supervision",
+            Screen::SupervisionApp => "supervision-app",
+            Screen::SupervisionService => "supervision-service",
         }
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Three accepted words;
+/// Parse the (untrusted, optional) `screen` argument. Five accepted words;
 /// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
         Some("reset") => Screen::Reset,
         Some("update") => Screen::Update,
         Some("supervision") => Screen::Supervision,
+        Some("supervision-app") => Screen::SupervisionApp,
+        Some("supervision-service") => Screen::SupervisionService,
         _ => Screen::Home,
     }
 }

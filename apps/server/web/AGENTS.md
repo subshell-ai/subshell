@@ -78,22 +78,36 @@ while switching the host back on is a manage act and appears only when the
 server says this viewer manages it. Both rules are pure exports
 (`hideMachineField`, `launchableNodes`) tested without opening a dropdown.
 
-**The Service page's one writable service preference is start-at-login.**
-`ServiceCard` carries a switch over `POST /api/admin/server/autostart`, and it
-is the only service control the SPA gets for the reason the others do not:
-arming login changes nothing about the running process, so the page asking
-cannot take itself down. It reads the server's own `service.enabled` and
-renders DISABLED with the reason in three cases that mirror the route's own
-409s — nothing installed, the desktop app running this server, or a manager
-that would not say — because a dead control with no explanation reads as a
-bug. `autostartDisabledReason` is a pure export, tested without a switch.
+**Two cards, because they are two kinds of thing.** `ServiceCard` is about the
+running PROCESS — who supervises it, since when, and Restart. `SupervisionCard`
+is about the MACHINE: which of the two modes it is in, and the start-at-login
+box nested under the one that owns it. They were one card, and it read wrong —
+"Restart server" and "change what supervises this machine from now on" sat as
+sibling buttons, the second a bare "Run with the app instead…" that named no
+alternative and explained nothing.
 
-Beside it, inside the desktop shell only, a DOOR: "Run with the app
-instead…" / "Run as a background service…" calls
-`desktop_open_assistant({ screen: "supervision" })`. Switching who runs the
-server installs or uninstalls a service, which leaves it unreachable — so the
-card names a screen and the assistant does the work, exactly as the reset card
-does.
+`SupervisionCard` shows **both modes in every client**, current one marked. A
+browser on the LAN and a phone cannot change it — the radios render disabled
+with a line naming where it is changed — but they now learn what the machine
+is doing, which the old card never told anyone. The door appears only once a
+DIFFERENT mode is picked, so it names what it will do rather than standing
+there as a verb.
+
+**The act cannot be a route, and the reason is specific rather than the usual
+one.** Switching needs an actor that outlives the server: going to app mode
+uninstalls the service (stopping the server) and the desktop app is what must
+then start it; going back means installing a service while the process holding
+the port IS this page's server. So the card carries the choice and
+`desktop_open_assistant({ screen: "supervision-app" | "supervision-service" })`
+carries the act — a closed word, the way the reset card names one, with the
+MODE inside the word so the assistant confirms rather than asking the same
+question twice.
+
+Start-at-login itself IS a route (`POST /api/admin/server/autostart`) because
+it changes nothing about the running process. `loginDisabledReason` mirrors
+that route's three 409s — nothing installed, the app running this server, a
+manager that would not say — as a pure export, so the UI never offers what the
+server will refuse.
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the

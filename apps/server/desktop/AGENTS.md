@@ -131,7 +131,8 @@ that list; there is no third place to forget.
 
 **Update Server**, **Reset** and **How Your Server Runs** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update` | `supervision`) — which is what lets either
+`reset::Screen` enum (`home` | `reset` | `update` | `supervision` |
+`supervision-app` | `supervision-service`) — which is what lets either
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
@@ -721,8 +722,10 @@ that touches the CLI, the config, the service or the filesystem is reachable
 from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
 `screen` argument, and the SPA sends it from exactly four places: the
 Settings danger card (`{ screen: "reset" }`), the Service page's Update card
-(`{ screen: "update" }`), the Service card's supervision door
-(`{ screen: "supervision" }`) and the sidebar pill (no argument). It names a SCREEN
+(`{ screen: "update" }`), the supervision card's door
+(`{ screen: "supervision-app" }` or `{ screen: "supervision-service" }`, the
+MODE inside the word so the assistant confirms rather than asking again) and
+the sidebar pill (no argument). It names a SCREEN
 and never a command — raising `update` performs one read-only probe, arming
 `reset` performs one `status --json` the watch already runs on its own timer,
 and every verb behind either needs a press inside the bundled page.

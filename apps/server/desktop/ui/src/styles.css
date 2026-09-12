@@ -879,6 +879,27 @@
     color: var(--color-muted);
     cursor: default;
   }
+  /* What a confirmed switch will do — a plain list, because the person has
+     already chosen and this is the consequences rather than the question. */
+  .consequences {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .consequences li {
+    position: relative;
+    padding-left: 20px;
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+  .consequences li::before {
+    content: "•";
+    position: absolute;
+    left: 4px;
+    color: var(--color-muted);
+  }
   /* The supervision screen's two mode choices. A radio in its own column so
      the description under each title hangs off the title rather than the
      control, which is what makes two multi-line options readable as a pair. */

@@ -5,6 +5,7 @@ import { AddressesCard } from "@/components/service/addresses-card";
 import { LocationsCard } from "@/components/service/locations-card";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
+import { SupervisionCard } from "@/components/service/supervision-card";
 import { UpdateCard } from "@/components/service/update-card";
 import { Button } from "@/components/ui/button";
 import { useAdminStatus } from "@/hooks/use-admin-status";
@@ -79,7 +80,8 @@ function ServicePage() {
           <UpdateCard serverVersion={publicSettings?.serverVersion} />
           {view && (
             <>
-              <ServiceCard view={view} restart={restart} autostart={autostart} bootedAt={status?.runtime.bootedAt} />
+              <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />
+              <SupervisionCard view={view} autostart={autostart} />
               <AddressesCard view={view} restart={restart} />
               <LocationsCard view={view} />
               <ServerLogCard view={view} enabled={isAdmin} />
