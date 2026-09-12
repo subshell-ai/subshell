@@ -1,6 +1,9 @@
 import { Elysia } from "elysia";
 import { getServerRoute } from "@/api/admin-server/get-server.route.js";
+import { loggingRoute } from "@/api/admin-server/logging.route.js";
+import { logsRoute } from "@/api/admin-server/logs.route.js";
 import { patchConfigRoute } from "@/api/admin-server/patch-config.route.js";
+import { restartRoute } from "@/api/admin-server/restart.route.js";
 
 /**
  * `/api/admin/server` — the server's view of, and levers on, its own
@@ -8,4 +11,9 @@ import { patchConfigRoute } from "@/api/admin-server/patch-config.route.js";
  * `api/channels/` convention); this file is wiring only, never a second place
  * a route's shape is stated.
  */
-export const adminServerRoutes = new Elysia({ prefix: "/api/admin/server" }).use(getServerRoute).use(patchConfigRoute);
+export const adminServerRoutes = new Elysia({ prefix: "/api/admin/server" })
+  .use(getServerRoute)
+  .use(patchConfigRoute)
+  .use(restartRoute)
+  .use(logsRoute)
+  .use(loggingRoute);
