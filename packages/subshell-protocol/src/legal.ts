@@ -39,6 +39,9 @@ export const LICENSE_EXCEPTION_SUMMARY =
 /** Where the full text lives. */
 export const LICENSE_URL = "https://github.com/subshell-ai/subshell/blob/main/LICENSE";
 
+/** The product's own site — what a person means by "Subshell's website". */
+export const PRODUCT_URL = "https://subshell.sh";
+
 /** The copyright holder's own site. */
 export const COMPANY_URL = "https://disaresta.com";
 

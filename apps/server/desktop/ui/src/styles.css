@@ -543,6 +543,80 @@
     color: var(--color-fg);
     border: none;
   }
+  /* About is a title page, so it is the one section that centres. Everything
+     else here is a control surface where the left edge is what the eye scans;
+     an About box has nothing to scan, which is why every desktop app centres
+     one. It also does NOT stretch: `.content > section { flex: 1 }` would
+     otherwise leave the column glued to the top of a tall window. */
+  .about {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    flex: 0 0 auto;
+    padding: 28px 0 8px;
+  }
+  /* The one place the product's own logo is shown at a size meant to be
+     looked at; the sidebar's copy is 22px of chrome. */
+  .about-mark {
+    height: 52px;
+    width: auto;
+  }
+  .about-name {
+    margin: 22px 0 0;
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .about-version {
+    margin: 5px 0 0;
+    font-size: 13.5px;
+    color: var(--color-muted);
+  }
+  /* Wide enough to hold the sentence on one line at the default window, and
+     `balance` so the two lines it becomes at the 720px minimum are even rather
+     than leaving one word alone underneath. Unsupported engines ignore the
+     property and wrap normally. */
+  .about-lead {
+    margin: 16px 0 0;
+    max-width: 68ch;
+    font-size: 14.5px;
+    color: var(--color-muted);
+    text-wrap: balance;
+  }
+  /* One row of names, not a stack of URLs: three addresses side by side are
+     unreadable at any width, and here the address is a means rather than the
+     content. */
+  .about-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0 8px;
+    margin: 18px 0 0;
+  }
+  /* A single class declared AFTER `.linkish`, not `.about-links .linkish` —
+     same specificity, later wins, and the descendant form would have been a
+     higher-specificity rule sitting above the one it overrides. The `.hint` /
+     `.warn-text` pair above keeps the same discipline for the same reason. */
+  .about-link {
+    padding: 0;
+    color: var(--color-fg);
+  }
+  .about-sep {
+    color: var(--color-line);
+  }
+  .about-license {
+    margin: 22px 0 0;
+    font-size: 13px;
+    color: var(--color-muted);
+  }
+  .about-copyright {
+    margin: 6px 0 0;
+    font-size: 12.5px;
+    color: var(--color-muted);
+  }
+
   /* Dots: not interactive (aria-hidden; an sr-only "Step N of M" sits beside them). */
   .assistant-dots {
     display: flex;

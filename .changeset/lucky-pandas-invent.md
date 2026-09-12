@@ -20,3 +20,7 @@ its actions directly underneath and the diagnostic facts below them.
 - The reset confirmation covers the whole window, so nothing can be navigated
   out from under it.
 - The window opens at 900x640 rather than 720x620.
+
+**About** is a new section: the Subshell wordmark, the app and server versions,
+links to the website, the licence and the company, and the copyright. Its links
+open in your own browser rather than inside the app.

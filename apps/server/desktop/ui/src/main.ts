@@ -20,6 +20,7 @@
  * temporal dead zone at module evaluation, which on this page means a blank
  * window on a machine someone is trying to repair.
  */
+import { createAbout } from "./console/about";
 import { createAddresses } from "./console/addresses";
 import { renderFacts } from "./console/facts";
 import { renderHero } from "./console/hero";
@@ -113,6 +114,10 @@ function goTo(section: SectionId): void {
   // read that FAILED is the worse half of the same fact: it leaves the group
   // hidden with nothing to re-open it.
   if (section === "settings") void settings.load();
+  // About reads nine constants once and keeps them: they cannot change while
+  // the app runs, so re-reading on every visit would be a CLI-free but still
+  // pointless round trip. A FAILED read leaves itself unloaded and retries.
+  if (section === "about") void about.load();
   render();
 }
 
@@ -132,6 +137,8 @@ function render(): void {
     renderFacts(host);
   } else if (state.section === "addresses") {
     addresses.render();
+  } else if (state.section === "about") {
+    about.render();
   }
   // The reset view coexists with the busy state; its buttons re-arm themselves
   // from the probe, so every re-render keeps the screen honest about it.
@@ -216,6 +223,7 @@ buildNav();
 wirePaneTabs();
 const steps = createSteps(host);
 const addresses = createAddresses(host);
+const about = createAbout(host);
 const settings = createSettings(host);
 const resetView = createResetView(host);
 

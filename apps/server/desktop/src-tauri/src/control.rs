@@ -18,6 +18,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use subshell_desktop_core::legal;
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::{Settings, SettingsState};
 use subshell_desktop_core::sidecar;
@@ -1144,6 +1145,100 @@ pub fn desktop_open_control_plane(app: AppHandle, settings: State<'_, SettingsSt
     let url = control_plane_url(&probe)?;
     app.opener()
         .open_url(&url, None::<&str>)
+        .map_err(|e| format!("could not open {url}: {e}"))
+}
+
+/// Who made this, under what terms, and where to read more.
+///
+/// One command rather than the strings being copied into the webview, because
+/// the licence facts already exist twice by necessity — `legal.ts` for the CLIs
+/// and the SPA, `legal.rs` for the two desktop apps — and
+/// `scripts/license-fields.ts` asserts those two agree. A third copy in
+/// `ui/src` would be one the detector does not cover, and a copyright line
+/// that has drifted is invisible: nobody re-reads an About box.
+///
+/// The version is this APP's, from its own manifest — the only one of these
+/// facts the webview could not get from anywhere else (the probe reports the
+/// server CLI's version, which is a different program).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct About {
+    /// The product family, e.g. `Subshell`.
+    pub product_name: String,
+    /// THIS app as a person installed it, e.g. `Subshell Server` — the
+    /// bundle's own `productName`, which is what its window and its icon are
+    /// called. `product_name` above names the family the app belongs to, and
+    /// an About box has to answer the narrower question first.
+    pub app_name: String,
+    /// This desktop app's version, from `tauri.conf.json`.
+    pub app_version: String,
+    /// `Copyright <year> <holder>`, rendered.
+    pub copyright: String,
+    /// The entity that owns the copyright — the registered name, not the DBA.
+    pub company: String,
+    /// Which half is under which licence, in one line.
+    pub license_summary: String,
+    /// The three addresses, for DISPLAY only — opening one goes through
+    /// [`desktop_open_web`], which holds its own copies.
+    pub website_url: String,
+    pub license_url: String,
+    pub company_url: String,
+}
+
+#[tauri::command(async)]
+pub fn desktop_about(app: AppHandle) -> About {
+    About {
+        product_name: legal::PRODUCT_NAME.to_string(),
+        // `package_info().name` is the CRATE name (`subshell-desktop`); the
+        // bundle's productName is the label, and it is what the window title,
+        // the menu bar and the installed `.app` all carry.
+        app_name: app
+            .config()
+            .product_name
+            .clone()
+            .unwrap_or_else(|| legal::PRODUCT_NAME.to_string()),
+        app_version: app.package_info().version.to_string(),
+        copyright: legal::COPYRIGHT_LINE.to_string(),
+        company: legal::COPYRIGHT_HOLDER.to_string(),
+        license_summary: legal::LICENSE_SUMMARY.to_string(),
+        website_url: legal::PRODUCT_URL.to_string(),
+        license_url: legal::LICENSE_URL.to_string(),
+        company_url: legal::COMPANY_URL.to_string(),
+    }
+}
+
+/// The pages the About section may open in the system browser.
+///
+/// A closed enum for the same reason [`OpenTarget`] is one: the page names a
+/// member and this side decides what that member IS, so no URL crosses the
+/// boundary. That the same strings are also SENT to the page for display does
+/// not weaken it — display and navigation are different capabilities, and a
+/// page that could open an address it chose is the thing being prevented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WebTarget {
+    /// The product's own site.
+    Website,
+    /// The repository's LICENSE, i.e. the full terms.
+    License,
+    /// The copyright holder's site.
+    Company,
+}
+
+/// Open one of the three About links in the system browser.
+///
+/// The console's CSP makes an ordinary `<a href>` open inside the webview,
+/// which is the wrong window for a website — the same reason
+/// `desktop_open_tmux_docs` exists.
+#[tauri::command(async)]
+pub fn desktop_open_web(app: AppHandle, target: WebTarget) -> Result<(), String> {
+    let url = match target {
+        WebTarget::Website => legal::PRODUCT_URL,
+        WebTarget::License => legal::LICENSE_URL,
+        WebTarget::Company => legal::COMPANY_URL,
+    };
+    app.opener()
+        .open_url(url, None::<&str>)
         .map_err(|e| format!("could not open {url}: {e}"))
 }
 

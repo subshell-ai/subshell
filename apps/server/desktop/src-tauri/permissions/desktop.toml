@@ -108,3 +108,13 @@ commands.allow = ["desktop_open_tmux_docs"]
 identifier = "allow-desktop-notify"
 description = "Show one native notification. The shape is fixed here — a title and a body, nothing schedulable or enumerable — so the server-origin page never receives the notification plugin itself."
 commands.allow = ["desktop_notify"]
+
+[[permission]]
+identifier = "allow-desktop-about"
+description = "Read who made this app, its version, and the licence terms — the strings the About section renders. No machine state, nothing writable, no paths."
+commands.allow = ["desktop_about"]
+
+[[permission]]
+identifier = "allow-desktop-open-web"
+description = "Open ONE of three fixed pages in the system browser: the product's site, the repository's LICENSE, or the copyright holder's site. A closed enum, never a URL, so the page names which of the three and this side decides what it is."
+commands.allow = ["desktop_open_web"]

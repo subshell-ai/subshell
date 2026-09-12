@@ -123,6 +123,33 @@
           <button type="button" id="reset-open" class="danger">Reset this machine…</button>
           <p class="hint warn-text empty:hidden" data-problem></p>
         </section>
+        <!-- ============================== About ============================= -->
+        <!-- Every string is filled from ONE `desktop_about` call: the licence
+             facts live in `legal.ts` and `legal.rs`, which the licence linter
+             holds equal to each other and to the root LICENSE, and a copy in
+             this file would be the one it cannot see. -->
+        <!-- A centred title page, not a table: mark, name, version, what it
+             is, a row of links, the terms, the copyright. Every string is
+             filled from ONE `desktop_about` call — the licence facts live in
+             `legal.ts` and `legal.rs`, which the licence linter holds equal to
+             each other and to the root LICENSE, and a copy in this file would
+             be the one it cannot see. -->
+        <section id="section-about" class="about" hidden>
+          <img
+            class="about-mark"
+            src="./wordmark-192.png"
+            srcset="./wordmark-96.png 1x, ./wordmark-192.png 2x"
+            alt="Subshell"
+          />
+          <!-- biome-ignore lint/a11y/useHeadingContent: filled by about.ts from desktop_about; never static -->
+          <h2 class="about-name" id="about-name"></h2>
+          <p class="about-version" id="about-version"></p>
+          <p class="about-lead">Installs, configures and runs a Subshell control plane on this machine.</p>
+          <p class="about-links" id="about-links"></p>
+          <p class="about-license" id="about-license"></p>
+          <p class="about-copyright" id="about-copyright"></p>
+          <p class="hint warn-text empty:hidden" data-problem></p>
+        </section>
       </main>
     </div>
 

@@ -15,11 +15,17 @@
  */
 import type { Probe } from "./ipc";
 
-/** The four sections, in sidebar order. */
-export type SectionId = "overview" | "addresses" | "logs" | "settings";
+/** The sections, in sidebar order. */
+export type SectionId = "overview" | "addresses" | "logs" | "settings" | "about";
 
-/** Sidebar order. The console always opens on the first one. */
-export const SECTIONS: readonly SectionId[] = ["overview", "addresses", "logs", "settings"];
+/**
+ * Sidebar order. The console always opens on the first one.
+ *
+ * About is LAST and deliberately not inside Settings: it changes nothing, so
+ * grouping it with the tray switch and the reset button would put a page that
+ * only tells you things among the two that alter the machine.
+ */
+export const SECTIONS: readonly SectionId[] = ["overview", "addresses", "logs", "settings", "about"];
 
 /** What the sidebar calls each section. */
 export const SECTION_LABELS: Record<SectionId, string> = {
@@ -27,6 +33,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   addresses: "Addresses",
   logs: "Logs",
   settings: "Settings",
+  about: "About",
 };
 
 /** Whether the Addresses section can offer its form, and why not when it cannot. */

@@ -24,6 +24,8 @@
     "allow-desktop-open-path",
     "allow-desktop-open-control-plane",
     "allow-desktop-open-tmux-docs",
+    "allow-desktop-about",
+    "allow-desktop-open-web",
     "opener:allow-reveal-item-in-dir",
     "allow-desktop-settings",
     "allow-desktop-set-close-to-tray"

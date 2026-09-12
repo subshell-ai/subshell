@@ -385,8 +385,8 @@ Spec `2026-09-11-server-console-sidebar-design.md`. The page was one scroll of
 five cards — a status chip over a nine-row fact list, the step card, the tray
 switch, a 220px log pane and a Danger zone disclosure, all on screen at once
 with nothing to choose between them. It is a 200px sidebar and a content
-column now: **Overview**, **Addresses**, **Logs**, **Settings**, one visible at
-a time, in a 900x640 window (min 720x520).
+column now: **Overview**, **Addresses**, **Logs**, **Settings**, **About**, one
+visible at a time, in a 900x640 window (min 720x520).
 
 ```
 ui/src/console/
@@ -399,6 +399,7 @@ ui/src/console/
 ├── addresses.ts       # the Addresses section: availability, seeding, the save
 ├── logs.ts            # the two-tab pane, the tail, show()
 ├── settings.ts        # the tray preference
+├── about.ts           # the About title page: mark, name, versions, links, terms
 ├── tmux-warning.ts    # the amber gate explanation — a FACTORY, one per gated surface
 └── reset-view.ts      # the takeover, unchanged in behaviour
 ```
@@ -439,6 +440,27 @@ Settings re-reads the tray probe on every ENTRY, not once at boot: that probe
 is deliberately not memoized in Rust (installing the AppIndicator extension
 flips its answer with the app already running), and a boot read that failed
 used to leave the group hidden with nothing to re-open it.
+
+**About is the one section that centres, and it owns no strings.** It is a
+title page — mark, app name, both versions, one sentence, a row of links, the
+terms, the copyright — because there is nothing on it to scan or compare;
+drafting it as a label/value grid like Overview's Details produced a spec
+sheet. `desktop_about` supplies every word from `crates/desktop-core/src/legal.rs`
+plus this bundle's own `productName` and version, so the page stores nothing:
+the licence facts already exist twice by necessity (`legal.ts` for the CLIs and
+the SPA, `legal.rs` for the two desktop apps) and `scripts/license-fields.ts`
+holds those two equal to each other and to the root `LICENSE`. A third copy in
+`ui/src` would be the one copy that detector cannot see, and a drifted
+copyright line is invisible — nobody re-reads an About box.
+
+Links go out through `desktop_open_web`, which takes a member of a CLOSED enum
+(`website | license | company`) and holds the addresses itself. The same
+addresses travel to the page for display, and that does not weaken the rule:
+showing an address and navigating to one are different capabilities, and the
+page holds only the first. `desktop_open_path` and `desktop_open_tmux_docs`
+draw the same line for the same reason. The section deliberately does NOT show
+the AGPL section 7 exception — it is a sentence for a developer reading
+`subshell-server license`, not for someone asking what this app is.
 
 Everything that is NOT `tauri`-typed lives outside the app, in
 `crates/desktop-core` (`subshell-desktop-core`), shared with
@@ -534,8 +556,9 @@ own fresh probe, so a row can only ever reveal the fact it is showing (the
 client's `node_open_path` for the same reason). `logs` is answered entirely by
 the CLI's `service status --json → logPath`: a null is the journal-hint case,
 an absent field is an old server, and the console never re-derives a platform
-path. `desktop_open_control_plane` opens the server's own `APP_BASE_URL` in the
-SYSTEM browser (the address may name a LAN host the privileged `main` window
+path. `desktop_open_web` is the same shape for the About section's three links
+(`website | license | company`), and `desktop_open_control_plane` opens the
+server's own `APP_BASE_URL` in the SYSTEM browser (the address may name a LAN host the privileged `main` window
 is deliberately never pointed at) — no URL crosses the IPC boundary from the
 page, and the re-read value must be http(s). Both commands are console-only;
 `main` gains neither. The `opener:allow-reveal-item-in-dir` grant in

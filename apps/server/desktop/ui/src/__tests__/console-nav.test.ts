@@ -7,8 +7,16 @@ const at = (next: ProbeStep, rest: Partial<Probe> = {}): Probe => ({ next, ...re
 
 describe("SECTIONS", () => {
   it("is the sidebar order, and the console opens on the first", () => {
-    expect([...SECTIONS]).toEqual(["overview", "addresses", "logs", "settings"]);
+    expect([...SECTIONS]).toEqual(["overview", "addresses", "logs", "settings", "about"]);
     expect(SECTIONS[0]).toBe("overview");
+  });
+
+  it("keeps About last, and outside Settings", () => {
+    // About changes nothing. Settings holds the tray switch and the reset
+    // button, both of which alter the machine, so a page that only tells you
+    // things does not belong among them — and it sits last because nobody
+    // opens this window to read a copyright line.
+    expect(SECTIONS.at(-1)).toBe("about");
   });
 
   it("labels every section", () => {

@@ -153,6 +153,34 @@ export interface DesktopSettings {
   trayStatus: "supported" | "not-detected" | "unsupported";
 }
 
+/** The three pages About may open. `WebTarget`, kebab-case — a closed set in Rust. */
+export type WebTarget = "website" | "license" | "company";
+
+/**
+ * `About`. Who made this, under what terms, and where to read more.
+ *
+ * Every string here is Rust's copy of the shared legal constants
+ * (`crates/desktop-core/src/legal.rs`), which `scripts/license-fields.ts`
+ * holds equal to the TypeScript copy and to the root LICENSE. The page renders
+ * them and stores none: a third copy would be one that detector does not
+ * cover, and a copyright line that has drifted is invisible.
+ *
+ * The three URLs are for DISPLAY. Opening one goes through `openWeb`, which
+ * names a member of a closed set — the page never hands Rust an address.
+ */
+export interface About {
+  productName: string;
+  /** This app's own `productName`, e.g. `Subshell Server`. */
+  appName: string;
+  appVersion: string;
+  copyright: string;
+  company: string;
+  licenseSummary: string;
+  websiteUrl: string;
+  licenseUrl: string;
+  companyUrl: string;
+}
+
 /** `LogTail`. An empty tail with a note is the ordinary mid-setup state, not an error. */
 export interface LogTail {
   text: string;
@@ -219,3 +247,9 @@ export const openPath = (target: OpenTarget): Promise<void> => invoke<void>("des
 export const openControlPlane = (): Promise<void> => invoke<void>("desktop_open_control_plane");
 
 export const openTmuxDocs = (): Promise<void> => invoke<void>("desktop_open_tmux_docs");
+
+/** Ownership, terms and versions, for the About section. Read-only; no machine state. */
+export const about = (): Promise<About> => invoke<About>("desktop_about");
+
+/** Open one of three fixed pages in the SYSTEM browser. A member, never a URL. */
+export const openWeb = (target: WebTarget): Promise<void> => invoke<void>("desktop_open_web", { target });

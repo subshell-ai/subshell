@@ -25,6 +25,9 @@ pub const LICENSE_SUMMARY: &str = "AGPL-3.0-only (control plane), Apache-2.0 els
 /// Where the full text lives.
 pub const LICENSE_URL: &str = "https://github.com/subshell-ai/subshell/blob/main/LICENSE";
 
+/// The product's own site — what a person means by "Subshell's website".
+pub const PRODUCT_URL: &str = "https://subshell.sh";
+
 /// The copyright holder's own site.
 pub const COMPANY_URL: &str = "https://disaresta.com";
 

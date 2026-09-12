@@ -72,6 +72,10 @@ interface Manifest {
   declared: string | undefined;
   /** The SPDX id the path requires. */
   expected: string;
+  /** The manifest's own directory, repo-relative — where its LICENSE belongs. */
+  dir: string;
+  /** Whether `npm publish` would ship it, i.e. a package.json without `private: true`. */
+  published: boolean;
 }
 
 /** The licence a path is under, from the path alone. */
@@ -98,11 +102,16 @@ function collect(): Manifest[] {
       const path = match.replaceAll("\\", "/");
       const kind = path.endsWith("Cargo.toml") ? "toml" : "json";
       const source = readFileSync(resolve(REPO_ROOT, path), "utf8");
+      // `private: true` is npm's own word for "never published", so it is the
+      // right test rather than a list of package names to keep in step.
+      const published = kind === "json" && (JSON.parse(source) as { private?: boolean }).private !== true;
       found.push({
         path,
         kind,
         declared: readDeclared(source, kind),
         expected: expectedLicense(path),
+        dir: path.slice(0, path.lastIndexOf("/")) || ".",
+        published,
       });
     }
   }
@@ -358,7 +367,9 @@ const LEGAL_RS = "crates/desktop-core/src/legal.rs";
  */
 function sharedConstantDisagreements(): string[] {
   const read = (path: string, pattern: RegExp): Map<string, string> => {
-    const source = readFileSync(resolve(REPO_ROOT, path), "utf8");
+    // Unwrap a declaration biome split across two lines before matching, so
+    // `export const X =\n  "…";` is the same input as the one-line form.
+    const source = readFileSync(resolve(REPO_ROOT, path), "utf8").replace(/=\n\s+"/g, '= "');
     const found = new Map<string, string>();
     for (const match of source.matchAll(pattern)) {
       const [, name, value] = match;
@@ -366,8 +377,12 @@ function sharedConstantDisagreements(): string[] {
     }
     return found;
   };
-  const ts = read(LEGAL_TS, /^export const ([A-Z_]+) = "([^"]*)";$/gm);
-  const rs = read(LEGAL_RS, /^pub const ([A-Z_]+): &str = "([^"]*)";$/gm);
+  // `\s*` between the `=` and the string, because biome wraps a long constant
+  // onto the next line — which the single-line form silently skipped, so a
+  // long shared string (the licence exception summary is 200 characters) was
+  // invisible to the very check that exists to keep the two copies equal.
+  const ts = read(LEGAL_TS, /^export const ([A-Z_]+) =\s*"([^"]*)";$/gm);
+  const rs = read(LEGAL_RS, /^pub const ([A-Z_]+): &str =\s*"([^"]*)";$/gm);
 
   const problems: string[] = [];
   for (const [name, value] of ts) {
@@ -401,6 +416,73 @@ function collectNotices(): { path: string; line: string }[] {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 4: the licence text a PUBLISHED package actually ships
+// ---------------------------------------------------------------------------
+
+/**
+ * Every non-private manifest must carry a LICENSE file beside it.
+ *
+ * The SPDX field in a package.json is metadata: it tells a licence scanner
+ * what the terms are, and it hands a recipient nothing. Apache-2.0 §4(a) is
+ * explicit that distributing the work means giving recipients a COPY of the
+ * licence, and `npm publish` is distribution — of a tarball that, for these
+ * seven packages, held `dist/`, a README and a package.json saying
+ * "Apache-2.0" with no terms anywhere in it.
+ *
+ * npm includes a root `LICENSE` in the tarball automatically, whatever `files`
+ * says, so the fix is the file existing. This check is what stops the eighth
+ * published package from shipping without one — nothing else would notice,
+ * because a missing licence is not a build error, a type error or a failing
+ * test, and the tarball installs perfectly.
+ *
+ * The CLIs are the deliberate exception and are not manifests at all: they
+ * ship as bare single-file binaries with nowhere to put a file beside them,
+ * which is what their `license` subcommand is for (`legal.ts`).
+ */
+const PACKAGE_LICENSE = "LICENSE";
+
+/**
+ * The Apache-2.0 text every published package ships, taken from the root
+ * LICENSE rather than stored a second time.
+ *
+ * The root file opens with the dual-licence explanation and then the full
+ * Apache text after a rule of `=`. A package under `packages/` is wholly
+ * Apache-2.0, so it gets the text and the copyright line and NOT the preamble
+ * — telling someone who installed `@subshell-ai/plugin-api` that some other
+ * directory is AGPL invites exactly the confusion the split exists to avoid.
+ */
+function canonicalPackageLicense(): string {
+  const root = readFileSync(resolve(REPO_ROOT, "LICENSE"), "utf8");
+  const start = root.indexOf("                                 Apache License");
+  if (start === -1) throw new Error("LICENSE: the Apache text no longer starts where this script expects");
+  return `${typescriptCopyrightLine()}\n\n${root.slice(start).trimEnd()}\n`;
+}
+
+/** Publishable packages whose LICENSE file is missing or has drifted. */
+function licenseTextProblems(manifests: Manifest[]): { path: string; why: string }[] {
+  const expected = canonicalPackageLicense();
+  const problems: { path: string; why: string }[] = [];
+  for (const manifest of manifests) {
+    if (manifest.kind !== "json" || !manifest.published) continue;
+    const path = `${manifest.dir}/${PACKAGE_LICENSE}`;
+    let actual: string;
+    try {
+      actual = readFileSync(resolve(REPO_ROOT, path), "utf8");
+    } catch {
+      problems.push({ path, why: "missing" });
+      continue;
+    }
+    if (actual !== expected) problems.push({ path, why: "differs from the root LICENSE's Apache text" });
+  }
+  return problems;
+}
+
+/** Write the canonical text to a package that is missing it or has drifted. */
+function fixLicenseText(path: string): void {
+  writeFileSync(resolve(REPO_ROOT, path), canonicalPackageLicense());
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -413,7 +495,13 @@ if (shouldFix) {
     fix(manifest);
     console.log(`  ${manifest.path}: ${manifest.declared ?? "(none)"} → ${manifest.expected}`);
   }
-  console.log(wrong.length ? `✓ fixed ${wrong.length} manifest(s)` : "✓ nothing to fix");
+  const missingText = licenseTextProblems(manifests);
+  for (const problem of missingText) {
+    fixLicenseText(problem.path);
+    console.log(`  ${problem.path}: ${problem.why} → written`);
+  }
+  const total = wrong.length + missingText.length;
+  console.log(total ? `✓ fixed ${total} file(s)` : "✓ nothing to fix");
   process.exit(0);
 }
 
@@ -457,6 +545,22 @@ if (leaks.length > 0) {
       "  apps/server/LICENSE carves out of the AGPL under section 7. A value import is\n" +
       "  outside that carve-out. Make it `import type`, or reconsider the edge.\n",
   );
+}
+
+const missingLicenseText = licenseTextProblems(manifests);
+if (missingLicenseText.length > 0) {
+  failed = true;
+  console.error(`✗ ${missingLicenseText.length} published package(s) ship no correct licence text:\n`);
+  for (const problem of missingLicenseText) console.error(`  ${problem.path}: ${problem.why}`);
+  console.error(
+    "\n  A published package's `license` field is metadata; Apache-2.0 §4(a) asks for a\n" +
+      "  COPY of the terms, and `npm publish` is distribution. npm ships a root LICENSE\n" +
+      "  automatically, so the file existing is the whole fix.\n" +
+      "  Run `bun run lint:licenses:fix` to write them.\n",
+  );
+} else {
+  const shipped = manifests.filter((m) => m.published).length;
+  console.log(`✓ all ${shipped} published packages ship the Apache-2.0 text`);
 }
 
 const constantProblems = sharedConstantDisagreements();
