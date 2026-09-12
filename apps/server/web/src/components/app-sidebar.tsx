@@ -1,11 +1,16 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
+  ChevronDown,
   ChevronLeft,
+  KeyRound,
   LayoutDashboard,
   type LucideIcon,
   Plus,
+  Puzzle,
+  ScrollText,
   Server,
+  ServerCog,
   Settings,
   SlidersHorizontal,
   TerminalSquare,
@@ -41,31 +46,106 @@ export interface NavItem {
   requiresAdmin?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
+/**
+ * A label with a chevron that opens to pages. NEVER a page itself (spec
+ * 2026-09-11 §1): a header that is also a link needs a toggle button beside
+ * it, and this rail already refuses to nest interactive elements (see the
+ * quick-add + below). A label-only header has one job.
+ */
+export interface NavGroup {
+  /** Stable key: the React key, and what a chevron press is recorded against. */
+  id: string;
+  label: string;
+  /** Shown beside the label when expanded; never shown collapsed (§3.3). */
+  icon: LucideIcon;
+  children: NavItem[];
+  /** Gates the WHOLE group. Children carry no flag of their own. */
+  requiresAdmin?: boolean;
+}
+
+export type NavEntry = NavItem | NavGroup;
+
+/** Narrows a rail entry to a group. Groups are the ones with children. */
+export const isNavGroup = (entry: NavEntry): entry is NavGroup => "children" in entry;
+
+const NAV_ENTRIES: NavEntry[] = [
   // Terminal, like the empty subshells box — subshells are terminal harnesses,
   // not a grid (the grid icon belongs to the tiles/list view toggle).
   { to: "/", label: "Subshells", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal, short: "Prof" },
-  // "Instance", not "Server": the control-plane host's own NODE is named
-  // Server by default, and on /nodes an admin saw that word twice, on two
-  // different things. This entry is the instance's settings — the page it
-  // opens is where the instance name itself is set — so it is the half that
-  // can say what it means without borrowing the other's word.
-  { to: "/settings", label: "Instance", icon: Settings, requiresAdmin: true, short: "Inst" },
-  { to: "/settings/status", label: "Status", icon: Activity, requiresAdmin: true, short: "Stat" },
-  { to: "/users", label: "Users", icon: Users, short: "Users" },
+  // On the label (spec 2026-09-11 §2.1). The single entry here used to read
+  // "Instance", not "Server", because the control-plane host's own NODE is
+  // named Server by default and on /nodes an admin saw that word twice, on two
+  // different things. This is a GROUP of pages now, and "Server Settings" is
+  // two words: it reads as the plane's settings rather than as that node, and
+  // the collision the old label was avoiding is accepted here deliberately —
+  // the group has to say what the pages under it configure, and "Instance
+  // Settings" would name a thing no page inside it is called.
+  {
+    id: "server-settings",
+    label: "Server Settings",
+    icon: ServerCog,
+    requiresAdmin: true,
+    children: [
+      // ServerCog above so the plain gear can stay on General and Server stays
+      // on Nodes — three related icons, three different things.
+      { to: "/settings", label: "General", icon: Settings, short: "Gen" },
+      { to: "/users", label: "Users", icon: Users, short: "Users" },
+      { to: "/settings/api-keys", label: "API keys", icon: KeyRound, short: "Keys" },
+      { to: "/settings/plugins", label: "Plugins", icon: Puzzle, short: "Plug" },
+      { to: "/settings/status", label: "Status", icon: Activity, short: "Stat" },
+      { to: "/settings/audit", label: "Audit log", icon: ScrollText, short: "Audit" },
+    ],
+  },
 ];
 
 /**
- * The nav items a viewer may see (spec 2026-09-02 settings-split §4):
- * admin-only entries hide unless the server says so — and while the flag is
- * still unknown (first fetch) they stay hidden (unknown ≠ open). Pure so the
- * rule is testable without a router.
+ * The rail's entries for this viewer (spec 2026-09-02 settings-split §4,
+ * regrouped by 2026-09-11 §3.2): an admin-gated entry hides unless the server
+ * says so, and while the flag is still unknown (first fetch) it stays hidden
+ * (unknown ≠ open). A group drops as a WHOLE — its children carry no flag of
+ * their own, so there is one gate to reason about rather than seven.
+ */
+export function visibleNavEntries(isAdmin: boolean | undefined): readonly NavEntry[] {
+  return NAV_ENTRIES.filter((entry) => !entry.requiresAdmin || isAdmin === true);
+}
+
+/**
+ * Every PAGE the viewer may reach from the rail, groups flattened, in rail
+ * order. The gate lives once, in {@link visibleNavEntries}; this is the flat
+ * view of the same answer.
+ *
+ * **Nothing in the app calls this — the tests are its only consumers**, and
+ * that is deliberate rather than dead code left behind. The rail renders from
+ * the TREE, but the question the tests need to ask is about pages ("can a
+ * member reach /users from here?"), which a tree makes them walk. Keeping the
+ * flat view as the tested surface is also what let the group land without
+ * rewriting the assertions that predate it.
  */
 export function visibleNavItems(isAdmin: boolean | undefined): readonly NavItem[] {
-  return NAV_ITEMS.filter((item) => !item.requiresAdmin || isAdmin === true);
+  return visibleNavEntries(isAdmin).flatMap((entry) => (isNavGroup(entry) ? entry.children : [entry]));
+}
+
+/**
+ * Whether a group renders open: **the route decides, and a click overrides it
+ * until the route changes.**
+ *
+ * So a group is open exactly while you are on one of its pages, and shut
+ * otherwise — the rail stays as short as where you are — and the chevron can
+ * always be used, in both directions, including to shut a group you are
+ * inside.
+ *
+ * The first version of this made a group holding the current page
+ * unconditionally open, on the reasoning that the rail must be able to say
+ * where you are. That reasoning was wrong twice over: the group header stays
+ * lit either way, so nothing is lost by shutting it — and a chevron that
+ * refuses on the one page a person is most likely to press it does not read
+ * as a rule, it reads as broken. Reported 2026-09-12.
+ */
+export function groupOpen(override: boolean | undefined, childActive: boolean): boolean {
+  return override ?? childActive;
 }
 
 /** Classes for a "recent" sub-link: a compact row under its nav item. */
@@ -149,8 +229,9 @@ export function AppSidebar({
   // Identity for the user menu (footer). "" fields while in flight — the
   // menu renders its own "Signed in" placeholder (UserMenu owns that string).
   const { data: user } = useCurrentUser();
-  // Admin-nav gate for the Server entry (spec 2026-09-02 settings-split §4) —
-  // the same cached query the emergency banner / Add-node dialog use.
+  // Admin-nav gate for the Server Settings group (spec 2026-09-02
+  // settings-split §4) — the same cached query the emergency banner /
+  // Add-node dialog use.
   const { data: publicSettings } = usePublicSettings();
   // "Recent" sub-lists under Subshells / Workspaces — the quick jump that the
   // subshell page's switcher strip used to offer. Same query keys as the home
@@ -176,6 +257,16 @@ export function AppSidebar({
       return false;
     }
   });
+  // Chevron presses, and the route they were made on. Keeping the path here
+  // is what expires them: a navigation makes `stale` true and the rendered
+  // state falls back to the route's own answer, with no effect and no second
+  // render. Nothing is persisted — the preference is meant to last until you
+  // go somewhere else, so writing it to disk would outlive its own meaning.
+  const [pressed, setPressed] = useState<{ path: string; open: Record<string, boolean> }>({
+    path: location.pathname,
+    open: {},
+  });
+  const overrides = pressed.path === location.pathname ? pressed.open : {};
   // Inside the mobile drawer the rail is always expanded and the collapse
   // control is meaningless (the sheet IS the expander).
   const collapsed = forceExpanded ? false : collapsedState;
@@ -195,6 +286,27 @@ export function AppSidebar({
       return next;
     });
   }, []);
+
+  // Flips what the header is CURRENTLY SHOWING, so the first press always
+  // visibly does something — flipping a stored flag instead is how a press
+  // becomes a no-op whenever that flag and the route already disagree.
+  //
+  // The shown value is recomputed INSIDE the setter from `prev` plus the
+  // route fact, rather than half of it closed over from the render that
+  // attached the handler. Both are correct today (React 19 flushes discrete
+  // clicks synchronously, so the closure cannot be stale), but reading one
+  // input from a closure and the other from `prev` is the idiom that stops
+  // being correct quietly.
+  const toggleGroup = useCallback(
+    (id: string, childActive: boolean) => {
+      const path = location.pathname;
+      setPressed((prev) => {
+        const open = prev.path === path ? prev.open : {};
+        return { path, open: { ...open, [id]: !groupOpen(open[id], childActive) } };
+      });
+    },
+    [location.pathname],
+  );
 
   // The desktop shell's View menu can collapse the rail and focus its filter.
   // Handled HERE rather than in the bridge because both touch state that is
@@ -226,6 +338,32 @@ export function AppSidebar({
     filterRef.current.focus();
     setFocusFilterWhenOpen(false);
   }, [focusFilterWhenOpen]);
+
+  /**
+   * One page row. Used for a top-level leaf and for a group's children alike,
+   * so an active child carries exactly the same gradient as an active
+   * top-level page — the indent is the only difference.
+   */
+  const navLink = (item: NavItem, indented: boolean) => (
+    <Link
+      to={item.to as never}
+      title={collapsed ? `${item.label}${item.short ? ` (${item.short})` : ""}` : undefined}
+      className={cn(
+        "flex items-center rounded-md py-2 text-sm transition-colors",
+        collapsed ? "justify-center px-2" : indented ? "gap-3 pr-3 pl-9" : "gap-3 px-3",
+        location.pathname === item.to
+          ? "bg-[linear-gradient(90deg,oklch(0.30_0.10_322),oklch(0.38_0.11_340))] font-medium text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+      )}
+    >
+      {/* -translate-y-px is optical, not a bug fix: the boxes are
+          flex-centered, but labels like "Subshells" carry no descenders, so
+          the eye centers them ~1px above the box center and the icon reads
+          low (live review 2026-09-03). */}
+      <item.icon className="h-4 w-4 shrink-0 -translate-y-px" />
+      {!collapsed && item.label}
+    </Link>
+  );
 
   return (
     <aside
@@ -291,8 +429,60 @@ export function AppSidebar({
       {collapsed && <div className="pb-3" />}
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Main">
-        {visibleNavItems(publicSettings?.viewerIsAdmin).map((item) => {
-          const active = location.pathname === item.to;
+        {visibleNavEntries(publicSettings?.viewerIsAdmin).map((entry) => {
+          if (isNavGroup(entry)) {
+            // Collapsed rail: the children ARE the rail, with no header above
+            // them. A header there would be an icon that navigates nowhere,
+            // and this width exists so every page stays one click away.
+            if (collapsed) {
+              return (
+                <Fragment key={entry.id}>
+                  {entry.children.map((child) => (
+                    <div key={child.to}>{navLink(child, false)}</div>
+                  ))}
+                </Fragment>
+              );
+            }
+            const childActive = entry.children.some((child) => location.pathname === child.to);
+            const open = groupOpen(overrides[entry.id], childActive);
+            const listId = `nav-group-${entry.id}`;
+            return (
+              <div key={entry.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(entry.id, childActive)}
+                  aria-expanded={open}
+                  aria-controls={listId}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent/50 hover:text-accent-foreground",
+                    // Never the active gradient — the header is not a page
+                    // (§1). Closed with an active child it still has to say
+                    // "you are in here", which is what the lit text does.
+                    childActive && !open ? "text-accent-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  <entry.icon className="h-4 w-4 shrink-0 -translate-y-px" />
+                  {entry.label}
+                  <ChevronDown
+                    className={cn("ml-auto h-4 w-4 shrink-0 transition-transform duration-200", !open && "-rotate-90")}
+                  />
+                </button>
+                {/* Always rendered, hidden with `display:none` rather than
+                    unmounted: `aria-controls` above must resolve to a real
+                    element, and a reference to an id that exists only while
+                    the group is open is one a screen reader cannot follow at
+                    the moment the user needs it. `hidden` also takes the
+                    links out of the tab order, so a closed group is not a
+                    keyboard trap of six invisible stops. */}
+                <div id={listId} className={cn("space-y-1 pt-1", !open && "hidden")}>
+                  {entry.children.map((child) => (
+                    <div key={child.to}>{navLink(child, true)}</div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          const item = entry;
           return (
             <div key={item.to}>
               {/* The anchor for the quick-add +: the LINK ROW only — the
@@ -300,24 +490,7 @@ export function AppSidebar({
                   there lands the + off the label (live-review screenshot,
                   2026-09-03). */}
               <div className="relative">
-                <Link
-                  to={item.to as never}
-                  title={collapsed ? `${item.label}${item.short ? ` (${item.short})` : ""}` : undefined}
-                  className={cn(
-                    "flex items-center rounded-md px-3 py-2 text-sm transition-colors",
-                    collapsed ? "justify-center px-2" : "gap-3",
-                    active
-                      ? "bg-[linear-gradient(90deg,oklch(0.30_0.10_322),oklch(0.38_0.11_340))] font-medium text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
-                  )}
-                >
-                  {/* -translate-y-px is optical, not a bug fix: the boxes are
-                      flex-centered, but labels like "Subshells" carry no
-                      descenders, so the eye centers them ~1px above the box
-                      center and the icon reads low (live review 2026-09-03). */}
-                  <item.icon className="h-4 w-4 shrink-0 -translate-y-px" />
-                  {!collapsed && item.label}
-                </Link>
+                {navLink(item, false)}
                 {!collapsed && item.to === "/workspaces" && (
                   <Button
                     variant="ghost"
@@ -366,8 +539,12 @@ export function AppSidebar({
               )}
               {!collapsed &&
                 item.to === "/" &&
-                listedSubshells.map((s) => (
-                  <SubshellRecentRow key={s.id} subshell={s} active={location.pathname === `/subshells/${s.id}`} />
+                listedSubshells.map((sub) => (
+                  <SubshellRecentRow
+                    key={sub.id}
+                    subshell={sub}
+                    active={location.pathname === `/subshells/${sub.id}`}
+                  />
                 ))}
               {!collapsed &&
                 item.to === "/workspaces" &&

@@ -31,7 +31,6 @@ function mockFetch(viewerIsAdmin: boolean) {
   globalThis.fetch = ((input: unknown) => {
     const url = new URL(String(input), "http://localhost");
     if (url.pathname === "/api/users") return Promise.resolve(new Response(JSON.stringify(roster(viewerIsAdmin))));
-    if (url.pathname === "/api/audit") return Promise.resolve(new Response(JSON.stringify({ events: [] })));
     // The page also asks better-auth who the viewer is.
     return Promise.resolve(new Response(JSON.stringify({ user: { id: "me" } })));
   }) as typeof fetch;
@@ -71,6 +70,11 @@ describe("/users page", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("dana@example.com")).toBeDefined());
     expect(screen.getByRole("combobox", { name: "Role for dana@example.com" })).toBeDefined();
+    // The audit trail is its own page now (spec 2026-09-11 §4.4). This page
+    // must not carry it — and must not fetch it: the /api/audit branch is
+    // gone from the stub above, so a surviving query would surface here as a
+    // roster answer parsed as events rather than as a silent extra request.
+    expect(screen.queryByText("Audit trail")).toBeNull();
   });
 
   it("offers a non-admin the roster and NOTHING to change", async () => {

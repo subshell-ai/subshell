@@ -3,11 +3,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { InstanceNameCard } from "@/components/instance-name-card";
-import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { PageHeader } from "@/components/page-header";
 import { ResetServerCard, resetCardVisible } from "@/components/settings/reset-card";
-import { SystemApiKeysCard } from "@/components/system-api-keys-card";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -20,10 +18,16 @@ export const Route = createFileRoute("/settings")({
 });
 
 /**
- * The Server page — instance-wide configuration, admins only (spec
+ * The General page — instance-wide configuration, admins only (spec
  * 2026-09-02 settings-split). Per-user surface (password, notifications,
  * font, passkeys) lives on `/account`; self-service cards must never appear
  * here because the whole body is gated on the admin flag.
+ *
+ * It is the first page of the Server Settings group rather than the whole
+ * admin surface (spec 2026-09-11 §4.1): API keys, the audit log, plugins and
+ * status are pages the rail reaches directly, and the local-launch switch
+ * moved to the `local` node's own page. What is left is the three things this
+ * page is named for — the instance's name, registration, and the reset.
  */
 function SettingsPage() {
   const queryClient = useQueryClient();
@@ -71,23 +75,9 @@ function SettingsPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader
-        title="Instance"
-        subtitle="Instance-wide configuration (admins)"
-        action={
-          // A Link WEARING the button style, not a Button wrapping a Link —
-          // nesting two interactive elements is what `asChild` exists to avoid,
-          // and this Button primitive has no `asChild`.
-          <div className="flex items-center gap-2">
-            <Link to="/settings/status" className={buttonVariants({ variant: "outline", size: "sm" })}>
-              Status
-            </Link>
-            <Link to="/settings/plugins" className={buttonVariants({ variant: "outline", size: "sm" })}>
-              Plugins
-            </Link>
-          </div>
-        }
-      />
+      {/* No action slot: Status and Plugins were buttons here because the rail
+          did not list them. The Server Settings group does now. */}
+      <PageHeader title="General" subtitle="Instance name, registration, and reset (admins)" />
       {/* Gating mirrors the nav rule: these cards hit admin-only endpoints, so
           rendering them for a non-admin would only produce error banners. The
           server-side gates remain the actual enforcement either way. */}
@@ -132,11 +122,6 @@ function SettingsPage() {
               )}
             </CardContent>
           </Card>
-
-          <SystemApiKeysCard />
-          {/* Gated on the server's canManage for `local` (owner/admin) — the card
-              renders nothing for everyone else, spec 2026-08-31 §10. */}
-          <LocalLaunchCard />
 
           {/* Danger zone, last (spec 2026-09-10 §6): admin AND the SERVER desktop
               shell only. The reset verb lives in that app's console, so an entry

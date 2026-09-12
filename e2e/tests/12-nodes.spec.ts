@@ -90,11 +90,12 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   await page.goto("/nodes");
   await expect(page.getByRole("heading", { name: "Nodes" })).toBeVisible();
 
-  // Scoped to `main`, NOT the page: the admin sidebar's own entry for
-  // /settings is also labelled "Server", so a page-wide exact match resolves
-  // to two elements and fails strict mode. Worth knowing rather than working
-  // around silently — those are two different things wearing one word on one
-  // screen, and this assertion is where that showed up.
+  // Scoped to `main`, NOT the page: the admin sidebar once labelled its
+  // /settings entry "Server" too, so a page-wide exact match resolved to two
+  // elements and failed strict mode. The rail says "Server Settings" now
+  // (spec 2026-09-11 grouped-navigation §2.1), which no longer collides under
+  // `exact` — but the scoping stays, because this assertion is about the node
+  // row and the rail is free to name the plane whatever an admin chooses.
   const body = page.locator("main");
 
   // The boot-seeded control-plane node: name + hostname line + online badge.

@@ -12,11 +12,13 @@ import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import type { NodeDetail, NodeShare } from "@/types/node";
 
 /**
- * The settings-page local-launch switch (spec 2026-08-31 §10): visible only
- * when the caller can manage `local` (server-derived `canManage` — no client
- * admin re-derivation), and the PUT body is read-modify-write over the node
- * detail's embedded `shares`: only the Everyone row is added/dropped, every
- * per-user grant survives both directions.
+ * The local-launch switch (spec 2026-08-31 §10), which now lives on the
+ * `local` node's own detail page rather than on `/settings` (spec 2026-09-11
+ * §4.6): visible only when the caller can manage `local` (server-derived
+ * `canManage` — no client admin re-derivation), and the PUT body is
+ * read-modify-write over the node detail's embedded `shares`: only the
+ * Everyone row is added/dropped, every per-user grant survives both
+ * directions.
  */
 function localNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
   return {
@@ -99,15 +101,19 @@ function putBodies(calls: Call[]) {
     );
 }
 
-// The card renders a `<Link>` (a router context is required) — the same
-// minimal memory-router wrapper the subshell-actions-menu test uses.
+// The router wrapper outlived the `<Link>` it was added for: the card's
+// "Node settings" link went away when the card moved ONTO the node page, where
+// it would have pointed at the page you are already on. Kept anyway — the card
+// renders inside a routed tree in the real app, and a wrapper that matches
+// that costs one helper and keeps a future link from being a test rewrite.
+// Same minimal memory-router the subshell-actions-menu test uses.
 function renderCard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <LocalLaunchCard />,
+    component: () => <LocalLaunchCard nodeId="local" />,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),

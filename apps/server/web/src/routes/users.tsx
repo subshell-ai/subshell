@@ -30,16 +30,6 @@ interface UserRow {
   manageable?: boolean;
 }
 
-interface AuditEvent {
-  id: string;
-  actorUserId: string | null;
-  action: string;
-  targetType: string | null;
-  targetId: string | null;
-  metadata: unknown;
-  createdAt: string;
-}
-
 interface UsersEnvelope {
   viewerIsAdmin: boolean;
   users: UserRow[];
@@ -57,24 +47,13 @@ function UsersPage() {
     retry: false,
   });
 
-  // Strict: while the envelope is loading (undefined) or for members (false),
-  // the audit query stays disabled so it can never fire a doomed 403 request.
+  // Server-derived, and strict: loading (undefined) is NOT admin, so the
+  // management controls never flash for a member.
   const viewerIsAdmin = envelope?.viewerIsAdmin === true;
   // Own id, so the row for yourself offers a role control but no password
   // reset — that path lives under Account, where the current password is
   // required.
   const { data: currentUser } = useCurrentUser();
-
-  const {
-    data: auditEvents,
-    isError: auditIsError,
-    isLoading: auditIsLoading,
-  } = useQuery({
-    queryKey: ["audit"],
-    queryFn: () => apiFetch<AuditEvent[]>("/api/audit?limit=50"),
-    enabled: viewerIsAdmin,
-    retry: false,
-  });
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -95,7 +74,6 @@ function UsersPage() {
       setPassword("");
       setRole("user");
       await queryClient.invalidateQueries({ queryKey: ["users"] });
-      await queryClient.invalidateQueries({ queryKey: ["audit"] });
     } catch (err) {
       setErrorMsg(errMessage(err, "Failed to create user"));
     } finally {
@@ -136,10 +114,7 @@ function UsersPage() {
 
   return (
     <main className="mx-auto w-full max-w-5xl space-y-6 p-6">
-      <PageHeader
-        title="Users"
-        subtitle={viewerIsAdmin ? "Admin user management and audit trail" : "The people on this instance"}
-      />
+      <PageHeader title="Users" subtitle={viewerIsAdmin ? "Admin user management" : "The people on this instance"} />
 
       {viewerIsAdmin && (
         <Card>
@@ -243,13 +218,7 @@ function UsersPage() {
                             <UserRowActions
                               user={u}
                               viewerId={currentUser?.id ?? null}
-                              onChanged={() => {
-                                void queryClient.invalidateQueries({ queryKey: ["users"] });
-                                // The audit table sits on this same page — a
-                                // role change or reset that did not refresh it
-                                // would look unrecorded.
-                                void queryClient.invalidateQueries({ queryKey: ["audit"] });
-                              }}
+                              onChanged={() => void queryClient.invalidateQueries({ queryKey: ["users"] })}
                             />
                           )}
                         </td>
@@ -262,53 +231,6 @@ function UsersPage() {
           )}
         </CardContent>
       </Card>
-
-      {viewerIsAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Audit trail</CardTitle>
-            <CardDescription>Latest subshell lifecycle and admin events.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* Error ≠ empty ≠ loading — the roster above got this treatment
-                first; the trail follows its vocabulary. */}
-            {auditIsError ? (
-              <p className="text-muted-foreground text-sm">
-                Couldn&apos;t load the audit trail. Check your connection or sign in again.
-              </p>
-            ) : auditIsLoading ? (
-              <p className="text-muted-foreground text-sm">Loading…</p>
-            ) : !auditEvents?.length ? (
-              <p className="text-muted-foreground text-sm">No events recorded yet.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="pr-4 pb-2 font-medium">When</th>
-                      <th className="pr-4 pb-2 font-medium">Action</th>
-                      <th className="pr-4 pb-2 font-medium">Target</th>
-                      <th className="pb-2 font-medium">Context</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditEvents.map((e) => (
-                      <tr key={e.id} className="border-b last:border-0">
-                        <td className="py-2 pr-4 text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</td>
-                        <td className="py-2 pr-4 font-mono text-xs">{e.action}</td>
-                        <td className="py-2 pr-4 text-muted-foreground">
-                          {e.targetType ? `${e.targetType}:${e.targetId?.slice(0, 8)}` : "—"}
-                        </td>
-                        <td className="py-2 text-muted-foreground">{JSON.stringify(e.metadata ?? {})}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
     </main>
   );
 }

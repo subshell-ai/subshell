@@ -15,26 +15,103 @@
  */
 import type { Probe } from "./ipc";
 
-/** The sections, in sidebar order. */
+/**
+ * The sections, in sidebar order.
+ *
+ * These are IDENTIFIERS, not labels: `settings` names the `section-settings`
+ * element, every `goTo("settings")` call and the reset flow that hangs off it,
+ * and it kept that id when the sidebar started calling it Application (spec
+ * 2026-09-11 § 2.2). Renaming it would touch the reset flow for no behavioural
+ * gain — the same distinction the root AGENTS.md draws between a directory
+ * name and a component id.
+ */
 export type SectionId = "overview" | "addresses" | "logs" | "settings" | "about";
 
 /**
- * Sidebar order. The console always opens on the first one.
+ * Flat render order — what `render()` iterates to hide the sections it is not
+ * showing. The console always opens on the first one.
  *
- * About is LAST and deliberately not inside Settings: it changes nothing, so
+ * It equals the tree below read top to bottom (`flattenNavTree`, pinned by
+ * test), so there is one order rather than two that can disagree about where
+ * Addresses sits.
+ *
+ * About is LAST and deliberately not inside the group: it changes nothing, so
  * grouping it with the tray switch and the reset button would put a page that
  * only tells you things among the two that alter the machine.
  */
-export const SECTIONS: readonly SectionId[] = ["overview", "addresses", "logs", "settings", "about"];
+export const SECTIONS: readonly SectionId[] = ["overview", "logs", "addresses", "settings", "about"];
 
-/** What the sidebar calls each section. */
+/**
+ * What the sidebar calls each section.
+ *
+ * `settings` is labelled **Application** because Addresses is a setting too —
+ * the one that rewrites config.env — and the group above them is what is
+ * called Settings now. What is left under that name is this app and this
+ * machine: the tray preference and the reset button.
+ */
 export const SECTION_LABELS: Record<SectionId, string> = {
   overview: "Overview",
   addresses: "Addresses",
   logs: "Logs",
-  settings: "Settings",
+  settings: "Application",
   about: "About",
 };
+
+/**
+ * A row in the sidebar: a section that stands on its own, or a group that
+ * opens to sections.
+ *
+ * A group is a label and a chevron and is never itself a page (spec § 1). A
+ * header that is also a link needs a separate toggle beside it, and every
+ * page inside a group then earns a name of its own — which is where
+ * "Application" comes from, rather than a page called whatever its group is
+ * called. Groups do not nest: one level is what this tree needs, and a second
+ * is a design question rather than an extension of this type.
+ */
+export type NavEntry =
+  | { kind: "section"; id: SectionId }
+  | { kind: "group"; id: "settings-group"; label: string; children: readonly SectionId[] };
+
+/** The sidebar, as a tree. `main.ts` walks this; nothing else reads it. */
+export const NAV_TREE: readonly NavEntry[] = [
+  { kind: "section", id: "overview" },
+  { kind: "section", id: "logs" },
+  { kind: "group", id: "settings-group", label: "Settings", children: ["addresses", "settings"] },
+  { kind: "section", id: "about" },
+];
+
+/**
+ * The tree, read top to bottom. Must equal `SECTIONS` — that equality is the
+ * whole reason a flat list and a tree can coexist here, and it is a test
+ * rather than a comment.
+ */
+export function flattenNavTree(tree: readonly NavEntry[]): SectionId[] {
+  return tree.flatMap((entry) => (entry.kind === "group" ? [...entry.children] : [entry.id]));
+}
+
+/**
+ * Whether a group renders open: **the current section decides, and a chevron
+ * press overrides it until the section changes.**
+ *
+ * So the group is open exactly while you are inside it and shut otherwise,
+ * and the chevron always works — including to shut a group you are in.
+ *
+ * The first version made a group holding the current section unconditionally
+ * open, so that the sidebar could always say where you are. What that bought
+ * was a chevron that refused on the one section a person is most likely to
+ * press it from — reported against both this console and the web rail on
+ * 2026-09-12, which is why the rule now lives here as one testable function
+ * rather than as an expression inside `renderNav`.
+ *
+ * What it was PROTECTING is real, though, and is now `renderNav`'s job
+ * instead: shut over the current section, every row carrying a `current`
+ * class is inside the container the group just hid, so the header takes a
+ * `holds-current` class and is the thing that says where you are. Dropping
+ * the forced-open rule without that leaves the sidebar highlighting nothing.
+ */
+export function navGroupOpen(override: boolean | undefined, childCurrent: boolean): boolean {
+  return override ?? childCurrent;
+}
 
 /** Whether the Addresses section can offer its form, and why not when it cannot. */
 export type Availability = { ok: true } | { ok: false; reason: string };

@@ -40,7 +40,7 @@ credential kinds:
     another's; a forged session id merely selects an existing transcript
     the pane's user could already read.
   - *System keys*: long-lived, no permission ceiling, owned by the `system` service user,
-    created by admins under **Settings → System API keys** (plaintext shown exactly once;
+    created by admins under **Server Settings → API keys** (plaintext shown exactly once;
     only a hash is stored). Treat them as full-access bearer credentials — disable/delete
     revokes instantly.
 

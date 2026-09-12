@@ -49,12 +49,23 @@ signed-in-only — which writes each `/api/events` frame into
 `SUBSHELLS_QUERY_KEY`; read via `useSubshellsList`/`useLiveSubshells`, never
 by opening another EventSource.
 
+**The admin surface is six pages behind one collapsible group** (spec
+2026-09-11 grouped-navigation): General (`/settings`), Users, API keys,
+Plugins, Status and Audit log, listed in the rail under **Server Settings**
+and gated as a WHOLE — a member's rail lists none of them, `/users` included,
+though that route stays reachable by URL for everyone because the sharing
+picker reads the same roster. Two of the six are read-only: `/settings` is
+where an admin CHANGES the instance, while Status and `/settings/audit` are
+where they see what it currently IS and what has happened to it.
+
 `routes/settings_.status.tsx` (`/settings/status`, components in
-`components/admin-status/`, data in `hooks/use-admin-status.ts`) is the
-read-only half of the admin surface: `/settings` is where an admin CHANGES the
-instance, Status is where they see what it currently IS. Its admin gate is the
-same server-derived `viewerIsAdmin`, and `undefined` counts as NOT admin — the
-query is `enabled`-gated on it so a non-admin mount fires no doomed 403.
+`components/admin-status/`, data in `hooks/use-admin-status.ts`) is the model
+for the gate the others copy: server-derived `viewerIsAdmin`, with `undefined`
+counting as NOT admin — the query is `enabled`-gated on it so a non-admin
+mount fires no doomed 403. `/settings/audit` is the same shape
+(`components/settings/audit-trail-card.tsx`), with the route owning the gate
+so the card's query can be unconditional; its `staleTime: 0` is load-bearing,
+since mounting the page is now the only thing that refreshes the trail.
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the

@@ -9,7 +9,7 @@ machine, so a user never has to touch a CLI binary.
 | Window | Page | Why |
 | --- | --- | --- |
 | `wizard` | `ui/dist` (Vite output; sources in `ui/src/`), bundled, `tauri://` | Owns first run: a guided chain from virgin machine to running server, on a page that must render with nothing installed. |
-| `console` | same bundle, `index.html` | Must render with the server **down**, and is the only surface allowed to drive the CLI. Owns repair, settings, and the reset view — four sections behind a sidebar (below). |
+| `console` | same bundle, `index.html` | Must render with the server **down**, and is the only surface allowed to drive the CLI. Owns repair, settings, and the reset view — five sections behind a sidebar, two of them under a group (below). |
 | `main` | the SERVER's own SPA over `http://127.0.0.1:<port>` | `apps/server/web` is hard same-origin. |
 
 Both local pages are the same Vite build (two rollup inputs, one `ui/dist`,
@@ -356,7 +356,7 @@ explains). Two HTML inputs, one build, one bundle:
 
 ```
 ui/
-├── index.html          # console shell; every id the page binds is in it (the sidebar + four sections, and #reset-view)
+├── index.html          # console shell; every id the page binds is in it (the sidebar + five sections, and #reset-view)
 ├── wizard.html         # wizard shell; rail + one screen
 ├── src/
 │   ├── main.ts         # console ENTRY: state, render(), guard(), the poll, the sidebar
@@ -379,14 +379,19 @@ lives: anything with a contract rather than a rendering goes in `lib/`, where
 it is testable without a webview. Everything under `ui/src/console/` holds only
 the DOM.
 
-## The console is four sections behind a sidebar
+## The console is five sections behind a sidebar
 
 Spec `2026-09-11-server-console-sidebar-design.md`. The page was one scroll of
 five cards — a status chip over a nine-row fact list, the step card, the tray
 switch, a 220px log pane and a Danger zone disclosure, all on screen at once
 with nothing to choose between them. It is a 200px sidebar and a content
-column now: **Overview**, **Addresses**, **Logs**, **Settings**, **About**, one
-visible at a time, in a 900x640 window (min 720x520).
+column now, in a 900x640 window (min 720x520). Since spec 2026-09-11
+grouped-navigation the five are a TREE rather than a flat list: **Overview**,
+**Logs**, then a **Settings** group holding **Addresses** and **Application**,
+then **About** — one section visible at a time. Addresses is a setting (it
+rewrites config.env), which is what put it under that label; the section the
+sidebar calls Application keeps the id `settings`, so `section-settings`,
+every `goTo("settings")` and the reset flow behind it are unchanged.
 
 ```
 ui/src/console/

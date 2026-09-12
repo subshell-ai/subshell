@@ -4,6 +4,7 @@ import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { EditableText } from "@/components/editable-text";
 import { ErrorBanner } from "@/components/error-banner";
+import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { NodeAllowedDirs } from "@/components/nodes/node-allowed-dirs";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
@@ -232,6 +233,13 @@ function NodeDetailPage() {
           )}
         </dl>
       </div>
+
+      {/* Whether anyone may launch here at all (spec 2026-09-11 §4.6): it used
+          to be a switch on `/settings`, and it belongs beside the allowed
+          directories — the two are "who may launch here, and where". Only the
+          control-plane host has an Everyone grant to toggle, and the card
+          gates itself on the server's `canManage` for `local`. */}
+      {n.kind === "local" && <LocalLaunchCard nodeId={n.id} />}
 
       {/* Key rotation lives with the enrolled nodes: `local`'s key is the control
           plane's own credential — mint/rotate it server-side deliberately,

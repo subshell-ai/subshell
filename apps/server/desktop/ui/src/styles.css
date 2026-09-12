@@ -193,7 +193,9 @@
   }
   /* ===================================================================
      The console shell (spec 2026-09-11 § 2.1): a 200px sidebar, a content
-     column that scrolls on its own, four sections of which one is visible.
+     column that scrolls on its own, five sections of which one is visible.
+     The sidebar lists them as a tree — two of them sit under a group header
+     (spec 2026-09-11 grouped-navigation).
      =================================================================== */
   body.console {
     height: 100vh;
@@ -260,6 +262,73 @@
   }
   .nav-dot[hidden] {
     display: none;
+  }
+  /* A group header shares the items' geometry but never their `current`
+     state: it is a label and a chevron, and it navigates nowhere, so the
+     filled highlight would claim a page that does not exist. */
+  .nav-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 14px;
+    text-align: left;
+    color: var(--color-muted);
+    border-color: transparent;
+  }
+  .nav-group:hover:not(:disabled) {
+    color: var(--color-fg);
+    border-color: transparent;
+    background: color-mix(in oklch, var(--color-card) 60%, transparent);
+  }
+  /* Shut over the section you are on, the header is the ONLY thing left that
+     can say where you are — the current row is inside the container it just
+     hid. Lit text rather than the filled `current` background, because the
+     header is still not a page: it says "in here", not "here". */
+  .nav-group.holds-current {
+    color: var(--color-fg);
+  }
+  /* Drawn from a rotated border rather than an asset: the console's CSP is
+     `script-src 'self'` with no inlined data assets by build rule, and a
+     chevron is two lines. */
+  .nav-chevron {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    flex: none;
+    transition: transform 200ms ease;
+  }
+  .nav-chevron::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 2.5px;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+  }
+  .nav-group[aria-expanded="false"] .nav-chevron {
+    transform: rotate(-90deg);
+  }
+  /* The left rule is what makes the indent read as a branch rather than as
+     two items that happen to start further in. */
+  .nav-group-children {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 14px;
+    margin-left: 10px;
+    border-left: 1px solid var(--color-line);
+  }
+  .nav-group-children[hidden] {
+    display: none;
+  }
+  .nav-item.child {
+    font-size: 13px;
   }
   .sidebar-version {
     margin: auto 0 0 10px;

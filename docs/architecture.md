@@ -81,7 +81,7 @@ context.
 | Header | `better-auth.session_token` cookie | `Authorization: Bearer subshell_…` | same |
 | `actor` | `cookie` | `system-key` | `subshell-key` |
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` |
-| Minted by | sign-up / wizard | admin via **Settings → System API keys** → `POST /api/system-keys` | server-side `issueSubshellToken` at subshell start |
+| Minted by | sign-up / wizard | admin via **Server Settings → API keys** → `POST /api/system-keys` | server-side `issueSubshellToken` at subshell start |
 | Scope | the user's own data; **admin surfaces require this actor** | full access, no permission map | `permissions` grant map (`channels`, `subshells` × `read`/`write`) |
 | Lifetime | better-auth session | forever until disabled/deleted | 7 days, self-extends via `POST /api/subshells/:id/extend-token` (self-only) |
 | Revocation | sign-out / password change | instant (disable/delete) | **instant on terminate/delete**; rotated on auto-restart |

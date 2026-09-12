@@ -6,18 +6,19 @@
     <title>Subshell Server</title>
   </head>
   <body class="console">
-    <!-- Two views, one window (spec § 7.1): the SHELL — a sidebar and four
+    <!-- Two views, one window (spec § 7.1): the SHELL — a sidebar and five
          sections — and the reset view, entered by the desktop-screen event from
-         the dashboard's danger card or by Settings' own Reset button. The reset
+         the dashboard's danger card or by the Application section's own Reset
+         button. The reset
          view covers the shell entirely, sidebar included: a chain whose premise
          is that it is the only thing happening must not leave a way to navigate
          out from under it. -->
     <div id="shell" class="shell">
       <div class="sidebar">
         <img class="sidebar-mark" src="./wordmark-96.png" srcset="./wordmark-96.png 1x, ./wordmark-192.png 2x" alt="Subshell" />
-        <!-- The items are built by main.ts from SECTIONS, so the order and the
-             labels have one source (`lib/console-nav.ts`) rather than a copy
-             here that drifts. -->
+        <!-- The items are built by main.ts from NAV_TREE, so the order, the
+             grouping and the labels have one source (`lib/console-nav.ts`)
+             rather than a copy here that drifts. -->
         <nav class="sidebar-nav" id="nav" aria-label="Sections"></nav>
         <p class="sidebar-version" id="sidebar-version"></p>
       </div>
@@ -101,7 +102,7 @@
 
         <!-- ============================ Settings ============================ -->
         <section id="section-settings" hidden>
-          <h2 class="section-title">Settings</h2>
+          <h2 class="section-title">Application</h2>
 
           <div id="prefs-group" hidden>
             <h3 class="group-heading">Tray</h3>

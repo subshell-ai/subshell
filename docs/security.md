@@ -80,7 +80,7 @@ principals; the fourth is a websocket credential and nothing else.
 | Form | `better-auth.session_token`, HttpOnly, `SameSite=Lax`, `secure` in prod | `Bearer subshell_…` | `Bearer subshell_…` | `Bearer` on `/ws/node` only |
 | `actor` | `cookie` | `system-key` | `subshell-key` | — (rejected on REST) |
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` | — |
-| Minted by | sign-up / sign-in / passkey | admin, Settings → System API keys | the server at subshell start | `POST /api/nodes/enroll` |
+| Minted by | sign-up / sign-in / passkey | admin, Server Settings → API keys | the server at subshell start | `POST /api/nodes/enroll` |
 | Scope | the user's own data; **the only actor admin surfaces accept** | full access, no permission map | permission grant map (`channels`, `subshells` × `read`/`write`) | open `/ws/node` as that node |
 | Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs | long-lived |
 | Revocation | sign-out / password change | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |

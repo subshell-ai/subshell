@@ -30,7 +30,7 @@ import { renderResultStrip } from "./console/result-strip";
 import { createSettings } from "./console/settings";
 import { type ConsoleHost, el, errText, SETTLE_ATTEMPTS, SETTLE_DELAY_MS, sleep, slots, state } from "./console/state";
 import { createSteps } from "./console/steps";
-import { heroState, SECTION_LABELS, SECTIONS, type SectionId } from "./lib/console-nav";
+import { heroState, NAV_TREE, navGroupOpen, SECTION_LABELS, SECTIONS, type SectionId } from "./lib/console-nav";
 import type { ActionResult } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import "./styles.css";
@@ -39,29 +39,78 @@ import "./styles.css";
 // The chrome: the sidebar, the page-wide message slots
 // ---------------------------------------------------------------------------
 
-/** The nav buttons, built once from SECTIONS so the label map is the one source. */
+/** The nav buttons, built once from NAV_TREE so the label map is the one source. */
 const navButtons = new Map<SectionId, HTMLButtonElement>();
+
+/** The group header and the container it discloses, or null before `buildNav`. */
+let navGroup: { header: HTMLButtonElement; children: HTMLElement; sections: readonly SectionId[] } | null = null;
+
+/**
+ * A chevron press, outstanding until the section changes — `undefined` means
+ * the group simply follows the current section (`navGroupOpen`). `goTo` clears
+ * it, which is what makes the press expire rather than accumulate.
+ *
+ * Deliberately not persisted, and deliberately not on `state`: it is meant to
+ * last until you go somewhere else, and no section module has any business
+ * reading it — the sidebar is this file's.
+ */
+let navGroupPress: boolean | undefined;
+
+/** One section's button. Shared by the top-level rows and a group's children. */
+function buildNavItem(id: SectionId, child: boolean): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = child ? "nav-item child" : "nav-item";
+  // Every item is reachable, always. A section that cannot help says so in
+  // its own words (`addressesAvailability`) — a dimmed item with a tooltip
+  // would put the reason somewhere a keyboard or a touch never goes.
+  const dot = document.createElement("span");
+  dot.className = "nav-dot";
+  // Only Overview carries one: it mirrors the hero's state colour, so the
+  // machine's state is readable from every section without switching back.
+  dot.hidden = id !== "overview";
+  const label = document.createElement("span");
+  label.textContent = SECTION_LABELS[id];
+  b.append(dot, label);
+  b.addEventListener("click", () => goTo(id));
+  navButtons.set(id, b);
+  return b;
+}
 
 function buildNav(): void {
   const nav = el("nav");
-  for (const id of SECTIONS) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "nav-item";
-    // Every item is reachable, always. A section that cannot help says so in
-    // its own words (`addressesAvailability`) — a dimmed item with a tooltip
-    // would put the reason somewhere a keyboard or a touch never goes.
-    const dot = document.createElement("span");
-    dot.className = "nav-dot";
-    // Only Overview carries one: it mirrors the hero's state colour, so the
-    // machine's state is readable from every section without switching back.
-    dot.hidden = id !== "overview";
+  for (const entry of NAV_TREE) {
+    if (entry.kind === "section") {
+      nav.append(buildNavItem(entry.id, false));
+      continue;
+    }
+    // A group is a label and a chevron, never a page: it toggles its children
+    // and navigates nowhere, which is what lets the header be one control
+    // instead of a link with a second button beside it.
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "nav-group";
+    const listId = `nav-group-${entry.id.replace(/-group$/, "")}`;
+    header.setAttribute("aria-controls", listId);
     const label = document.createElement("span");
-    label.textContent = SECTION_LABELS[id];
-    b.append(dot, label);
-    b.addEventListener("click", () => goTo(id));
-    navButtons.set(id, b);
-    nav.append(b);
+    label.textContent = entry.label;
+    const chevron = document.createElement("span");
+    chevron.className = "nav-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    header.append(label, chevron);
+    header.addEventListener("click", () => {
+      // Flips what the header is CURRENTLY showing, so the first press always
+      // visibly does something. Toggling a stored flag instead is how a press
+      // becomes a no-op whenever that flag and the current section disagree.
+      navGroupPress = !navGroupOpen(navGroupPress, entry.children.includes(state.section));
+      renderNav();
+    });
+    const children = document.createElement("div");
+    children.className = "nav-group-children";
+    children.id = listId;
+    for (const id of entry.children) children.append(buildNavItem(id, true));
+    nav.append(header, children);
+    navGroup = { header, children, sections: entry.children };
   }
 }
 
@@ -76,6 +125,16 @@ function renderNav(): void {
     if (dot && id === "overview") {
       dot.className = `nav-dot bg-${tone === "ok" ? "ok" : tone === "warn" ? "warn" : "muted"}`;
     }
+  }
+  if (navGroup !== null) {
+    const holdsCurrent = navGroup.sections.includes(state.section);
+    const open = navGroupOpen(navGroupPress, holdsCurrent);
+    navGroup.header.setAttribute("aria-expanded", String(open));
+    navGroup.children.hidden = !open;
+    // Shut over the current section, the header is the only row left that can
+    // say where you are — everything with a `current` class is inside the
+    // container above. Without this the sidebar highlights nothing at all.
+    navGroup.header.classList.toggle("holds-current", holdsCurrent && !open);
   }
   // The version, in the sidebar's foot. Before the first probe it says
   // nothing rather than guessing, and a machine with no server says so — the
@@ -103,6 +162,10 @@ function renderProblem(): void {
 function goTo(section: SectionId): void {
   if (section === state.section) return;
   state.section = section;
+  // A chevron press lasts until you go somewhere else: clearing it here is
+  // what lets the group fall back to following the section, so leaving the
+  // group shuts it and entering one opens it.
+  navGroupPress = undefined;
   // Entering Addresses reseeds it from the STORED configuration, so an edit
   // never starts from what a previous visit left behind.
   if (section === "addresses") addresses.enter();

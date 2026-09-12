@@ -45,6 +45,10 @@ test("members see the roster but no management UI", async ({ browser }) => {
   const adminPage = await adminCtx.newPage();
   await adminPage.goto("/users");
   await expect(adminPage.getByRole("button", { name: "Add user" })).toBeVisible();
+  // The audit trail left /users for its own page under the Server Settings
+  // group (spec 2026-09-11 grouped-navigation §4.4), so the control that
+  // proves this selector can match has to follow it there.
+  await adminPage.goto("/settings/audit");
   await expect(adminPage.getByText("Latest subshell lifecycle")).toBeVisible();
   await adminCtx.close();
 
@@ -65,6 +69,14 @@ test("members see the roster but no management UI", async ({ browser }) => {
   // headings — CardTitle renders a <div>, so heading-role queries would be
   // vacuously true. The admin positive control above pins non-vacuity.
   await expect(page.getByRole("button", { name: "Add user" })).toHaveCount(0);
+  // The audit trail is a page of its own now, and it gates the way every
+  // admin page does: guidance, never the table. Asserting the guidance is
+  // PRESENT as well as the table absent is what keeps this from passing on a
+  // page that simply failed to render — and the page's own subtitle is
+  // deliberately not the card's sentence, so this locator can only mean the
+  // card.
+  await page.goto("/settings/audit");
+  await expect(page.getByText("Instance settings are for admins")).toBeVisible();
   await expect(page.getByText("Latest subshell lifecycle")).toHaveCount(0);
 
   // And unreachable: the API keeps enforcing, not just the UI hiding.
@@ -81,8 +93,14 @@ test("members see the roster but no management UI", async ({ browser }) => {
   await expect(page.getByText("Instance settings are for admins")).toBeVisible();
   await expect(page.getByRole("link", { name: "Account settings" })).toBeVisible();
   await expect(page.getByText("Registration", { exact: true })).toHaveCount(0);
-  // "Instance" is the admin nav entry's label; asserting the OLD one would
-  // pass for the wrong reason now that nothing is called "Server" there.
-  await expect(page.locator("aside").getByRole("link", { name: "Instance" })).toHaveCount(0);
+  // The admin pages are one collapsible group in the rail now (spec
+  // 2026-09-11 grouped-navigation §2.1), so a member is missing the group
+  // HEADER and every page inside it — Users among them, which used to be a
+  // top-level entry every signed-in person could see. Asserting a label from
+  // an older tree would pass for the wrong reason.
+  const rail = page.locator("aside");
+  await expect(rail.getByRole("button", { name: "Server Settings" })).toHaveCount(0);
+  await expect(rail.getByRole("link", { name: "General" })).toHaveCount(0);
+  await expect(rail.getByRole("link", { name: "Users" })).toHaveCount(0);
   await ctx.close();
 });

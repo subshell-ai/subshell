@@ -26,9 +26,22 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     await expect(page.locator("aside")).toHaveCount(0);
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    // "Instance", not "Server": the control-plane host's own node is named
-    // Server, and the two words collided on /nodes for an admin.
-    await page.getByRole("link", { name: "Instance" }).click();
+    // The admin pages live in one collapsible group now (spec 2026-09-11
+    // grouped-navigation §2.1), and it follows the route: on `/` it is SHUT,
+    // so the press below is the ordinary path rather than a defensive one.
+    // Written as a conditional anyway, because what this test is here to
+    // check is the drawer, and it should not also fail the day the group's
+    // default changes.
+    const group = page.getByRole("button", { name: "Server Settings" });
+    await expect(group).toBeVisible();
+    if ((await group.getAttribute("aria-expanded")) === "false") await group.click();
+    // Positive control for 10-auth-experience's member check, which asserts
+    // this exact locator has COUNT 0. Users moved inside the group, so an
+    // absence assertion about it is vacuous unless something proves the
+    // locator can match — that is this line, and it is the same reasoning
+    // the audit and Add-user controls in that spec already carry.
+    await expect(page.getByRole("link", { name: "Users" })).toBeVisible();
+    await page.getByRole("link", { name: "General" }).click();
     await expect(page).toHaveURL(/\/settings$/);
     // Navigating dismisses the drawer (route-change effect).
     await expect(page.getByRole("dialog")).toHaveCount(0);

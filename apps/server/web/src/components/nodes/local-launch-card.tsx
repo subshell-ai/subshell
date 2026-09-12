@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -12,10 +11,12 @@ import type { NodeShare } from "@/types/node";
 type ShareWrite = Pick<NodeShare, "granteeUserId" | "permission">;
 
 /**
- * Settings-page switch for local launching (spec 2026-08-31 §10). There is no
- * dedicated endpoint: ON is the seeded Everyone/`edit` grant on `local`, OFF
- * is its removal. The shares PUT replaces the WHOLE grant set, so the card
- * read-modifies-writes: it keeps every per-user grant from the node's
+ * The local-launch switch (spec 2026-08-31 §10), rendered on the `local`
+ * node's own detail page — it and the allowed-directories card are both "who
+ * may launch here, and where" (spec 2026-09-11 §4.6 moved it off `/settings`).
+ * There is no dedicated endpoint: ON is the seeded Everyone/`edit` grant on
+ * `local`, OFF is its removal. The shares PUT replaces the WHOLE grant set,
+ * so the card read-modifies-writes: it keeps every per-user grant from the node's
  * embedded `shares` and only ever adds/drops the Everyone row(s). The source
  * is the node detail, not the manager-only shares GET — a manager is always
  * config-capable, so `shares` rides the same fetch the card already makes.
@@ -23,13 +24,17 @@ type ShareWrite = Pick<NodeShare, "granteeUserId" | "permission">;
  * stays disabled: a `[]`-fallback draft would full-replace and erase every
  * live grant.
  *
- * Visibility is `Node.canManage` on `local` — the server's own answer (real
- * owner, or admin), never a client-side admin re-derivation. A viewer who
- * cannot manage it, or cannot even see `local` (404), renders nothing here.
+ * Visibility is `Node.canManage` — the server's own answer (real owner, or
+ * admin), never a client-side admin re-derivation. A viewer who cannot manage
+ * the node, or cannot even see it (404), renders nothing here.
+ *
+ * The node id is a PROP rather than a hardcoded `"local"`, so the page's
+ * `kind === "local"` gate and this card's target are one decision instead of
+ * two that happen to agree.
  */
-export function LocalLaunchCard() {
-  const { data: node } = useNode("local");
-  const setShares = useSetNodeShares("local");
+export function LocalLaunchCard({ nodeId }: { nodeId: string }) {
+  const { data: node } = useNode(nodeId);
+  const setShares = useSetNodeShares(nodeId);
   const [error, setError] = useState<string | null>(null);
 
   if (!node?.canManage) return null;
@@ -43,6 +48,14 @@ export function LocalLaunchCard() {
     if (existing === undefined || setShares.isPending) return;
     setError(null);
     // Only the Everyone row(s) move; per-user grants survive both directions.
+    //
+    // The filter is by GRANTEE, not by grantee-and-`edit`, and that is
+    // required rather than sloppy: on a node, ANY share lets the grantee
+    // launch there — `view` included (docs/security.md, Nodes). So an
+    // Everyone/`view` row left behind by an "off" would leave every user
+    // still able to launch here, which is the one thing this switch promises
+    // to stop. Off therefore clears every Everyone row, and on reinstates
+    // exactly one at `edit`.
     const perUser: ShareWrite[] = (existing ?? [])
       .filter((s) => s.granteeUserId !== null)
       .map((s) => ({ granteeUserId: s.granteeUserId, permission: s.permission }));
@@ -59,7 +72,7 @@ export function LocalLaunchCard() {
         <CardDescription>
           Allow launching subshells on this control-plane host. Turning it off makes the host unselectable in the
           new-subshell node picker. Subshells cannot start anywhere until another node is shared for launching. This
-          only removes or reinstalls the Everyone grant; custom per-user shares on it are kept.
+          only removes or reinstalls the Everyone grants; custom per-user shares on it are kept.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -79,11 +92,6 @@ export function LocalLaunchCard() {
             {error}
           </p>
         )}
-        <p className="text-sm">
-          <Link to="/nodes/$id" params={{ id: "local" }} className="underline">
-            Node settings
-          </Link>
-        </p>
       </CardContent>
     </Card>
   );
