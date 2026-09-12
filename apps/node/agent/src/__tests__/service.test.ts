@@ -165,6 +165,28 @@ describe("installService — macOS (launchd agent)", () => {
     expect(slept.length).toBe(2);
   });
 
+  /** The budget is a decision, so it is asserted rather than left as a constant. */
+  test("gives up after the whole budget, in launchd's own words", async () => {
+    let bootstraps = 0;
+    const slept: number[] = [];
+    const s = stub({
+      platform: "darwin",
+      sleep: (ms: number) => {
+        slept.push(ms);
+      },
+      respond: (cmd) => {
+        if (cmd[1] !== "bootstrap") return { code: 0, out: "", err: "" };
+        bootstraps += 1;
+        return { code: 5, out: "", err: "Bootstrap failed: 5: Input/output error" };
+      },
+    });
+    const res = await installService(s.deps);
+    expect(res.code).not.toBe(0);
+    expect(bootstraps).toBe(60);
+    expect(slept.reduce((a, b) => a + b, 0)).toBe(29_500);
+    expect(res.err).toInclude("Input/output error");
+  });
+
   test("a real bootstrap failure is reported at once", async () => {
     let bootstraps = 0;
     const s = stub({
@@ -199,6 +221,9 @@ describe("installService — macOS (launchd agent)", () => {
   test("a failing bootstrap exits 1 with launchctl's stderr", async () => {
     const s = stub({
       platform: "darwin",
+      // EIO is a BUSY answer, so this goes through the whole retry budget —
+      // thirty seconds of real waiting for a case that is about the message.
+      sleep: () => {},
       respond: (cmd) =>
         cmd[1] === "bootstrap"
           ? { code: 5, out: "", err: "Bootstrap failed: 5: Input/output error" }

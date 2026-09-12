@@ -560,10 +560,29 @@ and the Nodes page surface the resolved URL and warn on loopback; public setting
 carries `appBaseUrl` so the dialog shows exactly what the server will bake.
 
 **Disabling the control-plane host as a launch target** means an admin removing
-the `local` node's seeded Everyone/`edit` share row (the Settings toggle does
-exactly this). The disable survives restarts: boot seeding creates that row only
-when the `local` node row itself is created, never to "repair" a deliberate
-removal. There is no separate flag to drift out of sync with it.
+the `local` node's seeded Everyone/`edit` share row (the toggle on that node's
+own page does exactly this). The disable survives restarts: boot seeding creates
+that row only when the `local` node row itself is created, never to "repair" a
+deliberate removal. There is no separate flag to drift out of sync with it.
+
+**It applies to ADMINS too** (2026-09-12). `resolveNodeAccess` ranks every admin
+at `edit` on every node, so before this the one person who could throw the
+switch was the one person it never applied to, and the setting quietly meant
+something different for whoever set it. `nodeCanLaunchOn` therefore reads the
+GRANTED access for `local` — the admin boost still confers management, never
+launch. Two consequences worth stating:
+
+- `local` becomes the one node in the product that is **visible and
+  unlaunchable at once**. That is deliberate: an admin has to keep seeing the
+  row to switch it back on, and a node they cannot see is a switch they cannot
+  reach.
+- Its refusal is a **403**, not the 404 an invisible node answers with. The
+  404 check runs first, so the 403 can only ever name a row already on the
+  caller's own Nodes page — it is not an id-existence oracle.
+
+Nothing else changes: for a viewer who was never boosted the two readings are
+the same value, and the machine-actor path (`allowAdminAndShares: false`)
+resolves them identically, so a bearer token neither gains nor loses anything.
 
 ### Plugin installs from the registry (spec 2026-09-09; instance-level since 2026-09-10)
 

@@ -199,6 +199,7 @@ export function NewSubshellForm({
   onChange,
   ids = DIALOG_IDS,
   firstRun = false,
+  onLeave,
 }: {
   value: NewSubshellFormValue;
   onChange: (value: NewSubshellFormValue) => void;
@@ -206,6 +207,14 @@ export function NewSubshellForm({
   ids?: NewSubshellFormIds;
   /** Label the pickers for someone who has never seen this product (see {@link fieldCopy}). */
   firstRun?: boolean;
+  /**
+   * Called before the nothing-to-launch state navigates away.
+   *
+   * A dialog caller passes its own close here: `QuickAddProvider` mounts the
+   * launch and workspace dialogs above every route, so without it the page
+   * changes under a modal that stays up showing this same empty state.
+   */
+  onLeave?: () => void;
 }): JSX.Element {
   const copy = fieldCopy(firstRun);
   // `node=any`: profiles that only run on OTHER nodes must be listable here.
@@ -343,7 +352,7 @@ export function NewSubshellForm({
   // needs a node id and `pickNodeDefault` leaves it empty when nothing is
   // selectable — so no caller has to learn about this state.
   if (nodes !== null && targets.length === 0) {
-    return <NoLaunchTargets local={(nodes ?? []).find((n) => n.kind === "local") ?? null} />;
+    return <NoLaunchTargets local={(nodes ?? []).find((n) => n.kind === "local") ?? null} onNavigate={onLeave} />;
   }
 
   return (

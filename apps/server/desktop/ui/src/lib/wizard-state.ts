@@ -47,9 +47,8 @@ const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
  * whether the word had finished, which is how it was reported — as a layout
  * bug.
  *
- * **Deliberately NOT "Reset Subshell", which is Subshell Client's string for
- * its own twin of this screen.** The two apps install side by side, and their
- * resets destroy different things: the client's takes a node's config, its
+ * **The two apps do NOT share a string**, and that is the whole point. They
+ * install side by side, and their resets destroy different things: the client's takes a node's config, its
  * key and its data directory, while this one takes the control plane —
  * including the database that holds every user, every API key and the node
  * signing keypair that rules every enrolled machine. One label over two acts

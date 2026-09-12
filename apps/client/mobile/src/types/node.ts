@@ -32,6 +32,16 @@ export interface Node {
   status: NodeStatus;
   /** The caller's effective access; ANY visible node grants launch (spec §2) */
   access: NodeAccess;
+  /**
+   * Whether this viewer may start a subshell here — the server's answer.
+   *
+   * Any share grants it on an agent node. On the control-plane host it is the
+   * granted access alone, so switching launching off there applies to admins
+   * too and that one node can be visible and unlaunchable at once (spec
+   * 2026-09-12). Optional, and read as `!== false`, so an older server that
+   * omits it reads as launchable exactly as before.
+   */
+  canLaunch?: boolean;
   /** subshell version from `ready`, null until first ready */
   agentVersion: string | null;
   /** Node protocol version from `ready`, null until first ready */

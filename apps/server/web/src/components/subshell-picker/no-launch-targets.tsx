@@ -19,8 +19,23 @@ import type { Node } from "@/types/node";
  * `local` row, so it appears only when the server says this viewer manages
  * it; a non-admin gets the sentence instead, which names who can.
  */
-export function NoLaunchTargets({ local }: { local: Node | null }): JSX.Element {
+export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onNavigate?: () => void }): JSX.Element {
   const navigate = useNavigate();
+
+  /**
+   * Leave for a page that can fix this — closing whatever contains us first.
+   *
+   * `QuickAddProvider` mounts the launch and workspace dialogs ABOVE every
+   * route (`routes/__root.tsx`), so on the rail's quick-add and on `/new` the
+   * route changes UNDERNEATH a modal that stays up — still showing this same
+   * empty state, over the page that was supposed to be the answer. A way out
+   * that appears to do nothing is the exact failure this component exists to
+   * remove.
+   */
+  function leaveFor(go: () => void): void {
+    onNavigate?.();
+    go();
+  }
   const canEnableHost = local?.canManage === true;
   // The host's row is admin-named and defaults to "Server" — never the id,
   // which is `local` and is an identifier rather than a label.
@@ -37,7 +52,7 @@ export function NoLaunchTargets({ local }: { local: Node | null }): JSX.Element 
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {canEnableHost && local && (
+        {canEnableHost && (
           <Button
             variant="outline"
             size="sm"
@@ -46,7 +61,7 @@ export function NoLaunchTargets({ local }: { local: Node | null }): JSX.Element 
             Enable on {hostName}
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={() => void navigate({ to: "/nodes" })}>
+        <Button variant="outline" size="sm" onClick={() => leaveFor(() => void navigate({ to: "/nodes" }))}>
           Add a node
         </Button>
       </div>

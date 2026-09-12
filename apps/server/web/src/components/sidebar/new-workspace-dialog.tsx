@@ -174,7 +174,7 @@ export function NewWorkspaceDialog({
             onToggle={toggle}
           />
         ) : (
-          <NewSubshellForm value={form} onChange={setForm} />
+          <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
         )}
 
         {error && <p className="text-destructive text-sm">{error}</p>}

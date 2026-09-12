@@ -82,7 +82,7 @@ Client does the same for the `subshell` agent, from a second window reached
 from its tray ("This machine…").
 
 Undoing all of it is deliberately a Settings action, not a window state: the
-dashboard's danger zone carries an admin-only "Reset this machine" card, which
+dashboard's danger zone carries an admin-only "Reset this server" card, which
 raises the Subshell Server window at a confirmation listing every path the
 reset deletes and arms only after you type this machine's hostname. It stops
 the service, closes this machine's panes, deletes the instance data and this

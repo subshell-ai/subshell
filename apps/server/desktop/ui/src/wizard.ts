@@ -793,10 +793,12 @@ function render(): void {
   // straight back to the dashboard it was just asked to leave.
   //
   // `update` draws itself here. `reset` does not: its screen replaces the
-  // frame from `resetView` at the top of this function, and it raises itself
-  // ASYNCHRONOUSLY — so between the request and `open()` flipping `isOpen()`,
-  // returning here is the only thing standing between this window and the
-  // handoff.
+  // frame from `resetView` at the top of this function. Since `open()` shows
+  // BEFORE it arms, `isOpen()` is true from the moment the request is applied
+  // and that check catches reset first — so this arm is defence in depth for
+  // that screen rather than its only guard, and it stays because the rule is
+  // "a requested screen outranks the probe's family", which should not have
+  // to be re-derived if `open()` ever awaits again.
   if (isRequestedScreen(screen)) {
     renderDots();
     if (screen === "update") renderUpdate(p);
@@ -911,22 +913,33 @@ document.addEventListener("keydown", (e) => {
 });
 
 void (async () => {
-  // BEFORE the probe, and before the first render: this answers what the
-  // window was opened FOR, and a render that ran without it would take the
-  // ready handoff — open the dashboard, close this window — on exactly the
-  // machines a requested screen is asked for from. `openReset` raises its
-  // screen synchronously, so one call here is enough to hold the window.
+  // PROBE FIRST, then the screen request, then the first render.
+  //
+  // `refresh()` sets `probe` and renders nothing, so nothing can slip between
+  // the two and take the ready handoff — which is what this ordering has to
+  // protect, and does.
+  //
+  // The screen request cannot come first, though it did until this comment
+  // was written: `applyScreen("reset")` shows the reset screen SYNCHRONOUSLY,
+  // and a reset screen drawn against `probe === null` renders `refusal(
+  // undefined)` — "this server does not report its data locations… Reset
+  // refuses to guess at a filesystem" — with its button disabled, for the
+  // length of one CLI probe. A false and frightening sentence, on the one
+  // screen where being trusted matters most.
+  try {
+    await refresh();
+  } catch (err) {
+    problem = errText(err);
+  }
+  // What this window was opened FOR. After the probe so the screen it raises
+  // has facts to draw; before the first render so that render is already the
+  // right screen rather than a flash of the wrong one.
   try {
     const requested = await ipc.pendingScreen();
     if (requested) applyScreen(requested);
   } catch {
     // An older Rust half knows no such command. Nothing was requested that
-    // this page can honour, and the probe below still brings it up.
-  }
-  try {
-    await refresh();
-  } catch (err) {
-    problem = errText(err);
+    // this page can honour, and the probe above already brought it up.
   }
   render();
   setInterval(() => void tick(), POLL_MS);

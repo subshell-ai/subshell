@@ -25,6 +25,7 @@
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde_json::Value;
@@ -110,6 +111,13 @@ pub fn parse_delete_plan(status: &Value) -> Option<DeletePlan> {
 #[derive(Default)]
 pub struct Stash {
     pub screen: Mutex<Option<Screen>>,
+    /// Whether a page has proved it is listening, by pulling at least once.
+    ///
+    /// The only fact that distinguishes "a window exists" from "a window can
+    /// hear an event" — and the emit path needs the second. Set by
+    /// `desktop_pending_screen`, cleared when a window is built
+    /// (`windows::open_assistant`), so a reload cannot leave it lying true.
+    pub page_listening: AtomicBool,
     pub plan: Mutex<Option<DeletePlan>>,
 }
 
@@ -132,10 +140,21 @@ pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), Stri
     // the reset takeover must come BACK to the recovery screen when the pill
     // is pressed, rather than staying where a previous request left it.
     *stash.screen.lock().unwrap() = Some(requested);
-    let existed = app.get_webview_window("wizard").is_some();
+    // "Is a page LISTENING", not "does a window exist".
+    //
+    // The window's existence was the proxy here, and it is the same fallacy
+    // this command's own pull was added to remove. A second press while the
+    // first window is still loading sees `is_some()` true, `take()`s the
+    // stash and emits into a page that has not booted — the pull then finds
+    // nothing and the window takes the ready handoff. A double-press on the
+    // dashboard's reset button is all it takes; nothing debounces it.
+    //
+    // The flag is set by the pull itself, which is the only event that proves
+    // a page got far enough to ask, and cleared when a window is built.
+    let listening = stash.page_listening.load(Ordering::SeqCst);
     crate::windows::open_assistant(app)?;
-    if existed {
-        // A live window has no page-load to catch the stash; deliver now.
+    if listening {
+        // A live window has no page load left to pull on; deliver now.
         if let Some(s) = stash.screen.lock().unwrap().take() {
             if let Some(w) = app.get_webview_window("wizard") {
                 let _ = w.emit("desktop-screen", s.as_str());
@@ -145,11 +164,12 @@ pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), Stri
     Ok(())
 }
 
-/// How long the result frame gets before the process goes.
+/// How long the caller gets before the process goes.
 ///
-/// The page is waiting on this command's answer, and a restart that raced it
-/// would reach the reset screen as a dropped call rather than a success — the
-/// same ordering `restart.rs` keeps for the server's own restart.
+/// Not "so the result frame renders" — the chain emits `home` first, which
+/// hides the reset screen, so a success is never drawn. What this buys is the
+/// IPC RESPONSE landing: a restart that raced it would reach the page as a
+/// dropped call rather than as the answer to the button it pressed.
 const RESTART_GRACE: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// Restart the app once the caller has its answer.
@@ -377,12 +397,6 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     })
 }
 
-/// Arm the reset screen from the console itself: the arming half of
-/// `arm_and_raise`, without the window half, because this window is already
-/// up. Every property of the SPA path is kept — the plan is stashed from a
-/// probe taken at press time (R18), and the page still supplies only a
-/// hostname. Answers whether a plan parsed; `false` means the screen renders
-/// its own refusal, which is the useful information.
 /// The screen this window was opened for, taken exactly once.
 ///
 /// **A PULL, because the push could not be heard.** The assistant used to be
@@ -405,6 +419,9 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
 /// never both deliver.
 #[tauri::command(async)]
 pub fn desktop_pending_screen(app: AppHandle) -> Option<String> {
+    // Asking IS the proof that this page can hear an event, and it is the
+    // only such proof available — see `Stash::page_listening`.
+    app.state::<Stash>().page_listening.store(true, Ordering::SeqCst);
     app.state::<Stash>()
         .screen
         .lock()
@@ -413,6 +430,12 @@ pub fn desktop_pending_screen(app: AppHandle) -> Option<String> {
         .map(|s| s.as_str().to_string())
 }
 
+/// Arm the reset screen from the console itself: the arming half of
+/// `arm_and_raise`, without the window half, because this window is already
+/// up. Every property of the SPA path is kept — the plan is stashed from a
+/// probe taken at press time (R18), and the page still supplies only a
+/// hostname. Answers whether a plan parsed; `false` means the screen renders
+/// its own refusal, which is the useful information.
 #[tauri::command(async)]
 pub fn desktop_arm_reset(app: AppHandle, settings: State<'_, SettingsState>) -> bool {
     let p = crate::control::probe_now(settings.get().binary_path.as_deref());
@@ -665,6 +688,26 @@ mod tests {
     /// booting one asks — and both call `take`, so a request can never be
     /// applied twice (a second application would yank a person off the screen
     /// they are reading).
+    /// The delivery decision, which is the whole of the double-press bug.
+    ///
+    /// A second press while the first window is still loading used to see a
+    /// window and emit into a page that had not booted, losing the request.
+    /// The flag is the only fact that separates the two states.
+    #[test]
+    fn a_request_is_emitted_only_once_a_page_has_proved_it_listens() {
+        let stash = Stash::default();
+        // A window that exists but has never pulled: nothing may be emitted,
+        // and the stash must survive for that page to ask for.
+        assert!(!stash.page_listening.load(Ordering::SeqCst));
+        *stash.screen.lock().unwrap() = Some(Screen::Reset);
+        assert!(stash.screen.lock().unwrap().is_some());
+
+        // Once the page asks, a later press can be delivered directly.
+        stash.page_listening.store(true, Ordering::SeqCst);
+        assert!(stash.page_listening.load(Ordering::SeqCst));
+        assert_eq!(stash.screen.lock().unwrap().take(), Some(Screen::Reset));
+    }
+
     #[test]
     fn a_stashed_screen_is_taken_once() {
         let stash = Stash::default();

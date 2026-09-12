@@ -2,16 +2,21 @@ import type { Node } from "@/types/node";
 
 /**
  * Whether a node is pickable right now — the mobile mirror of the web
- * `new-subshell-form.tsx` `isSelectable`; change one, change both. ANY visible
- * node grants launch (`nodeCanLaunch` — deliberately not the subshell rule,
- * spec §2), but an OFFLINE agent is shown disabled: launching there 409s
+ * `new-subshell-form.tsx` `isSelectable`; change one, change both. Any share
+ * grants launch (`nodeCanLaunch` — deliberately not the subshell rule,
+ * spec §2), EXCEPT where the server says otherwise: `canLaunch` is false on
+ * the control-plane host once an admin switches launching off there, which
+ * applies to admins too and is the one visible-but-unlaunchable row in the
+ * product (2026-09-12). Without reading it, an admin who threw that switch
+ * would still see the Server chip here and collect a 403 on Start. An
+ * OFFLINE agent is shown disabled for its own reason: launching there 409s
  * `NODE_OFFLINE`, and offering a target we know is down would only invite a
  * confusing failure. (The pick list can always be stale — the 409 path covers
  * the race.) Shared by the chip row and `pickNodeDefault` so "selectable" is
  * defined exactly once.
  */
 export function isSelectable(n: Node): boolean {
-  return n.kind === "local" || n.status === "online";
+  return (n.kind === "local" || n.status === "online") && n.canLaunch !== false;
 }
 
 /**

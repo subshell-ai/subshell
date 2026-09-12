@@ -77,16 +77,21 @@ function rethrowUnlessNodeOffline(err: unknown): never {
  * strict precedence — a request that says where to run is never silently
  * relocated:
  *
- * 1. `requestedNodeId` (body) — gate it: row absent OR invisible ⇒ 404,
- *    never 403 (spec §2: any share level grants launch, so a visible node is
- *    always launchable and a 403 would be a node-id existence oracle); an
- *    AGENT node with no live connection ⇒ 409 NODE_OFFLINE.
+ * 1. `requestedNodeId` (body) — gate it: row absent OR invisible ⇒ 404, so
+ *    the id is never an existence oracle (spec §2). VISIBLE BUT UNLAUNCHABLE
+ *    ⇒ 403: since 2026-09-12 that state exists for exactly one row, the
+ *    control-plane host with launching switched off, which an admin still
+ *    sees because seeing it is how they switch it back on. The 404 above runs
+ *    FIRST, so the 403 can only ever name a node already on the caller's own
+ *    Nodes page. An AGENT node with no live connection ⇒ 409 NODE_OFFLINE.
  * 2. `profile.nodeId` (the pin) — the same gate, but every failure carries
  *    the "profile is pinned" message: a pin that cannot launch right now is
  *    an error, never a relocation.
  * 3. `local` when its own access check grants launch — today's default, and
  *    the disable-switch (an admin deleting local's Everyone row turns this
- *    step off for non-owners).
+ *    step off for EVERYONE, admins included: `nodeCanLaunchOn` reads the
+ *    granted access there, never the admin boost, or the one person who can
+ *    throw the switch would be the one person it does not apply to).
  * 4. Auto-pick: exactly one ONLINE agent among the caller's candidates —
  *    `findAccessible` for a browser actor, `listByOwner` for a bearer. Zero
  *    or several ⇒ 400 NODE_REQUIRED ("pick one"; the spec's single-online
@@ -100,7 +105,8 @@ function rethrowUnlessNodeOffline(err: unknown): never {
  * @param deps - the repositories the access resolver reads (nodes, shares,
  *               userMeta) — injected so tests drive a scratch DB
  * @returns the node id to launch on (`local` = control-plane host)
- * @throws SubshellCreateError 404 (absent/invisible — never 403, spec §2);
+ * @throws SubshellCreateError 404 (absent/invisible, spec §2) and 403
+ *         (`node_launch_disabled` — the visible host with launching off);
  *         ApiError 409 NODE_OFFLINE (offline gate) and 400 NODE_REQUIRED
  *         (auto-pick)
  */

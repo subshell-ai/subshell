@@ -300,6 +300,33 @@ describe("installService — macOS (launchd agent)", () => {
    * fails the way it always did — immediately, in launchd's own words —
    * because retrying those would just make a person wait to read them.
    */
+  /**
+   * The budget is a DECISION, so it is asserted. Without this the ceiling is
+   * a number nobody is watching, and the difference between "waits long
+   * enough" and "gives up early with the same message the user reported" is
+   * invisible.
+   */
+  test("gives up after the whole budget, in launchd's own words", () => {
+    let bootstraps = 0;
+    const slept: number[] = [];
+    const s = stub({
+      platform: "darwin",
+      sleep: (ms: number) => slept.push(ms),
+      respond: (cmd) => {
+        if (cmd[1] !== "bootstrap") return { code: 0, out: "", err: "" };
+        bootstraps += 1;
+        return { code: 5, out: "", err: "Bootstrap failed: 5: Input/output error" };
+      },
+    });
+    const res = installService(s.deps);
+    expect(res.code).not.toBe(0);
+    expect(bootstraps).toBe(60);
+    expect(slept.length).toBe(59);
+    // Thirty seconds of waiting, and then the truth rather than a summary.
+    expect(slept.reduce((a, b) => a + b, 0)).toBe(29_500);
+    expect(res.err).toInclude("Input/output error");
+  });
+
   test("a real bootstrap failure is reported at once", () => {
     let bootstraps = 0;
     const s = stub({
@@ -335,6 +362,10 @@ describe("installService — macOS (launchd agent)", () => {
   test("a failing bootstrap exits 1 with launchctl's stderr, plist stays", () => {
     const s = stub({
       platform: "darwin",
+      // EIO is a BUSY answer, so this now goes through the whole retry budget.
+      // Without the seam that is thirty seconds of real sleeping for a case
+      // that is about the message, not the waiting.
+      sleep: () => {},
       respond: (cmd) =>
         cmd[1] === "bootstrap"
           ? { code: 5, out: "", err: "Bootstrap failed: 5: Input/output error" }

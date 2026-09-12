@@ -216,8 +216,14 @@ function domainBusy(run: { code: number; err: string; out: string }): boolean {
   return run.code === 5 || /Input\/output error/i.test(`${run.err}${run.out}`);
 }
 
-/** How many times to try, and how long to wait between tries. */
-const BOOTSTRAP_ATTEMPTS = 6;
+/**
+ * How long to keep trying, and how often — 30 seconds at half-second
+ * intervals. The server CLI's twin carries the reasoning: the only
+ * measurement is "ninety seconds later", an upper bound rather than a
+ * duration, so a tidy-looking budget risks leaving the fix inert on the case
+ * that produced it.
+ */
+const BOOTSTRAP_ATTEMPTS = 60;
 const BOOTSTRAP_RETRY_MS = 500;
 
 /**
@@ -226,8 +232,9 @@ const BOOTSTRAP_RETRY_MS = 500;
  * The server CLI carries the same helper for the same reason, measured there
  * on 2026-09-12: a reset followed by a fresh setup died on exit 5 while
  * nothing was wrong with the plist, and the same command by hand ninety
- * seconds later worked. Only a BUSY answer is retried — a malformed plist or
- * a missing program still fails at once, in launchd's own words.
+ * seconds later worked. Only a BUSY answer is retried; launchd also answers
+ * EIO for some malformed plists, so those pay the budget before reporting its
+ * own words.
  */
 async function bootstrapWithRetry(
   deps: ServiceDeps,

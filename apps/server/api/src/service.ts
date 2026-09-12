@@ -331,8 +331,21 @@ function domainBusy(run: { code: number; err: string; out: string }): boolean {
   return run.code === 5 || /Input\/output error/i.test(`${run.err}${run.out}`);
 }
 
-/** How many times to try, and how long to wait between tries. */
-const BOOTSTRAP_ATTEMPTS = 6;
+/**
+ * How long to keep trying, and how often.
+ *
+ * 30 seconds at half-second intervals, not the 2.5s this started as. The one
+ * measurement available is a report that the same command worked "ninety
+ * seconds later", which is an upper bound rather than a duration — so a
+ * budget picked to look tidy would have left the fix inert on the very case
+ * that produced it, with the identical exit-5 message. A teardown is
+ * whatever a server with live panes takes; waiting is cheap, and a person
+ * watching an install would rather it take twenty seconds than fail.
+ *
+ * The ceiling is still a ceiling: a genuinely bad plist answers EIO too, so
+ * it costs this long before reporting launchd's own words.
+ */
+const BOOTSTRAP_ATTEMPTS = 60;
 const BOOTSTRAP_RETRY_MS = 500;
 
 /**
@@ -345,8 +358,10 @@ const BOOTSTRAP_RETRY_MS = 500;
  * binary or the paths — the previous job was simply still leaving, and a
  * server with live panes takes its time about it.
  *
- * Only a BUSY answer is retried. A malformed plist or a missing program fails
- * the same way it always did, immediately and with its own words.
+ * Only a BUSY answer is retried, and "busy" is launchd's EIO — which it also
+ * returns for some malformed plists, so those pay the full budget before
+ * reporting. They still report launchd's own words; they are no longer
+ * immediate, and the changeset says so rather than claiming otherwise.
  */
 function bootstrapWithRetry(deps: ServiceDeps, path: string): { code: number; out: string; err: string } {
   const sleep = deps.sleep ?? ((ms: number) => Bun.sleepSync(ms));

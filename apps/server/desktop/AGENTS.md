@@ -121,7 +121,7 @@ own log tail, the last action's verbatim output, and what this app itself is.
 A footer link reaches Reset.
 
 **Update Server** and **Reset** are never in `screensFor`'s list. They are
-entered by REQUEST — a `desktop-screen` event carrying a member of the closed
+entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
 `reset::Screen` enum (`home` | `reset` | `update`) — which is what lets either
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
@@ -202,7 +202,7 @@ has none.
 
 **Its label names what is reset.** `RESET_LABEL` is one string, used by the
 recovery footer and carried verbatim by the screen's own title, and it is
-`Reset Subshell` on both desktop apps (operator's call, 2026-09-12). It was
+`Reset this server` here and `Reset this client` in the other app (operator's call, 2026-09-12). It was
 `Reset ${here()}…`, which rendered "Reset this Mac…" and was wrong twice over:
 it read as TRUNCATED, because "Mac" is a prefix of "Machine", the Linux
 sibling really is "this machine", and the label ended there under an ellipsis

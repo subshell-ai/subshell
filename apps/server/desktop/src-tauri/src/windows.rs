@@ -190,6 +190,12 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
     // `subshell_desktop_core::zoom::assistant_frame`.
     let level = crate::zoom::level(app);
     let (width, height) = assistant_frame(level, work_area(app));
+    // A window about to load has no page listening YET, whatever the last one
+    // proved. Cleared here so `arm_and_raise` cannot emit into it before its
+    // page asks (`reset::Stash::page_listening`).
+    if let Some(stash) = app.try_state::<crate::reset::Stash>() {
+        stash.page_listening.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
     WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html".into()))
         .title(title)
         .inner_size(width, height)
