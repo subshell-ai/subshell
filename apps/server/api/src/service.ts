@@ -435,7 +435,20 @@ export function uninstallService(deps: ServiceDeps): CliResult {
     }
     const unload = deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
     deps.removeFile(path);
-    if (unload.code !== 0) {
+    // Exit 3 / "No such process" is the documented answer for a job that was
+    // NOT LOADED, and that is uninstall's goal already met, not a failure:
+    // the job is gone and the plist has just been removed. Reporting it as an
+    // error made `uninstall` fail for every STOPPED service - which is the
+    // ordinary case, and a guaranteed one for the desktop app's reset, whose
+    // own chain stops the service two steps earlier. The reset could
+    // therefore never complete on macOS.
+    //
+    // Narrow on purpose, in the shape `queryService` uses for the same class
+    // of question: any OTHER non-zero exit may mean the job is still loaded
+    // with its plist now gone, which is a real half-state worth reporting.
+    // `stop` has guarded this since it was written; this verb had not.
+    const notLoaded = unload.code === 3 || /no such process/i.test(cmdDetail(unload));
+    if (unload.code !== 0 && !notLoaded) {
       return errLine(
         `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)}; the plist was removed anyway`,
       );

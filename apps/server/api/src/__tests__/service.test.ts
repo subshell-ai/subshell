@@ -437,6 +437,45 @@ describe("uninstallService — macOS (launchd agent)", () => {
     expect(s.calls.length).toBe(0);
     expect(s.removed.length).toBe(0);
   });
+
+  // A STOPPED service is the ordinary thing to uninstall, and a guaranteed
+  // one for the desktop app's reset, whose chain stops the service two steps
+  // before it uninstalls. `bootout` answers a not-loaded job with exit 3 "No
+  // such process" (measured, launchctl on macOS 15), which used to be
+  // reported as a failed uninstall even though the plist had just been
+  // removed - so the reset could never complete on macOS.
+  test("a service that was already stopped uninstalls cleanly: bootout's exit 3 is the goal, not a failure", () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[1] === "bootout"
+          ? { code: 3, out: "", err: "Boot-out failed: 3: No such process" }
+          : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<plist>old</plist>");
+
+    const res = uninstallService(s.deps);
+    expect(res.code).toBe(0);
+    expect(res.out).toInclude("Removed");
+    expect(s.files.has(PLIST)).toBe(false);
+  });
+
+  // Any OTHER non-zero bootout may mean the job is still loaded with its
+  // plist now gone, which is a real half-state and must still be reported.
+  test("a bootout that failed for any other reason is still an error", () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[1] === "bootout"
+          ? { code: 1, out: "", err: "Boot-out failed: 5: Input/output error" }
+          : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<plist>old</plist>");
+
+    const res = uninstallService(s.deps);
+    expect(res.code).not.toBe(0);
+    expect(res.err).toInclude("the plist was removed anyway");
+  });
 });
 
 describe("uninstallService — guards", () => {
