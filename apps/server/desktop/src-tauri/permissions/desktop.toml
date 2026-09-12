@@ -40,11 +40,6 @@ description = "The whole first-run chain in one call: install the bundled server
 commands.allow = ["desktop_setup"]
 
 [[permission]]
-identifier = "allow-desktop-init"
-description = "Write config.env via `subshell-server init --yes`. Destructive: it rewrites an existing configuration — the port and bind address the server listens on, the public base URL browsers and remote nodes dial (which is also better-auth's passkey rpID, so changing it moves which host passkeys work on), and the list of extra origins allowed to sign in, which it can also CLEAR. Keys it is not given stay as stored."
-commands.allow = ["desktop_init"]
-
-[[permission]]
 identifier = "allow-desktop-service"
 description = "Drive one `subshell-server service` verb. Includes stop and restart, which can end running subshells."
 commands.allow = ["desktop_service"]
@@ -80,24 +75,9 @@ description = "The SPA reporting that it has rendered desktop chrome, so the win
 commands.allow = ["desktop_shell_ready"]
 
 [[permission]]
-identifier = "allow-desktop-settings"
-description = "Read the desktop app's own preferences."
-commands.allow = ["desktop_settings"]
-
-[[permission]]
-identifier = "allow-desktop-set-close-to-tray"
-description = "Choose whether closing the window hides it to the tray."
-commands.allow = ["desktop_set_close_to_tray"]
-
-[[permission]]
 identifier = "allow-desktop-open-path"
 description = "Reveal one of a fixed set of the server's own files or directories in the OS file manager. The set is closed in Rust; the page names a member, never a path."
 commands.allow = ["desktop_open_path"]
-
-[[permission]]
-identifier = "allow-desktop-open-control-plane"
-description = "Open the server's own control plane URL in the system browser. The address is re-read from `status --json` and validated as http(s); no URL comes from the page."
-commands.allow = ["desktop_open_control_plane"]
 
 [[permission]]
 identifier = "allow-desktop-open-tmux-docs"

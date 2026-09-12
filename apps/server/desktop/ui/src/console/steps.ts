@@ -62,19 +62,13 @@ export function createSteps(host: ConsoleHost): StepsSection {
    * still reachable for the case that genuinely means something, a config that
    * already exists with no service installed.
    *
-   * Same shape as the Addresses section's save: if the write fails, stop and
-   * report it rather than acting on a configuration that is not there.
+   * It runs `desktop_setup` rather than a `desktop_init` of its own, because
+   * that command is gone (spec 2026-09-12 § 5.6) and the chain is the same
+   * four acts in the same order: the install step is a no-op against a binary
+   * already present, and `service start` on a running service answers
+   * "already running" with exit 0.
    */
-  const doInit = host.guard(
-    "Save and start",
-    async () => {
-      const written = await ipc.init(configPayload(state.form, state.explicit));
-      if (!written.ok) return written;
-      const installed = await ipc.service("install", false);
-      return installed.ok ? installed : { ...installed, stdout: `${written.stdout}\n${installed.stdout}` };
-    },
-    true,
-  );
+  const doInit = host.guard("Save and start", () => ipc.setup(configPayload(state.form, state.explicit)), true);
 
   const openMain = host.guard("Open Dashboard", () => ipc.openMain().then(() => null));
 

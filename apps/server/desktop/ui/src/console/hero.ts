@@ -8,10 +8,9 @@
  * diagnostic. The facts list below is for when the answer is "no".
  */
 import { heroState } from "../lib/console-nav";
-import * as ipc from "../lib/ipc";
-import { type ConsoleHost, el, state } from "./state";
+import { el, state } from "./state";
 
-export function renderHero(host: ConsoleHost): void {
+export function renderHero(): void {
   const { word, tone } = heroState(state.probe, state.busy);
   el("hero-dot").className = `hero-dot bg-${tone === "ok" ? "ok" : tone === "warn" ? "warn" : "muted"}`;
   el("hero-state").textContent = word;
@@ -28,10 +27,9 @@ export function renderHero(host: ConsoleHost): void {
   serverLine.textContent = server === null ? "" : `subshell-server ${server.version ?? "unknown version"}`;
   serverLine.hidden = server === null;
 
-  // The address OTHER machines use, and the way in. It opens in the SYSTEM
-  // browser, where a LAN host or a TLS certificate is the user's own browser
-  // problem rather than something to point the privileged window at — and the
-  // button names an INTENT, so no URL crosses the IPC boundary.
+  // The address OTHER machines use. Shown, not opened: `desktop_open_control_plane`
+  // is gone (spec 2026-09-12 § 5.6), and the dashboard's own Service page is
+  // where a LAN address is now both displayed and copyable.
   const url = state.probe?.status?.settings?.APP_BASE_URL?.value ?? "";
   const row = el("hero-url");
   row.textContent = "";
@@ -39,12 +37,5 @@ export function renderHero(host: ConsoleHost): void {
   if (url === "") return;
   const address = document.createElement("span");
   address.textContent = url;
-  const open = document.createElement("button");
-  open.type = "button";
-  open.className = "linkish";
-  open.textContent = "Open in browser";
-  open.addEventListener("click", () => {
-    ipc.openControlPlane().catch((err: unknown) => host.fail(err));
-  });
-  row.append(address, open);
+  row.append(address);
 }

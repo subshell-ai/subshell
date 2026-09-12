@@ -155,6 +155,9 @@ pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), Stri
 /// `ok: false` with the verbatim log, plan still stashed so Retry converges.
 #[tauri::command(async)]
 pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, String> {
+    // Held for the whole chain: the watch thread must not probe between the
+    // uninstall and the deletes and act on what it finds there.
+    let _guard = crate::control::ActionGuard::new();
     // The typed string must equal the memo the screen was built from (R15):
     // the probe carries the same memoized `machine_hostname` the page
     // rendered, so comparison is two reads of one OnceLock, never a re-spawn

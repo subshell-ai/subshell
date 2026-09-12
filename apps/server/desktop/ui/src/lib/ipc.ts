@@ -128,10 +128,11 @@ export interface ActionResult {
 }
 
 /**
- * The payload `desktop_init` takes; the Rust side turns empty into omitted
- * flags. A type alias rather than an interface on purpose: `invoke`'s args
- * parameter is a `Record<string, unknown>`, which an interface (no implicit
- * index signature) is not assignable to and an object type is.
+ * The address payload `desktop_setup` takes; the Rust side turns empty into
+ * omitted flags. A type alias rather than an interface on purpose:
+ * `invoke`'s args parameter is a `Record<string, unknown>`, which an
+ * interface (no implicit index signature) is not assignable to and an object
+ * type is.
  */
 export type InitPayload = {
   port: string;
@@ -145,13 +146,6 @@ export type ServiceVerb = "install" | "uninstall" | "start" | "stop" | "restart"
 
 /** The files the console may reveal. `OpenTarget`, kebab-case — a closed set in Rust. */
 export type OpenTarget = "config-env" | "server-dir" | "service-definition" | "logs";
-
-/** `DesktopSettings`. Both tray fields come from ONE probe answer by construction. */
-export interface DesktopSettings {
-  closeToTray: boolean;
-  traySupported: boolean;
-  trayStatus: "supported" | "not-detected" | "unsupported";
-}
 
 /** The three pages About may open. `WebTarget`, kebab-case — a closed set in Rust. */
 export type WebTarget = "website" | "license" | "company";
@@ -196,13 +190,6 @@ export const probe = (): Promise<Probe> => invoke<Probe>("desktop_probe");
 
 export const logs = (): Promise<LogTail> => invoke<LogTail>("desktop_logs");
 
-export const settings = (): Promise<DesktopSettings> => invoke<DesktopSettings>("desktop_settings");
-
-export const setCloseToTray = (enabled: boolean): Promise<void> =>
-  invoke<void>("desktop_set_close_to_tray", { enabled });
-
-export const init = (payload: InitPayload): Promise<ActionResult> => invoke<ActionResult>("desktop_init", payload);
-
 export const service = (verb: ServiceVerb, force: boolean): Promise<ActionResult> =>
   invoke<ActionResult>("desktop_service", { verb, force });
 
@@ -244,8 +231,6 @@ export const openAssistant = (screen?: "reset" | "update"): Promise<void> =>
   invoke<void>("desktop_open_assistant", { screen: screen ?? null });
 
 export const openPath = (target: OpenTarget): Promise<void> => invoke<void>("desktop_open_path", { target });
-
-export const openControlPlane = (): Promise<void> => invoke<void>("desktop_open_control_plane");
 
 export const openTmuxDocs = (): Promise<void> => invoke<void>("desktop_open_tmux_docs");
 

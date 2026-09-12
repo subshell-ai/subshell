@@ -238,41 +238,41 @@ describe("the console's wiring, pinned at the source", () => {
   // contract lives in code these files cannot execute.
   //
   // It is a DIRECTORY now rather than one file (spec 2026-09-11 § 9), so each
-  // pin names the module that holds its subject: the entry keeps `guard`, the
-  // step table went to `console/steps.ts`, and the configure form became the
-  // Addresses section. Reading the wrong file would pass vacuously against a
-  // string that simply is not there, so every pin below also asserts its
-  // anchor was found.
+  // pin names the module that holds its subject: the entry keeps `guard` and
+  // the step table went to `console/steps.ts`, which is also the one surface
+  // left that builds the configure form — the Addresses section went to the
+  // SPA with `desktop_init` (spec 2026-09-12 § 5.6). Reading the wrong file
+  // would pass vacuously against a string that simply is not there, so every
+  // pin below also asserts its anchor was found.
   const main = readFileSync(join(ROOT, "ui/src/main.ts"), "utf8");
   const steps = readFileSync(join(ROOT, "ui/src/console/steps.ts"), "utf8");
-  const addresses = readFileSync(join(ROOT, "ui/src/console/addresses.ts"), "utf8");
+  const formView = readFileSync(join(ROOT, "ui/src/console/config-form-view.ts"), "utf8");
   const tmuxWarning = readFileSync(join(ROOT, "ui/src/console/tmux-warning.ts"), "utf8");
   /** The console page's whole render path, for pins that do not care which module. */
-  const page = [main, steps, addresses, tmuxWarning].join("\n");
+  const page = [main, steps, formView, tmuxWarning].join("\n");
 
   /**
    * The form is prefilled, so `configPayload` decides what to send from an
    * `explicit` map rather than from blankness. That map MUST be seeded from
-   * `explicitFields` when the configure form opens: keyed on editing alone,
-   * opening Configure and saving without touching the addresses field sends an
-   * empty `trustedOrigins`, which means "no extra addresses" and wipes a
-   * stored list. Pinned at the source because this wiring lives in `main.ts`,
-   * which imports Tauri and cannot be loaded here.
+   * `explicitFields` when the configure form is built: keyed on editing
+   * alone, opening it and saving without touching the addresses field sends
+   * an empty `trustedOrigins`, which means "no extra addresses" and wipes a
+   * stored list. Pinned at the source because this wiring imports Tauri and
+   * cannot be loaded here.
    */
   test("the configure form seeds `explicit` from explicitFields, not from editing alone", () => {
-    // `showConfigure` became the Addresses section's `enter()`, which runs on
-    // every entry to that section rather than on a button that opened a form
-    // in place. The contract it carries is unchanged.
-    const at = addresses.indexOf("function enter()");
-    expect(at, "the Addresses section must have an entry seeding function").toBeGreaterThan(-1);
-    const body = addresses.slice(at, addresses.indexOf("\n  }", at));
-    expect(body).toContain("explicitFields(");
+    // The seeding lives in `buildForm` itself now that the Addresses section
+    // (whose `enter()` used to do it) is gone. The contract is unchanged, and
+    // this is the surface that has to carry it: the `init` step reaches the
+    // form without any section-entry hook to seed it.
+    const at = formView.indexOf("export function buildForm()");
+    expect(at, "the form view must build the form").toBeGreaterThan(-1);
+    expect(formView.slice(at)).toContain("explicitFields(");
     // And every send goes through the map. The floor is load-bearing: with
-    // zero matches the loop passes vacuously, so renaming both call sites
-    // would silently erase this pin. Today there are exactly two (init in
-    // steps.ts, save in addresses.ts).
+    // zero matches the loop passes vacuously, so renaming the call site would
+    // silently erase this pin.
     const sends = page.match(/configPayload\([^)]*\)/g) ?? [];
-    expect(sends.length).toBeGreaterThanOrEqual(2);
+    expect(sends.length).toBeGreaterThanOrEqual(1);
     for (const call of sends) {
       expect(call).toBe("configPayload(state.form, state.explicit)");
     }
@@ -349,33 +349,20 @@ describe("the console's wiring, pinned at the source", () => {
       expect(at, `no action entry found for "${label}"`).toBeGreaterThan(-1);
       expect(args(entryAt(at))[3], `"${label}" is not tmux-gated`).toBe("true");
     }
-
-    // "Save and restart" left the table with the configure step: it is the
-    // Addresses section's own button, built by hand rather than from a tuple,
-    // so the gate is the dataset flag the render reads. Same promise, checked
-    // where it now lives — the CLI refuses `configure` without tmux either way.
-    const save = addresses.indexOf('save.textContent = "Save and restart"');
-    expect(save, "the Addresses save button must exist").toBeGreaterThan(-1);
-    expect(addresses.slice(save, save + 400), '"Save and restart" is not tmux-gated').toContain(
-      'save.dataset.tmux = "1"',
-    );
   });
 
   test("the setup step offers nothing that cannot run without a server", () => {
     // `setup` is emitted exactly when no binary resolves (`Setup` replaces
     // `InstallServer` only where `resolve` found nothing), and every write
-    // verb — `desktop_init`, `desktop_service` — answers "no subshell-server
-    // found" there. "Change addresses…" lived on this screen briefly: its
-    // save could only ever fail, and the next "Set up and start" discarded
-    // what was typed without a word. The form is reachable the moment a
-    // server exists, which is every screen after this one.
+    // verb answers "no subshell-server found" there. "Change addresses…"
+    // lived on this screen briefly: its save could only ever fail, and the
+    // next "Set up and start" discarded what was typed without a word. The
+    // form is reachable the moment a server exists, which is every screen
+    // after this one.
     const at = steps.indexOf("    setup: {");
     expect(at).toBeGreaterThan(-1);
     const entry = steps.slice(at, steps.indexOf("\n    },", at));
     expect(entry).not.toContain("doInit");
-    // The Addresses section is the configure form's home now, and this step
-    // must not route anyone there: `addressesAvailability` refuses on `setup`
-    // for exactly this reason, and a button here would contradict it.
     expect(entry).not.toContain('"addresses"');
   });
 
@@ -383,7 +370,7 @@ describe("the console's wiring, pinned at the source", () => {
     // Spec §6.1 requires the no-Homebrew screen to LINK to the tmux formula
     // page, not just show a command. The link is a button calling the fixed-URL
     // command (`openTmuxDocs` in lib/ipc.ts — the page sends no URL anywhere,
-    // the same rule `desktop_open_control_plane` follows; the command name
+    // the same rule `desktop_open_path` follows; the command name
     // itself is pinned by ipc-acl.test.ts), and `applyPlan` decides its
     // visibility from the plan's `docsUrl`.
     expect(tmuxWarning).toContain("openTmuxDocs");

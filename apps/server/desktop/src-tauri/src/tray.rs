@@ -41,56 +41,58 @@
 //! The only usable macOS check would compare `TrayIcon::rect()` against
 //! `auxiliaryTopRightArea`; there is none today, so this app cannot warn.
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
-/// "Open Dashboard", held so its enabled state can follow the server.
-///
-/// It needs the server's own SPA, which does not exist until the server
-/// answers on its port. It used to be permanently enabled and to fall back to
-/// opening the console — so with no server every item in the menu did the same
-/// thing, and the menu offered two ways to reach a window it never named.
-///
-/// **There is deliberately no "New Subshell…" here.** It dispatched an action
-/// INTO the SPA, so being enabled required more than a running server: a
-/// server with no users yet is sitting on the setup wizard, and the item was
-/// live while there was nothing to create a subshell in. Nothing this side can
-/// see distinguishes those states — `status --json` carries no user state by
-/// design (the CLI never opens the database), `ShellReady` fires from the SPA
-/// root on purpose so a first launch is not left staring at a hidden window,
-/// and there is no HTTP client here to ask `/api/setup/status`. So the item is
-/// gone rather than gated: the tray is a shortcut and never the only route,
-/// and creating a subshell is a thing the SPA already offers.
-pub struct DashboardItem(MenuItem<Wry>);
+use subshell_desktop_core::settings::SettingsState;
+use subshell_desktop_core::tray::tray_support;
 
-/// Enable or disable the one tray item that needs a running server.
+/// The "Keep Running in Menu Bar" check item, held so the menu handler can
+/// read the state muda has already toggled onto it.
 ///
-/// Driven by `desktop_probe`, which every console refresh and every console
-/// action already runs — including the one at startup, since `setup` opens the
-/// console and its first render probes. So the tray settles within a moment of
-/// launch and tracks every transition the console causes.
+/// This preference used to be a switch on the console's Application section,
+/// read through `desktop_settings` and written through
+/// `desktop_set_close_to_tray`. Both commands are gone (spec 2026-09-12
+/// § 5.6): the preference is ABOUT the tray, so it belongs in the tray, and
+/// putting it there removes the two commands rather than moving them to
+/// another page.
 ///
-/// A server that dies from OUTSIDE this app (killed by hand, crashed) leaves
-/// the items enabled until the next probe. That is a known staleness rather
-/// than a silent one: clicking then re-probes and reports the real error.
-pub fn set_server_ready(app: &AppHandle, ready: bool) {
-    if let Some(item) = app.try_state::<DashboardItem>() {
-        let _ = item.0.set_enabled(ready);
-    }
-}
+/// **There is deliberately no "New Subshell…" here, and no "Open
+/// Dashboard".** The first dispatched an action INTO the SPA, so being
+/// enabled required more than a running server — a server with no users yet
+/// is sitting on the setup wizard, and nothing this side can see
+/// distinguishes those states. The second is now "Open Subshell Server",
+/// always enabled, because `control::open_home` decides between the dashboard
+/// and the assistant from a fresh probe: an item that needed a probe to know
+/// whether it could be pressed needed the probe that now happens when it is.
+pub struct KeepItem(CheckMenuItem<Wry>);
 
 /// Build the tray icon. Failure is not fatal — an app without a tray still works.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    // Both start DISABLED: at build time nothing has probed yet, and claiming
-    // the SPA is reachable before knowing is the failure being fixed. The
-    // console's first render enables them if the server is already up.
-    let open = MenuItem::with_id(app, "tray:open", "Open Dashboard", false, None::<&str>)?;
-    app.manage(DashboardItem(open.clone()));
+    // Always enabled: `open_home` answers for both states of the machine, so
+    // there is nothing left for an enabled flag to protect against — and an
+    // item disabled until the first probe was the one thing on a broken
+    // machine's tray that could not be pressed.
+    let open = MenuItem::with_id(app, "tray:open", "Open Subshell Server", true, None::<&str>)?;
+    // The two names for one idea, each the one that platform's users read.
+    let keep_label = if cfg!(target_os = "macos") {
+        "Keep Running in Menu Bar"
+    } else {
+        "Keep Running in Tray"
+    };
+    // Seeded from the CLAMPED preference, not the stored one: where no tray
+    // answered, the app will not honour `true`, and a check mark saying it
+    // would is a check mark that lies.
+    let checked = crate::control::close_to_tray_now(&app.state::<SettingsState>());
+    let keep = CheckMenuItem::with_id(app, "tray:keep", keep_label, true, checked, None::<&str>)?;
+    app.manage(KeepItem(keep.clone()));
     let menu = Menu::with_items(
         app,
         &[
             &open,
+            &PredefinedMenuItem::separator(app)?,
+            &keep,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
         ],
@@ -140,12 +142,42 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 }
 
 fn on_menu(app: &AppHandle, id: &str) {
-    // One id, and the tray dispatches no DesktopAction — so nothing here
-    // reaches the SPA's own action bridge (see `DashboardItem`). One opener
-    // for every route home (spec 2026-09-12 § 5.5): a fresh probe decides
-    // between the dashboard and the assistant, so the tray never has to know
-    // which of the two this machine is owed.
-    if id == "tray:open" {
-        let _ = crate::control::open_home(app);
+    match id {
+        // One opener for every route home (spec 2026-09-12 § 5.5): a fresh
+        // probe decides between the dashboard and the assistant, so the tray
+        // never has to know which of the two this machine is owed.
+        "tray:open" => {
+            let _ = crate::control::open_home(app);
+        }
+        "tray:keep" => set_close_to_tray(app),
+        // No other ids exist: the tray dispatches no DesktopAction, so nothing
+        // here reaches the SPA's own action bridge (see `KeepItem`).
+        _ => {}
     }
+}
+
+/// Store what the check item now shows, or put it back where no tray answered.
+///
+/// muda flips the item's own state BEFORE the event fires (measured against
+/// muda 0.19.3 on both the macOS and the GTK backends), so the item is the
+/// authority on what was just asked for and this reads it rather than
+/// toggling a stored copy — two places deciding what "checked" means is how
+/// a menu ends up disagreeing with itself.
+///
+/// Turning it ON is refused where no StatusNotifier host is registered: the
+/// icon is silently invisible there and a window hidden into it would be
+/// unreachable. The probe is re-run here rather than reused from build time
+/// because installing an AppIndicator extension flips the answer with the app
+/// already running. Turning it OFF is always allowed — that direction can only
+/// make the window easier to reach.
+fn set_close_to_tray(app: &AppHandle) {
+    let Some(item) = app.try_state::<KeepItem>() else {
+        return;
+    };
+    let on = item.0.is_checked().unwrap_or(false);
+    if on && !tray_support().supported() {
+        let _ = item.0.set_checked(false);
+        return;
+    }
+    let _ = app.state::<SettingsState>().update(|s| s.close_to_tray = on);
 }

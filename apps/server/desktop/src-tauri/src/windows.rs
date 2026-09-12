@@ -36,7 +36,21 @@ const MIN_HEIGHT: f64 = 640.0;
 pub fn user_agent(app: &AppHandle) -> String {
     let version = app.package_info().version.to_string();
     let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    format!("SubshellDesktop/{version} ({platform}; p=1)")
+    user_agent_for(&version, platform, crate::control::bundled_version().as_deref())
+}
+
+/// The pure body of [`user_agent`], for the test.
+///
+/// `b=` is the server version this app BUNDLES (spec 2026-09-12 § 5.4). Only
+/// the app knows it, and the SPA's Service page needs it to offer an update;
+/// it is an optional group so a build that ships no server, Subshell Client
+/// (which carries no marker at all) and every older shell all stay valid
+/// against the same regex. `p=1` — the protocol number — is unchanged by it.
+pub fn user_agent_for(version: &str, platform: &str, bundled: Option<&str>) -> String {
+    match bundled {
+        Some(b) => format!("SubshellDesktop/{version} ({platform}; p=1; b={b})"),
+        None => format!("SubshellDesktop/{version} ({platform}; p=1)"),
+    }
 }
 
 /// Bring a window to the FRONT, not merely out of hiding.
@@ -295,6 +309,18 @@ pub fn shell_ready(app: &AppHandle, overlay: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn user_agent_carries_the_bundled_server_version_when_there_is_one() {
+        assert_eq!(
+            super::user_agent_for("0.2.0", "macos", Some("0.3.0")),
+            "SubshellDesktop/0.2.0 (macos; p=1; b=0.3.0)"
+        );
+        assert_eq!(
+            super::user_agent_for("0.2.0", "linux", None),
+            "SubshellDesktop/0.2.0 (linux; p=1)"
+        );
+    }
+
     #[test]
     fn min_width_matches_the_spa_tiling_breakpoint() {
         // WORKSPACE_TILING_MIN_WIDTH in apps/server/web/src/lib/breakpoints.ts.

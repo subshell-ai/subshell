@@ -15,6 +15,7 @@ mod menu;
 mod reset;
 mod server_bin;
 mod tray;
+mod watch;
 mod windows;
 
 use subshell_desktop_core::settings::{SettingsPaths, SettingsState};
@@ -103,7 +104,6 @@ pub fn run() {
             control::desktop_install_server,
             control::desktop_setup,
             control::desktop_install_tmux,
-            control::desktop_init,
             control::desktop_service,
             control::desktop_set_server_bin,
             control::desktop_open_main,
@@ -111,14 +111,11 @@ pub fn run() {
             reset::desktop_reset,
             reset::desktop_arm_reset,
             control::desktop_open_path,
-            control::desktop_open_control_plane,
             control::desktop_open_tmux_docs,
             control::desktop_about,
             control::desktop_open_web,
             control::desktop_notify,
             control::desktop_shell_ready,
-            control::desktop_settings,
-            control::desktop_set_close_to_tray,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -175,6 +172,9 @@ pub fn run() {
                     }
                 }
             }
+            // After the boot window, never before: the watch follows `main`'s
+            // origin, and its first tick is five seconds away regardless.
+            watch::spawn(handle.clone());
             Ok(())
         })
         .build(tauri::generate_context!())

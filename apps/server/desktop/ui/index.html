@@ -57,34 +57,6 @@
           <dl class="facts" id="facts"></dl>
         </section>
 
-        <!-- ============================ Addresses =========================== -->
-        <section id="section-addresses" hidden>
-          <h2 class="section-title">Addresses</h2>
-          <!-- A section that cannot help still opens, and says why. The reason
-               is `addressesAvailability`'s, so "can this be saved right now"
-               is one function rather than a fact spread across a step table. -->
-          <div id="addresses-blocked" hidden>
-            <p class="section-lead" id="addresses-reason"></p>
-            <button type="button" class="ghost" id="addresses-to-overview">Go to Overview</button>
-          </div>
-          <div id="addresses-live" hidden>
-            <p class="section-lead">Change the addresses this server listens on and answers to.</p>
-            <div id="addresses-form"></div>
-            <div class="actions" id="addresses-actions"></div>
-            <!-- What SAVING does, and nothing else. The "Invalid origin"
-                 sentence this used to lead with is already the trusted-origins
-                 field's own hint, three lines above the button — a step card
-                 could carry it because the fields were inside the card, but on
-                 a page where the field states it, repeating it here is the
-                 second telling. -->
-            <p class="hint">
-              Saving rewrites config.env and restarts the server, which reads these values once at boot.
-            </p>
-            <p class="hint warn-text empty:hidden" data-problem></p>
-            <div data-strip></div>
-          </div>
-        </section>
-
         <!-- ============================== Logs ============================== -->
         <!-- One region, two tabs. The server's log is what the pane shows by
              default, because it is true all the time; a command's output is
@@ -104,18 +76,9 @@
         <section id="section-settings" hidden>
           <h2 class="section-title">Application</h2>
 
-          <div id="prefs-group" hidden>
-            <h3 class="group-heading">Tray</h3>
-            <label class="switch">
-              <input type="checkbox" id="close-to-tray" />
-              <span>Keep running in the menu bar or system tray when the window is closed</span>
-            </label>
-            <div class="tray-missing" id="tray-missing" hidden>
-              <p class="hint" id="tray-reason"></p>
-              <button type="button" id="tray-recheck" class="shrink-0">Check again</button>
-            </div>
-          </div>
-
+          <!-- The tray preference left this page for the TRAY ITSELF (spec
+               2026-09-12 § 5.5), which is what retired `desktop_settings` and
+               `desktop_set_close_to_tray` rather than moving them. -->
           <h3 class="group-heading">Reset</h3>
           <p class="section-lead">
             Reset this machine's Subshell instance: stop the server, delete its database, logs and settings, and

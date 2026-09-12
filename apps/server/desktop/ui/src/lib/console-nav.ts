@@ -1,17 +1,10 @@
 /**
- * The console's navigation: which sections exist, which may be used, and
- * what the hero says about the machine.
+ * The console's navigation: which sections exist, and what the hero says
+ * about the machine.
  *
- * Pure by design — no DOM, no IPC — so the three judgments the sidebar rests
- * on are testable without a webview, the same split `wizard-state.ts` keeps
- * for the setup assistant.
- *
- * The important one is `addressesAvailability`. Before the sidebar, "can this
- * machine be configured right now?" was encoded in WHICH steps listed a
- * "Change addresses…" button — a fact spread across four entries of a table
- * and pinned by a test that read the source. Now a section can be opened
- * whenever the person clicks it, so the answer has to be a value the section
- * renders, and it lives here.
+ * Pure by design — no DOM, no IPC — so the judgments the sidebar rests on are
+ * testable without a webview, the same split `wizard-state.ts` keeps for the
+ * setup assistant.
  */
 import type { Probe } from "./ipc";
 
@@ -25,7 +18,7 @@ import type { Probe } from "./ipc";
  * gain — the same distinction the root AGENTS.md draws between a directory
  * name and a component id.
  */
-export type SectionId = "overview" | "addresses" | "logs" | "settings" | "about";
+export type SectionId = "overview" | "logs" | "settings" | "about";
 
 /**
  * Flat render order — what `render()` iterates to hide the sections it is not
@@ -39,19 +32,16 @@ export type SectionId = "overview" | "addresses" | "logs" | "settings" | "about"
  * grouping it with the tray switch and the reset button would put a page that
  * only tells you things among the two that alter the machine.
  */
-export const SECTIONS: readonly SectionId[] = ["overview", "logs", "addresses", "settings", "about"];
+export const SECTIONS: readonly SectionId[] = ["overview", "logs", "settings", "about"];
 
 /**
  * What the sidebar calls each section.
  *
- * `settings` is labelled **Application** because Addresses is a setting too —
- * the one that rewrites config.env — and the group above them is what is
- * called Settings now. What is left under that name is this app and this
- * machine: the tray preference and the reset button.
+ * `settings` is labelled **Application** because the group above it is what
+ * is called Settings. What is left under that name is this machine's reset.
  */
 export const SECTION_LABELS: Record<SectionId, string> = {
   overview: "Overview",
-  addresses: "Addresses",
   logs: "Logs",
   settings: "Application",
   about: "About",
@@ -76,7 +66,10 @@ export type NavEntry =
 export const NAV_TREE: readonly NavEntry[] = [
   { kind: "section", id: "overview" },
   { kind: "section", id: "logs" },
-  { kind: "group", id: "settings-group", label: "Settings", children: ["addresses", "settings"] },
+  // Addresses left this group for the SPA's own Service page (spec
+  // 2026-09-12 § 3.2), which is where a configuration write lives now that
+  // `desktop_init` is gone.
+  { kind: "group", id: "settings-group", label: "Settings", children: ["settings"] },
   { kind: "section", id: "about" },
 ];
 
@@ -111,43 +104,6 @@ export function flattenNavTree(tree: readonly NavEntry[]): SectionId[] {
  */
 export function navGroupOpen(override: boolean | undefined, childCurrent: boolean): boolean {
   return override ?? childCurrent;
-}
-
-/** Whether the Addresses section can offer its form, and why not when it cannot. */
-export type Availability = { ok: true } | { ok: false; reason: string };
-
-/**
- * The steps on which saving a configuration can actually work.
- *
- * `no-server` and `setup` are the two where no binary resolves, so every
- * write verb answers "no subshell-server found" — the same fact
- * `config-form.test.ts` pins about the setup step's action list. `init` is
- * excluded for a different reason: the machine HAS a server and no
- * config.env, and the first write must also install and start the service
- * (`doInit`), which is Overview's step and not a save.
- */
-const CONFIGURABLE_STEPS = new Set<Probe["next"]>(["unreachable", "install-service", "start", "ready"]);
-
-/**
- * Whether the Addresses section may show its form.
- *
- * Three distinct refusals rather than one, because they send the reader to
- * three different places: set a server up, create its configuration, or wait
- * for the first probe.
- */
-export function addressesAvailability(probe: Probe | null): Availability {
-  if (probe === null) return { ok: false, reason: "Checking this machine…" };
-  if (probe.next === "init") {
-    return {
-      ok: false,
-      reason:
-        "This server has no configuration yet. Create it from Overview, where the first save also starts the service.",
-    };
-  }
-  if (!CONFIGURABLE_STEPS.has(probe.next)) {
-    return { ok: false, reason: "There is no server to configure yet. Set one up from Overview first." };
-  }
-  return { ok: true };
 }
 
 /** The hero's state word and the colour it (and the Overview nav dot) carries. */

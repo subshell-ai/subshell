@@ -21,13 +21,11 @@
  * window on a machine someone is trying to repair.
  */
 import { createAbout } from "./console/about";
-import { createAddresses } from "./console/addresses";
 import { renderFacts } from "./console/facts";
 import { renderHero } from "./console/hero";
 import { refreshLog, show, showPane, syncPaneTabs, wirePaneTabs } from "./console/logs";
 import { createResetView } from "./console/reset-view";
 import { renderResultStrip } from "./console/result-strip";
-import { createSettings } from "./console/settings";
 import { type ConsoleHost, el, errText, SETTLE_ATTEMPTS, SETTLE_DELAY_MS, sleep, slots, state } from "./console/state";
 import { createSteps } from "./console/steps";
 import { heroState, NAV_TREE, navGroupOpen, SECTION_LABELS, SECTIONS, type SectionId } from "./lib/console-nav";
@@ -62,8 +60,8 @@ function buildNavItem(id: SectionId, child: boolean): HTMLButtonElement {
   b.type = "button";
   b.className = child ? "nav-item child" : "nav-item";
   // Every item is reachable, always. A section that cannot help says so in
-  // its own words (`addressesAvailability`) — a dimmed item with a tooltip
-  // would put the reason somewhere a keyboard or a touch never goes.
+  // its own words — a dimmed item with a tooltip would put the reason
+  // somewhere a keyboard or a touch never goes.
   const dot = document.createElement("span");
   dot.className = "nav-dot";
   // Only Overview carries one: it mirrors the hero's state colour, so the
@@ -147,8 +145,8 @@ function renderNav(): void {
  * The problem line, written into every section that can produce one.
  *
  * It is page state rather than a section's, because the action that set it may
- * have been pressed anywhere: a rejection raised on Addresses and rendered
- * only on Overview is a refusal nobody reads. Sections carry a `data-problem`
+ * have been pressed anywhere: a rejection raised on one section and rendered
+ * only on another is a refusal nobody reads. Sections carry a `data-problem`
  * slot; Logs has no actions and therefore none.
  */
 function renderProblem(): void {
@@ -166,17 +164,6 @@ function goTo(section: SectionId): void {
   // what lets the group fall back to following the section, so leaving the
   // group shuts it and entering one opens it.
   navGroupPress = undefined;
-  // Entering Addresses reseeds it from the STORED configuration, so an edit
-  // never starts from what a previous visit left behind.
-  if (section === "addresses") addresses.enter();
-  // Settings re-reads the tray probe on every entry rather than only at boot.
-  // The probe is deliberately not memoized on the Rust side — installing the
-  // AppIndicator extension flips its answer with the app already running — so
-  // a preference card filled once at startup could sit there disabled for the
-  // rest of the session, describing a machine that has since changed. A boot
-  // read that FAILED is the worse half of the same fact: it leaves the group
-  // hidden with nothing to re-open it.
-  if (section === "settings") void settings.load();
   // About reads nine constants once and keeps them: they cannot change while
   // the app runs, so re-reading on every visit would be a CLI-free but still
   // pointless round trip. A FAILED read leaves itself unloaded and retries.
@@ -195,11 +182,9 @@ function render(): void {
   // else here would notice, but rendering the hidden ones would be work done
   // on every five-second tick for a view nobody can see.
   if (state.section === "overview") {
-    renderHero(host);
+    renderHero();
     steps.render();
     renderFacts(host);
-  } else if (state.section === "addresses") {
-    addresses.render();
   } else if (state.section === "about") {
     about.render();
   }
@@ -285,15 +270,12 @@ const host: ConsoleHost = {
 buildNav();
 wirePaneTabs();
 const steps = createSteps(host);
-const addresses = createAddresses(host);
 const about = createAbout(host);
-const settings = createSettings(host);
 const resetView = createResetView(host);
 
 el("reset-open").addEventListener("click", () => {
   void resetView.open();
 });
-el("addresses-to-overview").addEventListener("click", () => goTo("overview"));
 
 /**
  * How often the console re-reads the machine on its own.
@@ -361,5 +343,4 @@ showPane("log");
 syncPaneTabs();
 render();
 void steps.retry();
-void settings.load();
 void refreshLog().catch(() => {});

@@ -1,13 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  addressesAvailability,
-  flattenNavTree,
-  heroState,
-  NAV_TREE,
-  navGroupOpen,
-  SECTION_LABELS,
-  SECTIONS,
-} from "../lib/console-nav";
+import { flattenNavTree, heroState, NAV_TREE, navGroupOpen, SECTION_LABELS, SECTIONS } from "../lib/console-nav";
 import type { Probe, ProbeStep } from "../lib/ipc";
 
 /** A probe carrying only what the function under test reads. */
@@ -15,15 +7,15 @@ const at = (next: ProbeStep, rest: Partial<Probe> = {}): Probe => ({ next, ...re
 
 describe("SECTIONS", () => {
   it("is the sidebar order, and the console opens on the first", () => {
-    expect([...SECTIONS]).toEqual(["overview", "logs", "addresses", "settings", "about"]);
+    expect([...SECTIONS]).toEqual(["overview", "logs", "settings", "about"]);
     expect(SECTIONS[0]).toBe("overview");
   });
 
   it("keeps About last, and outside the group", () => {
-    // About changes nothing. The group holds Addresses and the tray/reset
-    // section, all of which alter the machine, so a page that only tells you
-    // things does not belong among them — and it sits last because nobody
-    // opens this window to read a copyright line.
+    // About changes nothing. The group holds the section that alters the
+    // machine, so a page that only tells you things does not belong among
+    // them — and it sits last because nobody opens this window to read a
+    // copyright line.
     expect(SECTIONS.at(-1)).toBe("about");
     const grouped = NAV_TREE.flatMap((entry) => (entry.kind === "group" ? entry.children : []));
     expect(grouped).not.toContain("about");
@@ -52,16 +44,17 @@ describe("NAV_TREE", () => {
     expect(flattenNavTree(NAV_TREE)).toEqual([...SECTIONS]);
   });
 
-  it("groups Addresses and Application under Settings, in that order", () => {
-    // Addresses IS a setting — the one that rewrites config.env — which is
-    // why it sits under that label rather than between two sections that are
-    // not settings at all.
+  it("groups Application under Settings", () => {
+    // Addresses used to sit beside it — the setting that rewrites config.env
+    // — and left for the SPA's Service page when `desktop_init` went (spec
+    // 2026-09-12 § 5.6). What is under that label is what alters THIS
+    // machine rather than the server's configuration.
     const groups = NAV_TREE.filter((entry) => entry.kind === "group");
     expect(groups).toHaveLength(1);
     const group = groups[0];
     if (group?.kind !== "group") throw new Error("expected one group");
     expect(group.label).toBe("Settings");
-    expect([...group.children]).toEqual(["addresses", "settings"]);
+    expect([...group.children]).toEqual(["settings"]);
   });
 });
 
@@ -87,42 +80,6 @@ describe("navGroupOpen", () => {
 
   it("lets a press open a group you are outside", () => {
     expect(navGroupOpen(true, false)).toBe(true);
-  });
-});
-
-describe("addressesAvailability", () => {
-  it("is ok on exactly the steps where a save can work", () => {
-    for (const step of ["unreachable", "install-service", "start", "ready"] as const) {
-      expect(addressesAvailability(at(step)).ok, `${step} should be configurable`).toBe(true);
-    }
-  });
-
-  it("refuses where no binary resolves, naming the way out", () => {
-    // The same promise `config-form.test.ts` pins about the setup step's
-    // action list: every write verb answers "no subshell-server found" here,
-    // so a form whose save could only fail must not be offered.
-    for (const step of ["no-server", "setup"] as const) {
-      const verdict = addressesAvailability(at(step));
-      expect(verdict.ok, `${step} must not be configurable`).toBe(false);
-      if (!verdict.ok) expect(verdict.reason).toContain("Set one up from Overview");
-    }
-  });
-
-  it("refuses `init` for its own reason — the first write is not a save", () => {
-    const verdict = addressesAvailability(at("init"));
-    expect(verdict.ok).toBe(false);
-    // Distinct from the no-server sentence: this machine HAS a server, and
-    // sending the reader to "set one up" would be a dead end.
-    if (!verdict.ok) {
-      expect(verdict.reason).toContain("no configuration yet");
-      expect(verdict.reason).not.toContain("Set one up from Overview");
-    }
-  });
-
-  it("refuses before the first probe lands", () => {
-    const verdict = addressesAvailability(null);
-    expect(verdict.ok).toBe(false);
-    if (!verdict.ok) expect(verdict.reason).toContain("Checking");
   });
 });
 

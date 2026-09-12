@@ -13,6 +13,7 @@
 //! even paint the "Working…" state it set before calling.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
@@ -20,9 +21,9 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::legal;
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
-use subshell_desktop_core::settings::{Settings, SettingsState};
+use subshell_desktop_core::settings::SettingsState;
 use subshell_desktop_core::sidecar;
-use subshell_desktop_core::tray::{effective_close_to_tray, tray_support, TraySupport};
+use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 
 use crate::server_bin::{self, decide_server, parse_server_version, ServerBinary, ServerChoice, SERVER_SIDECAR};
 
@@ -253,7 +254,7 @@ static BUNDLED_VERSION: OnceLock<Option<String>> = OnceLock::new();
 
 /// What the shipped binary says it is. Memoized — it cannot change under a
 /// running app, and probing it spawns a ~110 MB binary.
-fn bundled_version() -> Option<String> {
+pub(crate) fn bundled_version() -> Option<String> {
     BUNDLED_VERSION
         .get_or_init(|| {
             let path = sidecar::bundled_path(&SERVER_SIDECAR)?;
@@ -265,18 +266,13 @@ fn bundled_version() -> Option<String> {
 
 /// Look at the machine and report what it would take to reach a running server.
 ///
-/// Also the ONE place the tray's enabled state is updated from. Every console
-/// refresh and every console action runs this, including the first render at
-/// startup, so the tray follows the server without a poll of its own.
-///
-/// And the one writer of `onboarded`: the first probe that sees `ready` marks
+/// The one writer of `onboarded`: the first probe that sees `ready` marks
 /// the flag, which is the whole marking rule (spec § 4) — one function
 /// ([`mark_onboarded`]) with this command and [`boot_probe`] as its callers,
 /// and `probe_now` itself untouched and still pure.
 #[tauri::command(async)]
-pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Probe {
+pub fn desktop_probe(settings: State<'_, SettingsState>) -> Probe {
     let mut p = probe_now(settings.get().binary_path.as_deref());
-    crate::tray::set_server_ready(&app, p.next == ProbeStep::Ready);
     p.hostname = machine_hostname();
     p.onboarded = settings.get().onboarded;
     if p.next == ProbeStep::Ready && !p.onboarded {
@@ -365,7 +361,6 @@ pub fn boot_window(p: &Probe) -> WindowChoice {
 pub fn open_home(app: &AppHandle) -> Result<(), String> {
     let settings = app.state::<SettingsState>();
     let p = probe_now(settings.get().binary_path.as_deref());
-    crate::tray::set_server_ready(app, p.next == ProbeStep::Ready);
     if p.next == ProbeStep::Ready {
         // Idempotent by construction (`mark_onboarded` returns early on a
         // flag already set), so this is the same single-writer rule the boot
@@ -417,6 +412,44 @@ pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
     p
 }
 
+/// Set while a native action (setup, a service verb, an install, a reset) is
+/// running.
+///
+/// The watch thread reads it and skips its tick: a probe taken mid-chain
+/// reports a half state — a service uninstalled but not yet reinstalled, a
+/// binary replaced but not yet started — and acting on that (re-pointing the
+/// dashboard, say) is worse than waiting five seconds. It is the same rule
+/// the console page's own poll followed with `state.busy`, moved to where the
+/// poll now lives.
+pub static ACTION_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+/// RAII holder for [`ACTION_IN_FLIGHT`].
+///
+/// A guard rather than a set/clear pair because every one of these commands
+/// has early returns and `?`s in it, and a flag left set by an early exit
+/// stops the watch thread for the rest of the session — silently, since
+/// nothing about the app would look wrong.
+pub struct ActionGuard;
+
+impl ActionGuard {
+    pub fn new() -> Self {
+        ACTION_IN_FLIGHT.store(true, Ordering::SeqCst);
+        ActionGuard
+    }
+}
+
+impl Default for ActionGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for ActionGuard {
+    fn drop(&mut self) {
+        ACTION_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Result of anything that changes the machine — the CLI's own words, verbatim.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -447,6 +480,7 @@ impl From<Run> for ActionResult {
 /// Materialise the bundled server at `~/.local/bin/subshell-server`.
 #[tauri::command(async)]
 pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+    let _guard = ActionGuard::new();
     install_server_now(&settings)
 }
 
@@ -517,6 +551,7 @@ pub fn desktop_setup(
     base_url: Option<String>,
     trusted_origins: Option<String>,
 ) -> Result<ActionResult, String> {
+    let _guard = ActionGuard::new();
     let addresses = SetupAddresses {
         port: port.unwrap_or_default(),
         host: host.unwrap_or_default(),
@@ -634,6 +669,7 @@ fn console_platform() -> &'static str {
 /// never reads back as an empty success.
 #[tauri::command(async)]
 pub fn desktop_install_tmux() -> Result<ActionResult, String> {
+    let _guard = ActionGuard::new();
     let argv = tmux_install_argv().ok_or("no package manager this app can drive")?;
     Ok(run(&argv, INSTALL_TIMEOUT).into())
 }
@@ -693,27 +729,13 @@ fn init_args(port: &str, host: &str, base_url: &str, trusted_origins: Option<&st
     args
 }
 
-/// `subshell-server init --yes` with the addresses the operator typed.
+/// `subshell-server init --yes` with the addresses the setup chain collected.
 ///
-/// The console passes every field it shows, not just the changed ones: it
-/// seeds the form from `status --json`, and `configure` now defaults an
-/// unflagged key to its STORED value — so an omitted flag means "keep what is
-/// on disk", which is not what a form someone just edited means.
-#[tauri::command(async)]
-pub fn desktop_init(
-    settings: State<'_, SettingsState>,
-    port: String,
-    host: String,
-    base_url: String,
-    trusted_origins: Option<String>,
-) -> ActionResult {
-    init_now(&settings, &port, &host, &base_url, trusted_origins.as_deref())
-}
-
-/// `desktop_init`'s body, reachable without a command context.
-///
-/// See [`install_server_now`] for why the body lives below its wrapper;
-/// `desktop_setup` calls this with the derived defaults.
+/// There is no `desktop_init` command any more (spec 2026-09-12 § 5.6): the
+/// Addresses form moved to the SPA, which writes through
+/// `PATCH /api/admin/server/config`, and first-run customization rides
+/// `desktop_setup`'s own payload. So this is reachable only from the chain,
+/// and no page can rewrite a working `config.env` through this app.
 fn init_now(
     settings: &SettingsState,
     port: &str,
@@ -762,6 +784,7 @@ impl ServiceCommand {
 /// One `service` verb, straight through. The server decides whether to refuse.
 #[tauri::command(async)]
 pub fn desktop_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
+    let _guard = ActionGuard::new();
     service_now(&settings, verb, force)
 }
 
@@ -808,66 +831,6 @@ pub fn desktop_set_server_bin(settings: State<'_, SettingsState>, path: Option<S
         }
     };
     settings.update(|s| s.binary_path = cleaned)
-}
-
-/// What the console is told when the tray switch cannot be honoured.
-///
-/// "Detected", not "does not exist": the probe is a false negative on the
-/// older XEmbed tray, so the sentence has to be true for a user who can see
-/// their own tray icon while reading it.
-const NO_TRAY: &str = "no system tray was detected on this desktop, so a hidden window would have nowhere to go";
-
-/// The desktop app's own preferences, for the console to render.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesktopSettings {
-    pub close_to_tray: bool,
-    /// Whether the switch is LIVE — the tray probe's answer at this call.
-    pub tray_supported: bool,
-    /// And when it is not, why.
-    ///
-    /// The console needs the difference between the two "no"s: `unsupported`
-    /// is a fact about the platform and the card is not drawn at all, while
-    /// `not-detected` is a fact about this desktop SESSION — so the switch is
-    /// drawn disabled, with the reason and a way to look again, because an
-    /// absent control explains nothing and a GNOME user can fix this in a
-    /// minute.
-    pub tray_status: TraySupport,
-}
-
-/// Build the payload from the stored settings and one probe answer.
-///
-/// Both tray fields come from the SAME [`TraySupport`] here, so
-/// `tray_supported` cannot disagree with `tray_status`, and the stored
-/// preference is clamped on the way out — what the app will ACT on, not what
-/// the file happens to say. A switch showing the file's value where the tray
-/// is gone would be a switch that lies.
-fn settings_view(current: Settings, support: TraySupport) -> DesktopSettings {
-    DesktopSettings {
-        close_to_tray: effective_close_to_tray(current.close_to_tray, support),
-        tray_supported: support.supported(),
-        tray_status: support,
-    }
-}
-
-/// Read the desktop app's own preferences.
-#[tauri::command(async)]
-pub fn desktop_settings(settings: State<'_, SettingsState>) -> DesktopSettings {
-    settings_view(settings.get(), tray_support())
-}
-
-/// Choose whether closing the window hides it to the tray.
-///
-/// Refused, with a reason, where no tray answered — an `Err` rather than a
-/// silent `false`, so the console can say why instead of showing a switch that
-/// springs back. Turning it OFF is always allowed: that direction can only
-/// ever make the window easier to reach.
-#[tauri::command(async)]
-pub fn desktop_set_close_to_tray(settings: State<'_, SettingsState>, enabled: bool) -> Result<(), String> {
-    if enabled && !tray_support().supported() {
-        return Err(NO_TRAY.to_string());
-    }
-    settings.update(|s| s.close_to_tray = enabled)
 }
 
 /// The stored close-to-tray preference against a FRESH tray probe. The one
@@ -1187,30 +1150,6 @@ pub fn resolve_open_target(target: OpenTarget, probe: &Probe) -> Result<String, 
     }
 }
 
-/// The address the console shows as the control plane URL, or why there isn't one.
-///
-/// Read from the server's own `status --json` rather than passed in: the page
-/// names the INTENT and this side re-reads the value it is displaying, so a
-/// command argument can never send the browser somewhere the user has not
-/// already seen on the row. The scheme check is the belt on that braces —
-/// this opens a URL, never a path, and never to a `file:`/`mailto:` handler.
-pub fn control_plane_url(probe: &Probe) -> Result<String, String> {
-    let url = field(&probe.status, "settings")
-        .and_then(|s| s.get("APP_BASE_URL"))
-        .and_then(|u| u.get("value"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "the server has not reported a base URL yet".to_string())?;
-    // Case-insensitive: a scheme is one per RFC 3986, and refusing
-    // `HTTP://plane.example` would be a false negative the user experiences
-    // as a broken button, not as safety. The value OPENED is still the
-    // original — only the test is lowercased.
-    let lowered = url.to_ascii_lowercase();
-    if !lowered.starts_with("http://") && !lowered.starts_with("https://") {
-        return Err(format!("refusing to open a non-http(s) URL: {url}"));
-    }
-    Ok(url.to_string())
-}
-
 /// Reveal one of a fixed set of the server's own files or directories.
 #[tauri::command(async)]
 pub fn desktop_open_path(app: AppHandle, settings: State<'_, SettingsState>, target: OpenTarget) -> Result<(), String> {
@@ -1222,21 +1161,6 @@ pub fn desktop_open_path(app: AppHandle, settings: State<'_, SettingsState>, tar
     app.opener()
         .reveal_item_in_dir(&path)
         .map_err(|e| format!("could not reveal {path}: {e}"))
-}
-
-/// Open the control plane's URL in the SYSTEM browser.
-///
-/// The in-app `main` window stays the fast path for the usual loopback case;
-/// this exists because the row is the configured base URL, which may name a
-/// LAN address that window is deliberately never pointed at (see
-/// [`Probe::origin`]).
-#[tauri::command(async)]
-pub fn desktop_open_control_plane(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
-    let probe = probe_now(settings.get().binary_path.as_deref());
-    let url = control_plane_url(&probe)?;
-    app.opener()
-        .open_url(&url, None::<&str>)
-        .map_err(|e| format!("could not open {url}: {e}"))
 }
 
 /// Who made this, under what terms, and where to read more.
@@ -1892,55 +1816,6 @@ mod tests {
         );
     }
 
-    fn stored(close_to_tray: bool) -> Settings {
-        Settings {
-            binary_path: None,
-            close_to_tray,
-            open_at_login: false,
-            // Subshell Client's field. This app never reads or writes it; it
-            // shares the struct, not the file.
-            plane_url: None,
-            onboarded: false,
-        }
-    }
-
-    // The clamp is on READ as well as on write, and it is the only guard that
-    // survives a settings file arriving from somewhere else — copied from a
-    // Mac, or written on a desktop that had a tray before an extension was
-    // disabled.
-    #[test]
-    fn close_to_tray_is_clamped_on_read_not_only_on_write() {
-        assert!(settings_view(stored(true), TraySupport::Supported).close_to_tray);
-        assert!(!settings_view(stored(true), TraySupport::NotDetected).close_to_tray);
-        assert!(!settings_view(stored(true), TraySupport::Unsupported).close_to_tray);
-        assert!(!settings_view(stored(false), TraySupport::Supported).close_to_tray);
-    }
-
-    // The console branches on both fields, so they must come from one answer:
-    // `traySupported` says whether the switch is live, `trayStatus` says
-    // whether an absent tray is worth explaining.
-    #[test]
-    fn the_settings_payload_reports_whether_and_why() {
-        for (support, supported, status) in [
-            (TraySupport::Supported, true, "supported"),
-            (TraySupport::NotDetected, false, "not-detected"),
-            (TraySupport::Unsupported, false, "unsupported"),
-        ] {
-            let view = settings_view(stored(false), support);
-            assert_eq!(view.tray_supported, supported);
-            let json = serde_json::to_value(&view).unwrap();
-            assert_eq!(json["traySupported"], json!(supported));
-            assert_eq!(json["trayStatus"], json!(status));
-        }
-    }
-
-    // A refusal the console can show, and one that does not claim the tray is
-    // absent — only that none was detected.
-    #[test]
-    fn the_tray_refusal_says_detected() {
-        assert!(NO_TRAY.contains("detected"));
-    }
-
     // The reveal targets each read the CLI's own reported fact. A typo in a
     // key path here fails SILENTLY at the type level — every field is
     // `serde_json::Value` — and surfaces as "not reported yet" on a machine
@@ -1983,27 +1858,67 @@ mod tests {
         assert!(err == NO_LOG_FILE, "{err}");
     }
 
-    // The page never passes a URL, but the guard is the last thing between a
-    // config value and the OS handler list, so it is pinned as data.
+    // One JSON line as the pane renders it, plus the two shapes a capped
+    // file produces that are not JSON at all: a partial write left by the
+    // replacement, and anything a crash wrote straight to the stream. Both
+    // come back VERBATIM rather than being dropped — the most recent thing
+    // the server said is the thing someone repairing it wants to read.
     #[test]
-    fn the_control_plane_url_must_be_http_or_https() {
-        let with =
-            |v: serde_json::Value| probe_with(Some(json!({"settings": {"APP_BASE_URL": {"value": v}}})), None, true);
+    fn a_log_line_renders_as_time_level_message() {
         assert_eq!(
-            control_plane_url(&with(json!("https://plane.example"))).unwrap(),
-            "https://plane.example"
+            render_log_line(r#"{"timestamp":"2026-09-12T10:00:00.000Z","level":"info","message":"listening"}"#),
+            "10:00:00 info listening"
         );
-        assert!(control_plane_url(&with(json!("file:///etc/passwd"))).is_err());
-        assert!(control_plane_url(&with(json!("javascript:alert(1)"))).is_err());
-        assert!(control_plane_url(&with(json!("x"))).is_err());
-        // Schemes are case-insensitive per RFC 3986; the refusal of
-        // `HTTP://…` would be a broken button, not safety. The ORIGINAL —
-        // not the lowercased test copy — is what is returned.
-        assert_eq!(
-            control_plane_url(&with(json!("HTTP://Plane.Example"))).unwrap(),
-            "HTTP://Plane.Example"
+        assert_eq!(render_log_line("half a li"), "half a li");
+        // A JSON line missing the fields contributes what it has, never the
+        // word "undefined" or an empty prefix of spaces.
+        assert_eq!(render_log_line(r#"{"message":"no level"}"#), "no level");
+    }
+
+    // The fallback is the path that runs against every server built before
+    // `paths.serverLog` existed, which is the only one this can be exercised
+    // against today — so all three ways of reaching it are pinned.
+    #[test]
+    fn the_server_log_is_skipped_when_there_is_none_to_read() {
+        // An older server: no `paths.serverLog` at all.
+        let old = probe_with(Some(json!({"paths": {"dataDir": "/d"}})), None, true);
+        assert!(server_log_tail(&old).is_none());
+        // No `paths` block whatsoever.
+        assert!(server_log_tail(&probe_with(Some(json!({})), None, true)).is_none());
+        // Named but not written yet — a server that has never started.
+        let missing = probe_with(
+            Some(json!({"paths": {"serverLog": "/nonexistent/subshell/logs/server.log"}})),
+            None,
+            true,
         );
-        assert!(control_plane_url(&probe_with(None, None, true)).is_err());
+        assert!(server_log_tail(&missing).is_none());
+    }
+
+    #[test]
+    fn the_server_log_is_read_and_rendered_when_it_has_lines() {
+        let path = std::env::temp_dir().join(format!("subshell-log-test-{}.log", std::process::id()));
+        std::fs::write(
+            &path,
+            "{\"timestamp\":\"2026-09-12T09:59:59.000Z\",\"level\":\"warn\",\"message\":\"one\"}\n\
+             \n\
+             {\"timestamp\":\"2026-09-12T10:00:00.000Z\",\"level\":\"info\",\"message\":\"two\"}\n",
+        )
+        .unwrap();
+        let p = probe_with(
+            Some(json!({"paths": {"serverLog": path.to_string_lossy()}})),
+            None,
+            true,
+        );
+        let tail = server_log_tail(&p).expect("a written log is read");
+        assert_eq!(tail.text, "09:59:59 warn one\n10:00:00 info two");
+        assert_eq!(tail.source, path.to_string_lossy());
+        assert!(tail.note.is_none());
+        // An empty file is NOT an empty tail: it falls through to the service
+        // manager's log, which still holds the boot output of a server that
+        // died before opening its own.
+        std::fs::write(&path, "\n  \n").unwrap();
+        assert!(server_log_tail(&p).is_none());
+        let _ = std::fs::remove_file(&path);
     }
 
     // The wire spelling the console page sends, pinned because the enum is
