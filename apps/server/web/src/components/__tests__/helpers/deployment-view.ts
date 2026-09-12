@@ -1,3 +1,4 @@
+import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { ServerDeployment, ServerSetting, SettingSource } from "@/types/server-deployment";
 
 /**
@@ -67,3 +68,15 @@ export const idleRestart = {
   restart: async () => {},
   reset: () => {},
 };
+
+/** A start-at-login handle that records presses and never resolves anything. */
+export function stubAutostart(over: Partial<ServerAutostart> = {}): ServerAutostart & { pressed: boolean[] } {
+  const pressed: boolean[] = [];
+  return {
+    pressed,
+    set: (enabled: boolean) => pressed.push(enabled),
+    pending: false,
+    error: null,
+    ...over,
+  };
+}

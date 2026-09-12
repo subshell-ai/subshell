@@ -1,5 +1,7 @@
 export enum BackendErrorCodes {
   ACCESS_DENIED = "ACCESS_DENIED",
+  /** `POST /api/admin/server/autostart`: nothing is installed to start at login, or this server is not run by a service manager at all. */
+  AUTOSTART_UNAVAILABLE = "AUTOSTART_UNAVAILABLE",
   BAD_REQUEST = "BAD_REQUEST",
   /** `PATCH /api/admin/server/config`: a value failed the CLI's `validateValue`; the message names the key and its reason. */
   CONFIG_INVALID = "CONFIG_INVALID",
@@ -140,6 +142,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_UNREACHABLE]: {
     message: "Node did not respond",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.AUTOSTART_UNAVAILABLE]: {
+    message: "This server has no installed service to start at login",
     statusCode: 409,
   },
   [BackendErrorCodes.RESTART_KILLS_PANES]: {

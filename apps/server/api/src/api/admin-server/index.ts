@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { autostartRoute } from "@/api/admin-server/autostart.route.js";
 import { getServerRoute } from "@/api/admin-server/get-server.route.js";
 import { loggingRoute } from "@/api/admin-server/logging.route.js";
 import { logsRoute } from "@/api/admin-server/logs.route.js";
@@ -15,5 +16,6 @@ export const adminServerRoutes = new Elysia({ prefix: "/api/admin/server" })
   .use(getServerRoute)
   .use(patchConfigRoute)
   .use(restartRoute)
+  .use(autostartRoute)
   .use(logsRoute)
   .use(loggingRoute);

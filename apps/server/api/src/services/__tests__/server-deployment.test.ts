@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { collectDeployment, isSupervised, settingSource } from "@/services/server-deployment.js";
+import { appSupervised, collectDeployment, isSupervised, settingSource } from "@/services/server-deployment.js";
 
 describe("isSupervised", () => {
   it("is true only when the manager reports this very pid as running", () => {
@@ -90,5 +90,108 @@ describe("collectDeployment", () => {
     const view = collectDeployment({ platform: "linux", applied: new Set(), queryService: () => service as never });
     expect(["set", "missing"]).toContain(view.authSecret.state);
     expect(JSON.stringify(view)).not.toContain("BETTER_AUTH_SECRET=");
+  });
+});
+
+/**
+ * The desktop app as a supervisor (spec 2026-09-12 server-supervision § 4.7).
+ *
+ * The app runs the server as a child when the operator asked for that instead
+ * of a launchd/systemd service. It tells the server so through the
+ * environment, and the server checks the claim against its own parent before
+ * believing it.
+ */
+describe("appSupervised", () => {
+  const OK = { SUBSHELL_SUPERVISOR: "subshell-desktop-server", SUBSHELL_SUPERVISOR_PID: "900" };
+
+  it("is true only when the claim AND the parentage agree", () => {
+    expect(appSupervised(OK, 900)).toBe(true);
+    // A claim from something that is not our parent is a claim anyone could
+    // make; parentage is what makes it evidence.
+    expect(appSupervised(OK, 901)).toBe(false);
+    expect(appSupervised({ ...OK, SUBSHELL_SUPERVISOR: "something-else" }, 900)).toBe(false);
+    expect(appSupervised({}, 900)).toBe(false);
+    expect(appSupervised({ SUBSHELL_SUPERVISOR: "subshell-desktop-server" }, 900)).toBe(false);
+  });
+
+  it("does not accept a non-numeric pid claim", () => {
+    expect(appSupervised({ ...OK, SUBSHELL_SUPERVISOR_PID: "nine hundred" }, 900)).toBe(false);
+  });
+});
+
+describe("collectDeployment under the app", () => {
+  const notInstalled = {
+    installed: false,
+    definitionPath: "/home/t/.config/systemd/user/subshell-server.service",
+    state: "not-installed",
+    pid: null,
+    enabled: null,
+    paneSafety: null,
+    detail: "",
+    logPath: null,
+  } as const;
+
+  it("reports the app as the manager, supervised, and restartable", () => {
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 4242,
+      applied: new Set(),
+      queryService: () => notInstalled as never,
+      appSupervised: () => true,
+      env: { ...process.env, SUBSHELL_SUPERVISOR_LOG: "/home/t/.local/state/subshell-server/console.log" },
+    });
+    expect(view.service.manager).toBe("app");
+    expect(view.service.pid).toBe(4242);
+    expect(view.service.state).toBe("running");
+    // Restart works here for a real reason: the app respawns this process on
+    // exit exactly as a manager does, which is all `available` ever meant.
+    expect(view.service.supervised).toBe(true);
+    expect(view.restart.available).toBe(true);
+    expect(view.restart.reason).toBe(null);
+    // Earned by the supervisor signalling the main pid only.
+    expect(view.service.paneSafety).toBe("keeps");
+    // Nothing starts the app's child at login; the app starting at login is a
+    // different feature, and the switch is disabled with that reason.
+    expect(view.service.enabled).toBe(false);
+    expect(view.service.logPath).toBe("/home/t/.local/state/subshell-server/console.log");
+    expect(view.service.logHint).toBe(null);
+  });
+
+  it("still names a definition on disk, because two owners is a real conflict", () => {
+    const installed = { ...notInstalled, installed: true } as const;
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 4242,
+      applied: new Set(),
+      queryService: () => installed as never,
+      appSupervised: () => true,
+    });
+    expect(view.service.manager).toBe("app");
+    // Hiding this would leave an operator with a service they believe is gone
+    // and a server that comes back twice at the next login.
+    expect(view.service.installed).toBe(true);
+    expect(view.service.definitionPath).toContain("subshell-server.service");
+  });
+
+  it("keeps every deployment fact that does not depend on the supervisor", () => {
+    const byApp = collectDeployment({
+      platform: "linux",
+      pid: 4242,
+      applied: new Set(),
+      queryService: () => notInstalled as never,
+      appSupervised: () => true,
+    });
+    const byManager = collectDeployment({
+      platform: "linux",
+      pid: 4242,
+      applied: new Set(),
+      queryService: () => notInstalled as never,
+      appSupervised: () => false,
+    });
+    // One `base` object feeds both branches, so a field added later cannot
+    // reach only one of them.
+    expect(Object.keys(byApp).sort()).toEqual(Object.keys(byManager).sort());
+    expect(byApp.settings).toEqual(byManager.settings);
+    expect(byApp.paths).toEqual(byManager.paths);
   });
 });

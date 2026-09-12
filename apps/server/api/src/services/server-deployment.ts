@@ -43,7 +43,7 @@ export interface DeploymentSetting {
 /** The service manager's view plus the one fact only the running process can add. */
 export interface DeploymentService {
   /** `launchd` on darwin, `systemd` on linux, null elsewhere. */
-  manager: "launchd" | "systemd" | null;
+  manager: "launchd" | "systemd" | "app" | null;
   /** Whether a unit/plist exists on disk. */
   installed: boolean;
   /** Where that definition lives, or would. */
@@ -126,6 +126,10 @@ export interface DeploymentDeps {
   status?: () => StatusView;
   /** The debug-logging state (production: `currentDebugLogging`). */
   debugLogging?: () => { debug: boolean; source: DeploymentLogging["source"] };
+  /** This process's PARENT pid, which {@link appSupervised} checks the claim against (production: `process.ppid`). */
+  ppid?: number;
+  /** Whether the desktop app runs this process (production: {@link appSupervised} over env + ppid). */
+  appSupervised?: () => boolean;
 }
 
 /**
@@ -200,6 +204,62 @@ function runningValue(key: DeploymentSettingKey, env: NodeJS.ProcessEnv): string
 }
 
 /**
+ * The `ServiceDeps` this process would use to ask about its own service.
+ *
+ * Exported because `POST /api/admin/server/autostart` writes through the same
+ * seams this view reads through: two constructions of these deps is two
+ * chances to disagree about which config dir, which uid, which PATH — and on
+ * darwin the config dir is where a not-at-login definition LIVES, so a
+ * mismatch would make the route edit a service the view cannot see.
+ */
+export function serviceDeps(
+  opts: { platform?: NodeJS.Platform; home?: string; env?: NodeJS.ProcessEnv } = {},
+): Parameters<typeof queryService>[0] {
+  const env = opts.env ?? process.env;
+  return DEFAULT_DEPS({
+    platform: opts.platform ?? process.platform,
+    home: opts.home ?? homedir(),
+    uid: process.getuid?.() ?? 0,
+    servicePath: process.execPath,
+    argv1: process.argv[1] ?? "",
+    configDir: serverConfigDir(),
+    env,
+    which: (name) => Bun.which(name) ?? null,
+    pathEnv: env.PATH,
+  });
+}
+
+/**
+ * The Subshell Server desktop app names itself here when it spawned this
+ * process, so the server can report who supervises it (spec 2026-09-12
+ * server-supervision § 4.7). Set on the child alongside
+ * {@link SUPERVISOR_PID_ENV} and {@link SUPERVISOR_LOG_ENV}.
+ */
+export const SUPERVISOR_ENV = "SUBSHELL_SUPERVISOR";
+/** The supervising process's pid — checked against our own parent, see {@link appSupervised}. */
+export const SUPERVISOR_PID_ENV = "SUBSHELL_SUPERVISOR_PID";
+/** Where that supervisor is collecting this process's console output. */
+export const SUPERVISOR_LOG_ENV = "SUBSHELL_SUPERVISOR_LOG";
+/** The only value of {@link SUPERVISOR_ENV} this server recognises. */
+export const DESKTOP_SUPERVISOR = "subshell-desktop-server";
+
+/**
+ * Whether the Subshell Server app is running this process — a claim in the
+ * environment, VERIFIED against our actual parent.
+ *
+ * The claim alone would be worthless: any process can export a variable. The
+ * parentage check means a forged claim only succeeds when the forger really
+ * is our parent — a shell that set the variables and exec'd the server — and
+ * what that buys is `restart.available: true`, i.e. an admin exiting the
+ * server into a parent that will not respawn it. That is an operator lying to
+ * themselves on a host they already control, the same class as hand-editing
+ * config.env, and it is accepted rather than defended against.
+ */
+export function appSupervised(env: NodeJS.ProcessEnv, ppid: number): boolean {
+  return env[SUPERVISOR_ENV] === DESKTOP_SUPERVISOR && Number(env[SUPERVISOR_PID_ENV]) === ppid;
+}
+
+/**
  * Build the whole § 3.1 view. READS ONLY — but not cheap: `collectStatus`
  * probes the port and PATH, and `queryService` spawns the service manager, so
  * this is a polled route's worth of work rather than a hot path's.
@@ -219,23 +279,7 @@ export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
   const applied = deps.applied ?? configEnvAppliedKeys();
   const configValues = deps.configValues ?? resolveConfig().values;
   const status = (deps.status ?? (() => collectStatus({ platform, home })))();
-  const service = (
-    deps.queryService ??
-    (() =>
-      queryService(
-        DEFAULT_DEPS({
-          platform,
-          home,
-          uid: process.getuid?.() ?? 0,
-          servicePath: process.execPath,
-          argv1: process.argv[1] ?? "",
-          configDir: serverConfigDir(),
-          env,
-          which: (name) => Bun.which(name) ?? null,
-          pathEnv: env.PATH,
-        }),
-      ))
-  )();
+  const service = (deps.queryService ?? (() => queryService(serviceDeps({ platform, home, env }))))();
 
   const settings = Object.fromEntries(
     DEPLOYMENT_SETTING_KEYS.map((key) => {
@@ -253,14 +297,58 @@ export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
     }),
   ) as Record<DeploymentSettingKey, DeploymentSetting>;
 
-  const supervised = isSupervised(service, pid);
-  const manager = platform === "darwin" ? "launchd" : platform === "linux" ? "systemd" : null;
-  return {
+  // The app is a supervisor on the same terms a manager is: it respawns this
+  // process when it exits (spec § 4.2), which is the only property
+  // `restart.available` actually needs. So it reports `supervised: true` and
+  // the SPA's Restart button works there unchanged.
+  const byApp = (deps.appSupervised ?? (() => appSupervised(env, deps.ppid ?? process.ppid)))();
+  const supervised = byApp || isSupervised(service, pid);
+  const manager = byApp ? "app" : platform === "darwin" ? "launchd" : platform === "linux" ? "systemd" : null;
+  /** Everything that does not depend on WHO supervises this process. */
+  const base = {
     configEnv: status.configEnv,
     settings,
     restartRequired: DEPLOYMENT_SETTING_KEYS.some((key) => settings[key].saved !== settings[key].running),
     authSecret: status.authSecret,
     paths: status.paths,
+    logging: {
+      ...(deps.debugLogging ?? currentDebugLogging)(),
+      file: status.paths.serverLog,
+      capBytes: SERVER_LOG_CAP_BYTES,
+    },
+    tmuxPath: status.tmux,
+    mcp: status.mcp,
+    mcpError: status.mcpError,
+    platform,
+    generatedAt: new Date().toISOString(),
+  };
+  if (byApp) {
+    return {
+      ...base,
+      service: {
+        manager: "app",
+        // A definition on disk while the app runs this process is a real
+        // conflict — two things believe they own the server — so it is named
+        // rather than hidden, in the field built for the manager's own words.
+        installed: service.installed,
+        definitionPath: service.definitionPath,
+        state: "running",
+        pid,
+        // Nothing starts the app's child at login; the app itself starting at
+        // login is a different feature, and the switch says so.
+        enabled: false,
+        // Earned, not assumed: the supervisor signals the main pid only, so a
+        // teardown leaves each subshell's tmux server running (spec § 4.2).
+        paneSafety: "keeps",
+        logPath: env[SUPERVISOR_LOG_ENV] ?? null,
+        logHint: null,
+        supervised: true,
+      },
+      restart: { available: true, reason: null },
+    };
+  }
+  return {
+    ...base,
     service: {
       manager,
       installed: service.installed,
@@ -276,15 +364,5 @@ export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
       supervised,
     },
     restart: { available: supervised, reason: supervised ? null : RESTART_UNSUPERVISED_REASON },
-    logging: {
-      ...(deps.debugLogging ?? currentDebugLogging)(),
-      file: status.paths.serverLog,
-      capBytes: SERVER_LOG_CAP_BYTES,
-    },
-    tmuxPath: status.tmux,
-    mcp: status.mcp,
-    mcpError: status.mcpError,
-    platform,
-    generatedAt: new Date().toISOString(),
   };
 }

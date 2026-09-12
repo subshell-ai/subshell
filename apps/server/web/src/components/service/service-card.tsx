@@ -3,17 +3,43 @@ import { FactCard } from "@/components/admin-status/fact-list";
 import { RestartDialog } from "@/components/service/restart-dialog";
 import { RestartStrip } from "@/components/service/restart-strip";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { ServerRestart } from "@/hooks/use-server-restart";
 import type { ServerDeployment } from "@/types/server-deployment";
+
+/** What the supervisor is CALLED in a sentence; the id `app` is not a name. */
+function managerName(manager: ServerDeployment["service"]["manager"]): string {
+  return manager === "app" ? "Subshell Server" : (manager ?? "a service manager");
+}
 
 /** One line describing who is running this process and since when. */
 function supervisionLine(view: ServerDeployment, bootedAt: string | undefined): string {
   const service = view.service;
   if (!service.supervised) return "Running, not supervised";
-  const parts = [`Running under ${service.manager ?? "a service manager"}`];
+  const parts = [`Running under ${managerName(service.manager)}`];
   if (service.pid !== null) parts.push(`as pid ${service.pid}`);
   if (bootedAt) parts.push(`since ${new Date(bootedAt).toLocaleTimeString()}`);
-  return `${parts.join(" ")}${service.enabled ? " · starts at login" : ""}`;
+  const tail = service.manager === "app" ? " · stops when the app quits" : service.enabled ? " · starts at login" : "";
+  return `${parts.join(" ")}${tail}`;
+}
+
+/**
+ * Why the start-at-login switch cannot be used here, or `null` when it can.
+ *
+ * A pure function because each answer is a real machine state rather than a
+ * permission, and every one of them wants a sentence naming what to do
+ * instead — a disabled control with no reason is indistinguishable from a
+ * broken one. These mirror the route's own three 409s, deliberately: the UI
+ * must not offer what the server will refuse.
+ */
+export function autostartDisabledReason(service: ServerDeployment["service"]): string | null {
+  if (service.manager === "app") {
+    return "This server runs with the Subshell Server app. To have it back at login, start the app at login instead.";
+  }
+  if (!service.installed) return "No service is installed on this machine.";
+  if (service.enabled === null) return "The service manager did not say whether this server starts at login.";
+  return null;
 }
 
 /**
@@ -28,17 +54,21 @@ function supervisionLine(view: ServerDeployment, bootedAt: string | undefined): 
 export function ServiceCard({
   view,
   restart,
+  autostart,
   bootedAt,
 }: {
   /** The deployment view */
   view: ServerDeployment;
   /** The page's restart handle */
   restart: ServerRestart;
+  /** The page's start-at-login handle */
+  autostart: ServerAutostart;
   /** Process start time from `admin/status`, when the page has it */
   bootedAt?: string;
 }) {
   const [confirming, setConfirming] = useState(false);
   const service = view.service;
+  const autostartBlocked = autostartDisabledReason(service);
 
   return (
     <FactCard title="Service">
@@ -51,6 +81,24 @@ export function ServiceCard({
           Restarting will close every running subshell; reinstall the service definition to fix this.
         </p>
       )}
+      <div className="col-span-full flex items-start gap-3">
+        <Switch
+          checked={service.enabled === true}
+          disabled={autostartBlocked !== null || autostart.pending}
+          onCheckedChange={(next) => autostart.set(next)}
+          aria-label="Start at login"
+          id="server-autostart"
+        />
+        <div className="space-y-0.5">
+          <label htmlFor="server-autostart" className="font-medium text-sm">
+            Start at login
+          </label>
+          <p className="text-muted-foreground text-xs">
+            {autostartBlocked ?? "Brings the server back when you log in to this machine."}
+          </p>
+          {autostart.error && <p className="text-destructive text-xs">{autostart.error}</p>}
+        </div>
+      </div>
       <div className="col-span-full flex items-center gap-3">
         <Button
           variant="outline"

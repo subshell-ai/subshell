@@ -67,6 +67,41 @@ test.describe("server service page", () => {
     expect(alive.ok()).toBe(true);
   });
 
+  test("the start-at-login switch says what the SERVER says, whatever this machine has", async ({ page }) => {
+    // Deliberately not "nothing is installed". The stack is hand-spawned, but
+    // it runs with the developer's own HOME, so whether a launchd plist or a
+    // systemd unit exists is a property of the machine running the suite —
+    // true on a laptop with Subshell Server installed, false in CI. Asserting
+    // either would be a test that passes in one place and fails in the other.
+    //
+    // What IS invariant is the thing that can actually regress: the switch
+    // must read the server's own answer rather than re-derive a rule of its
+    // own, and the server must refuse independently of what the UI drew.
+    const view = (await (await page.request.get("/api/admin/server")).json()) as {
+      service: { installed: boolean; enabled: boolean | null; manager: string | null };
+    };
+    await page.goto("/settings/service");
+    const login = page.getByRole("switch", { name: "Start at login" });
+    await expect(login).toBeVisible();
+    await expect(login).toHaveAttribute("aria-checked", String(view.service.enabled === true));
+
+    const usable = view.service.manager !== "app" && view.service.installed && view.service.enabled !== null;
+    if (usable) {
+      await expect(login).not.toHaveAttribute("data-disabled", "");
+      // No click: on a machine that really has the service installed this
+      // would rewrite the developer's own login items.
+      return;
+    }
+    await expect(login).toHaveAttribute("data-disabled", "");
+    await expect(page.getByText(/No service is installed|start the app at login|did not say whether/)).toBeVisible();
+    // And the SERVER refuses too, not only the UI — the same shape as the
+    // restart guard above, and for the same reason: a disabled control is not
+    // a security boundary.
+    const res = await page.request.post("/api/admin/server/autostart", { data: { enabled: true } });
+    expect(res.status()).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("AUTOSTART_UNAVAILABLE");
+  });
+
   test("renders environment-owned addresses read-only, and the others editable", async ({ page }) => {
     await page.goto("/settings/service");
 

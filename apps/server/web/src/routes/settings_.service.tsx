@@ -9,7 +9,7 @@ import { UpdateCard } from "@/components/service/update-card";
 import { Button } from "@/components/ui/button";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { useServerDeployment } from "@/hooks/use-server-deployment";
+import { useServerDeployment, useSetServerAutostart } from "@/hooks/use-server-deployment";
 import { useServerRestart } from "@/hooks/use-server-restart";
 
 export const Route = createFileRoute("/settings_/service")({ component: ServicePage });
@@ -39,6 +39,7 @@ function ServicePage() {
   const { data: view, error, isLoading, refetch } = useServerDeployment(isAdmin);
   const { data: status } = useAdminStatus(isAdmin);
   const restart = useServerRestart();
+  const autostart = useSetServerAutostart();
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
@@ -78,7 +79,7 @@ function ServicePage() {
           <UpdateCard serverVersion={publicSettings?.serverVersion} />
           {view && (
             <>
-              <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />
+              <ServiceCard view={view} restart={restart} autostart={autostart} bootedAt={status?.runtime.bootedAt} />
               <AddressesCard view={view} restart={restart} />
               <LocationsCard view={view} />
               <ServerLogCard view={view} enabled={isAdmin} />

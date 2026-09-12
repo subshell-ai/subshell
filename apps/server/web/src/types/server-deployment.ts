@@ -45,8 +45,8 @@ export type PaneSafety = "keeps" | "kills" | "unknown";
 
 /** What the platform's service manager says about this server. */
 export interface ServiceState {
-  /** The manager in play, null when none was found */
-  manager: "launchd" | "systemd" | null;
+  /** What supervises the process: a service manager, the desktop app, or null when nothing does */
+  manager: "launchd" | "systemd" | "app" | null;
   /** Whether a unit/plist for this server is installed */
   installed: boolean;
   /** Path of that unit/plist, null when not installed */
