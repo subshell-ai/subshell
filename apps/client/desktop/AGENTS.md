@@ -257,7 +257,7 @@ are free-form and are not `productName`.
 ```
 src-tauri/src/
 ├── agent_bin.rs   the resolution ladder for `subshell`, and the bundled-vs-installed policy
-├── control.rs     the eleven `node_*` commands, and Probe
+├── control.rs     the thirteen `node_*` commands, and Probe
 ├── windows.rs     the two windows — the plane's page, and the bundled node page
 ├── tray.rs        tray icon + menu (an explicit id; a Menu attached, or Linux may not register it)
 ├── menu.rs        the macOS menu bar — module-gated, because Linux has none
@@ -306,6 +306,18 @@ The same rules the Subshell Server console enforces, and for the same reasons
   the `journalctl` command, and the facts list now also shows the log location
   (the CLI's `logPath` shape: a file on macOS, the journal sentence on Linux)
   so it is readable without clicking.
+- **About is a FOOTER, and it owns no strings.** `components/about-footer.tsx`
+  renders the same content as the Subshell Server console's About section —
+  mark, app name, both versions, links, terms, copyright, centred — from one
+  `node_about` call, so the facts live only in `crates/desktop-core/src/legal.rs`
+  (which `scripts/license-fields.ts` holds equal to the TypeScript copy and to
+  the root LICENSE). A footer rather than a section because this window is one
+  flow with nothing to navigate between, and rather than a dialog because the
+  CSP rules below put portalled primitives out of reach. macOS already has an
+  About box in the app menu from the same constants; Linux has no menu bar, and
+  nobody should need to know which platform convention applies to find a
+  version number. Its three links go through `node_open_web`, a closed enum —
+  the addresses travel to the page for DISPLAY and never travel back.
 - **The plane's second door.** `node_open_plane_url` opens the settled control
   plane in the SYSTEM browser — for the browser the in-app window is wrong
   for (a different profile, a share, passkeys). Like the server app's twin,

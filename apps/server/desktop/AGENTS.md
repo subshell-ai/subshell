@@ -853,7 +853,9 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
   newer bundled server and ADOPTS a newer installed one; the reverse is data
   loss, not a choice to present.
 - **Icons** come from `brand/` in two steps and never by hand:
-  `bun run brand:generate` writes this app's 1024px master to
+  `bun run brand:generate` writes the wordmark into BOTH desktop apps'
+  `ui/public` (each has its own Vite asset root, so each needs its own copy)
+  and this app's 1024px master to
   `src-tauri/icons/app-icon.png`, then `bun run icons` cuts the `.icns` and the
   sized PNGs from it. The background colour that distinguishes this app from
   `apps/client/desktop` lives in `brand/generate.ts`'s `DESKTOP_APPS` table.

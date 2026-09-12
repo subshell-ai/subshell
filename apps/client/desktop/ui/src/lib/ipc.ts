@@ -373,3 +373,41 @@ export function nodeOpenPlane(args: { url: string | null }): Promise<string> {
 export function nodeOpenPlaneUrl(): Promise<void> {
   return invoke<void>("node_open_plane_url");
 }
+
+/** The three pages the About footer may open. `WebTarget`, kebab-case — a closed set in Rust. */
+export type WebTarget = "website" | "license" | "company";
+
+/**
+ * `About`. Who made this, under what terms, and where to read more.
+ *
+ * Every string is Rust's copy of the shared legal constants
+ * (`crates/desktop-core/src/legal.rs`), which `scripts/license-fields.ts`
+ * holds equal to the TypeScript copy and to the root LICENSE. The page renders
+ * them and stores none: a third copy would be one that detector does not
+ * cover, and a copyright line that has drifted is invisible.
+ *
+ * The three URLs are for DISPLAY. Opening one goes through `nodeOpenWeb`,
+ * which names a member of a closed set — the page never hands Rust an address.
+ */
+export interface About {
+  productName: string;
+  /** This app's own `productName`, e.g. `Subshell Client`. */
+  appName: string;
+  appVersion: string;
+  copyright: string;
+  company: string;
+  licenseSummary: string;
+  websiteUrl: string;
+  licenseUrl: string;
+  companyUrl: string;
+}
+
+/** Ownership, terms and this app's version. Read-only; no machine state. */
+export function nodeAbout(): Promise<About> {
+  return invoke<About>("node_about");
+}
+
+/** Open one of three fixed pages in the SYSTEM browser. A member, never a URL. */
+export function nodeOpenWeb(target: WebTarget): Promise<void> {
+  return invoke<void>("node_open_web", { target });
+}

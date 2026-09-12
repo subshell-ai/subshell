@@ -70,3 +70,13 @@ commands.allow = ["node_open_plane"]
 identifier = "allow-node-open-plane-url"
 description = "Open the control plane's address in the system browser. The URL is re-read from this app's own stored ladder and http(s)-validated; none of it comes from the page."
 commands.allow = ["node_open_plane_url"]
+
+[[permission]]
+identifier = "allow-node-about"
+description = "Read who made this app, its version, and the licence terms — the strings the About footer renders. No machine state, nothing writable, no paths."
+commands.allow = ["node_about"]
+
+[[permission]]
+identifier = "allow-node-open-web"
+description = "Open ONE of three fixed pages in the system browser: the product's site, the repository's LICENSE, or the copyright holder's site. A closed enum, never a URL, so the page names which of the three and this side decides what it is."
+commands.allow = ["node_open_web"]

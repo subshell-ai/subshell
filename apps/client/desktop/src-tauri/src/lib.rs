@@ -110,6 +110,8 @@ pub fn run() {
             control::node_service,
             control::node_set_agent_bin,
             control::node_open_path,
+            control::node_about,
+            control::node_open_web,
             control::node_settings,
             control::node_set_close_to_tray,
             control::node_open_plane,

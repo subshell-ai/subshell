@@ -17,6 +17,7 @@
  * state does not imply — today only re-enrolment.
  */
 import { useState } from "react";
+import { AboutFooter } from "@/components/about-footer";
 import { NodePlaneCard } from "@/components/node-plane-card";
 import { OutputBlock } from "@/components/output-block";
 import { PlaneCard } from "@/components/plane-card";
@@ -141,6 +142,13 @@ export function App() {
       />
 
       <OutputBlock result={runner.output} />
+
+      {/*
+       * Last, and quiet. Everything above is something to do; this is what the
+       * app IS — the same content Subshell Server's console puts under About,
+       * in the shape this single-flow page can hold.
+       */}
+      <AboutFooter probe={probe} />
     </main>
   );
 }

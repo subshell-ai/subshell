@@ -26,7 +26,16 @@ const DOCS_DIR = path.join(BRAND_DIR, "../docs/assets");
  * script's closing line forbids, and it would silently keep an old mark after
  * the master changed.
  */
-const DESKTOP_UI_DIR = path.join(BRAND_DIR, "../apps/server/desktop/ui/public");
+/**
+ * The two Tauri apps' bundled pages. Each has its OWN Vite build with its own
+ * asset root, so neither can reach the SPA's `public/icons` and neither can
+ * reach the other's — a wordmark on a bundled page is a copy per app, and this
+ * is where those copies come from rather than being carried across by hand.
+ */
+const DESKTOP_UI_DIRS = [
+  path.join(BRAND_DIR, "../apps/server/desktop/ui/public"),
+  path.join(BRAND_DIR, "../apps/client/desktop/ui/public"),
+];
 const APPS_DIR = path.join(BRAND_DIR, "../apps");
 
 /** Everything — wordmark and mark — is Light 300 (operator choice 2026-09-03: Thin read too weak beside the UI's label weights). */
@@ -96,8 +105,9 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
   { master: "wordmark.svg", mode: "height", size: 120, out: "icons/wordmark-120.png" },
   { master: "wordmark.svg", mode: "height", size: 96, out: "icons/wordmark-96.png" },
   { master: "wordmark.svg", mode: "height", size: 192, out: "icons/wordmark-192.png" },
-  // The desktop setup assistant's Welcome screen, at 1x and 2x. Its Vite
-  // build is separate from the SPA's, so it needs its own copy.
+  // The desktop pages that show the wordmark — the server app's setup-assistant
+  // Welcome screen and both apps' About surfaces — at 1x and 2x. Written into
+  // EVERY entry of DESKTOP_UI_DIRS.
   { master: "wordmark.svg", mode: "height", size: 96, out: "desktop-ui/wordmark-96.png" },
   { master: "wordmark.svg", mode: "height", size: 192, out: "desktop-ui/wordmark-192.png" },
   { master: "mark-glyph.svg", mode: "height", size: 40, out: "icons/mark-40.png" },
@@ -190,13 +200,20 @@ for (const { app, background } of DESKTOP_APPS) {
 
 mkdirSync(ICONS_DIR, { recursive: true });
 mkdirSync(DOCS_DIR, { recursive: true });
-mkdirSync(DESKTOP_UI_DIR, { recursive: true });
+for (const dir of DESKTOP_UI_DIRS) mkdirSync(dir, { recursive: true });
 for (const [out, bytes] of outputs) {
+  // A `desktop-ui/` job writes the same bytes into every bundled page's asset
+  // root; everything else has one destination.
+  if (out.startsWith("desktop-ui/")) {
+    for (const dir of DESKTOP_UI_DIRS) {
+      writeFileSync(path.join(dir, out.slice("desktop-ui/".length)), bytes);
+    }
+    console.log(`wrote ${out} \u00d7${DESKTOP_UI_DIRS.length} (${bytes.length} B)`);
+    continue;
+  }
   const file = out.startsWith("icons/")
     ? path.join(ICONS_DIR, out.slice("icons/".length))
-    : out.startsWith("desktop-ui/")
-      ? path.join(DESKTOP_UI_DIR, out.slice("desktop-ui/".length))
-      : path.join(DOCS_DIR, out.slice("docs/".length));
+    : path.join(DOCS_DIR, out.slice("docs/".length));
   writeFileSync(file, bytes);
   console.log(`wrote ${out} (${bytes.length} B)`);
 }

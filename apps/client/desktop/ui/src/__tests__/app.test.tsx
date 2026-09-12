@@ -651,7 +651,7 @@ describe("the close-to-tray switch", () => {
 // ---------------------------------------------------------------------------
 
 describe("what the page never asks for", () => {
-  it("drives no command outside the eight it declares", async () => {
+  it("drives no command outside the nine it declares", async () => {
     const fake = await boot({
       settings: makeSettings({ traySupported: true }),
       handlers: {
@@ -674,6 +674,10 @@ describe("what the page never asks for", () => {
       "node_set_agent_bin",
       "node_open_path",
       "node_set_close_to_tray",
+      // Read once for the About footer. Read-only, no machine state, no path —
+      // `node_open_web` is NOT here because nothing on a rendered page invokes
+      // it until a link is clicked, which this case does not do.
+      "node_about",
     ]);
     for (const call of fake.calls) expect(allowed.has(call.cmd)).toBe(true);
     // No `service run` — it never resolves and flaps against the service.

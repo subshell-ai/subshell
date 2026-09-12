@@ -34,6 +34,7 @@ use std::time::Duration;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
+use subshell_desktop_core::legal;
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::{Settings, SettingsState};
 use subshell_desktop_core::shell_env::{home_dir, which};
@@ -1299,6 +1300,95 @@ pub fn resolve_open_target(target: OpenTarget, paths: &NodePaths) -> Result<Stri
             .clone()
             .ok_or_else(|| paths.agent_log_hint.clone().unwrap_or_else(|| NO_LOG_FILE.to_string())),
     }
+}
+
+/// Who made this, under what terms, and where to read more.
+///
+/// The same payload Subshell Server's console reads, from the same shared
+/// constants (`desktop_core::legal`), because the two apps must not disagree
+/// about who owns the product. macOS already has an About box in the app menu
+/// (`menu.rs`), built from those constants too — this is the surface Linux has
+/// no menu bar for, and the one a person finds without knowing the platform's
+/// conventions.
+///
+/// The version is this APP's own, from its bundle. The agent CLI's version is
+/// a different program's and comes from the probe.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct About {
+    /// The product family, e.g. `Subshell`.
+    pub product_name: String,
+    /// THIS app as a person installed it, e.g. `Subshell Client`.
+    pub app_name: String,
+    /// This desktop app's version, from `tauri.conf.json`.
+    pub app_version: String,
+    /// `Copyright <year> <holder>`, rendered.
+    pub copyright: String,
+    /// The entity that owns the copyright — the registered name, not the DBA.
+    pub company: String,
+    /// Which half is under which licence, in one line.
+    pub license_summary: String,
+    /// The three addresses, for DISPLAY only — opening one goes through
+    /// [`node_open_web`], which holds its own copies.
+    pub website_url: String,
+    pub license_url: String,
+    pub company_url: String,
+}
+
+#[tauri::command(async)]
+pub fn node_about(app: AppHandle) -> About {
+    About {
+        product_name: legal::PRODUCT_NAME.to_string(),
+        // The bundle's productName, not `package_info().name` — that is the
+        // CRATE (`subshell-desktop-client`), while this is the label on the
+        // window, the menu bar and the installed app.
+        app_name: app
+            .config()
+            .product_name
+            .clone()
+            .unwrap_or_else(|| legal::PRODUCT_NAME.to_string()),
+        app_version: app.package_info().version.to_string(),
+        copyright: legal::COPYRIGHT_LINE.to_string(),
+        company: legal::COPYRIGHT_HOLDER.to_string(),
+        license_summary: legal::LICENSE_SUMMARY.to_string(),
+        website_url: legal::PRODUCT_URL.to_string(),
+        license_url: legal::LICENSE_URL.to_string(),
+        company_url: legal::COMPANY_URL.to_string(),
+    }
+}
+
+/// The pages the About footer may open in the system browser.
+///
+/// A closed enum for the same reason [`OpenTarget`] is one: the page names a
+/// member and this side decides what that member IS, so no URL crosses the
+/// boundary. That the same strings are also SENT to the page for display does
+/// not weaken it — display and navigation are different capabilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WebTarget {
+    /// The product's own site.
+    Website,
+    /// The repository's LICENSE, i.e. the full terms.
+    License,
+    /// The copyright holder's site.
+    Company,
+}
+
+/// Open one of the three About links in the system browser.
+///
+/// The bundle's CSP makes an ordinary `<a href>` open inside the webview,
+/// which is the wrong window for a website — and this app's other window is a
+/// control plane's UI, which must never be navigated somewhere else.
+#[tauri::command(async)]
+pub fn node_open_web(app: AppHandle, target: WebTarget) -> Result<(), String> {
+    let url = match target {
+        WebTarget::Website => legal::PRODUCT_URL,
+        WebTarget::License => legal::LICENSE_URL,
+        WebTarget::Company => legal::COMPANY_URL,
+    };
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| format!("could not open {url}: {e}"))
 }
 
 /// Reveal one of a fixed set of the app's own directories or files.
