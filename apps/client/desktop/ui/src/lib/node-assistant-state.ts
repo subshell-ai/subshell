@@ -98,24 +98,25 @@ export function screenTitle(screen: NodeScreenId, probe: Probe | undefined, plat
     case "connected":
       return `${here(platform)} Is a Node`;
     case "reset":
-      // NOT "Reset This Mac", and this is the one title that takes no
-      // platform word. Two things were wrong with that spelling, and the
-      // operator read the second off a screenshot on 2026-09-12.
+      // The one title that names no machine at all, on either platform
+      // (operator's call, 2026-09-12). It was "Reset This Mac", and that was
+      // wrong twice over.
       //
-      // It OVERCLAIMED. This deletes Subshell's own node state — the config,
-      // the node key, the data directory — and touches nothing else on the
-      // computer. A label that reads as "erase this computer" is alarming
-      // about the wrong thing, which is worse than being alarming.
+      // It OVERCLAIMED. This deletes Subshell's own state — the config, the
+      // node key, the data directory — and touches nothing else on the
+      // computer. A destructive label that reads as "erase this computer" is
+      // alarming about the wrong thing, which is worse than being alarming,
+      // because it teaches people not to trust what these labels say.
       //
-      // And a label ENDING on "Mac" reads as a truncated "Machine", against
-      // a sibling string that really is "This Machine" and under the
-      // trailing ellipsis a button that opens a screen carries. Naming the
-      // location differently does not fix that; not ending there does.
+      // And it read as TRUNCATED: "Mac" is a prefix of "Machine", the
+      // sibling string on Linux really is "This Machine", and the label ends
+      // there under the ellipsis a button that opens a screen carries. That
+      // is how it was reported — as a layout bug.
       //
-      // "Node" is this project's own word for a machine that runs agents,
-      // which is exactly what is being reset, so it is both the precise
-      // term and the unambiguous one.
-      return "Reset This Node";
+      // Naming the product fixes both and needs no platform word: everything
+      // this app does is on this machine, so saying so was only ever
+      // redundant. Both desktop apps use this same string.
+      return "Reset Subshell";
   }
 }
 
