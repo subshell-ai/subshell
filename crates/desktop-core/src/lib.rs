@@ -18,6 +18,8 @@
 //!   quarantined, or half-written when the power goes.
 //! - [`tray`] — a tray icon that is drawn on one desktop and silently
 //!   invisible on the next, and the window that gets hidden into it.
+//! - [`zoom`] — the text-size ladder, and why Rust owns the level rather than
+//!   the page that displays it.
 //!
 //! **This crate does not depend on `tauri`, and must not start.** That is the
 //! whole point of the boundary: it keeps the shared half a thirty-second CI
@@ -65,3 +67,4 @@ pub mod shell_env;
 pub mod sidecar;
 pub mod tray;
 pub mod version;
+pub mod zoom;

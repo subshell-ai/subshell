@@ -14,7 +14,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use subshell_desktop_core::zoom::assistant_frame;
+use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::control::is_loopback;
 
@@ -24,6 +25,54 @@ use crate::control::is_loopback;
 /// chrome the desktop app exists to replace, so this is a floor, not a hint.
 const MIN_WIDTH: f64 = 1024.0;
 const MIN_HEIGHT: f64 = 640.0;
+
+/// The floor at a given text size.
+///
+/// The breakpoint the floor exists to clear is a CSS one, and zoom is what
+/// divides physical pixels into CSS pixels — so at 150% a 1024px window is a
+/// 683px viewport and the SPA drops to its phone drawer inside a window that
+/// is, by the numbers, plenty wide. Scaling the floor is what keeps
+/// `MIN_WIDTH`'s promise true at every size.
+fn floor_at(level: f64) -> LogicalSize<f64> {
+    LogicalSize::new(MIN_WIDTH * level, MIN_HEIGHT * level)
+}
+
+/// The primary monitor's usable area in logical pixels, if one answers.
+fn work_area(app: &AppHandle) -> Option<(f64, f64)> {
+    let monitor = app.primary_monitor().ok().flatten()?;
+    let size = monitor.work_area().size.to_logical::<f64>(monitor.scale_factor());
+    Some((size.width, size.height))
+}
+
+/// Re-fit the geometry that depends on the text size, after it changes.
+///
+/// Applying a zoom level is not the whole job: the assistant is a fixed frame
+/// that has to GROW with its text (it cannot be resized to compensate), and
+/// the dashboard's floor is a CSS-pixel promise that only holds if it scales.
+/// A window that is now under its new floor is grown to it — a floor the
+/// window already violates is not a floor.
+pub fn refit(app: &AppHandle, level: f64) {
+    if let Some(w) = app.get_webview_window("wizard") {
+        let (width, height) = assistant_frame(level, work_area(app));
+        let _ = w.set_size(LogicalSize::new(width, height));
+        // Re-centred because the frame is centred by construction and has just
+        // changed size around a fixed top-left corner.
+        let _ = w.center();
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let floor = floor_at(level);
+        let _ = w.set_min_size(Some(floor));
+        if let (Ok(scale), Ok(size)) = (w.scale_factor(), w.inner_size()) {
+            let size = size.to_logical::<f64>(scale);
+            if size.width < floor.width || size.height < floor.height {
+                let _ = w.set_size(LogicalSize::new(
+                    size.width.max(floor.width),
+                    size.height.max(floor.height),
+                ));
+            }
+        }
+    }
+}
 
 /// The marker the SPA reads to know it is running in the desktop shell.
 ///
@@ -85,30 +134,6 @@ pub fn raise(window: &WebviewWindow) {
     }
 }
 
-/// The assistant's design height — the frame's fixed idiom (spec 2026-09-11 § 4).
-const WIZARD_HEIGHT: f64 = 720.0;
-
-/// Room reserved for OS chrome a monitor's `work_area` does not already
-/// exclude everywhere (a title bar, in particular), subtracted from the
-/// available height before clamping to it.
-const WIZARD_HEIGHT_MARGIN: f64 = 80.0;
-
-/// Clamps the wizard's initial height to a monitor's available (logical)
-/// height, pure so it is testable without a display.
-///
-/// The window is fixed-frame and non-resizable, so on a 1366x768 or
-/// 1280x720 display a 720-tall window can put the bottom bar carrying
-/// Continue below the work area — the content area scrolls, but the bar is a
-/// separate grid row, and nothing can bring an off-screen Continue button
-/// into view. `None` (no monitor could be queried) keeps today's fixed
-/// height rather than guessing.
-fn wizard_height(available_logical_height: Option<f64>) -> f64 {
-    match available_logical_height {
-        Some(h) if h.is_finite() && h > 0.0 => WIZARD_HEIGHT.min(h - WIZARD_HEIGHT_MARGIN),
-        _ => WIZARD_HEIGHT,
-    }
-}
-
 /// Create (or focus) the assistant.
 ///
 /// One-press-then-focus: `raise` on an existing window, never a second
@@ -137,16 +162,14 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
     // A setup assistant is a fixed frame (spec 2026-09-11 § 4): 1024 wide
     // because that is MIN_WIDTH, the dashboard's own floor, which is what
     // lets `open_main` take this window's geometry and appear in its place.
-    // The height is clamped rather than fixed - see `wizard_height`.
-    let available_height = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| m.work_area().size.to_logical::<f64>(m.scale_factor()).height);
-    let height = wizard_height(available_height);
+    // Both are scaled by the same text size, so that stays true at every one.
+    // The frame is clamped to the display rather than fixed — see
+    // `subshell_desktop_core::zoom::assistant_frame`.
+    let level = crate::zoom::level(app);
+    let (width, height) = assistant_frame(level, work_area(app));
     WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html".into()))
         .title(title)
-        .inner_size(MIN_WIDTH, height)
+        .inner_size(width, height)
         .resizable(false)
         .center()
         .on_page_load(|window, _| {
@@ -162,6 +185,9 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
         })
         .build()
         .map_err(|e| format!("could not open the assistant window: {e}"))
+        .inspect(|w| {
+            let _ = w.set_zoom(level);
+        })
 }
 
 /// Create (or focus) the window that shows the server's SPA at `origin`.
@@ -199,6 +225,8 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         Some((pos, size))
     });
 
+    let level = crate::zoom::level(app);
+    let floor = floor_at(level);
     let allowed = url.origin();
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         // The page is the SERVER's, and this window holds Tauri globals. A
@@ -210,7 +238,7 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // two windows of one app, and this one's title is hidden under the
         // Overlay title bar the handshake below negotiates.
         .title("Subshell Server")
-        .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
+        .min_inner_size(floor.width, floor.height)
         .user_agent(&user_agent(app))
         // Tauri's native file-drop handler otherwise SWALLOWS HTML5 drag
         // events, which would silently break both drag-a-subshell-into-a-
@@ -234,6 +262,11 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     let window = builder
         .build()
         .map_err(|e| format!("could not open the main window: {e}"))?;
+
+    // On the built window, not the builder: zoom is a webview property, and
+    // the SPA has to come up at the size the user chose rather than resize
+    // under them once it has painted.
+    let _ = window.set_zoom(level);
 
     // Whatever the compositor or a previous session left behind, a dashboard
     // that opens maximized is not what was asked for. Cleared on CREATION
@@ -327,20 +360,24 @@ mod tests {
         assert_eq!(super::MIN_WIDTH as u32, 1024);
     }
 
+    // `open_main` inherits the assistant's geometry so the dashboard appears
+    // in its place, which only works while the two agree on their width. They
+    // are scaled by the same text size, so it is the UNSCALED pair that has to
+    // match — and they live in two crates now, which is exactly when a pair
+    // like this drifts.
     #[test]
-    fn wizard_height_shrinks_to_fit_a_small_displays_work_area() {
-        // 1280x720 laptop panel: the design height of 720 would exceed the
-        // work area outright, let alone leave the bottom bar reachable.
-        assert_eq!(super::wizard_height(Some(720.0)), 640.0);
+    fn the_assistant_is_as_wide_as_the_dashboards_floor() {
+        assert_eq!(subshell_desktop_core::zoom::ASSISTANT_WIDTH, super::MIN_WIDTH);
     }
 
+    // The floor exists to clear a CSS-pixel breakpoint, and zoom is what turns
+    // physical pixels into CSS pixels: an unscaled floor would let a 1024px
+    // window at 150% render the SPA's PHONE drawer.
     #[test]
-    fn wizard_height_keeps_the_design_height_on_a_roomy_display() {
-        assert_eq!(super::wizard_height(Some(1200.0)), super::WIZARD_HEIGHT);
-    }
-
-    #[test]
-    fn wizard_height_falls_back_to_the_design_height_when_no_monitor_answers() {
-        assert_eq!(super::wizard_height(None), super::WIZARD_HEIGHT);
+    fn the_floor_scales_with_the_text_size() {
+        let floor = super::floor_at(1.5);
+        assert_eq!(floor.width, super::MIN_WIDTH * 1.5);
+        assert_eq!(floor.height, super::MIN_HEIGHT * 1.5);
+        assert_eq!(super::floor_at(1.0).width, super::MIN_WIDTH);
     }
 }

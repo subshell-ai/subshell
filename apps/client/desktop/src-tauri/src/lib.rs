@@ -23,6 +23,7 @@ mod reset;
 mod menu;
 mod tray;
 mod windows;
+mod zoom;
 
 use subshell_desktop_core::settings::{SettingsPaths, SettingsState};
 use tauri::Manager;
@@ -132,9 +133,9 @@ pub fn run() {
             control::node_configure,
             control::node_service,
             control::node_set_agent_bin,
-            control::node_open_path,
             control::node_about,
             control::node_open_web,
+            control::node_open_path,
             control::node_settings,
             control::node_open_plane,
             control::node_open_plane_url,
@@ -164,10 +165,23 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             #[cfg(target_os = "macos")]
-            {
-                app.set_menu(menu::build(&handle)?)?;
-                app.on_menu_event(|app, event| menu::on_event(app, event.id.as_ref()));
-            }
+            app.set_menu(menu::build(&handle)?)?;
+            // Registered on EVERY platform, and it is the ONE place text
+            // size is routed. A Tauri menu event is GLOBAL: this handler
+            // receives the TRAY's items as well as the menu bar's, and the
+            // tray's own handler receives these. An id routed in both places
+            // therefore steps the ladder twice per click — measured, two
+            // clicks of Bigger landing on 1.75 — which is why `tray.rs`
+            // handles everything except the text size, and why Linux, with no
+            // menu bar at all, still needs this handler registered.
+            app.on_menu_event(|app, event| {
+                let id = event.id.as_ref();
+                if zoom::handle(app, id) {
+                    return;
+                }
+                #[cfg(target_os = "macos")]
+                menu::on_event(app, id);
+            });
             // A tray that fails to build is not fatal — everything it offers
             // is reachable another way, and `windows::open_at_startup` puts the
             // node window on screen outright where it would not be.

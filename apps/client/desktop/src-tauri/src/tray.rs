@@ -41,7 +41,7 @@
 //! The only usable macOS check would compare `TrayIcon::rect()` against
 //! `auxiliaryTopRightArea`; there is none today, so this app cannot warn.
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -96,11 +96,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let checked = crate::control::close_to_tray_now(&app.state::<SettingsState>());
     let keep = CheckMenuItem::with_id(app, KEEP_ID, keep_label, true, checked, None::<&str>)?;
     app.manage(KeepItem(keep.clone()));
+    // On Linux this is the ONLY route to the text size: there is no menu bar
+    // to hang ⌘+ on (a GTK one is per-window chrome), and the window showing
+    // the plane's page is granted nothing, so it cannot offer one either. On
+    // macOS it is a second route to what the View menu already carries, which
+    // costs a submenu.
+    let text_size = text_size_submenu(app)?;
     let menu = Menu::with_items(
         app,
         &[
             &open,
             &node,
+            &PredefinedMenuItem::separator(app)?,
+            &text_size,
             &PredefinedMenuItem::separator(app)?,
             &keep,
             &PredefinedMenuItem::separator(app)?,
@@ -133,6 +141,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         // macOS/Windows only; on Linux this is inert and the menu is the whole
         // interaction, which is why nothing here depends on a click.
         .show_menu_on_left_click(false)
+        // The TEXT SIZE items are deliberately absent from this match. A menu
+        // event in Tauri is global — the app-level handler in `lib.rs` sees
+        // this menu's items too — so an id handled in both places steps the
+        // ladder TWICE per click. Measured: two clicks of Bigger landed on
+        // 1.75. Everything else here is safe only because no other id is
+        // shared between the two menus.
         .on_menu_event(|app, event| match event.id.as_ref() {
             OPEN_ID => crate::windows::focus_any(app),
             NODE_ID => crate::windows::focus_node(app),
@@ -154,6 +168,24 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+/// The tray's text-size submenu.
+///
+/// The items carry no accelerators: a tray menu is not a key-event target, and
+/// an accelerator shown there would advertise a keystroke that the menu bar
+/// (macOS) actually owns and that nothing owns at all on Linux.
+fn text_size_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
+    Submenu::with_items(
+        app,
+        "Text Size",
+        true,
+        &[
+            &MenuItem::with_id(app, crate::zoom::IN_ID, "Bigger", true, None::<&str>)?,
+            &MenuItem::with_id(app, crate::zoom::OUT_ID, "Smaller", true, None::<&str>)?,
+            &MenuItem::with_id(app, crate::zoom::RESET_ID, "Normal", true, None::<&str>)?,
+        ],
+    )
 }
 
 /// Store what the check item now shows, or put it back where no tray answered.

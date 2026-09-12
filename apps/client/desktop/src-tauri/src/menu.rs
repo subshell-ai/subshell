@@ -94,6 +94,25 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ],
     )?;
 
+    // The app had no View menu until text size needed one: every other item
+    // here is a system action, and this app's own actions all change the
+    // machine and belong behind the node window's confirmations. Text size
+    // changes nothing but this app's windows, which is what makes it the first
+    // thing that belongs on a menu bar.
+    let view_menu = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[
+            // `=` rather than a `Plus` key: the accelerator names a physical
+            // key, and ⌘+ is that key with Shift — which is why browsers bind
+            // the unshifted one and let the menu read "⌘=".
+            &MenuItem::with_id(app, crate::zoom::IN_ID, "Bigger", true, Some("CmdOrCtrl+="))?,
+            &MenuItem::with_id(app, crate::zoom::OUT_ID, "Smaller", true, Some("CmdOrCtrl+-"))?,
+            &MenuItem::with_id(app, crate::zoom::RESET_ID, "Actual Size", true, Some("CmdOrCtrl+0"))?,
+        ],
+    )?;
+
     let window_menu = Submenu::with_items(
         app,
         "Window",
@@ -110,7 +129,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ],
     )?;
 
-    Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])
+    Menu::with_items(app, &[&app_menu, &edit_menu, &view_menu, &window_menu])
 }
 
 /// Route a menu click. Only this app's own items are handled; the predefined

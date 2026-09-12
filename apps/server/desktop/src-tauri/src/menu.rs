@@ -112,6 +112,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &item(DesktopAction::GoNodes, "Nodes", Some("CmdOrCtrl+3"))?,
             &item(DesktopAction::GoSettings, "Server Settings", Some("CmdOrCtrl+4"))?,
             &PredefinedMenuItem::separator(app)?,
+            // Text size, on the accelerators every other app on this platform
+            // uses for it. `=` rather than a `Plus` key: the accelerator names
+            // a physical key, and ⌘+ is that key with Shift — which is why
+            // browsers bind the unshifted one and let the menu read "⌘=".
+            &MenuItem::with_id(app, crate::zoom::IN_ID, "Bigger", true, Some("CmdOrCtrl+="))?,
+            &MenuItem::with_id(app, crate::zoom::OUT_ID, "Smaller", true, Some("CmdOrCtrl+-"))?,
+            &MenuItem::with_id(app, crate::zoom::RESET_ID, "Actual Size", true, Some("CmdOrCtrl+0"))?,
+            &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::fullscreen(app, None)?,
         ],
     )?;

@@ -41,7 +41,7 @@
 //! The only usable macOS check would compare `TrayIcon::rect()` against
 //! `auxiliaryTopRightArea`; there is none today, so this app cannot warn.
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -87,10 +87,17 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let checked = crate::control::close_to_tray_now(&app.state::<SettingsState>());
     let keep = CheckMenuItem::with_id(app, "tray:keep", keep_label, true, checked, None::<&str>)?;
     app.manage(KeepItem(keep.clone()));
+    // On Linux this is the ONLY route to the text size: there is no menu bar
+    // to hang ⌘+ on (a GTK one is per-window chrome), and the window showing a
+    // control plane's page cannot offer one either. On macOS it is a second
+    // route to what the View menu already carries, which costs a submenu.
+    let text_size = text_size_submenu(app)?;
     let menu = Menu::with_items(
         app,
         &[
             &open,
+            &PredefinedMenuItem::separator(app)?,
+            &text_size,
             &PredefinedMenuItem::separator(app)?,
             &keep,
             &PredefinedMenuItem::separator(app)?,
@@ -141,6 +148,24 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The tray's text-size submenu.
+///
+/// The items carry no accelerators: a tray menu is not a key-event target, and
+/// an accelerator shown there would advertise a keystroke that the menu bar
+/// (macOS) actually owns and that nothing owns at all on Linux.
+fn text_size_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
+    Submenu::with_items(
+        app,
+        "Text Size",
+        true,
+        &[
+            &MenuItem::with_id(app, crate::zoom::IN_ID, "Bigger", true, None::<&str>)?,
+            &MenuItem::with_id(app, crate::zoom::OUT_ID, "Smaller", true, None::<&str>)?,
+            &MenuItem::with_id(app, crate::zoom::RESET_ID, "Normal", true, None::<&str>)?,
+        ],
+    )
+}
+
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         // One opener for every route home (spec 2026-09-12 § 5.5): a fresh
@@ -150,6 +175,11 @@ fn on_menu(app: &AppHandle, id: &str) {
             let _ = crate::control::open_home(app);
         }
         "tray:keep" => set_close_to_tray(app),
+        // The TEXT SIZE items are deliberately absent. A menu event in Tauri
+        // is global — the app-level handler in `lib.rs` sees this menu's items
+        // too — so an id handled in both places steps the ladder TWICE per
+        // click. Measured: two clicks of Bigger landed on 1.75.
+        //
         // No other ids exist: the tray dispatches no DesktopAction, so nothing
         // here reaches the SPA's own action bridge (see `KeepItem`).
         _ => {}

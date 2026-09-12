@@ -22,7 +22,8 @@
 use std::sync::{Arc, Mutex};
 
 use subshell_desktop_core::tray::tray_support;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use subshell_desktop_core::zoom::assistant_frame;
+use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// The label of the window showing a control plane's own page.
 ///
@@ -69,18 +70,6 @@ impl PlanePin {
     }
 }
 
-/// The assistant frame's fixed size (spec 2026-09-11 § 3.1, adopted by this
-/// app in spec 2026-09-12 § 6.4). The same 1024x720 Subshell Server's
-/// assistant uses, because the two are one product and a person who has seen
-/// one should recognise the other.
-///
-/// FIXED rather than a minimum: every screen is a 560px column centred in the
-/// region with a 72px bar under it, drawn to that arithmetic. There is no
-/// layout here that a wider window improves, and the old 520x560 floor let a
-/// user shrink the frame until its bar overlapped its content.
-const NODE_WIDTH: f64 = 1024.0;
-const NODE_HEIGHT: f64 = 720.0;
-
 /// Below this the SPA renders its PHONE drawer — `useIsWide()` is
 /// `matchMedia("(min-width: 1024px)")` and `WORKSPACE_TILING_MIN_WIDTH` is
 /// 1024. Tauri's own 800x600 default would ship a desktop app in the exact
@@ -88,23 +77,85 @@ const NODE_HEIGHT: f64 = 720.0;
 const PLANE_MIN_WIDTH: f64 = 1024.0;
 const PLANE_MIN_HEIGHT: f64 = 640.0;
 
+/// The plane window's floor at a given text size.
+///
+/// The breakpoint the floor exists to clear is a CSS one, and zoom is what
+/// divides physical pixels into CSS pixels — so at 150% a 1024px window is a
+/// 683px viewport and the SPA drops to its phone drawer inside a window that
+/// is, by the numbers, plenty wide. Scaling the floor is what keeps
+/// `PLANE_MIN_WIDTH`'s promise true at every size.
+fn floor_at(level: f64) -> LogicalSize<f64> {
+    LogicalSize::new(PLANE_MIN_WIDTH * level, PLANE_MIN_HEIGHT * level)
+}
+
+/// The primary monitor's usable area in logical pixels, if one answers.
+fn work_area(app: &AppHandle) -> Option<(f64, f64)> {
+    let monitor = app.primary_monitor().ok().flatten()?;
+    let size = monitor.work_area().size.to_logical::<f64>(monitor.scale_factor());
+    Some((size.width, size.height))
+}
+
+/// Re-fit the geometry that depends on the text size, after it changes.
+///
+/// Applying a zoom level is not the whole job: the node window is a fixed
+/// frame that has to GROW with its text (it is not resizable, so it cannot be
+/// opened up to compensate), and the plane window's floor is a CSS-pixel
+/// promise that only holds if it scales. A window already under its new floor
+/// is grown to it — a floor the window violates is not a floor.
+pub fn refit(app: &AppHandle, level: f64) {
+    if let Some(w) = app.get_webview_window(NODE_LABEL) {
+        let (width, height) = assistant_frame(level, work_area(app));
+        let _ = w.set_size(LogicalSize::new(width, height));
+        // Re-centred because the frame is centred by construction and has just
+        // changed size around a fixed top-left corner.
+        let _ = w.center();
+    }
+    if let Some(w) = app.get_webview_window(PLANE_LABEL) {
+        let floor = floor_at(level);
+        let _ = w.set_min_size(Some(floor));
+        if let (Ok(scale), Ok(size)) = (w.scale_factor(), w.inner_size()) {
+            let size = size.to_logical::<f64>(scale);
+            if size.width < floor.width || size.height < floor.height {
+                let _ = w.set_size(LogicalSize::new(
+                    size.width.max(floor.width),
+                    size.height.max(floor.height),
+                ));
+            }
+        }
+    }
+}
+
 /// Create (or focus) the node window.
 pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window(NODE_LABEL) {
         show(&w);
         return Ok(w);
     }
+    // The assistant frame (spec 2026-09-11 § 3.1, adopted here by spec
+    // 2026-09-12 § 6.4): the same 1024x720 Subshell Server's assistant uses,
+    // because the two are one product and a person who has seen one should
+    // recognise the other. FIXED rather than a minimum — every screen is a
+    // 560px column centred in the region with a 72px bar under it, drawn to
+    // that arithmetic — which is exactly why it SCALES with the text size
+    // instead of leaving bigger text less room to say the same thing, and why
+    // it is clamped to the display: a non-resizable window whose bottom edge
+    // is past the work area takes its bar with it.
+    let level = crate::zoom::level(app);
+    let (width, height) = assistant_frame(level, work_area(app));
     WebviewWindowBuilder::new(app, NODE_LABEL, WebviewUrl::App("index.html".into()))
         // "Node", not "this machine": the two windows sit side by side in a
         // screenshot and in the window list, where "this machine" does not say
         // WHICH of them it means — and the word this app uses for a machine
         // that runs agents is "node".
         .title("Subshell Client — Node")
-        .inner_size(NODE_WIDTH, NODE_HEIGHT)
+        .inner_size(width, height)
         .resizable(false)
         .center()
         .build()
         .map_err(|e| format!("could not open the node window: {e}"))
+        .inspect(|w| {
+            let _ = w.set_zoom(level);
+        })
 }
 
 /// Create (or focus) the window showing the control plane at `origin`.
@@ -155,6 +206,8 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
 
     pin.set(&url);
     let allowed = pin.0.clone();
+    let level = crate::zoom::level(app);
+    let floor = floor_at(level);
     WebviewWindowBuilder::new(app, PLANE_LABEL, WebviewUrl::External(url))
         .on_navigation(move |u| {
             allowed
@@ -165,7 +218,7 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
         })
         .title("Subshell Client")
         .inner_size(1280.0, 860.0)
-        .min_inner_size(PLANE_MIN_WIDTH, PLANE_MIN_HEIGHT)
+        .min_inner_size(floor.width, floor.height)
         // Tauri's native file-drop handler otherwise SWALLOWS HTML5 drag
         // events, which would silently break both drag-a-subshell-into-a-
         // workspace (the `application/x-subshell-id` payload) and the
@@ -173,6 +226,12 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
         .disable_drag_drop_handler()
         .build()
         .map_err(|e| format!("could not open the control-plane window: {e}"))
+        .inspect(|w| {
+            // On the built window, not the builder: zoom is a webview property,
+            // and the plane's page has to come up at the size the user chose
+            // rather than resize under them once it has painted.
+            let _ = w.set_zoom(level);
+        })
 }
 
 /// Bring the node window back — from the tray, the Dock, or a second launch.
@@ -325,5 +384,24 @@ mod tests {
     fn plane_min_width_matches_the_spa_tiling_breakpoint() {
         // WORKSPACE_TILING_MIN_WIDTH in apps/server/web/src/lib/breakpoints.ts.
         assert_eq!(PLANE_MIN_WIDTH as u32, 1024);
+    }
+
+    // The floor exists to clear a CSS-pixel breakpoint, and zoom is what turns
+    // physical pixels into CSS pixels: an unscaled floor would let a 1024px
+    // window at 150% render the SPA's PHONE drawer.
+    #[test]
+    fn the_floor_scales_with_the_text_size() {
+        let floor = floor_at(1.5);
+        assert_eq!(floor.width, PLANE_MIN_WIDTH * 1.5);
+        assert_eq!(floor.height, PLANE_MIN_HEIGHT * 1.5);
+        assert_eq!(floor_at(1.0).width, PLANE_MIN_WIDTH);
+    }
+
+    // The node window is the SAME frame as Subshell Server's assistant. The
+    // two are built in different crates now, so nothing but this says so.
+    #[test]
+    fn the_node_window_is_the_shared_assistant_frame() {
+        use subshell_desktop_core::zoom::{ASSISTANT_HEIGHT, ASSISTANT_WIDTH};
+        assert_eq!((ASSISTANT_WIDTH, ASSISTANT_HEIGHT), (1024.0, 720.0));
     }
 }

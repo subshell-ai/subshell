@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::shell_env::home_dir;
+use crate::zoom::ZOOM_DEFAULT;
 
 /// One app's identity on disk — where its settings file goes.
 ///
@@ -85,11 +86,29 @@ pub struct Settings {
     /// upgrade without a completed setup re-enters the wizard, which is the
     /// correct direction to fail.
     pub onboarded: bool,
+    /// This app's text size, as a webview zoom factor (1.0 = normal).
+    ///
+    /// Per APP rather than per window: both windows of either app show the
+    /// same person the same product, and a size chosen in one that did not
+    /// apply to the other would read as the setting not working. The two apps
+    /// still differ freely — they share this struct, never the file — which is
+    /// right, since the window someone reads all day is the control plane's.
+    ///
+    /// Always read through [`crate::zoom::clamp_zoom`]: this is a plain file a
+    /// person can edit, and a `0` in it is a window nobody can read well
+    /// enough to fix from inside the app. The struct-level `#[serde(default)]`
+    /// gives an absent field the `1.0` every settings file written before this
+    /// existed needs — a zoom of `0.0` is what a bare `f64` default would
+    /// have handed them.
+    pub zoom: f64,
 }
 
-/// Hand-written because exactly one field is not a zero value: `close_to_tray`
-/// defaults ON (clamped on READ by `crate::tray::effective_close_to_tray`
-/// where no tray answers). Everything else keeps the derive's zero.
+/// Hand-written because two fields are not zero values, and both are clamped
+/// on READ rather than trusted: `close_to_tray` defaults ON (clamped by
+/// `crate::tray::effective_close_to_tray` where no tray answers) and `zoom`
+/// defaults to normal (clamped by `crate::zoom::clamp_zoom`, for which a bare
+/// `f64`'s zero would be an unreadable window). Everything else keeps the
+/// derive's zero.
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -98,6 +117,7 @@ impl Default for Settings {
             open_at_login: false,
             plane_url: None,
             onboarded: false,
+            zoom: ZOOM_DEFAULT,
         }
     }
 }
@@ -208,12 +228,23 @@ mod tests {
             open_at_login: false,
             plane_url: Some("https://subshell.example.com".into()),
             onboarded: true,
+            zoom: 1.25,
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
         assert!(back.close_to_tray);
         assert_eq!(back.plane_url.as_deref(), Some("https://subshell.example.com"));
         assert!(back.onboarded);
+        assert_eq!(back.zoom, 1.25);
+    }
+
+    // A settings file written before text size existed must open at normal
+    // size, not at the `0.0` a bare f64 default would give it.
+    #[test]
+    fn zoom_defaults_to_normal_and_reads_old_files() {
+        assert_eq!(Settings::default().zoom, ZOOM_DEFAULT);
+        let s: Settings = serde_json::from_str(r#"{"closeToTray":true,"onboarded":true}"#).unwrap();
+        assert_eq!(s.zoom, ZOOM_DEFAULT);
     }
 
     // Unknown keys from a newer build must not wipe the file.

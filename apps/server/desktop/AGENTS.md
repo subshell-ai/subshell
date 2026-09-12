@@ -842,6 +842,50 @@ item is gone rather than gated. That leaves `menu.rs` as the only consumer of
 `bridge.rs`, and since the menu bar is macOS-only, `bridge` is gated at the
 MODULE — on Linux it is otherwise entirely dead code.
 
+## Text size is Rust's, not the page's
+
+⌘+ / ⌘− / ⌘0 (View, on macOS) and the tray's **Text Size** submenu walk a fixed
+ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 · 2.0` — stored as `zoom` in
+this app's own `settings.json` and applied with `WebviewWindow::set_zoom`. The
+ladder, the clamp and the frame arithmetic are `desktop-core`'s `zoom` module;
+`src/zoom.rs` here is the level, the menu ids and the apply.
+
+**Tauri's own `zoom_hotkeys_enabled` was rejected, and the reason is the trust
+boundary.** On macOS and Linux it injects a page script that invokes
+`plugin:webview|set_webview_zoom`, so it works only on a window granted that
+command. It also keeps its level in a page-local variable, which a
+reload resets. `set_zoom` called from Rust touches no ACL at all.
+
+**Both menus' items share one id set, and it is routed in exactly one place** —
+`lib.rs`'s app-level `on_menu_event`, registered on every platform. A Tauri
+menu event is GLOBAL: that handler receives the tray's items and the tray's
+handler receives the menu bar's, so an id matched in both steps the ladder
+twice per click. Measured on 2026-09-12 by clicking Bigger twice and landing on
+1.75.
+
+Three things follow, each with a failure that is invisible from reading the
+diff:
+
+- **The level is clamped on READ** (`clamp_zoom`), the way `close_to_tray` is.
+  `settings.json` is a file a person can edit, and a `0` in it is a window
+  nobody can read well enough to fix from inside the app. Clamping SNAPS onto
+  the ladder, which is what lets a step always land on a rung.
+- **The SPA's floor scales with the level.** `WORKSPACE_TILING_MIN_WIDTH` is a
+  CSS-pixel breakpoint and zoom is what divides physical pixels into CSS
+  pixels, so at 150% a 1024px window is a 683px viewport and the SPA renders
+  its PHONE drawer inside a window that is, by the numbers, plenty wide.
+- **The assistant frame scales too, clamped to the work area.** It is fixed and
+  non-resizable, so bigger text in an unchanged frame is just less room to say
+  the same thing. The clamp is the same one `wizard_height` always was — a
+  non-resizable window whose bottom edge is past the work area takes the bar
+  carrying Continue with it. Content that overflows the frame is the safe case:
+  the bar is its own row and the region above it scrolls.
+
+**Linux has only the tray**, because a GTK menu bar is per-window chrome rather
+than a system bar. Where the tray probe says no icon would be drawn, there is
+no route to the text size at all; the fix if that ever bites is one row on the
+bundled assistant page, which is the surface that can already invoke commands.
+
 ## Native chrome
 
 | Surface | macOS | Linux |

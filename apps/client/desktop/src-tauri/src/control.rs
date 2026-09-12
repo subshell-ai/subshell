@@ -2425,6 +2425,8 @@ mod path_tests {
             // The server app's wizard flag. Client ignores it; it shares the
             // struct, not the semantics.
             onboarded: false,
+            // Read by the menus, never by the page — see the key-set test below.
+            zoom: 1.0,
         }
     }
 
