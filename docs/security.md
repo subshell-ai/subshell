@@ -187,7 +187,8 @@ Two hard rules on top:
 
 - **Machine credentials never manage the instance.** `requireAdmin` rejects any
   non-cookie actor with 403 — `/api/users`, `/api/system-keys`,
-  `/api/admin/status`, and the sharing routes.
+  `/api/admin/status`, the `/api/admin/server` group (§11.11), and the sharing
+  routes.
 - **Machine credentials get no boost and no grants.** On every per-subshell
   route, a bearer actor runs with the admin boost and shared grants switched
   **off**. A subshell's own token can therefore act only on its owner's
@@ -348,6 +349,22 @@ consequences are:
   everything else here.
 - **A node key can do nothing on REST.** Explicit, permanent guard rejection. Its
   entire blast radius is impersonating that node on `/ws/node`.
+- **The plane can restart a node's agent** (2026-09-12). `POST
+  /api/nodes/:id/restart` sends a signed `restart` command; the agent answers,
+  then exits so its service definition respawns it. This adds no trust and no
+  reach: the plane already runs arbitrary commands on that machine under that
+  OS user, and "exit" is the narrowest thing it could be asked to do. The
+  agent refuses unless the service manager reports this very process — an
+  unsupervised agent would be stopped rather than restarted, so it will not
+  exit into nothing — and refuses when the definition would take the node's
+  running panes down with it, unless the caller passes `force`. Cookie only,
+  owner or `edit`, `local` refused (the control plane restarts itself through
+  its own route instead), audited as `node.restart` with whether it was forced.
+  The honest note is about availability rather than confidentiality: an `edit`
+  grantee may restart a machine they do not own, which briefly takes every
+  subshell running there offline — including the owner's, and including those
+  of other people the node is shared with. The pane-safety refusal is what
+  keeps "briefly offline" from being "closed".
 - **Repointing a node grants nothing** (2026-09-08). `subshell configure
   --server <url>` rewrites `serverUrl` in the agent's own `config.json` — a
   0600 file whose local OS user could already edit it by hand — keeping
@@ -650,9 +667,14 @@ DNS-rebinding hole the allowlist exists to close. Permissive CORS is acceptable
 here only because the service is not internet-facing.
 
 **Since 2026-09-08 the list is configurable without editing config.env** —
-`subshell-server configure --trusted-origins <origin,origin>` and a field in the
-Subshell Server console. This is a usability fix for a real trap rather than a
-widening of the model, and the DNS-rebinding rule above is untouched. The trap:
+`subshell-server configure --trusted-origins <origin,origin>`, and since
+2026-09-12 the dashboard's Server Settings → Service as well (the Subshell
+Server console that first carried the field is gone; its half of this moved
+into the served page, §11.11). This is a usability fix for a real trap rather
+than a widening of the model, and the DNS-rebinding rule above is untouched.
+Every one of those surfaces writes through the same `applyConfig`, so the
+validator below is still the one narrow point rather than one of several. The
+trap:
 on the default `0.0.0.0` bind the derived set is only the two loopback
 spellings (a wildcard bind is a listen address, not one anyone visits), so a
 phone or a LAN hostname sends an `Origin` nothing matches and sign-in dies on
@@ -689,7 +711,7 @@ Six properties of that surface are load-bearing:
     schemeless entry therefore yields "CORS passes, sign-in 403s".
 
   `validateValue` refuses both shapes (`config-values.ts`), so nothing the CLI
-  flag or the desktop console can write reaches either behaviour. It matters
+  flag or the dashboard can write reaches either behaviour. It matters
   that this is enforced rather than conventional: before these surfaces
   existed, the key was reachable only by hand-editing config.env or setting
   the env var — both of which still bypass the validator, and neither of which
@@ -925,7 +947,9 @@ Audit events are written for: `user.create`, `system-key.create`,
 `subshell.delete`, `node.enroll`, `node.delete`, `node.rename`,
 `node.key_rotate`, `node.allowed_dirs.update`, `setup_key.create`,
 `setup_key.revoke`, `settings.update`, `user.role_change`,
-`user.password_reset`, and `emergency_login.rewrite_credential`.
+`user.password_reset`, `emergency_login.rewrite_credential`,
+`server.config.update`, `server.restart`, `server.logging.update`, and
+`node.restart`.
 
 Read them with `GET /api/audit?limit=50` (admin).
 
@@ -942,6 +966,56 @@ directory, swept after `SUBSHELL_LOG_RETENTION_DAYS` (default 30). Application
 logs themselves carry no pane content — request logging records method, path,
 remote address and status, never bodies or headers, and no log line contains
 terminal output or keystrokes.
+
+### The server's own log file (2026-09-12)
+
+The server writes `<data dir>/logs/server.log`: one file, JSON lines, **0600
+in a 0700 directory**, **capped at 200 KB and replaced when full** — the file
+is truncated and started over, so it is the recent past and never a history.
+Nothing is kept in memory, request lines included. It is the same on every
+platform by design: the desktop console used to tail launchd's file on macOS
+and `journalctl` on Linux, and neither exists in a container or under whatever
+a headless install runs. The manager's own log is still named in the
+deployment view for anything older than this file holds.
+
+It is the second thing this app writes that is worth reasoning about, beside
+the pane logs — and it is the smaller one: pane logs are session transcripts
+(§4), while this holds the server's own lines. Note the asymmetry in how they
+are bounded. Pane logs are swept by age; this file is bounded by SIZE and
+never swept, so it persists for the life of the instance as one file. A reset
+deletes it with the data directory.
+
+**Two new things follow, and they are the disclosure worth stating.**
+
+- **An admin can read it over HTTP.** `GET /api/admin/server/logs` returns the
+  tail, parsed, to a cookie-admin caller. Before this, reading the server's log
+  meant reaching the host. It is still 0600 on disk and still admin-only on the
+  wire, so the set of people who can read it is unchanged — but the set of
+  PLACES they can read it from is not, and a browser on the LAN is now one of
+  them.
+- **In debug mode it holds request paths.** HTTP request lines are emitted at
+  `debug`, so they reach this file only while debug logging is on and **never**
+  reach the service manager's log at all. Debug logging is **off by default**.
+  A request line is method, path, remote address and status — no bodies, no
+  headers — but a path can carry a secret: `GET /install.sh?key=nsk_…` puts a
+  setup key in one. That text was already recorded here as landing in access
+  logs, and an admin can mint setup keys anyway, so this widens no one's
+  reach. What it adds is a NEW READER of that text, in a new place, and it is
+  named as one rather than left to be discovered. The polled routes
+  (`/api/admin/status`, the `/api/admin/server` group, `/api/setup/status`,
+  `/api/settings/public`, `/ws` and `/ws/node`) are excluded, or a debug
+  session would fill the 200 KB cap with the Service page asking after itself.
+
+**The switch is an instance setting, applied live.** `PUT
+/api/admin/server/logging` flips the FILE transport's level with no restart;
+stdout, which the service manager collects, stays at `info` whatever it says.
+Audited as `server.logging.update` with the before and after.
+`SUBSHELL_DEBUG_LOGGING=1` forces it on and makes the setting read-only, which
+is the config ladder's ordinary rule — the environment wins, and the UI says
+so rather than offering a switch that would be overruled at the next boot.
+Only truthy spellings force it: `SUBSHELL_DEBUG_LOGGING=0` is treated as a
+variable somebody left behind, not as the environment saying "off", because
+reading it the other way would take the switch away and give nothing back.
 
 **The UI discloses exposure rather than assuming it is understood.** A subshell
 running on a node the viewer does not own, or one that is shared, carries a
@@ -1072,6 +1146,67 @@ script cannot read either off this process. Trusted-network posture,
 unchanged. A hardening pass for a wider deployment would add an operator
 switch to disable the route (§12).
 
+## 11.11 An admin can reconfigure and restart the server from a browser
+
+`PATCH /api/admin/server/config` rewrites config.env and `POST
+/api/admin/server/restart` exits the process for its service manager to
+respawn. Both are cookie-admin only — a bearer key is refused like every other
+admin surface (§3) — and both are audited, as `server.config.update` with
+`{ key, from, to }` per change and `server.restart` with whether it was forced.
+
+**What it costs.** Four keys that used to require a shell on the host now move
+from a browser: the port, the bind address, the public base URL, and the
+trusted-origin list. Three of those decide who can reach this instance and from
+where, so an admin session is now enough to widen the network surface — to move
+the bind from loopback to `0.0.0.0`, say — where before it also took filesystem
+access. Changing `APP_BASE_URL` additionally moves better-auth's passkey rpID,
+so existing passkeys stop working at the old address; the page says so under
+the field, because that consequence is invisible from the form.
+
+**What it is measured against.** An admin already holds effective operator
+access to everything this instance runs (§11.5): they can mint a full-access
+system key, read any subshell, and reset any other user's password. Editing
+four addresses is not a step up from that, and the values are addresses rather
+than secrets. `BETTER_AUTH_SECRET` is not among the keys this route can touch,
+it is preserved byte-for-byte in the file it rewrites, and a test scans the
+audit metadata for it. The deployment view the page reads carries no secret in
+any form either — only `authSecret: { state, source }`, never a value, the same
+rule `GET /api/admin/status` follows (§3). Its test pins the view's ENTIRE key
+set, so a field added later cannot join the payload unnoticed; that structural
+check, rather than a scan for the secret's literal value, is what is actually
+guarding this one.
+
+**What the restart cannot do.** It is refused unless the service manager
+reports **this very pid** — `service.state === "running" && service.pid ===
+process.pid`. So a server started by hand, by `bun run start`, or in a
+container with no init has `restart.available: false` and the route answers
+409: there is no way to press this and exit a server into nothing, which is the
+failure that would matter. Where it IS supervised, exiting is a restart by
+definition, since the unit is `Restart=always` and the plist is
+`KeepAlive=true`. It is refused a second time when the service definition
+would take the tmux panes down with the process, unless the caller passes
+`force` — the confirmation says which of the two it is about to do.
+
+**The validator is shared, not mirrored.** The route and
+`subshell-server configure` call one `applyConfig`, so the component-wise
+validation and canonicalization that §8 leans on — no wildcards, no schemeless
+entries, `URL.origin` on the way in — is the same code on both paths. That
+shared call, not a test, is what keeps §8's static-allowlist claim true of this
+writer rather than true only of the CLI: there is no second implementation to
+drift. What the route's own test pins is narrower and worth knowing exactly —
+that the write lands, that every key this tool does not own is carried forward
+verbatim (the once-generated `BETTER_AUTH_SECRET` above all), and that the
+audit metadata does not contain the secret. It does not diff the result against
+a file the CLI produced. A key whose value comes from the process environment is refused
+outright (409) rather than written, because a file write the next boot would
+mask is a success report for a change that never happens.
+
+**Not moved, deliberately.** Stop, start, install, uninstall and reset have no
+route. Each leaves the server unreachable, so a page the server serves is the
+wrong place to drive them; they stay with the CLI and the desktop assistant.
+`DATABASE_PATH` is not settable here either — moving the database from a web
+form is a footgun with no undo, and the CLI's `--db-path` remains.
+
 ## 12. Hardening checklist for a wider deployment
 
 If this is ever exposed beyond a trusted network, the posture in §0 no longer
@@ -1085,7 +1220,13 @@ holds and the following are prerequisites, not improvements:
 - [ ] **Set `SUBSHELL_FS_ROOT`** — do not leave the host filesystem browsable.
 - [ ] **Shorten `SUBSHELL_LOG_RETENTION_DAYS`**, and encrypt the volume holding
       the data directory. Pane logs are plaintext session transcripts (§4);
-      file permissions stop other OS users, not a stolen disk or a backup.
+      file permissions stop other OS users, not a stolen disk or a backup. The
+      server's own log (§10) sits in the same directory, is bounded by size
+      rather than by age, and is not swept at all.
+- [ ] **Leave debug logging off**, or accept that the server's log file holds a
+      request line per call — paths included, and a setup key rides in one
+      (§10). It is off by default; `SUBSHELL_DEBUG_LOGGING` in a unit file or
+      an environment file turns it on for every boot.
 - [ ] **Re-examine the E2EE threat model.** It protects neither metadata nor a
       host-compromising local user; if either matters, the current design does not
       deliver it.

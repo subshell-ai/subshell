@@ -44,8 +44,37 @@ credential kinds:
     only a hash is stored). Treat them as full-access bearer credentials — disable/delete
     revokes instantly.
 
-Admin-gated routes (`/api/users`, `/api/system-keys`, `/api/admin/status`, …) **reject
-bearer keys** (403): machine credentials can never manage the instance.
+Admin-gated routes (`/api/users`, `/api/system-keys`, `/api/admin/status`, the
+`/api/admin/server` group, …) **reject bearer keys** (403): machine credentials can
+never manage the instance.
+
+**An admin reconfigures and restarts the server from the dashboard** (spec
+2026-09-12): `PATCH /api/admin/server/config` rewrites config.env (port, bind
+address, public base URL, trusted origins — never `DATABASE_PATH`, never the
+auth secret) and `POST /api/admin/server/restart` exits for the service manager
+to respawn. Both cookie-admin only, both audited (`server.config.update` with
+`{key, from, to}`, `server.restart` with `forced`). Four things hold it
+together, and each is load-bearing:
+
+- **The restart is refused unless the manager reports THIS pid**
+  (`state === "running" && pid === process.pid`). A hand-run server, a
+  `bun run start`, a container with no init: `restart.available` is false and
+  the route 409s. There is no way to exit a server into nothing.
+- A second refusal when the service definition would take the tmux panes down
+  with the process, unless the body carries `{ force: true }`.
+- **The validator is SHARED with the CLI, not mirrored.** Both call one
+  `applyConfig`, so there is no second implementation to drift — that shared
+  call, not a test, is what keeps the `TRUSTED_ORIGINS` rules below true of
+  this writer. The route's test pins that the write lands, that keys this tool
+  does not own survive verbatim (`BETTER_AUTH_SECRET` above all), and that the
+  audit metadata holds no secret; it does not diff against a CLI-written file.
+- A key whose source is `process env` is refused (409), never written: a file
+  write the next boot would mask is a success report for a change that never
+  happens.
+
+**Stop, start, install, uninstall and reset have no route, deliberately** —
+each leaves the server unreachable, so a page the server serves is the wrong
+place to drive them. They stay with the CLI and the desktop assistant.
 
 **Admin user management** (spec 2026-09-05): an admin may create users, assign
 roles (`PATCH /api/users/:id/role`) and **reset another user's password**
@@ -168,6 +197,37 @@ Do not add a code path that copies pane content anywhere else (a log line, a
 notification body, a diagnostic dump) without deciding its lifetime first.
 `SUBSHELL_ATTACH_DEBUG=1` is the one exception and it is off by default.
 
+## The server's own log file (spec 2026-09-12)
+
+The server writes `<SUBSHELL_SERVER_DATA_DIR>/logs/server.log`: one file, JSON
+lines, **0600 in a 0700 directory**, **capped at 200 KB and replaced when
+full** (truncated and started over), the same on every platform. Nothing is
+kept in memory, request lines included. Note the asymmetry with pane logs:
+those are swept by AGE, this is bounded by SIZE and never swept, so it lives
+as one file for the life of the instance.
+
+Two disclosures, both deliberate and both narrow:
+
+- **An admin can read it over HTTP** (`GET /api/admin/server/logs`). The set of
+  people who may read it is unchanged — 0600 on disk, cookie-admin on the wire
+  — but the set of PLACES they can read it from now includes a browser on the
+  LAN.
+- **In debug mode it holds request paths**, and a path can carry a secret
+  (`GET /install.sh?key=nsk_…`). That text already landed in access logs and an
+  admin can mint setup keys anyway, so this widens nobody's reach — but it is a
+  NEW READER of it. Say so rather than glossing it.
+
+**Debug logging is off by default**, is an instance setting applied LIVE (the
+file transport's level is flipped, no restart), and is audited. Request lines
+are emitted at `debug`, so they reach this file only while it is on and
+**never** reach the service manager's log, which stays pinned at `info`. The
+polled routes are in the plugin's `ignore` list or a debug session fills the
+cap with the Service page asking after itself. `SUBSHELL_DEBUG_LOGGING=1`
+forces it on and makes the setting read-only — the environment wins, as it does
+everywhere else on the config ladder — and only truthy spellings force:
+`SUBSHELL_DEBUG_LOGGING=0` is a variable somebody left behind, not the
+environment saying "off".
+
 ## Trust disclosure in the UI
 
 Two exposures are invisible from looking at a terminal, so the UI states them:
@@ -221,6 +281,21 @@ shares and subshell shares are two independent axes:
   backend host — same local-user exposure as everywhere else here).
 - A **node API key can do nothing on REST** (explicit guard rejection, §5.5);
   its blast radius is exactly "impersonate this node on `/ws/node`".
+- **The plane can restart a node's agent** (`POST /api/nodes/:id/restart`,
+  spec 2026-09-12 §6.3). **No new trust**: the plane already runs arbitrary
+  commands on that machine under that OS user, and "exit so your service
+  manager respawns you" is the narrowest thing it could be asked to do. The
+  agent applies the same two refusals the server applies to itself — not
+  supervised, and a definition that would kill its panes without `force`.
+  Cookie only, owner or `edit`, `local` refused, audited as `node.restart`.
+  The honest note is about AVAILABILITY, not confidentiality: an `edit`
+  grantee may restart a machine they do not own, briefly taking every subshell
+  running there offline, the owner's and other grantees' included.
+- **How a node's agent runs is visible to config-capable viewers only.** The
+  `runtime` report on node detail (supervision, service state, config/log/binary
+  paths, tmux) is attached only for an ONLINE agent node whose viewer is owner
+  or `edit` — never `local`, never a `view` grantee. A `view` grantee may launch
+  here; that does not make this machine's paths their business.
 - **New exposure:** subshell bearer keys ride in the launch command and are
   **`ps`-visible on node hosts** — the known backend-host exposure now extends
   to every enrolled machine. Node local users — and, in effect, anyone with
@@ -318,9 +393,12 @@ shares and subshell shares are two independent axes:
 The allowlist is DERIVED from the instance's own address plus an explicit
 `TRUSTED_ORIGINS` list, and never from the request's own Host — that is the
 DNS-rebinding hole the static list exists to close, and it stays closed. What
-changed (2026-09-08) is only that the list is now reachable from the
-`subshell-server` CLI (`--trusted-origins`) and the Subshell Server console
-instead of a hand-edit of config.env.
+changed is only where the list is reachable FROM: the `subshell-server` CLI
+(`--trusted-origins`) since 2026-09-08, and the dashboard's Server Settings →
+Service since 2026-09-12, instead of a hand-edit of config.env. The Subshell
+Server console that first carried the field is gone; its half moved into the
+served page. Every one of those surfaces writes through the same `applyConfig`,
+so the validator below is one narrow point rather than one of several.
 
 That is a usability fix for a real trap, not a widening: on the default
 `0.0.0.0` bind the derived set is the two loopback spellings, so a phone or a
@@ -341,8 +419,7 @@ origin" — with nothing naming the key that fixes it. Two properties to keep:
   CORS is not a backstop for the first case: it is a browser courtesy, and a
   non-browser client sends any `Origin` it likes. So `validateValue` is the
   narrow point that makes "static allowlist" true of everything the CLI flag
-  and the desktop console can write. An env var or a hand-edit still bypasses
-  it. Adding wildcard support would need this section rewritten first.
+  and the dashboard can write. An env var or a hand-edit still bypasses it. Adding wildcard support would need this section rewritten first.
 - **`APP_BASE_URL` is also better-auth's passkey rpID.** Changing it moves
   which host passkeys work on, so an existing passkey stops working on the old
   address — including the Subshell Server desktop app's own window, which is
