@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { deploymentView, idleRestart } from "@/components/__tests__/helpers/deployment-view";
-import { AddressesCard } from "@/components/service/addresses-card";
+import { AddressesCard, invalidField } from "@/components/service/addresses-card";
+import { ApiError } from "@/lib/api";
 
 const restore: (() => void)[] = [];
 afterEach(() => {
@@ -69,5 +70,32 @@ describe("AddressesCard", () => {
       }),
     );
     expect(screen.getByText(/Wildcards are not accepted/)).toBeTruthy();
+  });
+});
+
+describe("invalidField", () => {
+  /** The shape `apiFetch` throws for a 400 the route answered with a code. */
+  const refusal = (message: string, code = "CONFIG_INVALID") => new ApiError(400, message, { code });
+
+  it("routes a CONFIG_INVALID reason to the field the route named", () => {
+    // The route answers `"<CONFIG KEY>: <reason>"` — the CLI's own sentence,
+    // naming the config key rather than this form's field label.
+    expect(invalidField(refusal("SERVER_PORT: Port must be between 1 and 65535"))).toEqual({
+      key: "SERVER_PORT",
+      reason: "Port must be between 1 and 65535",
+    });
+    expect(invalidField(refusal("TRUSTED_ORIGINS: Wildcards are not accepted"))).toEqual({
+      key: "TRUSTED_ORIGINS",
+      reason: "Wildcards are not accepted",
+    });
+  });
+
+  it("names no field for a refusal that is about the file rather than a value", () => {
+    // An unreadable config.env comes back as BAD_REQUEST with no key in it,
+    // and belongs at form level.
+    expect(invalidField(refusal("config.env could not be read: EACCES", "BAD_REQUEST"))).toBeNull();
+    expect(invalidField(refusal("DATABASE_PATH: not settable here"))).toBeNull();
+    expect(invalidField(new Error("network"))).toBeNull();
+    expect(invalidField(null)).toBeNull();
   });
 });

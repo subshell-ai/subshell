@@ -1,3 +1,4 @@
+import { BackendErrorCodes } from "@internal/backend-errors";
 import { useState } from "react";
 import { RestartDialog } from "@/components/service/restart-dialog";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUpdateServerConfig } from "@/hooks/use-server-deployment";
 import type { ServerRestart } from "@/hooks/use-server-restart";
-import { errMessage } from "@/lib/api";
+import { ApiError, errMessage } from "@/lib/api";
 import type { ServerConfigPatch, ServerDeployment, ServerSettingKey } from "@/types/server-deployment";
 
 /** The four editable keys, in the order the card lays them out. */
@@ -42,6 +43,31 @@ function patchFor(key: EditableKey, value: string): ServerConfigPatch {
   }
 }
 
+/**
+ * The key a `CONFIG_INVALID` refusal is about, when it is about one.
+ *
+ * The route answers 400 `CONFIG_INVALID` with `"<CONFIG KEY>: <reason>"` — the
+ * same sentence the CLI prints, naming the config key rather than this form's
+ * field name. Matching that prefix is what lets the reason land under the
+ * field it belongs to instead of at the bottom of the form (spec § 4.2).
+ *
+ * Everything else stays form-level on purpose: an unreadable config.env comes
+ * back as `BAD_REQUEST` naming no field, and `CONFIG_KEY_FROM_ENV` is about
+ * where a value comes from rather than about what was typed.
+ *
+ * @param error - the mutation's failure, if any
+ * @returns the key it names and the reason, or null when it names no field
+ */
+export function invalidField(error: unknown): { key: EditableKey; reason: string } | null {
+  if (!(error instanceof ApiError) || error.code !== BackendErrorCodes.CONFIG_INVALID) return null;
+  for (const { key } of FIELDS) {
+    const marker = `${key}: `;
+    const at = error.message.indexOf(marker);
+    if (at !== -1) return { key, reason: error.message.slice(at + marker.length) };
+  }
+  return null;
+}
+
 /** How a key's saved value is shown in its field. */
 function displayValue(key: EditableKey, saved: string): string {
   // Stored as one line; shown comma-separated because that is how a person
@@ -71,6 +97,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   const [confirming, setConfirming] = useState(false);
   const update = useUpdateServerConfig();
   const touched = Object.keys(drafts) as EditableKey[];
+  const fieldFailure = invalidField(update.error);
 
   function save(): void {
     const patch = touched.reduce<ServerConfigPatch>(
@@ -129,6 +156,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                   Saved {setting.saved || "(blank)"} · running {setting.running || "(blank)"}
                 </p>
               )}
+              {fieldFailure?.key === key && <p className="text-destructive text-xs">{fieldFailure.reason}</p>}
               {setting.problems?.map((problem) => (
                 <p key={problem.entry} className="text-destructive text-xs">
                   {problem.entry}: {problem.reason}
@@ -145,7 +173,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
           {update.isSuccess && touched.length === 0 && <span className="text-success text-xs">saved</span>}
         </div>
 
-        {update.error && (
+        {update.error && !fieldFailure && (
           <p className="text-destructive text-sm">
             {errMessage(update.error, "The configuration could not be saved.")}
           </p>

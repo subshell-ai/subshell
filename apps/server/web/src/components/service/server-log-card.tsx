@@ -17,9 +17,11 @@ function levelClass(level: string): string {
 
 /** `HH:MM:SS level message` (+ the structured context when a line carried any). */
 function lineText(line: ServerLogLine): string {
-  const stamp = Number.isNaN(Date.parse(line.ts)) ? line.ts : new Date(line.ts).toLocaleTimeString();
+  // `ts` is empty for a line the server could not parse (a partial write at
+  // the cap), so the stamp is dropped rather than rendered as a leading gap.
+  const stamp = line.ts && !Number.isNaN(Date.parse(line.ts)) ? `${new Date(line.ts).toLocaleTimeString()} ` : "";
   const data = line.data === undefined ? "" : ` ${JSON.stringify(line.data)}`;
-  return `${stamp} ${line.level} ${line.message}${data}`;
+  return `${stamp}${line.level} ${line.message}${data}`;
 }
 
 /** How near the bottom still counts as being at the bottom, in pixels. */
