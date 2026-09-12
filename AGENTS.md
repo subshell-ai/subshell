@@ -60,7 +60,7 @@ subshell/
 │   ├── server/                     # the control plane (grouping dir, not a package)
 │   │   ├── api/                    # ElysiaJS API server; also serves the built SPA in prod
 │   │   ├── web/                    # React SPA the server serves (Vite, TanStack Router/Query, Tailwind)
-│   │   └── desktop/                # Tauri v2 GUI for apps/server/api — installs/runs/manages a local control plane
+│   │   └── desktop/                # Tauri v2 GUI for apps/server/api — installs, runs and recovers a local control plane
 │   ├── client/                     # interfaces to a control plane (grouping dir, not a package)
 │   │   ├── desktop/                # Tauri v2 GUI — Subshell Client; also registers this machine as a node
 │   │   └── mobile/                 # Native companion (React Native + Expo)
@@ -101,6 +101,15 @@ subshell/
 | the web UI the server serves | — | `apps/server/web` |
 | a node | `apps/node/agent` (`subshell`) | — (inside Subshell Client) |
 | a person's own interface | — | `apps/client/desktop` (Subshell Client), `apps/client/mobile` |
+
+**Managing a running server is the SPA's job, not the GUI's** (spec
+2026-09-12). `apps/server/desktop` had a management console window; it is gone,
+and everything it showed lives at `/settings/service` in `apps/server/web`, so
+a browser on the LAN and a headless install reach it too. What stayed native is
+only what a page the server serves cannot do — first run, a server that is not
+running, updating the bundled server, and reset — and that is one assistant
+window. The rule it follows: if the act leaves the server unreachable, it
+cannot be driven from a page the server serves.
 
 **There is no `apps/node/desktop`.** Node management lives inside Subshell
 Client, as a second window — whoever makes their laptop a node is usually also

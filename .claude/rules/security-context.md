@@ -435,28 +435,33 @@ as a node. Neither adds a server surface — everything privileged goes through 
 CLI as the same local user.
 
 **The boundary is window KIND, not window count: CLI-driving commands are
-granted only to BUNDLED pages.** The client app is two windows (one remote, one
-bundled); the server app is three (the remote SPA window, plus the bundled
-console AND the bundled first-run wizard, which share one Vite build and one
-ACL rule). The `csp` in each `tauri.conf.json` governs the bundled pages only —
-the remote window carries whatever CSP the plane sends.
+granted only to BUNDLED pages.** Both apps are two windows now, one remote and
+one bundled — the server app's console was deleted by spec 2026-09-12 and its
+management surface moved into the SPA, leaving the remote SPA window plus one
+bundled ASSISTANT (`capabilities/wizard.json`, `console.json` gone) that owns
+first run, recovery, update and reset. That assistant is the only surface
+allowed to drive the CLI, so it holds every command that changes this machine,
+the destructive ones included, and `ui/src/__tests__/ipc-acl.test.ts` pins the
+grant equal to what the page actually invokes. The `csp` in each
+`tauri.conf.json` governs the bundled pages only — the remote window carries
+whatever CSP the plane sends.
 
-- **The server app's remote window is PINNED TO LOOPBACK and holds three
+- **The server app's remote window is PINNED TO LOOPBACK and holds four
   commands.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
   the server this app itself manages — so `capabilities/main.json` scopes it
   with `remote.urls` to loopback and grants only commands that cannot touch the
   CLI, the config, the service or the filesystem (show an existing window, drop
-  this app's own title bar, display one fixed-shape notification). `open_main`
-  independently refuses a non-loopback origin, and `on_navigation` pins the
-  window to the origin it opened with. An XSS in the SPA reaches those three
-  commands and nothing else.
-- **The server app's reset is console-only, and the deep link reaches one
+  this app's own title bar, display one fixed-shape notification, and raise the
+  assistant at a named screen). `open_main` independently refuses a
+  non-loopback origin, and `on_navigation` pins the window to the origin it
+  opened with. An XSS in the SPA reaches those four commands and nothing else.
+- **The server app's reset is assistant-only, and the deep link reaches one
   read-only spawn.** The dashboard's danger card calls
-  `desktop_open_console({ screen: "reset" })`; the remote window's worst case
-  is precisely that: it can raise the console at a confirmation screen and
+  `desktop_open_assistant({ screen: "reset" })`; the remote window's worst case
+  is precisely that: it can raise the assistant at a confirmation screen and
   trigger exactly one read-only `status --json` the app already runs on a
   five-second timer, spammably — and no verb that changes the machine.
-  `desktop_reset` lives in `console.json` alone; it takes ONLY a typed hostname
+  `desktop_reset` lives in `wizard.json` alone; it takes ONLY a typed hostname
   (compared against Rust's own memoized `hostname(1)`, so the page supplies a
   string, never a path), the five deletion paths come from the server's own
   `status --json` `paths` block all-or-nothing, an absent or partial block
