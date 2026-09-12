@@ -102,13 +102,31 @@ describe("recoveryTitle / recoveryAction", () => {
     expect(recoveryTitle("start")).toBe("Your Server Is Stopped");
   });
 
-  it("says this Mac on darwin and this machine everywhere else", () => {
-    // One act, one name, on both paths to the Set Up screen — and the name
-    // is the product's, not the machine's (operator's call, 2026-09-12).
+  it("gives the Set Up screen one name on both paths to it, naming the product", () => {
+    // One act reached two ways — first run, and recovery on a machine that
+    // lost its server binary — must not have two names (operator's call,
+    // 2026-09-12).
     expect(recoveryTitle("setup")).toBe(SETUP_TITLE);
     expect(SETUP_TITLE).toBe("Set Up Subshell Server");
+    // `not.toContain` is right for THIS string and wrong for most: it names
+    // no machine at all, so either spelling is a regression. Do not copy the
+    // form onto a title that legitimately says "This Machine" — that string
+    // CONTAINS "Mac", and the prefix is the whole misreading. Anywhere a
+    // machine word is allowed, assert where the string STOPS instead, the
+    // way `recoveryTitle` is checked below.
     expect(SETUP_TITLE).not.toContain("Mac");
     expect(SETUP_TITLE).not.toContain("machine");
+  });
+
+  it("never lets a title END on 'Mac', which is what reads as truncated", () => {
+    // The reported bug was a label ending on "Mac" — a prefix of the other
+    // platform's own word — under an ellipsis. Every title, not one.
+    const steps = ["no-server", "unreachable", "init", "install-service", "start", "setup", "ready"] as const;
+    for (const step of steps) {
+      expect(recoveryTitle(step).endsWith("Mac"), step).toBe(false);
+    }
+    expect(RESET_LABEL.endsWith("Mac")).toBe(false);
+    expect(SETUP_TITLE.endsWith("Mac")).toBe(false);
   });
 
   it("offers one primary action per step", () => {
