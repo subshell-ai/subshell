@@ -47,6 +47,7 @@ import {
   recoveryAction,
   recoveryTitle,
   type ScreenId,
+  SETUP_TITLE,
   screensFor,
   setupRows,
 } from "./lib/wizard-state";
@@ -252,7 +253,7 @@ function renderSetup(p: Probe): void {
     renderFailure(p);
     return;
   }
-  setFrame("server", "Set Up Your Server", `Here's what will happen on ${here()}.`);
+  setFrame("server", SETUP_TITLE, `Here's what will happen on ${here()}.`);
   const content = el("content");
   content.append(planRows(p));
   const links = document.createElement("div");
@@ -348,7 +349,7 @@ function renderRecovery(p: Probe): void {
     renderFailure(p);
     return;
   }
-  setFrame("server", recoveryTitle(p.next, p.platform), recoverySubtitle(p.next));
+  setFrame("server", recoveryTitle(p.next), recoverySubtitle(p.next));
   const content = el("content");
   const action = recoveryAction(p.next);
   const tmuxMissing = p.tmux === null;

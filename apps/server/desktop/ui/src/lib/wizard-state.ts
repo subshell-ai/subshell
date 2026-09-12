@@ -64,6 +64,19 @@ const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
  */
 export const RESET_LABEL = "Reset Subshell";
 
+/**
+ * The title of the Set Up screen, on BOTH paths to it: the first run, and a
+ * recovery on a machine that was set up once and later lost its server
+ * binary. One act must not have two names, and it had two — "Set Up Your
+ * Server" here and "Set Up Subshell on this Mac" there.
+ *
+ * It names the product (operator's call, 2026-09-12). No platform word: the
+ * conversational "on this Mac" belongs in the SUBTITLE, which still carries
+ * it, so the macOS voice survives where it reads as voice rather than as a
+ * label that might have been cut off.
+ */
+export const SETUP_TITLE = "Set Up Subshell Server";
+
 /** How the tmux screen presents itself when missing. */
 export type PrereqState = "found" | "install" | "manual";
 
@@ -108,8 +121,7 @@ export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
  * rather than at the call site so both surfaces that render a title cannot
  * disagree about it.
  */
-export function recoveryTitle(step: ProbeStep, platform: string): string {
-  const here = platform === "darwin" ? "this Mac" : "this machine";
+export function recoveryTitle(step: ProbeStep): string {
   switch (step) {
     case "no-server":
       return "No Server Found";
@@ -122,7 +134,14 @@ export function recoveryTitle(step: ProbeStep, platform: string): string {
     case "start":
       return "Your Server Is Stopped";
     case "setup":
-      return `Set Up Subshell on ${here}`;
+      // The SAME string the first-run setup screen uses, and it names the
+      // product rather than the machine (operator's call, 2026-09-12). One
+      // act reached two ways — first run, and a recovery on a machine that
+      // lost its server binary — must not have two names. No platform word:
+      // every other title in this file already names the server, and the
+      // conversational "on this Mac" lives in the SUBTITLES, which is where
+      // the macOS voice belongs.
+      return SETUP_TITLE;
     case "ready":
       return "Opening Your Dashboard…";
   }

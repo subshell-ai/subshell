@@ -10,6 +10,7 @@ import {
   RESET_LABEL,
   recoveryAction,
   recoveryTitle,
+  SETUP_TITLE,
   screensFor,
   setupRows,
 } from "../lib/wizard-state";
@@ -94,16 +95,20 @@ describe("RESET_LABEL", () => {
 
 describe("recoveryTitle / recoveryAction", () => {
   it("names the step in the assistant's voice", () => {
-    expect(recoveryTitle("no-server", "darwin")).toBe("No Server Found");
-    expect(recoveryTitle("unreachable", "darwin")).toBe("Your Server Isn't Responding");
-    expect(recoveryTitle("init", "linux")).toBe("Your Server Needs Its Configuration");
-    expect(recoveryTitle("install-service", "linux")).toBe("Your Server Isn't Installed as a Service");
-    expect(recoveryTitle("start", "darwin")).toBe("Your Server Is Stopped");
+    expect(recoveryTitle("no-server")).toBe("No Server Found");
+    expect(recoveryTitle("unreachable")).toBe("Your Server Isn't Responding");
+    expect(recoveryTitle("init")).toBe("Your Server Needs Its Configuration");
+    expect(recoveryTitle("install-service")).toBe("Your Server Isn't Installed as a Service");
+    expect(recoveryTitle("start")).toBe("Your Server Is Stopped");
   });
 
   it("says this Mac on darwin and this machine everywhere else", () => {
-    expect(recoveryTitle("setup", "darwin")).toBe("Set Up Subshell on this Mac");
-    expect(recoveryTitle("setup", "linux")).toBe("Set Up Subshell on this machine");
+    // One act, one name, on both paths to the Set Up screen — and the name
+    // is the product's, not the machine's (operator's call, 2026-09-12).
+    expect(recoveryTitle("setup")).toBe(SETUP_TITLE);
+    expect(SETUP_TITLE).toBe("Set Up Subshell Server");
+    expect(SETUP_TITLE).not.toContain("Mac");
+    expect(SETUP_TITLE).not.toContain("machine");
   });
 
   it("offers one primary action per step", () => {
