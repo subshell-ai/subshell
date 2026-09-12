@@ -33,9 +33,10 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
   await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
-  // panel drops over the fields/button below it; neither blur nor fill closes
-  // it, and Escape takes the whole dialog with it (see the table on
-  // `dismissDirectoryPanel`). Env-dependent: only bites when /tmp has
+  // panel pushes the buttons below it down the dialog's scroller; neither blur
+  // nor fill closes it, and Escape takes the whole dialog with it (see the
+  // table on `dismissDirectoryPanel`). Dismissing keeps the submit button
+  // where the next step expects it. Env-dependent: only bites when /tmp has
   // directory entries to populate the panel (CI's own playwright-artifacts-*).
   await dismissDirectoryPanel(page);
 

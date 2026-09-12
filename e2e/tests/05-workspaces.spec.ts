@@ -36,7 +36,7 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   await pickProfile(page.locator("#picker-profile"), "Default (pi)");
   await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
-  // panel drops over "Start subshell" below it; it dismisses only on an
+  // panel pushes "Start subshell" down the dialog's scroller; it dismisses only on an
   // outside click or Escape (blur/fill don't close it). Escape can't be used
   // here — in a modal dialog it closes the whole dialog, measured again on
   // 2026-09-11 (see the table on `dismissDirectoryPanel`) — so click the

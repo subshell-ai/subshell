@@ -9,6 +9,7 @@ import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { useNodes } from "@/hooks/use-nodes";
 import { nodeOptionLabel } from "@/lib/node-label";
+import { usableFirst } from "@/lib/option-order";
 import { type ProfileFormValue, parseEnvPaste, parseFlagsPaste } from "@/lib/profile-form";
 
 /**
@@ -44,7 +45,20 @@ export function ProfileFields({
   // registry is in flight (or after it failed) is the first thing a fresh
   // wizard user's profile step used to say.
   const { data: allHarnesses, isLoading: harnessesLoading, isError: harnessesFailed } = useHarnesses();
-  const harnesses = useMemo(() => allHarnesses?.filter((h) => h.installedHere), [allHarnesses]);
+  // Installed first (`usableFirst`): a fresh machine has one agent CLI and
+  // offers the rest greyed, so the only pickable row rendered LAST, under four
+  // refusals (user report 2026-09-11). The greys still list — they just sit
+  // under what can be chosen, exactly as in the launch pickers.
+  const harnesses = useMemo(
+    () =>
+      allHarnesses === undefined
+        ? undefined
+        : usableFirst(
+            allHarnesses.filter((h) => h.installedHere),
+            (h) => h.installed,
+          ),
+    [allHarnesses],
+  );
   const { data: schema } = useHarnessSchema(value.harnessId);
   // Node pin options (spec 2026-08-31 §6.2): every node VISIBLE to the caller
   // — any share level may host a profile's subshells, so this is the plain

@@ -167,7 +167,7 @@ export function DirectoryPickerInput({
   }
 
   return (
-    <div ref={rootRef} className="relative space-y-2">
+    <div ref={rootRef} className="space-y-2">
       <Input
         id={id}
         value={value}
@@ -178,9 +178,26 @@ export function DirectoryPickerInput({
 
       {/* The panel opens the moment the input is focused. Rendering it only
           once a result exists made a slow or failed browse look like a dead
-          field. */}
+          field.
+
+          IN FLOW, not an overlay (user report 2026-09-11: "the directory
+          selector is cut off"). Every surface that hosts this field is now a
+          scroll container — the launch dialog and the add-subshell dialog cap
+          at `max-h-[85dvh] overflow-y-auto`, the setup assistant's screen
+          scrolls too — and an absolutely positioned child of a scroll
+          container is clipped at its edge BY CONSTRUCTION: `overflow-y: auto`
+          forces the x axis to a scrolling value as well, so there is no
+          "let this one child escape". Floating it correctly instead would
+          mean measuring the room on every open and flipping the panel above
+          the input when it does not fit, which is a positioning engine this
+          hand-rolled picker does not have.
+
+          The cost is honest and small: opening the panel pushes what is below
+          it down, and a person who wants the buttons back dismisses the panel
+          the same way they already did. The cut-off panel was unusable; a
+          panel that moves the page is merely a panel. */}
       {pickerOpen && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-background p-2 shadow-md">
+        <div className="mt-1 w-full rounded-md border bg-background p-2 shadow-md">
           {/* The body is exactly `h-56` in every state — listing, loading,
               error — with Recent and Favorites folded into the scroll area.
               A content-sized body grew and shrank as you moved between
