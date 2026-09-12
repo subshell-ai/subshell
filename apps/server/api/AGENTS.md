@@ -336,6 +336,180 @@ explicit `throwApiError`) also emit a server log line carrying it — expected 4
 are `doNotLog` and are deliberately not written to the log. `reqId` is declared
 in the schema but only populated once request-scoped logging attaches it.
 
+## The server manages itself on an admin's request
+
+Spec 2026-09-12 moved every server-UP management surface out of the Subshell
+Server desktop console and into the SPA, so a browser on the LAN and a headless
+install get it too. That meant it had to become HTTP. Five routes in
+`api/admin-server/`, composed into the `adminRoutes` group and every one of
+them behind `requireAdmin` — cookie session, admin role, bearer keys refused —
+exactly like `GET /api/admin/status`:
+
+| route | |
+| --- | --- |
+| `GET /api/admin/server` | how this server is DEPLOYED, as against `admin/status`, which is what is HAPPENING on it: config.env saved-versus-running, the service manager's answer, the data locations, whether a self-restart is possible |
+| `PATCH /api/admin/server/config` | rewrite config.env through the CLI's own writer (below). `DATABASE_PATH` is deliberately absent — moving the database from a web page is a footgun with no undo |
+| `POST /api/admin/server/restart` | exit for the service manager to respawn |
+| `GET /api/admin/server/logs` | the tail of the server's own log file |
+| `PUT /api/admin/server/logging` | the debug switch, applied live |
+
+What did NOT become a route is the corollary of the same rule: stop, start,
+install, uninstall and reset each leave the server unreachable, so a page
+cannot be the thing that performs them. They stay with `subshell-server
+service <verb>` for the headless operator and the desktop assistant for the
+other one.
+
+`GET /api/admin/server` carries no secret in any form, and its test asserts the
+response's ENTIRE key set — the same rule `GET /api/settings/instance` carries,
+so a field added later is a decision rather than an accumulation.
+
+### Source attribution, and the systemd trap
+
+`settingSource` (`services/server-deployment.ts`) answers which layer a
+setting's saved value came from, and the PATCH route turns `process env` into a
+**409 refusal**: a file write the next boot would mask is a success report for
+a change that never happens.
+
+That makes the rule load-bearing, and the obvious version of it is wrong.
+"Is the key in `process.env`?" refuses every field of every PATCH on the
+primary Linux deployment — because `service install` writes
+`EnvironmentFile=<configDir>/config.env` into the unit, so systemd exports all
+five keys before the process starts, `loadConfigEnv` finds them present and
+applies none of them, and the whole file reads as environment-owned. It would
+have looked like a correct safety refusal while making the Addresses card
+read-only on every systemd host.
+
+So the question is not "is it in the environment" but "would writing the file
+take effect", and three rules answer it: a key `configEnvAppliedKeys()`
+records (the loader put it there itself) is the file's; a key the environment
+already held whose value the file also names is STILL the file's, because
+systemd re-reads that file on the next start; anything else in the environment
+genuinely overrides it. `collectStatus` has always attributed it the second
+way — this brings the two into agreement rather than inventing a rule.
+
+**Do not simplify this back to a presence check.** The unit is what makes it
+wrong, and nothing in the type or the call site says so.
+
+### `isSupervised` is the manager's pid, never a marker
+
+`POST /api/admin/server/restart` restarts by EXITING, which is only a restart
+where something respawns the process: `Restart=always`/`RestartSec=5` on
+systemd, `KeepAlive=true` under launchd. The server cannot see its own manager
+from its environment — the unit and plist templates set only `PATH`
+(inventoried 2026-09-12) — so the honest question is asked of the manager
+instead:
+
+```
+supervised = service.state === "running" && service.pid === process.pid
+```
+
+An environment marker was the alternative and it is worse in both directions:
+it would be true for anyone who exported it and ran the binary by hand (exiting
+into nothing), and false on every host whose definition was written before the
+marker existed, until `service install` rewrote it. `MainPID` and `launchctl
+print`'s `pid` name the process the manager actually started, so the comparison
+is true exactly when exiting is a restart.
+
+Pane safety follows the CLI: a definition without `KillMode=process` /
+`AbandonProcessGroup` takes every live tmux pane down with the process, so the
+route refuses it without `force` — the same bar `service restart --force` sets.
+
+`performRestart` (`services/server-restart.ts`) closes every browser terminal
+socket and every node socket with **1012 Service Restart**, then exits 0 after
+a delay that lets the route's own 202 flush. 1012 is chosen for being BELOW
+4000: the SPA's socket treats the 4xxx range as a refusal to report and
+anything under it as a connection to retry, so the browser reconnects itself
+rather than showing a rejection. The 202 carries `resumeAt`, the saved
+`APP_BASE_URL`, because the restart may be the very change that moves the
+address — a caller needs to know where the server comes back before its
+connection goes. SQLite needs no close: bun:sqlite releases on exit and the WAL
+is durable.
+
+### The server's own log file
+
+`<SUBSHELL_SERVER_DATA_DIR>/logs/server.log` (`status --json` reports it as
+`paths.serverLog`): JSON lines, 0600 in a 0700 directory, capped at 200 KB and
+**replaced when full**. One file, the same way on every platform, and nothing
+in memory — including the HTTP request lines (operator direction 2026-09-12).
+The console used to tail launchd's file on macOS and `journalctl` on Linux;
+neither exists in a container, and a headless install may run under anything.
+The manager's own log is still named in the deployment view
+(`service.logPath` / `service.logHint`) for anything older than this file
+holds.
+
+**The writer is ours, and that was measured rather than preferred.**
+`@loglayer/transport-log-file-rotation@3.3.0` with `size: "200k", maxLogs: 1`
+was the intended one; the spike (2026-09-12, under plain `bun` and again
+compiled) left FIVE files behind, each one over the 204 800 cap rather than
+under it, deleted none of them, and wrote `<filename>.<n>` rather than the
+filename it was given. `CappedFileTransport` (`utils/log-file.ts`) is the
+replacement: a `BlankTransport` — loglayer's own `LoggerlessTransport` with a
+supplied `shipToLogger`, so the level gate stays the library's and this needs
+no dependency — appending a JSON line and truncating when the next one would
+overflow. Truncating rather than dropping the oldest lines is what "replaced
+when full" means, and it is why a partial line can only ever be the last one.
+
+It creates its log directory on FIRST WRITE, not at module import. This module
+is reachable from the CLI entry graph, which this package pins IO-free at
+import (the import-purity invariant under "Subcommands" below); a `mkdirSync`
+at import would be exactly the side effect those tests exist to forbid.
+
+**The level policy is a split, not a level.** The pretty stdout transport is
+pinned at `info` and left there, because that is what the service manager
+collects and a debug session must not fill a journal. The FILE transport
+carries the effective level, and `PUT /api/admin/server/logging` flips that one
+field — live, no restart. HTTP request/response lines are emitted at `debug`
+(`autoLogging.logLevel` in `plugins/context.plugin.ts`), so they reach the file
+only in debug mode and the manager's log never; the polled routes
+(`admin/status`, `admin/server`, its `logs`, `setup/status`,
+`settings/public`, `/ws*`) are in that plugin's `ignore` list, or a debug
+session would spend the 200 KB cap on the Service page asking how the Service
+page is doing.
+
+Debug logging is an instance setting (`settings` row `debug_logging`, absent =
+off), read once at boot after migrations. `SUBSHELL_DEBUG_LOGGING=1` forces it
+for a headless box or for the lines written before the database opens, and
+while it is set the route answers **409** rather than writing a row the next
+boot would override.
+
+### Restarting a node from the plane
+
+`POST /api/nodes/:id/restart` is the same act one hop away: a signed `restart`
+command, and the AGENT decides. Gate is cookie-only and `nodeCanConfigure`
+(owner or `edit`, NOT `canManage`) — a `view` grantee may launch subshells on a
+node, but restarting its daemon interrupts everyone else's panes there.
+`local` → 400: the control-plane host restarts through
+`POST /api/admin/server/restart`, which is a different act with a different
+gate, and routing it here would hand a node's `edit` grantee a way to bounce
+the control plane. No new trust either way — the plane already runs arbitrary
+launches on an enrolled node.
+
+The agent's refusals map to 409 `NODE_NOT_SUPERVISED`,
+`NODE_RESTART_KILLS_PANES`, `NODE_AGENT_TOO_OLD` (its `unsupported` answer) and
+`NODE_OFFLINE`, with anything unrecognized falling through to
+`NODE_UNREACHABLE` rather than being guessed at.
+
+**That mapping compares `NodeRpcError.detail` by EQUALITY**, against the
+protocol's own `NODE_RESULT_*` constants. `detail` is the agent's
+`result.error` verbatim and exists for this: `message` wraps it in a sentence
+(`node "x" reported: …`) that is right for a log line and wrong for a decision.
+Matching a substring of it would have re-read `"not supervised enough,
+honestly"` as the exact refusal, and would have changed meaning silently the
+day someone reworded that sentence in `node-rpc.ts`.
+
+The agent answers `NODE_RESULT_KILLS_PANES` for `paneSafety: "unknown"` as
+well as `"kills"` — its destructive verbs fail closed on a definition they
+could not read — so only the plane can tell the two apart, and it does so in
+the WORDING and never the code. Telling someone their panes will die when the
+truth is that nobody could read the definition is the kind of certainty that
+teaches people to ignore warnings.
+
+`runtime` (the agent's report of how its own process runs) lives on the LIVE
+CONNECTION, never in the `nodes` table, and `GET /api/nodes/:id` exposes it
+only when the node is online, the viewer can configure it, and the row is an
+agent. These are facts about a running process: offline, they are stale by
+definition, and their absence is the honest answer.
+
 ## Standalone binary & CLI
 
 `src/index.ts` is BOTH the boot entry and the `subshell-server` CLI entry:
@@ -439,6 +613,28 @@ anything that boots the server for test purposes and wants stock config must
 override the home, not merely avoid setting variables. `configure` owns five keys — `SERVER_PORT`, `HOST`,
 `APP_BASE_URL`, `DATABASE_PATH` and `TRUSTED_ORIGINS` — and `init` persists the
 secret (an existing value is never rotated).
+
+**`applyConfig` is the ONE writer.** The merge over the stored values, the
+per-key `validateValue`, the origin canonicalization, the two address warnings
+and the atomic preservation-preserving rewrite are one exported function
+(`commands/configure.ts`), called by `runConfigure` and by
+`PATCH /api/admin/server/config` alike. So the component-wise validation
+`docs/security.md` §8 leans on is true of the web surface because it IS the
+CLI's code, not because a second implementation was kept in step. Be exact
+about what carries that claim: no test diffs a route-written file against a
+CLI-written one — the shared CALL is the guarantee, and there is simply no
+second writer to drift. What the route's own test pins is narrower (the write
+lands, foreign keys survive, the audit metadata holds no secret).
+
+**Validation therefore runs twice, on purpose.** `runConfigure` checks each
+answer at its own prompt, so an interactive typo dies at the question that
+produced it rather than after four more questions the person would have to
+retype; `applyConfig` then checks the whole set again, because the API path has
+no prompts to die at. Both passes call the same `validateValue`, so this is one
+set of rules in two places rather than two sets. The same is true of the
+leniency: a value byte-identical to what is already stored is kept with a
+warning in both, which is what keeps a hand-written wildcard from wedging an
+unrelated port change.
 
 Two things about that set are load-bearing and were both bugs first:
 
