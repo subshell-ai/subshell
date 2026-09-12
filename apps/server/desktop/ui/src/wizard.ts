@@ -55,9 +55,18 @@ let seeded = false;
 // ---------------------------------------------------------------------------
 // Frame helpers
 // ---------------------------------------------------------------------------
-/** Inline SVGs (lucide outlines, 24-grid). Fixed strings, this file's own; the ONLY innerHTML on the page. */
+/**
+ * Inline SVGs (lucide outlines, 24-grid) plus the product wordmark. Fixed
+ * strings, this file's own; the ONLY innerHTML on the page.
+ *
+ * `icon` is the FULL wordmark, not the `/s` mark: the Welcome screen is where
+ * the product names itself, and the mark alone says nothing to someone opening
+ * this app for the first time. Both PNGs are generated into `ui/public` by
+ * `bun run brand:generate` — this page is its own Vite build and cannot reach
+ * the SPA's `public/icons`.
+ */
 const ART = {
-  icon: `<img src="./app-icon.png" alt="" />`,
+  icon: `<img src="./wordmark-96.png" srcset="./wordmark-96.png 1x, ./wordmark-192.png 2x" alt="" />`,
   terminal: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 17 6-6-6-6M12 19h8"/></svg>`,
   server: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>`,
   fail: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>`,

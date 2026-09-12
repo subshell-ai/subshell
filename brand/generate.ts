@@ -17,6 +17,16 @@ const BRAND_DIR = import.meta.dir;
 const SRC_DIR = path.join(BRAND_DIR, "src");
 const ICONS_DIR = path.join(BRAND_DIR, "../apps/server/web/public/icons");
 const DOCS_DIR = path.join(BRAND_DIR, "../docs/assets");
+/**
+ * The Subshell Server desktop app's bundled pages (the setup assistant and the
+ * console) serve their own static files — they are a separate Vite build from
+ * the SPA and cannot reach into `apps/server/web/public`. The wordmark the
+ * assistant's Welcome screen shows is therefore GENERATED into both places
+ * rather than copied between them: a hand-copied PNG is exactly what this
+ * script's closing line forbids, and it would silently keep an old mark after
+ * the master changed.
+ */
+const DESKTOP_UI_DIR = path.join(BRAND_DIR, "../apps/server/desktop/ui/public");
 const APPS_DIR = path.join(BRAND_DIR, "../apps");
 
 /** Everything — wordmark and mark — is Light 300 (operator choice 2026-09-03: Thin read too weak beside the UI's label weights). */
@@ -86,6 +96,10 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
   { master: "wordmark.svg", mode: "height", size: 120, out: "icons/wordmark-120.png" },
   { master: "wordmark.svg", mode: "height", size: 96, out: "icons/wordmark-96.png" },
   { master: "wordmark.svg", mode: "height", size: 192, out: "icons/wordmark-192.png" },
+  // The desktop setup assistant's Welcome screen, at 1x and 2x. Its Vite
+  // build is separate from the SPA's, so it needs its own copy.
+  { master: "wordmark.svg", mode: "height", size: 96, out: "desktop-ui/wordmark-96.png" },
+  { master: "wordmark.svg", mode: "height", size: 192, out: "desktop-ui/wordmark-192.png" },
   { master: "mark-glyph.svg", mode: "height", size: 40, out: "icons/mark-40.png" },
   { master: "mark-glyph.svg", mode: "height", size: 80, out: "icons/mark-80.png" },
   { master: "mark-glyph.svg", mode: "height", size: 120, out: "icons/mark-120.png" },
@@ -176,10 +190,13 @@ for (const { app, background } of DESKTOP_APPS) {
 
 mkdirSync(ICONS_DIR, { recursive: true });
 mkdirSync(DOCS_DIR, { recursive: true });
+mkdirSync(DESKTOP_UI_DIR, { recursive: true });
 for (const [out, bytes] of outputs) {
   const file = out.startsWith("icons/")
     ? path.join(ICONS_DIR, out.slice("icons/".length))
-    : path.join(DOCS_DIR, out.slice("docs/".length));
+    : out.startsWith("desktop-ui/")
+      ? path.join(DESKTOP_UI_DIR, out.slice("desktop-ui/".length))
+      : path.join(DOCS_DIR, out.slice("docs/".length));
   writeFileSync(file, bytes);
   console.log(`wrote ${out} (${bytes.length} B)`);
 }

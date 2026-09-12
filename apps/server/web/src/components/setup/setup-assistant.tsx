@@ -3,7 +3,7 @@ import { StepDots } from "@/components/setup/step-dots";
 import { Button } from "@/components/ui/button";
 
 export interface SetupAssistantProps {
-  /** 96px art: a lucide icon element or an <img>. */
+  /** Art on a 96px floor: a lucide icon element, or an <img> sized by height. */
   illustration: ReactNode;
   title: string;
   subtitle?: string;
@@ -25,10 +25,14 @@ export interface SetupAssistantProps {
 }
 
 /**
- * The setup assistant's frame (spec 2026-09-11 § 3): a centered 560px column
- * under 96px of art, and a 72px bar with Back left, dots center, Continue
- * right. Every /setup screen renders inside it; the native app renders the
- * same frame in its own page, so the two read as one program.
+ * The setup assistant's frame (spec 2026-09-11 § 3): a 560px column under its
+ * art, centered both ways, and a 72px bar with Back left, dots center,
+ * Continue right. Every /setup screen renders inside it; the native app
+ * renders the same frame in its own page, so the two read as one program.
+ *
+ * `justify-center-safe` rather than plain centering: a screen taller than the
+ * frame would otherwise overflow past the TOP edge, where a scroll container
+ * cannot reach it.
  */
 export function SetupAssistant({
   illustration,
@@ -56,10 +60,10 @@ export function SetupAssistant({
 
   return (
     <div className="grid h-dvh grid-rows-[1fr_72px] bg-background text-foreground">
-      <main className="assistant-enter flex flex-col items-center overflow-auto px-8 pt-24 pb-6">
+      <main className="assistant-enter justify-center-safe flex flex-col items-center overflow-auto p-8">
         <div
           aria-hidden
-          className="mb-7 flex size-24 items-center justify-center text-primary/55 [&_img]:size-24 [&_svg]:size-[72px]"
+          className="mb-7 flex min-h-24 items-center justify-center text-primary/55 [&_img]:h-16 [&_img]:w-auto [&_svg]:size-[72px]"
         >
           {illustration}
         </div>

@@ -5,8 +5,14 @@ its scripts are named `make`/`check` so `turbo run test|generate` never picks th
 up. Root aliases: `bun run brand:generate`, `bun run brand:test`.
 
 `bun run brand:generate` rasterizes `src/*.svg` masters into the committed PNGs
-(`apps/server/web/public/icons/`, `docs/assets/`, and each desktop app's
-`src-tauri/icons/app-icon.png`).
+(`apps/server/web/public/icons/`, `docs/assets/`, `apps/server/desktop/ui/public/`,
+and each desktop app's `src-tauri/icons/app-icon.png`).
+
+The Subshell Server desktop app's bundled pages are their own Vite build and
+cannot reach the SPA's `public/icons`, so the wordmark its setup assistant
+shows is GENERATED into that fourth directory rather than copied there. A
+hand-copied PNG is what the rule at the bottom of this file forbids, and it
+would silently keep an old mark after the master changed.
 
 **The two desktop apps differ only in their icon background**, and that is a
 table in `generate.ts` (`DESKTOP_APPS`), not two copies of the artwork: one mark,
