@@ -172,3 +172,23 @@ export function useSetNodeAllowedDirs(id: string) {
     },
   });
 }
+
+/**
+ * Restarts a node's agent (`POST /api/nodes/:id/restart`).
+ *
+ * No invalidation on success, deliberately: the agent has not restarted yet
+ * when this resolves — it is about to drop its socket — so refetching here
+ * would cache the state we are trying to leave. Watching it go and come back
+ * is {@link useNodeRestartWait}'s job, and the invalidation happens there.
+ *
+ * Refusals are 409s the caller renders verbatim: `NODE_OFFLINE`,
+ * `NODE_AGENT_TOO_OLD`, `NODE_NOT_SUPERVISED` and `NODE_RESTART_KILLS_PANES`
+ * (which `{ force: true }` overrides). `local` is a 400 — the control plane
+ * restarts itself through `/api/admin/server/restart` instead.
+ */
+export function useRestartNode(id: string) {
+  return useMutation({
+    mutationFn: (body: { force?: boolean }) =>
+      apiFetch<{ ok: true }>(`/api/nodes/${id}/restart`, { method: "POST", body: JSON.stringify(body) }),
+  });
+}

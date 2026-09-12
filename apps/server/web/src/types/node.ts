@@ -110,10 +110,66 @@ export interface NodeShare {
   permission: "view" | "edit";
 }
 
+/**
+ * How an agent PROCESS runs, as the agent itself reported it in `ready`.
+ *
+ * Mirrors `NodeRuntimeReport` in `@internal/subshell-protocol`
+ * (`node-frames.ts`) field for field. Not imported from there because this
+ * file is the SPA's mirror of the node ROUTE's shape, and the route is free
+ * to carry a subset later; the two are kept honest by review, the same way
+ * every other type in this directory is.
+ *
+ * Facts about a process, never about the machine: the control plane holds
+ * the report on the live socket and drops it when that goes, so a value here
+ * is always current or absent.
+ */
+export interface NodeRuntime {
+  /** ISO 8601 start time of this agent process */
+  startedAt: string;
+  /** The manager started THIS pid, so exiting is a restart rather than a stop */
+  supervised: boolean;
+  /** The service manager's view of the agent's unit */
+  service: {
+    /** The platform's service manager, or null where there is none */
+    manager: "launchd" | "systemd" | null;
+    /** Whether a service definition for the agent is installed */
+    installed: boolean;
+    /** Absolute path of the unit/plist, or null when none is installed */
+    definitionPath: string | null;
+    /** The manager's own word for the unit's state */
+    state: string;
+    /** The pid the manager believes it started, or null */
+    pid: number | null;
+    /** Whether the definition starts at login, or null when unknown */
+    enabled: boolean | null;
+    /** Whether restarting through the definition keeps live panes alive */
+    paneSafety: "keeps" | "kills" | "unknown";
+  };
+  /** The agent's own config file, resolved */
+  configPath: string;
+  /** The launchd log file; null under systemd */
+  logPath: string | null;
+  /** The journal command to run when `logPath` is null */
+  logHint: string | null;
+  /** tmux on the daemon's PATH, or null — without it the node accepts no launches */
+  tmuxPath: string | null;
+  /** The agent binary this process re-enters */
+  binaryPath: string;
+}
+
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY for config-capable viewers (then the key is absent, not null). */
 export interface NodeDetail extends Node {
   /** Full grant set (config-capable viewers only) */
   shares?: NodeShare[];
+  /**
+   * How the agent runs on that machine.
+   *
+   * Present only when the node is ONLINE, the viewer can configure it (owner
+   * or `edit`), and it is an agent node — never `local`. A `view` grantee may
+   * launch here; that does not make the path of this machine's config file
+   * their business.
+   */
+  runtime?: NodeRuntime;
 }
 
 /** One setup key in the management list — the secret is never here. */

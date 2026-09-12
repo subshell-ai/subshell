@@ -377,17 +377,17 @@ describe("runConfigure — interactive flow", () => {
   });
 
   /**
-   * Validation moved into `applyConfig` when `PATCH /api/admin/server/config`
-   * became a second caller of the one writer, so an invalid answer is now
-   * refused after the LAST question rather than at the prompt that produced
-   * it. The refusal itself is unchanged: exit 1, the same message, and zero
-   * writes — there is still no re-prompt loop.
+   * Each answer is validated AT ITS PROMPT, which is why this dies after one
+   * question rather than collecting four more the person would have to retype.
+   * `applyConfig` validates the whole set again — it has to, since `PATCH
+   * /api/admin/server/config` has no prompts to validate at — but both passes
+   * call the same `validateValue`, so there is one set of rules and two places
+   * it runs.
    */
   test("an invalid typed answer exits 1 with zero writes (no re-prompt loop)", () => {
-    const { deps, dir, prompts, err } = makeDeps({ isTTY: true, answers: ["99999", "", "", "", ""] });
+    const { deps, dir, prompts } = makeDeps({ isTTY: true, answers: ["99999"] });
     expect(runConfigure({}, deps)).toBe(1);
-    expect(prompts).toHaveLength(5); // asked through, then refused once
-    expect(err.join("\n")).toMatch(/99999/);
+    expect(prompts).toHaveLength(1); // died at validation, never asked on
     expect(() => readFileSync(envFile(dir))).toThrow();
   });
 

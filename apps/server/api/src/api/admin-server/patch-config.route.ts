@@ -42,6 +42,17 @@ const KEY_FOR_FIELD = {
 } as const satisfies Record<string, DeploymentSettingKey>;
 
 /**
+ * One sentence for "config.env is there but unreadable", wherever that is
+ * discovered — reading it for the source attribution, or inside `applyConfig`
+ * a moment later. It names the FILE, never a key: a form that marked the Port
+ * field would be pointing at something no value the person types can fix.
+ */
+function unreadableMessage(err: unknown): string {
+  const reason = err instanceof Error ? err.message : String(err);
+  return `The server could not read its config file, so it will not overwrite it: ${reason}`;
+}
+
+/**
  * `PATCH /api/admin/server/config` — rewrite config.env through the CLI's OWN
  * writer (spec § 3.2). `applyConfig` is shared with `subshell-server
  * configure`, so the two cannot disagree about what a valid file is: the
@@ -52,10 +63,15 @@ const KEY_FOR_FIELD = {
  * `DATABASE_PATH` is deliberately not settable here — moving the database from
  * a web page is a footgun with no undo, and `--db-path` remains.
  *
- * Two refusals, both before any write: 400 when a value fails validation
- * (carrying the CLI's own sentence), and 409 when the key's source is the
- * process environment — a file write would be masked at the next boot, so
- * reporting success would be reporting a change that never takes effect.
+ * Three refusals, all before any write: 400 when a value fails validation
+ * (carrying the CLI's own sentence and naming the field), 409 when the key's
+ * source is the process environment — a file write would be masked at the
+ * next boot, so reporting success would be reporting a change that never
+ * takes effect — and 400 when config.env exists but cannot be read, which
+ * names the FILE rather than a field, because nothing the caller types can
+ * fix it. That last one is a 400 rather than a 500 by measurement: the error
+ * handler replaces a 500's message with "An internal server error occurred.",
+ * and the message is the only part of this refusal an admin can act on.
  *
  * Audits `server.config.update` with the changed keys. These are addresses,
  * not secrets: `BETTER_AUTH_SECRET` is not among the keys this route can
@@ -75,7 +91,18 @@ export const patchConfigRoute = new Elysia()
       // The file's own values are part of the question: under systemd every
       // key arrives through `EnvironmentFile=`, and a key the environment and
       // the file agree on is still the file's to change.
-      const configValues = resolveConfig().values;
+      //
+      // `resolveConfig` THROWS on a read failure that is not ENOENT, and an
+      // uncaught throw here becomes a generic 500 whose message the error
+      // handler scrubs — leaving an admin with "an internal server error" for
+      // a condition one `chmod` fixes. Caught, so the file's own problem is
+      // reported as the file's, naming no field.
+      let configValues: Record<string, string>;
+      try {
+        configValues = resolveConfig().values;
+      } catch (err) {
+        return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: unreadableMessage(err) }));
+      }
       for (const field of fields) {
         const key = KEY_FOR_FIELD[field];
         if (settingSource(key, process.env, applied, configValues) === "process env") {
@@ -98,6 +125,11 @@ export const patchConfigRoute = new Elysia()
         serverConfigDir(),
       );
       if (!result.ok) {
+        // The same condition again, caught a moment later by the writer's own
+        // read — the file can become unreadable between the two.
+        if (result.kind === "unreadable") {
+          return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: result.reason }));
+        }
         return status(
           400,
           apiErrorBody({ code: BackendErrorCodes.CONFIG_INVALID, message: `${result.key}: ${result.reason}` }),

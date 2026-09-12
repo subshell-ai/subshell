@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Elysia } from "elysia";
@@ -100,6 +100,29 @@ describe("PATCH /api/admin/server/config", () => {
     } finally {
       if (prev === undefined) delete process.env.HOST;
       else process.env.HOST = prev;
+    }
+  });
+
+  /**
+   * A read failure is the FILE's problem, not any submitted value's, so it
+   * must not come back as CONFIG_INVALID, which the form renders against the
+   * field it names. It is a 400 rather than a 500 because the error handler
+   * replaces a 500's message with "An internal server error occurred." — and
+   * the message is the only actionable part of this refusal.
+   */
+  it("refuses without naming a field when config.env exists but cannot be read", async () => {
+    const broken = mkdtempSync(join(tmpdir(), "subshell-patch-unreadable-"));
+    mkdirSync(join(broken, "config.env")); // a directory where the file should be
+    process.env.SUBSHELL_SERVER_CONFIG_DIR = broken;
+    try {
+      const res = await app.fetch(patch(fx.adminCookie, { port: 3090 }));
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { code: string; message: string };
+      expect(body.code).toBe("BAD_REQUEST");
+      expect(body.message).toContain("config.env");
+    } finally {
+      process.env.SUBSHELL_SERVER_CONFIG_DIR = dir;
+      rmSync(broken, { recursive: true, force: true });
     }
   });
 

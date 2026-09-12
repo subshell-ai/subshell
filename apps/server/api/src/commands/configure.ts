@@ -293,7 +293,13 @@ export interface ConfigChange {
   to: string | undefined;
 }
 
-/** Outcome of {@link applyConfig}: the written file, or the first key that failed validation. */
+/**
+ * Outcome of {@link applyConfig}. The two failures are DISTINGUISHED rather
+ * than sharing a `key`, because a caller renders them in different places: an
+ * `invalid` belongs under the field that carries the offending value, and an
+ * `unreadable` belongs to the file, not to any field. Naming a key for a read
+ * failure would put "cannot read config.env" under the Port input.
+ */
 export type ApplyConfigResult =
   | {
       ok: true;
@@ -308,9 +314,20 @@ export type ApplyConfigResult =
     }
   | {
       ok: false;
-      /** The key that failed. */
+      /** A value failed `validateValue`. */
+      kind: "invalid";
+      /** The key that failed — the field a form should mark. */
       key: ConfigKey;
       /** `validateValue`'s sentence, verbatim — the same one the CLI prints. */
+      reason: string;
+    }
+  | {
+      ok: false;
+      /** config.env exists but could not be read, so it must not be clobbered. */
+      kind: "unreadable";
+      /** The file that could not be read. */
+      path: string;
+      /** The underlying reason, already naming the path. */
       reason: string;
     };
 
@@ -349,10 +366,12 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
   try {
     existing = readExistingConfig(configDir);
   } catch (err) {
+    const path = join(configDir, "config.env");
     return {
       ok: false,
-      key: "SERVER_PORT",
-      reason: `refusing to rewrite ${join(configDir, "config.env")}: ${(err as Error).message}`,
+      kind: "unreadable",
+      path,
+      reason: `refusing to rewrite ${path}: ${(err as Error).message}`,
     };
   }
   const warnings: string[] = [];
@@ -378,15 +397,15 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
   };
 
   const port = pick("SERVER_PORT", input.port, "3080");
-  if (!port.ok) return { ok: false, key: "SERVER_PORT", reason: port.reason };
+  if (!port.ok) return { ok: false, kind: "invalid", key: "SERVER_PORT", reason: port.reason };
   const host = pick("HOST", input.host, "0.0.0.0");
-  if (!host.ok) return { ok: false, key: "HOST", reason: host.reason };
+  if (!host.ok) return { ok: false, kind: "invalid", key: "HOST", reason: host.reason };
   const baseUrl = pick("APP_BASE_URL", input.baseUrl, `http://localhost:${port.value}`);
-  if (!baseUrl.ok) return { ok: false, key: "APP_BASE_URL", reason: baseUrl.reason };
+  if (!baseUrl.ok) return { ok: false, kind: "invalid", key: "APP_BASE_URL", reason: baseUrl.reason };
   const origins = pick("TRUSTED_ORIGINS", input.trustedOrigins, "");
-  if (!origins.ok) return { ok: false, key: "TRUSTED_ORIGINS", reason: origins.reason };
+  if (!origins.ok) return { ok: false, kind: "invalid", key: "TRUSTED_ORIGINS", reason: origins.reason };
   const dbPath = pick("DATABASE_PATH", input.dbPath, join(configDir, "subshell.db"));
-  if (!dbPath.ok) return { ok: false, key: "DATABASE_PATH", reason: dbPath.reason };
+  if (!dbPath.ok) return { ok: false, kind: "invalid", key: "DATABASE_PATH", reason: dbPath.reason };
 
   // The enroll-time loopback trap (spec 2026-08-31), warned at write time: a
   // LAN bind with a loopback base URL makes every REMOTE node dial its own
@@ -507,22 +526,53 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     return trimmed === "" ? def : trimmed;
   };
   /**
-   * Resolve one owned key. Null means "aborted on EOF": the notice is already
-   * on stderr and the caller returns 1. Validation happens later, once, in
-   * {@link applyConfig}.
+   * Resolve + validate one owned key. Null means "aborted": the reason is
+   * already on stderr (EOF notice or the validation message) and the caller
+   * returns 1 — every question is validated the MOMENT it is answered, so an
+   * interactive typo dies at that prompt, never after collecting the rest.
+   *
+   * The validation here is not a second set of rules: it is the same
+   * `validateValue` {@link applyConfig} runs, called earlier so the person
+   * typing gets told at the prompt that produced the mistake. `applyConfig`
+   * re-checks everything anyway, which costs nothing and is what makes it safe
+   * for `PATCH /api/admin/server/config`, where there are no prompts to
+   * validate at.
    */
-  const resolve = (question: string, def: string, flag: string | undefined): string | null => {
+  const resolve = (key: ConfigKey, question: string, def: string, flag: string | undefined): string | null => {
     const value = ask(question, def, flag);
     if (value === null) {
       deps.error("stdin closed before all answers were given. Nothing was written.");
       return null;
     }
+    const invalid = validateValue(key, value);
+    if (invalid) {
+      // A value BYTE-IDENTICAL to what is already stored is preserved, not
+      // refused, because preserving what the boot already reads grants
+      // nothing new — and refusing it wedged the whole command.
+      //
+      // The reachable case was the documented escape hatch: `docs/security.md`
+      // says an env var or a hand-edit bypasses this validator, so a wildcard
+      // (which better-auth genuinely honours) can be in config.env. But the
+      // desktop console seeds stored values and sends EVERY field on save, so
+      // changing the port re-sent the stored wildcard, this refused it, and the
+      // console could never save again — with nothing on the page explaining
+      // it, since `status` is deliberately silent about wildcards. The same
+      // shape blocked a hand-written unusable APP_BASE_URL.
+      //
+      // Only a CHANGED value has to satisfy the validator, so this is not an
+      // escape: a newly typed wildcard is still refused. `applyConfig` keeps
+      // the identical branch, and emits the identical warning.
+      if (existing[key] === value) return value;
+      deps.error(invalid);
+      return null;
+    }
     return value;
   };
 
-  const port = resolve("Server port", dflt("SERVER_PORT", "3080"), opts.port);
+  const port = resolve("SERVER_PORT", "Server port", dflt("SERVER_PORT", "3080"), opts.port);
   if (port === null) return 1;
   const host = resolve(
+    "HOST",
     "Bind address. 0.0.0.0 serves the LAN (what remote nodes and devices need); type 127.0.0.1 to stay loopback-only",
     dflt("HOST", "0.0.0.0"),
     opts.host,
@@ -532,6 +582,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   // from SERVER_PORT at boot too — mirrors each other) unless the file stores
   // one — then the stored URL is the default, unchanged.
   const baseUrl = resolve(
+    "APP_BASE_URL",
     "Public base URL (browsers and remote nodes dial this)",
     dflt("APP_BASE_URL", `http://localhost:${port}`),
     opts.baseUrl,
@@ -557,9 +608,10 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     storedOrigins === ""
       ? "Other addresses browsers will use (comma-separated origins; blank for none)"
       : 'Other addresses browsers will use (comma-separated origins; ENTER keeps the list shown, `--trusted-origins ""` clears it)';
-  const trustedOrigins = resolve(originsQuestion, storedOrigins, opts.trustedOrigins);
+  const trustedOrigins = resolve("TRUSTED_ORIGINS", originsQuestion, storedOrigins, opts.trustedOrigins);
   if (trustedOrigins === null) return 1;
   const dbPath = resolve(
+    "DATABASE_PATH",
     "SQLite database file",
     dflt("DATABASE_PATH", join(deps.configDir, "subshell.db")),
     opts.dbPath,

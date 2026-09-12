@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyConfig } from "@/commands/configure.js";
@@ -32,9 +32,11 @@ describe("applyConfig", () => {
     const d = dir();
     const r = applyConfig({ port: "70000" }, d);
     expect(r.ok).toBe(false);
-    if (!r.ok) {
+    if (!r.ok && r.kind === "invalid") {
       expect(r.key).toBe("SERVER_PORT");
       expect(r.reason.length).toBeGreaterThan(0);
+    } else {
+      throw new Error("expected an invalid-value refusal");
     }
     expect(() => readFileSync(join(d, "config.env"))).toThrow();
   });
@@ -50,6 +52,26 @@ describe("applyConfig", () => {
     const second = applyConfig({ trustedOrigins: "" }, d);
     expect(second.ok).toBe(true);
     expect(readFileSync(join(d, "config.env"), "utf8")).not.toContain("TRUSTED_ORIGINS");
+  });
+
+  /**
+   * An unreadable file is a condition of the HOST, not of any submitted
+   * value, so it must not be reported against a key — the SPA would render
+   * "cannot read config.env" under the Port field, where nothing the person
+   * types can fix it.
+   */
+  it("reports an unreadable config.env as its own kind, naming the file and not a key", () => {
+    const d = dir();
+    mkdirSync(join(d, "config.env")); // a directory where the file should be: EISDIR on read
+    const r = applyConfig({ port: "3090" }, d);
+    expect(r.ok).toBe(false);
+    if (!r.ok && r.kind === "unreadable") {
+      expect(r.path).toBe(join(d, "config.env"));
+      expect(r.reason).toContain(join(d, "config.env"));
+      expect(r).not.toHaveProperty("key");
+    } else {
+      throw new Error("expected an unreadable-file refusal");
+    }
   });
 
   it("keeps a stored value the validator would refuse, so changing another key still works", () => {

@@ -9,6 +9,7 @@ import { NodeAllowedDirs } from "@/components/nodes/node-allowed-dirs";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
 import { osLabel } from "@/components/nodes/node-row";
+import { NodeRuntimeCard } from "@/components/nodes/node-runtime-card";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { PageHeader } from "@/components/page-header";
 import { relativeElapsed } from "@/components/subshell-status";
@@ -249,6 +250,13 @@ function NodeDetailPage() {
           `local` too, where the control-plane host is just another launch
           target. */}
       <NodeAllowedDirs node={n} />
+
+      {/* How the agent actually runs over there, and the one control that
+          acts on that process. The card renders itself away unless the server
+          attached a report, which is also the access rule — online, an agent
+          node, and a viewer who can configure it. For a headless node this is
+          the only surface that answers any of it. */}
+      <NodeRuntimeCard node={n} />
 
       {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
