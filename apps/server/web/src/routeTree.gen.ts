@@ -25,6 +25,7 @@ import { Route as ProfilesIdRouteImport } from './routes/profiles_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
 import { Route as SettingsAuditRouteImport } from './routes/settings_.audit'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
+import { Route as SettingsServiceRouteImport } from './routes/settings_.service'
 import { Route as SettingsStatusRouteImport } from './routes/settings_.status'
 import { Route as SubshellsIdRouteImport } from './routes/subshells_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
@@ -109,6 +110,11 @@ const SettingsPluginsRoute = SettingsPluginsRouteImport.update({
   path: '/settings/plugins',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsServiceRoute = SettingsServiceRouteImport.update({
+  id: '/settings_/service',
+  path: '/settings/service',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsStatusRoute = SettingsStatusRouteImport.update({
   id: '/settings_/status',
   path: '/settings/status',
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
   '/settings/plugins': typeof SettingsPluginsRoute
+  '/settings/service': typeof SettingsServiceRoute
   '/settings/status': typeof SettingsStatusRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByTo {
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
   '/settings/plugins': typeof SettingsPluginsRoute
+  '/settings/service': typeof SettingsServiceRoute
   '/settings/status': typeof SettingsStatusRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
@@ -185,6 +193,7 @@ export interface FileRoutesById {
   '/settings_/api-keys': typeof SettingsApiKeysRoute
   '/settings_/audit': typeof SettingsAuditRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
+  '/settings_/service': typeof SettingsServiceRoute
   '/settings_/status': typeof SettingsStatusRoute
   '/subshells_/$id': typeof SubshellsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
@@ -208,6 +217,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/audit'
     | '/settings/plugins'
+    | '/settings/service'
     | '/settings/status'
     | '/subshells/$id'
     | '/workspaces/$id'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/audit'
     | '/settings/plugins'
+    | '/settings/service'
     | '/settings/status'
     | '/subshells/$id'
     | '/workspaces/$id'
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | '/settings_/api-keys'
     | '/settings_/audit'
     | '/settings_/plugins'
+    | '/settings_/service'
     | '/settings_/status'
     | '/subshells_/$id'
     | '/workspaces_/$id'
@@ -272,6 +284,7 @@ export interface RootRouteChildren {
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
   SettingsAuditRoute: typeof SettingsAuditRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
+  SettingsServiceRoute: typeof SettingsServiceRoute
   SettingsStatusRoute: typeof SettingsStatusRoute
   SubshellsIdRoute: typeof SubshellsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
@@ -391,6 +404,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsPluginsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings_/service': {
+      id: '/settings_/service'
+      path: '/settings/service'
+      fullPath: '/settings/service'
+      preLoaderRoute: typeof SettingsServiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings_/status': {
       id: '/settings_/status'
       path: '/settings/status'
@@ -432,6 +452,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsApiKeysRoute: SettingsApiKeysRoute,
   SettingsAuditRoute: SettingsAuditRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,
+  SettingsServiceRoute: SettingsServiceRoute,
   SettingsStatusRoute: SettingsStatusRoute,
   SubshellsIdRoute: SubshellsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,
