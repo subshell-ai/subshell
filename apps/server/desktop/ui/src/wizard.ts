@@ -172,7 +172,19 @@ function renderDots(): void {
   }
   d.append(row, text("span", `Step ${current + 1} of ${total}`, "sr-only"));
 }
-const here = (): string => (probe?.platform === "darwin" ? "this Mac" : "this machine");
+/**
+ * Where this app is running, in prose. ONE string on both platforms
+ * (operator's call, 2026-09-12).
+ *
+ * It used to answer "this Mac" on darwin. That is the macOS convention and it
+ * read well mid-sentence, but it cost a branch and a test matrix on every
+ * string that used it, and it was the mechanism behind a real misreading: a
+ * label ending on "Mac" — a prefix of the sibling platform's own word — was
+ * reported as truncated. The macOS FEEL this assistant is after comes from
+ * its shape (one decision per full-window screen, fixed Back and Continue,
+ * screens that ask nothing never appearing), not from the vocabulary.
+ */
+const here = (): string => "this machine";
 
 // ---------------------------------------------------------------------------
 // The host every `assistant/` module takes, so none of them imports this file.
@@ -231,8 +243,7 @@ function renderTmux(p: Probe): void {
       content.append(text("p", "Your package manager may ask for your password.", "hint"));
     }
   } else {
-    const subject = here() === "this Mac" ? "This Mac" : "This machine";
-    content.append(text("p", `${subject} has no package manager this app can drive. In a terminal:`, "hint"));
+    content.append(text("p", "This machine has no package manager this app can drive. In a terminal:", "hint"));
     if (plan.command.length > 0) content.append(text("span", plan.command.join(" "), "code-line"));
     if (plan.docsUrl !== "")
       content.append(button("Read the tmux docs", () => void ipc.openTmuxDocs().catch(setProblem), "ghost"));

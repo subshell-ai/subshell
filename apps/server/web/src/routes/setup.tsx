@@ -20,7 +20,7 @@ import { useInstallAgent } from "@/hooks/use-install-agent";
 import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { desktopPlatform, isDesktop } from "@/lib/desktop";
+import { isDesktop } from "@/lib/desktop";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/setup")({
@@ -147,7 +147,10 @@ function SetupPage() {
     done: NATIVE_STEPS + n,
     current: NATIVE_STEPS + n,
   });
-  const here = desktopPlatform() === "macos" ? "this Mac" : "this machine";
+  // One string on both platforms (operator's call, 2026-09-12): the native
+  // assistant that hands off to these screens dropped its own "this Mac"
+  // variant, and the two halves of one flow must not differ in voice.
+  const here = "this machine";
 
   if (step === 0) {
     return (
