@@ -385,6 +385,32 @@ export function registerViewer(ws: WsSocket, subshellId: string): void {
 }
 
 /**
+ * Close every live browser terminal socket with one code.
+ *
+ * Used by the self-restart, with 1012 Service Restart — below the 4000 line,
+ * which is what makes `use-subshell-ws.ts` retry rather than treat it as a
+ * refusal. The maps are NOT cleared here: each socket's own close handler runs
+ * `detachViewer`, which is where the rest of the bookkeeping lives, and this
+ * process is about to exit anyway.
+ *
+ * @returns how many sockets were asked to close
+ */
+export function closeAllViewers(code: number, reason: string): number {
+  let closed = 0;
+  for (const viewers of liveViewers.values()) {
+    for (const ws of viewers.values()) {
+      try {
+        ws.close(code, reason);
+        closed++;
+      } catch {
+        // A socket already gone is the outcome this wanted anyway.
+      }
+    }
+  }
+  return closed;
+}
+
+/**
  * Removes a viewer and re-settles everything that depended on it.
  *
  * The whole detach bookkeeping lives here rather than in the close handler so

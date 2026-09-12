@@ -240,6 +240,23 @@ export function disconnectNode(
 }
 
 /**
+ * Close every live node socket with one code — the self-restart's node half.
+ *
+ * Each agent's own backoff loop reconnects, so this is a courtesy close rather
+ * than a revocation: 1012 Service Restart tells the agent why its socket went
+ * away instead of leaving it to discover a dropped connection. In-flight
+ * commands drain through each socket's close event, as with
+ * {@link disconnectNode} on a live socket.
+ *
+ * @returns how many connections were closed
+ */
+export function disconnectAllNodes(code: number, reason: string): number {
+  let closed = 0;
+  for (const id of listOnline()) if (disconnectNode(id, code, reason)) closed++;
+  return closed;
+}
+
+/**
  * Empties the registry. Test seam only — production callers must not call
  * this; @internal.
  */
