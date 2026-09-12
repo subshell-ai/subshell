@@ -644,10 +644,12 @@ describe("what the page never asks for", () => {
       "node_enroll",
       "node_set_agent_bin",
       "node_open_path",
-      // Read once for the About footer. Read-only, no machine state, no path —
-      // `node_open_web` is NOT here because nothing on a rendered page invokes
-      // it until a link is clicked, which this case does not do.
-      "node_about",
+      // Tauri's own event plumbing, not a command this app defines: the page
+      // subscribes for the tray's screen requests on mount. `node_about` is
+      // NOT here any more — it is read by the About screen, which a person has
+      // to ask for, and no rendered screen invokes it.
+      "plugin:event|listen",
+      "plugin:event|unlisten",
     ]);
     for (const call of fake.calls) expect(allowed.has(call.cmd)).toBe(true);
     // No `service run` — it never resolves and flaps against the service.

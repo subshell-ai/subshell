@@ -61,6 +61,7 @@ const TRAY_ID: &str = "subshell-node";
 const OPEN_ID: &str = "tray:open";
 const NODE_ID: &str = "tray:node";
 const KEEP_ID: &str = "tray:keep";
+const ABOUT_ID: &str = "tray:about";
 
 /// The "Keep Running in Menu Bar" check item, held so the menu handler can
 /// read the state muda has already toggled onto it.
@@ -102,6 +103,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // macOS it is a second route to what the View menu already carries, which
     // costs a submenu.
     let text_size = text_size_submenu(app)?;
+    // macOS has the system's own About panel in the app menu; this is the
+    // route everywhere else, where a GTK menu bar is per-window chrome rather
+    // than a system bar and the app would otherwise never say what it is.
+    // Present on both, because the tray is the one menu both platforms share
+    // and a second platform branch buys nothing here.
+    let about = MenuItem::with_id(app, ABOUT_ID, "About Subshell Client", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -109,6 +116,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &node,
             &PredefinedMenuItem::separator(app)?,
             &text_size,
+            &about,
             &PredefinedMenuItem::separator(app)?,
             &keep,
             &PredefinedMenuItem::separator(app)?,
@@ -150,6 +158,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             OPEN_ID => crate::windows::focus_any(app),
             NODE_ID => crate::windows::focus_node(app),
+            ABOUT_ID => crate::windows::show_node_screen(app, "about"),
             KEEP_ID => set_close_to_tray(app),
             _ => {}
         })
@@ -229,6 +238,11 @@ mod tests {
     }
 
     // Namespaced so they cannot collide with a predefined item's id.
+    #[test]
+    fn the_about_id_is_its_own() {
+        assert_ne!(ABOUT_ID, OPEN_ID);
+    }
+
     #[test]
     fn the_menu_ids_are_namespaced() {
         assert!(OPEN_ID.starts_with("tray:"));

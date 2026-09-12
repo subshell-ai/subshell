@@ -193,6 +193,10 @@ export const NodeRuntimeSchema = t.Object({
     }),
   }),
   configPath: t.String({ description: "The agent's config.json" }),
+  agentLogPath: t.String({
+    description:
+      "The agent's OWN log file — the one GET /api/nodes/:id/logs serves. Exists on every platform, unlike logPath",
+  }),
   logPath: t.Nullable(t.String(), { description: "The launchd log file; null under systemd" }),
   logHint: t.Nullable(t.String(), { description: "The journal command when logPath is null" }),
   tmuxPath: t.Nullable(t.String(), {

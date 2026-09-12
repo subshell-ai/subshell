@@ -1,3 +1,4 @@
+import type { NodeServiceVerb } from "@internal/subshell-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { NODE_QUERY_KEY, NODES_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
@@ -174,21 +175,59 @@ export function useSetNodeAllowedDirs(id: string) {
 }
 
 /**
- * Restarts a node's agent (`POST /api/nodes/:id/restart`).
+ * Drive an enrolled node's service manager — start, stop, restart, install or
+ * uninstall (spec 2026-09-12, node half).
  *
- * No invalidation on success, deliberately: the agent has not restarted yet
- * when this resolves — it is about to drop its socket — so refetching here
- * would cache the state we are trying to leave. Watching it go and come back
- * is {@link useNodeRestartWait}'s job, and the invalidation happens there.
+ * 409s carry the agent's own refusal: `NODE_OFFLINE`, `NODE_AGENT_TOO_OLD`,
+ * `NODE_NOT_SUPERVISED`, `NODE_NO_SERVICE`, and `NODE_RESTART_KILLS_PANES`
+ * (which `{ force: true }` overrides — only for the verbs that can close a
+ * subshell; the server refuses it on the others). `local` is a 400: the
+ * control plane manages itself through `/api/admin/server/*` instead.
  *
- * Refusals are 409s the caller renders verbatim: `NODE_OFFLINE`,
- * `NODE_AGENT_TOO_OLD`, `NODE_NOT_SUPERVISED` and `NODE_RESTART_KILLS_PANES`
- * (which `{ force: true }` overrides). `local` is a 400 — the control plane
- * restarts itself through `/api/admin/server/restart` instead.
+ * **`stop` and `uninstall` are owner-only, and one-way from here.** A command
+ * reaches a node over the agent's own socket, so nothing in this app can start
+ * an agent that is not running — say so before asking for either.
  */
-export function useRestartNode(id: string) {
+export function useNodeService(id: string) {
   return useMutation({
-    mutationFn: (body: { force?: boolean }) =>
-      apiFetch<{ ok: true }>(`/api/nodes/${id}/restart`, { method: "POST", body: JSON.stringify(body) }),
+    mutationFn: (body: { verb: NodeServiceVerb; force?: boolean }) =>
+      apiFetch<{ ok: true; detail?: string }>(`/api/nodes/${id}/service`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
+/**
+ * Read a slice of a node's own agent log.
+ *
+ * A byte RANGE rather than a tail, because the view polls: it holds an offset
+ * and asks for what arrived since. `truncated` means the file was replaced at
+ * its cap and the held offset means nothing — start over from 0.
+ */
+export function useNodeLogSlice(id: string) {
+  return useMutation({
+    mutationFn: (args: { fromByte: number }) =>
+      apiFetch<{ text: string; nextByte: number; size: number; truncated: boolean }>(
+        `/api/nodes/${id}/logs?fromByte=${args.fromByte}`,
+      ),
+  });
+}
+
+/**
+ * Repoint a node at another control plane — OWNER only.
+ *
+ * The address is validated server-side before the node is dialed, so an
+ * unusable one is a 400 rather than a confusing 409 about a machine that is
+ * merely offline. It takes effect on the agent's next restart, which this does
+ * not perform.
+ */
+export function useSetNodeServerUrl(id: string) {
+  return useMutation({
+    mutationFn: (body: { serverUrl: string }) =>
+      apiFetch<{ serverUrl: string; restartRequired: true }>(`/api/nodes/${id}/config`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
   });
 }

@@ -1156,6 +1156,7 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
       paneSafety: "keeps",
     },
     configPath: "/c",
+    agentLogPath: "/tmp/agent.log",
     logPath: null,
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: "/usr/bin/tmux",
@@ -1175,7 +1176,7 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
   test("answers ok FIRST, then exits 0 for the service manager to respawn", async () => {
     const h = await startDaemon({ runtime: supervised });
     await waitForReady(h);
-    const jti = await signAndSend(h, { type: "restart" });
+    const jti = await signAndSend(h, { type: "service", verb: "restart" });
     const res = await waitFor(h, (e) => e.type === "result" && e.ref === jti, "restart result");
     expect(res).toMatchObject({ ok: true });
     // The exit follows the frame, and it is a CLEAN 0 — a non-zero exit would
@@ -1188,7 +1189,7 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
   test("an unsupervised agent refuses and keeps running", async () => {
     const h = await startDaemon({ runtime: { ...supervised, supervised: false } });
     await waitForReady(h);
-    const jti = await signAndSend(h, { type: "restart" });
+    const jti = await signAndSend(h, { type: "service", verb: "restart" });
     const res = await waitFor(h, (e) => e.type === "result" && e.ref === jti, "restart refusal");
     expect(res).toMatchObject({ ok: false, error: "not supervised" });
     await sleep(400); // past RESTART_EXIT_DELAY_MS: nothing may have exited

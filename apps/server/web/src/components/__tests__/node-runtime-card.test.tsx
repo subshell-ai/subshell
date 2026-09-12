@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { NodeRuntimeCard } from "@/components/nodes/node-runtime-card";
-import { setConfirmHandler } from "@/lib/confirm";
 import type { NodeDetail, NodeRuntime } from "@/types/node";
 
 const restore: (() => void)[] = [];
@@ -46,6 +45,7 @@ function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {
       paneSafety: "keeps",
     },
     configPath: "/u/.config/subshell/config.json",
+    agentLogPath: "/u/.config/subshell/logs/agent.log",
     logPath: null,
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: null,
@@ -63,8 +63,6 @@ function renderCard(node: NodeDetail) {
   );
 }
 
-const restartButton = () => screen.getByRole("button", { name: "Restart agent" }) as HTMLButtonElement;
-
 describe("NodeRuntimeCard", () => {
   it("renders nothing without a runtime report", () => {
     // Absent for an offline node, for a `view` grantee, and for `local` — in
@@ -73,7 +71,7 @@ describe("NodeRuntimeCard", () => {
     expect(screen.queryByText("Runtime")).toBeNull();
   });
 
-  it("shows supervision, paths and the journal hint, and offers Restart when supervised", () => {
+  it("shows supervision, paths and the journal hint", () => {
     renderCard({ ...base, runtime: runtime() });
     expect(screen.getByText("Runtime")).toBeTruthy();
     expect(screen.getByText(/systemd \(pid 511\)/)).toBeTruthy();
@@ -82,10 +80,17 @@ describe("NodeRuntimeCard", () => {
     // A node without tmux accepts no launches, which is invisible until
     // someone tries — so it is said here rather than discovered there.
     expect(screen.getByText(/not found: this node accepts no launches/)).toBeTruthy();
-    expect(restartButton().disabled).toBe(false);
   });
 
-  it("disables Restart with the reason when not supervised", () => {
+  // Facts only since the node Service surface landed: the verbs moved to
+  // `NodeServiceCard`, and two cards each offering Restart on one page would
+  // raise the question of whether they differ.
+  it("offers no controls — the verbs live in the Service card", () => {
+    renderCard({ ...base, runtime: runtime() });
+    expect(screen.queryAllByRole("button", { name: /restart/i })).toEqual([]);
+  });
+
+  it("says so when the agent is not supervised", () => {
     renderCard({
       ...base,
       runtime: runtime({
@@ -102,61 +107,12 @@ describe("NodeRuntimeCard", () => {
         tmuxPath: "/usr/bin/tmux",
       }),
     });
-    expect(restartButton().disabled).toBe(true);
     expect(screen.getByText(/Not supervised/)).toBeTruthy();
-  });
-
-  it("sends force only when the node's definition would close its own subshells", async () => {
-    const posted: unknown[] = [];
-    const originalFetch = globalThis.fetch;
-    restore.push(() => {
-      globalThis.fetch = originalFetch;
-    });
-    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        posted.push(JSON.parse(String(init.body)));
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      // The waiter's poll: still the old process, so the wait keeps going.
-      return new Response(JSON.stringify({ ...base, runtime: runtime({ service: killing() }) }), { status: 200 });
-    }) as typeof globalThis.fetch;
-
-    const previousConfirm = setConfirmHandler(async () => true);
-    restore.push(() => {
-      setConfirmHandler(previousConfirm);
-    });
-
-    renderCard({ ...base, runtime: runtime({ service: killing() }) });
-    expect(screen.getByText(/close every subshell running there/)).toBeTruthy();
-    fireEvent.click(restartButton());
-    await waitFor(() => expect(posted).toEqual([{ force: true }]));
-  });
-
-  it("asks first, and sends nothing when the answer is no", async () => {
-    const posted: unknown[] = [];
-    const originalFetch = globalThis.fetch;
-    restore.push(() => {
-      globalThis.fetch = originalFetch;
-    });
-    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
-      if (init?.method === "POST") posted.push(JSON.parse(String(init.body)));
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }) as typeof globalThis.fetch;
-
-    const previousConfirm = setConfirmHandler(async () => false);
-    restore.push(() => {
-      setConfirmHandler(previousConfirm);
-    });
-
-    renderCard({ ...base, runtime: runtime() });
-    fireEvent.click(restartButton());
-    await waitFor(() => expect(restartButton().disabled).toBe(false));
-    expect(posted).toEqual([]);
   });
 });
 
 /** A service definition that takes the panes down with the process. */
-function killing(): NodeRuntime["service"] {
+function _killing(): NodeRuntime["service"] {
   return {
     manager: "systemd",
     installed: true,

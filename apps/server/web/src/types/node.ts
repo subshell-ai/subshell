@@ -147,6 +147,15 @@ export interface NodeRuntime {
   };
   /** The agent's own config file, resolved */
   configPath: string;
+  /**
+   * The agent's OWN log file — what `GET /api/nodes/:id/logs` serves.
+   *
+   * Distinct from `logPath`, which is wherever the service manager redirected
+   * stdout: a file under launchd, nothing at all under systemd. This one is
+   * written by the agent and exists identically everywhere, which is what makes
+   * reading a node's log in a browser one behaviour rather than two.
+   */
+  agentLogPath: string;
   /** The launchd log file; null under systemd */
   logPath: string | null;
   /** The journal command to run when `logPath` is null */

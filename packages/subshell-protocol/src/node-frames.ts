@@ -43,8 +43,16 @@ import type { JsonValue } from "./json.js";
  * without either names a spawn nothing on that machine can perform. The
  * first BREAKING bump of the restarted numbering: a v2 agent is refused by
  * the exact-match gate, which is the point — the pair ships together.
+ *
+ * **4 → 5 is the node Service surface (spec 2026-09-12, node half).**
+ * `restart` left the wire, folded into `service` as one of five verbs: two
+ * commands driving one service manager would be two refusal paths, two audit
+ * actions and two chances to disagree about pane safety. `agent_log_read` and
+ * `set_server_url` arrived beside it, so a headless node can be supervised,
+ * read and repointed from a browser — the only place those questions can be
+ * asked at all on a machine nobody opens a window on.
  */
-export const NODE_PROTOCOL_VERSION = 4;
+export const NODE_PROTOCOL_VERSION = 5;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -78,16 +86,52 @@ export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
 export const NODE_CLOSE_SUPERSEDED = 4409;
 
 /**
- * `result.error` from a `restart` the agent refused because its service
+ * `result.error` from a `service` verb the agent refused because its service
  * manager did not start it (exiting would not be a restart).
  */
 export const NODE_RESULT_NOT_SUPERVISED = "not supervised";
 
 /**
- * `result.error` from a `restart` the agent refused because the installed
+ * `result.error` from a `service` verb the agent refused because the installed
  * definition would take live panes down (send `force: true`).
+ *
+ * Not restart's alone: `stop` and `uninstall` end the same panes, so all three
+ * destructive verbs answer with this and `start`/`install` never can.
  */
 export const NODE_RESULT_KILLS_PANES = "kills panes";
+
+/**
+ * `result.error` from a `service` verb that needs a definition where none is
+ * installed — `start`, `stop` and `uninstall` on a machine whose agent was
+ * launched by hand.
+ */
+export const NODE_RESULT_NO_SERVICE = "no service definition";
+
+/**
+ * The verbs a `service` command may carry, as a runtime list.
+ *
+ * Exported beside the type because three places iterate it: the frame parser,
+ * the agent's executor and the API route's schema.
+ */
+export const NODE_SERVICE_VERBS = ["start", "stop", "restart", "install", "uninstall"] as const;
+
+/** One verb of the `service` command. */
+export type NodeServiceVerb = (typeof NODE_SERVICE_VERBS)[number];
+
+/**
+ * The verbs that can take live panes down, and therefore the ones that answer
+ * {@link NODE_RESULT_KILLS_PANES} rather than acting.
+ *
+ * `install` writes a definition and `start` brings a stopped agent up; neither
+ * can end a pane, so offering `force` on them would teach a person that the
+ * flag is noise.
+ */
+export const NODE_SERVICE_DESTRUCTIVE: readonly NodeServiceVerb[] = ["stop", "restart", "uninstall"];
+
+/** Whether `verb` is one this protocol knows. */
+export function isNodeServiceVerb(verb: unknown): verb is NodeServiceVerb {
+  return typeof verb === "string" && (NODE_SERVICE_VERBS as readonly string[]).includes(verb);
+}
 
 /* ------------------------------------------------------------------ */
 /* how an agent process runs                                            */
@@ -127,6 +171,15 @@ export interface NodeRuntimeReport {
   logPath: string | null;
   /** The journal command when `logPath` is null. */
   logHint: string | null;
+  /**
+   * The agent's OWN log file — the one `agent_log_read` serves.
+   *
+   * Distinct from `logPath`, which is wherever the service manager redirected
+   * stdout (a file under launchd, nothing under systemd). This one is written
+   * by the agent itself and exists identically on every platform, which is what
+   * makes reading a node's log in a browser a single behaviour rather than two.
+   */
+  agentLogPath: string;
   /** tmux on the daemon's PATH, or null. */
   tmuxPath: string | null;
   /** The agent binary this process re-enters (`selfInvoke.command`). */
@@ -157,6 +210,7 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
     !(s.enabled === null || isBool(s.enabled)) ||
     paneSafety === undefined ||
     !isStr(value.configPath) ||
+    !isStr(value.agentLogPath) ||
     !(value.logPath === null || isStr(value.logPath)) ||
     !(value.logHint === null || isStr(value.logHint)) ||
     !(value.tmuxPath === null || isStr(value.tmuxPath)) ||
@@ -177,6 +231,7 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
       paneSafety,
     },
     configPath: value.configPath,
+    agentLogPath: value.agentLogPath,
     logPath: value.logPath,
     logHint: value.logHint,
     tmuxPath: value.tmuxPath,
@@ -454,14 +509,55 @@ export type NodeCommandBody =
   | { type: "ping" }
   | {
       /**
-       * Exit 0 so the service manager respawns the agent (spec 2026-09-12
-       * § 6.3). Refused when this process is not the one the manager
-       * started, and when the installed definition would take live panes
-       * down unless `force`.
+       * Drive this machine's service manager (spec 2026-09-12, node half).
+       *
+       * One command for all five verbs, because they are one manager and one
+       * set of refusals. `restart` is the verb that used to be its own
+       * command: it exits 0 so the manager respawns the agent, and is refused
+       * when this process is not the one the manager started.
+       *
+       * The agent decides, always. Signing proves WHO asked; whether the
+       * machine can answer is the machine's own business, which is why every
+       * refusal below is the agent's word and not the plane's guess.
        */
-      type: "restart";
-      /** Restart even though the definition's `paneSafety` is not `keeps`. */
+      type: "service";
+      verb: NodeServiceVerb;
+      /**
+       * Act even though the definition's `paneSafety` is not `keeps`.
+       *
+       * Meaningful only for {@link NODE_SERVICE_DESTRUCTIVE}; the agent
+       * ignores it on `start` and `install`, which cannot end a pane.
+       */
       force?: boolean;
+    }
+  | {
+      /**
+       * Read a slice of the agent's OWN log file.
+       *
+       * `agent_log_read`, never `log_read`: that one is a SUBSHELL's pane log,
+       * which holds what an operator typed. These two must never be reachable
+       * through one name.
+       */
+      type: "agent_log_read";
+      /** Byte offset to read from; 0 is the start of the file. */
+      fromByte: number;
+      /** Cap on the bytes returned, so one read cannot pull an entire file into a frame. */
+      maxBytes: number;
+    }
+  | {
+      /**
+       * Rewrite `serverUrl` in the agent's own `config.json`, keeping
+       * `nodeId`, the node key and the pinned `controlPublicKey`.
+       *
+       * The same edit `subshell configure --server` performs, through the same
+       * function — a second writer of that file would be a second set of rules
+       * for it. What differs is who is asking: doing this remotely points a
+       * machine at a host of someone else's choosing, so the plane gates it on
+       * OWNERSHIP rather than on the `edit` grant every other verb here uses.
+       */
+      type: "set_server_url";
+      /** Absolute http(s) origin of the control plane this node should dial. */
+      url: string;
     };
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
@@ -815,12 +911,23 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         : null;
     case "ping":
       return { type: "ping" };
-    case "restart":
-      return !("force" in value)
-        ? { type: "restart" }
-        : isBool(value.force)
-          ? { type: "restart", force: value.force }
-          : null;
+    case "service": {
+      if (!isNodeServiceVerb(value.verb)) return null;
+      if (!("force" in value)) return { type: "service", verb: value.verb };
+      return isBool(value.force) ? { type: "service", verb: value.verb, force: value.force } : null;
+    }
+    case "agent_log_read":
+      return isInt(value.fromByte) &&
+        (value.fromByte as number) >= 0 &&
+        isInt(value.maxBytes) &&
+        (value.maxBytes as number) > 0
+        ? { type: "agent_log_read", fromByte: value.fromByte, maxBytes: value.maxBytes }
+        : null;
+    case "set_server_url":
+      // Shape only. WHICH urls are acceptable is the plane's validator and the
+      // agent's own re-check — a parser that also judged the host would be a
+      // third place to keep that rule.
+      return isStr(value.url) && value.url.length > 0 ? { type: "set_server_url", url: value.url } : null;
     default:
       return null;
   }

@@ -1,4 +1,5 @@
 import { ConsoleTransport, type ILogLayer, LogLayer } from "loglayer";
+import { AGENT_LOG_CAP_BYTES, agentLogPath, CappedFileTransport } from "./log-file.js";
 
 /**
  * Builds the agent's log transport.
@@ -43,7 +44,12 @@ export function createLogTransport(sink: typeof console = console): ConsoleTrans
  * touching a call site — which is exactly what the test helper does.
  */
 export const logger: ILogLayer = new LogLayer({
-  transport: createLogTransport(),
+  // TWO transports, and both are load-bearing. The console is what a person
+  // running `subshell run` reads and what journald/launchd capture; the file
+  // is the only one that exists identically on every platform, which is what
+  // lets the control plane show a HEADLESS node's log in a browser. See
+  // `log-file.ts` for why the manager's own log could not be that.
+  transport: [createLogTransport(), new CappedFileTransport(agentLogPath(), AGENT_LOG_CAP_BYTES)],
   // Serialize errors to PLAIN STRINGS ourselves. Handing the console a raw
   // Error makes Bun's inspector render source context, which inside a
   // `--compile --bytecode` binary is the whole minified bundle — measured: one

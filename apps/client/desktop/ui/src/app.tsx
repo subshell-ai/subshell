@@ -19,11 +19,17 @@
  * This file is the HOST and nothing else: it reads the machine
  * (`use-node-state`), holds the action runner and the enroll form, asks
  * `screenFor` which screen the machine implies, and composes the shared half
- * of the frame — title, subtitle, the problem line, the confirmation and the
- * footer. Each screen owns its own icon, content and bottom bar.
+ * of the frame — title, subtitle, the problem line and the confirmation. Each
+ * screen owns its own icon, content and bottom bar.
+ *
+ * There is no permanent About line under the bar any more (operator's call,
+ * 2026-09-12): a colophon under every screen read as part of the question
+ * being asked. It is a screen you ask for now — from the tray, or from the
+ * macOS menu bar's own About panel.
  */
-import { useState } from "react";
-import { AboutFooter } from "@/components/about-footer";
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
+import { AboutScreen } from "@/components/assistant/about-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
 import { ConnectedScreen } from "@/components/assistant/connected-screen";
 import { EnrollScreen } from "@/components/assistant/enroll-screen";
@@ -48,6 +54,22 @@ export function App() {
 
   /** A screen the USER chose rather than one the machine implies. */
   const [override, setOverride] = useState<NodeUserScreen | null>(null);
+
+  // The tray's own route into this page. One event, one name, and an id this
+  // build does not know is IGNORED rather than throwing — that is what lets a
+  // menu item and this page ship independently.
+  useEffect(() => {
+    const unlisten = listen<string>("desktop-screen", (event) => {
+      if (event.payload === "about") setOverride("about");
+    });
+    return () => {
+      // Both halves swallow: a subscription that never came up has nothing to
+      // tear down, and a teardown that races the window going away must not
+      // become an unhandled rejection. Neither costs the user anything — the
+      // window this runs in is closing either way.
+      void unlisten.then((off) => off()).catch(() => {});
+    };
+  }, []);
   /**
    * The `enroll --json` body from a successful enrollment in THIS session —
    * the only place the node's display NAME is knowable, since `status --json`
@@ -82,7 +104,6 @@ export function App() {
     confirm: runner.pending ? (
       <ConfirmPanel pending={runner.pending} busy={runner.busy} onAccept={runner.accept} onCancel={runner.cancel} />
     ) : undefined,
-    footer: <AboutFooter probe={probe} />,
   };
 
   if (screen === null) {
@@ -156,6 +177,8 @@ export function App() {
           onReset={() => setOverride("reset")}
         />
       );
+    case "about":
+      return <AboutScreen shell={shell} probe={probe} onClose={() => setOverride(null)} />;
     case "reset":
       return (
         <ResetScreen shell={shell} {...facts} runner={runner} busy={runner.busy} onCancel={() => setOverride(null)} />

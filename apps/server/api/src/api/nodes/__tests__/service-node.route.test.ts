@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   NODE_RESULT_KILLS_PANES,
+  NODE_RESULT_NO_SERVICE,
   NODE_RESULT_NOT_SUPERVISED,
   type NodeRuntimeReport,
 } from "@internal/subshell-protocol";
@@ -26,7 +27,7 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
- * `POST /api/nodes/:id/restart` (spec 2026-09-12 § 6.3) and the `runtime`
+ * `POST /api/nodes/:id/service` (spec 2026-09-12 § 6.3) and the `runtime`
  * block `GET /api/nodes/:id` carries (§ 6.2).
  *
  * The two live together because they are two halves of one fact: `runtime` is
@@ -53,13 +54,14 @@ const runtime: NodeRuntimeReport = {
     paneSafety: "keeps",
   },
   configPath: "/c/config.json",
+  agentLogPath: "/c/logs/agent.log",
   logPath: null,
   logHint: "journalctl --user -u subshell.service -f",
   tmuxPath: "/usr/bin/tmux",
   binaryPath: "/b/subshell",
 };
 
-describe("/api/nodes restart + runtime", () => {
+describe("/api/nodes service + runtime", () => {
   const pw = "node-restart-1";
   const emails = {
     alice: `nr-alice-${crypto.randomUUID()}@subshell.local`,
@@ -174,8 +176,8 @@ describe("/api/nodes restart + runtime", () => {
     return sock;
   }
 
-  /** Fire a restart and answer its one command with what the agent would send. */
-  async function restartWithAnswer(
+  /** Fire a service verb and answer its one command with what the agent would send. */
+  async function serviceWithAnswer(
     nodeId: string,
     cookie: string,
     body: unknown,
@@ -184,15 +186,16 @@ describe("/api/nodes restart + runtime", () => {
   ): Promise<Response> {
     const sock = goOnline(nodeId, facts);
     try {
-      const resP = req("POST", `/api/nodes/${nodeId}/restart`, { cookie, body });
-      await waitFor(() => sock.sent.length > 0, "restart command on the wire");
+      const resP = req("POST", `/api/nodes/${nodeId}/service`, { cookie, body });
+      await waitFor(() => sock.sent.length > 0, "service command on the wire");
       const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
       const claim = JSON.parse(Buffer.from((frame.jws.split(".")[1] ?? "") as string, "base64url").toString()) as {
         jti: string;
         aud: string;
-        cmd: { type: string; force?: boolean };
+        cmd: { type: string; verb?: string; force?: boolean };
       };
-      expect(claim.cmd.type).toBe("restart");
+      expect(claim.cmd.type).toBe("service");
+      expect(claim.cmd.verb).toBe((body as { verb?: string }).verb);
       expect(claim.aud).toBe(`node:${nodeId}`);
       expect(claim.cmd.force).toBe((body as { force?: boolean }).force);
       const ev = answer.ok
@@ -210,11 +213,11 @@ describe("/api/nodes restart + runtime", () => {
     return ((await res.json()) as { code: string }).code;
   }
 
-  // ── POST /api/nodes/:id/restart ─────────────────────────────────────────
+  // ── POST /api/nodes/:id/service ─────────────────────────────────────────
 
   it("offline → 409 NODE_OFFLINE", async () => {
     const id = await mkAgent();
-    const res = await req("POST", `/api/nodes/${id}/restart`, { cookie: aliceCookie, body: {} });
+    const res = await req("POST", `/api/nodes/${id}/service`, { cookie: aliceCookie, body: { verb: "restart" } });
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_OFFLINE");
   });
@@ -224,43 +227,118 @@ describe("/api/nodes restart + runtime", () => {
     // A `view` grantee may LAUNCH on this node; restarting the machine's agent
     // is a configure act, so `nodeCanConfigure` and not `canAccess`.
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
-    expect((await req("POST", `/api/nodes/${id}/restart`, { cookie: carolCookie, body: {} })).status).toBe(403);
-    expect((await req("POST", "/api/nodes/local/restart", { cookie: aliceCookie, body: {} })).status).toBe(400);
     expect(
-      (await req("POST", `/api/nodes/nope-${crypto.randomUUID()}/restart`, { cookie: aliceCookie, body: {} })).status,
+      (await req("POST", `/api/nodes/${id}/service`, { cookie: carolCookie, body: { verb: "restart" } })).status,
+    ).toBe(403);
+    expect(
+      (await req("POST", "/api/nodes/local/service", { cookie: aliceCookie, body: { verb: "restart" } })).status,
+    ).toBe(400);
+    expect(
+      (
+        await req("POST", `/api/nodes/nope-${crypto.randomUUID()}/service`, {
+          cookie: aliceCookie,
+          body: { verb: "restart" },
+        })
+      ).status,
     ).toBe(404);
-    expect((await req("POST", `/api/nodes/${id}/restart`, { bearer: subshellKey, body: {} })).status).toBe(403);
-    expect((await req("POST", `/api/nodes/${id}/restart`, { body: {} })).status).toBe(401);
+    expect(
+      (await req("POST", `/api/nodes/${id}/service`, { bearer: subshellKey, body: { verb: "restart" } })).status,
+    ).toBe(403);
+    expect((await req("POST", `/api/nodes/${id}/service`, { body: { verb: "restart" } })).status).toBe(401);
   });
 
-  it("online: sends the signed restart, answers {ok:true}, audits node.restart", async () => {
+  /**
+   * The two one-way verbs. A command reaches a node over the AGENT'S OWN
+   * socket, so the plane can never start an agent that is not running:
+   * `stop` and `uninstall` end the connection that would carry the verb
+   * undoing them. An `edit` grantee is trusted to interrupt a machine they
+   * were shared (a restart comes back); making it unreachable until somebody
+   * walks to it is a different act, so those two are the owner's.
+   */
+  it("stop and uninstall are owner-only, even for an edit grantee", async () => {
     const id = await mkAgent();
-    const res = await restartWithAnswer(id, aliceCookie, {}, { ok: true });
+    await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
+    for (const verb of ["stop", "uninstall"] as const) {
+      expect((await req("POST", `/api/nodes/${id}/service`, { cookie: carolCookie, body: { verb } })).status).toBe(403);
+    }
+    // The reachable verbs stay with `nodeCanConfigure`, so the same grantee
+    // may still drive them — offline here, which is a 409 and not a 403.
+    for (const verb of ["restart", "start", "install"] as const) {
+      expect((await req("POST", `/api/nodes/${id}/service`, { cookie: carolCookie, body: { verb } })).status).toBe(409);
+    }
+  });
+
+  it("refuses a verb it does not know", async () => {
+    const id = await mkAgent();
+    const res = await req("POST", `/api/nodes/${id}/service`, { cookie: aliceCookie, body: { verb: "reload" } });
+    expect(res.status).toBe(400);
+  });
+
+  /**
+   * `force` means "act even though live panes will die", so it is meaningless
+   * on the two verbs that cannot end one. Refused rather than ignored: a flag
+   * silently accepted where it does nothing is how a caller learns it is
+   * noise, and then passes it where it is not.
+   */
+  it("refuses force on a verb that cannot close a subshell", async () => {
+    const id = await mkAgent();
+    for (const verb of ["start", "install"] as const) {
+      const res = await req("POST", `/api/nodes/${id}/service`, { cookie: aliceCookie, body: { verb, force: true } });
+      expect(res.status).toBe(400);
+      expect(await codeOf(res)).toBe("BAD_REQUEST");
+    }
+  });
+
+  it("maps the agent's no-definition refusal to NODE_NO_SERVICE", async () => {
+    const id = await mkAgent();
+    const res = await serviceWithAnswer(
+      id,
+      aliceCookie,
+      { verb: "start" },
+      { ok: false, error: NODE_RESULT_NO_SERVICE },
+    );
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe("NODE_NO_SERVICE");
+  });
+
+  it("online: sends the signed service command, answers {ok:true}, audits node.service", async () => {
+    const id = await mkAgent();
+    const res = await serviceWithAnswer(id, aliceCookie, { verb: "restart" }, { ok: true });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     const events = await new AuditRepository(db).listLatest(5);
-    const ev = events.find((e) => e.action === "node.restart" && e.targetId === id);
+    const ev = events.find((e) => e.action === "node.service" && e.targetId === id);
     expect(ev).toBeDefined();
     expect(ev?.metadataJson ?? "").toContain("false");
   });
 
   it("carries force through to the signed claim", async () => {
     const id = await mkAgent();
-    const res = await restartWithAnswer(id, aliceCookie, { force: true }, { ok: true });
+    const res = await serviceWithAnswer(id, aliceCookie, { verb: "restart", force: true }, { ok: true });
     expect(res.status).toBe(200);
   });
 
   it("maps the agent's refusals: not supervised, kills panes, unsupported", async () => {
     const id = await mkAgent();
-    let res = await restartWithAnswer(id, aliceCookie, {}, { ok: false, error: NODE_RESULT_NOT_SUPERVISED });
+    let res = await serviceWithAnswer(
+      id,
+      aliceCookie,
+      { verb: "restart" },
+      { ok: false, error: NODE_RESULT_NOT_SUPERVISED },
+    );
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_NOT_SUPERVISED");
 
-    res = await restartWithAnswer(id, aliceCookie, {}, { ok: false, error: NODE_RESULT_KILLS_PANES });
+    res = await serviceWithAnswer(id, aliceCookie, { verb: "restart" }, { ok: false, error: NODE_RESULT_KILLS_PANES });
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_RESTART_KILLS_PANES");
 
-    res = await restartWithAnswer(id, aliceCookie, { force: true }, { ok: false, error: "unsupported" });
+    res = await serviceWithAnswer(
+      id,
+      aliceCookie,
+      { verb: "restart", force: true },
+      { ok: false, error: "unsupported" },
+    );
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_AGENT_TOO_OLD");
   });
@@ -277,10 +355,10 @@ describe("/api/nodes restart + runtime", () => {
       ...runtime,
       service: { ...runtime.service, paneSafety: "unknown" },
     };
-    const res = await restartWithAnswer(
+    const res = await serviceWithAnswer(
       id,
       aliceCookie,
-      {},
+      { verb: "restart" },
       { ok: false, error: NODE_RESULT_KILLS_PANES },
       unknownSafety,
     );
@@ -297,7 +375,12 @@ describe("/api/nodes restart + runtime", () => {
    */
   it("maps an unrecognized agent error to NODE_UNREACHABLE", async () => {
     const id = await mkAgent();
-    const res = await restartWithAnswer(id, aliceCookie, {}, { ok: false, error: "not supervised enough, honestly" });
+    const res = await serviceWithAnswer(
+      id,
+      aliceCookie,
+      { verb: "restart" },
+      { ok: false, error: "not supervised enough, honestly" },
+    );
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_UNREACHABLE");
   });

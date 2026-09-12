@@ -15,15 +15,18 @@
 import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
 
 /** The assistant's screens. One decision each (spec § 6.4). */
-export type NodeScreenId = "connect" | "install-agent" | "enroll" | "service" | "connected" | "reset";
+export type NodeScreenId = "connect" | "install-agent" | "enroll" | "service" | "connected" | "reset" | "about";
 
 /**
  * A screen the USER chose rather than one the machine implies.
  *
  * Re-enrolling and resetting are things a person asks for from a machine that
- * is already working; no probe ever implies either.
+ * is already working; no probe ever implies either. `about` joined them when
+ * the permanent colophon under every screen was removed (operator's call,
+ * 2026-09-12): what this app is and under what terms is something a person
+ * ASKS for, not something that sits under the question being asked.
  */
-export type NodeUserScreen = "enroll" | "reset";
+export type NodeUserScreen = "enroll" | "reset" | "about";
 
 /**
  * Which screen this machine sees.
@@ -124,6 +127,8 @@ export function screenTitle(screen: NodeScreenId, probe: Probe | undefined): str
       // this app does is on this machine, so saying so was only ever
       // redundant. Both desktop apps use this same string.
       return "Reset Subshell";
+    case "about":
+      return "About Subshell Client";
   }
 }
 

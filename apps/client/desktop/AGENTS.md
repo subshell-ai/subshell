@@ -431,6 +431,31 @@ than a system bar. Where the tray probe says no icon would be drawn, there is
 no route to the text size at all; the fix if that ever bites is one row on the
 bundled assistant page, which is the surface that can already invoke commands.
 
+## About is a screen you ask for, not a footer
+
+The node assistant used to carry a one-line colophon under its bottom bar on
+every screen. It is gone (operator's call, 2026-09-12): the assistant asks one
+question per screen, and a line about who owns the product read as part of that
+question.
+
+What replaced it is `components/assistant/about-screen.tsx`, one of the
+`NodeUserScreen` overrides beside `enroll` and `reset` — screens a PERSON asks
+for, which no probe ever implies. The routes to it:
+
+- **macOS**: the system's own About panel, which `menu.rs` already built from
+  the same constants. Unchanged.
+- **Everywhere**: the tray's `About Subshell Client`, which raises the node
+  window and emits `desktop-screen` to THAT window alone (`windows::show_node_screen`).
+  A broadcast would also reach the plane's page, which this app grants nothing
+  and tells nothing. A screen id this build does not know is ignored rather
+  than being an error, so a menu item and the page can ship independently.
+
+The content still comes from one `node_about` call, so the facts live only in
+`crates/desktop-core/src/legal.rs`, which `scripts/license-fields.ts` holds
+equal to the TypeScript copy and to the root LICENSE. The AGENT's version comes
+from the probe instead — a different program's version, and the pair is what a
+person opens an About for.
+
 ## The tray preference is in the tray
 
 `close_to_tray` is a `CheckMenuItem` in the tray menu, and `node_settings` no

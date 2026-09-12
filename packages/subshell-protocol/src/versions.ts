@@ -57,7 +57,7 @@ export function semverLt(a: string, b: string): boolean {
  * floor described versions that no longer exist; the wire contract that
  * actually gates nodes is still NODE_PROTOCOL_VERSION.
  */
-export const MIN_AGENT_VERSION = "0.1.0";
+export const MIN_AGENT_VERSION = "0.3.0";
 
 /**
  * Whether an agent reporting `version` may connect.

@@ -134,12 +134,27 @@ delete. As with every other field here, the node key is never included,
 
 ## Logging
 
-`src/log.ts` is the agent's only log surface: **LogLayer** with the core
-`ConsoleTransport` — both ship inside the `loglayer` package, so the compiled
-binary takes on no third-party dependency for logging. `log(message)` is the
-common call; `logger` is there for `withError()` / `withMetadata()` / levels.
+`src/log.ts` is the agent's only log surface: **LogLayer** with TWO transports
+— the core `ConsoleTransport` and `CappedFileTransport` (`src/log-file.ts`) —
+both built on what ships inside the `loglayer` package, so the compiled binary
+takes on no third-party dependency for logging. `log(message)` is the common
+call; `logger` is there for `withError()` / `withMetadata()` / levels.
 
-Three things about it are deliberate:
+**The file exists because the console does not answer the question.** What
+happens to the agent's stdout is a different thing on every platform: launchd
+redirects it to a file, systemd hands it to the journal, a container sends it
+nowhere in particular — which is why `collectRuntime` reports a `logHint`
+telling a person to go run `journalctl`. Most nodes are headless, so "read this
+machine's log" has to work from a browser, and it cannot be built on an
+artifact that only exists on macOS. So the agent writes one bounded file of its
+own: `<configHome>/logs/agent.log`, JSON lines, 0600, capped at 200 KB and
+REPLACED when full, the same everywhere, served to the plane by
+`agent_log_read` and reported as `runtime.agentLogPath`. It is a deliberate
+COPY of the server's `utils/log-file.ts` rather than an import — that file is
+AGPL and this app is Apache-2.0, so importing the value would entangle the two
+licences for sixty lines.
+
+Three more things about it are deliberate:
 
 - **The line format is unchanged** from the hand-rolled `console.log` it
   replaced (`[subshell <ISO>] <message>`, via `messageFn`). The daemon's stdout
@@ -232,10 +247,27 @@ the field is optional on the wire, and the plane shows no card. `parseNodeEvent`
 drops a malformed one and keeps the `ready`, so a wrong report costs the card
 and never the connection.
 
-## `restart` (`src/commands/restart.ts`)
+## `service` (`src/commands/service.ts`)
 
-The plane-sent `{ type: "restart" }` exits 0 so the service manager respawns the
-agent. Three things about it are load-bearing:
+The plane-sent `{ type: "service", verb }` drives this machine's service
+manager — `start`, `stop`, `restart`, `install`, `uninstall`. Through protocol
+4 `restart` was its own command; folding it in removed a second refusal path
+and a second chance to disagree about pane safety.
+
+**`restart` is not `systemctl restart`.** It exits 0 and lets the manager
+respawn the agent — asking systemd to restart the unit from inside that unit
+kills the process mid-command, so the result frame never goes out and the plane
+sees a dropped socket instead of an answer. Every other verb is a real call to
+the manager, through the same `controlService`/`installService` the CLI uses.
+
+**Two of the five are one-way from the plane, and nothing here can soften
+that.** A command arrives over the agent's OWN socket, so `stop` and
+`uninstall` end the connection that would have carried the verb undoing them —
+the plane can never start an agent that is not running. The PLANE gates those
+two on ownership and says so in its confirmation; this side simply performs
+them.
+
+Three things about `restart` are load-bearing:
 
 - **The `result` frame goes out FIRST, and the exit is 250 ms later.** The
   daemon is the only sender of `result`, so an executor that exited itself
@@ -248,7 +280,9 @@ agent. Three things about it are load-bearing:
 - **`paneSafety: "unknown"` refuses with `"kills"`, not with `"keeps"`.** Same
   fail-closed rule the CLI's own destructive verbs use — an unreadable
   definition is not evidence of safety — and `force: true` is the only way past
-  either.
+  either. That refusal is not restart's alone: `stop` and `uninstall` end the
+  same panes, so all three destructive verbs carry it and `start`/`install`
+  never can.
 
 The exit takes the SIGINT/SIGTERM path verbatim (set `shuttingDown`, close the
 socket 1000, let the loop's `stop(0)` run), so `daemon.lock` is cleared by the

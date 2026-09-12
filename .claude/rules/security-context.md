@@ -281,8 +281,35 @@ shares and subshell shares are two independent axes:
   backend host — same local-user exposure as everywhere else here).
 - A **node API key can do nothing on REST** (explicit guard rejection, §5.5);
   its blast radius is exactly "impersonate this node on `/ws/node`".
-- **The plane can restart a node's agent** (`POST /api/nodes/:id/restart`,
-  spec 2026-09-12 §6.3). **No new trust**: the plane already runs arbitrary
+- **The plane drives a node's service manager, reads its log and can repoint
+  it** (`/api/nodes/:id/service`, `/logs`, `/config`; spec 2026-09-12, node
+  half). Most nodes are headless, so a browser is the only place these can be
+  asked at all. Cookie only; `local` refused; audited as `node.service` and
+  `node.config.update`. Two gates are NOT `nodeCanConfigure` and both are
+  deliberate:
+  - **`stop` and `uninstall` are owner-only** — structurally, not as a
+    permission nicety. Every command reaches a node over the AGENT'S OWN
+    socket, so the plane can never start an agent that is not running: those
+    two end the connection that would carry the verb undoing them. An `edit`
+    grantee may interrupt a machine they were shared; making it unreachable
+    until someone walks to it is a different act.
+  - **Repointing is owner-only** and is a REAL widening of what
+    `subshell configure --server` is locally. The agent dials whatever host
+    was named carrying `Authorization: Bearer <nodeKey>` — a credential valid
+    on THIS plane — and the machine leaves this instance. Loopback is refused
+    outright (nobody is at a headless machine to notice it dialing itself),
+    every address is validated by component and stored canonicalized, and the
+    audit row names the new value (the plane never knew the old one: which
+    address a node dials lives in that machine's own config).
+  - **The agent's log became readable over HTTP.** The agent now writes its own
+    bounded file (0600, 200 KB, replaced when full) because its console output
+    goes to a journal on Linux and a file on macOS, and neither is readable
+    from a browser. Same accounting as the server's own log: the set of people
+    who may read it is unchanged (owner or `edit`), what widens is the set of
+    PLACES. An agent logs launches, refusals and connection errors — never pane
+    content, and never argv, which carries a subshell's bearer token.
+- **The plane can restart a node's agent** (now the `restart` verb of the
+  above; spec 2026-09-12 §6.3). **No new trust**: the plane already runs arbitrary
   commands on that machine under that OS user, and "exit so your service
   manager respawns you" is the narrowest thing it could be asked to do. The
   agent applies the same two refusals the server applies to itself — not

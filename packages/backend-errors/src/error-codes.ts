@@ -27,6 +27,7 @@ export enum BackendErrorCodes {
   NODE_AGENT_TOO_OLD = "NODE_AGENT_TOO_OLD",
   NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
   /** `POST /api/nodes/:id/restart`: the agent is not the process its service manager started, so exiting would not be a restart. */
+  NODE_NO_SERVICE = "NODE_NO_SERVICE",
   NODE_NOT_SUPERVISED = "NODE_NOT_SUPERVISED",
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_ONLINE = "NODE_ONLINE",
@@ -107,6 +108,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_OFFLINE]: {
     message: "Node is offline",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_NO_SERVICE]: {
+    message: "Node has no service definition installed",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NOT_SUPERVISED]: {

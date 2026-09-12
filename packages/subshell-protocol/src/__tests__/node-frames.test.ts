@@ -3,7 +3,10 @@ import {
   HARNESS_BINARY_PLACEHOLDER,
   NODE_PROTOCOL_VERSION,
   NODE_RESULT_KILLS_PANES,
+  NODE_RESULT_NO_SERVICE,
   NODE_RESULT_NOT_SUPERVISED,
+  NODE_SERVICE_DESTRUCTIVE,
+  NODE_SERVICE_VERBS,
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeRuntimeReport,
@@ -135,8 +138,11 @@ describe("parseNodeCommandBody", () => {
     // longer carries a plugin set, and `launch` requires `argv` + `resolve`.
     // 4 replaced `ready.mcpLaunch` with `ready.selfInvoke`: the same
     // self-invocation WITHOUT its subcommand, so the plane can append `report`
-    // for harness hooks as well as `mcp` for a pane's registration.)
-    expect(NODE_PROTOCOL_VERSION).toBe(4);
+    // for harness hooks as well as `mcp` for a pane's registration.
+    // 5 is the node Service surface: `restart` folded into `service` as one
+    // of five verbs, and `agent_log_read` + `set_server_url` arrived, so a
+    // headless node can be supervised, read and repointed from a browser.)
+    expect(NODE_PROTOCOL_VERSION).toBe(5);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -449,6 +455,7 @@ describe("ready.runtime (additive)", () => {
       paneSafety: "keeps",
     },
     configPath: "/u/.config/subshell/config.json",
+    agentLogPath: "/u/.config/subshell/logs/agent.log",
     logPath: null,
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: "/usr/bin/tmux",
@@ -477,15 +484,84 @@ describe("ready.runtime (additive)", () => {
   });
 });
 
-describe("restart command", () => {
-  it("parses with and without force", () => {
-    expect(parseNodeCommandBody({ type: "restart" })).toEqual({ type: "restart" });
-    expect(parseNodeCommandBody({ type: "restart", force: true })).toEqual({ type: "restart", force: true });
-    expect(parseNodeCommandBody({ type: "restart", force: "yes" })).toBeNull();
+describe("service command", () => {
+  it("parses every verb, with and without force", () => {
+    for (const verb of NODE_SERVICE_VERBS) {
+      expect(parseNodeCommandBody({ type: "service", verb })).toEqual({ type: "service", verb });
+      expect(parseNodeCommandBody({ type: "service", verb, force: true })).toEqual({
+        type: "service",
+        verb,
+        force: true,
+      });
+    }
+    expect(parseNodeCommandBody({ type: "service", verb: "restart", force: "yes" })).toBeNull();
   });
 
-  it("names the two refusal strings as constants", () => {
+  // A verb this protocol does not know must be refused at the PARSER, not
+  // reach the agent's switch and fall through to an `unsupported` result that
+  // reads like a version mismatch.
+  it("refuses a verb it does not know", () => {
+    expect(parseNodeCommandBody({ type: "service", verb: "reload" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "service" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "service", verb: 1 })).toBeNull();
+  });
+
+  // `restart` was its own command through protocol 4. It is a VERB now, and
+  // the old spelling must not quietly parse into anything.
+  it("no longer knows the standalone restart command (protocol 5)", () => {
+    expect(parseNodeCommandBody({ type: "restart" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "restart", force: true })).toBeNull();
+  });
+
+  it("names the refusal strings as constants", () => {
     expect(NODE_RESULT_NOT_SUPERVISED).toBe("not supervised");
     expect(NODE_RESULT_KILLS_PANES).toBe("kills panes");
+    expect(NODE_RESULT_NO_SERVICE).toBe("no service definition");
+  });
+
+  // Only the verbs that can end a pane may ask for `force`. Offering it on
+  // `start` or `install` would teach a person that the flag is noise.
+  it("marks exactly the destructive verbs", () => {
+    expect([...NODE_SERVICE_DESTRUCTIVE].sort()).toEqual(["restart", "stop", "uninstall"]);
+    for (const verb of NODE_SERVICE_DESTRUCTIVE) expect(NODE_SERVICE_VERBS).toContain(verb);
+  });
+});
+
+describe("agent_log_read command", () => {
+  it("parses a well-formed range", () => {
+    expect(parseNodeCommandBody({ type: "agent_log_read", fromByte: 0, maxBytes: 64_000 })).toEqual({
+      type: "agent_log_read",
+      fromByte: 0,
+      maxBytes: 64_000,
+    });
+  });
+
+  it("refuses a negative offset, a non-positive cap, and missing fields", () => {
+    expect(parseNodeCommandBody({ type: "agent_log_read", fromByte: -1, maxBytes: 10 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "agent_log_read", fromByte: 0, maxBytes: 0 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "agent_log_read", fromByte: 0 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "agent_log_read", fromByte: "0", maxBytes: 10 })).toBeNull();
+  });
+
+  // The pane log holds what an operator TYPED. These two must never be
+  // reachable through one name, so the names are pinned rather than assumed.
+  it("is a different command from a subshell's pane log_read", () => {
+    expect(parseNodeCommandBody({ type: "agent_log_read", fromByte: 0, maxBytes: 1 })).not.toBeNull();
+    expect(parseNodeCommandBody({ type: "log_read", fromByte: 0, maxBytes: 1 })).toBeNull();
+  });
+});
+
+describe("set_server_url command", () => {
+  it("parses a non-empty url", () => {
+    expect(parseNodeCommandBody({ type: "set_server_url", url: "https://plane.example.com" })).toEqual({
+      type: "set_server_url",
+      url: "https://plane.example.com",
+    });
+  });
+
+  it("refuses an absent or empty url", () => {
+    expect(parseNodeCommandBody({ type: "set_server_url", url: "" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_server_url" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_server_url", url: 1 })).toBeNull();
   });
 });

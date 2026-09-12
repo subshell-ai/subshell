@@ -335,3 +335,39 @@ export function parseNodePaneSizeResult(data: unknown): NodePaneSizeResult | nul
   if (cols <= 0 || rows <= 0) return null;
   return { cols, rows };
 }
+
+/* ------------------------------------------------------------------ */
+/* agent_log_read                                                      */
+/* ------------------------------------------------------------------ */
+
+/** A slice of the agent's own log file. */
+export interface NodeAgentLogSlice {
+  /** The bytes read, decoded as UTF-8. */
+  text: string;
+  /** Offset to pass as `fromByte` next time — the end of what was returned. */
+  nextByte: number;
+  /** The file's total size when it was read, so a caller can tell how far behind it is. */
+  size: number;
+  /**
+   * True when `fromByte` pointed past the end of the file.
+   *
+   * The log is REPLACED when it hits its cap rather than rotated, so a reader
+   * holding an offset from before a replacement is not merely behind — its
+   * offset means nothing. This is the flag that tells it to start over instead
+   * of reporting an empty tail forever.
+   */
+  truncated: boolean;
+}
+
+/**
+ * Validates and narrows an `agent_log_read` result.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed slice, or null when the payload is malformed
+ */
+export function parseNodeAgentLogSlice(data: unknown): NodeAgentLogSlice | null {
+  if (!isRecord(data)) return null;
+  const { text, nextByte, size, truncated } = data;
+  if (!isStr(text) || !isInt(nextByte) || !isInt(size) || !isBool(truncated)) return null;
+  if (nextByte < 0 || size < 0) return null;
+  return { text, nextByte, size, truncated };
+}

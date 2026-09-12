@@ -7,6 +7,7 @@
  */
 import type { NodeRuntimeReport } from "@internal/subshell-protocol";
 import { configPath } from "./config.js";
+import { agentLogPath } from "./log-file.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { AGENT_LOG_HINT, DEFAULT_DEPS, queryService, type ServiceState } from "./service.js";
 
@@ -22,6 +23,8 @@ export interface RuntimeDeps {
   which?: (name: string) => string | null;
   /** The agent config file (default `configPath()`). */
   configPath?: string;
+  /** The agent's own log file (default `agentLogPath()`). */
+  agentLogPath?: string;
   /** The binary this process re-enters (default `selfInvokePrefix().command`). */
   binaryPath?: string;
   /** Epoch-ms clock (default `Date.now`). */
@@ -66,6 +69,11 @@ export async function collectRuntime(deps: RuntimeDeps = {}): Promise<NodeRuntim
     logPath,
     // The journal sentence stands in for the file systemd does not write.
     logHint: logPath === null && manager === "systemd" ? AGENT_LOG_HINT : null,
+    // The agent's OWN file, which exists on every platform — this is the one
+    // `agent_log_read` serves and the one the plane's log view shows. `logPath`
+    // above stays what it was (the manager's redirect, or nothing), because a
+    // person debugging a service definition wants exactly that one.
+    agentLogPath: deps.agentLogPath ?? agentLogPath(),
     tmuxPath: which("tmux"),
     binaryPath: deps.binaryPath ?? selfInvokePrefix().command,
   };

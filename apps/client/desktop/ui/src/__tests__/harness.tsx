@@ -108,12 +108,26 @@ export function installFakeIpc(
   const previous = host.__TAURI_INTERNALS__;
 
   host.__TAURI_INTERNALS__ = {
+    // `listen()` registers its callback through this before it invokes
+    // anything, so a fake without it throws inside the page's own effect
+    // rather than failing a test's assertion — which reads as the component
+    // being broken. The id is unused: nothing here ever delivers an event.
+    transformCallback: (callback: unknown) => {
+      void callback;
+      return 1;
+    },
     invoke: async (cmd: string, args: Record<string, unknown> = {}) => {
       calls.push({ cmd, args });
       const handler = handlers[cmd];
       if (handler) return handler(args);
       if (cmd === "node_probe") return probe;
       if (cmd === "node_settings") return settings;
+      // Tauri's own event plugin, which the page subscribes to for the tray's
+      // screen requests. Answered here rather than in every test's handler
+      // map: it is plumbing the page always does, not a command any case is
+      // about.
+      if (cmd === "plugin:event|listen") return 1;
+      if (cmd === "plugin:event|unlisten") return null;
       throw new Error(`unstubbed command: ${cmd}`);
     },
   };

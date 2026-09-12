@@ -71,5 +71,7 @@ export function subtitleFor(
       // Says what is deleted rather than where it lives, which is the same
       // reason the title names no machine (node-assistant-state.ts explains).
       return "Delete this node's configuration, its key and its data. Nothing else on this computer is touched.";
+    case "about":
+      return "What this app is, which versions are running, and under what terms.";
   }
 }

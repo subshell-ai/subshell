@@ -315,6 +315,23 @@ pub fn open_at_startup(app: &AppHandle, plane: Option<&str>) -> Result<(), Strin
     Ok(())
 }
 
+/// Raise the node window and ask its page to show a particular screen.
+///
+/// The page decides what to do with the name: it is one of the assistant's
+/// own screen ids, and an id this build does not know is ignored rather than
+/// being an error — which is what lets a menu item and a page ship
+/// independently.
+///
+/// Emitted AFTER the window exists, and to that window alone: a broadcast
+/// would also reach the plane's page, which is remote content this app grants
+/// nothing and tells nothing.
+pub fn show_node_screen(app: &AppHandle, screen: &str) {
+    let Ok(window) = open_node(app) else { return };
+    show(&window);
+    use tauri::Emitter;
+    let _ = window.emit("desktop-screen", screen);
+}
+
 fn show(window: &WebviewWindow) {
     let _ = window.show();
     let _ = window.unminimize();

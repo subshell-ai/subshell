@@ -29,6 +29,9 @@ import { Route as SettingsServiceRouteImport } from './routes/settings_.service'
 import { Route as SettingsStatusRouteImport } from './routes/settings_.status'
 import { Route as SubshellsIdRouteImport } from './routes/subshells_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
+import { Route as NodesIdConfigRouteImport } from './routes/nodes_.$id.config'
+import { Route as NodesIdLogsRouteImport } from './routes/nodes_.$id.logs'
+import { Route as NodesIdServiceRouteImport } from './routes/nodes_.$id.service'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -130,6 +133,21 @@ const WorkspacesIdRoute = WorkspacesIdRouteImport.update({
   path: '/workspaces/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NodesIdConfigRoute = NodesIdConfigRouteImport.update({
+  id: '/config',
+  path: '/config',
+  getParentRoute: () => NodesIdRoute,
+} as any)
+const NodesIdLogsRoute = NodesIdLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => NodesIdRoute,
+} as any)
+const NodesIdServiceRoute = NodesIdServiceRouteImport.update({
+  id: '/service',
+  path: '/service',
+  getParentRoute: () => NodesIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -143,7 +161,7 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
-  '/nodes/$id': typeof NodesIdRoute
+  '/nodes/$id': typeof NodesIdRouteWithChildren
   '/profiles/$id': typeof ProfilesIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
@@ -152,6 +170,9 @@ export interface FileRoutesByFullPath {
   '/settings/status': typeof SettingsStatusRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
+  '/nodes/$id/config': typeof NodesIdConfigRoute
+  '/nodes/$id/logs': typeof NodesIdLogsRoute
+  '/nodes/$id/service': typeof NodesIdServiceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -165,7 +186,7 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
-  '/nodes/$id': typeof NodesIdRoute
+  '/nodes/$id': typeof NodesIdRouteWithChildren
   '/profiles/$id': typeof ProfilesIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
@@ -174,6 +195,9 @@ export interface FileRoutesByTo {
   '/settings/status': typeof SettingsStatusRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
+  '/nodes/$id/config': typeof NodesIdConfigRoute
+  '/nodes/$id/logs': typeof NodesIdLogsRoute
+  '/nodes/$id/service': typeof NodesIdServiceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -188,7 +212,7 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
-  '/nodes_/$id': typeof NodesIdRoute
+  '/nodes_/$id': typeof NodesIdRouteWithChildren
   '/profiles_/$id': typeof ProfilesIdRoute
   '/settings_/api-keys': typeof SettingsApiKeysRoute
   '/settings_/audit': typeof SettingsAuditRoute
@@ -197,6 +221,9 @@ export interface FileRoutesById {
   '/settings_/status': typeof SettingsStatusRoute
   '/subshells_/$id': typeof SubshellsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
+  '/nodes_/$id/config': typeof NodesIdConfigRoute
+  '/nodes_/$id/logs': typeof NodesIdLogsRoute
+  '/nodes_/$id/service': typeof NodesIdServiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -221,6 +248,9 @@ export interface FileRouteTypes {
     | '/settings/status'
     | '/subshells/$id'
     | '/workspaces/$id'
+    | '/nodes/$id/config'
+    | '/nodes/$id/logs'
+    | '/nodes/$id/service'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -243,6 +273,9 @@ export interface FileRouteTypes {
     | '/settings/status'
     | '/subshells/$id'
     | '/workspaces/$id'
+    | '/nodes/$id/config'
+    | '/nodes/$id/logs'
+    | '/nodes/$id/service'
   id:
     | '__root__'
     | '/'
@@ -265,6 +298,9 @@ export interface FileRouteTypes {
     | '/settings_/status'
     | '/subshells_/$id'
     | '/workspaces_/$id'
+    | '/nodes_/$id/config'
+    | '/nodes_/$id/logs'
+    | '/nodes_/$id/service'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -279,7 +315,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   UsersRoute: typeof UsersRoute
   WorkspacesRoute: typeof WorkspacesRoute
-  NodesIdRoute: typeof NodesIdRoute
+  NodesIdRoute: typeof NodesIdRouteWithChildren
   ProfilesIdRoute: typeof ProfilesIdRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
   SettingsAuditRoute: typeof SettingsAuditRoute
@@ -432,8 +468,44 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nodes_/$id/config': {
+      id: '/nodes_/$id/config'
+      path: '/config'
+      fullPath: '/nodes/$id/config'
+      preLoaderRoute: typeof NodesIdConfigRouteImport
+      parentRoute: typeof NodesIdRoute
+    }
+    '/nodes_/$id/logs': {
+      id: '/nodes_/$id/logs'
+      path: '/logs'
+      fullPath: '/nodes/$id/logs'
+      preLoaderRoute: typeof NodesIdLogsRouteImport
+      parentRoute: typeof NodesIdRoute
+    }
+    '/nodes_/$id/service': {
+      id: '/nodes_/$id/service'
+      path: '/service'
+      fullPath: '/nodes/$id/service'
+      preLoaderRoute: typeof NodesIdServiceRouteImport
+      parentRoute: typeof NodesIdRoute
+    }
   }
 }
+
+interface NodesIdRouteChildren {
+  NodesIdConfigRoute: typeof NodesIdConfigRoute
+  NodesIdLogsRoute: typeof NodesIdLogsRoute
+  NodesIdServiceRoute: typeof NodesIdServiceRoute
+}
+
+const NodesIdRouteChildren: NodesIdRouteChildren = {
+  NodesIdConfigRoute: NodesIdConfigRoute,
+  NodesIdLogsRoute: NodesIdLogsRoute,
+  NodesIdServiceRoute: NodesIdServiceRoute,
+}
+
+const NodesIdRouteWithChildren =
+  NodesIdRoute._addFileChildren(NodesIdRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -447,7 +519,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   UsersRoute: UsersRoute,
   WorkspacesRoute: WorkspacesRoute,
-  NodesIdRoute: NodesIdRoute,
+  NodesIdRoute: NodesIdRouteWithChildren,
   ProfilesIdRoute: ProfilesIdRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
   SettingsAuditRoute: SettingsAuditRoute,

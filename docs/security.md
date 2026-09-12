@@ -349,22 +349,59 @@ consequences are:
   everything else here.
 - **A node key can do nothing on REST.** Explicit, permanent guard rejection. Its
   entire blast radius is impersonating that node on `/ws/node`.
-- **The plane can restart a node's agent** (2026-09-12). `POST
-  /api/nodes/:id/restart` sends a signed `restart` command; the agent answers,
-  then exits so its service definition respawns it. This adds no trust and no
+- **The plane drives a node's service manager** (2026-09-12). `POST
+  /api/nodes/:id/service` sends a signed `service` command carrying one of five
+  verbs — start, stop, restart, install, uninstall. `restart` is the verb this
+  route used to be: the agent answers, then exits so its service definition
+  respawns it. This adds no trust and no
   reach: the plane already runs arbitrary commands on that machine under that
   OS user, and "exit" is the narrowest thing it could be asked to do. The
   agent refuses unless the service manager reports this very process — an
   unsupervised agent would be stopped rather than restarted, so it will not
   exit into nothing — and refuses when the definition would take the node's
   running panes down with it, unless the caller passes `force`. Cookie only,
-  owner or `edit`, `local` refused (the control plane restarts itself through
-  its own route instead), audited as `node.restart` with whether it was forced.
-  The honest note is about availability rather than confidentiality: an `edit`
-  grantee may restart a machine they do not own, which briefly takes every
-  subshell running there offline — including the owner's, and including those
-  of other people the node is shared with. The pane-safety refusal is what
-  keeps "briefly offline" from being "closed".
+  owner or `edit`, `local` refused (the control plane manages itself through
+  its own routes instead), audited as `node.service` with the verb and whether
+  it was forced. The honest note is about availability rather than
+  confidentiality: an `edit` grantee may restart a machine they do not own,
+  which briefly takes every subshell running there offline — including the
+  owner's, and including those of other people the node is shared with. The
+  pane-safety refusal is what keeps "briefly offline" from being "closed".
+- **`stop` and `uninstall` are owner-only, and that is structural rather than a
+  permission nicety** (2026-09-12). Every command reaches a node over the
+  AGENT'S OWN socket, so the plane can never start an agent that is not
+  running: those two end the connection that would have carried the verb
+  undoing them. They are one-way from a browser and reversible only by someone
+  with a shell on that machine, so they sit with the owner rather than with an
+  `edit` grantee, who is trusted to interrupt a machine and not to make it
+  unreachable. `force` is refused outright on `start` and `install`, which
+  cannot end a pane — a flag accepted where it does nothing teaches a caller
+  that it is noise.
+- **An enrolled node's agent log is readable over HTTP** (2026-09-12). `GET
+  /api/nodes/:id/logs` serves a byte range of a file the agent now writes
+  itself — 0600, capped at 200 KB, replaced when full — because its console
+  output goes to a journal under systemd and a file under launchd, and neither
+  is readable from a browser. Most nodes are headless, so this is the only way
+  to read one at all. Same accounting as the server's own log: the set of
+  people who may read it does not change (0600 on disk, owner or `edit` on the
+  wire); what widens is the set of PLACES they can read it from. An agent logs
+  launch failures, command refusals and connection errors. It does not log pane
+  content, and it does not log argv — which carries a subshell's bearer token,
+  and is the one thing that would turn a log read into a credential read.
+- **The plane can repoint a node, and that IS a widening** (2026-09-12). `PATCH
+  /api/nodes/:id/config` sends a signed `set_server_url`, which the agent
+  applies through the same `runConfigure` the CLI uses. Doing this locally
+  grants nothing (see below); doing it REMOTELY is a different act. The machine
+  then dials whatever host was named carrying `Authorization: Bearer
+  <nodeKey>` — a credential valid on THIS plane — and it leaves this instance
+  until someone points it back. So it is **owner-only**, not `edit`; the
+  address is validated by component and stored canonicalized; loopback is
+  refused outright, because nobody is sitting at a headless machine to notice
+  it dialing itself; and it is audited as `node.config.update`. The audit names
+  the NEW value only — which address a node dials lives in that machine's own
+  config and is reported by nothing on the wire, so recording a previous value
+  would mean inventing one. It does not restart the agent: the address takes
+  effect on the next start, and choosing when is the operator's.
 - **Repointing a node grants nothing** (2026-09-08). `subshell configure
   --server <url>` rewrites `serverUrl` in the agent's own `config.json` — a
   0600 file whose local OS user could already edit it by hand — keeping

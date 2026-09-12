@@ -1,6 +1,7 @@
 import type { TmuxRunner } from "@internal/pane-runtime";
 import type { JsonValue, NodeCommandBody, NodeEvent, NodeRuntimeReport } from "@internal/subshell-protocol";
 import type { AgentConfig } from "../config.js";
+import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
@@ -125,6 +126,16 @@ export interface CommandContext {
    * and a restart that never answered would read as a timeout on the plane.
    */
   requestRestart: () => void;
+  /**
+   * The service manager seam the `service` command drives.
+   *
+   * Optional, and production omits it: `execService` builds the real
+   * `DEFAULT_DEPS` when it is absent. It exists because every other seam in
+   * `service.ts` is injected too — pinning the exact `systemctl`/`launchctl`
+   * argv a verb runs is the only way to test them without a service manager,
+   * and a test that installs a real launchd job is not a test anyone runs.
+   */
+  serviceDeps?: ServiceDeps;
 }
 
 /**

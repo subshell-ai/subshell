@@ -472,22 +472,50 @@ for a headless box or for the lines written before the database opens, and
 while it is set the route answers **409** rather than writing a row the next
 boot would override.
 
-### Restarting a node from the plane
+### The node Service surface
 
-`POST /api/nodes/:id/restart` is the same act one hop away: a signed `restart`
-command, and the AGENT decides. Gate is cookie-only and `nodeCanConfigure`
+`/api/nodes/:id/service`, `/logs` and `/config` give an enrolled node the
+management surface the plane already has for itself (spec 2026-09-12, node
+half). Most nodes are HEADLESS — the agent is installed there, the GUI never is
+— so a browser is the only place these questions can be asked at all.
+
+| route | |
+| --- | --- |
+| `POST /api/nodes/:id/service` | start / stop / restart / install / uninstall, as one signed `service` command |
+| `GET /api/nodes/:id/logs` | a byte range of the agent's OWN log file |
+| `PATCH /api/nodes/:id/config` | repoint the node at another control plane |
+
+**`stop` and `uninstall` are owner-only, and the reason is structural rather
+than a permission subtlety.** Every command reaches a node over the AGENT'S OWN
+socket, so the plane can never start an agent that is not running: those two
+end the connection that would have carried the verb undoing them. They are
+one-way from a browser, reversible only by someone with a shell on that
+machine. `restart`, `start` and `install` keep the `nodeCanConfigure` gate — they
+leave the node reachable. **Repointing is owner-only too**, for a different
+reason: the agent then dials whatever host was typed carrying a credential
+valid on THIS plane, and the machine leaves this instance.
+
+`local` is refused by all three, BEFORE the permission check — it is a
+statement about the route rather than about the caller, and a 403 would send
+someone looking for an owner to ask.
+
+`POST /api/nodes/:id/service` is the same act one hop away: a signed command,
+and the AGENT decides. Gate is cookie-only and `nodeCanConfigure`
 (owner or `edit`, NOT `canManage`) — a `view` grantee may launch subshells on a
-node, but restarting its daemon interrupts everyone else's panes there.
-`local` → 400: the control-plane host restarts through
-`POST /api/admin/server/restart`, which is a different act with a different
-gate, and routing it here would hand a node's `edit` grantee a way to bounce
-the control plane. No new trust either way — the plane already runs arbitrary
-launches on an enrolled node.
+node, but driving its daemon interrupts everyone else's panes there. `local` →
+400: the control-plane host manages itself through `/api/admin/server/*`,
+which is a different act with a different gate, and routing it here would hand
+a node's `edit` grantee a way to bounce — or stop — the control plane. No new
+trust either way — the plane already runs arbitrary launches on an enrolled
+node.
 
 The agent's refusals map to 409 `NODE_NOT_SUPERVISED`,
-`NODE_RESTART_KILLS_PANES`, `NODE_AGENT_TOO_OLD` (its `unsupported` answer) and
-`NODE_OFFLINE`, with anything unrecognized falling through to
-`NODE_UNREACHABLE` rather than being guessed at.
+`NODE_RESTART_KILLS_PANES`, `NODE_NO_SERVICE`, `NODE_AGENT_TOO_OLD` (its
+`unsupported` answer) and `NODE_OFFLINE`, with anything unrecognized falling
+through to `NODE_UNREACHABLE` rather than being guessed at. `force` is REFUSED
+(400) on `start` and `install`: it means "act even though live panes will die",
+so a flag silently accepted where it does nothing is how a caller learns it is
+noise, and then passes it where it is not.
 
 **That mapping compares `NodeRpcError.detail` by EQUALITY**, against the
 protocol's own `NODE_RESULT_*` constants. `detail` is the agent's

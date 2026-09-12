@@ -1,13 +1,7 @@
-import { RotateCw, X } from "lucide-react";
 import type { JSX } from "react";
 import { Fact, FactCard } from "@/components/admin-status/fact-list";
 import { CopyableValue } from "@/components/service/copyable-value";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { useNodeRestartWait } from "@/hooks/use-node-restart-wait";
-import { useRestartNode } from "@/hooks/use-nodes";
-import { errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 import type { NodeDetail, NodeRuntime } from "@/types/node";
 
 /** Who is running the agent, and since when. */
@@ -18,34 +12,12 @@ function supervisionLine(runtime: NodeRuntime): string {
   return `${manager}${pid}${runtime.service.enabled ? " · starts at login" : ""}`;
 }
 
-/** What the wait is saying right now, or null while nothing has been asked for. */
-function WaitLine({ name, wait }: { name: string; wait: ReturnType<typeof useNodeRestartWait> }): JSX.Element | null {
-  if (wait.outcome === "waiting") {
-    return <p className="col-span-full text-sm text-warning">Restarting… waiting for {name} to come back.</p>;
-  }
-  if (wait.outcome === "back") {
-    return (
-      <p className="col-span-full flex items-center gap-2 text-sm text-success">
-        Back.
-        <Button variant="ghost" size="icon-sm" aria-label="Dismiss" onClick={() => wait.reset()}>
-          <X />
-        </Button>
-      </p>
-    );
-  }
-  if (wait.outcome === "timeout") {
-    return (
-      <p className="col-span-full text-destructive text-sm">
-        The node has not come back. Check the agent on that machine.
-      </p>
-    );
-  }
-  return null;
-}
-
 /**
- * How one node's agent is running, and the one control that acts on the
- * process (spec 2026-09-12 § 6.2 and § 6.3).
+ * How one node's agent is running (spec 2026-09-12 § 6.2).
+ *
+ * FACTS ONLY. The verbs that act on that process live in `NodeServiceCard`
+ * beside it (spec 2026-09-12, node half): two cards on one page each offering
+ * Restart would raise the question of whether they differ.
  *
  * This card is the ONLY surface that answers these questions for a headless
  * node. A Linux box nobody ever opens a window on reports everything the
@@ -59,33 +31,10 @@ function WaitLine({ name, wait }: { name: string; wait: ReturnType<typeof useNod
  */
 export function NodeRuntimeCard({ node }: { node: NodeDetail }): JSX.Element | null {
   const runtime = node.runtime;
-  const restart = useRestartNode(node.id);
-  const wait = useNodeRestartWait(node.id);
 
   if (!runtime) return null;
 
   const kills = runtime.service.paneSafety !== "keeps";
-
-  async function requestRestart(): Promise<void> {
-    if (!runtime) return;
-    const ok = await confirmAction({
-      title: `Restart the agent on "${node.name}"?`,
-      description: kills
-        ? `This node's service definition will close every subshell running there. Reinstall the service definition on ${node.name} to fix this, or restart anyway.`
-        : "Subshells running there keep running; the node is offline for a few seconds.",
-      confirmLabel: kills ? "Restart anyway" : "Restart agent",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await restart.mutateAsync(kills ? { force: true } : {});
-      // Captured here, not read during the wait: the report goes away with
-      // the socket the moment the agent drops.
-      wait.begin(runtime.startedAt);
-    } catch {
-      // The mutation keeps the failure; it renders under the button.
-    }
-  }
 
   return (
     <FactCard title="Runtime">
@@ -127,30 +76,8 @@ export function NodeRuntimeCard({ node }: { node: NodeDetail }): JSX.Element | n
       )}
       {kills && runtime.supervised && (
         <p className="col-span-full text-sm text-warning">
-          Restarting will close every subshell running there; reinstall the service definition on that machine to fix
-          this.
-        </p>
-      )}
-
-      <div className="col-span-full flex items-center gap-3">
-        <Button
-          variant="outline"
-          disabled={!runtime.supervised || wait.waiting || restart.isPending}
-          title={
-            runtime.supervised
-              ? undefined
-              : "This agent is not supervised, so exiting would stop it rather than restart it"
-          }
-          onClick={() => void requestRestart()}
-        >
-          <RotateCw /> Restart agent
-        </Button>
-      </div>
-
-      <WaitLine name={node.name} wait={wait} />
-      {restart.error && (
-        <p className="col-span-full text-destructive text-sm">
-          {errMessage(restart.error, "The agent could not be restarted.")}
+          This node's service definition would close every subshell running there when the agent stops or restarts;
+          reinstall the definition on that machine to fix this.
         </p>
       )}
     </FactCard>

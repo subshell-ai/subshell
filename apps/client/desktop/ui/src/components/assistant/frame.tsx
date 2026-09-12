@@ -7,6 +7,10 @@
  * inherited: 1024×720 window, a 560px column centred in the region, a 72px
  * bottom bar with a hairline top, primary right and ghost left.
  *
+ * There is no About line under the bar (operator's call, 2026-09-12): a
+ * colophon under every screen read as part of the question being asked. It is
+ * a screen of its own now — `about-screen.tsx`.
+ *
  * Two deliberate departures from the server app's frame, both because this
  * assistant is not a sequence:
  *
@@ -37,7 +41,6 @@ export interface FrameShell {
   subtitle?: string;
   problem?: string;
   confirm?: ReactNode;
-  footer?: ReactNode;
 }
 
 export function Frame(props: {
@@ -57,10 +60,8 @@ export function Frame(props: {
   barRight?: ReactNode;
   /** A confirmation awaiting an answer, rendered under the content it is about. */
   confirm?: ReactNode;
-  /** The one-line About footer, under the bar. */
-  footer?: ReactNode;
 }) {
-  const { title, subtitle, icon, problem, children, barLeft, barRight, confirm, footer } = props;
+  const { title, subtitle, icon, problem, children, barLeft, barRight, confirm } = props;
   return (
     <div className="flex h-screen flex-col">
       <div className="flex-1 overflow-y-auto px-8 py-8">
@@ -90,7 +91,6 @@ export function Frame(props: {
         <div className="flex items-center gap-2">{barLeft}</div>
         <div className="flex items-center gap-2">{barRight}</div>
       </div>
-      {footer && <div className="shrink-0 pb-3 text-center">{footer}</div>}
     </div>
   );
 }
