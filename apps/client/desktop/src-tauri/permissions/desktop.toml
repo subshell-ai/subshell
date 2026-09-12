@@ -52,14 +52,21 @@ description = "Reveal one of a fixed set of the app's own directories or log fil
 commands.allow = ["node_open_path"]
 
 [[permission]]
+identifier = "allow-node-arm-reset"
+description = "Read this machine now and stash the reset's delete plan, taken from the agent's own `status --json` rather than derived here. Changes nothing; answers only whether a plan parsed, which is how the screen knows to render its refusal on a machine that is not enrolled."
+commands.allow = ["node_arm_reset"]
+
+[[permission]]
+identifier = "allow-node-reset"
+description = "Return this machine to un-enrolled: stop and uninstall the node service, close this node's pane servers, and delete the data directory, the lock file and config.json — the node key's only home. Irreversible, gated on the typed hostname, and it deletes EXACTLY the stashed plan; the page supplies a hostname, never a path. The installed ~/.local/bin/subshell and the control plane's own node row are deliberately left alone."
+commands.allow = ["node_reset"]
+
+[[permission]]
 identifier = "allow-node-settings"
 description = "Read the app's own preferences."
 commands.allow = ["node_settings"]
 
-[[permission]]
-identifier = "allow-node-set-close-to-tray"
-description = "Choose whether closing the window hides it to the tray."
-commands.allow = ["node_set_close_to_tray"]
+["node_set_close_to_tray"]
 
 [[permission]]
 identifier = "allow-node-open-plane"

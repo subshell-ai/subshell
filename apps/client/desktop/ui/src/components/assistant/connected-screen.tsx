@@ -18,7 +18,6 @@ import { Bot, ExternalLink, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { DetailsDisclosure } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
-import { hereLower } from "@/components/assistant/subtitles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -314,7 +313,7 @@ export function ConnectedScreen(props: {
               Re-enroll…
             </Button>
             <Button variant="outline" size="sm" disabled={busy} onClick={onReset}>
-              Reset {hereLower(platform)}…
+              Reset Subshell…
             </Button>
           </div>
         </div>

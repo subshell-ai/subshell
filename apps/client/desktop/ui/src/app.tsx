@@ -168,6 +168,8 @@ export function App() {
         />
       );
     case "reset":
-      return <ResetScreen shell={shell} busy={runner.busy} platform={platform} onCancel={() => setOverride(null)} />;
+      return (
+        <ResetScreen shell={shell} {...facts} runner={runner} busy={runner.busy} onCancel={() => setOverride(null)} />
+      );
   }
 }

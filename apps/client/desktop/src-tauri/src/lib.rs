@@ -14,6 +14,7 @@
 
 mod agent_bin;
 mod control;
+mod reset;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux has none — and a module compiled there would be entirely dead code.
 // Gated at the MODULE, never at the call site, so `cargo clippy` on Linux sees
@@ -42,6 +43,12 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
     macos_bundle_id: "dev.subshell.client",
     linux_dir: "subshell-desktop-client",
 };
+
+/// Windows whose geometry the window-state plugin must not save or restore.
+///
+/// One name, and it is the assistant's. Kept as a constant so the plugin's
+/// configuration and the test that pins it read the same string.
+const DENYLIST: &[&str] = &[windows::NODE_LABEL];
 
 /// Environment variables this app refuses to pass on to the agent.
 ///
@@ -86,6 +93,21 @@ pub fn run() {
             }))
             .plugin(
                 tauri_plugin_window_state::Builder::default()
+                    // The NODE window is not tracked at all. It is a FIXED,
+                    // non-resizable, centred 1024x720 assistant frame (spec
+                    // 2026-09-12 § 6.4), so there is no user choice to
+                    // remember, and a restored size is actively wrong: the
+                    // frame is drawn to that arithmetic.
+                    //
+                    // Latent here in exactly the way it was in
+                    // `apps/server/desktop` (43f6682, found by running that
+                    // app): the plugin restores AFTER the builder sets a size,
+                    // so any earlier session's saved geometry wins — and every
+                    // install that predates this commit has one, because this
+                    // window shipped resizable at 760x720. The `main` window
+                    // keeps its state; a control plane's UI is a window whose
+                    // size is genuinely a user choice.
+                    .with_denylist(DENYLIST)
                     // NOT VISIBLE. A window hidden to the tray at quit would
                     // otherwise be restored hidden at the next launch — and on
                     // a desktop where the tray icon does not render, that is an
@@ -102,6 +124,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::PlanePin::new())
+        .manage(reset::Stash::default())
         .invoke_handler(tauri::generate_handler![
             control::node_probe,
             control::node_install_agent,
@@ -113,9 +136,10 @@ pub fn run() {
             control::node_about,
             control::node_open_web,
             control::node_settings,
-            control::node_set_close_to_tray,
             control::node_open_plane,
             control::node_open_plane_url,
+            reset::node_arm_reset,
+            reset::node_reset,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -64,6 +64,9 @@ export function subtitleFor(
         : "Enrolled, and the agent is online. Subshells can be launched here from the browser.";
     }
     case "reset":
-      return `Remove this app's node configuration and its agent from ${here}.`;
+      // Says what is deleted rather than where it lives. The title deliberately
+      // names no machine (node-assistant-state.ts explains why), and a subtitle
+      // that put "this Mac" straight back under it would undo that.
+      return "Delete this node's configuration, its key and its data. Nothing else on this computer is touched.";
   }
 }

@@ -69,10 +69,17 @@ impl PlanePin {
     }
 }
 
-/// Small enough for a laptop, big enough for the enrollment form plus the
-/// status block underneath it without the two fighting over the fold.
-const NODE_MIN_WIDTH: f64 = 520.0;
-const NODE_MIN_HEIGHT: f64 = 560.0;
+/// The assistant frame's fixed size (spec 2026-09-11 § 3.1, adopted by this
+/// app in spec 2026-09-12 § 6.4). The same 1024x720 Subshell Server's
+/// assistant uses, because the two are one product and a person who has seen
+/// one should recognise the other.
+///
+/// FIXED rather than a minimum: every screen is a 560px column centred in the
+/// region with a 72px bar under it, drawn to that arithmetic. There is no
+/// layout here that a wider window improves, and the old 520x560 floor let a
+/// user shrink the frame until its bar overlapped its content.
+const NODE_WIDTH: f64 = 1024.0;
+const NODE_HEIGHT: f64 = 720.0;
 
 /// Below this the SPA renders its PHONE drawer — `useIsWide()` is
 /// `matchMedia("(min-width: 1024px)")` and `WORKSPACE_TILING_MIN_WIDTH` is
@@ -93,9 +100,9 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
         // WHICH of them it means — and the word this app uses for a machine
         // that runs agents is "node".
         .title("Subshell Client — Node")
-        .inner_size(760.0, 720.0)
-        .min_inner_size(NODE_MIN_WIDTH, NODE_MIN_HEIGHT)
-        .resizable(true)
+        .inner_size(NODE_WIDTH, NODE_HEIGHT)
+        .resizable(false)
+        .center()
         .build()
         .map_err(|e| format!("could not open the node window: {e}"))
 }

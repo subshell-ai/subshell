@@ -56,6 +56,7 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
       agentLog: null,
       agentLogHint: "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`",
     },
+    hostname: "devbox",
     rewriteTearsDown: false,
     ...overrides,
   };
@@ -70,18 +71,12 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
  * a plane-divergence notice. Pass `planeUrl: null` for the Connect screen and a
  * different address for the divergence cases.
  *
- * `trayStatus` follows `traySupported`, mirroring the Rust side, where both
- * fields come from one probe answer and cannot disagree. The tray preference
- * is no longer rendered by the page (it is a tray menu item), so these two
- * fields are inert here until the Rust side drops them.
+ * Two fields, since the tray preference became a tray menu item and
+ * `node_settings` stopped carrying anything a switch would read.
  */
 export function makeSettings(overrides: Partial<NodeSettings> = {}): NodeSettings {
-  const traySupported = overrides.traySupported ?? false;
   return {
     agentBinPath: null,
-    closeToTray: false,
-    traySupported,
-    trayStatus: traySupported ? "supported" : "unsupported",
     planeUrl: "https://subshell.example.com",
     ...overrides,
   };

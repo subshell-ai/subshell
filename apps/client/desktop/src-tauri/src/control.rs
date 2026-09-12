@@ -36,10 +36,11 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::legal;
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
+use subshell_desktop_core::reset_guards::machine_hostname;
 use subshell_desktop_core::settings::{Settings, SettingsState};
 use subshell_desktop_core::shell_env::{home_dir, which};
 use subshell_desktop_core::sidecar;
-use subshell_desktop_core::tray::{effective_close_to_tray, tray_support, TraySupport};
+use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 
 use crate::agent_bin::{self, decide_agent, AgentBinary, AgentChoice, AGENT_SIDECAR};
 
@@ -386,6 +387,15 @@ pub struct Probe {
     pub tmux: Option<String>,
     /// The closed set of paths the window may name.
     pub paths: NodePaths,
+    /// This machine's name, as `hostname(1)` reports it — memoized.
+    ///
+    /// Here so the reset screen can SHOW the word it is asking to be typed:
+    /// the gate is deliberate consent, not a memory test, and a box demanding
+    /// a string the page cannot display would be both. The page renders this
+    /// and `node_reset` compares against the same memo, so the two cannot be
+    /// different readings of a machine renamed mid-session. Empty means it
+    /// could not be read, and the reset refuses on that by name.
+    pub hostname: String,
     /// Whether rewriting the service definition takes the RUNNING agent down
     /// on the way.
     ///
@@ -415,6 +425,9 @@ impl Default for Probe {
             error: None,
             tmux: None,
             paths: NodePaths::default(),
+            // Empty by default, not read: `Default` is a shape for tests and
+            // for `probe_now` to fill, and `machine_hostname` spawns.
+            hostname: String::new(),
             rewrite_tears_down: cfg!(target_os = "macos"),
         }
     }
@@ -514,7 +527,7 @@ pub fn node_probe(settings: State<'_, SettingsState>) -> Probe {
     probe_now(settings.get().binary_path.as_deref())
 }
 
-fn probe_now(configured: Option<&str>) -> Probe {
+pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
     let agent = agent_bin::resolve(configured);
     let managed = match (&agent, sidecar::install_path(&AGENT_SIDECAR)) {
         (Some(a), Some(managed_path)) => a.argv.first().map(String::as_str) == managed_path.to_str(),
@@ -526,6 +539,7 @@ fn probe_now(configured: Option<&str>) -> Probe {
         managed,
         tmux: which("tmux"),
         paths: node_paths(&read_node_config()),
+        hostname: machine_hostname(),
         ..Default::default()
     };
 
@@ -742,6 +756,16 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
 /// definition would SIGKILL every live subshell on this machine.
 #[tauri::command(async)]
 pub fn node_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
+    service_now(&settings, verb, force)
+}
+
+/// The body of [`node_service`], callable from inside another chain.
+///
+/// Extracted so the reset runs the SAME stop and uninstall the page's own
+/// buttons run, rather than a second spelling of them — a reset whose teardown
+/// diverged from the one the user can press by hand is a reset that leaves a
+/// different machine behind.
+pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force: bool) -> ActionResult {
     let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
     match run_agent(agent.as_ref(), &AgentCommand::Service { verb, force }) {
         Some(out) => out.into(),
@@ -1124,31 +1148,20 @@ pub fn node_set_agent_bin(settings: State<'_, SettingsState>, path: Option<Strin
     settings.update(|s| s.binary_path = cleaned)
 }
 
-/// What the page is told when the tray switch cannot be honoured.
-///
-/// "Detected", not "does not exist": the probe is a false negative on the
-/// older XEmbed tray, so the sentence has to be true for a user who can see
-/// their own tray icon while reading it.
-const NO_TRAY: &str = "no system tray was detected on this desktop, so a hidden window would have nowhere to go";
-
 /// The app's own preferences, for the window to render.
+///
+/// TWO fields, since spec 2026-09-12 § 6.4. The tray preference used to be
+/// here as a trio — the value, whether the switch was live, and why it was not
+/// — because the node page drew a switch for it. It is a check item in the
+/// tray menu now, which is where a preference about the tray belongs, and the
+/// three fields left with the switch rather than moving to another screen. The
+/// clamp they existed to express still runs, in `close_to_tray_now`, which is
+/// what both the tray item and the window-close handler read.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeSettings {
     /// The agent binary the user picked by hand, if any.
     pub agent_bin_path: Option<String>,
-    pub close_to_tray: bool,
-    /// Whether the switch is LIVE — the tray probe's answer at this call.
-    pub tray_supported: bool,
-    /// And when it is not, why.
-    ///
-    /// The page needs the difference between the two "no"s: `unsupported` is a
-    /// fact about the platform and the control is not drawn at all, while
-    /// `not-detected` is a fact about this desktop SESSION — so the switch is
-    /// drawn disabled, with the reason and a way to look again, because an
-    /// absent control explains nothing and a GNOME user can fix this in a
-    /// minute.
-    pub tray_status: TraySupport,
     /// The control plane the main window shows, once one has been resolved.
     ///
     /// From the stored preference, else the enrolled node's own `serverUrl` —
@@ -1157,19 +1170,10 @@ pub struct NodeSettings {
     pub plane_url: Option<String>,
 }
 
-/// Build the payload from the stored settings and one probe answer.
-///
-/// Both tray fields come from the SAME [`TraySupport`] here, so
-/// `tray_supported` cannot disagree with `tray_status`, and the stored
-/// preference is clamped on the way out — what the app will ACT on, not what
-/// the file happens to say. A switch showing the file's value where the tray
-/// is gone would be a switch that lies.
-fn settings_view(current: Settings, support: TraySupport) -> NodeSettings {
+/// Build the payload from the stored settings.
+fn settings_view(current: Settings) -> NodeSettings {
     NodeSettings {
         agent_bin_path: current.binary_path,
-        close_to_tray: effective_close_to_tray(current.close_to_tray, support),
-        tray_supported: support.supported(),
-        tray_status: support,
         plane_url: plane_url_from(current.plane_url),
     }
 }
@@ -1177,21 +1181,7 @@ fn settings_view(current: Settings, support: TraySupport) -> NodeSettings {
 /// Read the app's own preferences.
 #[tauri::command(async)]
 pub fn node_settings(settings: State<'_, SettingsState>) -> NodeSettings {
-    settings_view(settings.get(), tray_support())
-}
-
-/// Choose whether closing the window hides it to the tray.
-///
-/// Refused, with a reason, where no tray answered — an `Err` rather than a
-/// silent `false`, so the page can say why instead of showing a switch that
-/// springs back. Turning it OFF is always allowed: that direction can only
-/// ever make the window easier to reach.
-#[tauri::command(async)]
-pub fn node_set_close_to_tray(settings: State<'_, SettingsState>, enabled: bool) -> Result<(), String> {
-    if enabled && !tray_support().supported() {
-        return Err(NO_TRAY.to_string());
-    }
-    settings.update(|s| s.close_to_tray = enabled)
+    settings_view(settings.get())
 }
 
 // ---------------------------------------------------------------------------
@@ -2438,41 +2428,18 @@ mod path_tests {
         }
     }
 
-    // The clamp is on READ as well as on write, and it is the only guard that
-    // survives a settings file arriving from somewhere else — copied from a
-    // Mac, or written on a desktop that had a tray before an extension was
-    // disabled.
+    // The WHOLE key set, because the removal is the point: the tray trio left
+    // with the switch it fed (spec 2026-09-12 § 6.4), and a field added back
+    // here would be one the assistant has nowhere to draw. The clamp those
+    // fields expressed is not lost — it lives in `close_to_tray_now`, which
+    // the tray check item and the window-close handler both read, and
+    // `effective_close_to_tray` carries its own tests in desktop-core.
     #[test]
-    fn close_to_tray_is_clamped_on_read_not_only_on_write() {
-        assert!(settings_view(stored(true), TraySupport::Supported).close_to_tray);
-        assert!(!settings_view(stored(true), TraySupport::NotDetected).close_to_tray);
-        assert!(!settings_view(stored(true), TraySupport::Unsupported).close_to_tray);
-        assert!(!settings_view(stored(false), TraySupport::Supported).close_to_tray);
-    }
-
-    // The page branches on both fields, so they must come from one answer:
-    // `traySupported` says whether the switch is live, `trayStatus` says
-    // whether an absent tray is worth explaining.
-    #[test]
-    fn the_payload_reports_whether_and_why() {
-        for (support, supported, status) in [
-            (TraySupport::Supported, true, "supported"),
-            (TraySupport::NotDetected, false, "not-detected"),
-            (TraySupport::Unsupported, false, "unsupported"),
-        ] {
-            let view = settings_view(stored(false), support);
-            assert_eq!(view.tray_supported, supported);
-            let json = serde_json::to_value(&view).unwrap();
-            assert_eq!(json["traySupported"], serde_json::json!(supported));
-            assert_eq!(json["trayStatus"], serde_json::json!(status));
-        }
-    }
-
-    // A refusal the page can show, and one that does not claim the tray is
-    // absent — only that none was detected.
-    #[test]
-    fn the_tray_refusal_says_detected() {
-        assert!(NO_TRAY.contains("detected"));
+    fn the_payload_is_the_two_fields_the_assistant_reads() {
+        let json = serde_json::to_value(settings_view(stored(true))).unwrap();
+        let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["agentBinPath", "planeUrl"]);
     }
 
     #[test]

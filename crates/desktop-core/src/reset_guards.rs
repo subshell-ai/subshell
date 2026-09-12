@@ -8,8 +8,17 @@
 //!
 //! `tauri`-free by construction, which is the rule for everything in this
 //! crate, and what lets these be tested without a display or a webview.
+//!
+//! [`machine_hostname`] lives here rather than in either app because it is the
+//! value [`consent_granted`] is compared against, and its fail-closed half —
+//! an unreadable name memoizing to the empty string, which grants consent to
+//! nothing — is the same rule stated twice if each app reads it for itself.
 
 use std::path::Path;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use crate::proc::run;
 
 /// The shape rules every deletion target must pass: absolute, never the
 /// filesystem root, never the home directory itself.
@@ -45,6 +54,29 @@ pub fn is_subshell_socket(name: &str) -> bool {
 /// it used to arm. A wipe's only gate opens on a name, never on its absence.
 pub fn consent_granted(typed: &str, memo: &str) -> bool {
     !memo.is_empty() && typed.trim() == memo
+}
+
+/// This machine's name, read ONCE and memoized.
+///
+/// Memoized so the consent comparison is two reads of one `OnceLock` rather
+/// than a re-spawn that could race a rename mid-session into an instruction
+/// nobody typed: the screen renders the same string the gate later checks.
+///
+/// The empty string means COULD NOT READ, and every consumer refuses on it —
+/// see [`consent_granted`], whose whole fail-closed half exists for this
+/// value. Returning a failed spawn's empty stdout as though it were the name
+/// is what once made a wipe's only gate accept an empty box.
+pub fn machine_hostname() -> String {
+    static HOSTNAME: OnceLock<String> = OnceLock::new();
+    HOSTNAME
+        .get_or_init(|| {
+            let r = run(&["hostname".to_string()], Duration::from_secs(5));
+            if !r.ok() {
+                return String::new();
+            }
+            r.stdout.trim().to_string()
+        })
+        .clone()
 }
 
 #[cfg(test)]

@@ -18,7 +18,6 @@
 import { Terminal } from "lucide-react";
 import { DetailsDisclosure } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
-import { hereLower } from "@/components/assistant/subtitles";
 import { Button } from "@/components/ui/button";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import { tmuxHint } from "@/lib/copy";
@@ -135,7 +134,7 @@ export function ServiceScreen(props: {
           onClick={onReset}
           disabled={busy}
         >
-          Reset {hereLower(platform)}…
+          Reset Subshell…
         </button>
       </p>
     </Frame>

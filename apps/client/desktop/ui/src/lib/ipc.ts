@@ -146,6 +146,16 @@ export interface Probe {
   tmux: string | null;
   paths: NodePaths;
   /**
+   * This machine's name, as `hostname(1)` reports it.
+   *
+   * The reset screen SHOWS this, because the consent gate is deliberate
+   * consent rather than a memory test — and `node_reset` compares against the
+   * same memoized value, so the page and the gate cannot be two readings of a
+   * machine renamed mid-session. Empty means it could not be read, and the
+   * reset refuses on that by name.
+   */
+  hostname: string;
+  /**
    * Whether rewriting the service definition takes the running agent down on
    * the way — true on macOS, because launchd has no reload.
    */
@@ -199,23 +209,15 @@ export interface EnrollOutcome {
 }
 
 /**
- * Whether closing a window to the tray is safe here. `TraySupport`, kebab-case.
+ * The app's own preferences. `NodeSettings`.
  *
- * `not-detected` is a Linux desktop with no StatusNotifier host on the session
- * bus (a stock GNOME, until the AppIndicator extension is installed) — not
- * permanent, and not even certain: the probe cannot see the older XEmbed tray.
- * `unsupported` is a platform with no tray at all.
+ * TWO fields. The tray preference used to be here as a trio, because the node
+ * page drew a switch for it; it is a check item in the tray menu now (spec
+ * 2026-09-12 § 6.4), which is where a preference about the tray belongs, and
+ * the fields left with the switch rather than moving to another screen.
  */
-export type TrayStatus = "supported" | "not-detected" | "unsupported";
-
-/** The app's own preferences. `NodeSettings`. */
 export interface NodeSettings {
   agentBinPath: string | null;
-  closeToTray: boolean;
-  /** Whether the switch is live — the tray probe's answer at this call. */
-  traySupported: boolean;
-  /** And when it is not, why: the difference between hiding the control and explaining it. */
-  trayStatus: TrayStatus;
   /**
    * The control plane this client shows, once one is known — the stored
    * address, else the enrolled node's own `serverUrl`.
@@ -336,16 +338,6 @@ export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {
 }
 
 /**
- * Choose whether closing the window hides it to the tray.
- *
- * Rejects with a string where no tray was detected — the switch is drawn
- * disabled there, so this is the belt to that braces.
- */
-export function nodeSetCloseToTray(args: { enabled: boolean }): Promise<void> {
-  return invoke<void>("node_set_close_to_tray", args);
-}
-
-/**
  * Show a control plane's own UI in the app's main window, and remember the
  * address.
  *
@@ -372,6 +364,35 @@ export function nodeOpenPlane(args: { url: string | null }): Promise<string> {
  */
 export function nodeOpenPlaneUrl(): Promise<void> {
   return invoke<void>("node_open_plane_url");
+}
+
+/**
+ * Read this machine and stash the reset's delete plan.
+ *
+ * Changes nothing. Answers whether a plan PARSED — `false` means this machine
+ * is not enrolled and the screen renders its own refusal, which is the useful
+ * information. The plan is taken here rather than inside {@link nodeReset}
+ * because the chain uninstalls the very agent whose `status --json` names
+ * those paths.
+ */
+export function nodeArmReset(): Promise<boolean> {
+  return invoke<boolean>("node_arm_reset");
+}
+
+/**
+ * Return this machine to un-enrolled. IRREVERSIBLE.
+ *
+ * Stops and uninstalls the node service, closes this node's pane servers, and
+ * deletes the data directory, the lock file and `config.json` — the node key's
+ * only home. It deletes EXACTLY the stashed plan: the page supplies a
+ * hostname, never a path, and a mismatch is refused before anything runs.
+ *
+ * Deliberately out of reach: the installed `~/.local/bin/subshell`, which the
+ * containment guard protects, and the control plane's own node row, which
+ * stays behind permanently offline for an admin to remove.
+ */
+export function nodeReset(args: { typed: string }): Promise<ActionResult> {
+  return invoke<ActionResult>("node_reset", args);
 }
 
 /** The three pages the About footer may open. `WebTarget`, kebab-case — a closed set in Rust. */

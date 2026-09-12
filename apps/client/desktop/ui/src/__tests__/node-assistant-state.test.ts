@@ -2,8 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
 import { screenFor, screenTitle, serviceAction } from "@/lib/node-assistant-state";
 
-const settings = (planeUrl: string | null): NodeSettings =>
-  ({ planeUrl, agentBinPath: null, closeToTray: true, traySupported: true, trayStatus: "supported" }) as NodeSettings;
+const settings = (planeUrl: string | null): NodeSettings => ({ planeUrl, agentBinPath: null }) as NodeSettings;
 
 const probe = (step: ProbeStep): Probe => ({ step }) as Probe;
 

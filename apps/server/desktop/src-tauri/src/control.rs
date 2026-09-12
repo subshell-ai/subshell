@@ -293,20 +293,12 @@ pub fn desktop_probe(settings: State<'_, SettingsState>) -> Probe {
 /// is a failed read, never a name: consent compares against it only after
 /// refusing it.
 pub fn machine_hostname() -> String {
-    static HOSTNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    HOSTNAME
-        .get_or_init(|| {
-            // The empty string means COULD NOT READ, and every consumer
-            // refuses on it (PR review): the old shape returned a failed
-            // spawn's empty stdout as if it were the name, which made the
-            // wipe's typed-hostname gate accept an empty box. Fail closed.
-            let r = run(&["hostname".to_string()], std::time::Duration::from_secs(5));
-            if !r.ok() {
-                return String::new();
-            }
-            r.stdout.trim().to_string()
-        })
-        .clone()
+    // Moved to `subshell_desktop_core::reset_guards` (2026-09-12) when Subshell
+    // Client's reset needed the same memo: it is the value `consent_granted` is
+    // compared against, and two copies of a fail-closed rule is one copy that
+    // can drift open. Kept as a named re-export here because this module is
+    // where the rest of this app reaches for it.
+    subshell_desktop_core::reset_guards::machine_hostname()
 }
 
 /// Mark `onboarded` once a probe has seen `ready`. One function by name

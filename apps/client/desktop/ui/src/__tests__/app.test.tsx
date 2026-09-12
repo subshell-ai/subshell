@@ -657,7 +657,7 @@ describe("what the page never asks for", () => {
   // The tray preference is no longer a control on this page at all: it is a
   // check item in the tray menu, so nothing here can invoke it.
   it("never touches the tray preference", async () => {
-    const fake = await boot({ settings: makeSettings({ traySupported: true }) });
+    const fake = await boot();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(fake.callsTo("node_set_close_to_tray").length).toBe(0);
   });
