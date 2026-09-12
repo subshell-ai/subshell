@@ -341,18 +341,39 @@ pub fn boot_probe(settings: &SettingsState) -> Probe {
 
 /// Which window boot opens, as a pure decision over the POST-MARK probe.
 /// Never call this on the stored flag alone: that is the R6 bug (a
-/// CLI-provisioned machine would meet a wizard it has nothing to do with).
+/// CLI-provisioned machine would meet an assistant it has nothing to do with).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowChoice {
     Wizard,
-    Console,
+    Main,
 }
 
+/// Ready → the dashboard; anything else → the assistant, whose page picks
+/// first-run or recovery screens by `onboarded` (spec 2026-09-12 § 5.2).
 pub fn boot_window(p: &Probe) -> WindowChoice {
-    if p.onboarded {
-        WindowChoice::Console
+    if p.next == ProbeStep::Ready {
+        WindowChoice::Main
     } else {
         WindowChoice::Wizard
+    }
+}
+
+/// THE opener every tray item, Dock reopen, single-instance relaunch, menu
+/// fallback and SPA pill goes through: a fresh probe, then the dashboard if
+/// the server is ready, else the assistant. One function, so no two openers
+/// can disagree about which window this machine gets (spec § 5.5).
+pub fn open_home(app: &AppHandle) -> Result<(), String> {
+    let settings = app.state::<SettingsState>();
+    let p = probe_now(settings.get().binary_path.as_deref());
+    crate::tray::set_server_ready(app, p.next == ProbeStep::Ready);
+    if p.next == ProbeStep::Ready {
+        // Idempotent by construction (`mark_onboarded` returns early on a
+        // flag already set), so this is the same single-writer rule the boot
+        // probe follows rather than a second one.
+        mark_onboarded(p.next, &settings);
+        open_main_now(app)
+    } else {
+        crate::windows::open_assistant(app).map(|_| ())
     }
 }
 
@@ -887,26 +908,92 @@ pub struct LogTail {
 /// `desktop_open_path` names a closed enum instead. This side decides what
 /// "the server's log" is.
 ///
-/// The two platforms genuinely differ in MECHANISM, not just in path. Linux
-/// has no log file at all: the unit's output goes to the journal, so the tail
-/// is a `journalctl` query. macOS has a file the plist names, and the CLI is
-/// the authority on where (`service status --json` reports `logPath`), so it
-/// is asked rather than the path being re-derived here.
+/// The SERVER'S OWN log file is read first, on every platform: since spec
+/// 2026-09-12 § 3.4 the server writes one capped JSON-lines file and reports
+/// its path as `status --json`'s `paths.serverLog`. That is the same file the
+/// SPA's Service page shows, so the two surfaces cannot describe different
+/// logs.
+///
+/// The SERVICE MANAGER's log is the fallback, and the platforms genuinely
+/// differ in MECHANISM there, not just in path: Linux has no file at all (the
+/// unit's output goes to the journal, so the tail is a `journalctl` query),
+/// while macOS has a file the plist names and the CLI stays the authority on
+/// where (`service status --json` reports `logPath`). It is reached when
+/// `paths.serverLog` is absent — a server older than the field — or when
+/// nothing has been written there yet.
 ///
 /// Never an `Err`: every outcome is a caption the pane can render, because a
 /// missing log during setup is normal and an error banner for it would train
 /// the user to ignore the pane.
 #[tauri::command(async)]
 pub fn desktop_logs(settings: State<'_, SettingsState>) -> LogTail {
+    let probe = probe_now(settings.get().binary_path.as_deref());
+    if let Some(tail) = server_log_tail(&probe) {
+        return tail;
+    }
     #[cfg(target_os = "linux")]
     {
-        let _ = settings;
         journal_tail()
     }
     #[cfg(not(target_os = "linux"))]
     {
-        file_tail(settings.get().binary_path.as_deref())
+        file_tail(&probe)
     }
+}
+
+/// The server's own capped log file, when this server reports one and it has
+/// something in it. `None` means "ask the service manager instead" — an older
+/// server that never names the path, a file not created yet, or one that
+/// cannot be read.
+///
+/// Returning `None` rather than an empty tail with a note is what keeps the
+/// fallback reachable: the launchd file and the journal still hold the boot
+/// output of a server that died before opening its own log, which is exactly
+/// the machine someone is trying to repair.
+fn server_log_tail(probe: &Probe) -> Option<LogTail> {
+    let path = field(&probe.status, "paths")?.get("serverLog")?.as_str()?.to_string();
+    let body = std::fs::read_to_string(&path).ok()?;
+    let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let text = lines[lines.len().saturating_sub(LOG_TAIL_LINES)..]
+        .iter()
+        .map(|line| render_log_line(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(LogTail {
+        text,
+        source: path,
+        note: None,
+    })
+}
+
+/// One JSON-lines entry as `HH:MM:SS level message`.
+///
+/// A line that will not parse is returned VERBATIM: the file is capped and
+/// replaced when full, so the first line after a replacement can be a partial
+/// write, and a half-written line is still the most recent thing the server
+/// said. The timestamp is sliced out of the ISO string rather than parsed —
+/// no date crate for one field, and a value that is not an ISO timestamp
+/// simply contributes nothing.
+fn render_log_line(line: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return line.to_string();
+    };
+    let str_of = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or_default();
+    let time = str_of("timestamp")
+        .split_once('T')
+        .map(|(_, t)| t.get(..8).unwrap_or(t).to_string())
+        .unwrap_or_default();
+    let level = str_of("level");
+    let message = str_of("message");
+    [time.as_str(), level, message]
+        .iter()
+        .filter(|part| !part.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The systemd journal for the user unit this app installs.
@@ -944,9 +1031,13 @@ fn journal_tail() -> LogTail {
 }
 
 /// The log file the installed service definition names.
+///
+/// Takes the probe `desktop_logs` already read, rather than re-probing: the
+/// server-log path and this one come from the same look at the machine, so
+/// the fallback cannot describe a different moment than the thing it fell
+/// back from.
 #[cfg(not(target_os = "linux"))]
-fn file_tail(configured: Option<&str>) -> LogTail {
-    let probe = probe_now(configured);
+fn file_tail(probe: &Probe) -> LogTail {
     let path = match field(&probe.service, "logPath") {
         Some(serde_json::Value::String(p)) => p.clone(),
         _ => {
@@ -1285,19 +1376,14 @@ pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(),
         .map_err(|e| format!("could not show a notification: {e}"))
 }
 
-/// Open (or focus) the window that MANAGES this machine, whichever that is:
-/// the console after a completed setup, the wizard before one. Called from
-/// the SPA's own footer pill — and from its reset card, whose `screen`
-/// argument arms the reset (spec § 7.1). The argument is optional on the
-/// wire: Tauri answers an absent declared key with None, which is exactly
-/// what every pre-reset caller sends.
+/// Raise the assistant, optionally at a named screen (`reset` | `update`).
+///
+/// Called from the SPA's pill (no screen: the recovery screen for whatever
+/// the probe says) and from its danger/update cards. The argument names a
+/// SCREEN, never a command: raising `update` performs one read-only probe,
+/// and the update itself is a press inside the bundled page.
 #[tauri::command(async)]
-pub fn desktop_open_console(app: AppHandle, screen: Option<String>) -> Result<(), String> {
-    if !app.state::<SettingsState>().get().onboarded {
-        // A wizard machine cannot reset: the argument is dropped here, and
-        // open_manage_window lands on the wizard like any other opener (R6).
-        return crate::windows::open_manage_window(&app).map(|_| ());
-    }
+pub fn desktop_open_assistant(app: AppHandle, screen: Option<String>) -> Result<(), String> {
     crate::reset::arm_and_raise(&app, screen)
 }
 
@@ -1677,7 +1763,7 @@ mod tests {
             grants("main"),
             vec![
                 "core:window:allow-start-dragging",
-                "allow-desktop-open-console",
+                "allow-desktop-open-assistant",
                 "allow-desktop-shell-ready",
                 "allow-desktop-notify",
             ]
@@ -1730,19 +1816,26 @@ mod tests {
     }
 
     #[test]
-    fn boot_window_picks_console_on_a_ready_probe_even_before_marking() {
-        // R6 of the spec review: a machine set up entirely from the CLI
-        // stores onboarded:false, and the FIRST probe is what corrects it.
-        // Boot branches on the probe's answer, so a ready (post-mark) probe
-        // names Console no matter what the field carried a moment ago.
+    fn boot_window_opens_the_dashboard_on_a_ready_probe_and_the_assistant_otherwise() {
+        // Spec 2026-09-12 § 5.2: a machine set up entirely from the CLI opens
+        // the DASHBOARD on its first app launch, because the first probe
+        // answers ready. `onboarded` no longer decides the window at all — it
+        // decides which family of assistant screens a not-ready machine sees.
         let ready = Probe {
             next: ProbeStep::Ready,
-            onboarded: true, // as mark_onboarded leaves it before boot_window runs
+            onboarded: true,
             ..Probe::default()
         };
-        assert_eq!(boot_window(&ready), WindowChoice::Console);
+        assert_eq!(boot_window(&ready), WindowChoice::Main);
+        let stopped = Probe {
+            next: ProbeStep::Start,
+            onboarded: true,
+            ..Probe::default()
+        };
+        assert_eq!(boot_window(&stopped), WindowChoice::Wizard);
         let virgin = Probe {
             next: ProbeStep::Setup,
+            onboarded: false,
             ..Probe::default()
         };
         assert_eq!(boot_window(&virgin), WindowChoice::Wizard);

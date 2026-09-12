@@ -218,7 +218,7 @@ function renderProgress(p: Probe): void {
   if (p.next === "ready") {
     if (openFailed) {
       setFrame("server", "Subshell Is Running", "The dashboard did not open by itself.");
-      el("bar-left").append(button("Open Status Page", () => void ipc.openConsole().catch(setProblem), "ghost"));
+      el("bar-left").append(button("Open Status Page", () => void ipc.openAssistant().catch(setProblem), "ghost"));
       el("bar-right").append(
         button(
           "Open Dashboard",
@@ -255,7 +255,7 @@ function renderFailure(p: Probe): void {
     details.append(summary, pre);
     content.append(details);
   }
-  el("bar-left").append(button("Open Status Page", () => void ipc.openConsole().catch(setProblem), "ghost"));
+  el("bar-left").append(button("Open Status Page", () => void ipc.openAssistant().catch(setProblem), "ghost"));
   el("bar-right").append(button("Try Again", () => void startSetup(), "primary"));
 }
 

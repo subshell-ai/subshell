@@ -86,14 +86,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // the SPA is reachable before knowing is the failure being fixed. The
     // console's first render enables them if the server is already up.
     let open = MenuItem::with_id(app, "tray:open", "Open Dashboard", false, None::<&str>)?;
-    let console = MenuItem::with_id(app, "console", "Manage server…", true, None::<&str>)?;
     app.manage(DashboardItem(open.clone()));
     let menu = Menu::with_items(
         app,
         &[
             &open,
-            &PredefinedMenuItem::separator(app)?,
-            &console,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
         ],
@@ -135,7 +132,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main(tray.app_handle());
+                let _ = crate::control::open_home(tray.app_handle());
             }
         })
         .build(app)?;
@@ -143,44 +140,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 }
 
 fn on_menu(app: &AppHandle, id: &str) {
-    match id {
-        // Only reachable while ENABLED, i.e. while a probe said the server is
-        // ready — so this opens the SPA rather than substituting the console.
-        "tray:open" => open_dashboard(app),
-        "console" => {
-            let _ = crate::windows::open_manage_window(app);
-        }
-        // No other ids exist: the tray dispatches no DesktopAction, so nothing
-        // here reaches the SPA's own action bridge (see `DashboardItem`).
-        _ => {}
-    }
-}
-
-/// Focus the SPA window, creating it if this is the first time.
-///
-/// Creating it needs the server's own base URL, which only a probe knows, so
-/// this re-probes rather than caching an origin that a `configure` could have
-/// moved. A failure is reported to stderr and leaves the tray alone: the item
-/// was enabled on the last probe's word, and a server that has since gone is
-/// the console's story to tell, not a dialog's.
-fn open_dashboard(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        crate::windows::raise(&w);
-        return;
-    }
-    if let Err(err) = crate::control::open_main_now(app) {
-        eprintln!("subshell: could not open the dashboard: {err}");
-    }
-}
-
-/// Bring the app window back, or the console when there is no app window yet.
-fn show_main(app: &AppHandle) {
-    let window = app
-        .get_webview_window("main")
-        .or_else(|| app.get_webview_window("console"));
-    if let Some(w) = window {
-        crate::windows::raise(&w);
-    } else {
-        let _ = crate::windows::open_manage_window(app);
+    // One id, and the tray dispatches no DesktopAction — so nothing here
+    // reaches the SPA's own action bridge (see `DashboardItem`). One opener
+    // for every route home (spec 2026-09-12 § 5.5): a fresh probe decides
+    // between the dashboard and the assistant, so the tray never has to know
+    // which of the two this machine is owed.
+    if id == "tray:open" {
+        let _ = crate::control::open_home(app);
     }
 }

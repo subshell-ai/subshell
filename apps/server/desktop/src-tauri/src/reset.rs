@@ -3,7 +3,7 @@
 //!
 //! The shape of the whole feature is one sentence: **the page supplies a
 //! hostname, never a path.** The SPA's danger card asks for typed consent and
-//! calls `desktop_open_console({ screen: "reset" })`; the Rust side reads the
+//! calls `desktop_open_assistant({ screen: "reset" })`; the Rust side reads the
 //! machine at that moment, validates what it found against the one rule that
 //! matters (no deletion may contain the installed server binary this reset
 //! promises to keep), and stashes the plan; `desktop_reset` then deletes
@@ -37,32 +37,38 @@ use subshell_desktop_core::sidecar;
 
 use crate::control::{ActionResult, ServiceCommand};
 
-/// Which console view the page should present when it comes up.
+/// Which assistant screen the page should present when it comes up.
 ///
 /// A closed enum because the request crosses the boundary FROM the server's
 /// page: the remote window may name a screen, never a path or a URL
-/// (spec § 7.1). Unknown and absent both mean the ordinary console, so a
-/// page older than this feature sees exactly what it always saw.
+/// (spec § 7.1). Unknown and absent both mean `Home` — the recovery or
+/// first-run screen the page picks from its own probe — so a page older than
+/// this feature sees exactly what it always saw.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
-    Console,
+    /// Whatever the probe implies: first run, or the one recovery screen.
+    Home,
     Reset,
+    /// The bundled server is newer than the installed one (spec § 5.3).
+    Update,
 }
 
 impl Screen {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Screen::Console => "console",
+            Screen::Home => "home",
             Screen::Reset => "reset",
+            Screen::Update => "update",
         }
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. One accepted word.
+/// Parse the (untrusted, optional) `screen` argument. Two accepted words.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
         Some("reset") => Screen::Reset,
-        _ => Screen::Console,
+        Some("update") => Screen::Update,
+        _ => Screen::Home,
     }
 }
 
@@ -116,23 +122,22 @@ pub struct Stash {
 /// its only input is the typed hostname.
 pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), String> {
     let stash = app.state::<Stash>();
-    if parse_screen(screen.clone()) == Screen::Reset {
+    let requested = parse_screen(screen);
+    if requested == Screen::Reset {
         let settings = app.state::<SettingsState>();
         let p = crate::control::probe_now(settings.get().binary_path.as_deref());
         *stash.plan.lock().unwrap() = p.status.as_ref().and_then(parse_delete_plan);
-        *stash.screen.lock().unwrap() = Some(Screen::Reset);
     }
-    // open_manage_window, not open_console: this runs only once the machine
-    // IS onboarded (desktop_open_console gates the rest), and the manage
-    // window's own rule — raising the console retires the wizard — must hold
-    // for this opener exactly as it holds for the tray, the menu and the
-    // pill. Two openers of one window must not disagree about the other.
-    let existed = app.get_webview_window("console").is_some();
-    crate::windows::open_manage_window(app)?;
+    // `Home` is stashed too, and deliberately: a live assistant sitting on
+    // the reset takeover must come BACK to the recovery screen when the pill
+    // is pressed, rather than staying where a previous request left it.
+    *stash.screen.lock().unwrap() = Some(requested);
+    let existed = app.get_webview_window("wizard").is_some();
+    crate::windows::open_assistant(app)?;
     if existed {
         // A live window has no page-load to catch the stash; deliver now.
         if let Some(s) = stash.screen.lock().unwrap().take() {
-            if let Some(w) = app.get_webview_window("console") {
+            if let Some(w) = app.get_webview_window("wizard") {
                 let _ = w.emit("desktop-screen", s.as_str());
             }
         }
@@ -306,34 +311,19 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
         s.onboarded = false;
     });
     *stash.plan.lock().unwrap() = None; // the consent has been spent
-                                        // 7. Windows, in the order that keeps the app alive (N2; spec § 7.2
-                                        // step 7 amended to match): close main (its port just died), OPEN THE
-                                        // WIZARD, and close the console last. The order is not cosmetic: if the
-                                        // console closed while it was the last window, the zero-window moment
-                                        // runs the last-window path, and lib.rs's ExitRequested prevent-exit
-                                        // fires only when a `main` window exists — which a reset may well have
-                                        // just closed. An app that quits in the middle of the one command that
-                                        // is supposed to land the user in the wizard is the failure this order
-                                        // forecloses.
+                                        // 7. Windows. With one bundled page there is no console to close
+                                        // last, so the zero-window hazard (N2) reduces to one rule: never
+                                        // close the assistant from inside the chain — it IS the window this
+                                        // command is running in, and closing it while `main` is already gone
+                                        // runs the last-window path and quits the app mid-reset. So: close
+                                        // `main` (its port just died) and send this page back to the
+                                        // first-run screens, which its own re-probe (now `onboarded: false`)
+                                        // agrees with.
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.close();
     }
-    match crate::windows::open_wizard(&app) {
-        Ok(_) => {
-            if let Some(w) = app.get_webview_window("console") {
-                let _ = w.close();
-            }
-        }
-        // M2: the machine IS reset; a window that would not build does not
-        // undo that, and the stash is already spent, so answering Err here
-        // would tell the user the wipe failed on a machine where it fully
-        // succeeded — with Retry impossible ("no plan stashed") and no route
-        // forward. The console stays open ON PURPOSE in this arm: closing it
-        // would be the zero-window moment N2 exists to prevent, with no
-        // wizard to replace it.
-        Err(e) => log.push_str(&format!(
-            "\nthe wizard window could not be opened: {e}\nthis machine is reset; reopen the app to continue setup\n"
-        )),
+    if let Some(w) = app.get_webview_window("wizard") {
+        let _ = w.emit("desktop-screen", Screen::Home.as_str());
     }
     Ok(ActionResult {
         ok: true,
@@ -573,11 +563,13 @@ mod tests {
 
     #[test]
     fn screen_parses_closed_and_defaults_open() {
-        // Absent and unknown both mean the plain console: a remote page
-        // cannot name a screen this enum has not admitted.
-        assert_eq!(parse_screen(None), Screen::Console);
+        // Absent and unknown both mean Home — whatever the assistant's own
+        // probe implies. A remote page cannot name a screen this enum has
+        // not admitted, which is what keeps `update` a read-only raise.
+        assert_eq!(parse_screen(None), Screen::Home);
         assert_eq!(parse_screen(Some("reset".into())), Screen::Reset);
-        assert_eq!(parse_screen(Some("/etc".into())), Screen::Console);
+        assert_eq!(parse_screen(Some("update".into())), Screen::Update);
+        assert_eq!(parse_screen(Some("/etc".into())), Screen::Home);
     }
 
     #[test]

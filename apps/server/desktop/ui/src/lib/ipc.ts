@@ -67,7 +67,7 @@ export interface SettingEntry {
 export interface StatusBody {
   configEnv?: { path: string; exists: boolean };
   /** `status --json`'s data locations (spec § 8); absent on an older server, which arms nothing. */
-  paths?: { dataDir?: string; database?: string; logsDir?: string; nodeArtifacts?: string };
+  paths?: { dataDir?: string; database?: string; logsDir?: string; nodeArtifacts?: string; serverLog?: string };
   settings?: Record<string, SettingEntry>;
   listen?: { portValid?: boolean; port?: number; portRaw?: string; listening?: boolean };
   /** Absent/null means the entrypoint did not resolve, which 500s every create. */
@@ -236,11 +236,12 @@ export const setServerBin = (path: string | null): Promise<void> => invoke<void>
 export const openMain = (): Promise<void> => invoke<void>("desktop_open_main");
 
 /**
- * Raise the console window. Only the WIZARD's Done screen calls it ("Go to
- * status page"); the console itself is refused this command (the page that IS
- * the console does not need to open it, and `main` holds the third grant).
+ * Raise the assistant window, optionally at a named screen. The argument
+ * names a SCREEN, never a command, which is what makes this one of the three
+ * grants `main` — the server's own page — is allowed to hold.
  */
-export const openConsole = (): Promise<void> => invoke<void>("desktop_open_console");
+export const openAssistant = (screen?: "reset" | "update"): Promise<void> =>
+  invoke<void>("desktop_open_assistant", { screen: screen ?? null });
 
 export const openPath = (target: OpenTarget): Promise<void> => invoke<void>("desktop_open_path", { target });
 

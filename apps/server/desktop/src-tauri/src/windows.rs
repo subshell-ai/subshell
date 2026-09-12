@@ -1,7 +1,11 @@
 //! The two windows, and why they are two.
 //!
-//! `console` is ours: a bundled local page that must render with the server
-//! DOWN, and the only surface allowed to drive the CLI. `main` shows the
+//! `wizard` is ours: a bundled local page — the ASSISTANT — that must render
+//! with the server DOWN, and the only surface allowed to drive the CLI. It
+//! keeps the `wizard` label because that label is an identifier (it keys the
+//! capability file, the window-state store and every `get_webview_window`
+//! lookup), while the page it carries is now first run, recovery, update and
+//! reset. `main` shows the
 //! server's own SPA, loaded from the server's own HTTP origin — not from a
 //! bundled copy — because `apps/server/web` is hard same-origin: relative
 //! `apiFetch` with `credentials: "include"`, an auth client with no `baseURL`,
@@ -33,25 +37,6 @@ pub fn user_agent(app: &AppHandle) -> String {
     let version = app.package_info().version.to_string();
     let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
     format!("SubshellDesktop/{version} ({platform}; p=1)")
-}
-
-/// Put the console out of the way once the dashboard is on screen.
-///
-/// MINIMIZED, never hidden. A hidden window is reachable only through the
-/// tray, and on Linux the tray icon is drawn only where a StatusNotifier host
-/// is registered — a stock GNOME has none, and there the icon is SILENTLY
-/// invisible. Hiding the console there would strand it exactly as
-/// `close_to_tray` would, which is why that feature is gated on a probe.
-/// Minimizing keeps it in the window list, so it comes back without a tray,
-/// without this app, and without any of that machinery being correct.
-///
-/// Only ever called once the dashboard is actually VISIBLE. The dashboard is
-/// created hidden and shown by the title-bar handshake, so tucking at creation
-/// time would leave nothing at all on screen until the page answered.
-pub fn tuck_console(app: &AppHandle) {
-    if let Some(console) = app.get_webview_window("console") {
-        let _ = console.minimize();
-    }
 }
 
 /// Bring a window to the FRONT, not merely out of hiding.
@@ -86,42 +71,7 @@ pub fn raise(window: &WebviewWindow) {
     }
 }
 
-/// The console's two-column shell (spec 2026-09-11 § 2.1): a 200px sidebar
-/// beside a content column with 32px side padding, so the default leaves 636px
-/// of content — near the setup assistant's 560px column — and the minimum
-/// still leaves 456px, which the Details grid and the config form fit.
-const CONSOLE_WIDTH: f64 = 900.0;
-const CONSOLE_HEIGHT: f64 = 640.0;
-const CONSOLE_MIN_WIDTH: f64 = 720.0;
-const CONSOLE_MIN_HEIGHT: f64 = 520.0;
-
-/// Create (or focus) the console window.
-pub fn open_console(app: &AppHandle) -> Result<WebviewWindow, String> {
-    if let Some(w) = app.get_webview_window("console") {
-        raise(&w);
-        return Ok(w);
-    }
-    WebviewWindowBuilder::new(app, "console", WebviewUrl::App("index.html".into()))
-        .title("Subshell Server")
-        .inner_size(CONSOLE_WIDTH, CONSOLE_HEIGHT)
-        .min_inner_size(CONSOLE_MIN_WIDTH, CONSOLE_MIN_HEIGHT)
-        .resizable(true)
-        .on_page_load(|window, _| {
-            // A console created under a screen request delivers it once the
-            // page exists; a request while one was live is emitted directly
-            // by reset::arm_and_raise.
-            if let Some(stash) = window.app_handle().try_state::<crate::reset::Stash>() {
-                if let Some(screen) = stash.screen.lock().unwrap().take() {
-                    use tauri::Emitter;
-                    let _ = window.emit("desktop-screen", screen.as_str());
-                }
-            }
-        })
-        .build()
-        .map_err(|e| format!("could not open the console window: {e}"))
-}
-
-/// The wizard's design height — the frame's fixed idiom (spec 2026-09-11 § 4).
+/// The assistant's design height — the frame's fixed idiom (spec 2026-09-11 § 4).
 const WIZARD_HEIGHT: f64 = 720.0;
 
 /// Room reserved for OS chrome a monitor's `work_area` does not already
@@ -145,17 +95,31 @@ fn wizard_height(available_logical_height: Option<f64>) -> f64 {
     }
 }
 
-/// Create (or focus) the first-run wizard.
+/// Create (or focus) the assistant.
 ///
-/// Same one-press-then-focus contract as the console: `raise` on an existing
-/// window, never a second creation. Resolves `wizard.html` through
-/// `WebviewUrl::App` exactly like the console resolves `index.html` - dev
-/// against the Vite server, prod against the bundle, no branch here.
-pub fn open_wizard(app: &AppHandle) -> Result<WebviewWindow, String> {
+/// One-press-then-focus: `raise` on an existing window, never a second
+/// creation, and it CLOSES nothing — the dashboard and the assistant are two
+/// windows a person may legitimately have open at once now that the
+/// assistant is also the recovery and update surface.
+///
+/// The title follows `onboarded` rather than being fixed, because the window
+/// is no longer only a setup flow: "Set Up Subshell Server" is right for a
+/// machine that has never finished setup and wrong for one whose server has
+/// merely stopped.
+pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window("wizard") {
         raise(&w);
         return Ok(w);
     }
+    let onboarded = app
+        .state::<subshell_desktop_core::settings::SettingsState>()
+        .get()
+        .onboarded;
+    let title = if onboarded {
+        "Subshell Server"
+    } else {
+        "Set Up Subshell Server"
+    };
     // A setup assistant is a fixed frame (spec 2026-09-11 § 4): 1024 wide
     // because that is MIN_WIDTH, the dashboard's own floor, which is what
     // lets `open_main` take this window's geometry and appear in its place.
@@ -167,38 +131,23 @@ pub fn open_wizard(app: &AppHandle) -> Result<WebviewWindow, String> {
         .map(|m| m.work_area().size.to_logical::<f64>(m.scale_factor()).height);
     let height = wizard_height(available_height);
     WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html".into()))
-        .title("Set Up Subshell Server")
+        .title(title)
         .inner_size(MIN_WIDTH, height)
         .resizable(false)
         .center()
+        .on_page_load(|window, _| {
+            // An assistant created under a screen request delivers it once
+            // the page exists; a request while one was live is emitted
+            // directly by reset::arm_and_raise.
+            if let Some(stash) = window.app_handle().try_state::<crate::reset::Stash>() {
+                if let Some(screen) = stash.screen.lock().unwrap().take() {
+                    use tauri::Emitter;
+                    let _ = window.emit("desktop-screen", screen.as_str());
+                }
+            }
+        })
         .build()
-        .map_err(|e| format!("could not open the setup window: {e}"))
-}
-
-/// Raise whichever window MANAGES this machine: the wizard while the setup
-/// has never finished, the console after. Every opener (tray, menu, the SPA's
-/// pill through `desktop_open_console`) comes through here, so a machine can
-/// never have its manage surface decided twice in two places - the branch is
-/// one read of the flag the probe writes.
-pub fn open_manage_window(app: &AppHandle) -> Result<WebviewWindow, String> {
-    let onboarded = app
-        .state::<subshell_desktop_core::settings::SettingsState>()
-        .get()
-        .onboarded;
-    if onboarded {
-        let w = open_console(app)?;
-        // Raising the console retires the wizard, the same rule the
-        // dashboard applies in open_main_now: there is ONE manage window,
-        // and the Done screen's second button ("Go to status page") is this
-        // path with the wizard still standing. The page holds no
-        // window-close permission by design; the shell closes what it just
-        // superseded.
-        if let Some(z) = app.get_webview_window("wizard") {
-            let _ = z.close();
-        }
-        return Ok(w);
-    }
-    open_wizard(app)
+        .map_err(|e| format!("could not open the assistant window: {e}"))
 }
 
 /// Create (or focus) the window that shows the server's SPA at `origin`.
@@ -222,7 +171,6 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
             let _ = w.navigate(url);
         }
         raise(&w);
-        tuck_console(app);
         return Ok(());
     }
 
@@ -288,13 +236,11 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     // fires the user may have closed the window to the tray, and a thread that
     // re-opened it six seconds later would be a window that will not stay shut.
     let fallback = window.clone();
-    let handle = app.clone();
     let ready = app.state::<ShellReady>().0.clone();
     std::thread::spawn(move || {
         std::thread::sleep(READY_GRACE);
         if !ready.load(Ordering::SeqCst) {
             raise(&fallback);
-            tuck_console(&handle);
         }
     });
     Ok(())
@@ -344,8 +290,6 @@ pub fn shell_ready(app: &AppHandle, overlay: bool) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     let _ = overlay;
     raise(&window);
-    // The dashboard is on screen now, so the console can step back.
-    tuck_console(app);
     Ok(())
 }
 
@@ -355,18 +299,6 @@ mod tests {
     fn min_width_matches_the_spa_tiling_breakpoint() {
         // WORKSPACE_TILING_MIN_WIDTH in apps/server/web/src/lib/breakpoints.ts.
         assert_eq!(super::MIN_WIDTH as u32, 1024);
-    }
-
-    #[test]
-    fn console_is_built_at_the_two_column_size() {
-        // The sidebar is a fixed 200px, so the content column is whatever is
-        // left. Both numbers are the page's premise rather than a preference:
-        // shrink the minimum and the Details grid's 132px label column plus a
-        // path stops fitting; the spec's § 2.1 arithmetic is what these pin.
-        assert_eq!(super::CONSOLE_WIDTH as u32, 900);
-        assert_eq!(super::CONSOLE_HEIGHT as u32, 640);
-        assert_eq!(super::CONSOLE_MIN_WIDTH as u32, 720);
-        assert_eq!(super::CONSOLE_MIN_HEIGHT as u32, 520);
     }
 
     #[test]

@@ -59,9 +59,6 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             )?,
             &PredefinedMenuItem::separator(app)?,
             &item(DesktopAction::GoPreferences, "Preferences…", Some("CmdOrCtrl+,"))?,
-            // Same label as the tray's, and for the same reason: "Server…"
-            // did not say which of the app's two windows it opens.
-            &MenuItem::with_id(app, "console", "Manage server…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &item(DesktopAction::SignOut, "Sign Out", None)?,
             &PredefinedMenuItem::separator(app)?,
@@ -134,15 +131,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
 /// Route a menu selection.
 pub fn on_event(app: &AppHandle, id: &str) {
-    if id == "console" {
-        let _ = crate::windows::open_manage_window(app);
-        return;
-    }
     if let Some(action) = DesktopAction::from_id(id) {
         // A menu item that needs the page is a no-op without it; open the
-        // window first so ⌘1 from a cold start does something.
+        // window first so ⌘1 from a cold start does something. `open_home`
+        // is the one opener (spec 2026-09-12 § 5.5), so a machine whose
+        // server is down lands on the assistant rather than on nothing.
         if app.get_webview_window("main").is_none() {
-            let _ = crate::windows::open_manage_window(app);
+            let _ = crate::control::open_home(app);
             return;
         }
         dispatch(app, action);

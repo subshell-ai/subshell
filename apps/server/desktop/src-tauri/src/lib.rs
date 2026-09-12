@@ -37,10 +37,9 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
 
 /// Build and run the app.
 ///
-/// The console window opens FIRST and unconditionally: on a cold machine there
-/// is no server to load a page from, so anything that waited for one would show
-/// the user nothing at all. `main` is created later, by
-/// `desktop_open_main`, once a server is actually answering.
+/// Boot opens ONE window, chosen from a fresh probe: the dashboard when the
+/// server is already answering, and otherwise the bundled assistant, which is
+/// the page that renders on a cold machine with no server to load from.
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
@@ -51,12 +50,17 @@ pub fn run() {
         // to a hidden window.
         builder = builder
             .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-                if let Some(w) = app
+                match app
                     .get_webview_window("main")
                     .or_else(|| app.get_webview_window("wizard"))
-                    .or_else(|| app.get_webview_window("console"))
                 {
-                    windows::raise(&w);
+                    Some(w) => windows::raise(&w),
+                    // Nothing is on screen (both windows were closed to the
+                    // tray or never opened): relaunching must land somewhere,
+                    // and `open_home` is the one function that decides where.
+                    None => {
+                        let _ = control::open_home(app);
+                    }
                 }
             }))
             .plugin(
@@ -103,7 +107,7 @@ pub fn run() {
             control::desktop_service,
             control::desktop_set_server_bin,
             control::desktop_open_main,
-            control::desktop_open_console,
+            control::desktop_open_assistant,
             reset::desktop_reset,
             reset::desktop_arm_reset,
             control::desktop_open_path,
@@ -150,18 +154,25 @@ pub fn run() {
             // Boot looks before it leaps: the probe marks what it proves
             // (control::boot_probe -> mark_onboarded), and the WINDOW CHOICE
             // is made from the fresh answer, never the stored flag. A machine
-            // set up entirely from the CLI opens the console, because by the
-            // time the branch runs, onboarded is true (spec § 3/§ 4, R6).
+            // set up entirely from the CLI opens the DASHBOARD, because the
+            // first probe answers ready (spec 2026-09-12 § 5.2).
             let choice = {
                 let settings = handle.state::<subshell_desktop_core::settings::SettingsState>();
                 control::boot_window(&control::boot_probe(&settings))
             };
             match choice {
                 control::WindowChoice::Wizard => {
-                    windows::open_wizard(&handle)?;
+                    windows::open_assistant(&handle)?;
                 }
-                control::WindowChoice::Console => {
-                    windows::open_console(&handle)?;
+                // A ready machine opens straight onto the dashboard. If that
+                // window cannot be built — the server answered the probe and
+                // then stopped, say — the assistant is the fallback rather
+                // than a boot with no window at all.
+                control::WindowChoice::Main => {
+                    if let Err(e) = control::open_main_now(&handle) {
+                        eprintln!("subshell: could not open the dashboard: {e}");
+                        windows::open_assistant(&handle)?;
+                    }
                 }
             }
             Ok(())
@@ -187,12 +198,14 @@ pub fn run() {
             // tray is invisible that is nowhere.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
-                let window = app
+                match app
                     .get_webview_window("main")
                     .or_else(|| app.get_webview_window("wizard"))
-                    .or_else(|| app.get_webview_window("console"));
-                if let Some(w) = window {
-                    windows::raise(&w);
+                {
+                    Some(w) => windows::raise(&w),
+                    None => {
+                        let _ = control::open_home(app);
+                    }
                 }
             }
             _ => {}

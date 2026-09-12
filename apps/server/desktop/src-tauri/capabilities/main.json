@@ -14,7 +14,7 @@
   ],
   "permissions": [
     "core:window:allow-start-dragging",
-    "allow-desktop-open-console",
+    "allow-desktop-open-assistant",
     "allow-desktop-shell-ready",
     "allow-desktop-notify"
   ]

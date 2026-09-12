@@ -41,7 +41,7 @@ function invokedCommands(): Set<string> {
  * One shared `lib/ipc.ts` serving two windows makes the full set the union of
  * two grants, and a per-page pin is the only way both stay EXACT sets: a
  * command the console stops calling must leave console.json even while the
- * wizard still calls it (that is how `allow-desktop-open-console` was removed
+ * wizard still calls it (that is how `allow-desktop-open-assistant` was removed
  * from the console in the first place).
  *
  * A page is a LIST of files as of the console's split into `console/` (spec
@@ -155,7 +155,7 @@ describe("the console's IPC contract", () => {
     // The third window holds the setup verbs and nothing else: no service, no
     // init, no logs, no config reads, no tray settings. This set being exact is
     // the wizard's whole boundary (§ 3 of the 2026-09-10 spec), and the Done
-    // screen's open-console here is the one command shared with `main`.
+    // screen's open-assistant here is the one command shared with `main`.
     expect([...commandsInvokedBy("wizard.ts")].sort()).toEqual([...grantedCommands("wizard.json")].sort());
     // And the union still lands where ipc.ts says it must: every command any
     // page can invoke is granted SOMEWHERE, and ipc.ts hides nothing extra.
@@ -199,7 +199,7 @@ describe("the console's IPC contract", () => {
     const appCommands = capabilityPermissions("main.json")
       .filter((id) => !id.includes(":"))
       .flatMap((id) => manifest.get(id) ?? []);
-    expect(appCommands.sort()).toEqual(["desktop_notify", "desktop_open_console", "desktop_shell_ready"]);
+    expect(appCommands.sort()).toEqual(["desktop_notify", "desktop_open_assistant", "desktop_shell_ready"]);
     // And no plugin permission of consequence: the loopback page gets dialog-
     // free, opener-free, fs-free handling by construction.
     const pluginPermissions = capabilityPermissions("main.json").filter((id) => id.includes(":"));
