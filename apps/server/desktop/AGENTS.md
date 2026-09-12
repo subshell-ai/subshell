@@ -4,20 +4,29 @@
 **Tauri v2** shell that installs, runs and manages a `subshell-server` on this
 machine, so a user never has to touch a CLI binary.
 
-## The three windows, and why they are three
+## Two windows, and why they are two
 
 | Window | Page | Why |
 | --- | --- | --- |
-| `wizard` | `ui/dist` (Vite output; sources in `ui/src/`), bundled, `tauri://` | Owns first run: a guided chain from virgin machine to running server, on a page that must render with nothing installed. |
-| `console` | same bundle, `index.html` | Must render with the server **down**, and is the only surface allowed to drive the CLI. Owns repair, settings, and the reset view — five sections behind a sidebar, two of them under a group (below). |
+| `wizard` | `ui/dist/wizard.html` (Vite output; sources in `ui/src/`), bundled, `tauri://` | **The assistant.** Must render with the server DOWN, and is the only surface allowed to drive the CLI. Owns first run, recovery, update and reset. |
 | `main` | the SERVER's own SPA over `http://127.0.0.1:<port>` | `apps/server/web` is hard same-origin. |
 
-Both local pages are the same Vite build (two rollup inputs, one `ui/dist`,
-one CSP) and the same ACL rule: **CLI-driving commands are granted to bundled
-pages only**. What splits them is lifecycle, not privilege — the wizard is the
-first-run flow and nothing else ("Run setup again" is what reset is), and the
-console is the surface a machine returns to once `onboarded` says it has been
-set up. Raising one retires the other (below).
+**The label is `wizard` and the page is the assistant, and that is deliberate.**
+`wizard` is an IDENTIFIER — it keys `WebviewUrl::App("wizard.html")`, the
+capability file, every `get_webview_window` lookup and the Vite input — while
+the page it carries stopped being only a setup flow. Renaming it would move
+four things to rename one, which is the same distinction the root `AGENTS.md`
+draws between a directory name and a component id.
+
+**There was a third window until 2026-09-12.** The `console` was a bundled
+page of five sections behind a sidebar — Overview, Logs, Addresses,
+Application, About — and it was the surface a machine returned to once
+`onboarded` said it had been set up. It is gone, with `index.html`,
+`ui/src/main.ts`, `ui/src/console/`, `lib/console-nav.ts` and
+`capabilities/console.json`. Everything a running server can manage moved into
+the SPA, behind four admin routes, so a browser on the LAN and a headless
+install get it too; everything that has to work with the server DOWN moved
+into the assistant. What is left here is exactly the second half.
 
 **`main` never loads a bundled copy of the SPA.** `src/lib/api.ts` fetches
 root-relative with `credentials: "include"`, `src/lib/auth-client.ts` sets no
@@ -30,51 +39,117 @@ so serving the SPA ourselves would mean an auth rework, not a build change.
 ## Boot looks before it leaps
 
 `setup()` runs one `boot_probe` and THEN chooses the window, from the fresh
-probe rather than the stored flag: `boot_window(&Probe)` returns the wizard
-while `onboarded` is false and the console once it is true (R6). The order is
-the whole point: a machine set up entirely from the CLI opens the CONSOLE on
-its first app launch, because the boot probe answers `ready` and marks the
-flag before the branch runs — the wizard is never shown on a machine that is
-already running.
+probe rather than the stored flag: `boot_window(&Probe)` answers
+`WindowChoice::Main` on a `ready` probe and `WindowChoice::Wizard` on anything
+else. So a machine whose server is already running opens the **dashboard** —
+including one provisioned entirely from the CLI, on its first app launch,
+because the boot probe answers `ready` before the branch runs.
 
-`mark_onboarded` is the SINGLE writer of the flag (R16), and the only thing
-that sets it is a probe whose decision is `ready`. What `onboarded: false`
-means is exactly "this app has never seen setup complete on this machine" —
-not "this machine is empty" (the probe is the authority on that, and it stays
-the authority on every later tick). Reset is the only other thing that moves
-the flag, back to false, as its last disk act.
+**`onboarded` no longer decides the window.** It decides which FAMILY of
+assistant screens a not-ready machine sees: the first-run trio while setup has
+never completed, the one recovery screen once it has. `mark_onboarded` is still
+the SINGLE writer of the flag (R16) and the only thing that sets it is a probe
+whose decision is `ready`; reset is the only thing that moves it back.
 
-Every opener of the manage surface — tray, menu, the SPA's pill, the
-single-instance and Dock handlers — goes through `open_manage_window`, which
-branches on the same stored flag and closes the window it supersedes. The
-branch lives in one function so a machine can never have its manage window
-decided in two places.
+Every route home — the tray item, the tray click, the Dock reopen, the
+single-instance relaunch, the macOS menu's no-window fallback, and the SPA's
+own footer pill — goes through **one function**:
 
-## The setup assistant
+```rust
+open_home(app):  probe_now(); if ready → open_main_now() else → open_assistant(None)
+```
 
-Three screens in one fixed frame (spec 2026-09-11, which superseded the
-six-step wizard of 2026-09-10 § 5): Welcome, Install tmux (shown only while
-tmux is missing, and it advances itself the moment the poll sees one), and
-Set Up Your Server, whose press replaces the screen with a progress
-checklist and then opens the dashboard by itself. `screensFor(probe)` decides
-which screens exist, `dots(probe, screen)` where the six dots stand,
-`setupRows`/`canSetup`/`failureLine` the checklist, the gate and the failure
-line, all in `ui/src/lib/wizard-state.ts`, pure and tested without a
-webview. There is no rail, no Done screen and no log pane: a failed chain
-shows the CLI's last stderr line under the failed row and the verbatim
-output behind a collapsed Show Details. Agents are not asked about here; the
-SPA's `/setup` owns that question, because detection lives in the server.
-The window is 1024×720 and not resizable, and `open_main` takes its position
-and size when the dashboard is created, so the swap reads as one window
-changing screen; the SPA continues the dot row (six dots, three filled) when
-it sees the desktop UA marker.
+One function, so no two openers can disagree about which window this machine is
+owed. `open_manage_window` and its stored-flag branch are gone with the console.
+
+## The watch thread
+
+The console page ran a 5-second `desktop_probe` poll, and both the tray's
+enabled state and the address the app knew hung off it. Deleting that page did
+not delete the reason — the manager's whole subject is state this app does not
+own — so the poll is `src-tauri/src/watch.rs` now: one thread, `probe_now`
+every five seconds for the life of the app.
+
+Its duty is the case the inventory found unhandled: **re-point `main` when the
+server's origin moved.** A port changed from the SPA's Service page and a
+restart later, the dashboard is a window fetching a dead port, and nothing was
+watching for it. `origin_changed(current, probe)` is pure and tested; the
+navigate goes through `windows::open_main`'s existing existing-window branch,
+which also re-validates the origin as loopback and re-arms the origin pin.
+
+Three rules it keeps:
+
+- **It skips while `control::ACTION_IN_FLIGHT` is held** — an `AtomicBool`
+  behind the RAII `ActionGuard` that `desktop_setup`, `desktop_service`,
+  `desktop_install_server`, `desktop_install_tmux` and `desktop_reset` take on
+  their first line. A probe landing mid-chain reports a half state, and acting
+  on it is worse than waiting five seconds. A guard rather than a set/clear
+  pair because every one of those commands has early returns in it, and a flag
+  left set stops the thread for the rest of the session, silently.
+- **It skips entirely when there is no `main` window**, rather than paying CLI
+  spawns for an answer nobody is waiting on. A machine sitting on the assistant
+  runs that page's own poll.
+- **It never raises the assistant.** A server that goes away while the
+  dashboard is open shows the SPA's own offline banner; the person reaches
+  recovery through the pill, the tray or the Dock. A thread that raised a
+  window on its own would take the screen from whatever someone was doing, five
+  seconds after a service restart they started themselves.
+
+## The assistant
+
+One fixed frame, one screen at a time. `screensFor(probe, onboarded)` decides
+the family and `dots(probe, screen)` where the six dots stand, both in
+`ui/src/lib/wizard-state.ts`, pure and tested without a webview.
+
+**First run** is unchanged (spec 2026-09-11): Welcome, Install tmux (shown only
+while tmux is missing, and it advances itself the moment the poll sees one),
+and Set Up Your Server, whose press replaces the screen with a progress
+checklist and then opens the dashboard by itself. `setupRows`/`canSetup`/
+`failureLine` hold the checklist, the gate and the failure line. Agents are not
+asked about here; the SPA's `/setup` owns that question, because detection
+lives in the server.
+
+**Recovery** is ONE screen, where the console was five sections. The title IS
+the diagnosis — *No Server Found*, *Your Server Isn't Responding*, *Your Server
+Needs Its Configuration*, *Your Server Isn't Installed as a Service*, *Your
+Server Is Stopped* — and there is one primary action under it rather than a row
+of three the reader has to choose between. `recoveryTitle` and `recoveryAction`
+own both, and `lib/recovery-model.ts` owns the subtitle and the facts. Behind a
+**Show Details** disclosure: the pre-boot facts (binary and its rung, config
+file, service definition, manager state and detail, log location), the server's
+own log tail, the last action's verbatim output, and what this app itself is.
+A footer link reaches Reset.
+
+**Update Server** and **Reset** are never in `screensFor`'s list. They are
+entered by REQUEST — a `desktop-screen` event carrying a member of the closed
+`reset::Screen` enum (`home` | `reset` | `update`) — which is what lets either
+appear over a first run as readily as over a recovery without either family
+naming them. A requested screen outranks the ready handoff in `render()`, or
+the SPA's Update deep link would bounce the window straight back to the
+dashboard it was asked to leave.
+
+**`dots` has no position for the last three.** `indexOf` answers -1 for
+recovery, update and reset, and the renderer hides the row on a negative
+`current`. That falls out of one list rather than a branch: a screen is either
+on the journey or it is not.
+
+**Show Details keeps its openness in PAGE state**, not the element's.
+`#content` is rebuilt on every render and the poll renders every 1500 ms, so a
+`<details>` whose state lived only in the DOM collapsed under the reader twice
+a second. The failure screen had exactly that defect from the day it shipped.
+
+The window is **1024x720, fixed and not resizable**, and `open_main` takes its
+position and size when the dashboard is created, so the swap reads as one
+window changing screen; the SPA continues the dot row (six dots, three filled)
+when it sees the desktop UA marker.
+
 
 ## Resetting the machine
 
 Entry is the dashboard's Settings danger card (admin + desktop marker,
-`apps/server/web`); confirmation and execution are the CONSOLE's. The remote
+`apps/server/web`); confirmation and execution are the ASSISTANT's. The remote
 page may name a SCREEN, never a path or a command:
-`desktop_open_console({ screen: "reset" })` parses a closed enum, and
+`desktop_open_assistant({ screen: "reset" })` parses a closed enum, and
 `reset::arm_and_raise` then reads the machine NOW — the five deletion paths
 come from the server's own `status --json` (the `paths` block, which is why
 that CLI field exists), all-or-nothing: a partial block is refused exactly
@@ -99,9 +174,12 @@ config file is a deletion target, not a keepsake; only the binary is kept.
 The order is the confirmation screen's: stop, close the pane servers,
 uninstall, delete (database file, pane logs, node artifacts, data dir minus
 config.env, config.env last), clear this app's choices, move the windows —
-close `main`, open the WIZARD, close the console LAST, because a zero-window
-moment mid-command is how a reset could quit the app instead of landing the
-human in setup. Pane closing goes through tmux's OWN directory rule —
+close `main`, and send THIS page back to `home`, which its own re-probe (now
+`onboarded: false`) agrees with. With one bundled page the zero-window hazard
+(N2) reduces to a single rule: **never close the assistant from inside the
+chain.** It is the window the command is running in, and closing it once
+`main` is already gone runs the last-window path and quits the app mid-reset.
+Pane closing goes through tmux's OWN directory rule —
 `TMUX_TMPDIR ?? /tmp`, symlink-resolved, `tmux-<uid>/`, and only `subshell-*`
 sockets (R1). `cleanSocket` used to join `TMPDIR`, which on macOS names a
 per-user `/var/folders` path with no sockets in it; that silent-miss class is
@@ -113,8 +191,31 @@ test in `reset.rs`, the way the installer table pins its TypeScript twin.
 Channel discipline is `desktop_setup`'s, inherited: an in-chain failure
 answers `Ok(ActionResult { ok: false, stdout: log, stderr })` with every word
 the CLI said up to the stop — `Err` belongs only to refusals that fire before
-anything mutated. The console renders the half-run's log where the human
-still is, styled as a failure, with the button re-labelled Retry.
+anything mutated. The screen renders the half-run's log where the human still
+is, styled as a failure, with the button re-labelled Retry.
+
+**The Reset screen replaces the frame rather than filling it**: `#screen` and
+`#bar` are hidden while it is up. The reason survived the console's sidebar
+going away — this screen's premise is that it is the only thing happening, so
+a Back button in a live bottom bar would be a way out from under a chain that
+has none.
+
+**Its label names what is reset.** `RESET_LABEL` is one string, used by the
+recovery footer and carried verbatim by the screen's own title, and it is
+`Reset Subshell` on both desktop apps (operator's call, 2026-09-12). It was
+`Reset ${here()}…`, which rendered "Reset this Mac…" and was wrong twice over:
+it read as TRUNCATED, because "Mac" is a prefix of "Machine", the Linux
+sibling really is "this machine", and the label ended there under an ellipsis
+— it was reported as a layout bug — and it OVERCLAIMED, because "Reset this
+Mac" is a sentence that means erase the computer. A destructive label that is
+frightening about the wrong thing is worse than one that is frightening: it
+teaches people that these labels do not mean what they say. One label now
+covers two acts of very different severity (this one deletes the database
+holding every user, every API key and the node signing keypair; Subshell
+Client's deletes a node's config and key), and what makes that survivable is
+that the label is a DOOR rather than the consent — the screen behind it
+enumerates the five paths and demands the hostname typed, and the two apps'
+windows are titled differently.
 
 The deep link's true worst case, stated so it survives someone checking it
 (spec R21): an XSS in a control plane's SPA can raise this app's window to
@@ -179,7 +280,7 @@ bun run dev:app             # tauri dev (needs a staged sidecar — see below);
 bun run dev:ui              # just the Vite dev server, on :5178
 bun run build               # vite build -> ui/dist   (pure JS; safe in CI)
 bun run compile             # tauri build --debug
-bun run test                # bun test src ui/src  (the release script + the console,
+bun run test                # bun test src ui/src  (the release script + the assistant,
                             # whose pure decisions are tested without a webview)
 bun run verify-types        # both tsconfigs: src/ (bun) and ui/ (webview)
 cd src-tauri && cargo test  # the Rust half — the ladder, the parsers, the policy
@@ -245,7 +346,7 @@ the workspace, so the Rust half stays reachable only through `compile`,
 hosted `ubuntu-latest` as the reason — stale since the fleet migration; the
 constraint outlived the machine it named.) There is also **no
 `dev` script**: root `bun run start` is `turbo watch dev`, which would
-otherwise launch a Tauri window for everyone. The console's Vite port is
+otherwise launch a Tauri window for everyone. This app's Vite port is
 **5178** and `strictPort`: 5174 (`apps/server/web`) WALKS UPWARD when busy and
 lands on 5175/5176, and 5177 is the client's, so this is the first port that
 cannot collide — and `devUrl` is a fixed string, which only works when the
@@ -340,162 +441,138 @@ Three things about that table are load-bearing:
 
 ```
 src-tauri/src/
-├── lib.rs         # plugins, command registration, setup (boot PROBEs, then opens `wizard` or `console`)
-├── windows.rs     # the three windows, the 1024px floor, the UA marker, open_manage_window's branch
-├── control.rs     # the tauri commands — argument-poor wrappers over the CLI
-├── reset.rs       # the reset screen's Rust side: the stashed plan, the two guards, the chain
+├── lib.rs         # plugins, command registration, setup (boot PROBEs, opens `main` or `wizard`, spawns the watch)
+├── windows.rs     # the two windows, the 1024px floor, the UA marker with its `b=` group
+├── watch.rs       # the 5s poll: the tray's state, and re-pointing `main` when the origin moves
+├── control.rs     # the tauri commands — argument-poor wrappers over the CLI; open_home; ACTION_IN_FLIGHT
+├── reset.rs       # the reset screen's Rust side: the closed Screen enum, the stashed plan, the two guards, the chain
 ├── server_bin.rs  # the ladder, ExecStart parsing, bundled-vs-installed policy, SERVER_SIDECAR
 ├── bridge.rs      # the DesktopAction enum and the eval dispatch
 ├── menu.rs        # the macOS menu bar
-└── tray.rs        # the tray icon and its menu
+└── tray.rs        # the tray icon and its menu, including the close-to-tray check item
 ```
 
-The console and the wizard (TypeScript on Vite with Tailwind since 2026-09-10;
-the plain-JS original had no build step, which the section on the CSP
-explains). Two HTML inputs, one build, one bundle:
+The assistant is TypeScript on Vite with Tailwind (since 2026-09-10; the
+plain-JS original had no build step, which the section on the CSP explains).
+**One HTML input, one build, one bundle** — the second input went with the
+console, and `vite.config.ts` names the remaining one explicitly rather than
+leaning on Vite's `index.html` default, because a default that found nothing
+would ship a bundle in which `WebviewUrl::App` resolves to a 404 with no build
+error anywhere. `tauri-config.test.ts` pins that there is exactly one, and that
+no orphan `index.html` sits beside it.
+
+
+## What the page is made of
 
 ```
 ui/
-├── index.html          # console shell; every id the page binds is in it (the sidebar + five sections, and #reset-view)
-├── wizard.html         # wizard shell; rail + one screen
+├── wizard.html         # the ONE bundled page; every id the assistant binds is in it
 ├── src/
-│   ├── main.ts         # console ENTRY: state, render(), guard(), the poll, the sidebar
-│   ├── console/        # the console's DOM, one module per concern (see below)
-│   ├── wizard.ts       # wizard screens and navigation — DOM only; every judgment is imported
+│   ├── wizard.ts       # the ENTRY: state, the screens, render(), the poll, the screen listener
+│   ├── assistant/      # the screen modules, each taking an AssistantHost
+│   │   ├── host.ts     #   the contract, plus el() and errText()
+│   │   ├── logs.ts     #   renderTail() and renderOutput(), for the Show Details panes
+│   │   ├── tmux-warning.ts  # the amber gate explanation — a FACTORY
+│   │   └── reset-view.ts    # the Reset screen, which replaces the frame
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
 │   ├── lib/
-│   │   ├── ipc.ts      # one typed function per `desktop_*` command
-│   │   ├── config-form.ts   # the pure form contract (see below)
-│   │   ├── console-nav.ts   # the console's pure decisions: sections, Addresses availability, the hero's word
-│   │   ├── installers.ts    # the pure install plans (see below)
-│   │   ├── wizard-state.ts  # the wizard's pure decisions: landing step, gates, checklist rows
-│   │   └── reset.ts         # the reset screen's pure decisions: rows, refusal, arming
-│   └── __tests__/      # pure pins: config-form, console-nav, installers, wizard-state, reset, ipc-acl, tauri-config
+│   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
+│   │   ├── config-form.ts    # the pure form contract (see below)
+│   │   ├── installers.ts     # the pure install plans
+│   │   ├── wizard-state.ts   # screensFor, dots, recoveryTitle/Action, RESET_LABEL, the checklist
+│   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
+│   │   └── reset.ts          # the reset screen's pure decisions: rows, refusal, arming
+│   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model, reset, ipc-acl, tauri-config
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
 The split rule the plain-JS version established still decides WHERE logic
 lives: anything with a contract rather than a rendering goes in `lib/`, where
-it is testable without a webview. Everything under `ui/src/console/` holds only
-the DOM.
+it is testable without a webview. Everything under `ui/src/assistant/` holds
+only the DOM.
 
-## The console is five sections behind a sidebar
+Three things about that arrangement are load-bearing:
 
-Spec `2026-09-11-server-console-sidebar-design.md`. The page was one scroll of
-five cards — a status chip over a nine-row fact list, the step card, the tray
-switch, a 220px log pane and a Danger zone disclosure, all on screen at once
-with nothing to choose between them. It is a 200px sidebar and a content
-column now, in a 900x640 window (min 720x520). Since spec 2026-09-11
-grouped-navigation the five are a TREE rather than a flat list: **Overview**,
-**Logs**, then a **Settings** group holding **Addresses** and **Application**,
-then **About** — one section visible at a time. Addresses is a setting (it
-rewrites config.env), which is what put it under that label; the section the
-sidebar calls Application keeps the id `settings`, so `section-settings`,
-every `goTo("settings")` and the reset flow behind it are unchanged.
+- **No module under `assistant/` imports `wizard.ts`.** They take an
+  `AssistantHost` (`probe`, `busy`, `setBusy`, `render`, `refresh`, `fail`,
+  `close`) instead. A cycle back to the entry is not a type error and not a
+  lint error — it is a temporal dead zone at module evaluation, i.e. a BLANK
+  window on the machine someone is repairing. The console's `ConsoleHost` had
+  the same rule; what is missing here is `goTo`, because there is no sidebar
+  and no sections, so a module that could navigate would be navigating a
+  structure that does not exist. `close()` replaces it: leave a requested
+  screen for whatever the probe implies.
+- **`tmux-warning.ts` is a factory**, and the reason survived the console. It
+  needed one per gated surface because two sections rendered at once; here the
+  element is re-appended by every render, and one created per render would
+  throw away a half-finished Copy.
+- **`lib/recovery-model.ts` exists so the recovery screen's WORDS are
+  testable.** Its subtitle and its facts were the console's step table and
+  Details list — DOM, in a render that needs a webview, which is why neither
+  was ever covered. They are data now, and `recovery-model.test.ts` covers the
+  rows that only appear when something is wrong: an unresolved MCP entrypoint,
+  a port answering while the service is not running, a teardown that kills
+  live panes, a manager that would not answer.
 
-```
-ui/src/console/
-├── state.ts           # the shared state object, the ConsoleHost contract, el()/slots()
-├── hero.ts            # Overview's three lines: state word, version, address
-├── steps.ts           # STEPS, the action guards, the tmux gate — everything the probe implies
-├── facts.ts           # Overview's Details list
-├── result-strip.ts    # one line saying what the last press did
-├── config-form-view.ts# buildForm(), shared by the `init` step and Addresses
-├── addresses.ts       # the Addresses section: availability, seeding, the save
-├── logs.ts            # the two-tab pane, the tail, show()
-├── settings.ts        # the tray preference
-├── about.ts           # the About title page: mark, name, versions, links, terms
-├── tmux-warning.ts    # the amber gate explanation — a FACTORY, one per gated surface
-└── reset-view.ts      # the takeover, unchanged in behaviour
-```
+**About is inside Show Details, and it owns no strings.** `desktop_about`
+supplies this app's name, its version, the licence summary and the copyright
+line from `crates/desktop-core/src/legal.rs`, which `scripts/license-fields.ts`
+holds equal to the TypeScript copy and to the root `LICENSE`; the three links
+go out through `desktop_open_web`, a CLOSED enum, so the addresses travel to
+the page for display and never travel back. A third copy in `ui/src` would be
+the one copy that detector cannot see, and a drifted copyright line is
+invisible — nobody re-reads an About box.
 
-Five things about that arrangement are load-bearing:
+**That is also why those two commands still have callers.** The SPA grew an
+About dialog for everyone (spec 2026-09-12), so the obvious move was to delete
+this one — but on a machine whose server is DOWN the SPA is unreachable, and
+the assistant is then the only surface that can say what this app is. Which is
+precisely the machine this page exists for.
 
-- **No module under `console/` imports `main.ts`.** They take a `ConsoleHost`
-  (`render`, `refresh`, `guard`, `goTo`, `fail`) instead. A cycle back to the
-  entry is not a type error or a lint error — it is a temporal dead zone at
-  module evaluation, i.e. a BLANK window on the machine someone is repairing.
-  `guard()` stays in the entry because it owns busy, the problem line and the
-  re-probe, which are the page's rather than a section's.
-- **`configure` is no longer a step.** It was one the USER chose, held in an
-  `override` beside `probe.next`, and it replaced the page's one card in
-  place — so the way back was a Cancel button and the way in was a button four
-  steps had to remember to list. `addressesAvailability` (`lib/console-nav.ts`,
-  pure and tested) now answers "can a save work here" once, and the section
-  renders the refusal itself. **No sidebar item is ever disabled**: a dimmed
-  item with its reason in a tooltip breaks this console's rule that a refused
-  control names its reason beside it, on every platform where hover is not a
-  thing a person does.
-- **Only the CURRENT section renders**, which is why `tmux-warning.ts` is a
-  factory. Two surfaces gate on tmux (Overview's setup actions, the Addresses
-  save); one element moved between them would belong to whichever rendered
-  last, and the other would silently lose its explanation.
-- **The result strip replaced the output pane's proximity.** A command's words
-  used to land in a pane directly under the buttons, and `show()` stole that
-  tab on its own. The pane is a section away now, so a press gets one line
-  where it happened — "Restart: done.", or the failure — with "Show output"
-  as the only thing that moves the Logs tab. `guard()` takes the button's
-  LABEL for exactly this.
-- **`.content` carries `min-width: 0`.** A grid item's automatic minimum size
-  is its min-content width, so one long log line widened the `1fr` track and
-  pushed the window's right edge out instead of scrolling inside the pane.
-  Measured on the Logs section, where every line is long.
+## The log, and the last action's words
 
-Settings re-reads the tray probe on every ENTRY, not once at boot: that probe
-is deliberately not memoized in Rust (installing the AppIndicator extension
-flips its answer with the app already running), and a boot read that failed
-used to leave the group hidden with nothing to re-open it.
+The console's Logs section was one region with two tabs, a caption and a
+selection that had to survive navigation. None of that survives it: the
+assistant shows one screen at a time, and both panes live inside the recovery
+screen's Show Details, one under the other. A tab strip over two panes inside
+a disclosure inside a 560px column is chrome for its own sake.
 
-**About is the one section that centres, and it owns no strings.** It is a
-title page — mark, app name, both versions, one sentence, a row of links, the
-terms, the copyright — because there is nothing on it to scan or compare;
-drafting it as a label/value grid like Overview's Details produced a spec
-sheet. `desktop_about` supplies every word from `crates/desktop-core/src/legal.rs`
-plus this bundle's own `productName` and version, so the page stores nothing:
-the licence facts already exist twice by necessity (`legal.ts` for the CLIs and
-the SPA, `legal.rs` for the two desktop apps) and `scripts/license-fields.ts`
-holds those two equal to each other and to the root `LICENSE`. A third copy in
-`ui/src` would be the one copy that detector cannot see, and a drifted
-copyright line is invisible — nobody re-reads an About box.
+What DID survive is the behaviour that was load-bearing. The tail **sticks to
+the bottom only when it is already there** — re-tailing while someone has
+scrolled up to read would yank the view out from under them, and this runs on
+the poll. A note (no entries yet, no service installed) renders as the pane's
+own muted text rather than as an error, because during setup it is the
+ordinary answer and an error banner would train the reader to ignore the pane.
+The last action's output is styled `output-bad` on `ok: false`, the same
+treatment the reset screen's half-run log gets, so two surfaces never phrase
+one outcome differently.
 
-Links go out through `desktop_open_web`, which takes a member of a CLOSED enum
-(`website | license | company`) and holds the addresses itself. The same
-addresses travel to the page for display, and that does not weaken the rule:
-showing an address and navigating to one are different capabilities, and the
-page holds only the first. `desktop_open_path` and `desktop_open_tmux_docs`
-draw the same line for the same reason. The section deliberately does NOT show
-the AGPL section 7 exception — it is a sentence for a developer reading
-`subshell-server license`, not for someone asking what this app is.
+`desktop_logs` is assistant-only and **takes no argument**. A path parameter
+would be an arbitrary-file read reachable from a page, which is the same reason
+`desktop_open_path` names a closed enum. It reads the SERVER's own capped
+JSON-lines file first, on every platform — `status --json`'s
+`paths.serverLog`, the same file the SPA's Service page shows, so the two
+surfaces cannot describe different logs — and falls back to the service
+manager's log only when that field is absent (a server older than it) or the
+file has nothing in it yet. The fallback platforms differ in MECHANISM, not
+just in path: Linux has no file at all, so it is a `journalctl` query against
+the user unit, while macOS has the file the plist names and the CLI stays the
+authority on where. It never returns an `Err` — no service yet, no entries
+yet, and a file launchd has not created are the ordinary states of a machine
+mid-setup.
 
-Everything that is NOT `tauri`-typed lives outside the app, in
-`crates/desktop-core` (`subshell-desktop-core`), shared with
-`apps/client/desktop`:
+**The tail is pulled only while the disclosure is open.** A CLI spawn every
+1500 ms for a collapsed `<details>` is the cost with none of the benefit,
+which is the rule the console's poll kept about its own hidden window.
 
-```
-crates/desktop-core/src/
-├── proc.rs        # every spawn: login PATH + a deadline
-├── shell_env.rs   # the PATH a GUI app does not have
-├── settings.rs    # three fields, one JSON file, path keyed by SettingsPaths
-├── sidecar.rs     # installing a shipped binary atomically, named by SidecarSpec
-├── tray.rs        # is a tray icon actually drawn here? (the close-to-tray gate)
-└── version.rs     # semverLt, mirrored from the protocol package
-```
+The page **re-probes every 1500 ms** (`POLL_MS`), so there is no Refresh
+button: the manager's whole subject is state this app does not own, and a
+button could only ever save the remainder of one interval while implying the
+rest of the screen might be stale. The poll skips while an action is in
+flight, while the window is hidden, and while a hand is in an input — the
+address form and the reset screen's confirmation box are both places a redraw
+would throw away what was typed.
 
-Two things stay behind on purpose. `server_bin.rs` is a ladder for
-`subshell-server` specifically, down to the unit file it reads and the plist it
-parses. `control.rs`/`windows.rs`/`tray.rs`/`menu.rs`/`bridge.rs` are
-`tauri`-typed and label-driven, and Subshell Client's window model is genuinely
-different — duplication there is cheaper than an abstraction designed against
-one real consumer and one guess.
-
-The two per-app parameters are the ones that touch a user's disk:
-`SETTINGS_PATHS` in `lib.rs` (`dev.subshell.server` / `subshell-desktop-server`
-— the Linux name is prefixed to stay out of `~/.config/subshell-server`, the
-server CLI's own `config.env` home) and `SERVER_SIDECAR` in `server_bin.rs`
-(the bundled name, the installed name, and the `"subshell-server "` prefix its
-`version` line starts with). Both are pinned by test, because changing either
-does not fail — it silently starts the app from scratch against a different
-file.
 
 ## The IPC boundary
 
@@ -506,53 +583,74 @@ command when `plugin_command.is_some() || has_app_acl_manifest || !is_local`
 ungated for every LOCAL window, so any window added later would silently
 inherit the ability to drive the CLI.
 
-With it, the split is enforced:
+With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `console` | every command — it is the control surface, and the only holder of the destructive ones (`desktop_reset` included) |
-| `wizard` | probe, setup, install tmux, set the binary, open tmux docs, open main, open the console, and the dialog plugin's open — no service verbs, no bare `init`, no logs, no settings |
-| `main` | `desktop_open_console`, `desktop_shell_ready`, `desktop_notify`, and window dragging — over loopback only |
+| `wizard` | the fourteen its page invokes — probe, setup, install tmux, install server, set the binary, every service verb, logs, open path, arm reset, reset, open main, open tmux docs, about, open web — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, and window dragging — over loopback only |
 
-`main`'s three are chosen for what they cannot do: show a window that already
-exists, drop this app's own title bar, and display one notification with a
-fixed shape. Nothing that touches the CLI, the config, the service or the
-filesystem is reachable from a page the server serves. `desktop_open_console`
-gained an OPTIONAL `screen` argument (spec § 7.1) — still one of the three,
-still cannot execute anything: on the `reset` screen it performs one
-read-only `status --json` spawn the app already runs on its own five-second
-poll, and the execution behind it needs a hostname typed into the console's
-own box.
+`main`'s three are chosen for what they cannot do: raise a window, drop this
+app's own title bar, and display one notification with a fixed shape. Nothing
+that touches the CLI, the config, the service or the filesystem is reachable
+from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
+`screen` argument, and the SPA sends it from exactly three places: the
+Settings danger card (`{ screen: "reset" }`), the Service page's Update card
+(`{ screen: "update" }`) and the sidebar pill (no argument). It names a SCREEN
+and never a command — raising `update` performs one read-only probe, arming
+`reset` performs one `status --json` the watch already runs on its own timer,
+and every verb behind either needs a press inside the bundled page.
 
-**`withGlobalTauri` is load-bearing for `main`, not for the console.** The
-SPA's desktop bridge (`apps/server/web/src/lib/desktop.ts`) reads
+**`dialog:allow-ask` is deliberately NOT granted.** It was the console's, for
+its update and restart confirmations. Both of those are screens now, with
+their consequences written on the screen rather than inside a system sheet, so
+nothing calls `ask` — and a granted permission with no caller is the erosion
+these pins exist to catch, read from the other end.
+
+**`withGlobalTauri` is load-bearing for `main`, not for the bundled page.**
+The SPA's desktop bridge (`apps/server/web/src/lib/desktop.ts`) reads
 `window.__TAURI__` — it imports nothing — and it takes its desktop branch
 because `windows.rs` marks `main`'s user agent `SubshellDesktop/…`. Turning
 the global off while the marker ships kills the title-bar handshake, the
-"Manage server" pill, native notifications and window dragging, and kills
-them SILENTLY: the bridge never throws and the ACL stays green. Subshell
-Client ships `false` precisely because it strips the marker. The pair, not
-either half, is what `tauri-config.test.ts` pins.
+server pill, native notifications and window dragging, and kills them
+SILENTLY: the bridge never throws and the ACL stays green. Subshell Client
+ships `false` precisely because it strips the marker. The pair, not either
+half, is what `tauri-config.test.ts` pins.
+
+**That marker carries the bundled server's version.**
+`SubshellDesktop/0.2.0 (macos; p=1; b=0.3.0)` — `b=` is what
+`bundled_version()` reports, and only the app knows it, so it is the one way
+the SPA's Service page can offer an update. The group is optional, so a build
+that ships no server, Subshell Client (no marker at all) and every older shell
+stay valid against the same regex; `DESKTOP_PROTOCOL` is unchanged by it.
+`user_agent_for` is the pure body, pinned by test.
 
 **The three-way contract is pinned, because nothing else catches it.** A
 command name lives in the calling page module, in `permissions/desktop.toml`
 and in a capability file; missing from any one is a runtime permission
-refusal, not a compile error. `ui/src/__tests__/ipc-acl.test.ts` asserts the
-set of commands invoked from the CONSOLE page — `ui/src/main.ts` plus every
-module under `ui/src/console/`, not the `main` window, which holds and must
-keep holding only its three — equals the set `console.json` grants, that `ui/src/wizard.ts` invoked
-equals what `wizard.json` grants, that no capability names an undefined
-permission, that no defined permission goes ungranted by the union of the
-three capability files, and that `main` still holds exactly its three
-commands plus window dragging — "three" is a number worth a test, because "a
-few harmless ones" is how a boundary erodes. Equality is asserted PER PAGE
-rather than against all of `ipc.ts` because two local pages now share that
-module: a whole-file equality test would slowly become the union of two
-windows' surfaces, which is the exact shape this file exists to prevent. It
-caught one stray on the day it was written: `allow-desktop-open-console` sat
-in `console.json` although no console code path invokes it (the command
-belongs to `main` and to the wizard's Done screen); the console's grant is
-gone.
+refusal, not a compile error. `ui/src/__tests__/ipc-acl.test.ts` asserts that
+the commands invoked by the assistant page — `ui/src/wizard.ts` plus every
+module under `ui/src/assistant/` — are EXACTLY the set `wizard.json` grants,
+that `ipc.ts` hides nothing extra, that no capability names an undefined
+permission, that no defined permission goes ungranted, and that `main` still
+holds exactly its three commands plus window dragging.
+
+**"Three" is a number worth a test**, because "a few harmless ones" is how a
+boundary erodes. Three more pins arrived with the console's deletion: that
+`capabilities/` contains exactly `main.json` and `wizard.json` (a third file
+is a third window, and a window added without a deliberate grant list is what
+the manifest exists to prevent), that no file under `ui/src` names any of the
+five commands the console took with it (`desktop_open_console`,
+`desktop_init`, `desktop_settings`, `desktop_set_close_to_tray`,
+`desktop_open_control_plane`) — a leftover name is an invoke that rejects at
+runtime, indistinguishable from a permission it was never granted — and that
+nothing reaches Tauri outside `lib/ipc.ts`.
+
+**`ipc.ts` does not wrap `main`'s three.** `desktop_open_assistant`,
+`desktop_shell_ready` and `desktop_notify` belong to the SPA, which reaches
+them through its own bridge. A wrapper here for a command this page never
+calls would break the exact-set pin by describing a surface the assistant does
+not have.
 
 **The opener surface is the same rule with paths.** `desktop_open_path` takes
 a CLOSED enum (`config-env | server-dir | service-definition | logs`), never a
@@ -560,15 +658,14 @@ path — the page names an intent and the Rust side re-reads the path from its
 own fresh probe, so a row can only ever reveal the fact it is showing (the
 client's `node_open_path` for the same reason). `logs` is answered entirely by
 the CLI's `service status --json → logPath`: a null is the journal-hint case,
-an absent field is an old server, and the console never re-derives a platform
-path. `desktop_open_web` is the same shape for the About section's three links
-(`website | license | company`), and `desktop_open_control_plane` opens the
-server's own `APP_BASE_URL` in the SYSTEM browser (the address may name a LAN host the privileged `main` window
-is deliberately never pointed at) — no URL crosses the IPC boundary from the
-page, and the re-read value must be http(s). Both commands are console-only;
-`main` gains neither. The `opener:allow-reveal-item-in-dir` grant in
-`capabilities/console.json` covers the plugin side; the app commands are gated
-by their own permission entries here.
+an absent field is an old server, and this side never re-derives a platform
+path. `desktop_open_web` is the same shape for the About block's three links
+(`website | license | company`). `desktop_open_control_plane` is GONE — the
+base URL is the SPA's Service page to show and to copy now, and no URL crossed
+the IPC boundary from the page in either design. The
+`opener:allow-reveal-item-in-dir` grant in `capabilities/wizard.json` covers
+the plugin side; the app commands are gated by their own permission entries
+here.
 
 `main`'s page is served by the subshell-server this app manages, so it is
 treated as remote content. `capabilities/main.json` carries `remote.urls`
@@ -576,7 +673,7 @@ scoped to loopback, and `open_main` additionally refuses a non-loopback origin
 and pins `on_navigation` to the origin it was opened with — three independent
 gates, because the window holds privileged globals.
 
-The console has a real CSP (`script-src 'self'`), which is why its logic is a
+The bundled page has a real CSP (`script-src 'self'`), which is why its logic is a
 module rather than an inline script. The page is TypeScript built by Vite into
 `ui/dist` (2026-09-10), and the build step moved INSIDE the promise the
 plain-JS version made — `tauri dev` and `tauri build` run `dev:ui`/`build` as
@@ -588,7 +685,7 @@ pairing — `modulePreload: { polyfill: false }`, `assetsInlineLimit: 0`,
 `base: "./"` — because the production CSP would silently block an inline
 polyfill or a `data:` asset, and `ui/src/__tests__/tauri-config.test.ts`
 pins both halves against each other: a "cleanup" that re-enables either
-breaks the console with no error anywhere.
+breaks the assistant with no error anywhere.
 
 **What the configure form SENDS is a contract, not a rendering.** A save is a
 non-interactive `init --yes`, and `configure` resolves every key it was given no
@@ -636,7 +733,7 @@ being exact because the reverse is easy to assume. `APP_BASE_URL` is in
 `OWNED_KEYS`, so it is written on every save, which means after the FIRST save
 it is `config.env`-sourced forever, always sent, and changing only the port
 leaves a base URL naming a port nothing listens on. The guard there is
-`configure`'s port-mismatch warning, not anything here; the console shows the
+`configure`'s port-mismatch warning, not anything here; the page shows the
 CLI's stdout verbatim, so that warning is what the user actually reads. What
 this side buys is narrower and still worth having: a fresh install does not get
 its built-ins frozen into the file.
@@ -670,11 +767,12 @@ timeout). The decision is pure TypeScript in `ui/src/lib/installers.ts`
 (`tmuxInstallPlan`) and is MIRRORED in `control.rs` (`tmux_install_argv`),
 because the webview cannot look at the machine and the Rust side is what
 decides what may be EXECUTED. The copies are two languages on purpose — the
-console's decides what the user SEES, Rust's decides what runs — and they are
-pinned to each other by `the_console_install_table_and_the_rust_one_agree`, an
+page's decides what the user SEES, Rust's decides what runs — and they are
+pinned to each other by `the_console_install_table_and_the_rust_one_agree` (a
+test whose name outlived the window it was written for), an
 `include_str!` containment test so a token removed on either side fails the
 Rust build. `console_platform` normalizes Rust's "macos" to the "darwin" the
-console branches on — a wrong spelling there strands every Mac in the
+page branches on — a wrong spelling there strands every Mac in the
 no-button fallback silently, so both sides carry a pin.
 
 Agent CLI installs used to live here too (`desktop_install_agent`,
@@ -688,65 +786,51 @@ user's own machine. This app's `ready` step offers "Add agents in the
 dashboard" instead, which is exactly `desktop_open_main` under a different
 label and carries no tmux gate — opening a window needs no pane.
 
-## The console's own panes
-
-The **Logs** section is ONE region with two tabs: the server log, which is true
-all the time, and the last command's output, which is brought forward by the
-result strip's "Show output" — the moment someone actually asked for it. Two
-tabs rather than two stacked panes because a second always-on block pushed the
-step actions off the bottom of the old single-column page; the pane fills the
-window in its own section now, rather than stopping at a 220px cap.
-
-The tail rides the poll whatever section is on screen, so opening Logs shows a
-current pane rather than a tick-old one.
-
-`desktop_logs` is console-only and **takes no argument**. A path parameter
-would be an arbitrary-file read reachable from a page, which is the same reason
-`desktop_open_path` names a closed enum. The platforms differ in MECHANISM,
-not just in path: Linux has no log file at all, so the tail is a `journalctl`
-query against the user unit, while macOS has the file the plist names and the
-CLI stays the authority on where. It never returns an `Err` — no service yet,
-no entries yet, and a file launchd has not created are the ordinary states of a
-machine mid-setup, and an error banner for them would train the user to ignore
-the pane.
-
-The console **re-probes itself every 5 seconds** (`POLL_MS`), so there is no
-Refresh button: the manager's whole subject is state this app does not own, and
-a button could only ever save the remainder of one interval while implying the
-rest of the panel might be stale. The poll skips while an action is in flight
-(it would race that action's own settle) and while the window is hidden, and it
-re-probes at once on becoming visible. It is also what drives the tray's
-enabled state, since `desktop_probe` is the one place that updates.
-
 ## Windows, and getting them in front
 
 **`show` + `unminimize` + `set_focus` does not raise a window on Linux.** A
 Wayland compositor refuses an activation request from a surface that is not
 already active, so `set_focus` returns `Ok` and nothing moves. That is
 invisible with one window and a bug the moment two exist, which is this app's
-normal shape: "Manage server" brought the console back UNDERNEATH the
+normal shape: the pill brought the bundled window back UNDERNEATH the
 dashboard, so nothing appeared to happen. Every site goes through
 `windows::raise`, which adds a momentary always-on-top on Linux, cleared from a
 short-lived thread — a compositor that coalesces set-and-clear never raises at
 all.
 
-**The console is MINIMIZED when the dashboard appears, never hidden**
-(`tuck_console`). A hidden window is reachable only through the tray, and the
-Linux tray icon is drawn only where a StatusNotifier host is registered, so
-hiding would strand the console on a stock GNOME exactly as `close_to_tray`
-would. It is called only where the dashboard becomes VISIBLE — the focus path,
-the handshake, the six-second fallback — because the window is created hidden
-and tucking at creation would leave nothing on screen at all. The WIZARD is
-never tucked and never merely hidden: there is one manage window, so raising
-the console or the dashboard CLOSES the wizard, and `desktop_reset` closes the
-console only AFTER the wizard exists, so no sequence of these leaves a
-zero-window moment for the last-window path to quit on (N2).
+**Nothing tucks anything any more.** `tuck_console` minimized the console when
+the dashboard appeared, because there was one manage window and raising either
+retired the other. With two windows the assistant and the dashboard are both
+legitimately open at once — a recovery screen beside a dashboard showing its
+own offline banner is a real state — so `open_assistant` closes nothing, and
+`open_main_now` still closes the assistant only because the assistant's own
+job ends at the dashboard, by either door.
 
-**The window-state plugin restores size and position but NOT maximized or
-fullscreen**, and a newly created dashboard clears both. A window maximized
-once otherwise reopens maximized forever, and a compositor maximizing it on
-the user's behalf is enough to latch that. Cleared on creation only, so
-maximizing during a session still sticks for that session.
+**The window-state plugin restores size and position for `main`, and tracks
+the assistant NOT AT ALL** (`DENYLIST`). Measured on 2026-09-12: a state file
+left by an older session restored 757x706 over the assistant's fixed 1024x720
+frame, and it came up at that size on a machine whose server was merely
+stopped. Latent until the assistant started opening on every not-ready boot
+rather than on first run alone — a first-run machine has no saved state by
+definition.
+
+**That trap is worth stating for the next fixed-size window someone adds.** A
+restored size is wrong TWICE for a frame like this: the layout is drawn to
+that arithmetic, and `open_main` INHERITS the assistant's position and size so
+the dashboard appears in its place — which would carry a stale size straight
+into a window whose floor is `MIN_WIDTH` (1024), the width below which the SPA
+renders its phone drawer. Denylisting the label is the fix rather than
+dropping `StateFlags::SIZE`, because the dashboard's size IS worth
+remembering and the assistant's is not a user choice at all: it is
+non-resizable and centred.
+
+**VISIBLE, MAXIMIZED and FULLSCREEN are never restored either**, and a newly
+created dashboard clears the last two. `main` is created hidden on purpose and
+shown by the title-bar handshake, so restoring visibility would show it
+decorated before the page can ask for the overlay. A window maximized once
+otherwise reopens maximized forever, and a compositor maximizing it on the
+user's behalf is enough to latch that. Cleared on creation only, so maximizing
+during a session still sticks for that session.
 
 **The tray has no "New Subshell".** It dispatched an action INTO the SPA, so
 being enabled needed more than a running server: a server with no users is
@@ -787,14 +871,26 @@ bus, no watcher, no tool, a timeout, an unrecognised answer — means "no tray".
 
 Three consequences, all load-bearing:
 
-- `desktop_settings` reports `traySupported` (is the switch live) **and**
-  `trayStatus` (`supported` / `not-detected` / `unsupported`), both derived
-  from one probe answer. `not-detected` draws the switch **disabled** with the
-  reason and a re-check rather than hiding it — naming the extension is
-  actionable, an absent control is not.
-- `desktop_set_close_to_tray` **refuses** `true` where no tray answered, and
-  the preference is clamped on READ as well, because a settings file copied
-  from a machine that had one must not strand anyone.
+- **The preference lives in the TRAY**, as a `CheckMenuItem` beside Open
+  Subshell Server. It was a switch on the console's Application section, read
+  through `desktop_settings` and written through `desktop_set_close_to_tray`;
+  moving it RETIRED both commands rather than relocating them, which is the
+  point — a preference about the tray belongs in the tray, and the page that
+  held it is gone. The item is seeded from the CLAMPED value
+  (`close_to_tray_now`), because a check mark promising a behaviour the app
+  will not honour is a check mark that lies.
+- **muda flips the item before the event fires** (measured against muda 0.19.3
+  on both the macOS and the GTK backends), so `set_close_to_tray` READS
+  `is_checked()` rather than toggling a stored copy — two places deciding what
+  "checked" means is how a menu ends up disagreeing with itself. Turning it ON
+  is refused where no StatusNotifier host answers, with the item put straight
+  back; turning it OFF is always allowed, because that direction can only make
+  the window easier to reach.
+- **The tray no longer has a disabled item.** "Open Dashboard" was disabled
+  until a probe said the server was ready, so on a broken machine the one
+  thing on the tray could not be pressed. It is "Open Subshell Server" now and
+  always enabled, because `open_home` answers for both states of the machine —
+  which also retired `set_server_ready` and the `DashboardItem` it held.
 - The window-close handler **re-probes**, and that is the check that actually
   protects the user: a host that has gone away since the setting was made means
   the window closes normally instead of vanishing. The probe is therefore
@@ -902,11 +998,11 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
   string that `DESKTOP_SERVER_BUNDLE_ID` (protocol), the plist label and this
   app's `identifier` all share — pin tests on both sides hold them together,
   because if they drift the association detaches silently and nothing errors.
-- **`service status` reports launchd/systemd VERBATIM, and the console passes
+- **`service status` reports launchd/systemd VERBATIM, and the page passes
   it through.** `launchd: spawn scheduled` is the crash-throttle wait — the
   service IS the one you installed and it IS trying; a manager command that
   fails for any reason other than "Could not find service" (exit 113) answers
-  `state: unknown` with the stderr in `detail`, which the console shows in
+  `state: unknown` with the stderr in `detail`, which the page shows in
   red. A manager that would not answer is not the same fact as a stopped
   service, and flattening the two is how the 2026-09-07 crash loop read as
   "stopped" with no explanation.
