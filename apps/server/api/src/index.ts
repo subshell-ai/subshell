@@ -27,6 +27,7 @@ import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { startServer } from "@/server.js";
 import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
+import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
@@ -110,6 +111,10 @@ async function bootServer(): Promise<void> {
   await runMigrations();
   await runAuthMigrations();
   setAuthPolicyDb(db);
+  // The debug-logging setting, as early as the database allows. Everything
+  // before this line is written at `info` whatever the setting says, which is
+  // why `SUBSHELL_DEBUG_LOGGING` exists for a boot nobody can reach a page on.
+  await loadAndApplyDebugLogging();
   // Service user that owns admin-managed system keys; idempotent.
   await ensureSystemUser();
   // Seed/repair the control-plane host's `local` node row + Everyone/edit

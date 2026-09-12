@@ -18,6 +18,25 @@ export const contextPlugin = new Elysia({ name: "context" })
     elysiaLogLayer({
       instance: logger,
       requestId: () => nanoid(12),
+      // HTTP request/response lines at DEBUG: they reach the server's log file
+      // only while debug logging is on, and never reach the service manager's
+      // log at all (spec 2026-09-12 § 3.4 — "off by default for http").
+      //
+      // The polled routes are ignored, or a debug session fills the 200 KB cap
+      // with the Service page asking how the Service page is doing. The WS
+      // paths are ignored for the same reason: every attach and every node
+      // reconnect would otherwise be two lines.
+      autoLogging: {
+        logLevel: "debug",
+        ignore: [
+          "/api/admin/status",
+          "/api/admin/server",
+          "/api/admin/server/logs",
+          "/api/setup/status",
+          "/api/settings/public",
+          /^\/ws(\/|$)/,
+        ],
+      },
     }),
   )
   .resolve(({ log }) => ({

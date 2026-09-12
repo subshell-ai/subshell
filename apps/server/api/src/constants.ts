@@ -371,7 +371,18 @@ export const TRUSTED_ORIGINS = [
 ].filter(Boolean);
 
 export const IS_PROD = process.env.NODE_ENV === "production";
-export const BACKEND_LOG_LEVEL = env.get("BACKEND_LOG_LEVEL").default("debug").asString();
+
+/**
+ * Forces debug logging on — debug-level lines AND the HTTP request/response
+ * lines, both of which reach the server's own log file only in debug mode —
+ * and makes the instance setting read-only while it is set (`1`/`true` only).
+ *
+ * It exists for the two cases a settings row cannot serve: a headless box
+ * where nobody can reach the page, and the lines written before the database
+ * is open. `PUT /api/admin/server/logging` refuses with 409 while it is set,
+ * rather than writing a row the next boot would override.
+ */
+export const SUBSHELL_DEBUG_LOGGING = env.get("SUBSHELL_DEBUG_LOGGING").default("false").asBool();
 
 /**
  * Trailing lines of a subshell's log that the terminal WS replays on attach

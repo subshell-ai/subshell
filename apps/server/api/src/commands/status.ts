@@ -14,6 +14,7 @@ import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, serviceArtifactPath } from "@/service.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
 import { subshellLogDir } from "@/services/nodes/subshell-paths.js";
+import { serverLogPath } from "@/utils/log-file.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -98,14 +99,14 @@ export interface StatusView {
   /** The config file's resolved path, and whether it is there. A consumer branches on `exists` to offer `init`. */
   configEnv: { path: string; exists: boolean };
   /**
-   * The four absolute locations instance data lives at, as THIS process
+   * The absolute locations instance data lives at, as THIS process
    * resolved them. `status` is the authority on where the server's data is -
    * the desktop app's reset deletes exactly these and nothing else, which is
    * why they travel as data instead of being re-derived elsewhere. Read-only,
    * like everything here; presence with an unusable value is impossible
    * because these are already-resolved constants.
    */
-  paths: { dataDir: string; database: string; logsDir: string; nodeArtifacts: string };
+  paths: { dataDir: string; database: string; logsDir: string; nodeArtifacts: string; serverLog: string };
   /** The `configure`-owned keys, each with its layer attribution. */
   settings: Record<StatusSettingKey, StatusSetting>;
   /** Presence only — never the value. */
@@ -220,6 +221,9 @@ export function collectStatus(deps: StatusDeps): StatusView {
       database: DATABASE_PATH,
       logsDir: subshellLogDir(),
       nodeArtifacts: NODE_ARTIFACTS_DIR,
+      // The server's OWN log — one 200 KB file, replaced when full. It lives
+      // inside dataDir, so a reset that deletes the data directory covers it.
+      serverLog: serverLogPath(),
     },
     settings: {
       SERVER_PORT: setting("SERVER_PORT", portRaw),

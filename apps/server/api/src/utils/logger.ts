@@ -2,8 +2,13 @@ import { getSimplePrettyTerminal } from "@loglayer/transport-simple-pretty-termi
 import { ConsoleTransport, type ILogLayer, LogLayer } from "loglayer";
 import { serializeError } from "serialize-error";
 import { IS_TEST } from "@/constants.js";
+import { serverLogFile } from "@/utils/log-file.js";
 
-const transport = getSimplePrettyTerminal({ runtime: "node", id: "pretty" });
+// Pinned at `info` and left there: this is what the service manager collects,
+// and the debug switch governs the FILE only (spec 2026-09-12 § 3.4). So a
+// debug session never fills the journal, and `logger.debug(…)` reaches the
+// file without reaching stdout.
+const transport = getSimplePrettyTerminal({ runtime: "node", id: "pretty", level: "info" });
 
 /** The group whose logs bypass the timestamp/level prefix. */
 export const BANNER_GROUP = "banner";
@@ -25,11 +30,12 @@ const bannerTransport = new ConsoleTransport({
 });
 
 export const logger = new LogLayer({
-  transport: [transport, bannerTransport],
+  transport: [transport, bannerTransport, serverLogFile],
   groups: { [BANNER_GROUP]: { transports: [BANNER_GROUP] } },
-  // Everything else goes to the prefixed transport ONLY. Without this, every
-  // ordinary log would fan out to both and print twice.
-  ungroupedBehavior: ["pretty"],
+  // Ordinary logs go to stdout AND the file, never to the banner. Without
+  // this, every ordinary log would fan out to all three and the wordmark
+  // transport would print a duplicate of each line.
+  ungroupedBehavior: ["pretty", "file"],
   contextFieldName: "context",
   metadataFieldName: "metadata",
   errorFieldName: "err",

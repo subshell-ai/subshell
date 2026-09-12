@@ -491,18 +491,21 @@ describe("dispatchCli — status --json", () => {
    * same module-level constants, so they hold either way), and the block must
    * not become a second source for a fact `status` already reports.
    */
-  test("paths reports the four resolved data locations", async () => {
+  test("paths reports the resolved data locations, the server's own log among them", async () => {
     const dir = newConfigDir();
     const { deps, out } = collectingDeps({ probePort: () => false });
     await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir }, async () => {
       expect(await dispatchCli(["status", "--json"], deps)).toBe(true);
     });
     const view = JSON.parse(out[0] as string);
-    expect(Object.keys(view.paths).sort()).toEqual(["dataDir", "database", "logsDir", "nodeArtifacts"]);
+    expect(Object.keys(view.paths).sort()).toEqual(["dataDir", "database", "logsDir", "nodeArtifacts", "serverLog"]);
     expect(isAbsolute(view.paths.dataDir)).toBe(true);
     expect(view.paths.dataDir).toBe(SUBSHELL_SERVER_DATA_DIR);
     expect(view.paths.database).toBe(DATABASE_PATH);
     expect(view.paths.logsDir).toBe(`${SUBSHELL_SERVER_DATA_DIR}/subshells`);
+    // Inside dataDir on purpose: a reset deletes the data directory, and the
+    // server log goes with it rather than needing a path of its own.
+    expect(view.paths.serverLog).toBe(`${SUBSHELL_SERVER_DATA_DIR}/logs/server.log`);
     // Already a StatusView fact: the paths block must not be a second source.
     expect(view.paths.nodeArtifacts).toBe(view.nodeArtifacts.dir);
   });

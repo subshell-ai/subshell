@@ -1,9 +1,10 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
 import { collectStatus, type StatusView } from "@/commands/status.js";
 import { configEnvAppliedKeys, serverConfigDir } from "@/config-env.js";
 import { APP_BASE_URL, DATABASE_PATH, DEFAULT_TRUSTED_ORIGINS, HOST, SERVER_PORT } from "@/constants.js";
 import { DEFAULT_DEPS, queryService, type ServiceState, SYSTEMD_UNIT_NAME } from "@/service.js";
+import { currentDebugLogging } from "@/services/logging-preference.js";
+import { SERVER_LOG_CAP_BYTES } from "@/utils/log-file.js";
 
 /**
  * The server's view of its OWN deployment (spec 2026-09-12 § 3.1) — how this
@@ -121,7 +122,7 @@ export interface DeploymentDeps {
   queryService?: () => ServiceState;
   /** The CLI's status view (production: `collectStatus`). */
   status?: () => StatusView;
-  /** The debug-logging state (production: `currentDebugLogging` — see Task 5; default: off). */
+  /** The debug-logging state (production: `currentDebugLogging`). */
   debugLogging?: () => { debug: boolean; source: DeploymentLogging["source"] };
 }
 
@@ -175,9 +176,6 @@ function runningValue(key: DeploymentSettingKey, env: NodeJS.ProcessEnv): string
       return env.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS;
   }
 }
-
-/** Debug logging as Task 5 will report it; until then the seam's default says "off, by default". */
-const DEBUG_LOGGING_OFF = { debug: false, source: "default" as const };
 
 /**
  * Build the whole § 3.1 view. READS ONLY — but not cheap: `collectStatus`
@@ -234,15 +232,12 @@ export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
 
   const supervised = isSupervised(service, pid);
   const manager = platform === "darwin" ? "launchd" : platform === "linux" ? "systemd" : null;
-  // Task 5 gives `status.paths` a `serverLog` of its own; until then it is
-  // derived from the same data directory that will hold it.
-  const serverLog = join(status.paths.dataDir, "logs", "server.log");
   return {
     configEnv: status.configEnv,
     settings,
     restartRequired: DEPLOYMENT_SETTING_KEYS.some((key) => settings[key].saved !== settings[key].running),
     authSecret: status.authSecret,
-    paths: { ...status.paths, serverLog },
+    paths: status.paths,
     service: {
       manager,
       installed: service.installed,
@@ -258,7 +253,11 @@ export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
       supervised,
     },
     restart: { available: supervised, reason: supervised ? null : RESTART_UNSUPERVISED_REASON },
-    logging: { ...(deps.debugLogging ?? (() => DEBUG_LOGGING_OFF))(), file: serverLog, capBytes: 204_800 },
+    logging: {
+      ...(deps.debugLogging ?? currentDebugLogging)(),
+      file: status.paths.serverLog,
+      capBytes: SERVER_LOG_CAP_BYTES,
+    },
     tmuxPath: status.tmux,
     mcp: status.mcp,
     mcpError: status.mcpError,
