@@ -59,16 +59,38 @@ export function profileOptionLabel(p: LaunchProfile): string {
 }
 
 /**
+ * Selectable rows first, greyed ones after, each group in the order it arrived.
+ *
+ * A list whose middle is a wall of refusals reads as broken (user report
+ * 2026-09-11: a fresh machine's Agent picker showed one usable row, then five
+ * greyed "not installed on this node" rows, then the OTHER usable one —
+ * Terminal, sixth, below every refusal). Greying rather than hiding is still
+ * the rule: a reader has to be able to see that codex exists and why it cannot
+ * run here. But what can be chosen belongs where a hand lands, and the reasons
+ * belong under it.
+ *
+ * The partition is STABLE on purpose: within each group the caller's order is
+ * meaningful (profiles arrive sorted, nodes arrive with the control plane's
+ * own row first), and shuffling that to group by reason would trade one
+ * confusing order for another.
+ */
+function usableFirst(options: ComboboxOption[]): ComboboxOption[] {
+  return [...options.filter((o) => !o.disabled), ...options.filter((o) => o.disabled)];
+}
+
+/**
  * Profile options paired against the chosen node (null = no pick yet:
  * nothing greys). Labels keep the e2e-pinned `name (harnessId)` format.
  */
 export function buildProfileOptions(profiles: readonly LaunchProfile[], node: Node | null): ComboboxOption[] {
-  return profiles.map((p) => {
-    const fit = node === null ? null : harnessFitsNode(node, p.harnessId);
-    const opt: ComboboxOption = { value: p.id, label: profileOptionLabel(p), disabled: fit !== null };
-    if (fit !== null && node !== null) opt.reason = profileReasonText(node, fit);
-    return opt;
-  });
+  return usableFirst(
+    profiles.map((p) => {
+      const fit = node === null ? null : harnessFitsNode(node, p.harnessId);
+      const opt: ComboboxOption = { value: p.id, label: profileOptionLabel(p), disabled: fit !== null };
+      if (fit !== null && node !== null) opt.reason = profileReasonText(node, fit);
+      return opt;
+    }),
+  );
 }
 
 /**
@@ -82,15 +104,17 @@ export function buildNodeOptions(
   profile: LaunchProfile | null,
   suggestionId: string | null,
 ): ComboboxOption[] {
-  return nodes.map((n) => {
-    const offline = isOfflineAgent(n);
-    const fit = !offline && profile !== null ? harnessFitsNode(n, profile.harnessId) : null;
-    const label = nodeOptionLabel(n) + (n.id === suggestionId ? " · default for this profile" : "");
-    const opt: ComboboxOption = { value: n.id, label, disabled: offline || fit !== null };
-    if (fit !== null && profile !== null) {
-      const stale = fit === "not-installed" && n.inventoryStale;
-      opt.reason = `no ${profile.harnessId} here${stale ? STALE_HEDGE : ""}`;
-    }
-    return opt;
-  });
+  return usableFirst(
+    nodes.map((n) => {
+      const offline = isOfflineAgent(n);
+      const fit = !offline && profile !== null ? harnessFitsNode(n, profile.harnessId) : null;
+      const label = nodeOptionLabel(n) + (n.id === suggestionId ? " · default for this profile" : "");
+      const opt: ComboboxOption = { value: n.id, label, disabled: offline || fit !== null };
+      if (fit !== null && profile !== null) {
+        const stale = fit === "not-installed" && n.inventoryStale;
+        opt.reason = `no ${profile.harnessId} here${stale ? STALE_HEDGE : ""}`;
+      }
+      return opt;
+    }),
+  );
 }

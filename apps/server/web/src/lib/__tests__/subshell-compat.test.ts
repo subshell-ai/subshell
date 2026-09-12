@@ -79,6 +79,24 @@ describe("buildProfileOptions", () => {
     const n = node({ status: "offline", harnesses: [CLAUDE_ON] });
     expect(buildProfileOptions([PROF], n)[0]?.reason).toBe("node offline");
   });
+
+  it("puts what can be launched first, keeping the caller's order within each group", () => {
+    // The report this came from (2026-09-11): on a fresh machine the Agent
+    // picker put Terminal — selectable — sixth, under five greyed "not
+    // installed on this node" rows. The reasons still show; they sit under
+    // the rows a hand can land on.
+    const here = node({ harnesses: [CLAUDE_ON] });
+    const profiles = [
+      { id: "codex", name: "Default", harnessId: "codex", nodeId: null },
+      { id: "claude", name: "Default", harnessId: "claude-code", nodeId: null },
+      { id: "pi", name: "Default", harnessId: "pi", nodeId: null },
+    ];
+    expect(buildProfileOptions(profiles, here).map((o) => [o.value, o.disabled])).toEqual([
+      ["claude", false],
+      ["codex", true],
+      ["pi", true],
+    ]);
+  });
 });
 
 describe("buildNodeOptions", () => {
@@ -118,6 +136,17 @@ describe("buildNodeOptions", () => {
   // rather than something the inventory reported. There is no enable flag any
   // more, so every not-usable verdict now rests on the inventory and every one
   // of them hedges. The row above is that assertion.
+  it("selectable nodes come first, in the caller's order — same rule as the profile list", () => {
+    const offline = node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] });
+    const opts = buildNodeOptions([offline, LOCAL, AGENT], PROF, null);
+    // LOCAL runs claude-code; AGENT declares nothing and `old` is offline.
+    expect(opts.map((o) => [o.value, o.disabled])).toEqual([
+      ["local", false],
+      ["a2", true],
+      ["a1", true],
+    ]);
+  });
+
   it("an offline agent stays disabled with the offline label and no reason text", () => {
     const opts = buildNodeOptions(
       [node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] })],
