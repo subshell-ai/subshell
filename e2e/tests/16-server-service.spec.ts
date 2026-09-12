@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { ADMIN_STATE } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -31,14 +31,6 @@ test.use({ storageState: ADMIN_STATE });
  * (`workers: 1`, one database, alphabetical order).
  */
 test.describe("server service page", () => {
-  /** A settings card, addressed by its own title. */
-  function _card(page: Page, title: string) {
-    return page
-      .locator("div")
-      .filter({ has: page.getByText(title, { exact: true }) })
-      .last();
-  }
-
   test("reaches the page from the sidebar and reports how this server is deployed", async ({ page }) => {
     await page.goto("/");
 
