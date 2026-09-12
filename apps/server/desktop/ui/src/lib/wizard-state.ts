@@ -54,11 +54,15 @@ const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
  * including the database that holds every user, every API key and the node
  * signing keypair that rules every enrolled machine. One label over two acts
  * of different severity is exactly the overloading the project's vocabulary
- * rule exists to prevent, so this names the thing the vocabulary already has
- * a word for. No platform word appears, because everything this app does is
- * on this machine and saying so was only ever redundant.
+ * rule exists to prevent.
+ *
+ * It names the PRODUCT rather than either machine (operator's call,
+ * 2026-09-12), and no platform word appears: everything this app does is on
+ * this machine, so saying so was only ever redundant. Subshell Client's reset
+ * title is this same string, which is the point — one act, one name, in both
+ * apps.
  */
-export const RESET_LABEL = "Reset This Server";
+export const RESET_LABEL = "Reset Subshell";
 
 /** How the tmux screen presents itself when missing. */
 export type PrereqState = "found" | "install" | "manual";

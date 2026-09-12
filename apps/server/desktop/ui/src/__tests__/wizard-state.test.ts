@@ -74,11 +74,11 @@ describe("RESET_LABEL", () => {
     // what this does; and a label ending on "Mac" reads as a truncated
     // "Machine", against a sibling string that really is "this machine" and
     // under the ellipsis a button that opens a screen carries.
-    expect(RESET_LABEL).toBe("Reset This Server");
+    expect(RESET_LABEL).toBe("Reset Subshell");
     expect(RESET_LABEL.endsWith("Mac")).toBe(false);
-    expect(RESET_LABEL).toContain("Server");
     // No platform word on either side of the split: everything this app does
-    // is on this machine, so saying so was only ever redundant.
+    // is on this machine, so saying so was only ever redundant. Subshell
+    // Client's reset title is this same string — one act, one name.
     expect(RESET_LABEL).not.toContain("Machine");
     expect(RESET_LABEL).not.toContain("machine");
   });
