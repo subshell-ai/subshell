@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE } from "./helpers";
+import { ADMIN_STATE, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -21,7 +21,8 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
 
   // Unique per attempt (spec 07's pattern): a CI retry must not collide with
   // attempt 0's leftover subshell — duplicate cards would break the strict
-  // list locators and mask the real failure.
+  // list locators and mask the real failure. The launch form no longer asks
+  // for a name, so the subshell is renamed once it exists.
   const name = `e2e-lifecycle-${test.info().retry}`;
 
   // Create from the /new page. The searchable picker's closed state is an
@@ -31,7 +32,6 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   await page.getByPlaceholder("Choose a profile").click();
   await page.getByRole("option", { name: "Default (pi)" }).click();
   await page.fill("#working-dir", "/tmp");
-  await page.fill("#name", name);
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel drops over the fields/button below it, dismissing only on an outside
   // click or Escape (blur/fill don't close it). No modal on this page, so
@@ -63,6 +63,8 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // The header badge shows the raw server status — proof the stub harness is
   // alive in its pane (a dead-on-arrival subshell would read "exited").
   await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
+
+  await renameSubshell(page, name);
 
   // Close it from the subshells list via the actions menu + confirm.
   // "Close" is the human name for DELETE (spec 2026-09-03): it terminates

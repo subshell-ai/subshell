@@ -26,8 +26,13 @@ import type { ExploreResult } from "@/types/profile";
 /**
  * New-subshell tab (spec §Screens): profile picker, native folder sheet over
  * /api/files/explore (one level per request, recents+favourites ride along),
- * optional name and first prompt. The cookie actor unlocks the folder route —
+ * and an optional first prompt. The cookie actor unlocks the folder route —
  * exactly why the app authenticates as one (spec §Auth).
+ *
+ * It asks for no NAME, matching the web launch form (2026-09-11): the server
+ * names a subshell after its start time and the pane's own title takes over,
+ * so naming one before it exists is a decision about something the user has
+ * not seen. Renaming is its own act on the subshell itself.
  */
 export default function NewSubshell() {
   const insets = useSafeAreaInsets();
@@ -38,7 +43,6 @@ export default function NewSubshell() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [nodeId, setNodeId] = useState("local");
   const [workingDir, setWorkingDir] = useState("");
-  const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [sheet, setSheet] = useState(false);
   const [dir, setDir] = useState<ExploreResult | null>(null);
@@ -110,7 +114,6 @@ export default function NewSubshell() {
       const res = await client.createSubshell({
         profileId,
         workingDir,
-        name: name.trim() || undefined,
         prompt: prompt.trim() || undefined,
         // "local" stays off the wire — omitting nodeId is the server default
         // and keeps single-machine payloads byte-identical to pre-nodes ones.
@@ -278,7 +281,6 @@ export default function NewSubshell() {
           </Pressable>
         </View>
 
-        <Field label="Name (optional)" value={name} onChangeText={setName} autoCapitalize="none" />
         <Field
           label="First prompt (optional)"
           value={prompt}

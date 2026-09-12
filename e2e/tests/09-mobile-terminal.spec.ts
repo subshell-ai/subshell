@@ -13,13 +13,11 @@ const SPAWN_TIMEOUT = 30_000;
  */
 test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   test.setTimeout(120_000);
-  const name = `e2e-keybar-${test.info().retry}`;
 
   await page.goto("/new");
   await page.getByPlaceholder("Choose a profile").click();
   await page.getByRole("option", { name: "Default (pi)" }).click();
   await page.fill("#working-dir", "/tmp");
-  await page.fill("#name", name);
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel drops over the fields/button below it, dismissing only on an outside
   // click or Escape (blur/fill don't close it). No modal on this page, so

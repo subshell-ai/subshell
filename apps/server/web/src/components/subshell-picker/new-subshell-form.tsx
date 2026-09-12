@@ -2,13 +2,11 @@ import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
 import { SearchableSelect } from "@/components/ui/combobox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { useProfiles } from "@/hooks/use-profiles";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
-import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { isOfflineAgent } from "@/lib/node-label";
 import { buildNodeOptions, buildProfileOptions, harnessFitsNode, type LaunchProfile } from "@/lib/subshell-compat";
 import type { Node } from "@/types/node";
@@ -17,7 +15,6 @@ import type { Node } from "@/types/node";
 export interface NewSubshellFormValue {
   profileId: string;
   workingDir: string;
-  name: string;
   /**
    * Launch node — defaults to "local" (the control-plane host). "" means no
    * valid choice is made yet (local vanished from the list with several other
@@ -34,7 +31,7 @@ export interface NewSubshellFormValue {
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
-  return { profileId: "", workingDir: "", name: "", nodeId: "local" };
+  return { profileId: "", workingDir: "", nodeId: "local" };
 }
 
 /** True once the form has everything the create call requires. */
@@ -100,6 +97,29 @@ export function suggestDecision(p: {
 }
 
 /**
+ * What the two picker fields are CALLED, and whether they explain themselves.
+ *
+ * Everywhere but first run, the reader already has an account, a dashboard and
+ * a mental model, so the product's own nouns are the right labels. The setup
+ * assistant's reader has none of that: "Node" and "Profile" are the first two
+ * words of jargon Subshell ever says to them, and one of them is answered by a
+ * row reading "Server", which makes the word look like a synonym for something
+ * it is deliberately not (AGENTS.md, "The vocabulary"). So that one screen
+ * leads with the plain word and teaches the product's noun in the hint —
+ * taught once, in passing, rather than assumed or hidden.
+ */
+export function fieldCopy(firstRun: boolean): {
+  node: { label: string; hint: string | null };
+  profile: { label: string; hint: string | null };
+} {
+  if (!firstRun) return { node: { label: "Node", hint: null }, profile: { label: "Profile", hint: null } };
+  return {
+    node: { label: "Machine", hint: "Where this subshell runs. You can add other machines as nodes later." },
+    profile: { label: "Agent", hint: "The agent CLI it launches, with its saved settings \u2014 a profile." },
+  };
+}
+
+/**
  * Element ids of the form fields, for `htmlFor`/`id` association. The ids
  * now anchor the searchable inputs; both sets are e2e-pinned (tests/05 for
  * the dialog's, tests/06 for the page's).
@@ -109,8 +129,6 @@ export interface NewSubshellFormIds {
   profile: string;
   /** Working-directory input */
   workingDir: string;
-  /** Name input */
-  name: string;
   /** Node combobox input */
   node: string;
 }
@@ -118,13 +136,12 @@ export interface NewSubshellFormIds {
 const DIALOG_IDS: NewSubshellFormIds = {
   profile: "picker-profile",
   workingDir: "picker-working-dir",
-  name: "picker-subshell-name",
   node: "picker-node",
 };
 
 /**
- * Node + profile + working directory + optional name — the form both launch
- * paths render: `/new` and the workspace dialog. State lives in the caller
+ * Node + profile + working directory — the form every launch path renders:
+ * `/new`, the workspace dialog, and the setup assistant's last screen. State lives in the caller
  * (so each can gate and reset its own submit), this file owns the layout and
  * the pairing. Node sits first — the original ask (spec 2026-09-02) — but
  * either picker may be touched first: each selection re-filters the other
@@ -133,17 +150,27 @@ const DIALOG_IDS: NewSubshellFormIds = {
  * authoritative backstop for anything the cached views got wrong. A pinned
  * profile only SUGGESTS its node (earned: visible, online, compatible) and
  * the visible pick always rides the wire (`toSubshellCreateBody`).
+ *
+ * **It does not ask for a name.** The server names a new subshell after its
+ * start time, and the pane's own title takes over from there; naming one
+ * before it exists is a decision about something the user has not seen yet.
+ * Renaming stays a deliberate act on the subshell itself — "Edit title" in
+ * its actions menu, which is also the title pin.
  */
 export function NewSubshellForm({
   value,
   onChange,
   ids = DIALOG_IDS,
+  firstRun = false,
 }: {
   value: NewSubshellFormValue;
   onChange: (value: NewSubshellFormValue) => void;
   /** Field element ids; defaults to the dialog's (e2e-pinned) set. */
   ids?: NewSubshellFormIds;
+  /** Label the pickers for someone who has never seen this product (see {@link fieldCopy}). */
+  firstRun?: boolean;
 }): JSX.Element {
+  const copy = fieldCopy(firstRun);
   // `node=any`: profiles that only run on OTHER nodes must be listable here.
   const { data: profiles } = useProfiles({ node: "any" });
 
@@ -276,7 +303,8 @@ export function NewSubshellForm({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor={ids.node}>Node</Label>
+        <Label htmlFor={ids.node}>{copy.node.label}</Label>
+        {copy.node.hint && <p className="text-muted-foreground text-xs">{copy.node.hint}</p>}
         <SearchableSelect
           id={ids.node}
           value={value.nodeId}
@@ -289,7 +317,8 @@ export function NewSubshellForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={ids.profile}>Profile</Label>
+        <Label htmlFor={ids.profile}>{copy.profile.label}</Label>
+        {copy.profile.hint && <p className="text-muted-foreground text-xs">{copy.profile.hint}</p>}
         <SearchableSelect
           id={ids.profile}
           value={value.profileId}
@@ -329,17 +358,6 @@ export function NewSubshellForm({
           // request as an omitted param (byte-identical local browse).
           nodeId={value.nodeId !== "local" ? value.nodeId : undefined}
           nodeName={selectedNode?.name}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor={ids.name}>Subshell name (optional)</Label>
-        <Input
-          id={ids.name}
-          value={value.name}
-          onChange={(e) => onChange({ ...value, name: e.target.value })}
-          maxLength={NAME_MAX_DEFAULT}
-          placeholder="Defaults to date/time"
         />
       </div>
     </div>

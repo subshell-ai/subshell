@@ -12,6 +12,7 @@ import { useState } from "react";
 import {
   canSubmit,
   emptyNewSubshellForm,
+  fieldCopy,
   NewSubshellForm,
   type NewSubshellFormValue,
   pickNodeDefault,
@@ -130,13 +131,13 @@ async function settle(): Promise<void> {
  * test can probe what the hint gate itself decides about a pair the live form
  * would have re-homed away from (e.g. an offline pick).
  */
-async function renderForm(initial: NewSubshellFormValue = emptyNewSubshellForm(), holdValue = false) {
+async function renderForm(initial: NewSubshellFormValue = emptyNewSubshellForm(), holdValue = false, firstRun = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let latest: NewSubshellFormValue = initial;
   function Harness() {
     const [value, setValue] = useState<NewSubshellFormValue>(initial);
     latest = value;
-    return <NewSubshellForm value={value} onChange={holdValue ? () => {} : setValue} />;
+    return <NewSubshellForm value={value} onChange={holdValue ? () => {} : setValue} firstRun={firstRun} />;
   }
   // The honest hints render `<Link>`s (a router context is required) — the
   // same minimal memory-router wrapper the local-launch-card test uses.
@@ -214,7 +215,7 @@ describe("NewSubshellForm pairing + defaults", () => {
       await waitFor(() => expect(latest().nodeId).toBe("local"));
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
       expect(labels.indexOf("Node")).toBeLessThan(labels.indexOf("Profile"));
-      expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" })).toBe(true);
+      expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" })).toBe(true);
       // Wire pin: the form lists profiles across nodes — profiles that only
       // run on another node must still be selectable here (spec §4a).
       expect(lastProfilesUrl).toBe("/api/profiles?node=any");
@@ -231,7 +232,7 @@ describe("NewSubshellForm pairing + defaults", () => {
       // consults harnesses), so the unchanged rule yields "an explicit
       // choice is due": the pick empties and submit stays blocked.
       await waitFor(() => expect(latest().nodeId).toBe(""));
-      expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "" })).toBe(false);
+      expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", nodeId: "" })).toBe(false);
     } finally {
       restore();
     }
@@ -250,7 +251,7 @@ describe("NewSubshellForm pairing + defaults", () => {
   it("a pinned profile suggests its node and forwards it on the wire", async () => {
     const restore = mockFetch([LOCAL, AGENT_ONLINE], [profile({ nodeId: "a1" })]);
     try {
-      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
+      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" });
       await waitFor(() => expect(latest().nodeId).toBe("a1"));
       expect(toSubshellCreateBody(latest()).nodeId).toBe("a1");
     } finally {
@@ -263,7 +264,7 @@ describe("NewSubshellForm pairing + defaults", () => {
     try {
       // renderForm already settles queries/effects inside act(); the
       // assertion below is that the suggestion was NOT applied by them.
-      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
+      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" });
       expect(latest().nodeId).toBe("local");
       expect(toSubshellCreateBody(latest()).nodeId).toBe("local");
     } finally {
@@ -275,7 +276,7 @@ describe("NewSubshellForm pairing + defaults", () => {
     const restore = mockFetch([LOCAL, AGENT_INCOMPAT], [profile({ nodeId: "a3" })]);
     try {
       // renderForm settles for us — see the offline-suggestion test above.
-      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "local" });
+      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" });
       expect(latest().nodeId).toBe("local");
     } finally {
       restore();
@@ -285,7 +286,7 @@ describe("NewSubshellForm pairing + defaults", () => {
   it("no compatible profile on the picked node → the honest hint, with a link", async () => {
     const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], [profile({})]);
     try {
-      await renderForm({ profileId: "", workingDir: "/tmp/x", name: "", nodeId: "a1" });
+      await renderForm({ profileId: "", workingDir: "/tmp/x", nodeId: "a1" });
       // The node name sits inside the hint's <Link>, so the sentence spans
       // multiple nodes — match the paragraph on its full textContent.
       const hint = await screen.findByText(
@@ -300,7 +301,7 @@ describe("NewSubshellForm pairing + defaults", () => {
   it("loaded-zero profiles on the picked node → the hint still shows (empty ≠ loading)", async () => {
     const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], []);
     try {
-      await renderForm({ profileId: "", workingDir: "/tmp/x", name: "", nodeId: "a1" });
+      await renderForm({ profileId: "", workingDir: "/tmp/x", nodeId: "a1" });
       // Profiles LOADED with zero rows is exactly the dead-end the hint
       // names; only the undefined (still-loading) signal stays quiet.
       expect(
@@ -319,7 +320,7 @@ describe("NewSubshellForm pairing + defaults", () => {
       // holdValue pins the pick on the offline node — the live form re-homes
       // it — so this probes the gate itself: the row reasons already say
       // "node offline"; the hint must not claim the node runs no profiles.
-      await renderForm({ profileId: "", workingDir: "/tmp/x", name: "", nodeId: "a2" }, true);
+      await renderForm({ profileId: "", workingDir: "/tmp/x", nodeId: "a2" }, true);
       expect(
         screen.queryByText((_text, el) => el?.tagName === "P" && /No profiles run on/.test(el.textContent ?? "")),
       ).toBeNull();
@@ -331,7 +332,7 @@ describe("NewSubshellForm pairing + defaults", () => {
   it("profile usable on no visible node → the mirror hint", async () => {
     const restore = mockFetch([AGENT_INCOMPAT], [profile({ id: "p1", name: "orphan" })]);
     try {
-      await renderForm({ profileId: "p1", workingDir: "/tmp/x", name: "", nodeId: "a3" });
+      await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "a3" });
       expect(await screen.findByText(/No available node runs claude-code/)).toBeDefined();
     } finally {
       restore();
@@ -463,13 +464,50 @@ describe("NewSubshellForm pairing + defaults", () => {
   });
 });
 
-describe("optional subshell name input", () => {
-  it("caps the draft at the backend's 120-char rule", async () => {
-    const restore = mockFetch([LOCAL]);
+describe("fieldCopy", () => {
+  it("uses the product's own nouns everywhere but first run, with nothing to explain", () => {
+    const copy = fieldCopy(false);
+    expect(copy.node.label).toBe("Node");
+    expect(copy.profile.label).toBe("Profile");
+    expect(copy.node.hint).toBeNull();
+    expect(copy.profile.hint).toBeNull();
+  });
+
+  it("leads with the plain word on first run and teaches the noun in the hint", () => {
+    const copy = fieldCopy(true);
+    expect(copy.node.label).toBe("Machine");
+    expect(copy.profile.label).toBe("Agent");
+    // Taught, not hidden: someone who meets "Node" on the Nodes page later
+    // must have been told the word once.
+    expect(copy.node.hint).toContain("nodes");
+    expect(copy.profile.hint).toContain("profile");
+  });
+});
+
+describe("NewSubshellForm copy", () => {
+  it("never asks for a name — the server names it and renaming is its own act", async () => {
+    const restore = mockFetch([LOCAL], [profile({})]);
     try {
       await renderForm();
-      const input = screen.getByLabelText("Subshell name (optional)") as HTMLInputElement;
-      expect(input.maxLength).toBe(120);
+      const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
+      expect(labels.some((l) => l?.toLowerCase().includes("name"))).toBe(false);
+      expect(screen.queryByPlaceholderText("Defaults to date/time")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders the first-run labels and hints when asked", async () => {
+    const restore = mockFetch([LOCAL], [profile({})]);
+    try {
+      await renderForm(emptyNewSubshellForm(), false, true);
+      const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
+      expect(labels).toContain("Machine");
+      expect(labels).toContain("Agent");
+      expect(labels).not.toContain("Node");
+      expect(labels).not.toContain("Profile");
+      expect(screen.getByText(fieldCopy(true).node.hint as string)).toBeDefined();
+      expect(screen.getByText(fieldCopy(true).profile.hint as string)).toBeDefined();
     } finally {
       restore();
     }

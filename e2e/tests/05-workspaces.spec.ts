@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE } from "./helpers";
+import { ADMIN_STATE, newestSubshellName } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -36,9 +36,8 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // so pick pi's exactly (the stub pi is the only binary the e2e stack owns).
   await page.getByRole("option", { name: "Default (pi)", exact: true }).click();
   await page.fill("#picker-working-dir", "/tmp");
-  await page.fill("#picker-subshell-name", "e2e-pane");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
-  // panel drops over the name field and "Start subshell" below it; it dismisses
+  // panel drops over "Start subshell" below it; it dismisses
   // only on an outside click or Escape (blur/fill don't close it). Escape
   // can't be used here — in a modal dialog it would close the whole dialog —
   // so click the heading: inside the dialog (stays open) but outside the
@@ -47,11 +46,14 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   await page.getByRole("heading", { name: "Add a subshell" }).click();
   await page.getByRole("button", { name: "Start subshell" }).click();
 
-  // The pane appears carrying the subshell's name as its panel title. Generous
-  // timeout: the POST creates a tmux session before the panel is added.
-  await expect(page.getByText("e2e-pane").first()).toBeVisible({ timeout: PANE_TIMEOUT });
+  // The pane appears carrying the subshell's name as its panel title. The
+  // launch form asks for no name, so that is the server's date/time default —
+  // read it back rather than choosing it. Generous timeout: the POST creates
+  // a tmux session before the panel is added.
+  const paneName = await newestSubshellName(page);
+  await expect(page.getByText(paneName).first()).toBeVisible({ timeout: PANE_TIMEOUT });
 
   // Layout persists: reload re-reads the dock state from the API.
   await page.reload();
-  await expect(page.getByText("e2e-pane").first()).toBeVisible({ timeout: PANE_TIMEOUT });
+  await expect(page.getByText(paneName).first()).toBeVisible({ timeout: PANE_TIMEOUT });
 });

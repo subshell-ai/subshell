@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { type RunningAgent, startAgent } from "../stub/client";
-import { ADMIN_STATE } from "./helpers";
+import { ADMIN_STATE, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -296,7 +296,6 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await page.getByPlaceholder("Choose a node").click();
     await nodeOption.click();
     await page.fill("#working-dir", workingDir);
-    await page.fill("#name", subshellName);
     // The directory-picker panel opens on focus and covers the fields below;
     // Escape is the dismissal that works outside a modal (spec 06's note).
     await page.keyboard.press("Escape");
@@ -318,6 +317,8 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // ok AND the reconcile saw the pane alive — ON THE NODE's tmux server.
     await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
     await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
+    // The launch form asks for no name; the row is addressed by one below.
+    await renameSubshell(page, subshellName);
 
     // The pane is genuinely on the node (its own tmux server, under our
     // TMUX_TMPDIR — not the control plane's) …

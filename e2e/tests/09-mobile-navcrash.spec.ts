@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE } from "./helpers";
+import { ADMIN_STATE, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 test.setTimeout(180_000);
@@ -26,16 +26,18 @@ test.fixme("drawer navigation between live subshells never hits the error screen
   page.on("pageerror", (e) => errors.push(String(e?.stack ?? e)));
 
   const stamp = Date.now();
+  // The launch form asks for no name; each subshell is renamed once it exists,
+  // because the drawer rows below are addressed by name.
   const names = [`probe-a-${stamp}`, `probe-b-${stamp}`];
   for (const name of names) {
     await page.goto("/new");
     await page.getByPlaceholder("Choose a profile").click();
     await page.getByRole("option", { name: "Default (pi)" }).click();
     await page.fill("#working-dir", "/tmp");
-    await page.fill("#name", name);
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Start subshell" }).click();
     await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: 60_000 });
+    await renameSubshell(page, name);
   }
 
   for (let i = 0; i < 6; i++) {

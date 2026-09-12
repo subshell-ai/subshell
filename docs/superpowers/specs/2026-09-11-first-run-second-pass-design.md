@@ -279,7 +279,21 @@ beyond a hairline:
 
 Illustration: rocket glyph. Title **Start Your First Subshell**. Subtitle
 *Everything below is already filled in. Change anything you like.* Content:
-`NewSubshellForm` as today. Bottom bar: **Skip** (ghost, left of Continue)
+`NewSubshellForm` with `firstRun` — three fields, and the two pickers lead
+with a plain word and teach the product's noun underneath (**Machine**, *Where
+this subshell runs. You can add other machines as nodes later.*; **Agent**,
+*The agent CLI it launches, with its saved settings — a profile.*). "Node" and
+"Profile" are the first jargon this product would otherwise say to someone who
+has had an account for ninety seconds, and one of them is answered by a row
+reading "Server", which makes the word look like a synonym for the one thing
+the vocabulary says it is not. Every other launch surface keeps the nouns bare:
+its reader already has the model.
+
+**No name field, anywhere** (not only here): the server names a subshell after
+its start time, the pane's own title takes over, and renaming is its own act on
+a subshell that now exists — "Edit title" in its actions menu, which is also
+the title pin. The clone dialog keeps its name box, because naming the copy is
+the entire decision there. Bottom bar: **Skip** (ghost, left of Continue)
 → `finish()`; **Start** (primary) → `launch()`; while pending, *Starting…*.
 Create errors render through `createSubshellErrorMessage` under the form.
 Success navigates to `/subshells/$id` — the live pane is the last screen.

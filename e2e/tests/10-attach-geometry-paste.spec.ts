@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE } from "./helpers";
+import { ADMIN_STATE, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -63,6 +63,8 @@ function stripAnsi(s: string): string {
 
 test("wide → narrow reopen paints within the client's cols; image paste uploads", async ({ browser }) => {
   test.setTimeout(180_000);
+  // Named after creation, not in the form: the launch form asks for no name,
+  // and the cleanup below addresses the row by one.
   const name = `probe-jumble-${test.info().retry}`;
 
   // ── 1. Wide attach: create the subshell at 1440px and paint a long line.
@@ -73,11 +75,11 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await p1.getByPlaceholder("Choose a profile").click();
   await p1.getByRole("option", { name: "Default (pi)" }).click();
   await p1.fill("#working-dir", "/tmp");
-  await p1.fill("#name", name);
   await p1.keyboard.press("Escape");
   await p1.getByRole("button", { name: "Start subshell" }).click();
   await expect(p1).toHaveURL(/\/subshells\/.+/, { timeout: 60_000 });
   const subshellId = new URL(p1.url()).pathname.split("/").pop()!;
+  await renameSubshell(p1, name);
 
   await p1.waitForFunction(
     () => ((window as any).__wsFrames ?? []).some((f: Frame) => f.data.includes('"replay"')),

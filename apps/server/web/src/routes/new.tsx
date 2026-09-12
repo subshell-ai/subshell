@@ -44,11 +44,11 @@ function NewSubshellPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* The page's own field ids, not the dialog's picker-* ones:
-              e2e/tests/06 fills `#working-dir`/`#name` on this page. */}
+              e2e/tests/06 fills `#working-dir` on this page. */}
           <NewSubshellForm
             value={form}
             onChange={setForm}
-            ids={{ profile: "profile", workingDir: "working-dir", name: "name", node: "node" }}
+            ids={{ profile: "profile", workingDir: "working-dir", node: "node" }}
           />
 
           {/* Node-aware copy: a remote pick that raced the picker answers 409

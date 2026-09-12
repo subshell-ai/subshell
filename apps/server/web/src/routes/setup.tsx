@@ -294,10 +294,10 @@ function SetupPage() {
       <NewSubshellForm
         value={launchForm}
         onChange={setLaunchForm}
+        firstRun
         ids={{
           profile: "setup-profile",
           workingDir: "setup-working-dir",
-          name: "setup-subshell-name",
           node: "setup-node",
         }}
       />
