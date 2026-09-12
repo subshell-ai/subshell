@@ -33,11 +33,9 @@ export function ServiceScreen(props: {
   output: ActionResult | null;
   commands: NodeCommands;
   busy: boolean;
-  /** `"darwin"` or anything else — the copy says "this Mac" or "this machine". */
-  platform: string;
   onReset: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, commands, busy, platform, onReset } = props;
+  const { shell, probe, settings, enrolledNode, output, commands, busy, onReset } = props;
   const action = probe ? serviceAction(probe.step) : null;
   const hint = probe?.step === "offline" ? (probe.paths?.agentLogHint ?? "") : tmuxHint(probe, "service");
   const blocked = probe !== undefined && !probe.tmux;

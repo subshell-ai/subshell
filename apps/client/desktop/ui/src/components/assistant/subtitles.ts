@@ -14,24 +14,28 @@
 import type { NodeSettings, Probe } from "@/lib/ipc";
 import type { NodeScreenId } from "@/lib/node-assistant-state";
 
-/** "this Mac" on macOS, "this machine" elsewhere — mid-sentence, so lower case. */
-export function hereLower(platform: string): string {
-  return platform === "darwin" ? "this Mac" : "this machine";
+/**
+ * Where this app is running, mid-sentence, so lower case. ONE string on both
+ * platforms (operator's call, 2026-09-12).
+ *
+ * It used to answer "this Mac" on darwin. The macOS feel this assistant is
+ * after comes from its SHAPE — one decision per full-window screen, fixed
+ * bar positions, screens that ask nothing never appearing — not from the
+ * vocabulary; and the split cost a branch and a test matrix on every string
+ * that used it. It was also the mechanism behind a real misreading, since a
+ * label ending on "Mac" is a prefix of the other platform's own word.
+ */
+export function hereLower(): string {
+  return "this machine";
 }
 
-/**
- * The screen's subtitle.
- *
- * @param platform - `"darwin"` or anything else; the caller derives it (the
- * client's probe carries no platform field, unlike the server app's)
- */
+/** The screen's subtitle. */
 export function subtitleFor(
   screen: NodeScreenId,
   probe: Probe | undefined,
   settings: NodeSettings | undefined,
-  platform: string,
 ): string {
-  const here = hereLower(platform);
+  const here = hereLower();
   switch (screen) {
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
@@ -64,9 +68,8 @@ export function subtitleFor(
         : "Enrolled, and the agent is online. Subshells can be launched here from the browser.";
     }
     case "reset":
-      // Says what is deleted rather than where it lives. The title deliberately
-      // names no machine (node-assistant-state.ts explains why), and a subtitle
-      // that put "this Mac" straight back under it would undo that.
+      // Says what is deleted rather than where it lives, which is the same
+      // reason the title names no machine (node-assistant-state.ts explains).
       return "Delete this node's configuration, its key and its data. Nothing else on this computer is touched.";
   }
 }

@@ -341,9 +341,18 @@ What the shape changed, and why:
   removing the service is what Reset does. What survived is the one REMEDY the
   restart refusal names by label — rewriting a definition that would SIGKILL
   live panes — because the confirmation text points at that button.
-- **"this Mac" comes from the USER AGENT, not the probe.** Unlike the server
-  app's, this app's `Probe` carries no platform field, and adding one to reach
-  a copy decision would be a Rust change for a string.
+- **There is ONE word for where you are, on both platforms** (operator's call,
+  2026-09-12): "This Machine" in a title, "this machine" mid-sentence. The
+  `darwin ? "this Mac"` split is gone from titles AND subtitles, and
+  `screenTitle`/`subtitleFor` take no platform argument at all. The macOS feel
+  this assistant is after comes from its SHAPE — one decision per full-window
+  screen, fixed bar positions, screens that ask nothing never appearing — not
+  from its vocabulary, and the split cost a branch, a test matrix on every
+  string, and one real misreading: a label ending on "Mac" is a prefix of the
+  other platform's own word and was reported as a truncated layout bug. A
+  genuine platform FACT still branches — which tmux installer to name
+  (`TMUX_INSTALL_CMD`), launchd versus systemd — because that is a difference
+  in what the user must do, not in voice.
 - **The About footer is ONE LINE** under the bottom bar. It still owns no
   strings — `node_about`, so the facts live only in
   `crates/desktop-core/src/legal.rs` — but the colophon it used to render

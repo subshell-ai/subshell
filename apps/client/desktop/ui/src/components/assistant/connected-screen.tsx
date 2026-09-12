@@ -1,5 +1,5 @@
 /**
- * This Mac Is a Node — the screen for a machine that is working.
+ * This Machine Is a Node — the screen for a machine that is working.
  *
  * One decision on the face of it: open the control plane. Everything else a
  * working machine can still be asked for lives under **More…**, because a
@@ -34,11 +34,10 @@ export function ConnectedScreen(props: {
   output: ActionResult | null;
   commands: NodeCommands;
   busy: boolean;
-  platform: string;
   onReenroll: () => void;
   onReset: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, commands, busy, platform, onReenroll, onReset } = props;
+  const { shell, probe, settings, enrolledNode, output, commands, busy, onReenroll, onReset } = props;
   const planeUrl = settings?.planeUrl ?? null;
   const nodeServerUrl = probe?.status?.serverUrl ?? null;
   const divergence = planeCoherence(planeUrl, nodeServerUrl);

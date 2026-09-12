@@ -68,10 +68,18 @@ export function screenFor(
   }
 }
 
-/** "This Mac" on macOS, "This Machine" everywhere else — Title Case, for a title. */
-function here(platform: string): string {
-  return platform === "darwin" ? "This Mac" : "This Machine";
-}
+/**
+ * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
+ *
+ * There used to be a `darwin ? "This Mac" : "This Machine"` split here. The
+ * macOS feel this assistant is after comes from its SHAPE — one decision per
+ * full-window screen, fixed button positions, screens that ask nothing never
+ * appearing — not from its vocabulary. "Mac" bought very little of that and
+ * cost a branch, a test matrix on every string, and one real misreading: a
+ * label ending on "Mac", which is a prefix of the other platform's own word,
+ * was reported as a truncated layout bug.
+ */
+const HERE = "This Machine";
 
 /**
  * The screen's title, in the assistant's voice (spec 2026-09-11 § 3.2: Title
@@ -81,22 +89,21 @@ function here(platform: string): string {
  * service" and "the service stopped answering" are different problems with
  * the same button.
  *
- * @param platform - `"darwin"` or anything else; the caller derives it
  */
-export function screenTitle(screen: NodeScreenId, probe: Probe | undefined, platform: string): string {
+export function screenTitle(screen: NodeScreenId, probe: Probe | undefined): string {
   switch (screen) {
     case "connect":
       return "Connect to a Server";
     case "install-agent":
       return "Install the Agent";
     case "enroll":
-      return `Enroll ${here(platform)}`;
+      return `Enroll ${HERE}`;
     case "service":
       if (probe?.step === "offline") return "The Node Service Isn't Responding";
       if (probe?.step === "stopped") return "The Node Service Is Stopped";
       return "Start the Node Service";
     case "connected":
-      return `${here(platform)} Is a Node`;
+      return `${HERE} Is a Node`;
     case "reset":
       // The one title that names no machine at all, on either platform
       // (operator's call, 2026-09-12). It was "Reset This Mac", and that was

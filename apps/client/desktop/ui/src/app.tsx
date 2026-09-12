@@ -12,6 +12,10 @@
  * under Show Details rather than a permanent status card, because a person
  * opens this window to DO something.
  *
+ * There is no platform branch anywhere in here: one word for where you are, on
+ * both platforms (operator's call, 2026-09-12) — see `node-assistant-state.ts`.
+ * A genuine platform FACT still has one, such as which tmux installer to name.
+ *
  * This file is the HOST and nothing else: it reads the machine
  * (`use-node-state`), holds the action runner and the enroll form, asks
  * `screenFor` which screen the machine implies, and composes the shared half
@@ -37,18 +41,6 @@ import { useNodeState } from "@/hooks/use-node-state";
 import type { EnrolledNodeBody } from "@/lib/ipc";
 import { type NodeUserScreen, screenFor, screenTitle } from "@/lib/node-assistant-state";
 
-/**
- * Which platform's words to use.
- *
- * Read off the user agent rather than the probe: unlike Subshell Server's, this
- * app's `Probe` carries no platform field, and adding one to reach a copy
- * decision would be a Rust change for a string. The webview's UA is the same
- * fact.
- */
-function desktopPlatform(): string {
-  return /Macintosh|Mac OS X/.test(navigator.userAgent) ? "darwin" : "linux";
-}
-
 export function App() {
   const runner = useActionRunner();
   const { probe, settings, firstProbePending, readError } = useNodeState(runner.busy);
@@ -73,7 +65,6 @@ export function App() {
     },
   });
 
-  const platform = desktopPlatform();
   const screen = screenFor(probe, settings, override);
 
   /**
@@ -85,8 +76,8 @@ export function App() {
   const problem = runner.failure || readError || probe?.error || "";
 
   const shell: FrameShell = {
-    title: screen ? screenTitle(screen, probe, platform) : "Checking This Machine",
-    subtitle: screen ? subtitleFor(screen, probe, settings, platform) : undefined,
+    title: screen ? screenTitle(screen, probe) : "Checking This Machine",
+    subtitle: screen ? subtitleFor(screen, probe, settings) : undefined,
     problem,
     confirm: runner.pending ? (
       <ConfirmPanel pending={runner.pending} busy={runner.busy} onAccept={runner.accept} onCancel={runner.cancel} />
@@ -147,7 +138,6 @@ export function App() {
           {...facts}
           commands={commands}
           busy={runner.busy}
-          platform={platform}
           onReset={() => setOverride("reset")}
         />
       );
@@ -158,7 +148,6 @@ export function App() {
           {...facts}
           commands={commands}
           busy={runner.busy}
-          platform={platform}
           onReenroll={() => {
             if (runner.busy) return;
             form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");

@@ -1,5 +1,5 @@
 /**
- * Enroll This Mac — the one screen that spends a credential.
+ * Enroll This Machine — the one screen that spends a credential.
  *
  * Reached two ways, and they are not the same question. From the probe
  * (`not-enrolled`) it is the next thing that has to be true; from the connected

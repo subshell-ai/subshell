@@ -38,14 +38,13 @@ describe("screenFor", () => {
 
 describe("screenTitle", () => {
   it("speaks the assistant's voice, and says which service failure it is", () => {
-    expect(screenTitle("connect", undefined, "darwin")).toBe("Connect to a Server");
-    expect(screenTitle("install-agent", undefined, "darwin")).toBe("Install the Agent");
-    expect(screenTitle("enroll", undefined, "darwin")).toBe("Enroll This Mac");
-    expect(screenTitle("enroll", undefined, "linux")).toBe("Enroll This Machine");
-    expect(screenTitle("service", probe("offline"), "darwin")).toBe("The Node Service Isn't Responding");
-    expect(screenTitle("service", probe("stopped"), "darwin")).toBe("The Node Service Is Stopped");
-    expect(screenTitle("service", probe("no-service"), "darwin")).toBe("Start the Node Service");
-    expect(screenTitle("connected", undefined, "darwin")).toBe("This Mac Is a Node");
+    expect(screenTitle("connect", undefined)).toBe("Connect to a Server");
+    expect(screenTitle("install-agent", undefined)).toBe("Install the Agent");
+    expect(screenTitle("enroll", undefined)).toBe("Enroll This Machine");
+    expect(screenTitle("service", probe("offline"))).toBe("The Node Service Isn't Responding");
+    expect(screenTitle("service", probe("stopped"))).toBe("The Node Service Is Stopped");
+    expect(screenTitle("service", probe("no-service"))).toBe("Start the Node Service");
+    expect(screenTitle("connected", undefined)).toBe("This Machine Is a Node");
   });
 
   it("names the product rather than the computer, identically on both platforms", () => {
@@ -54,10 +53,19 @@ describe("screenTitle", () => {
     // not remotely what this does; and a label ending on "Mac" reads as a
     // truncated "Machine", against a sibling string that really is "This
     // Machine". This is the one title that names no machine on any platform.
-    expect(screenTitle("reset", undefined, "darwin")).toBe("Reset Subshell");
-    expect(screenTitle("reset", undefined, "linux")).toBe("Reset Subshell");
-    for (const platform of ["darwin", "linux"]) {
-      expect(screenTitle("reset", undefined, platform).endsWith("Mac")).toBe(false);
+    expect(screenTitle("reset", undefined)).toBe("Reset Subshell");
+    // And the rule it became: NO title names a Mac, because there is one word
+    // for where you are and it is "This Machine" (operator's call,
+    // 2026-09-12). A title is a label; a label that might have been cut off is
+    // a bug report waiting to happen.
+    // And the shape of the bug it fixed: no title may END on "Mac", which is
+    // what reads as a truncated "Machine" under a button's ellipsis. `endsWith`
+    // rather than `contains`, because "This Machine" contains "Mac" — that
+    // prefix relationship IS the misreading, so the check has to be about
+    // where the string stops.
+    const every = ["connect", "install-agent", "enroll", "service", "connected", "reset"] as const;
+    for (const screen of every) {
+      expect(screenTitle(screen, undefined).endsWith("Mac"), screen).toBe(false);
     }
   });
 });
