@@ -873,13 +873,24 @@ Record each answer in a code comment at the point of use, with the macOS /
 Linux version it was measured on:
 
 1. **A `KeepAlive=true` job with `RunAtLoad=false` still launches at load.**
-   Expected yes (this is what rules out the flag approach). If NO on the
-   current macOS: the location rule (§ 3.2) is still the right design (it
-   avoids the disabled-database footgun), but the comment should say the
-   flag would have worked and why location was still chosen.
+   **MEASURED YES, macOS 26.6.2, 2026-09-12**: a throwaway agent
+   (`/bin/sleep 300`, `RunAtLoad=false`, `KeepAlive=true`) bootstrapped into
+   `gui/<uid>` showed `state = running, runs = 1` with a pid two seconds
+   later; the control (`RunAtLoad=false`, no `KeepAlive`) showed `runs = 0`.
+   The flag approach is dead, not merely suspected dead. Carry the
+   measurement into the `service.ts` comment beside the location rule.
 2. **A plist bootstrapped from outside `~/Library/LaunchAgents` is not loaded
-   at the next login.** Expected yes; it is the premise of § 3.2. If no,
-   stop and report — the design needs a new mechanism.
+   at the next login.** Two halves. **The "run now" half is MEASURED YES
+   (macOS 26.6.2, 2026-09-12)**: three plists in a scratch directory
+   bootstrapped with exit 0, each job's `launchctl print` showing
+   `path = <the scratch path>`, and booted out cleanly. **The "not at login"
+   half is documented behaviour** (launchd scans `~/Library/LaunchAgents` at
+   login and nothing else) and was NOT measured, because measuring it means
+   logging the operator out. Confirm it once, on the first machine that
+   runs phase A, by installing with `--no-autostart`, logging out and in, and
+   checking `service status` reports not running and `launchctl print
+   gui/<uid>/dev.subshell.server` answers "Could not find service". If it IS
+   loaded, stop and report — the design needs a new mechanism.
 3. **SIGTERM to the server's main pid leaves its tmux servers running.**
    Expected yes (they are separate processes; nothing sends a group signal).
    Manual check 3 in § 12 is this.
