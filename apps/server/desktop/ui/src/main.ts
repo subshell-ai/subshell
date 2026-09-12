@@ -1119,6 +1119,14 @@ let view: "status" | "reset" = "status";
  */
 let armingProblem: string | null = null;
 
+/**
+ * The run button's label at rest. Held here rather than read back off the
+ * element, so the busy label can be swapped in and out without the resting
+ * one having to survive a round trip through the DOM: a half-run promotes
+ * this to "Retry reset" and it must stay promoted across every later render.
+ */
+let resetRunLabel = "Reset everything";
+
 function renderReset(): void {
   const st = probe?.status;
   const host = probe?.hostname ?? "";
@@ -1145,7 +1153,12 @@ function renderReset(): void {
     "Enrolled remote nodes are NOT reached: their agents and panes keep running with keys to a plane that will not exist. A subshell node agent on this very machine is not reached either and must be stopped from Subshell Client or `subshell service stop`. The installed server binary stays. Everything listed above is permanent.";
   el("reset-hostname").textContent = host;
   const typed = (el("reset-confirm") as HTMLInputElement).value;
-  (el("reset-run") as HTMLButtonElement).disabled = !(why === null && armed(typed, host));
+  // `busy` belongs in this gate as much as the refusal does. Without it the
+  // button stayed lit and lettered "Reset everything" through a chain that
+  // stops a service and sweeps hundreds of sockets, so the one press that
+  // matters looked like it had not registered and invited a second.
+  (el("reset-run") as HTMLButtonElement).disabled = busy || !(why === null && armed(typed, host));
+  el("reset-run").textContent = busy ? "Resetting…" : resetRunLabel;
   el("reset-run").dataset.armed = String(armed(typed, host));
   // The reason, beside the control it disables. Only for a REFUSAL: "you
   // have not typed the hostname yet" is what the label above the box already
@@ -1221,7 +1234,13 @@ function showResetResult(text: string, bad: boolean): void {
   box.textContent = text;
   box.classList.toggle("output-bad", bad);
   box.hidden = text === "";
-  if (bad) el("reset-run").textContent = "Retry reset";
+  if (bad) resetRunLabel = "Retry reset";
+  // Bring it into view. This box sits below the confirm row, under a long
+  // disclosure list, in a 620px window - so a chain that answered was
+  // answering off-screen, and the press read as a button that did nothing.
+  // The same mistake as the refusal line, one element further down: writing
+  // the truth somewhere the reader is not.
+  if (text !== "") box.scrollIntoView({ block: "nearest" });
 }
 
 el("reset-run").addEventListener("click", () => {
