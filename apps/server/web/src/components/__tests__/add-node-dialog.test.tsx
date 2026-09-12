@@ -121,15 +121,20 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("warns and offers the enroll fallback when the server publishes no agent binaries", async () => {
-    // The fresh binary-only-install bug: install.sh would 404 the download,
-    // so the dialog must say so and hand over the manual enroll command.
-    const { restore } = mockFetch({ appBaseUrl: "https://subshell.example", nodeArtifactTargets: [] });
+  it("warns and offers the enroll fallback when the server has no binaries AND will not fetch", async () => {
+    // The air-gapped case, which is the only one where "missing" means the
+    // install cannot work: install.sh would 404 the download, so the dialog
+    // must say so and hand over the manual enroll command.
+    const { restore } = mockFetch({
+      appBaseUrl: "https://subshell.example",
+      nodeArtifactTargets: [],
+      nodeArtifactsAutoFetch: false,
+    });
     try {
       renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      expect(await screen.findByText(/no agent binary published/i)).toBeDefined();
+      expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
       expect(screen.getByText('subshell enroll --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
       // The one-liner stays visible — it still works once artifacts exist.
       expect(screen.getByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
@@ -142,12 +147,13 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch({
       appBaseUrl: "https://subshell.example",
       nodeArtifactTargets: ["linux-x64", "linux-arm64"],
+      nodeArtifactsAutoFetch: false,
     });
     try {
       renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      const hint = await screen.findByText(/no agent binary published/i);
+      const hint = await screen.findByText(/has no agent binary for:/i);
       expect(hint.textContent).toContain("darwin-arm64");
       expect(hint.textContent).not.toContain("linux-x64");
     } finally {
@@ -168,7 +174,27 @@ describe("AddNodeDialog", () => {
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText("nsk_secret");
-      expect(screen.queryByText(/no agent binary published/i)).toBeNull();
+      expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not warn about an empty artifacts dir when the server will fetch on demand", async () => {
+    // The default install. Nothing is on disk and that is fine: the first
+    // machine of a platform to run the one-liner triggers the download, so a
+    // warning here would fire on every fresh instance and fix itself.
+    const { restore } = mockFetch({
+      appBaseUrl: "https://subshell.example",
+      nodeArtifactTargets: [],
+      nodeArtifactsAutoFetch: true,
+    });
+    try {
+      renderDialog();
+      await screen.findByLabelText("Node name");
+      expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
+      // It says the first run is slower, once and quietly.
+      expect(screen.getByText(/downloaded from the project's release the first time/i)).toBeDefined();
     } finally {
       restore();
     }
@@ -181,7 +207,7 @@ describe("AddNodeDialog", () => {
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText("nsk_secret");
-      expect(screen.queryByText(/no agent binary published/i)).toBeNull();
+      expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
     } finally {
       restore();
     }
@@ -190,10 +216,14 @@ describe("AddNodeDialog", () => {
   it("shows the missing-artifacts warning already in step 1, before any key is minted", async () => {
     // The paragraph reads only /settings/public — making the operator burn a
     // single-use key to learn the one-liner 404s was the review finding.
-    const { calls, restore } = mockFetch({ appBaseUrl: "https://subshell.example", nodeArtifactTargets: [] });
+    const { calls, restore } = mockFetch({
+      appBaseUrl: "https://subshell.example",
+      nodeArtifactTargets: [],
+      nodeArtifactsAutoFetch: false,
+    });
     try {
       renderDialog();
-      expect(await screen.findByText(/no agent binary published/i)).toBeDefined();
+      expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
       // And no key was minted by merely opening the dialog.
       expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/setup-keys")).toBe(false);
     } finally {

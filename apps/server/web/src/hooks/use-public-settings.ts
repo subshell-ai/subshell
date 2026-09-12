@@ -41,6 +41,17 @@ export interface PublicSettings {
    * stays silent rather than nagging about a field it cannot verify.
    */
   nodeArtifactTargets?: string[];
+  /**
+   * Whether the server downloads a MISSING agent binary from the project's own
+   * GitHub release the first time a machine asks for it.
+   *
+   * Optional, and defaulting to false at every use site, for the same reason
+   * as the field above: a cached PWA can outlive its server, and an older
+   * server that does not fetch must keep getting the warning it has always
+   * had. Reading a missing field as `true` would silence the one message that
+   * is still exactly right on an air-gapped instance.
+   */
+  nodeArtifactsAutoFetch?: boolean;
 }
 
 /**

@@ -117,8 +117,15 @@ export function AddNodeDialog({
   // nodeArtifactTargets 404s the download on that machine (the fresh
   // binary-only-install bug — an empty artifacts dir until release:node
   // runs). `undefined` = a server predating the field → stay silent.
+  // A target absent from `nodeArtifactTargets` is only a PROBLEM when this
+  // server will not go and get it. With a release source configured (the
+  // default) the first machine of a platform to run the one-liner triggers the
+  // download, so warning about "missing" binaries would be warning about a
+  // cache that has not been filled yet — which is every fresh install, and
+  // which fixes itself.
   const targets = publicSettings?.nodeArtifactTargets;
-  const missingTargets = targets ? NODE_TARGETS.filter((t) => !targets.includes(t)) : [];
+  const autoFetch = publicSettings?.nodeArtifactsAutoFetch ?? false;
+  const missingTargets = targets && !autoFetch ? NODE_TARGETS.filter((t) => !targets.includes(t)) : [];
   const enrollCommand = created ? `subshell enroll --server "${baseUrl}" --key "${created.key}"` : "";
   // Rendered in BOTH steps: the operator should learn the one-liner cannot
   // work BEFORE minting a single-use key they would then watch it 404 and
@@ -127,10 +134,18 @@ export function AddNodeDialog({
   // needs the key) stays a step-2 thing.
   const missingNote = missingTargets.length > 0 && (
     <p className="text-amber-600 text-xs dark:text-amber-400">
-      This server has no agent binary published for: {missingTargets.join(", ")}. The install command 404s on those
-      machines. Publish the binaries on the server (run <code className="font-mono">bun run release:node</code> from a
-      checkout, or copy the binaries from a node-vX.Y.Z GitHub Release into its node-artifacts dir), or install the
-      agent another way and enroll directly.
+      This server has no agent binary for: {missingTargets.join(", ")}, and it is configured not to download one. The
+      install command 404s on those machines. Publish the binaries on the server (run{" "}
+      <code className="font-mono">bun run release:node</code> from a checkout, or copy them from a node-vX.Y.Z GitHub
+      Release into its node-artifacts dir), or install the agent another way and enroll directly.
+    </p>
+  );
+  // Said once, quietly, and only where it is true: the first machine of a
+  // platform waits for a ~80 MB download that later ones do not.
+  const firstRunNote = autoFetch && targets && targets.length < NODE_TARGETS.length && (
+    <p className="text-muted-foreground text-xs">
+      The agent binary for a platform is downloaded from the project's release the first time a machine of that platform
+      installs, so the first run on each takes a little longer.
     </p>
   );
   // Settings neither loaded nor errored ⇒ no verdict exists; say so instead
@@ -164,6 +179,7 @@ export function AddNodeDialog({
                 <CopyCommandRow text={enrollCommand} />
               </div>
             )}
+            {firstRunNote}
             {unknownNote}
             {isLoopbackUrl(baseUrl) && (
               <p className="text-amber-600 text-xs dark:text-amber-400">
@@ -203,6 +219,7 @@ export function AddNodeDialog({
               {/* The verdict needs no key — do not make the operator mint
                   (and burn) one to discover the one-liner cannot work. */}
               {missingNote}
+              {firstRunNote}
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={close}>

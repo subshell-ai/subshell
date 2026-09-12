@@ -8,6 +8,8 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { artifactPath, artifactStat } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
+import { autoFetchEnabled, fetchArtifact, fetchDigest } from "@/services/node-release.js";
+import { getLogger } from "@/utils/logger.js";
 
 /**
  * The PATH-SAFETY gate, checked IN-HANDLER as the first statement of every
@@ -122,6 +124,9 @@ async function artifactSha(target: NodeTarget): Promise<string | null> {
   return sha;
 }
 
+/** A thrown value's words, for the one log line a failed fetch leaves behind. */
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 const notPublished = (target: string) => ({
   code: BackendErrorCodes.NOT_FOUND_ERROR,
   message: `No subshell build for "${target}" is published on this instance yet.`,
@@ -149,15 +154,32 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     // closed set is enforced here, not in a params schema (see isNodeTarget).
     if (!isNodeTarget(params.target)) return status(404, apiErrorBody(notPublished(params.target)));
     if (!(await authorizeDownload(request, query.setup_key))) return status(401, apiErrorBody(unauthorized()));
-    if (!artifactStat(params.target)) return status(404, apiErrorBody(notPublished(params.target)));
-    const file = Bun.file(artifactPath(params.target));
-    return new Response(file, {
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename=${nodeArtifactFileName(params.target)}`,
-        "Cache-Control": "private, no-cache",
-      },
-    });
+    const headers = {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": `attachment; filename=${nodeArtifactFileName(params.target)}`,
+      "Cache-Control": "private, no-cache",
+    };
+    // On disk wins, always: a binary an operator published with `release:node`
+    // is what this instance serves, and nothing here second-guesses it.
+    if (artifactStat(params.target)) {
+      return new Response(Bun.file(artifactPath(params.target)), { headers });
+    }
+    // Nothing local. THIS is the lazy fetch: the first machine of a platform
+    // to ask pays for the download, and it is streamed past rather than staged
+    // (see services/node-release.ts). A plane whose nodes are all one platform
+    // never spends a byte on the others.
+    if (!autoFetchEnabled()) return status(404, apiErrorBody(notPublished(params.target)));
+    try {
+      const fetched = await fetchArtifact(params.target);
+      return new Response(fetched.stream, { headers });
+    } catch (error) {
+      // A release that cannot be read is the same OUTCOME as an unpublished
+      // build — the machine cannot install — so it is the same 404 rather than
+      // a 502 the install script has no branch for. The reason is logged
+      // where an operator can find it.
+      getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);
+      return status(404, apiErrorBody(notPublished(params.target)));
+    }
   },
   {
     params: t.Object({
@@ -181,9 +203,21 @@ for (const target of NODE_TARGETS) {
     `/node/${target}.sha256`,
     async ({ request, query, status }) => {
       if (!(await authorizeDownload(request, query.setup_key))) return status(401, apiErrorBody(unauthorized()));
-      const sha = await artifactSha(target);
-      if (!sha) return status(404, apiErrorBody(notPublished(target)));
-      return new Response(`${sha}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      const local = await artifactSha(target);
+      if (local) return new Response(`${local}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      // `install.sh` asks for the sha AFTER the binary, so by here the
+      // streaming fetch has normally written the sidecar and the line above
+      // answered. This is the other order: the digest alone, which is 65
+      // bytes and does not pull the binary down with it.
+      if (!autoFetchEnabled()) return status(404, apiErrorBody(notPublished(target)));
+      try {
+        return new Response(`${await fetchDigest(target)}\n`, {
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+      } catch (error) {
+        getLogger().warn(`node artifacts: could not fetch the ${target} digest from the release: ${errorText(error)}`);
+        return status(404, apiErrorBody(notPublished(target)));
+      }
     },
     {
       query: DownloadQuerySchema,

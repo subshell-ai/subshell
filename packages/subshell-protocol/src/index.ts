@@ -54,6 +54,16 @@ export {
   parseNodeEvent,
 } from "./node-frames.js";
 export {
+  DEFAULT_NODE_RELEASE_API,
+  NODE_RELEASE_TAG_PREFIX,
+  type NodeReleaseCandidate,
+  newestNodeRelease,
+  nodeReleaseAssetNames,
+  parseNodeReleaseTag,
+  parseSidecarDigest,
+  SUBSHELL_REPO_SLUG,
+} from "./node-release.js";
+export {
   type DetectResultWire,
   FS_LS_MAX_ENTRIES,
   type NodeFsLsResult,

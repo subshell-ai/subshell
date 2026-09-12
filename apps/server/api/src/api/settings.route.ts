@@ -13,6 +13,7 @@ import {
   resolveInstanceName,
   setInstanceName,
 } from "@/services/instance-name.js";
+import { autoFetchEnabled } from "@/services/node-release.js";
 import { SERVER_VERSION } from "@/version.js";
 
 const SettingsSchema = t.Object({
@@ -83,7 +84,15 @@ const PublicSettingsSchema = t.Object({
   // holds this payload.
   nodeArtifactTargets: t.Array(t.String(), {
     description:
-      "Platform triples whose agent binary THIS server actually serves under /api/downloads/node/* (empty on a fresh binary-only install until release:node publishes artifacts); the Nodes dialog shows a manual-enroll fallback when it is incomplete",
+      "Platform triples whose agent binary is already ON DISK here, served under /api/downloads/node/* without a fetch; empty on a fresh binary-only install",
+  }),
+  // Whether an absent binary is a 404 or a download. With a release source
+  // configured (the default) the missing targets above are fetched the first
+  // time a machine asks, so the dialog must NOT warn about them — the warning
+  // is for the air-gapped configuration, where it is still exactly true.
+  nodeArtifactsAutoFetch: t.Boolean({
+    description:
+      "Whether this server downloads a missing agent binary from the project's own GitHub release on first use (SUBSHELL_NODE_RELEASE_URL; empty disables it)",
   }),
 });
 
@@ -110,6 +119,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         viewerIsAdmin: await isCookieAdmin(user, actor),
         serverVersion: SERVER_VERSION,
         nodeArtifactTargets: publishedNodeTargets(),
+        nodeArtifactsAutoFetch: autoFetchEnabled(),
       } as const;
     },
     {

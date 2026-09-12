@@ -254,6 +254,18 @@ shares and subshell shares are two independent axes:
   session cookie OR a valid unconsumed setup key; `GET /install.sh` renders a
   usage script for an invalid/absent key (it is never a binary oracle), and the
   rendered script digest-verifies the download before its first `chmod +x`/exec.
+  **A binary the instance does not have is fetched from the project's own
+  `node-v*` release on first use** (2026-09-12): lazily — no warm-up, no admin
+  button, no poll, and the triggering request is already authenticated —
+  streamed through while being hashed against the release's `.sha256`, with a
+  mismatch erroring the response mid-flight so nothing unverified is cached.
+  The node's own digest check before `chmod +x` is what makes streaming sound.
+  `SUBSHELL_NODE_RELEASE_URL` is operator-configurable and **empty disables
+  it** (the air-gapped configuration, where the Nodes dialog keeps its
+  no-binary warning). Only files this instance fetched — recorded in
+  `.fetched.json` with their release tag — are ever superseded or deleted; a
+  hand-published binary is never touched, and a file on disk always wins.
+  Full prose: `docs/security.md`, "Agent binaries are fetched lazily".
   Public settings now carries `appBaseUrl` so the Nodes dialog can show the
   exact URL the server will bake — the enroll-time loopback trap above is
   unchanged by that visibility.

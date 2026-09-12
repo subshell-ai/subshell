@@ -133,11 +133,14 @@ case "$HTTP" in
     ;;
   404)
     rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: this server has no $TARGET agent binary published." >&2
-    echo "    Publish it on the server host: 'bun run release:node' from a checkout, or (a" >&2
-    echo "    binary-only install has no checkout) copy the 'subshell-node-cli-$TARGET' asset from a" >&2
-    echo "    node-vX.Y.Z GitHub Release into the server's node-artifacts dir, or install the" >&2
-    echo "    agent for this machine another way and enroll directly:" >&2
+    echo "subshell: this server could not provide a $TARGET agent binary." >&2
+    echo "    It serves what is in its node-artifacts dir, and downloads a missing build from the" >&2
+    echo "    project's own node-vX.Y.Z release on first use — so this usually means the server" >&2
+    echo "    cannot reach that release (no outbound network, or SUBSHELL_NODE_RELEASE_URL is" >&2
+    echo "    empty). Check the server's log for the reason. To supply it by hand instead, run" >&2
+    echo "    'bun run release:node' from a checkout on the server host, or copy the" >&2
+    echo "    'subshell-node-cli-$TARGET' asset from a node-vX.Y.Z GitHub Release into that dir." >&2
+    echo "    Or install the agent for this machine another way and enroll directly:" >&2
     echo "      subshell enroll --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
     exit 1
     ;;

@@ -85,11 +85,30 @@ published as `subshell-node-cli-<triple>` + `.sha256` — from `NODE_ARTIFACTS_D
 (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
 `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:node`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous.
-A binary-only server install ships that dir EMPTY, so the install one-liner
-404s until someone publishes — three surfaces know this instead of letting
-users discover it: the published set (`lib/node-artifacts.ts:publishedNodeTargets`,
+A binary-only server install ships that dir EMPTY. That used to mean the
+install one-liner 404ed until someone published; since 2026-09-12 the server
+FETCHES a missing binary from the project's own `node-v*` GitHub release the
+first time a machine asks for it (`services/node-release.ts`). Lazily, on the
+download route's 404 branch — no warm-up, no admin button, no poll, so a plane
+whose nodes are all one platform never spends a byte on the others. The bytes
+stream THROUGH while being hashed against the release's `.sha256` (fetched
+first); a mismatch errors the response mid-flight, so nothing unverified is
+cached and the node's own digest check before `chmod +x` still decides.
+`SUBSHELL_NODE_RELEASE_URL` configures it and EMPTY disables it — the
+air-gapped configuration, and the default under `IS_TEST` so no suite reaches
+the network by accident. A file on disk always wins over a fetch, and only
+what this instance fetched (recorded in `<node-artifacts>/.fetched.json` with
+its release tag) is ever superseded when a newer tag appears — a hand-published
+binary has no entry and is never touched. Superseded platforms are DELETED
+rather than refreshed: the file comes back when a machine of that platform next
+enrolls, which is the same laziness the rest of the path keeps.
+
+Three surfaces still report what is on disk, so the air-gapped case is visible
+instead of being discovered: the published set (`lib/node-artifacts.ts:publishedNodeTargets`,
 the same regular-non-empty-file rule the download routes 404 on) rides
-`GET /api/settings/public → nodeArtifactTargets` for the dialog, prints as
+`GET /api/settings/public → nodeArtifactTargets` for the dialog (beside
+`nodeArtifactsAutoFetch`, which is what tells the dialog whether an absent
+binary is a problem or a cache miss), prints as
 `node artifacts = N/4 published` in `subshell-server status`, and the
 rendered `install.sh` downloads to a temp path, inspects the HTTP code
 (404 → publish guidance naming the GitHub Release asset; 401 → mint a fresh

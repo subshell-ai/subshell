@@ -6,6 +6,7 @@ import { config } from "@dotenvx/dotenvx";
 import { DEFAULT_REGISTRY_URL } from "@internal/pane-runtime";
 import {
   DEFAULT_DATABASE_PATH,
+  DEFAULT_NODE_RELEASE_API,
   defaultSubshellServerDataDir as sharedDefaultSubshellServerDataDir,
 } from "@internal/subshell-protocol";
 import { default as envVar } from "env-var";
@@ -164,6 +165,32 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
   : resolve(
       env.get("SUBSHELL_NODE_ARTIFACTS_DIR").default(join(SUBSHELL_SERVER_DATA_DIR, "node-artifacts")).asString(),
     );
+
+/**
+ * Where this instance fetches node agent binaries it does not have on disk.
+ *
+ * A server installed from a release tarball has an EMPTY node-artifacts
+ * directory, so every enroll one-liner 404s until someone runs `release:node`
+ * from a checkout. With this set, `GET /api/downloads/node/*` fetches the
+ * missing binary from the repository's own `node-v*` release the first time a
+ * machine asks for it, verifies it, and keeps it.
+ *
+ * **Empty disables it**, and that is the supported air-gapped configuration:
+ * the download routes fall back to serving only what is on disk, which is
+ * exactly today's behaviour. Like {@link SUBSHELL_PLUGIN_REGISTRY_URL} this
+ * has no writer of its own, so it is trusted as typed and a malformed value
+ * fails at first use rather than at boot — nothing here reaches the network
+ * until a node actually asks for a binary.
+ */
+export const SUBSHELL_NODE_RELEASE_URL = IS_TEST
+  ? // OFF under test, always. This is the one setting whose default reaches
+    // the public internet, and a suite that inherits it turns every
+    // download-route case into a real GitHub request — slow, flaky, and
+    // quietly asserting against whatever is published today. A test that
+    // wants the behaviour opts in through `setNodeReleaseUrlForTests`, which
+    // points at a fake release server.
+    ""
+  : env.get("SUBSHELL_NODE_RELEASE_URL").default(DEFAULT_NODE_RELEASE_API).asString().replace(/\/+$/, "");
 
 /**
  * The npm registry `local` fetches plugin installs from (phase 3). The URL

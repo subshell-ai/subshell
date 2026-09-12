@@ -21,6 +21,7 @@ import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { resetReleaseCacheForTests, setNodeReleaseUrlForTests } from "@/services/node-release.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 // Assembled like createApp(): the GLOBAL error handler is mounted before the
@@ -541,7 +542,13 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
         const gone404 = runFailBranch("four-oh-four");
         expect(gone404.exitCode).toBe(1);
-        expect(gone404.stderr).toContain("no linux-x64 agent binary published");
+        // The 404 arm no longer means "nobody published it": the server also
+        // reaches for the project's release, so the message leads with what
+        // the operator can check (the server could not provide one, and why)
+        // and keeps the hand-publish route as the fallback.
+        expect(gone404.stderr).toContain("could not provide a linux-x64 agent binary");
+        expect(gone404.stderr).toContain("SUBSHELL_NODE_RELEASE_URL");
+        expect(gone404.stderr).toContain("subshell-node-cli-linux-x64");
         expect(gone404.stderr).toContain("GitHub Release"); // the binary-only-host path, not just release:node
         // …and it names the ASSET to copy. That name is the artifact name, so
         // it moves whenever the artifact does.
@@ -590,5 +597,121 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
       expect(proc.stderr.toString()).toBe("");
       expect(proc.exitCode).toBe(0);
     }
+  });
+});
+
+/**
+ * The lazy fetch (spec 2026-09-12): a target with nothing on disk is
+ * downloaded from the project's own release the first time a machine asks,
+ * rather than 404ing until an operator publishes it by hand.
+ *
+ * Under IS_TEST the release source is EMPTY by default, so every case above
+ * exercises the air-gapped behaviour and none of them reaches the network.
+ * These opt in, against a fake release server.
+ */
+describe("/api/downloads/node/* — the lazy fetch", () => {
+  const email = `dlfetch-${crypto.randomUUID()}@subshell.local`;
+  const pw = "downloads-2";
+  const TARGET = "darwin-arm64";
+  const binaryPath = join(NODE_ARTIFACTS_DIR, `subshell-node-cli-${TARGET}`);
+  const BODY = "a convincing darwin binary";
+  let cookie = "";
+  let _userId = "";
+  let release: { url: string; stop: () => void; serveDigest: string };
+
+  beforeAll(async () => {
+    await setupAuthTables();
+    mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
+    _userId = await new UsersRepository(db).createUser({
+      email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    cookie = await signIn(email, pw);
+
+    const hasher = new Bun.CryptoHasher("sha256");
+    hasher.update(new TextEncoder().encode(BODY));
+    const digest = hasher.digest("hex");
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        const base = `http://127.0.0.1:${server.port}`;
+        if (url.pathname === "/releases") {
+          return Response.json([
+            {
+              tag_name: "node-v9.9.9",
+              draft: false,
+              assets: [
+                { name: `subshell-node-cli-${TARGET}`, browser_download_url: `${base}/bin` },
+                { name: `subshell-node-cli-${TARGET}.sha256`, browser_download_url: `${base}/sha` },
+              ],
+            },
+          ]);
+        }
+        if (url.pathname === "/bin") return new Response(BODY);
+        if (url.pathname === "/sha") return new Response(`${release.serveDigest}\n`);
+        return new Response("no", { status: 404 });
+      },
+    });
+    release = { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true), serveDigest: digest };
+  });
+
+  afterAll(async () => {
+    release.stop();
+    setNodeReleaseUrlForTests(null);
+    resetReleaseCacheForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    await deleteUserByEmailOrId(email);
+  });
+
+  it("serves a target that is on NO disk by fetching it, and caches it", async () => {
+    setNodeReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    expect(existsSync(binaryPath)).toBe(false);
+
+    const res = await app.handle(
+      new Request(`http://localhost/api/downloads/node/${TARGET}`, {
+        headers: { cookie: `better-auth.session_token=${cookie}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(BODY);
+    // Cached, so the next machine of this platform is served from disk.
+    expect(readFileSync(binaryPath, "utf8")).toBe(BODY);
+
+    // And the sha route is now answered locally, from the sidecar the fetch wrote.
+    const sha = await app.handle(
+      new Request(`http://localhost/api/downloads/node/${TARGET}.sha256`, {
+        headers: { cookie: `better-auth.session_token=${cookie}` },
+      }),
+    );
+    expect(sha.status).toBe(200);
+    expect((await sha.text()).trim()).toBe(release.serveDigest);
+  });
+
+  it("404s rather than 500s when the release cannot be read", async () => {
+    rmSync(binaryPath, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    // A closed port: the same OUTCOME as an unpublished build (this machine
+    // cannot install), so it must be the same status — `install.sh` has a 404
+    // arm and no branch for a 502.
+    setNodeReleaseUrlForTests("http://127.0.0.1:1/releases");
+    resetReleaseCacheForTests();
+    const res = await app.handle(
+      new Request(`http://localhost/api/downloads/node/${TARGET}`, {
+        headers: { cookie: `better-auth.session_token=${cookie}` },
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("still requires a credential — a fetch is not a way around the gate", async () => {
+    setNodeReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    const res = await app.handle(new Request(`http://localhost/api/downloads/node/${TARGET}`));
+    expect(res.status).toBe(401);
   });
 });

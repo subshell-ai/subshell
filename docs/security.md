@@ -460,6 +460,46 @@ subshell may only be launched in one of them or beneath it.
   invalid/absent key — it is never a binary oracle — and the script it renders
   digest-verifies the download before the first `chmod +x`.
 
+**Agent binaries are fetched lazily from the project's own release
+(2026-09-12).** A control plane installed from a release tarball has an empty
+`node-artifacts` directory, so every install one-liner used to 404 until an
+operator ran `release:node` from a checkout. The repository is public, so the
+server now reads the same release it was telling people to copy from. The
+posture:
+
+- **Nothing is fetched until a machine asks.** There is no warm-up, no
+  boot-time sweep, no admin button and no background poll — the entry point is
+  the download route's 404 branch. A plane whose nodes are all one platform
+  never spends a byte on the others, and a plane nobody enrolls against never
+  reaches the network at all. The request that triggers a fetch is already
+  authenticated (cookie or unconsumed setup key), so this is not a way for an
+  anonymous caller to make the plane fetch anything.
+- **The bytes are streamed through and hashed on the way past**, against the
+  digest from the release's own `.sha256` asset, which is fetched first. A
+  mismatch ERRORS the response mid-flight, so the node sees a truncated
+  download; nothing unverified is ever cached. What makes streaming sound
+  rather than merely fast is the check that was already there: `install.sh`
+  verifies the digest itself before the first `chmod +x`, so the node never
+  trusts the plane's word for what it received.
+- **The digest only proves the bytes match what that release published** —
+  over the default GitHub HTTPS endpoint that is GitHub's assurance, and over
+  an operator-set `SUBSHELL_NODE_RELEASE_URL` it is their own network. The
+  same sentence the plugin registry carries, for the same reason.
+- **Empty disables it**, and that is the supported air-gapped configuration:
+  the routes then serve only what is on disk, exactly as before. The Nodes
+  dialog's "no agent binary" warning is kept for precisely that case, where it
+  is still exactly true.
+- **A release below `MIN_AGENT_VERSION` is refused**, because the plane would
+  turn away the agent it just handed out, and drafts are skipped — the release
+  pipeline publishes draft-then-live.
+- **Only what this instance fetched is ever deleted.** Cached artifacts are
+  recorded in `<node-artifacts>/.fetched.json` with the release tag they came
+  from; when a newer tag is resolved, files recorded against an older one are
+  removed (not refreshed — the platform comes back when a machine of that
+  platform next enrolls). A binary an operator published by hand has no
+  manifest entry and is never touched, and a file on disk always wins over a
+  fetch.
+
 **The enroll-time loopback trap.** If the configured server URL is
 loopback-ish, a remote node will dutifully dial its own machine. The enroll flow
 and the Nodes page surface the resolved URL and warn on loopback; public settings
