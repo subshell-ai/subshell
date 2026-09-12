@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ActionResult, Probe } from "../lib/ipc";
 import {
+  applySupervisionChoice,
   canSetup,
+  DEFAULT_SUPERVISION,
   dots,
   failureLine,
   isRequestedScreen,
@@ -254,5 +256,77 @@ describe("screens entered by request", () => {
       expect(isRequestedScreen(implied)).toBe(false);
     }
     expect(isRequestedScreen(null)).toBe(false);
+  });
+});
+
+/**
+ * The two supervision boxes (spec 2026-09-12 server-supervision § 5).
+ *
+ * One row used to read "Start it in the background, and at every login" — one
+ * sentence asserting two separate things, neither declinable. These are the
+ * pure halves of making them two questions.
+ */
+describe("the supervision choice", () => {
+  it("defaults to what the chain has always done", () => {
+    expect(DEFAULT_SUPERVISION).toEqual({ background: true, autostart: true });
+  });
+
+  it("forces login off when there is no service to start", () => {
+    const off = applySupervisionChoice(DEFAULT_SUPERVISION, { background: false });
+    expect(off).toEqual({ background: false, autostart: false });
+    // And it stays off: the box is disabled, so a press cannot reach it —
+    // but a caller that tried must not be able to set a meaningless state.
+    expect(applySupervisionChoice(off, { autostart: true })).toEqual({ background: false, autostart: false });
+  });
+
+  it("restores the DEFAULT when the service comes back, not the forced-off value", () => {
+    const off = applySupervisionChoice(DEFAULT_SUPERVISION, { background: false });
+    // Treating the forced `false` as a preference would silently opt someone
+    // out of start-at-login on a press they never made.
+    expect(applySupervisionChoice(off, { background: true })).toEqual({ background: true, autostart: true });
+  });
+
+  it("keeps a deliberate login choice while the service stays on", () => {
+    const noLogin = applySupervisionChoice(DEFAULT_SUPERVISION, { autostart: false });
+    expect(noLogin).toEqual({ background: true, autostart: false });
+    // Re-checking a box that was already checked is not a reset.
+    expect(applySupervisionChoice(noLogin, { background: true })).toEqual({ background: true, autostart: false });
+  });
+});
+
+describe("setupRows follows the choice", () => {
+  const addresses = { port: "3080", host: "0.0.0.0" };
+  const serviceRow = (probe: Probe, choice?: { background: boolean; autostart: boolean }) =>
+    setupRows(probe, addresses, choice).find((r) => r.id === "service");
+
+  it("names the service and whether it is armed for login", () => {
+    const probe = { ...virgin(), service: { installed: true } } as unknown as Probe;
+    expect(serviceRow(probe, { background: true, autostart: true })).toMatchObject({
+      label: "Background service",
+      detail: "starts at login",
+      done: true,
+    });
+    expect(serviceRow(probe, { background: true, autostart: false })).toMatchObject({ detail: "not at login" });
+  });
+
+  it("names the APP when that is what will run it, and is done only once a child exists", () => {
+    const app = { background: false, autostart: false };
+    const notYet = { ...virgin(), supervision: "service" } as unknown as Probe;
+    // A row claiming "Background service" while the chain deliberately
+    // installs none would be the progress display lying about the plan.
+    expect(serviceRow(notYet, app)).toMatchObject({ label: "Runs with this app", done: false });
+
+    const running = { ...virgin(), supervision: "app", supervisor: { pid: 42 } } as unknown as Probe;
+    expect(serviceRow(running, app)?.done).toBe(true);
+
+    // The mode alone is not enough: a machine set to app mode with nothing
+    // spawned has not finished this step.
+    const spawnless = { ...virgin(), supervision: "app", supervisor: { pid: null } } as unknown as Probe;
+    expect(serviceRow(spawnless, app)?.done).toBe(false);
+  });
+
+  it("keeps its old meaning for every caller that passes no choice", () => {
+    const probe = { ...virgin(), service: { installed: true } } as unknown as Probe;
+    expect(serviceRow(probe)).toMatchObject({ label: "Background service", detail: "starts at login" });
   });
 });

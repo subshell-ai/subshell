@@ -657,11 +657,13 @@ fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> 
 /// existing per-field rules.
 #[tauri::command(async)]
 pub fn desktop_setup(
+    app: AppHandle,
     settings: State<'_, SettingsState>,
     port: Option<String>,
     host: Option<String>,
     base_url: Option<String>,
     trusted_origins: Option<String>,
+    supervision: Option<SetupSupervision>,
 ) -> Result<ActionResult, String> {
     let _guard = ActionGuard::new();
     let addresses = SetupAddresses {
@@ -670,14 +672,23 @@ pub fn desktop_setup(
         base_url: base_url.unwrap_or_default(),
         trusted_origins,
     };
+    // Absent means today's chain, byte for byte: a caller that predates the
+    // checkboxes — or a person who pressed Set Up without reading — gets a
+    // background service that starts at login.
+    let SetupSupervision { background, autostart } = supervision.unwrap_or_default();
     let mut log = String::new();
-    for step in [
-        SetupStep::InstallServer,
-        SetupStep::Init,
-        SetupStep::ServiceInstall,
-        SetupStep::Start,
-    ] {
-        let result = step.run(&settings, &addresses)?;
+    let steps: &[SetupStep] = if background {
+        &[
+            SetupStep::InstallServer,
+            SetupStep::Init,
+            SetupStep::ServiceInstall,
+            SetupStep::Start,
+        ]
+    } else {
+        &[SetupStep::InstallServer, SetupStep::Init, SetupStep::RunWithApp]
+    };
+    for step in steps.iter().copied() {
+        let result = step.run(&app, &settings, &addresses, autostart)?;
         log.push_str(&result.stdout);
         log.push('\n');
         if !result.ok {
@@ -711,11 +722,37 @@ pub fn desktop_setup(
 /// already part-way through, and only the fresh run is one press. `run`
 /// delegates to each command's extracted body, never to a
 /// `#[tauri::command]` wrapper.
+#[derive(Clone, Copy)]
 enum SetupStep {
     InstallServer,
     Init,
     ServiceInstall,
     Start,
+    /// Hand the server to this app instead of a service manager.
+    RunWithApp,
+}
+
+/// The two supervision answers the setup screen collects.
+///
+/// One struct rather than two arguments because they travel together, mean
+/// nothing apart (login is meaningless without a service to start), and the
+/// page already holds them as one value. The default is today's chain —
+/// a background service, armed for login — so a caller that sends nothing,
+/// or one older than the checkboxes, gets exactly what it always got.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupSupervision {
+    pub background: bool,
+    pub autostart: bool,
+}
+
+impl Default for SetupSupervision {
+    fn default() -> Self {
+        SetupSupervision {
+            background: true,
+            autostart: true,
+        }
+    }
 }
 
 /// The addresses `desktop_setup`'s Init step may carry. Empty strings for
@@ -729,7 +766,13 @@ struct SetupAddresses {
 }
 
 impl SetupStep {
-    fn run(self, settings: &SettingsState, a: &SetupAddresses) -> Result<ActionResult, String> {
+    fn run(
+        self,
+        app: &AppHandle,
+        settings: &SettingsState,
+        a: &SetupAddresses,
+        autostart: bool,
+    ) -> Result<ActionResult, String> {
         match self {
             SetupStep::InstallServer => install_server_now(settings),
             // Derived defaults unless the wizard's Addresses step collected
@@ -746,14 +789,48 @@ impl SetupStep {
                 &a.base_url,
                 a.trusted_origins.as_deref(),
             )),
-            SetupStep::ServiceInstall => Ok(service_now(settings, ServiceCommand::Install, false)),
+            SetupStep::ServiceInstall => Ok(install_service_now(settings, autostart)),
             // `service install` already starts the server, and `start` on a
             // running service answers "already running" with exit 0
             // (service.ts), so the chain is a straight line rather than a
             // branch that has to know which verb already ran.
             SetupStep::Start => Ok(service_now(settings, ServiceCommand::Start, false)),
+            // The setting is written BEFORE the spawn, so a crash between the
+            // two leaves a machine that knows what it is — the next launch
+            // starts the child rather than looking for a service nobody
+            // installed.
+            SetupStep::RunWithApp => {
+                settings.update(|s| s.supervision = Supervision::App)?;
+                let spawner = server_spawner(app)?;
+                app.state::<supervisor::Supervisor>().start(spawner);
+                Ok(ActionResult {
+                    ok: true,
+                    stdout: "subshell-server is running with this app.".into(),
+                    stderr: String::new(),
+                })
+            }
         }
     }
+}
+
+/// `service install`, with or without the login arming.
+///
+/// Separate from `service_now` because this is the one verb that takes a
+/// flag the others must never receive: the CLI refuses `--no-autostart`
+/// anywhere else, exactly as it refuses `--force` outside `restart`.
+fn install_service_now(settings: &SettingsState, autostart: bool) -> ActionResult {
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
+    let Some(mut cmd) = server_cmd(&server, &["service", "install"]) else {
+        return ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "no subshell-server found".into(),
+        };
+    };
+    if !autostart {
+        cmd.push("--no-autostart".into());
+    }
+    run(&cmd, ACTION_TIMEOUT).into()
 }
 
 /// A package install is not a probe. `ACTION_TIMEOUT` is sized for a CLI

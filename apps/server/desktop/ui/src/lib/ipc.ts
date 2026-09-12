@@ -165,6 +165,11 @@ export type InitPayload = {
   host: string;
   baseUrl: string;
   trustedOrigins: string;
+  /**
+   * The two supervision answers, together — they mean nothing apart, and
+   * absent is today's chain: a background service armed for login.
+   */
+  supervision?: { background: boolean; autostart: boolean };
 };
 
 /** The `service` verbs the console may drive. `ServiceCommand`, lowercase. */

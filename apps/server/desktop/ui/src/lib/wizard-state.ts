@@ -245,9 +245,45 @@ export interface SetupRow {
  * chain's progress (optimism ticks a row the CLI then refuses). `addresses`
  * are the Customize form's current values, empty when untouched.
  */
-export function setupRows(probe: Probe, addresses: { port: string; host: string }): SetupRow[] {
+/**
+ * What the setup press was asked to do about supervision.
+ *
+ * Defaulted so every existing caller and test keeps its meaning: a background
+ * service that starts at login is what this chain has always done.
+ */
+export interface SupervisionChoice {
+  /** Register a launchd agent / systemd unit, rather than running it here. */
+  background: boolean;
+  /** Arm that service for login. Meaningless, and forced false, without the above. */
+  autostart: boolean;
+}
+
+export const DEFAULT_SUPERVISION: SupervisionChoice = { background: true, autostart: true };
+
+export function setupRows(
+  probe: Probe,
+  addresses: { port: string; host: string },
+  choice: SupervisionChoice = DEFAULT_SUPERVISION,
+): SetupRow[] {
   const port = addresses.port || "3080";
   const host = addresses.host === "" || addresses.host === "0.0.0.0" ? "all interfaces" : addresses.host;
+  // The fourth row is about a different THING in each mode, so its label
+  // changes with it: a checklist row reading "Background service" while the
+  // chain deliberately installs none would be the progress display lying
+  // about the plan the person just approved.
+  const supervision: SetupRow = choice.background
+    ? {
+        id: "service",
+        label: "Background service",
+        detail: choice.autostart ? "starts at login" : "not at login",
+        done: probe.service?.installed === true,
+      }
+    : {
+        id: "service",
+        label: "Runs with this app",
+        detail: "stops when you quit",
+        done: probe.supervision === "app" && probe.supervisor?.pid != null,
+      };
   return [
     { id: "tmux", label: "tmux", detail: probe.tmux ?? "", done: probe.tmux !== null },
     { id: "server", label: "Server", detail: probe.server?.argv[0] ?? INSTALL_PATH, done: probe.server !== null },
@@ -257,9 +293,28 @@ export function setupRows(probe: Probe, addresses: { port: string; host: string 
       detail: `port ${port}, ${host}`,
       done: probe.status?.configEnv?.exists === true,
     },
-    { id: "service", label: "Background service", detail: "starts at login", done: probe.service?.installed === true },
+    supervision,
     { id: "running", label: "Running", detail: "", done: probe.next === "ready" },
   ];
+}
+
+/**
+ * The two boxes, as one value with the dependency between them enforced.
+ *
+ * "Start it at every login" is meaningless without a service to start, so
+ * unchecking the first forces the second off AND disables it. Re-checking the
+ * first restores the DEFAULT rather than a remembered value: the box was
+ * disabled, not chosen, and treating a forced-off state as a preference would
+ * silently opt someone out of login on a press they never made.
+ */
+export function applySupervisionChoice(
+  current: SupervisionChoice,
+  change: Partial<SupervisionChoice>,
+): SupervisionChoice {
+  const background = change.background ?? current.background;
+  if (!background) return { background: false, autostart: false };
+  if (change.background === true && !current.background) return { background: true, autostart: true };
+  return { background: true, autostart: change.autostart ?? current.autostart };
 }
 
 /**

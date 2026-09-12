@@ -38,7 +38,9 @@ import type { About, ActionResult, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
+  applySupervisionChoice,
   canSetup,
+  DEFAULT_SUPERVISION,
   dots,
   failureLine,
   isRequestedScreen,
@@ -49,6 +51,7 @@ import {
   recoveryTitle,
   type ScreenId,
   SETUP_TITLE,
+  type SupervisionChoice,
   screensFor,
   setupRows,
 } from "./lib/wizard-state";
@@ -105,6 +108,8 @@ let handedOff = false;
 let about: About | null = null;
 const form: FormValues = effectiveForm(undefined);
 const explicit: ExplicitMap = {};
+/** The two supervision boxes on the setup screen; reset with the form. */
+let supervision: SupervisionChoice = DEFAULT_SUPERVISION;
 let seeded = false;
 
 // ---------------------------------------------------------------------------
@@ -293,21 +298,90 @@ function renderSetup(p: Probe): void {
   el("bar-right").append(button("Set Up", () => void startSetup(), "primary", !gate.ok));
 }
 
-/** The three what-will-happen rows. Re-rendered by the address form's input handler, never the inputs. */
+/**
+ * What the press will do — two statements and two QUESTIONS.
+ *
+ * The middle row used to read "Start it in the background, and at every
+ * login": one sentence asserting two separate things, neither of which the
+ * person could decline. They are two facts in the code (`installed` and
+ * `enabled` in the CLI's own service state) and they are two boxes here.
+ *
+ * Re-rendered by the address form's input handler, never by the inputs.
+ */
 function planRows(p: Probe): HTMLUListElement {
-  const rows = setupRows(p, { port: form.port, host: form.host });
+  const rows = setupRows(p, { port: form.port, host: form.host }, supervision);
   const base = form.baseUrl || derivedBaseUrl(form.port || "3080");
   const ul = document.createElement("ul");
   ul.className = "plan-rows";
   ul.id = "plan-rows";
-  for (const [label, detail] of [
-    ["Install the server", rows.find((r) => r.id === "server")?.detail ?? ""],
-    ["Start it in the background, and at every login", ""],
-    ["Open your dashboard", base],
-  ]) {
+
+  const statement = (label: string, detail: string): HTMLLIElement => {
     const li = document.createElement("li");
     li.append(document.createElement("span"), text("span", label, "label"), text("span", detail, "detail"));
-    ul.append(li);
+    return li;
+  };
+  /** A row the person can decline, with the consequence in the detail column. */
+  const question = (opts: {
+    id: string;
+    label: string;
+    detail: string;
+    checked: boolean;
+    disabled: boolean;
+    onChange: (next: boolean) => void;
+  }): HTMLLIElement => {
+    const li = document.createElement("li");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = opts.id;
+    box.checked = opts.checked;
+    box.disabled = opts.disabled;
+    box.addEventListener("change", () => opts.onChange(box.checked));
+    const label = document.createElement("label");
+    label.htmlFor = opts.id;
+    label.className = "label";
+    label.textContent = opts.label;
+    li.append(box, label, text("span", opts.detail, "detail"));
+    return li;
+  };
+
+  ul.append(statement("Install the server", rows.find((r) => r.id === "server")?.detail ?? ""));
+  ul.append(
+    question({
+      id: "plan-background",
+      label: "Start it in the background",
+      // The platform's own word for what is being registered, or — when the
+      // box is off — what running it here actually means.
+      detail: supervision.background
+        ? p.platform === "darwin"
+          ? "runs as a launchd agent"
+          : "runs as a systemd user service"
+        : "runs while this app is open",
+      checked: supervision.background,
+      disabled: busy || running,
+      onChange: (next) => {
+        supervision = applySupervisionChoice(supervision, { background: next });
+        render();
+      },
+    }),
+  );
+  ul.append(
+    question({
+      id: "plan-autostart",
+      label: "Start it at every login",
+      detail: supervision.background ? "" : "needs the box above",
+      checked: supervision.autostart,
+      // Nothing to start at login without a service to start.
+      disabled: !supervision.background || busy || running,
+      onChange: (next) => {
+        supervision = applySupervisionChoice(supervision, { autostart: next });
+        render();
+      },
+    }),
+  );
+  ul.append(statement("Open your dashboard", base));
+  if (!supervision.background) {
+    const note = text("p", "Quitting Subshell Server stops the server. Running subshells keep running.", "hint");
+    ul.append(note);
   }
   return ul;
 }
@@ -585,7 +659,7 @@ function renderFailure(p: Probe): void {
 function checklist(p: Probe, undoneState: "active" | "failed"): HTMLUListElement {
   const ul = document.createElement("ul");
   ul.className = "checklist";
-  const rows = setupRows(p, { port: form.port, host: form.host });
+  const rows = setupRows(p, { port: form.port, host: form.host }, supervision);
   const first = rows.find((r) => !r.done);
   for (const row of rows) {
     const li = document.createElement("li");
@@ -730,7 +804,7 @@ async function startSetup(): Promise<void> {
   render();
   let result: ActionResult | null = null;
   try {
-    result = await ipc.setup(configPayload(form, explicit));
+    result = await ipc.setup({ ...configPayload(form, explicit), supervision });
   } catch (err) {
     problem = errText(err);
   } finally {
