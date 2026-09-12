@@ -296,12 +296,37 @@ Those commands are not proxies to `tauri dev`, and the difference is the whole
 reason they exist: `tauri-build` refuses to build when its `externalBin`
 sidecar is missing, and that file is a gitignored ~110 MB build input, so a
 bare `tauri dev` on a clean checkout dies inside a build script with
-`resource path … doesn't exist`. `scripts/desktop-dev.ts` checks for the host's
-sidecar, builds and stages one through that app's OWN release-pipeline
-`stageSidecar` when it is absent (a few minutes, once, and it says so), and
-then runs `tauri dev`. A leftover zero-byte stub from `bun run rust:check`
-counts as absent — it satisfies the build and then leaves the app reporting
-that it ships no server binary.
+`resource path … doesn't exist`. `scripts/desktop-dev.ts` stages one through
+that app's OWN release-pipeline `stageSidecar` — the same function a release
+calls — and then runs `tauri dev`. A leftover zero-byte stub from
+`bun run rust:check` counts as absent: it satisfies the build and then leaves
+the app reporting that it ships no server binary.
+
+**It rebuilds when the sources changed, and it refreshes the copy the app
+actually runs.** Both are about one guarantee — that a dev launch exercises the
+working tree:
+
+- **Staleness is decided from mtimes** over the CLI package and every workspace
+  it depends on, walked from `package.json` rather than listed by hand (plus
+  `apps/server/web` for the server, whose SPA is embedded but is nobody's
+  dependency). Nothing changed ⇒ no rebuild, and the run starts in under a
+  second; `--force` rebuilds anyway.
+- **The staged sidecar is on NO rung of either app's resolution ladder.** It is
+  only a source to install FROM, and the app installs it only when its version
+  is newer — in dev both carry the same version, so a freshly built sidecar is
+  never adopted and the app keeps running whatever is in `~/.local/bin`. So the
+  script refreshes that managed copy itself, by DIGEST, when one is already
+  installed. The app's own `already_installed` check compares size and version,
+  which a same-version rebuild matches; only content can answer this.
+  It never CREATES one (that install is a first-run flow worth exercising), and
+  it warns instead of acting when a service definition names a different binary,
+  since that rung outranks the managed copy. `SUBSHELL_DEV_SKIP_INSTALL=1` opts
+  out; `--check` does everything except launch the app.
+
+The cost of not doing this was measured on 2026-09-11: a `service uninstall`
+fix landed seven minutes after the installed binary was compiled, the desktop
+reset kept failing with the exact error the fix removes, and the fix looked
+wrong for an afternoon.
 
 ### Building
 

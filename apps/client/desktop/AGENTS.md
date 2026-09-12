@@ -141,7 +141,9 @@ dpkg -l libxdo-dev >/dev/null 2>&1 && echo "OK      libxdo-dev" || echo "MISSING
 ## Commands
 
 ```bash
-# From the REPO ROOT, the command that stages the sidecar for you first:
+# From the REPO ROOT, the command that builds the CLI and stages it first —
+# and refreshes ~/.local/bin/subshell, which is what this app
+# actually runs (the sidecar is on no rung of the ladder; root AGENTS.md):
 #   bun run dev:desktop-client
 bun run dev:app             # tauri dev (needs a staged sidecar — see below);
                             # runs `dev:ui` for you via beforeDevCommand
