@@ -98,7 +98,24 @@ export function screenTitle(screen: NodeScreenId, probe: Probe | undefined, plat
     case "connected":
       return `${here(platform)} Is a Node`;
     case "reset":
-      return `Reset ${here(platform)}`;
+      // NOT "Reset This Mac", and this is the one title that takes no
+      // platform word. Two things were wrong with that spelling, and the
+      // operator read the second off a screenshot on 2026-09-12.
+      //
+      // It OVERCLAIMED. This deletes Subshell's own node state — the config,
+      // the node key, the data directory — and touches nothing else on the
+      // computer. A label that reads as "erase this computer" is alarming
+      // about the wrong thing, which is worse than being alarming.
+      //
+      // And a label ENDING on "Mac" reads as a truncated "Machine", against
+      // a sibling string that really is "This Machine" and under the
+      // trailing ellipsis a button that opens a screen carries. Naming the
+      // location differently does not fix that; not ending there does.
+      //
+      // "Node" is this project's own word for a machine that runs agents,
+      // which is exactly what is being reset, so it is both the precise
+      // term and the unambiguous one.
+      return "Reset This Node";
   }
 }
 

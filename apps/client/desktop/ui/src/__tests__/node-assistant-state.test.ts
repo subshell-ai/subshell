@@ -47,7 +47,19 @@ describe("screenTitle", () => {
     expect(screenTitle("service", probe("stopped"), "darwin")).toBe("The Node Service Is Stopped");
     expect(screenTitle("service", probe("no-service"), "darwin")).toBe("Start the Node Service");
     expect(screenTitle("connected", undefined, "darwin")).toBe("This Mac Is a Node");
-    expect(screenTitle("reset", undefined, "linux")).toBe("Reset This Machine");
+  });
+
+  it("names the node rather than the computer, identically on both platforms", () => {
+    // Two regressions pinned at once, both reported from a screenshot on
+    // 2026-09-12. "Reset This Mac" reads as erasing the computer, which is
+    // not remotely what this does; and a label ending on "Mac" reads as a
+    // truncated "Machine", against a sibling string that really is "This
+    // Machine". This is the one title that takes no platform word.
+    expect(screenTitle("reset", undefined, "darwin")).toBe("Reset This Node");
+    expect(screenTitle("reset", undefined, "linux")).toBe("Reset This Node");
+    for (const platform of ["darwin", "linux"]) {
+      expect(screenTitle("reset", undefined, platform).endsWith("Mac")).toBe(false);
+    }
   });
 });
 
