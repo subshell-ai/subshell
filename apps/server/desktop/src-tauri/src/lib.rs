@@ -43,6 +43,28 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
 /// configuration and the test that pins it read the same string.
 const DENYLIST: &[&str] = &["wizard"];
 
+/// The menu bar's own dispatch, where there is a menu bar.
+///
+/// A FUNCTION with two cfg'd bodies rather than a `#[cfg]` on the call itself.
+/// That attribute sat on the last statement of `on_menu_event`'s closure, and
+/// on Linux — where `mod menu` does not exist — stripping it promoted the
+/// `if … { return; }` above it to the closure's tail expression, which is
+/// `clippy::needless_return`. `bun run rust:check` on macOS cannot see it: the
+/// statement is there, so the `if` is not the tail. CI caught it, as the
+/// cfg-stripping hazard both desktop AGENTS.md files already warn about.
+///
+/// Inverting it to `if !zoom::handle(…) { #[cfg(macos)] … }` is not a fix
+/// either — the block is then EMPTY on Linux and `clippy::needless_if` fires
+/// instead. A function has a body on both platforms, so neither lint has
+/// anything to say.
+#[cfg(target_os = "macos")]
+fn dispatch_menu_bar(app: &tauri::AppHandle, id: &str) {
+    menu::on_event(app, id);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn dispatch_menu_bar(_app: &tauri::AppHandle, _id: &str) {}
+
 /// Build and run the app.
 ///
 /// Boot opens ONE window, chosen from a fresh probe: the dashboard when the
@@ -176,8 +198,7 @@ pub fn run() {
                 if zoom::handle(app, id) {
                     return;
                 }
-                #[cfg(target_os = "macos")]
-                menu::on_event(app, id);
+                dispatch_menu_bar(app, id);
             });
             // A tray that fails to build is not fatal — every action it offers
             // exists in the window UI too.
