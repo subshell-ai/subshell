@@ -12,45 +12,17 @@ function managerName(manager: ServerDeployment["service"]["manager"]): string {
 }
 
 /** One line describing who is running this process and since when. */
-function _supervisionLine(view: ServerDeployment, bootedAt: string | undefined): string {
-  const service = view.service;
-  if (!service.supervised) return "Running, not supervised";
-  const parts = [`Running under ${managerName(service.manager)}`];
-  if (service.pid !== null) parts.push(`as pid ${service.pid}`);
-  if (bootedAt) parts.push(`since ${new Date(bootedAt).toLocaleTimeString()}`);
-  // No "starts at login" tail: that fact, and the control for it, moved to
-  // the supervision card — where it sits under the option it belongs to
-  // rather than beside a sentence about this process.
-  return parts.join(" ");
-}
-
-/** One line describing who is running this process and since when. */
 function supervisionLine(view: ServerDeployment, bootedAt: string | undefined): string {
   const service = view.service;
   if (!service.supervised) return "Running, not supervised";
   const parts = [`Running under ${managerName(service.manager)}`];
   if (service.pid !== null) parts.push(`as pid ${service.pid}`);
   if (bootedAt) parts.push(`since ${new Date(bootedAt).toLocaleTimeString()}`);
-  const tail = service.manager === "app" ? " · stops when the app quits" : service.enabled ? " · starts at login" : "";
-  return `${parts.join(" ")}${tail}`;
-}
-
-/**
- * Why the start-at-login switch cannot be used here, or `null` when it can.
- *
- * A pure function because each answer is a real machine state rather than a
- * permission, and every one of them wants a sentence naming what to do
- * instead — a disabled control with no reason is indistinguishable from a
- * broken one. These mirror the route's own three 409s, deliberately: the UI
- * must not offer what the server will refuse.
- */
-export function autostartDisabledReason(service: ServerDeployment["service"]): string | null {
-  if (service.manager === "app") {
-    return "This server runs with the Subshell Server app. To have it back at login, start the app at login instead.";
-  }
-  if (!service.installed) return "No service is installed on this machine.";
-  if (service.enabled === null) return "The service manager did not say whether this server starts at login.";
-  return null;
+  // No "starts at login" tail, and no "stops when the app quits": both facts
+  // — and the control for the first — belong to `SupervisionCard`, where
+  // they sit under the option that owns them rather than trailing a sentence
+  // about this process.
+  return parts.join(" ");
 }
 
 /**
