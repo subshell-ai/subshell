@@ -1,0 +1,225 @@
+/**
+ * The console's second view (spec § 7.1 of the 2026-09-10 design).
+ *
+ * Entered by the desktop-screen event from the dashboard's danger card, or by
+ * the Settings section's own Reset button (spec § 4 of the 2026-09-11 design —
+ * the button arms the plan itself before raising this view); it renders the
+ * captured-plan truth from the live probe and compares the typed hostname the
+ * same way Rust will (displayed value wins nowhere: both sides read the
+ * probe's single memo, R15).
+ *
+ * It covers the WHOLE shell, sidebar included. A reset that left the sidebar
+ * live would let someone switch sections mid-chain, out from under a screen
+ * whose entire premise is that it is the only thing happening.
+ */
+import { listen } from "@tauri-apps/api/event";
+import type { SectionId } from "../lib/console-nav";
+import * as ipc from "../lib/ipc";
+import { armed, refusal, resetRows } from "../lib/reset";
+import { type ConsoleHost, el, errText, state } from "./state";
+
+export interface ResetView {
+  /** Whether the takeover is up, so the page renders it instead of a section. */
+  isOpen(): boolean;
+  render(): void;
+  /** Arm a plan and raise the screen — the Settings button's handler. */
+  open(): Promise<void>;
+}
+
+export function createResetView(host: ConsoleHost): ResetView {
+  let open = false;
+  /** Where to go back to on Cancel: Settings from the button, wherever the deep link found us. */
+  let cameFrom: SectionId = "settings";
+
+  /**
+   * Why the last arming attempt did not stage a plan, or null when it did.
+   *
+   * The screen must never present an armed-looking box over an empty stash.
+   * That combination produced the one bug this screen has actually shipped: a
+   * `tauri dev` session hot-reloads this page but NOT the Rust side, so a page
+   * calling a command the running binary does not carry had its invoke
+   * rejected, opened anyway, and answered a correctly typed hostname with
+   * "no reset plan is staged". The arming outcome is a fact about the screen,
+   * so the screen holds it.
+   */
+  let armingProblem: string | null = null;
+
+  /**
+   * The run button's label at rest. Held here rather than read back off the
+   * element, so the busy label can be swapped in and out without the resting
+   * one having to survive a round trip through the DOM: a half-run promotes
+   * this to "Retry reset" and it must stay promoted across every later render.
+   */
+  let resetRunLabel = "Reset everything";
+
+  function render(): void {
+    const st = state.probe?.status;
+    const host_name = state.probe?.hostname ?? "";
+    const why = armingProblem ?? refusal(st);
+    // One sentence names one cause. A paths block that is complete but a name
+    // that could not be read still leaves the button disabled (armed() refuses
+    // an empty hostname) - and no control is disabled without its reason named
+    // beside it, which is what this line is for.
+    el("reset-refusal").textContent =
+      why ??
+      (host_name === ""
+        ? "This machine's name could not be read, so there is nothing reset can confirm against; it refuses rather than arming on an empty box."
+        : "");
+    const rows = el("reset-rows");
+    rows.textContent = "";
+    if (why === null && st !== undefined && st !== null) {
+      for (const row of resetRows(st)) {
+        const li = document.createElement("li");
+        li.textContent = `${row.label}: ${row.path}`;
+        rows.append(li);
+      }
+    }
+    el("reset-disclosures").textContent =
+      "Enrolled remote nodes are NOT reached: their agents and panes keep running with keys to a plane that will not exist. A subshell node agent on this very machine is not reached either and must be stopped from Subshell Client or `subshell service stop`. The installed server binary stays. Everything listed above is permanent.";
+    el("reset-hostname").textContent = host_name;
+    const typed = (el("reset-confirm") as HTMLInputElement).value;
+    // `busy` belongs in this gate as much as the refusal does. Without it the
+    // button stayed lit and lettered "Reset everything" through a chain that
+    // stops a service and sweeps hundreds of sockets, so the one press that
+    // matters looked like it had not registered and invited a second.
+    (el("reset-run") as HTMLButtonElement).disabled = state.busy || !(why === null && armed(typed, host_name));
+    el("reset-run").textContent = state.busy ? "Resetting…" : resetRunLabel;
+    el("reset-run").dataset.armed = String(armed(typed, host_name));
+    // The reason, beside the control it disables. Only for a REFUSAL: "you
+    // have not typed the hostname yet" is what the label above the box already
+    // says, and repeating it under the button would nag through every
+    // keystroke of a correct answer.
+    el("reset-why").textContent = why ?? "";
+  }
+
+  function show(): void {
+    open = true;
+    el("shell").hidden = true;
+    el("reset-view").hidden = false;
+    render();
+  }
+
+  /**
+   * Stage the plan, and answer why not when it could not be staged.
+   *
+   * Three outcomes, and the screen has to tell them apart: staged (null), the
+   * CLI would not report its paths (the refusal `render` already has words
+   * for, so defer to it), and the command itself was refused — which in
+   * practice means a `tauri dev` session whose Rust half predates this
+   * command, and which must never look like a screen that is ready to run.
+   */
+  async function armReset(): Promise<string | null> {
+    try {
+      if (await ipc.armReset()) return null;
+      return (
+        refusal(state.probe?.status) ?? "This server did not report its data locations, so there is nothing to stage."
+      );
+    } catch (err) {
+      // Say what is out of step, not what kind of build this is. Reset works
+      // exactly the same in a dev build as in a release one - nothing on this
+      // path branches on either - and the first person to read the older
+      // wording took it as a prohibition, which would have sent them looking
+      // for a setting that does not exist.
+      return `The reset could not be staged: ${errText(err)}. This app's window is newer than the app itself, which is what happens when a dev session reloads the page but not its Rust half. Quit and relaunch it.`;
+    }
+  }
+
+  /**
+   * M1's promise kept by the page: a half-run's verbatim log renders where
+   * the human still is, AND reads as a failure (J1) - the same `output-bad`
+   * treatment the command pane gives its own, so two surfaces never phrase
+   * one outcome differently. Success normally needs no rendering (the chain
+   * closes this window on its way to the wizard), but the wizard-open failure
+   * arm (M2) answers ok:true with a note in the log, and a half-run needs
+   * Retry named (J2): the button re-labels, because the stash is deliberately
+   * still held and the screen must say pressing it again is the intended,
+   * safe move.
+   */
+  function showResetResult(text: string, bad: boolean): void {
+    const box = el("reset-log");
+    box.textContent = text;
+    box.classList.toggle("output-bad", bad);
+    box.hidden = text === "";
+    if (bad) resetRunLabel = "Retry reset";
+    // Bring it into view. This box sits below the confirm row, under a long
+    // disclosure list - so a chain that answered was answering off-screen, and
+    // the press read as a button that did nothing. The same mistake as the
+    // refusal line, one element further down: writing the truth somewhere the
+    // reader is not.
+    if (text !== "") box.scrollIntoView({ block: "nearest" });
+  }
+
+  el("reset-confirm").addEventListener("input", render);
+  el("reset-cancel").addEventListener("click", () => {
+    open = false;
+    el("reset-view").hidden = true;
+    el("shell").hidden = false;
+    host.goTo(cameFrom);
+  });
+
+  el("reset-run").addEventListener("click", () => {
+    void (async () => {
+      const typed = (el("reset-confirm") as HTMLInputElement).value;
+      if (!armed(typed, state.probe?.hostname ?? "")) return;
+      state.busy = true;
+      showResetResult("", false);
+      host.render();
+      try {
+        // Re-arm on EVERY press, not just when the screen opens. The plan is
+        // one-shot by design - a finished chain spends it - so a second press
+        // used to answer "no reset plan is staged; the reset screen must be
+        // opened again", which is a dead end telling the human to do by hand
+        // exactly what this button should do. Arming is idempotent: one probe,
+        // one stash, no mutation of the machine.
+        //
+        // A false answer means the CLI would not report its paths, so there is
+        // nothing this screen can promise to delete. Say that in the words the
+        // screen already uses for it rather than running into the Rust-side
+        // refusal, which phrases the same fact as a staging accident.
+        armingProblem = await armReset();
+        if (armingProblem !== null) {
+          showResetResult(armingProblem, true);
+          state.busy = false;
+          host.render();
+          return;
+        }
+        const result = await ipc.reset(typed);
+        const parts: string[] = [];
+        if (result?.stdout?.trim()) parts.push(result.stdout.trim());
+        if (result?.stderr?.trim()) parts.push(result.stderr.trim());
+        showResetResult(parts.join("\n\n"), result?.ok === false);
+      } catch (err) {
+        // Err is the pre-flight channel (hostname mismatch, no plan, refused
+        // guard): one sentence, no partial log exists to show.
+        showResetResult(errText(err), true);
+      }
+      state.busy = false;
+      try {
+        await host.refresh();
+      } catch {
+        /* the machine is being deleted under us */
+      }
+      host.render();
+    })();
+  });
+
+  void listen<string>("desktop-screen", (event) => {
+    if (event.payload === "reset") {
+      cameFrom = state.section;
+      show();
+    }
+  });
+
+  return {
+    isOpen: () => open,
+    render,
+    async open(): Promise<void> {
+      cameFrom = state.section;
+      // `await` then show regardless: a refused or failed arming must still
+      // raise the screen, because the screen is what explains the refusal
+      // (`render`'s `why`).
+      armingProblem = await armReset();
+      show();
+    },
+  };
+}

@@ -9,7 +9,7 @@ machine, so a user never has to touch a CLI binary.
 | Window | Page | Why |
 | --- | --- | --- |
 | `wizard` | `ui/dist` (Vite output; sources in `ui/src/`), bundled, `tauri://` | Owns first run: a guided chain from virgin machine to running server, on a page that must render with nothing installed. |
-| `console` | same bundle, `index.html` | Must render with the server **down**, and is the only surface allowed to drive the CLI. Owns repair, settings, and the reset view. |
+| `console` | same bundle, `index.html` | Must render with the server **down**, and is the only surface allowed to drive the CLI. Owns repair, settings, and the reset view — four sections behind a sidebar (below). |
 | `main` | the SERVER's own SPA over `http://127.0.0.1:<port>` | `apps/server/web` is hard same-origin. |
 
 Both local pages are the same Vite build (two rollup inputs, one `ui/dist`,
@@ -356,25 +356,89 @@ explains). Two HTML inputs, one build, one bundle:
 
 ```
 ui/
-├── index.html          # console shell; every id the page binds is in it (two views: #status-view, #reset-view)
+├── index.html          # console shell; every id the page binds is in it (the sidebar + four sections, and #reset-view)
 ├── wizard.html         # wizard shell; rail + one screen
 ├── src/
-│   ├── main.ts         # console render loop, poll, guards, the reset view — all DOM lives here
+│   ├── main.ts         # console ENTRY: state, render(), guard(), the poll, the sidebar
+│   ├── console/        # the console's DOM, one module per concern (see below)
 │   ├── wizard.ts       # wizard screens and navigation — DOM only; every judgment is imported
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
 │   ├── lib/
 │   │   ├── ipc.ts      # one typed function per `desktop_*` command
 │   │   ├── config-form.ts   # the pure form contract (see below)
+│   │   ├── console-nav.ts   # the console's pure decisions: sections, Addresses availability, the hero's word
 │   │   ├── installers.ts    # the pure install plans (see below)
 │   │   ├── wizard-state.ts  # the wizard's pure decisions: landing step, gates, checklist rows
 │   │   └── reset.ts         # the reset screen's pure decisions: rows, refusal, arming
-│   └── __tests__/      # pure pins: config-form, installers, wizard-state, reset, ipc-acl, tauri-config
+│   └── __tests__/      # pure pins: config-form, console-nav, installers, wizard-state, reset, ipc-acl, tauri-config
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
 The split rule the plain-JS version established still decides WHERE logic
 lives: anything with a contract rather than a rendering goes in `lib/`, where
-it is testable without a webview. `ui/src/main.ts` holds only the DOM.
+it is testable without a webview. Everything under `ui/src/console/` holds only
+the DOM.
+
+## The console is four sections behind a sidebar
+
+Spec `2026-09-11-server-console-sidebar-design.md`. The page was one scroll of
+five cards — a status chip over a nine-row fact list, the step card, the tray
+switch, a 220px log pane and a Danger zone disclosure, all on screen at once
+with nothing to choose between them. It is a 200px sidebar and a content
+column now: **Overview**, **Addresses**, **Logs**, **Settings**, one visible at
+a time, in a 900x640 window (min 720x520).
+
+```
+ui/src/console/
+├── state.ts           # the shared state object, the ConsoleHost contract, el()/slots()
+├── hero.ts            # Overview's three lines: state word, version, address
+├── steps.ts           # STEPS, the action guards, the tmux gate — everything the probe implies
+├── facts.ts           # Overview's Details list
+├── result-strip.ts    # one line saying what the last press did
+├── config-form-view.ts# buildForm(), shared by the `init` step and Addresses
+├── addresses.ts       # the Addresses section: availability, seeding, the save
+├── logs.ts            # the two-tab pane, the tail, show()
+├── settings.ts        # the tray preference
+├── tmux-warning.ts    # the amber gate explanation — a FACTORY, one per gated surface
+└── reset-view.ts      # the takeover, unchanged in behaviour
+```
+
+Five things about that arrangement are load-bearing:
+
+- **No module under `console/` imports `main.ts`.** They take a `ConsoleHost`
+  (`render`, `refresh`, `guard`, `goTo`, `fail`) instead. A cycle back to the
+  entry is not a type error or a lint error — it is a temporal dead zone at
+  module evaluation, i.e. a BLANK window on the machine someone is repairing.
+  `guard()` stays in the entry because it owns busy, the problem line and the
+  re-probe, which are the page's rather than a section's.
+- **`configure` is no longer a step.** It was one the USER chose, held in an
+  `override` beside `probe.next`, and it replaced the page's one card in
+  place — so the way back was a Cancel button and the way in was a button four
+  steps had to remember to list. `addressesAvailability` (`lib/console-nav.ts`,
+  pure and tested) now answers "can a save work here" once, and the section
+  renders the refusal itself. **No sidebar item is ever disabled**: a dimmed
+  item with its reason in a tooltip breaks this console's rule that a refused
+  control names its reason beside it, on every platform where hover is not a
+  thing a person does.
+- **Only the CURRENT section renders**, which is why `tmux-warning.ts` is a
+  factory. Two surfaces gate on tmux (Overview's setup actions, the Addresses
+  save); one element moved between them would belong to whichever rendered
+  last, and the other would silently lose its explanation.
+- **The result strip replaced the output pane's proximity.** A command's words
+  used to land in a pane directly under the buttons, and `show()` stole that
+  tab on its own. The pane is a section away now, so a press gets one line
+  where it happened — "Restart: done.", or the failure — with "Show output"
+  as the only thing that moves the Logs tab. `guard()` takes the button's
+  LABEL for exactly this.
+- **`.content` carries `min-width: 0`.** A grid item's automatic minimum size
+  is its min-content width, so one long log line widened the `1fr` track and
+  pushed the window's right edge out instead of scrolling inside the pane.
+  Measured on the Logs section, where every line is long.
+
+Settings re-reads the tray probe on every ENTRY, not once at boot: that probe
+is deliberately not memoized in Rust (installing the AppIndicator extension
+flips its answer with the app already running), and a boot read that failed
+used to leave the group hidden with nothing to re-open it.
 
 Everything that is NOT `tauri`-typed lives outside the app, in
 `crates/desktop-core` (`subshell-desktop-core`), shared with
@@ -447,9 +511,9 @@ either half, is what `tauri-config.test.ts` pins.
 command name lives in the calling page module, in `permissions/desktop.toml`
 and in a capability file; missing from any one is a runtime permission
 refusal, not a compile error. `ui/src/__tests__/ipc-acl.test.ts` asserts the
-set of commands invoked from `ui/src/main.ts` (the CONSOLE page's entry
-module — not the `main` window, which holds and must keep holding only its
-three) equals the set `console.json` grants, that `ui/src/wizard.ts` invoked
+set of commands invoked from the CONSOLE page — `ui/src/main.ts` plus every
+module under `ui/src/console/`, not the `main` window, which holds and must
+keep holding only its three — equals the set `console.json` grants, that `ui/src/wizard.ts` invoked
 equals what `wizard.json` grants, that no capability names an undefined
 permission, that no defined permission goes ungranted by the union of the
 three capability files, and that `main` still holds exactly its three
@@ -598,10 +662,15 @@ label and carries no tmux gate — opening a window needs no pane.
 
 ## The console's own panes
 
-The bottom of the console is ONE region with two tabs: the server log, which is
-true all the time, and the last command's output, which takes the foreground
-when there is one. Two tabs rather than two stacked panes because a second
-always-on block pushed the step actions off the bottom of a 620px window.
+The **Logs** section is ONE region with two tabs: the server log, which is true
+all the time, and the last command's output, which is brought forward by the
+result strip's "Show output" — the moment someone actually asked for it. Two
+tabs rather than two stacked panes because a second always-on block pushed the
+step actions off the bottom of the old single-column page; the pane fills the
+window in its own section now, rather than stopping at a 220px cap.
+
+The tail rides the poll whatever section is on screen, so opening Logs shows a
+current pane rather than a tick-old one.
 
 `desktop_logs` is console-only and **takes no argument**. A path parameter
 would be an arbitrary-file read reachable from a page, which is the same reason

@@ -34,8 +34,8 @@ function invokedCommands(): Set<string> {
 }
 
 /**
- * The commands ONE page can reach: the `ipc.<name>` calls in its file, mapped
- * to command names through ipc.ts's own exports.
+ * The commands ONE page can reach: the `ipc.<name>` calls in its own modules,
+ * mapped to command names through ipc.ts's own exports.
  *
  * This replaced "ipc.ts's full set == console.json" when the wizard arrived.
  * One shared `lib/ipc.ts` serving two windows makes the full set the union of
@@ -43,20 +43,41 @@ function invokedCommands(): Set<string> {
  * command the console stops calling must leave console.json even while the
  * wizard still calls it (that is how `allow-desktop-open-console` was removed
  * from the console in the first place).
+ *
+ * A page is a LIST of files as of the console's split into `console/` (spec
+ * 2026-09-11 § 9): the console page is `main.ts` plus every module under
+ * `console/`, which are loaded by that entry and by nothing else. Reading the
+ * entry alone would have made this pin blind to the modules that hold almost
+ * every call — and blind in the SAFE-LOOKING direction, reporting a smaller
+ * set than the window can actually reach.
  */
-function commandsInvokedBy(pageFile: string): Set<string> {
+function commandsInvokedBy(...pageFiles: string[]): Set<string> {
   const nameToCommand = new Map<string, string>();
   const decl = /export const (\w+)[^;]*?invoke\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g;
   for (const m of ipcSource.matchAll(decl)) {
     nameToCommand.set(m[1] as string, m[2] as string);
   }
-  const src = codeOf(join(UI_SRC, pageFile)); // codeOf takes a PATH and strips comments itself
   const out = new Set<string>();
-  for (const m of src.matchAll(/\bipc\.(\w+)\s*\(/g)) {
-    const cmd = nameToCommand.get(m[1] as string);
-    if (cmd) out.add(cmd);
+  for (const file of pageFiles) {
+    const src = codeOf(join(UI_SRC, file)); // codeOf takes a PATH and strips comments itself
+    for (const m of src.matchAll(/\bipc\.(\w+)\s*\(/g)) {
+      const cmd = nameToCommand.get(m[1] as string);
+      if (cmd) out.add(cmd);
+    }
   }
   return out;
+}
+
+/** Every file the console page loads: its entry and the section modules under `console/`. */
+function consolePageFiles(): string[] {
+  const dir = join(UI_SRC, "console");
+  const modules = readdirSync(dir)
+    .filter((name) => name.endsWith(".ts"))
+    .map((name) => join("console", name));
+  // A floor, so a directory that failed to list cannot pass this file's
+  // equality checks by reporting an empty page.
+  expect(modules.length, "the console's section modules must be found").toBeGreaterThan(4);
+  return ["main.ts", ...modules];
 }
 
 /** The `desktop_*` commands a capability file grants, expanded through the manifest. */
@@ -127,7 +148,7 @@ describe("the console's IPC contract", () => {
   it("invokes exactly the commands the ACL grants this window", () => {
     // Per-page since the wizard: the console page's ipc.* calls, and console's
     // grants, are the same exact set - not merely a subset of anything.
-    expect([...commandsInvokedBy("main.ts")].sort()).toEqual([...grantedCommands("console.json")].sort());
+    expect([...commandsInvokedBy(...consolePageFiles())].sort()).toEqual([...grantedCommands("console.json")].sort());
   });
 
   it("the wizard invokes exactly the commands its capability grants", () => {
@@ -138,7 +159,7 @@ describe("the console's IPC contract", () => {
     expect([...commandsInvokedBy("wizard.ts")].sort()).toEqual([...grantedCommands("wizard.json")].sort());
     // And the union still lands where ipc.ts says it must: every command any
     // page can invoke is granted SOMEWHERE, and ipc.ts hides nothing extra.
-    const pages = new Set([...commandsInvokedBy("main.ts"), ...commandsInvokedBy("wizard.ts")]);
+    const pages = new Set([...commandsInvokedBy(...consolePageFiles()), ...commandsInvokedBy("wizard.ts")]);
     expect([...invokedCommands()].sort()).toEqual([...pages].sort());
   });
 

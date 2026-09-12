@@ -31,9 +31,12 @@
   html {
     color-scheme: dark;
   }
+  /* Padding belongs to the PAGE class (`.console`, `.assistant`), not here:
+     the console is a full-bleed two-column shell and the assistant is a fixed
+     frame, so a body inset would have to be undone by both. */
   body {
     margin: 0;
-    padding: 22px 24px 28px;
+    padding: 0;
     background: var(--color-bg);
     color: var(--color-fg);
     font-size: 15px;
@@ -42,7 +45,7 @@
   }
   /* The window is a control panel, not a marketing page: every interactive
      element is a button or an input, so the two element defaults live here
-     and the variants (.primary, .mini) below carry only their deltas. */
+     and the variants (.primary, .ghost, .linkish) below carry only their deltas. */
   button {
     border-radius: 7px;
     border: 1px solid var(--color-line);
@@ -90,21 +93,16 @@
     background: linear-gradient(135deg, oklch(0.4 0.11 322), oklch(0.46 0.11 340));
     border-color: transparent;
   }
-  .mini {
-    padding: 0 8px;
-    font-size: 13px;
-    flex: none;
-    color: var(--color-muted);
-  }
-  /* A facts list reads as a table, not a stack: the label column hugs its
-     content, the value column wraps, and a row's action button sits on the
-     value's baseline rather than floating in its own line box. */
+  /* A facts list reads as a table, not a stack. The label column is a FIXED
+     132px rather than `max-content`: the widest label used to set the column
+     for every row, so one long one ("mcp entrypoint") pushed every value
+     right and the list lost its left edge. */
   .facts {
     display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 4px 14px;
-    margin-top: 10px;
-    font-size: 14px;
+    grid-template-columns: 132px 1fr;
+    gap: 6px 16px;
+    margin: 10px 0 0;
+    font-size: 13.5px;
   }
   .facts dt {
     color: var(--color-muted);
@@ -115,7 +113,15 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 4px 10px;
+    gap: 2px 10px;
+  }
+  /* The quiet second line of a value — the resolution rung, a "missing" note.
+     Its own row of the value's flex box, so it never shares a line with the
+     path above it. */
+  .facts .fact-sub {
+    flex-basis: 100%;
+    color: var(--color-muted);
+    font-size: 12.5px;
   }
   .hint {
     color: var(--color-muted);
@@ -161,29 +167,261 @@
     max-height: 220px;
     overflow: auto;
   }
-  /* The one destructive control in the console. Closed on every render (see
-     main.ts): a danger section that remembers being open is one someone
-     scrolls past without reading. */
-  .danger-zone {
-    margin-top: 14px;
+  /* In the Logs section the pane IS the section: it takes whatever height the
+     window has rather than stopping at the cap that kept it from pushing the
+     step actions off a 620px page. `min-height: 0` is what lets a flex child
+     scroll instead of growing its parent. */
+  .logs-section .pane-fill {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
   }
-  .danger-zone > summary {
-    cursor: pointer;
-    color: var(--color-muted);
-    font-size: 14px;
-  }
-  .danger-zone > summary:hover {
-    color: var(--color-fg);
-  }
-  .danger-zone button {
-    margin-top: 8px;
+  /* The one destructive control in the console. It was a <details> that was
+     re-closed on every render, so a danger section could not be scrolled past
+     while open; on a Settings page a person chose to open, as its last group,
+     under its own explanation, the sentence is read before the button is
+     reached and the disclosure bought nothing. */
+  .danger {
+    margin-top: 10px;
     border-color: var(--color-bad);
     color: var(--color-bad);
   }
-  .danger-zone button:hover:not(:disabled) {
+  .danger:hover:not(:disabled) {
     border-color: var(--color-bad);
     background: color-mix(in oklch, var(--color-bad) 12%, transparent);
   }
+  /* ===================================================================
+     The console shell (spec 2026-09-11 § 2.1): a 200px sidebar, a content
+     column that scrolls on its own, four sections of which one is visible.
+     =================================================================== */
+  body.console {
+    height: 100vh;
+    overflow: hidden;
+  }
+  .shell {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+  }
+  .shell[hidden] {
+    display: none;
+  }
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px 12px 14px;
+    border-right: 1px solid var(--color-line);
+    overflow: hidden;
+  }
+  .sidebar-mark {
+    height: 22px;
+    width: auto;
+    align-self: flex-start;
+    margin-left: 8px;
+  }
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  /* Every item is reachable, always: a section that cannot help says so in its
+     own words. A dimmed item with the reason in a tooltip would put that
+     reason somewhere a keyboard or a touch never goes. */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 14px;
+    text-align: left;
+    color: var(--color-muted);
+    border-color: transparent;
+  }
+  .nav-item:hover:not(:disabled) {
+    color: var(--color-fg);
+    border-color: transparent;
+    background: color-mix(in oklch, var(--color-card) 60%, transparent);
+  }
+  .nav-item.current {
+    color: var(--color-fg);
+    background: var(--color-card);
+    border-color: transparent;
+  }
+  /* Only Overview has one, and it mirrors the hero's state colour — so the
+     machine's state is readable from every section without switching back. */
+  .nav-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex: none;
+  }
+  .nav-dot[hidden] {
+    display: none;
+  }
+  .sidebar-version {
+    margin: auto 0 0 10px;
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+  /* `min-width: 0` is load-bearing, not defensive. A grid item's automatic
+     minimum size is its MIN-CONTENT width, so one long unbreakable line — a
+     log tail, a path — widened the 1fr track and pushed the page's right edge
+     past the window instead of scrolling inside the pane. Measured on the
+     Logs section, where every line is long. */
+  .content {
+    overflow: auto;
+    padding: 28px 32px 32px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .content > section {
+    flex: 1;
+    min-height: 0;
+  }
+  .content > section[hidden] {
+    display: none;
+  }
+  /* The Logs section is the one that fills rather than flows. */
+  .logs-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .pane-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* Pushed to the far end of the tab row, and truncated: it is a path, so it
+     is long, and it must never be the thing that decides the row's width. */
+  .pane-source {
+    margin-left: auto;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+  .section-title {
+    margin: 0 0 4px;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .section-lead {
+    margin: 0 0 10px;
+    font-size: 14.5px;
+    color: var(--color-muted);
+    max-width: 62ch;
+  }
+  /* A group inside a section: a heading rather than a card, because the ground
+     is the window here and a bordered box around every concern is what made
+     the old single-column page read as a stack of unrelated panels. */
+  .group-heading {
+    margin: 26px 0 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* The hero: the three things a person opens this window for. */
+  .hero {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .hero-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    flex: none;
+    margin-top: 9px;
+  }
+  .hero-lines {
+    min-width: 0;
+  }
+  .hero-state {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .hero-sub {
+    margin: 2px 0 0;
+    font-size: 15px;
+    color: var(--color-muted);
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    word-break: break-all;
+  }
+  .hero-sub[hidden] {
+    display: none;
+  }
+  #hero-url span {
+    color: var(--color-fg);
+  }
+
+  /* The step: a sentence and its buttons, on the ground rather than in a card.
+     The `ready` step renders no sentence at all — the hero above has just said
+     "Running", and repeating it is the clutter this page removed. */
+  .step-body {
+    margin: 20px 0 0;
+    font-size: 15px;
+  }
+  .step-body[hidden] {
+    display: none;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  /* One line saying what the last press did, where the press happened. */
+  .strip-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    margin: 14px 0 0;
+    font-size: 14px;
+  }
+
+  .tray-missing {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  /* The reset takeover: the whole window, sidebar included. */
+  .reset-view {
+    padding: 26px 32px 32px;
+    max-height: 100vh;
+    overflow: auto;
+  }
+  .reset-view[hidden] {
+    display: none;
+  }
+  .reset-title {
+    margin: 0 0 6px;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
   /* The setup assistant's frame (spec 2026-09-11 § 3.1). One fixed 1024x720
      window: a centered 560px column, and a 72px bar pinned to the bottom. */
   body.assistant {
@@ -499,6 +737,12 @@
   .tmux-warning p {
     margin: 0 0 8px;
     color: var(--color-warn);
+  }
+  .tmux-warning-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
   .tmux-warning code {
     background: var(--color-bg);

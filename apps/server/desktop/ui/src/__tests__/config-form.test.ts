@@ -236,7 +236,19 @@ describe("fieldProblems", () => {
 describe("the console's wiring, pinned at the source", () => {
   // These read the render path because the tests here run without a DOM: the
   // contract lives in code these files cannot execute.
+  //
+  // It is a DIRECTORY now rather than one file (spec 2026-09-11 § 9), so each
+  // pin names the module that holds its subject: the entry keeps `guard`, the
+  // step table went to `console/steps.ts`, and the configure form became the
+  // Addresses section. Reading the wrong file would pass vacuously against a
+  // string that simply is not there, so every pin below also asserts its
+  // anchor was found.
   const main = readFileSync(join(ROOT, "ui/src/main.ts"), "utf8");
+  const steps = readFileSync(join(ROOT, "ui/src/console/steps.ts"), "utf8");
+  const addresses = readFileSync(join(ROOT, "ui/src/console/addresses.ts"), "utf8");
+  const tmuxWarning = readFileSync(join(ROOT, "ui/src/console/tmux-warning.ts"), "utf8");
+  /** The console page's whole render path, for pins that do not care which module. */
+  const page = [main, steps, addresses, tmuxWarning].join("\n");
 
   /**
    * The form is prefilled, so `configPayload` decides what to send from an
@@ -248,17 +260,21 @@ describe("the console's wiring, pinned at the source", () => {
    * which imports Tauri and cannot be loaded here.
    */
   test("the configure form seeds `explicit` from explicitFields, not from editing alone", () => {
-    const fn = main.slice(main.indexOf("function showConfigure()"));
-    const body = fn.slice(0, fn.indexOf("\n}"));
+    // `showConfigure` became the Addresses section's `enter()`, which runs on
+    // every entry to that section rather than on a button that opened a form
+    // in place. The contract it carries is unchanged.
+    const at = addresses.indexOf("function enter()");
+    expect(at, "the Addresses section must have an entry seeding function").toBeGreaterThan(-1);
+    const body = addresses.slice(at, addresses.indexOf("\n  }", at));
     expect(body).toContain("explicitFields(");
     // And every send goes through the map. The floor is load-bearing: with
     // zero matches the loop passes vacuously, so renaming both call sites
-    // would silently erase this pin. Today there are exactly two (init,
-    // configure).
-    const sends = main.match(/configPayload\([^)]*\)/g) ?? [];
+    // would silently erase this pin. Today there are exactly two (init in
+    // steps.ts, save in addresses.ts).
+    const sends = page.match(/configPayload\([^)]*\)/g) ?? [];
     expect(sends.length).toBeGreaterThanOrEqual(2);
     for (const call of sends) {
-      expect(call).toBe("configPayload(form, explicit)");
+      expect(call).toBe("configPayload(state.form, state.explicit)");
     }
   });
 
@@ -272,8 +288,12 @@ describe("the console's wiring, pinned at the source", () => {
    * did.
    */
   test("an action's failure line is applied after the guard's re-probe", () => {
-    const fn = main.slice(main.indexOf("function guard("), main.indexOf("const retry = guard"));
-    const apply = fn.indexOf("if (failure !== null) problem = failure;");
+    // `guard` stays in the entry module: it owns busy, the problem line and
+    // the re-probe, which are the page's, not a section's.
+    const start = main.indexOf("function guard(");
+    expect(start, "guard() must live in the entry module").toBeGreaterThan(-1);
+    const fn = main.slice(start, main.indexOf("\nconst host: ConsoleHost"));
+    const apply = fn.indexOf("if (failure !== null) state.problem = failure;");
     const reprobe = fn.lastIndexOf("await refresh();");
     expect(apply).toBeGreaterThan(-1);
     expect(reprobe).toBeGreaterThan(-1);
@@ -284,9 +304,9 @@ describe("the console's wiring, pinned at the source", () => {
     /** The `[...]` starting at `from`, found by bracket depth rather than by regex. */
     const entryAt = (from: number): string => {
       let depth = 0;
-      for (let i = from; i < main.length; i++) {
-        if (main[i] === "[") depth++;
-        else if (main[i] === "]" && --depth === 0) return main.slice(from + 1, i);
+      for (let i = from; i < steps.length; i++) {
+        if (steps[i] === "[") depth++;
+        else if (steps[i] === "]" && --depth === 0) return steps.slice(from + 1, i);
       }
       throw new Error("unbalanced action entry");
     };
@@ -324,17 +344,21 @@ describe("the console's wiring, pinned at the source", () => {
     // CLI installs moved to the control plane (spec 2026-09-11 § 7) and this
     // app's own "Add agents in the dashboard" button only opens the
     // dashboard — it is not gated, because opening a window needs no pane.
-    for (const label of [
-      "Set up and start",
-      "Save and start",
-      "Install and start as a service",
-      "Start",
-      "Save and restart",
-    ]) {
-      const at = main.indexOf(`["${label}",`);
+    for (const label of ["Set up and start", "Save and start", "Install and start as a service", "Start"]) {
+      const at = steps.indexOf(`["${label}",`);
       expect(at, `no action entry found for "${label}"`).toBeGreaterThan(-1);
       expect(args(entryAt(at))[3], `"${label}" is not tmux-gated`).toBe("true");
     }
+
+    // "Save and restart" left the table with the configure step: it is the
+    // Addresses section's own button, built by hand rather than from a tuple,
+    // so the gate is the dataset flag the render reads. Same promise, checked
+    // where it now lives — the CLI refuses `configure` without tmux either way.
+    const save = addresses.indexOf('save.textContent = "Save and restart"');
+    expect(save, "the Addresses save button must exist").toBeGreaterThan(-1);
+    expect(addresses.slice(save, save + 400), '"Save and restart" is not tmux-gated').toContain(
+      'save.dataset.tmux = "1"',
+    );
   });
 
   test("the setup step offers nothing that cannot run without a server", () => {
@@ -345,11 +369,14 @@ describe("the console's wiring, pinned at the source", () => {
     // save could only ever fail, and the next "Set up and start" discarded
     // what was typed without a word. The form is reachable the moment a
     // server exists, which is every screen after this one.
-    const at = main.indexOf("  setup: {");
+    const at = steps.indexOf("    setup: {");
     expect(at).toBeGreaterThan(-1);
-    const entry = main.slice(at, main.indexOf("\n  },", at));
-    expect(entry).not.toContain("showConfigure");
+    const entry = steps.slice(at, steps.indexOf("\n    },", at));
     expect(entry).not.toContain("doInit");
+    // The Addresses section is the configure form's home now, and this step
+    // must not route anyone there: `addressesAvailability` refuses on `setup`
+    // for exactly this reason, and a button here would contradict it.
+    expect(entry).not.toContain('"addresses"');
   });
 
   test("the tmux warning links out to the docs", () => {
@@ -359,15 +386,15 @@ describe("the console's wiring, pinned at the source", () => {
     // the same rule `desktop_open_control_plane` follows; the command name
     // itself is pinned by ipc-acl.test.ts), and `applyPlan` decides its
     // visibility from the plan's `docsUrl`.
-    expect(main).toContain("openTmuxDocs");
-    expect(main).toContain("docsUrl");
+    expect(tmuxWarning).toContain("openTmuxDocs");
+    expect(tmuxWarning).toContain("docsUrl");
   });
 });
 
 describe("the console's stylesheet", () => {
   /**
    * `.warn-text` and `.hint` are both single-class selectors, so for an element
-   * carrying BOTH the later declaration wins. The problem lines `main.ts`
+   * carrying BOTH the later declaration wins. The problem lines the console
    * builds are `class="hint warn-text"` and rendered amber deliberately — with
    * `.warn-text` declared first they came out muted grey, indistinguishable
    * from the ordinary field hint directly above them. Same cascade LAYER is

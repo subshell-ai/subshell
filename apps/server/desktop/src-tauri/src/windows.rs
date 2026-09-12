@@ -86,6 +86,15 @@ pub fn raise(window: &WebviewWindow) {
     }
 }
 
+/// The console's two-column shell (spec 2026-09-11 § 2.1): a 200px sidebar
+/// beside a content column with 32px side padding, so the default leaves 636px
+/// of content — near the setup assistant's 560px column — and the minimum
+/// still leaves 456px, which the Details grid and the config form fit.
+const CONSOLE_WIDTH: f64 = 900.0;
+const CONSOLE_HEIGHT: f64 = 640.0;
+const CONSOLE_MIN_WIDTH: f64 = 720.0;
+const CONSOLE_MIN_HEIGHT: f64 = 520.0;
+
 /// Create (or focus) the console window.
 pub fn open_console(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window("console") {
@@ -94,8 +103,8 @@ pub fn open_console(app: &AppHandle) -> Result<WebviewWindow, String> {
     }
     WebviewWindowBuilder::new(app, "console", WebviewUrl::App("index.html".into()))
         .title("Subshell Server")
-        .inner_size(720.0, 620.0)
-        .min_inner_size(560.0, 480.0)
+        .inner_size(CONSOLE_WIDTH, CONSOLE_HEIGHT)
+        .min_inner_size(CONSOLE_MIN_WIDTH, CONSOLE_MIN_HEIGHT)
         .resizable(true)
         .on_page_load(|window, _| {
             // A console created under a screen request delivers it once the
@@ -346,6 +355,18 @@ mod tests {
     fn min_width_matches_the_spa_tiling_breakpoint() {
         // WORKSPACE_TILING_MIN_WIDTH in apps/server/web/src/lib/breakpoints.ts.
         assert_eq!(super::MIN_WIDTH as u32, 1024);
+    }
+
+    #[test]
+    fn console_is_built_at_the_two_column_size() {
+        // The sidebar is a fixed 200px, so the content column is whatever is
+        // left. Both numbers are the page's premise rather than a preference:
+        // shrink the minimum and the Details grid's 132px label column plus a
+        // path stops fitting; the spec's § 2.1 arithmetic is what these pin.
+        assert_eq!(super::CONSOLE_WIDTH as u32, 900);
+        assert_eq!(super::CONSOLE_HEIGHT as u32, 640);
+        assert_eq!(super::CONSOLE_MIN_WIDTH as u32, 720);
+        assert_eq!(super::CONSOLE_MIN_HEIGHT as u32, 520);
     }
 
     #[test]

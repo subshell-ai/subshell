@@ -5,79 +5,132 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Subshell Server</title>
   </head>
-  <body>
-    <h1 class="m-0 mb-0.5 text-[17px] font-semibold tracking-[0.01em]">Subshell Server</h1>
-    <p class="mb-[18px] text-sm text-muted">Install, configure and run a Subshell control plane on this machine.</p>
-
-    <!-- Two views, one window (spec § 7.1): the status page is what the console
-         has always been; the reset view is entered ONLY by the desktop-screen
-         event from the dashboard's danger card, never by a console-side
-         control. The script and the h1 sit outside both. -->
-    <div id="status-view">
-    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 py-3.5">
-      <!-- No Refresh button: the console re-probes itself every few seconds
-           (POLL_MS in main.ts), so a button would only ever save the user the
-           remainder of one interval — while being the one control that implies
-           the rest of the panel might be stale. -->
-      <div class="flex items-center justify-between gap-2.5">
-        <span class="inline-flex items-center gap-1.5 text-sm text-muted">
-          <span class="size-2 shrink-0 rounded-full bg-muted" id="dot"></span><span id="state">Checking…</span>
-        </span>
+  <body class="console">
+    <!-- Two views, one window (spec § 7.1): the SHELL — a sidebar and four
+         sections — and the reset view, entered by the desktop-screen event from
+         the dashboard's danger card or by Settings' own Reset button. The reset
+         view covers the shell entirely, sidebar included: a chain whose premise
+         is that it is the only thing happening must not leave a way to navigate
+         out from under it. -->
+    <div id="shell" class="shell">
+      <div class="sidebar">
+        <img class="sidebar-mark" src="./wordmark-96.png" srcset="./wordmark-96.png 1x, ./wordmark-192.png 2x" alt="Subshell" />
+        <!-- The items are built by main.ts from SECTIONS, so the order and the
+             labels have one source (`lib/console-nav.ts`) rather than a copy
+             here that drifts. -->
+        <nav class="sidebar-nav" id="nav" aria-label="Sections"></nav>
+        <p class="sidebar-version" id="sidebar-version"></p>
       </div>
-      <dl class="facts" id="facts"></dl>
-    </div>
 
-    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 py-3.5">
-      <p class="mb-2.5 text-sm text-warn empty:hidden" id="problem"></p>
-      <div id="step-body"></div>
-      <div class="mt-3 flex flex-wrap gap-2" id="step-actions"></div>
-      <div class="hint" id="step-hint"></div>
-    </div>
+      <main class="content" id="content">
+        <!-- ============================ Overview ============================ -->
+        <section id="section-overview">
+          <!-- The hero: what this machine's server is, in three lines. It
+               replaces a 14px chip and the two fact rows (`server cli`,
+               `control plane URL`) that answered the same questions in the
+               same type as the tmux path. -->
+          <div class="hero">
+            <span class="hero-dot bg-muted" id="hero-dot"></span>
+            <div class="hero-lines">
+              <p class="hero-state" id="hero-state">Checking…</p>
+              <p class="hero-sub" id="hero-server"></p>
+              <p class="hero-sub" id="hero-url" hidden></p>
+            </div>
+          </div>
 
-    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 py-3.5" id="prefs-card" hidden>
-      <label class="switch">
-        <input type="checkbox" id="close-to-tray" />
-        <span>Keep running in the menu bar or system tray when the window is closed</span>
-      </label>
-      <div class="flex items-start justify-between gap-2.5" id="tray-missing" hidden>
-        <p class="hint" id="tray-reason"></p>
-        <button type="button" id="tray-recheck" class="shrink-0">Check again</button>
-      </div>
-    </div>
+          <p class="hint warn-text empty:hidden" id="problem" data-problem></p>
 
-    <!-- One region, two tabs. The server's log is what the pane shows by
-         default, because it is true all the time; a command's output takes
-         over when there is one, because it is what you just asked for. -->
-    <div class="mb-3 rounded-[10px] border border-line bg-card px-4 pb-3.5 pt-2.5">
-      <div class="pane-tabs mb-2 flex items-center gap-1.5" role="tablist">
-        <button type="button" id="tab-log" role="tab" data-pane="log">Server log</button>
-        <button type="button" id="tab-output" role="tab" data-pane="output">Command output</button>
-        <span class="ml-auto max-w-[55%] truncate text-xs text-muted" id="pane-source"></span>
-      </div>
-      <pre class="pane-pre" id="log" aria-live="polite"></pre>
-      <pre class="pane-pre" id="output" aria-live="polite" hidden></pre>
-    </div>
+          <!-- No Refresh button anywhere on this page: the console re-probes
+               itself every few seconds (POLL_MS in main.ts), so a button would
+               only ever save the user the remainder of one interval — while
+               being the one control that implies the rest of the panel might
+               be stale. -->
+          <p class="step-body" id="step-body"></p>
+          <div class="actions" id="step-actions"></div>
+          <p class="hint" id="step-hint"></p>
 
-    <!-- The console's own entry into the reset screen (spec § 4.3): a
-         collapsed disclosure so a destructive section is not something
-         someone scrolls past without reading. Closed on every render, see
-         main.ts. -->
-    <details class="danger-zone" id="danger-zone">
-      <summary>Danger zone</summary>
-      <p class="hint">
-        Reset this machine's Subshell instance: stop the server, delete its
-        database, logs and settings, and return to setup. The installed server
-        binary stays.
-      </p>
-      <button type="button" id="reset-open">Reset this machine…</button>
-    </details>
+          <!-- What the last press did, where the press happened. -->
+          <div data-strip></div>
+
+          <h2 class="group-heading">Details</h2>
+          <dl class="facts" id="facts"></dl>
+        </section>
+
+        <!-- ============================ Addresses =========================== -->
+        <section id="section-addresses" hidden>
+          <h2 class="section-title">Addresses</h2>
+          <!-- A section that cannot help still opens, and says why. The reason
+               is `addressesAvailability`'s, so "can this be saved right now"
+               is one function rather than a fact spread across a step table. -->
+          <div id="addresses-blocked" hidden>
+            <p class="section-lead" id="addresses-reason"></p>
+            <button type="button" class="ghost" id="addresses-to-overview">Go to Overview</button>
+          </div>
+          <div id="addresses-live" hidden>
+            <p class="section-lead">Change the addresses this server listens on and answers to.</p>
+            <div id="addresses-form"></div>
+            <div class="actions" id="addresses-actions"></div>
+            <!-- What SAVING does, and nothing else. The "Invalid origin"
+                 sentence this used to lead with is already the trusted-origins
+                 field's own hint, three lines above the button — a step card
+                 could carry it because the fields were inside the card, but on
+                 a page where the field states it, repeating it here is the
+                 second telling. -->
+            <p class="hint">
+              Saving rewrites config.env and restarts the server, which reads these values once at boot.
+            </p>
+            <p class="hint warn-text empty:hidden" data-problem></p>
+            <div data-strip></div>
+          </div>
+        </section>
+
+        <!-- ============================== Logs ============================== -->
+        <!-- One region, two tabs. The server's log is what the pane shows by
+             default, because it is true all the time; a command's output is
+             brought forward by the result strip's "Show output", because that
+             is the moment someone asked for it. -->
+        <section id="section-logs" class="logs-section" hidden>
+          <div class="pane-tabs" role="tablist">
+            <button type="button" id="tab-log" role="tab" data-pane="log">Server log</button>
+            <button type="button" id="tab-output" role="tab" data-pane="output">Command output</button>
+            <span class="pane-source" id="pane-source"></span>
+          </div>
+          <pre class="pane-pre pane-fill" id="log" aria-live="polite"></pre>
+          <pre class="pane-pre pane-fill" id="output" aria-live="polite" hidden></pre>
+        </section>
+
+        <!-- ============================ Settings ============================ -->
+        <section id="section-settings" hidden>
+          <h2 class="section-title">Settings</h2>
+
+          <div id="prefs-group" hidden>
+            <h3 class="group-heading">Tray</h3>
+            <label class="switch">
+              <input type="checkbox" id="close-to-tray" />
+              <span>Keep running in the menu bar or system tray when the window is closed</span>
+            </label>
+            <div class="tray-missing" id="tray-missing" hidden>
+              <p class="hint" id="tray-reason"></p>
+              <button type="button" id="tray-recheck" class="shrink-0">Check again</button>
+            </div>
+          </div>
+
+          <h3 class="group-heading">Reset</h3>
+          <p class="section-lead">
+            Reset this machine's Subshell instance: stop the server, delete its database, logs and settings, and
+            return to setup. The installed server binary stays.
+          </p>
+          <button type="button" id="reset-open" class="danger">Reset this machine…</button>
+          <p class="hint warn-text empty:hidden" data-problem></p>
+        </section>
+      </main>
     </div>
 
     <!-- The second view (spec § 7.1). The hostname is DISPLAYED by this page
          and compared by Rust against the same memoized probe value (R15): the
          typed string is the only thing the page sends back, never a path. -->
-    <div id="reset-view" hidden>
-      <p class="mb-1 font-medium text-[15px]">Reset this machine's Subshell instance</p>
+    <div id="reset-view" class="reset-view" hidden>
+      <p class="reset-title">Reset this machine's Subshell instance</p>
       <p class="hint mb-2.5" id="reset-refusal"></p>
       <ul class="wizard-copy list-disc pl-5" id="reset-rows"></ul>
       <div class="wizard-copy text-sm text-muted mb-2.5" id="reset-disclosures"></div>
@@ -90,12 +143,12 @@
       <!-- The same refusal as #reset-refusal, repeated BESIDE the control it
            disables. The rule this console keeps is that no disabled control
            lacks its reason next to it, and the copy above the fold does not
-           satisfy it: the disclosures are long, the window is 620px, and a
-           reader who has scrolled to the button cannot see a sentence at the
-           top of the view. Empty (and collapsed) whenever the button is live. -->
+           satisfy it: the disclosures are long and a reader who has scrolled
+           to the button cannot see a sentence at the top of the view. Empty
+           (and collapsed) whenever the button is live. -->
       <p class="hint warn-text empty:hidden" id="reset-why"></p>
-      <!-- The half-run record lands HERE, not in #output: the status view is
-           hidden while this one is up, so a chain log rendered there would be
+      <!-- The half-run record lands HERE, not in the Logs section: the shell is
+           hidden while this view is up, so a chain log rendered there would be
            invisible - which is M1's whole promise unkept by the page. -->
       <pre class="pane-pre mt-3" id="reset-log" aria-live="polite" hidden></pre>
     </div>
