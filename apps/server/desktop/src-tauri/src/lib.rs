@@ -275,9 +275,20 @@ pub fn run() {
             // an app that is gone. This is the one hook that runs on every
             // exit path Tauri controls; a window merely hidden to the tray is
             // still the app running, so nothing here fires for that.
+            //
+            // Gated on there being a CHILD, and cheaply: this runs on the
+            // main thread, and `server_spawner` resolves the binary ladder
+            // (which execs `version` on each rung) plus a `status --json`
+            // with a 15-second timeout. Paying that in service mode — where
+            // the supervisor owns nothing and the spawner is discarded
+            // unused — turned ⌘Q into a possible 15-second hang for every
+            // user, including every user who never chose app mode.
             tauri::RunEvent::Exit => {
-                if let Ok(spawner) = control::server_spawner(app) {
-                    app.state::<supervisor::Supervisor>().stop(spawner.as_ref());
+                let supervisor = app.state::<supervisor::Supervisor>();
+                if supervisor.pid().is_some() {
+                    if let Some(spawner) = supervisor.spawner() {
+                        supervisor.stop(spawner.as_ref());
+                    }
                 }
             }
             // macOS: clicking the Dock icon of an app with no visible window.

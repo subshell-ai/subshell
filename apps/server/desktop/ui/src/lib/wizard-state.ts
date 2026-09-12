@@ -125,6 +125,26 @@ export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "super
  * which said "Opening your dashboard…" and vanished. The page had this rule
  * for `update` alone, written at its one call site, so `reset` never got it.
  */
+/**
+ * The screen a `desktop-screen` payload names, or `null` for "whatever the
+ * probe implies".
+ *
+ * **Derived from {@link REQUESTED_SCREENS}, never re-listed.** The page used
+ * to write this decision inline as `payload === "update" ? "update" : null`,
+ * and the cost of that was measured three times: `reset` was dropped when it
+ * was added, `supervision` was dropped when IT was added, and each time the
+ * symptom was the same — the assistant raises, matches nothing, and bounces
+ * the user straight back to the dashboard they pressed the button on. A
+ * screen added to the closed Rust enum and to `REQUESTED_SCREENS` now routes
+ * with no third edit to forget.
+ *
+ * `reset` is in the set and answers here like the others; the caller still
+ * handles it specially because it has a plan to arm first.
+ */
+export function screenForRequest(payload: string): ScreenId | null {
+  return (REQUESTED_SCREENS as readonly string[]).includes(payload) ? (payload as ScreenId) : null;
+}
+
 export function isRequestedScreen(screen: ScreenId | null): boolean {
   return screen !== null && REQUESTED_SCREENS.includes(screen);
 }

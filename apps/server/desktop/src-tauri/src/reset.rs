@@ -67,7 +67,8 @@ impl Screen {
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Two accepted words.
+/// Parse the (untrusted, optional) `screen` argument. Three accepted words;
+/// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
         Some("reset") => Screen::Reset,
@@ -310,8 +311,15 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     // the supervisor is stopped directly. `service_now` would ask a CLI to
     // stop a definition that does not exist, and the wipe would then delete
     // the data out from under a process still writing to it.
-    let app_mode = crate::control::effective_supervision(settings.get().supervision, None) == Supervision::App
-        && !crate::control::service_installed_json(&settings);
+    // ONE expression of the disk-wins rule, not two. `effective_supervision`
+    // already maps "nothing installed" and "the manager would not say" to the
+    // stored preference, so passing it the real answer says what the previous
+    // spelling said — with the rule stated once rather than re-derived beside
+    // a second installed-check that could drift from it.
+    let app_mode = crate::control::effective_supervision(
+        settings.get().supervision,
+        Some(crate::control::service_installed_json(&settings)),
+    ) == Supervision::App;
     let stop = if app_mode {
         match crate::control::server_spawner(&app) {
             Ok(spawner) => {

@@ -56,15 +56,61 @@ describe("POST /api/admin/server/autostart", () => {
     autostartSeams.apply = realApply;
   });
 
-  it("arms login, answers the fresh view, and writes one audit row", async () => {
-    autostartSeams.deployment = () => viewWith({ manager: "launchd", installed: true, enabled: false });
+  it("arms login, answers the view WITH THE CHANGE IN IT, and writes one audit row", async () => {
+    // The deployment seam answers what the machine would really say: false
+    // before the write, true after it. That is the whole contract — the
+    // caller sets this response into its cache and never re-fetches — so a
+    // response collected BEFORE the write would leave the switch showing the
+    // old value with nothing failing.
+    autostartSeams.deployment = () => viewWith({ manager: "launchd", installed: true, enabled: applied.length > 0 });
     const before = await autostartEvents();
     const res = await app.fetch(post(fx.adminCookie, { enabled: true }));
     expect(res.status).toBe(200);
     expect(applied).toEqual([true]);
-    // The view comes back so a caller never has to re-fetch to see what it did.
-    expect((await res.json()) as { service: unknown }).toHaveProperty("service");
+    expect(((await res.json()) as DeploymentView).service.enabled).toBe(true);
     expect(await autostartEvents()).toBe(before + 1);
+  });
+
+  it("answers a no-op with the view it already read, spawning no second collection", async () => {
+    let collections = 0;
+    autostartSeams.deployment = () => {
+      collections++;
+      return viewWith({ manager: "systemd", installed: true, enabled: true });
+    };
+    const res = await app.fetch(post(fx.adminCookie, { enabled: true }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as DeploymentView).service.enabled).toBe(true);
+    // One read. Collecting again would spawn the service manager a second
+    // time to be told what it just said.
+    expect(collections).toBe(1);
+  });
+
+  it("409s when the service vanishes between the read and the write", async () => {
+    // The refusal read saw a service; the write found none. That is the same
+    // machine state the pre-flight 409 describes, and a 500 would tell an
+    // admin the server broke when someone merely ran `service uninstall`.
+    autostartSeams.deployment = () => viewWith({ manager: "systemd", installed: true, enabled: false });
+    autostartSeams.apply = () => ({
+      code: 1,
+      out: "",
+      err: "subshell-server: nothing installed: no service definition at /u/subshell-server.service",
+    });
+    const res = await app.fetch(post(fx.adminCookie, { enabled: true }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("AUTOSTART_UNAVAILABLE");
+  });
+
+  it("shapes a THROWN write into the fs error, not an unhandled 500", async () => {
+    // `writeFile` is mkdir + write and throws; on darwin that is the whole
+    // mechanism, so an EACCES on the LaunchAgents directory must reach the
+    // admin as itself rather than as "Internal Server Error".
+    autostartSeams.deployment = () => viewWith({ manager: "launchd", installed: true, enabled: false });
+    autostartSeams.apply = () => {
+      throw new Error("EACCES: permission denied, open '/Users/t/Library/LaunchAgents/dev.subshell.server.plist'");
+    };
+    const res = await app.fetch(post(fx.adminCookie, { enabled: true }));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { message: string }).message).toContain("EACCES");
   });
 
   it("records what it changed FROM, which is the only half the caller did not send", async () => {

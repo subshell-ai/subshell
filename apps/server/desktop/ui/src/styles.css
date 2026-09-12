@@ -879,6 +879,51 @@
     color: var(--color-muted);
     cursor: default;
   }
+  /* The supervision screen's two mode choices. A radio in its own column so
+     the description under each title hangs off the title rather than the
+     control, which is what makes two multi-line options readable as a pair. */
+  .choice-row {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    align-items: start;
+    gap: 2px 10px;
+    padding: 12px 0;
+    cursor: pointer;
+  }
+  .choice-row + .choice-row {
+    border-top: 1px solid color-mix(in oklch, var(--color-line) 60%, transparent);
+  }
+  .choice-row input {
+    width: auto;
+    margin: 2px 0 0;
+    accent-color: var(--color-primary);
+  }
+  .choice-row .hint {
+    margin: 0;
+  }
+  /* The login box, nested under the option it belongs to — indented past the
+     radio column so the dependency is visible rather than only enforced. */
+  .choice-sub {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-left: 30px;
+    padding-bottom: 12px;
+    font-size: 14.5px;
+    cursor: pointer;
+  }
+  .choice-sub input {
+    width: auto;
+    margin: 0;
+    accent-color: var(--color-primary);
+  }
+  .choice-sub:has(input:disabled) {
+    color: var(--color-muted);
+    cursor: default;
+  }
+  .choice-sub .hint {
+    margin: 0;
+  }
   /* The tmux hard-stop notice: same amber as the facts warnings, full width
      of the action area because it explains why parts of it are disabled. */
   .tmux-warning {

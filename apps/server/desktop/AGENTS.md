@@ -120,16 +120,25 @@ file, service definition, manager state and detail, log location), the server's
 own log tail, the last action's verbatim output, and what this app itself is.
 A footer link reaches Reset.
 
-**Update Server** and **Reset** are never in `screensFor`'s list. They are
+**A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
+`screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason
+it is a function rather than a ternary at the call site is that the ternary
+was wrong three times: `reset` was dropped when it was added, and
+`supervision` when IT was added — each time raising the assistant onto a
+screen it did not recognise, which then bounced the user back to the dashboard
+they had just pressed a button on. Adding a screen means the Rust enum and
+that list; there is no third place to forget.
+
+**Update Server**, **Reset** and **How Your Server Runs** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update`) — which is what lets either
+`reset::Screen` enum (`home` | `reset` | `update` | `supervision`) — which is what lets either
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
 dashboard it was asked to leave.
 
-**`dots` has no position for the last three.** `indexOf` answers -1 for
-recovery, update and reset, and the renderer hides the row on a negative
+**`dots` has no position for the requested screens.** `indexOf` answers -1 for
+recovery, update, reset and supervision, and the renderer hides the row on a negative
 `current`. That falls out of one list rather than a branch: a screen is either
 on the journey or it is not.
 
@@ -210,9 +219,27 @@ the process exists, and the window choice needs the PORT. Slower than that
 lands on recovery, whose Start is idempotent and whose screen names the last
 exit.
 
-To check by hand — none of this has automated coverage: launch with box 1
-unchecked, start a subshell, quit the app, and confirm the pane's tmux server
-survives (`tmux -L subshell-<id> ls`) while the server is gone.
+**One load-bearing macOS fact is UNMEASURED, and must be confirmed once.**
+The whole "starts at login" mechanism rests on launchd auto-loading only
+`~/Library/LaunchAgents` — so a plist kept in the config home runs when
+something bootstraps it and not at login. That a `KeepAlive=true` job ignores
+`RunAtLoad=false` WAS measured (macOS 26.6.2, 2026-09-12); the login half was
+not, because measuring it means logging the operator out. On the first machine
+to run this: `subshell-server service install --no-autostart`, log out, log
+in, and confirm `service status` reports not running and
+`launchctl print gui/$(id -u)/dev.subshell.server` answers "Could not find
+service". **If it IS loaded, stop and report — the design needs a new
+mechanism**, not a patch.
+
+To check the rest by hand — none of it has automated coverage:
+
+1. Launch with box 1 unchecked, start a subshell, quit the app, and confirm
+   the pane's tmux server survives (`tmux -L subshell-<id> ls`) while the
+   server is gone. This is the pane-safety promise, and no test can prove it.
+2. Reset with close-to-tray ON: the whole app relaunches into first run, with
+   no dashboard recoverable from the tray.
+3. The door both ways from the dashboard's Service page, and the login switch
+   on a machine that really has a service installed.
 
 ## Resetting the machine
 
@@ -543,6 +570,7 @@ src-tauri/src/
 ├── watch.rs       # the 5s poll: the tray's state, and re-pointing `main` when the origin moves
 ├── control.rs     # the tauri commands — argument-poor wrappers over the CLI; open_home; ACTION_IN_FLIGHT
 ├── reset.rs       # the reset screen's Rust side: the closed Screen enum, the stashed plan, the two guards, the chain
+├── supervisor.rs  # running the server as THIS APP'S child: the respawn loop, the stop that blocks, the signal discipline
 ├── server_bin.rs  # the ladder, ExecStart parsing, bundled-vs-installed policy, SERVER_SIDECAR
 ├── bridge.rs      # the DesktopAction enum and the eval dispatch
 ├── menu.rs        # the macOS menu bar
@@ -684,16 +712,17 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the fourteen its page invokes — probe, setup, install tmux, install server, set the binary, every service verb, logs, open path, arm reset, reset, open main, open tmux docs, about, open web — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
+| `wizard` | the sixteen its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, and window dragging — over loopback only |
 
 `main`'s three are chosen for what they cannot do: raise a window, drop this
 app's own title bar, and display one notification with a fixed shape. Nothing
 that touches the CLI, the config, the service or the filesystem is reachable
 from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
-`screen` argument, and the SPA sends it from exactly three places: the
+`screen` argument, and the SPA sends it from exactly four places: the
 Settings danger card (`{ screen: "reset" }`), the Service page's Update card
-(`{ screen: "update" }`) and the sidebar pill (no argument). It names a SCREEN
+(`{ screen: "update" }`), the Service card's supervision door
+(`{ screen: "supervision" }`) and the sidebar pill (no argument). It names a SCREEN
 and never a command — raising `update` performs one read-only probe, arming
 `reset` performs one `status --json` the watch already runs on its own timer,
 and every verb behind either needs a press inside the bundled page.

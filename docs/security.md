@@ -1288,11 +1288,23 @@ is genuinely its own parent** (`appSupervised`).
 
 Be exact about what that check is worth. The variables are a claim any process
 could make; parentage narrows a forged one to a shell that set them and exec'd
-the server itself. What a successful forgery buys is `restart.available: true`
-— an admin exiting the server into a parent that will not respawn it. That is
-an operator lying to themselves in variables they own, on a host they already
-control, and it is the same class as hand-editing config.env. Accepted, not
-defended against.
+the server itself — i.e. to whoever started the process and already holds
+SIGKILL over it. A forgery buys two things, not one:
+
+- **`restart.available: true`** — an admin exiting the server into a parent
+  that will not respawn it.
+- **The pane-safety refusal is suppressed.** The app branch reports
+  `paneSafety: "keeps"` unconditionally, and `POST /api/admin/server/restart`
+  gates its "this would close every running subshell" 409 — and the
+  confirmation dialog's warning — on exactly that field. So on a machine whose
+  real service definition would kill panes, a forged claim removes both.
+  Unlike the first, this one has a victim other than the forger: other users'
+  subshells die with no warning to the admin who pressed the button.
+
+The verdict is still "accepted": the forger is the person who launched the
+server and could `tmux kill-server` directly, so no privilege is gained. It is
+the same class as hand-editing config.env. But a section claiming to be exact
+should name both.
 
 The app earns the `paneSafety: "keeps"` it reports: its supervisor signals the
 main pid and never the process group, which is what `KillMode=process` and

@@ -17,6 +17,7 @@ import {
   recoveryAction,
   recoveryTitle,
   SETUP_TITLE,
+  screenForRequest,
   screensFor,
   setupRows,
 } from "../lib/wizard-state";
@@ -368,5 +369,68 @@ describe("autostartSupported", () => {
     // backstop that makes optimism safe here.
     expect(autostartSupported(virgin())).toBe(true);
     expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: null } }))).toBe(true);
+  });
+});
+
+/**
+ * Routing a requested screen (spec § 6.3).
+ *
+ * This is the test that was missing when the bug shipped three times. The
+ * page wrote the decision inline as `payload === "update" ? "update" : null`,
+ * so `reset` was dropped when it was added and `supervision` was dropped when
+ * IT was added — each time producing an assistant that raises, matches
+ * nothing, and bounces the user back to the dashboard they pressed the button
+ * on. `screenForRequest` derives it from `REQUESTED_SCREENS`, and this pins
+ * that a member of that list can always be reached.
+ */
+describe("screenForRequest", () => {
+  it("routes every screen a page may ask for", () => {
+    for (const requested of REQUESTED_SCREENS) {
+      expect(screenForRequest(requested)).toBe(requested);
+    }
+    // Named explicitly as well as by the loop: a list that lost a member
+    // would make the loop above pass while the feature stayed unreachable.
+    expect(screenForRequest("supervision")).toBe("supervision");
+    expect(screenForRequest("update")).toBe("update");
+    expect(screenForRequest("reset")).toBe("reset");
+  });
+
+  it("answers null for home, for a probe-implied screen, and for junk", () => {
+    // `home` is the Rust enum's "whatever the probe implies", which is what
+    // null means here.
+    expect(screenForRequest("home")).toBe(null);
+    // A screen the probe owns is not something a page may request.
+    expect(screenForRequest("welcome")).toBe(null);
+    expect(screenForRequest("recovery")).toBe(null);
+    // And an unknown word is ignored rather than an error, so a menu item and
+    // a page can ship independently.
+    expect(screenForRequest("")).toBe(null);
+    expect(screenForRequest("/etc/passwd")).toBe(null);
+  });
+});
+
+/**
+ * The desktop constant tracks the CLI that grew the verbs it needs.
+ *
+ * `MIN_AUTOSTART_SERVER_VERSION` is the version `service enable|disable`
+ * shipped in, and nothing else ties it to the server package. The hazard is
+ * ORDERING rather than typos: if another `@internal/server` minor changeset
+ * merges first, the server releases without those verbs at the version this
+ * constant names, and the login checkbox goes live against a server that will
+ * refuse it. This turns that from silent into a red test at the moment it
+ * becomes wrong.
+ */
+describe("MIN_AUTOSTART_SERVER_VERSION", () => {
+  it("is not older than the server package it refers to", () => {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "../../../../api/package.json"), "utf8")) as {
+      version: string;
+    };
+    const parts = (v: string) => v.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+    const [min, server] = [parts(MIN_AUTOSTART_SERVER_VERSION), parts(pkg.version)];
+    let verdict = 0;
+    for (let i = 0; i < Math.max(min.length, server.length) && verdict === 0; i += 1) {
+      verdict = (min[i] ?? 0) - (server[i] ?? 0);
+    }
+    expect(verdict).toBeGreaterThanOrEqual(0);
   });
 });

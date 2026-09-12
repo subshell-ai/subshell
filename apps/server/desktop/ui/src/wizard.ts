@@ -54,6 +54,7 @@ import {
   type ScreenId,
   SETUP_TITLE,
   type SupervisionChoice,
+  screenForRequest,
   screensFor,
   setupRows,
 } from "./lib/wizard-state";
@@ -347,7 +348,10 @@ function planRows(p: Probe): HTMLUListElement {
     box.id = opts.id;
     box.checked = opts.checked;
     box.disabled = opts.disabled;
-    box.addEventListener("change", () => opts.onChange(box.checked));
+    box.addEventListener("change", () => {
+      opts.onChange(box.checked);
+      refocus(opts.id);
+    });
     const label = document.createElement("label");
     label.htmlFor = opts.id;
     label.className = "label";
@@ -674,6 +678,7 @@ function renderSupervision(p: Probe): void {
     radio.addEventListener("change", () => {
       opts.onPick();
       render();
+      refocus(opts.id);
     });
     const copy = document.createElement("div");
     copy.append(text("div", opts.title, "label"), text("div", opts.body, "hint"));
@@ -708,6 +713,7 @@ function renderSupervision(p: Probe): void {
   loginBox.addEventListener("change", () => {
     supervisionForm = applySupervisionChoice(chosen, { autostart: loginBox.checked });
     render();
+    refocus("sup-login");
   });
   login.append(loginBox, text("span", "Start it at every login", "label"));
   if (!autostartSupported(p)) {
@@ -742,11 +748,48 @@ function renderSupervision(p: Probe): void {
   el("bar-right").append(
     button(
       "Apply",
-      () => void act(async () => ipc.setSupervision(chosen.background ? "service" : "app", chosen.autostart), true),
+      () =>
+        void act(async () => {
+          const result = await ipc.setSupervision(chosen.background ? "service" : "app", chosen.autostart);
+          // Leaving IS the confirmation: this screen's whole subject is a
+          // choice, and staying on it with a greyed-out Apply is the only
+          // feedback a success would otherwise get. A failure keeps the
+          // screen, where its log has just been rendered.
+          if (result.ok) host.close();
+          return result;
+        }, true),
       "primary",
       unchanged || busy || running,
     ),
   );
+}
+
+/**
+ * Whether focus is somewhere a redraw would destroy typing.
+ *
+ * The poll skips a render while a hand is in an input — but a CHECKBOX is an
+ * `HTMLInputElement` too, and treating one as text froze the setup screen's
+ * progress checklist for the whole chain whenever someone tabbed to a box
+ * without toggling it. Only text-like inputs hold anything a redraw can lose.
+ */
+function isTextEntry(el: Element | null): boolean {
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (!(el instanceof HTMLInputElement)) return false;
+  return !["checkbox", "radio", "button", "submit"].includes(el.type);
+}
+
+/**
+ * Put focus back on a control a re-render just destroyed.
+ *
+ * `render()` rebuilds `#content`, so every toggle drops focus to `<body>` —
+ * which breaks the standard interaction for both new surfaces: arrow keys
+ * between two radios fire `change`, lose focus, and the next arrow key does
+ * nothing. The address form solves the same problem by replacing one subtree
+ * rather than re-rendering; these controls are cheap enough to rebuild, so
+ * they restore focus by id instead.
+ */
+function refocus(id: string): void {
+  document.getElementById(id)?.focus();
 }
 
 /** Arm a plan and raise the Reset screen. */
@@ -1058,7 +1101,7 @@ async function tick(): Promise<void> {
   if ((busy || document.hidden) && !running) return;
   // Never redraw under a hand typing in the address form, or in the reset
   // screen's confirmation box.
-  if (document.activeElement instanceof HTMLInputElement) return;
+  if (isTextEntry(document.activeElement)) return;
   try {
     await refresh();
   } catch {
@@ -1102,7 +1145,11 @@ function applyScreen(payload: string): void {
     return;
   }
   resetView.hide();
-  screen = payload === "update" ? "update" : null;
+  // A pending selection belongs to one visit of the supervision screen, and
+  // this is its other exit: the sidebar pill, an Update request or a Reset
+  // request all land here while that screen may be showing.
+  supervisionForm = null;
+  screen = screenForRequest(payload);
   // A reset returns this page to a machine with nothing set up, so the
   // handoff guard has to be released or a later ready probe renders nothing.
   handedOff = false;

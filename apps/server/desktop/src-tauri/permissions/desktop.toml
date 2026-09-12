@@ -38,12 +38,12 @@ commands.allow = ["desktop_install_tmux"]
 
 [[permission]]
 identifier = "allow-desktop-setup"
-description = "The whole first-run chain in one call: install the bundled server, write config.env with the CLI's defaults, register the login service, start it. Stops at the first failure. Assistant-only: the server-origin page gets no part of the CLI."
+description = "The whole first-run chain in one call: install the bundled server, write config.env with the CLI's defaults, then EITHER register a login service and start it OR hand the server to this app as its own child — whichever the setup screen's two checkboxes asked for. Stops at the first failure. Assistant-only: the server-origin page gets no part of the CLI."
 commands.allow = ["desktop_setup"]
 
 [[permission]]
 identifier = "allow-desktop-service"
-description = "Drive one `subshell-server service` verb. Includes stop and restart, which can end running subshells."
+description = "Drive one `subshell-server service` verb — or, where this app runs the server itself rather than a service manager, start/stop/restart that child. Includes stop and restart, which take the server down."
 commands.allow = ["desktop_service"]
 
 [[permission]]

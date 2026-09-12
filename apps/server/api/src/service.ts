@@ -180,21 +180,20 @@ function darwinDefinition(deps: Pick<ServiceDeps, "home" | "configDir" | "fileEx
  * command's cheap existsSync line — existence is a definition-on-disk check,
  * not a running check (the port probe covers liveness).
  *
- * `configDir` is the server config home, which on darwin is where a
- * not-at-login definition lives (see {@link sessionPlistPath}). It is
- * optional so the one caller that has no config dir in hand still compiles;
- * omitting it means only the login path is considered, which understates a
- * disabled install.
+ * `configDir` is REQUIRED, and that is the point: on darwin it is where a
+ * not-at-login definition lives (see {@link sessionPlistPath}), so a caller
+ * that omitted it would report an installed-but-disabled service as absent —
+ * a wrong answer that reads as "your service vanished" and that no type check
+ * would have caught. Both callers have one in hand.
  */
 export function serviceArtifactPath(
   platform: NodeJS.Platform,
   home: string,
-  configDir?: string,
+  configDir: string,
   fileExists: (path: string) => boolean = (p) => existsSync(p),
 ): string | null {
   if (platform === "linux") return unitPath(home);
   if (platform !== "darwin") return null;
-  if (configDir === undefined) return plistPath(home);
   return darwinDefinition({ home, configDir, fileExists }).path;
 }
 
@@ -480,9 +479,16 @@ export function installService(deps: ServiceDeps, opts: { autostart?: boolean } 
       );
     }
     // `enable --now` when it starts at login; plain `start` when it does not.
-    // NOT `enable` followed by `start`: the whole point of --no-autostart is
-    // that the unit is never enabled, so a later `systemctl --user disable`
-    // has nothing to undo and `UnitFileState` reads `disabled` immediately.
+    //
+    // The `disable` first is NOT redundant, and leaving it out was a real
+    // defect: `enable` writes a symlink into `default.target.wants`, and
+    // re-installing over an already-enabled unit leaves that symlink in
+    // place — so `UnitFileState` stays `enabled`, the server DOES come back
+    // at login, and the success line below claims the opposite. Darwin has
+    // the symmetric rule (it removes the other plist); this is Linux's.
+    // Tolerated on failure: an already-disabled unit exits 0 anyway, and a
+    // unit that cannot be disabled is one `start` will report on.
+    if (!autostart) deps.runCmd(["systemctl", "--user", "disable", SYSTEMD_UNIT_NAME]);
     const argv = autostart
       ? ["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME]
       : ["systemctl", "--user", "start", SYSTEMD_UNIT_NAME];
@@ -582,8 +588,18 @@ export function setAutostart(deps: ServiceDeps, enabled: boolean): CliResult {
   const to = enabled ? plistPath(deps.home) : sessionPlistPath(deps.configDir);
   const text = deps.readFile(from.path);
   if (text === null) return errLine(`could not read the service definition at ${from.path}`);
-  deps.writeFile(to, text);
-  deps.removeFile(from.path);
+  // This module's contract everywhere else is "answer a CliResult, never
+  // throw" — `queryService`'s own doc says so — and the fs seams DO throw
+  // (mkdir + write; rm on EPERM). Without this an EACCES reaches the HTTP
+  // route as a generic 500 rather than as the words the admin needs.
+  try {
+    deps.writeFile(to, text);
+    deps.removeFile(from.path);
+  } catch (err) {
+    return errLine(
+      `could not move the service definition to ${to}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   return done();
 }
 
@@ -710,7 +726,13 @@ export interface ServiceState {
   state: ServiceRunState;
   /** Main PID when the manager reports one, else `null`. */
   pid: number | null;
-  /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad`). `null` when unknown. */
+  /**
+   * Whether it starts at login. `null` when unknown, or when nothing is installed.
+   *
+   * systemd reads `UnitFileState`; launchd reads the definition's LOCATION —
+   * `~/Library/LaunchAgents` is what it scans at login, and `RunAtLoad` says
+   * nothing useful beside `KeepAlive=true` (see {@link sessionPlistPath}).
+   */
   enabled: boolean | null;
   /**
    * launchd only: whether the job is BOOTSTRAPPED in `gui/<uid>` — the fact

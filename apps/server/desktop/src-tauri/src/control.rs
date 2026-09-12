@@ -325,6 +325,21 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
     if p.supervision != settings.get().supervision {
         let corrected = p.supervision;
         let _ = settings.update(|s| s.supervision = corrected);
+        // And if the correction took the machine OUT of app mode while this
+        // app's own child is still running, stop it. Two servers racing for
+        // one port is the immediate damage; the durable damage is that every
+        // verb now routes to the CLI, so nothing in the UI can reach the
+        // child again — and a reset from that state would take the
+        // `service_now(Stop)` branch and begin deleting the database out from
+        // under a live process.
+        if corrected == Supervision::Service {
+            let sup = app.state::<supervisor::Supervisor>();
+            if sup.pid().is_some() {
+                if let Some(spawner) = sup.spawner() {
+                    sup.stop(spawner.as_ref());
+                }
+            }
+        }
     }
     p
 }
@@ -340,10 +355,14 @@ pub(crate) fn attach_supervisor(app: &AppHandle, p: &mut Probe) {
         return;
     }
     let snap = app.state::<supervisor::Supervisor>().snapshot();
-    let last_exit = supervisor::last_exit_sentence(snap.last_exit, std::time::SystemTime::now());
+    // `last_exit_sentence` answers `None` for an exit the app ASKED for and
+    // for one older than the window — so a server the user stopped is never
+    // reported as a fault, and a crash an hour ago on a machine fine since is
+    // history rather than a diagnosis. Both were missing, and between them
+    // they turned this crash-loop signal into noise.
+    let last_exit =
+        supervisor::last_exit_sentence(snap.last_exit, std::time::SystemTime::now(), supervisor::RESPAWN_DELAY);
     if p.error.is_none() && p.next != ProbeStep::Ready {
-        // Only while it is NOT up: a server that crashed an hour ago and has
-        // been running since is not a problem to report.
         p.error = last_exit.clone();
     }
     p.supervisor = Some(SupervisorReport {
@@ -1018,7 +1037,7 @@ fn supervise_now(app: &AppHandle, verb: ServiceCommand) -> ActionResult {
             done("subshell-server stopped.")
         }
         ServiceCommand::Restart => {
-            sup.restart(spawner.as_ref());
+            sup.restart(spawner);
             done("subshell-server restarted.")
         }
         ServiceCommand::Install | ServiceCommand::Uninstall => ActionResult {

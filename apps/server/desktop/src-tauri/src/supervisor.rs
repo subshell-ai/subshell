@@ -11,7 +11,7 @@
 //!   what the systemd unit carries. A crash loop stays a loop rather than
 //!   parking in `failed`, because a limiter here would hide the EADDRINUSE
 //!   case the unit's own comment exists for — and the probe surfaces the last
-//!   exit instead.
+//!   exit instead. A restart a PERSON asked for skips that wait.
 //! - **It signals the MAIN PID and never the process group.** Each local
 //!   subshell's tmux server is a child of the server, so a group signal takes
 //!   every live pane with it. `KillMode=process` and
@@ -22,6 +22,17 @@
 //!   and keep its Restart button working (`SUBSHELL_SUPERVISOR*`, verified
 //!   against the server's own parent — `services/server-deployment.ts`).
 //!
+//! **The loop OWNS its child; nothing else ever holds one.** An earlier
+//! revision kept the `Child` in a shared mutex so `stop` could escalate to
+//! SIGKILL — and then took it OUT of that mutex for the whole of `wait()`,
+//! which is every instant that matters. `stop` therefore always found the
+//! slot empty, returned on its first branch, and the entire reap-and-escalate
+//! block was unreachable: a SIGTERM and a hope, under a comment claiming it
+//! blocked. Escalation is a second bounded `kill` spawn instead (still the
+//! pid alone, so the promise above is kept), and waiting is a condvar the
+//! reaping thread signals — which is the only arrangement where "the loop
+//! owns the child" and "stop blocks until it is gone" are both true.
+//!
 //! It lives here rather than in `crates/desktop-core` because there is
 //! exactly one consumer: Subshell Client's node agent has its own service and
 //! no equivalent mode. That is the crate's own rule — an abstraction designed
@@ -31,7 +42,6 @@
 use std::io;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -44,8 +54,9 @@ pub const RESPAWN_DELAY: Duration = Duration::from_secs(5);
 /// that is wedged rather than the expected shutdown time.
 pub const STOP_BOUND: Duration = Duration::from_secs(10);
 
-/// Poll interval while waiting for a terminated child to actually go.
-const REAP_TICK: Duration = Duration::from_millis(100);
+/// How long SIGKILL gets after that. Not instantaneous either, and a caller
+/// blocked forever on an unkillable process is worse than one told it gave up.
+const KILL_BOUND: Duration = Duration::from_secs(2);
 
 /// How the last child ended, for the recovery screen's own sentence.
 #[derive(Debug, Clone, Copy)]
@@ -53,14 +64,15 @@ pub struct LastExit {
     /// Exit code, `None` when a signal ended it.
     pub code: Option<i32>,
     pub at: SystemTime,
+    /// Whether the app ASKED for this exit. A stop is not a crash.
+    pub requested: bool,
 }
 
 /// What the supervisor is doing right now.
 ///
 /// Deliberately only what a CALLER uses. "Is it meant to be running" and "how
 /// long has it been up" were both here and read by nothing: the probe answers
-/// the first from the port, which is the fact that matters, and nothing has
-/// ever wanted the second.
+/// the first from the port, which is the fact that matters.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     /// The live child's pid, `None` when nothing is running.
@@ -69,26 +81,23 @@ pub struct Snapshot {
     pub last_exit: Option<LastExit>,
 }
 
-/// A spawned process the supervisor can wait on and signal.
+/// A spawned process the supervisor can wait on.
 ///
 /// A trait so the state machine is testable with no processes and no real
-/// time: every behaviour worth pinning here (respawn after an exit, stop
-/// without a respawn, restart without the delay) is about ORDER, and a test
-/// that actually spawned would be pinning the OS instead.
+/// time: every behaviour worth pinning here is about ORDER, and a test that
+/// actually spawned would be pinning the OS instead.
 pub trait ChildHandle: Send {
     fn id(&self) -> u32;
     fn wait(&mut self) -> io::Result<ExitStatus>;
-    fn try_wait(&mut self) -> io::Result<Option<ExitStatus>>;
-    fn kill(&mut self) -> io::Result<()>;
 }
 
-/// How a child is created, and how it is asked to stop.
+/// How a child is created, and how it is asked — then made — to stop.
 pub trait Spawner: Send + Sync {
     fn spawn(&self) -> io::Result<Box<dyn ChildHandle>>;
     /// Ask this pid to exit — SIGTERM to the PROCESS, never the group.
     fn terminate(&self, pid: u32);
-    /// Sleep, injected so the respawn delay costs a test nothing.
-    fn sleep(&self, d: Duration);
+    /// Make it exit — SIGKILL, and again the process alone.
+    fn kill(&self, pid: u32);
 }
 
 /// The real thing: `subshell-server` with a login PATH, the config dir as cwd,
@@ -107,19 +116,62 @@ pub struct ServerSpawner {
     pub own_pid: u32,
 }
 
+impl ServerSpawner {
+    /// Create (or truncate) the console log at 0600 inside a 0700 directory.
+    ///
+    /// The modes are the point rather than a detail: this file holds the
+    /// server's raw stdout and stderr, which is the same class of content as
+    /// the pane logs and `server.log` — both of which this project writes
+    /// 0600 in a 0700 directory and treats as load-bearing
+    /// (`.claude/rules/security-context.md`). A bare `File::create` takes the
+    /// umask's answer, which on a shared machine is world-readable.
+    fn open_console_log(&self) -> io::Result<std::fs::File> {
+        if let Some(dir) = self.console_log.parent() {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            // An existing directory is not an error, and a real failure
+            // surfaces from the open below with its own path in the message.
+            let _ = builder.create(dir);
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        opts.open(&self.console_log)
+    }
+
+    /// One bounded `kill(1)` spawn — the same call this app already makes for
+    /// `hostname`, rather than taking on a `libc` dependency. The argument is
+    /// a pid we printed ourselves, never anything from a page.
+    ///
+    /// **The pid ALONE.** A negative argument would signal the process GROUP,
+    /// which is every subshell's tmux server as well, and losing a person's
+    /// live panes because they quit a window is the exact failure
+    /// `KillMode=process` exists to prevent.
+    fn signal(&self, sig: &str, pid: u32) {
+        let argv = vec!["kill".to_string(), sig.to_string(), pid.to_string()];
+        let _ = subshell_desktop_core::proc::run(&argv, Duration::from_secs(2));
+    }
+}
+
 impl Spawner for ServerSpawner {
     fn spawn(&self) -> io::Result<Box<dyn ChildHandle>> {
         let Some((program, args)) = self.argv.split_first() else {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty server argv"));
         };
-        if let Some(dir) = self.console_log.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
         // TRUNCATED per spawn, not appended: this is the last run's console
         // output, which is the thing worth reading after a crash, and it is
-        // bounded by construction rather than by a sweep. The server's own
-        // structured log is the capped one and is a different file.
-        let out = std::fs::File::create(&self.console_log)?;
+        // bounded by construction. The server's own structured log is the
+        // capped one and is a different file.
+        let out = self.open_console_log()?;
         let err = out.try_clone()?;
         let child = Command::new(program)
             .args(args)
@@ -136,20 +188,11 @@ impl Spawner for ServerSpawner {
     }
 
     fn terminate(&self, pid: u32) {
-        // `kill(1)` as one bounded spawn rather than a `libc` dependency —
-        // the same call this app already makes for `hostname`. The argument
-        // is a pid we printed ourselves, never anything from a page.
-        //
-        // The pid ALONE. A negative argument would signal the process GROUP,
-        // which is every subshell's tmux server as well, and losing a
-        // person's live panes because they quit a window is the exact failure
-        // `KillMode=process` exists to prevent.
-        let argv = vec!["kill".to_string(), "-TERM".to_string(), pid.to_string()];
-        let _ = subshell_desktop_core::proc::run(&argv, Duration::from_secs(2));
+        self.signal("-TERM", pid);
     }
 
-    fn sleep(&self, d: Duration) {
-        std::thread::sleep(d);
+    fn kill(&self, pid: u32) {
+        self.signal("-KILL", pid);
     }
 }
 
@@ -162,33 +205,59 @@ impl ChildHandle for RealChild {
     fn wait(&mut self) -> io::Result<ExitStatus> {
         self.0.wait()
     }
-    fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        self.0.try_wait()
-    }
-    fn kill(&mut self) -> io::Result<()> {
-        self.0.kill()
-    }
 }
 
-/// The shared state one supervisor thread and every caller agree about.
+/// Everything one supervisor thread and every caller agree about, under ONE
+/// mutex — including whether a loop exists.
+///
+/// `loop_running` was an `AtomicBool` outside the lock, and that was a
+/// check-then-act across two independent words: a `start()` landing between
+/// the loop deciding to break and its store of `false` swapped `true`, did
+/// nothing, and left a machine with `desired_running` set and no loop — while
+/// telling the caller it had started.
 #[derive(Default)]
 struct State {
     desired_running: bool,
+    /// True while a spawn loop exists. Decided in the same critical section
+    /// that sets `desired_running`, so the two cannot disagree.
+    loop_running: bool,
     pid: Option<u32>,
-    started: Option<Instant>,
     last_exit: Option<LastExit>,
     /// Set while a `restart` is in flight, so the loop skips the delay once.
     immediate: bool,
+    /// Set by `stop`/`restart`, so the exit they produce is recorded as
+    /// asked-for rather than reported to the user as a crash.
+    stopping: bool,
+}
+
+struct Shared {
+    state: Mutex<State>,
+    /// Signalled whenever `pid` or `desired_running` changes — which is what
+    /// makes `stop` a real wait and the respawn delay interruptible.
+    changed: Condvar,
+    /// The spawner the loop re-reads on EVERY iteration.
+    ///
+    /// Held rather than moved into the thread because the argv it carries can
+    /// change under a running loop: `desktop_set_server_bin` points at a
+    /// different binary, or an install puts the managed copy on a rung that
+    /// was not the one resolved at boot. A loop holding the first `Arc`
+    /// forever would respawn the old path indefinitely, with nothing in the
+    /// UI implying that a full stop and start was needed.
+    ///
+    /// It is also what lets `RunEvent::Exit` stop the child without building
+    /// a spawner — which on that path means without resolving a binary ladder
+    /// and a `status --json` on the main thread.
+    spawner: Mutex<Option<Arc<dyn Spawner>>>,
 }
 
 /// Owns at most one server process.
 pub struct Supervisor {
-    state: Arc<(Mutex<State>, Condvar)>,
-    /// The live child, held so `stop` can escalate to SIGKILL.
-    child: Arc<Mutex<Option<Box<dyn ChildHandle>>>>,
-    running: Arc<AtomicBool>,
-    /// Mirrors `State.pid` for lock-free reads from the probe's hot path.
-    pid: Arc<AtomicU32>,
+    inner: Arc<Shared>,
+    /// How long to wait before respawning after an exit, and how long a stop
+    /// waits before escalating. Fields rather than the constants so a test can
+    /// pin "it waited" and "it did not" without spending real seconds.
+    respawn_delay: Duration,
+    stop_bound: Duration,
 }
 
 impl Default for Supervisor {
@@ -199,38 +268,71 @@ impl Default for Supervisor {
 
 impl Supervisor {
     pub fn new() -> Self {
+        Supervisor::with_timings(RESPAWN_DELAY, STOP_BOUND)
+    }
+
+    /// @internal — for tests, which must not spend fifteen real seconds.
+    pub fn with_timings(respawn_delay: Duration, stop_bound: Duration) -> Self {
         Supervisor {
-            state: Arc::new((Mutex::new(State::default()), Condvar::new())),
-            child: Arc::new(Mutex::new(None)),
-            running: Arc::new(AtomicBool::new(false)),
-            pid: Arc::new(AtomicU32::new(0)),
+            inner: Arc::new(Shared {
+                state: Mutex::new(State::default()),
+                changed: Condvar::new(),
+                spawner: Mutex::new(None),
+            }),
+            respawn_delay,
+            stop_bound,
         }
+    }
+
+    /// The spawner this supervisor last started with, if any.
+    ///
+    /// `RunEvent::Exit` uses it rather than building one: see the field's own
+    /// note for what building one costs on that path.
+    pub fn spawner(&self) -> Option<Arc<dyn Spawner>> {
+        self.inner.spawner.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Start the server, or do nothing if it is already up. Idempotent.
+    ///
+    /// A `start` on a LIVE loop still refreshes the spawner, so a binary
+    /// chosen or installed since the loop began is what the next respawn
+    /// runs.
     pub fn start(&self, spawner: Arc<dyn Spawner>) {
-        {
-            let mut st = self.state.0.lock().unwrap_or_else(|e| e.into_inner());
+        *self.inner.spawner.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&spawner));
+        let needs_loop = {
+            let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.desired_running = true;
+            st.stopping = false;
+            // ONE critical section decides both, so a loop on its way out
+            // cannot swallow a start and leave nothing running.
+            let start_one = !st.loop_running;
+            if start_one {
+                st.loop_running = true;
+            }
+            start_one
+        };
+        self.inner.changed.notify_all();
+        if needs_loop {
+            self.spawn_loop(spawner);
         }
-        if self.running.swap(true, Ordering::SeqCst) {
-            // A loop is already up; it reads `desired_running` after each wait
-            // and will spawn again on its own.
-            self.state.1.notify_all();
-            return;
-        }
-        self.spawn_loop(spawner);
     }
 
-    /// Stop the server and keep it stopped. Idempotent; blocks until it is gone.
+    /// Stop the server and keep it stopped.
+    ///
+    /// **Blocks until the child is gone, or the bound expires**, escalating to
+    /// SIGKILL once on the way. Callers depend on exactly that: `RunEvent::Exit`
+    /// must not leave a server holding the port, and the reset chain must not
+    /// begin deleting a database a live process is still writing to.
     pub fn stop(&self, spawner: &dyn Spawner) {
         {
-            let mut st = self.state.0.lock().unwrap_or_else(|e| e.into_inner());
+            let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.desired_running = false;
+            st.stopping = true;
         }
-        // Wake a loop that is sitting in its respawn delay so it notices.
-        self.state.1.notify_all();
-        self.terminate_child(spawner);
+        // Wakes a loop sitting out its respawn delay, so a stop during that
+        // window takes effect now rather than up to five seconds later.
+        self.inner.changed.notify_all();
+        self.wait_until_gone(spawner);
     }
 
     /// Stop and start again, without the respawn delay.
@@ -238,188 +340,213 @@ impl Supervisor {
     /// The delay is right for a crash — the server may be crash-looping on a
     /// busy port — and wrong for a restart a person asked for, where it is
     /// five seconds of nothing happening.
-    pub fn restart(&self, spawner: &dyn Spawner) {
+    pub fn restart(&self, spawner: Arc<dyn Spawner>) {
         {
-            let mut st = self.state.0.lock().unwrap_or_else(|e| e.into_inner());
+            let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.immediate = true;
             st.desired_running = true;
+            st.stopping = true;
         }
-        self.terminate_child(spawner);
-        self.state.1.notify_all();
+        self.inner.changed.notify_all();
+        self.wait_until_gone(spawner.as_ref());
+        // `start` is idempotent against a live loop, and it is what makes a
+        // restart work when there is NO loop — after a stop, or after one
+        // gave up. Without it `restart` set two flags, woke nobody, and
+        // reported success having started nothing.
+        self.start(spawner);
     }
 
     /// What is running, for the probe.
     pub fn snapshot(&self) -> Snapshot {
-        let st = self.state.0.lock().unwrap_or_else(|e| e.into_inner());
+        let st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         Snapshot {
             pid: st.pid,
             last_exit: st.last_exit,
         }
     }
 
-    /// The live child's pid without taking the state lock.
+    /// The live child's pid.
     pub fn pid(&self) -> Option<u32> {
-        match self.pid.load(Ordering::SeqCst) {
-            0 => None,
-            p => Some(p),
-        }
+        self.inner.state.lock().unwrap_or_else(|e| e.into_inner()).pid
     }
 
-    /// SIGTERM, wait out `STOP_BOUND`, then SIGKILL.
-    fn terminate_child(&self, spawner: &dyn Spawner) {
-        let pid = self.pid();
-        let Some(pid) = pid else { return };
+    /// SIGTERM, wait out the bound on the condvar, then SIGKILL once.
+    ///
+    /// It waits on a FACT the reaping thread publishes rather than polling a
+    /// handle it does not own — which is what the previous revision got
+    /// wrong, silently.
+    fn wait_until_gone(&self, spawner: &dyn Spawner) {
+        let Some(pid) = self.pid() else { return };
         spawner.terminate(pid);
-        let deadline = Instant::now() + STOP_BOUND;
-        loop {
-            {
-                let mut held = self.child.lock().unwrap_or_else(|e| e.into_inner());
-                match held.as_mut().map(|c| c.try_wait()) {
-                    // Gone, or never there.
-                    None | Some(Ok(Some(_))) => return,
-                    Some(Err(_)) => return,
-                    Some(Ok(None)) => {}
-                }
-                if Instant::now() >= deadline {
-                    // Last resort. A server that ignored SIGTERM for ten
-                    // seconds is wedged, and leaving it holding the port would
-                    // make every later start fail on EADDRINUSE.
-                    if let Some(c) = held.as_mut() {
-                        let _ = c.kill();
-                    }
-                    return;
-                }
+        let deadline = Instant::now() + self.stop_bound;
+        let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        while st.pid == Some(pid) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
             }
-            spawner.sleep(REAP_TICK);
+            let (next, _) = self
+                .inner
+                .changed
+                .wait_timeout(st, left)
+                .unwrap_or_else(|e| e.into_inner());
+            st = next;
+        }
+        if st.pid != Some(pid) {
+            return;
+        }
+        // A server that ignored SIGTERM for the whole bound is wedged, and
+        // leaving it holding the port would make every later start fail on
+        // EADDRINUSE.
+        drop(st);
+        spawner.kill(pid);
+        let kill_deadline = Instant::now() + KILL_BOUND;
+        let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        while st.pid == Some(pid) {
+            let left = kill_deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                // Unkillable from here — uninterruptible sleep, or no longer
+                // ours. Returning beats blocking a quit forever.
+                eprintln!("subshell: server pid {pid} did not exit; no longer waiting for it");
+                return;
+            }
+            let (next, _) = self
+                .inner
+                .changed
+                .wait_timeout(st, left)
+                .unwrap_or_else(|e| e.into_inner());
+            st = next;
         }
     }
 
     fn spawn_loop(&self, spawner: Arc<dyn Spawner>) {
-        let state = Arc::clone(&self.state);
-        let child_slot = Arc::clone(&self.child);
-        let running = Arc::clone(&self.running);
-        let pid_cell = Arc::clone(&self.pid);
+        let shared = Arc::clone(&self.inner);
+        let delay = self.respawn_delay;
         std::thread::spawn(move || {
             loop {
-                if !state.0.lock().unwrap_or_else(|e| e.into_inner()).desired_running {
+                if !shared.state.lock().unwrap_or_else(|e| e.into_inner()).desired_running {
                     break;
                 }
-                let spawned = match spawner.spawn() {
+                // Re-read every iteration: the binary this should run can
+                // change under a live loop (see `Shared::spawner`).
+                let spawner = shared
+                    .spawner
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+                    .unwrap_or_else(|| Arc::clone(&spawner));
+                let mut child = match spawner.spawn() {
                     Ok(c) => c,
                     Err(err) => {
                         eprintln!("subshell: could not start the server: {err}");
-                        // Treat a failed spawn as an exit: the same five-second
-                        // rhythm, so a transient cause (a binary mid-install)
-                        // recovers without a person pressing anything.
-                        let mut st = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                        st.last_exit = Some(LastExit {
-                            code: None,
-                            at: SystemTime::now(),
-                        });
-                        drop(st);
-                        if !wait_to_respawn(&state, spawner.as_ref()) {
+                        // A failed spawn is an exit: the same rhythm, so a
+                        // transient cause (a binary mid-install, a log
+                        // directory that just became writable) recovers with
+                        // nobody pressing anything.
+                        record_exit(&shared, None);
+                        if !wait_to_respawn(&shared, delay) {
                             break;
                         }
                         continue;
                     }
                 };
-                let pid = spawned.id();
-                pid_cell.store(pid, Ordering::SeqCst);
                 {
-                    let mut st = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                    st.pid = Some(pid);
-                    st.started = Some(Instant::now());
+                    let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+                    st.pid = Some(child.id());
                 }
-                *child_slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(spawned);
-
-                // The wait must NOT hold the child lock: `stop` needs it to
-                // escalate to SIGKILL while this thread is parked here.
-                let status = {
-                    let mut held = child_slot.lock().unwrap_or_else(|e| e.into_inner());
-                    let taken = held.take();
-                    drop(held);
-                    match taken {
-                        Some(mut c) => {
-                            let waited = c.wait();
-                            // Put it back only if nothing replaced it.
-                            let mut slot = child_slot.lock().unwrap_or_else(|e| e.into_inner());
-                            if slot.is_none() {
-                                *slot = Some(c);
-                            }
-                            waited
-                        }
-                        None => Ok(exit_status_placeholder()),
-                    }
-                };
-                pid_cell.store(0, Ordering::SeqCst);
-                {
-                    let mut st = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                    st.pid = None;
-                    st.started = None;
-                    st.last_exit = Some(LastExit {
-                        code: status.as_ref().ok().and_then(|s| s.code()),
-                        at: SystemTime::now(),
-                    });
-                }
-                *child_slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                if !wait_to_respawn(&state, spawner.as_ref()) {
+                shared.changed.notify_all();
+                // OWNED here for the whole wait. Nothing else holds a handle,
+                // so nothing else can be blocked by this — and `stop` waits on
+                // the state this thread publishes instead.
+                let status = child.wait();
+                record_exit(&shared, status.as_ref().ok().and_then(|s| s.code()));
+                if !wait_to_respawn(&shared, delay) {
                     break;
                 }
             }
-            running.store(false, Ordering::SeqCst);
+            {
+                let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+                st.loop_running = false;
+            }
+            shared.changed.notify_all();
         });
     }
 }
 
-/// Sleep out the respawn delay unless the caller asked for an immediate one.
-/// Returns whether the loop should spawn again.
-fn wait_to_respawn(state: &Arc<(Mutex<State>, Condvar)>, spawner: &dyn Spawner) -> bool {
-    let immediate = {
-        let mut st = state.0.lock().unwrap_or_else(|e| e.into_inner());
+/// Record how a child ended and publish that it is gone.
+fn record_exit(shared: &Arc<Shared>, code: Option<i32>) {
+    {
+        let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.pid = None;
+        st.last_exit = Some(LastExit {
+            code,
+            at: SystemTime::now(),
+            // An exit the app asked for is not a crash, and the recovery
+            // screen must not call it one.
+            requested: st.stopping,
+        });
+    }
+    shared.changed.notify_all();
+}
+
+/// Wait out the respawn delay unless the caller asked for an immediate one, or
+/// asked to stop. Returns whether the loop should spawn again.
+///
+/// A condvar wait rather than a sleep, so `stop` and `restart` take effect at
+/// once instead of up to `RESPAWN_DELAY` later.
+fn wait_to_respawn(shared: &Arc<Shared>, delay: Duration) -> bool {
+    let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+    if !st.desired_running {
+        return false;
+    }
+    if std::mem::replace(&mut st.immediate, false) {
+        return true;
+    }
+    let deadline = Instant::now() + delay;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return st.desired_running;
+        }
+        let (next, _) = shared.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner());
+        st = next;
         if !st.desired_running {
             return false;
         }
-        std::mem::replace(&mut st.immediate, false)
-    };
-    if !immediate {
-        spawner.sleep(RESPAWN_DELAY);
-    }
-    state.0.lock().unwrap_or_else(|e| e.into_inner()).desired_running
-}
-
-/// A stand-in status for the "the child vanished from under us" branch, which
-/// only happens when `stop` took it to SIGKILL while this thread was between
-/// locks. Reported as a signal death, which is what it was.
-fn exit_status_placeholder() -> ExitStatus {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        ExitStatus::from_raw(9)
-    }
-    #[cfg(not(unix))]
-    {
-        Command::new("cmd")
-            .arg("/c")
-            .arg("exit 1")
-            .status()
-            .expect("placeholder")
+        // A restart arriving mid-delay is the interruption this wait exists
+        // for: take it now rather than at the end of a wait nobody wants.
+        if std::mem::replace(&mut st.immediate, false) {
+            return true;
+        }
     }
 }
 
 /// One sentence about the last exit, for the recovery screen.
 ///
-/// `None` when nothing has exited: a server that has never crashed has
-/// nothing to say, and a blank "exited" line would read as one that had.
-pub fn last_exit_sentence(last: Option<LastExit>, now: SystemTime) -> Option<String> {
+/// `None` when nothing has exited, when the app ASKED for it, and when it is
+/// old news. A server the user stopped is not a problem to report, and a
+/// crash an hour ago on a machine that has been fine since is history rather
+/// than a diagnosis — reporting either turns the crash-loop signal this
+/// exists for into noise.
+pub fn last_exit_sentence(last: Option<LastExit>, now: SystemTime, within: Duration) -> Option<String> {
     let last = last?;
-    let ago = now.duration_since(last.at).ok()?.as_secs();
-    let when = match ago {
-        0..=1 => "just now".to_string(),
-        2..=59 => format!("{ago} seconds ago"),
-        60..=3599 => format!("{} minutes ago", ago / 60),
-        _ => format!("{} hours ago", ago / 3600),
+    if last.requested {
+        return None;
+    }
+    let since = now.duration_since(last.at).ok()?;
+    if since > within {
+        return None;
+    }
+    let ago = since.as_secs();
+    let when = if ago <= 1 {
+        "just now".to_string()
+    } else {
+        format!("{ago} seconds ago")
     };
     Some(match last.code {
+        // Exit 0 that nobody asked for is still unexpected — the server chose
+        // to leave — but it is not a crash, and "code 0" would read as one.
+        Some(0) => format!("subshell-server exited {when}"),
         Some(code) => format!("subshell-server exited with code {code} {when}"),
         None => format!("subshell-server stopped unexpectedly {when}"),
     })
@@ -428,9 +555,13 @@ pub fn last_exit_sentence(last: Option<LastExit>, now: SystemTime) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::mpsc;
 
-    /// A child that exits when told to, recording what was asked of it.
+    /// A child that exits only when its flag is set — so a test can model a
+    /// server that IGNORES SIGTERM, which is the case the escalation exists
+    /// for and the one the previous fake could not express.
     struct FakeChild {
         id: u32,
         exited: Arc<AtomicBool>,
@@ -447,13 +578,6 @@ mod tests {
             }
             Ok(status_with(self.code))
         }
-        fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-            Ok(self.exited.load(Ordering::SeqCst).then(|| status_with(self.code)))
-        }
-        fn kill(&mut self) -> io::Result<()> {
-            self.exited.store(true, Ordering::SeqCst);
-            Ok(())
-        }
     }
 
     fn status_with(code: i32) -> ExitStatus {
@@ -465,19 +589,19 @@ mod tests {
         #[cfg(not(unix))]
         {
             let _ = code;
-            unimplemented!()
+            unimplemented!("this app ships linux-x64 and darwin-arm64 only")
         }
     }
 
     struct FakeSpawner {
-        spawns: Arc<Mutex<Vec<u32>>>,
-        /// Each spawned child's exit flag, so a test can end one.
-        live: Arc<Mutex<Vec<Arc<AtomicBool>>>>,
-        /// Every sleep the loop took, so the delay is assertable.
-        sleeps: Arc<Mutex<Vec<Duration>>>,
-        /// Pids handed to `terminate`, to pin "the process, never the group".
-        signalled: Arc<Mutex<Vec<u32>>>,
-        next: Arc<AtomicU32>,
+        spawns: Mutex<Vec<u32>>,
+        /// Each spawned child's exit flag, BY PID — so a signal reaches the
+        /// child it names rather than whichever was spawned last.
+        live: Mutex<HashMap<u32, Arc<AtomicBool>>>,
+        signals: Mutex<Vec<(String, u32)>>,
+        /// When false, SIGTERM is ignored: a wedged server.
+        honours_term: AtomicBool,
+        next: AtomicU32,
         tx: mpsc::Sender<u32>,
     }
 
@@ -486,19 +610,38 @@ mod tests {
             let id = self.next.fetch_add(1, Ordering::SeqCst);
             let exited = Arc::new(AtomicBool::new(false));
             self.spawns.lock().unwrap().push(id);
-            self.live.lock().unwrap().push(Arc::clone(&exited));
+            self.live.lock().unwrap().insert(id, Arc::clone(&exited));
             let _ = self.tx.send(id);
             Ok(Box::new(FakeChild { id, exited, code: 1 }))
         }
         fn terminate(&self, pid: u32) {
-            self.signalled.lock().unwrap().push(pid);
-            // A real SIGTERM ends the process; the fake honours it the same way.
-            if let Some(flag) = self.live.lock().unwrap().last() {
+            self.signals.lock().unwrap().push(("-TERM".into(), pid));
+            if self.honours_term.load(Ordering::SeqCst) {
+                self.end(pid);
+            }
+        }
+        fn kill(&self, pid: u32) {
+            self.signals.lock().unwrap().push(("-KILL".into(), pid));
+            // SIGKILL is not refusable, and the fake must not pretend it is.
+            self.end(pid);
+        }
+    }
+
+    impl FakeSpawner {
+        fn end(&self, pid: u32) {
+            if let Some(flag) = self.live.lock().unwrap().get(&pid) {
                 flag.store(true, Ordering::SeqCst);
             }
         }
-        fn sleep(&self, d: Duration) {
-            self.sleeps.lock().unwrap().push(d);
+        /// End a child the way a crash would — without anyone asking.
+        fn crash(&self, pid: u32) {
+            self.end(pid);
+        }
+        fn signalled(&self) -> Vec<(String, u32)> {
+            self.signals.lock().unwrap().clone()
+        }
+        fn spawn_count(&self) -> usize {
+            self.spawns.lock().unwrap().len()
         }
     }
 
@@ -506,128 +649,231 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         (
             Arc::new(FakeSpawner {
-                spawns: Arc::new(Mutex::new(Vec::new())),
-                live: Arc::new(Mutex::new(Vec::new())),
-                sleeps: Arc::new(Mutex::new(Vec::new())),
-                signalled: Arc::new(Mutex::new(Vec::new())),
-                next: Arc::new(AtomicU32::new(100)),
+                spawns: Mutex::new(Vec::new()),
+                live: Mutex::new(HashMap::new()),
+                signals: Mutex::new(Vec::new()),
+                honours_term: AtomicBool::new(true),
+                next: AtomicU32::new(100),
                 tx,
             }),
             rx,
         )
     }
 
-    /// Wait for the loop to reach its Nth spawn, or fail rather than hang.
-    fn await_spawns(rx: &mpsc::Receiver<u32>, n: usize) {
-        for _ in 0..n {
-            rx.recv_timeout(Duration::from_secs(5)).expect("a spawn");
-        }
+    /// Wait for the loop to reach its next spawn, or fail rather than hang.
+    fn next_spawn(rx: &mpsc::Receiver<u32>) -> u32 {
+        rx.recv_timeout(Duration::from_secs(5)).expect("a spawn")
+    }
+
+    /// Timings a test can afford, with the same SHAPE as the real ones.
+    fn quick() -> Supervisor {
+        Supervisor::with_timings(Duration::from_millis(40), Duration::from_millis(120))
     }
 
     #[test]
     fn start_is_idempotent() {
         let (spawner, rx) = harness();
-        let sup = Supervisor::new();
+        let sup = quick();
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
-        await_spawns(&rx, 1);
+        next_spawn(&rx);
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(20));
         // One server, not two racing for the port.
-        assert_eq!(spawner.spawns.lock().unwrap().len(), 1);
+        assert_eq!(spawner.spawn_count(), 1);
         sup.stop(spawner.as_ref());
     }
 
-    /// The unit's `Restart=always` + `RestartSec=5`, as behaviour.
+    /// The unit's `Restart=always`, as behaviour.
     #[test]
-    fn a_crash_respawns_after_the_delay() {
+    fn a_crash_respawns() {
         let (spawner, rx) = harness();
-        let sup = Supervisor::new();
+        let sup = quick();
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
-        await_spawns(&rx, 1);
-        // The server dies on its own — an EADDRINUSE loop, say.
-        spawner.live.lock().unwrap()[0].store(true, Ordering::SeqCst);
-        await_spawns(&rx, 1);
-        assert_eq!(spawner.spawns.lock().unwrap().len(), 2);
+        let first = next_spawn(&rx);
+        spawner.crash(first);
+        next_spawn(&rx);
+        assert_eq!(spawner.spawn_count(), 2);
+        // Nothing was signalled: it died on its own.
+        assert_eq!(spawner.signalled(), vec![]);
+        sup.stop(spawner.as_ref());
+    }
+
+    /// **The contract this module exists to keep**, and the one the previous
+    /// revision silently broke: `stop` returns only once the child is GONE.
+    #[test]
+    fn stop_blocks_until_the_child_is_actually_gone() {
+        let (spawner, rx) = harness();
+        let sup = quick();
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        let pid = next_spawn(&rx);
+        sup.stop(spawner.as_ref());
+        // Not "a signal was sent" — GONE. `RunEvent::Exit` and the reset
+        // chain both proceed on this being true.
+        assert_eq!(sup.pid(), None);
+        assert_eq!(spawner.signalled(), vec![("-TERM".to_string(), pid)]);
+        std::thread::sleep(Duration::from_millis(80));
+        assert_eq!(spawner.spawn_count(), 1, "a stop stays stopped");
+    }
+
+    /// A server that ignores SIGTERM gets SIGKILL — the case the escalation
+    /// was written for, which the old fake could not express because it
+    /// exited the child synchronously inside `terminate`.
+    #[test]
+    fn a_wedged_server_is_killed_and_every_signal_names_the_pid_alone() {
+        let (spawner, rx) = harness();
+        spawner.honours_term.store(false, Ordering::SeqCst);
+        let sup = quick();
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        let pid = next_spawn(&rx);
+
+        let started = Instant::now();
+        sup.stop(spawner.as_ref());
+        // It waited out the bound before escalating, rather than killing at once.
         assert!(
-            spawner.sleeps.lock().unwrap().contains(&RESPAWN_DELAY),
-            "a crash waits RESPAWN_DELAY before coming back"
+            started.elapsed() >= Duration::from_millis(120),
+            "{:?}",
+            started.elapsed()
         );
+        assert_eq!(sup.pid(), None, "and it is gone afterwards");
+
+        let signals = spawner.signalled();
+        assert_eq!(signals, vec![("-TERM".to_string(), pid), ("-KILL".to_string(), pid)]);
+        // Every signal names the pid ALONE. A negative argument here is the
+        // process GROUP, which is every live subshell's tmux server.
+        for (_, target) in signals {
+            assert_eq!(target, pid);
+        }
+    }
+
+    /// A restart after a stop must actually start something. The previous
+    /// revision set two flags, woke nobody, and reported success.
+    #[test]
+    fn restart_works_when_no_loop_is_left() {
+        let (spawner, rx) = harness();
+        let sup = quick();
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        next_spawn(&rx);
+        sup.stop(spawner.as_ref());
+        assert_eq!(spawner.spawn_count(), 1);
+
+        sup.restart(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        next_spawn(&rx);
+        assert_eq!(spawner.spawn_count(), 2, "restart started a server again");
+        assert!(sup.pid().is_some());
         sup.stop(spawner.as_ref());
     }
 
     #[test]
-    fn stop_terminates_the_pid_and_does_not_respawn() {
+    fn restart_comes_back_without_waiting_out_the_delay() {
         let (spawner, rx) = harness();
-        let sup = Supervisor::new();
+        // A delay long enough that waiting it out would be unmistakable.
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
-        await_spawns(&rx, 1);
-        let pid = spawner.spawns.lock().unwrap()[0];
-        sup.stop(spawner.as_ref());
-        std::thread::sleep(Duration::from_millis(50));
-        // THE PID, positive — a negative argument would be the process group,
-        // which is every live subshell's tmux server.
-        assert_eq!(*spawner.signalled.lock().unwrap(), vec![pid]);
-        assert_eq!(spawner.spawns.lock().unwrap().len(), 1, "a stop stays stopped");
-        assert_eq!(sup.pid(), None, "and nothing is left running");
-    }
+        next_spawn(&rx);
 
-    #[test]
-    fn restart_comes_back_without_waiting() {
-        let (spawner, rx) = harness();
-        let sup = Supervisor::new();
-        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
-        await_spawns(&rx, 1);
-        spawner.sleeps.lock().unwrap().clear();
-        sup.restart(spawner.as_ref());
-        await_spawns(&rx, 1);
-        assert_eq!(spawner.spawns.lock().unwrap().len(), 2);
+        let started = Instant::now();
+        sup.restart(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        next_spawn(&rx);
         // Five seconds of nothing is right for a crash and wrong for a button.
-        assert!(
-            !spawner.sleeps.lock().unwrap().contains(&RESPAWN_DELAY),
-            "a restart someone asked for skips the crash delay"
-        );
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        assert_eq!(spawner.spawn_count(), 2);
         sup.stop(spawner.as_ref());
+    }
+
+    /// A stop during the respawn window must take effect now, not at the end
+    /// of a wait nobody wants.
+    #[test]
+    fn a_stop_interrupts_the_respawn_delay() {
+        let (spawner, rx) = harness();
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        let pid = next_spawn(&rx);
+        spawner.crash(pid);
+        // Let the loop reach its delay.
+        std::thread::sleep(Duration::from_millis(50));
+
+        let started = Instant::now();
+        sup.stop(spawner.as_ref());
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(spawner.spawn_count(), 1, "and it did not come back");
     }
 
     #[test]
     fn the_snapshot_records_how_the_last_child_ended() {
         let (spawner, rx) = harness();
-        let sup = Supervisor::new();
+        let sup = quick();
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
-        await_spawns(&rx, 1);
-        assert!(sup.pid().is_some());
-        spawner.live.lock().unwrap()[0].store(true, Ordering::SeqCst);
-        await_spawns(&rx, 1);
+        let pid = next_spawn(&rx);
+        assert_eq!(sup.pid(), Some(pid));
+        spawner.crash(pid);
+        next_spawn(&rx);
         let snap = sup.snapshot();
         assert_eq!(snap.last_exit.map(|e| e.code), Some(Some(1)));
+        assert_eq!(
+            snap.last_exit.map(|e| e.requested),
+            Some(false),
+            "a crash is not asked-for"
+        );
         sup.stop(spawner.as_ref());
     }
 
     #[test]
-    fn the_exit_sentence_names_the_code_and_when() {
+    fn a_stop_is_recorded_as_asked_for() {
+        let (spawner, rx) = harness();
+        let sup = quick();
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        next_spawn(&rx);
+        sup.stop(spawner.as_ref());
+        let last = sup.snapshot().last_exit.expect("an exit");
+        assert!(last.requested);
+        // ...which is what keeps the recovery screen from calling the app's
+        // own SIGTERM an unexpected stop.
+        assert_eq!(last_exit_sentence(Some(last), SystemTime::now(), RESPAWN_DELAY), None);
+    }
+
+    #[test]
+    fn the_exit_sentence_speaks_only_of_a_recent_unasked_exit() {
         let now = SystemTime::now();
-        let five_ago = now - Duration::from_secs(5);
-        let line = last_exit_sentence(
-            Some(LastExit {
-                code: Some(1),
-                at: five_ago,
-            }),
-            now,
-        )
-        .unwrap();
+        let recent = LastExit {
+            code: Some(1),
+            at: now - Duration::from_secs(3),
+            requested: false,
+        };
+        let line = last_exit_sentence(Some(recent), now, RESPAWN_DELAY).unwrap();
         assert!(line.contains("code 1"), "{line}");
-        assert!(line.contains("5 seconds ago"), "{line}");
-        // A signal death has no code, and must not print one.
-        let signalled = last_exit_sentence(
-            Some(LastExit {
-                code: None,
-                at: five_ago,
-            }),
-            now,
-        )
-        .unwrap();
-        assert!(signalled.contains("stopped unexpectedly"), "{signalled}");
-        // Nothing has exited: say nothing, rather than print a blank exit.
-        assert_eq!(last_exit_sentence(None, now), None);
+        assert!(line.contains("3 seconds ago"), "{line}");
+
+        // Stale: a crash an hour ago on a machine fine since is history, and
+        // reporting it would make the crash-loop signal noise.
+        let old = LastExit {
+            at: now - Duration::from_secs(3600),
+            ..recent
+        };
+        assert_eq!(last_exit_sentence(Some(old), now, RESPAWN_DELAY), None);
+
+        // Asked for: never an error, however recent.
+        let asked = LastExit {
+            requested: true,
+            ..recent
+        };
+        assert_eq!(last_exit_sentence(Some(asked), now, RESPAWN_DELAY), None);
+
+        // A signal death has no code and must not print one.
+        let signalled = LastExit { code: None, ..recent };
+        assert!(last_exit_sentence(Some(signalled), now, RESPAWN_DELAY)
+            .unwrap()
+            .contains("stopped unexpectedly"));
+
+        // Exit 0 nobody asked for: unexpected, but not a crash.
+        let clean = LastExit {
+            code: Some(0),
+            ..recent
+        };
+        let clean_line = last_exit_sentence(Some(clean), now, RESPAWN_DELAY).unwrap();
+        assert!(!clean_line.contains("code"), "{clean_line}");
+
+        // Nothing has exited: say nothing.
+        assert_eq!(last_exit_sentence(None, now, RESPAWN_DELAY), None);
     }
 }

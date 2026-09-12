@@ -4,7 +4,7 @@ import { DeploymentViewSchema } from "@/api/admin-server/schemas.js";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
-import { setAutostart } from "@/service.js";
+import { type CliResult, setAutostart } from "@/service.js";
 import { audit } from "@/services/audit.js";
 import { collectDeployment, serviceDeps } from "@/services/server-deployment.js";
 
@@ -23,6 +23,8 @@ const NO_SERVICE = "No service is installed on this machine, so there is nothing
 const BY_APP =
   "This server runs with the Subshell Server app. To have it back at login, start the app at login instead.";
 const UNKNOWN = "The service manager did not say whether this server starts at login.";
+/** The CLI's own words when there is no definition — shared so the race below matches what it says. */
+const NOTHING_INSTALLED = "nothing installed";
 
 /**
  * `POST /api/admin/server/autostart` — whether the installed service comes
@@ -60,10 +62,27 @@ export const autostartRoute = new Elysia()
       const from = view.service.enabled;
       // A no-op is not an act: `setAutostart` is idempotent, and auditing a
       // press that changed nothing would fill the trail with non-events.
-      if (from === body.enabled) return collectDeployment();
+      // The view already in hand is the answer — collecting a second one
+      // would spawn the service manager again to learn what it just said.
+      if (from === body.enabled) return view;
 
-      const result = autostartSeams.apply(autostartSeams.deps(), body.enabled);
+      // `writeFile` throws (mkdir + write), so a permissions failure would
+      // otherwise leave this route as an unshaped 500 with none of the
+      // manager's words — spec § 8 asks for the fs error itself.
+      let result: CliResult;
+      try {
+        result = autostartSeams.apply(autostartSeams.deps(), body.enabled);
+      } catch (err) {
+        result = { code: 1, out: "", err: err instanceof Error ? err.message : String(err) };
+      }
       if (result.code !== 0) {
+        // The service went away between the read above and this write. That
+        // is the machine state the 409 already describes, and answering 500
+        // would tell an admin the server broke when someone merely
+        // uninstalled a service.
+        if (result.err.includes(NOTHING_INSTALLED)) {
+          return status(409, apiErrorBody({ code: BackendErrorCodes.AUTOSTART_UNAVAILABLE, message: NO_SERVICE }));
+        }
         // The manager's own words, verbatim — the same channel discipline the
         // CLI keeps. A sentence of ours here would be a second, worse
         // description of systemctl's or launchd's failure.
@@ -82,7 +101,11 @@ export const autostartRoute = new Elysia()
         targetId: "service",
         metadataJson: JSON.stringify({ from, to: body.enabled }),
       });
-      return collectDeployment();
+      // Through the SEAM, not `collectDeployment` directly: the fresh
+      // post-write view is this route's headline behaviour — it is why a
+      // caller never re-fetches — and a direct call makes that the one thing
+      // a test cannot assert.
+      return autostartSeams.deployment();
     },
     {
       body: AutostartBodySchema,

@@ -780,9 +780,25 @@ describe("dispatchCli — service verbs", () => {
   });
 
   test("install accepts --no-autostart, and only install does", async () => {
-    const { deps, err } = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+    // ISOLATED: with no `runCmd` injected, `DEFAULT_DEPS` builds the real one
+    // and `configDir` resolves to the DEVELOPER'S `~/.config/subshell-server`
+    // — so on a Linux box with a config.env and a live user session this test
+    // would write a unit file and run `systemctl --user start` for real. The
+    // flag parse happens before any of that; everything else here is stubbed
+    // so the test proves the parse and touches nothing.
+    const calls: string[][] = [];
+    const { deps, err } = collectingDeps({
+      platform: "linux",
+      home: "/home/nobody-here",
+      runCmd: (cmd: string[]) => {
+        calls.push(cmd);
+        return { code: 0, out: "", err: "" };
+      },
+    });
     await dispatchCli(["service", "install", "--no-autostart"], deps);
     expect(err.join("\n")).not.toContain("unexpected argument");
+    // Nothing reached a real machine: every manager command went to the stub.
+    expect(calls.every((c) => c[0] === "systemctl")).toBe(true);
 
     const wrong = collectingDeps();
     expect(await dispatchCli(["service", "restart", "--no-autostart"], wrong.deps)).toBe(true);
