@@ -77,6 +77,113 @@ export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
  */
 export const NODE_CLOSE_SUPERSEDED = 4409;
 
+/**
+ * `result.error` from a `restart` the agent refused because its service
+ * manager did not start it (exiting would not be a restart).
+ */
+export const NODE_RESULT_NOT_SUPERVISED = "not supervised";
+
+/**
+ * `result.error` from a `restart` the agent refused because the installed
+ * definition would take live panes down (send `force: true`).
+ */
+export const NODE_RESULT_KILLS_PANES = "kills panes";
+
+/* ------------------------------------------------------------------ */
+/* how an agent process runs                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How an agent process is running, reported once per connect in `ready`
+ * (spec 2026-09-12 § 6.1). Facts about a PROCESS, so the plane keeps them on
+ * the live connection and never in the nodes table — when the node is
+ * offline they are stale by definition.
+ */
+export interface NodeRuntimeReport {
+  /** ISO 8601 start time of this agent process. */
+  startedAt: string;
+  /** `service.state === "running" && service.pid === process.pid`: exiting is a restart. */
+  supervised: boolean;
+  /** The service manager's view of the unit, as `subshell service status --json` reports it. */
+  service: {
+    /** The platform's service manager, or null where there is none. */
+    manager: "launchd" | "systemd" | null;
+    /** Whether a service definition for the agent is installed. */
+    installed: boolean;
+    /** Absolute path of the unit/plist, or null when none is installed. */
+    definitionPath: string | null;
+    /** The manager's own word for the unit's state ("running", "stopped", …). */
+    state: string;
+    /** The pid the manager believes it started, or null. */
+    pid: number | null;
+    /** Whether the definition starts at login, or null when unknown. */
+    enabled: boolean | null;
+    /** Whether restarting through the definition keeps live panes alive. */
+    paneSafety: "keeps" | "kills" | "unknown";
+  };
+  /** `~/.config/subshell/config.json`, resolved. */
+  configPath: string;
+  /** The launchd log file; null under systemd. */
+  logPath: string | null;
+  /** The journal command when `logPath` is null. */
+  logHint: string | null;
+  /** tmux on the daemon's PATH, or null. */
+  tmuxPath: string | null;
+  /** The agent binary this process re-enters (`selfInvoke.command`). */
+  binaryPath: string;
+}
+
+/**
+ * Shape-check a `NodeRuntimeReport`.
+ * @param value - the candidate, typically `ready.runtime`
+ * @returns the narrowed report, or null when malformed (the `ready` itself is
+ * still accepted without it — the field is additive, so an agent that gets it
+ * wrong loses the card, not the connection).
+ */
+export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null {
+  if (!isRecord(value) || !isRecord(value.service)) return null;
+  const s = value.service;
+  const manager = s.manager === "launchd" || s.manager === "systemd" || s.manager === null ? s.manager : undefined;
+  const paneSafety =
+    s.paneSafety === "keeps" || s.paneSafety === "kills" || s.paneSafety === "unknown" ? s.paneSafety : undefined;
+  if (
+    !isStr(value.startedAt) ||
+    !isBool(value.supervised) ||
+    manager === undefined ||
+    !isBool(s.installed) ||
+    !(s.definitionPath === null || isStr(s.definitionPath)) ||
+    !isStr(s.state) ||
+    !(s.pid === null || isInt(s.pid)) ||
+    !(s.enabled === null || isBool(s.enabled)) ||
+    paneSafety === undefined ||
+    !isStr(value.configPath) ||
+    !(value.logPath === null || isStr(value.logPath)) ||
+    !(value.logHint === null || isStr(value.logHint)) ||
+    !(value.tmuxPath === null || isStr(value.tmuxPath)) ||
+    !isStr(value.binaryPath)
+  ) {
+    return null;
+  }
+  return {
+    startedAt: value.startedAt,
+    supervised: value.supervised,
+    service: {
+      manager,
+      installed: s.installed,
+      definitionPath: s.definitionPath,
+      state: s.state,
+      pid: s.pid,
+      enabled: s.enabled,
+      paneSafety,
+    },
+    configPath: value.configPath,
+    logPath: value.logPath,
+    logHint: value.logHint,
+    tmuxPath: value.tmuxPath,
+    binaryPath: value.binaryPath,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* subshell-id policy                                                    */
 /* ------------------------------------------------------------------ */
@@ -344,7 +451,18 @@ export type NodeCommandBody =
       type: "set_allowed_dirs";
       dirs: string[];
     }
-  | { type: "ping" };
+  | { type: "ping" }
+  | {
+      /**
+       * Exit 0 so the service manager respawns the agent (spec 2026-09-12
+       * § 6.3). Refused when this process is not the one the manager
+       * started, and when the installed definition would take live panes
+       * down unless `force`.
+       */
+      type: "restart";
+      /** Restart even though the definition's `paneSafety` is not `keeps`. */
+      force?: boolean;
+    };
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
 /**
@@ -469,6 +587,12 @@ export type NodeEvent =
        * conversation rather than a failure.
        */
       homeDir?: string;
+      /**
+       * How the agent process runs (spec 2026-09-12 § 6.1). Absent from
+       * agents that predate it, and dropped rather than fatal when
+       * malformed — `parseNodeEvent` keeps the `ready` either way.
+       */
+      runtime?: NodeRuntimeReport;
     }
   | {
       type: "inventory";
@@ -691,6 +815,12 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         : null;
     case "ping":
       return { type: "ping" };
+    case "restart":
+      return !("force" in value)
+        ? { type: "restart" }
+        : isBool(value.force)
+          ? { type: "restart", force: value.force }
+          : null;
     default:
       return null;
   }
@@ -713,19 +843,32 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
   }
   if (!isRecord(value) || !isStr(value.type)) return null;
   switch (value.type) {
-    case "ready":
-      return isStr(value.agentVersion) &&
-        isInt(value.protocolVersion) &&
-        (value.os === "linux" || value.os === "darwin" || value.os === "unknown") &&
-        isStr(value.arch) &&
-        isStr(value.hostname) &&
-        isStr(value.dataDir) &&
-        isStrArray(value.capabilities) &&
-        (!("selfInvoke" in value) ||
-          (isRecord(value.selfInvoke) && isStr(value.selfInvoke.command) && isStrArray(value.selfInvoke.args))) &&
-        (!("homeDir" in value) || isStr(value.homeDir))
-        ? (value as unknown as NodeEvent)
-        : null;
+    case "ready": {
+      if (
+        !(
+          isStr(value.agentVersion) &&
+          isInt(value.protocolVersion) &&
+          (value.os === "linux" || value.os === "darwin" || value.os === "unknown") &&
+          isStr(value.arch) &&
+          isStr(value.hostname) &&
+          isStr(value.dataDir) &&
+          isStrArray(value.capabilities) &&
+          (!("selfInvoke" in value) ||
+            (isRecord(value.selfInvoke) && isStr(value.selfInvoke.command) && isStrArray(value.selfInvoke.args))) &&
+          (!("homeDir" in value) || isStr(value.homeDir))
+        )
+      ) {
+        return null;
+      }
+      // `runtime` is additive: a malformed one is dropped so the connection
+      // still comes up without the card, rather than refused.
+      const { runtime: rawRuntime, ...rest } = value as Record<string, unknown> & { runtime?: unknown };
+      const runtime = rawRuntime === undefined ? null : parseNodeRuntimeReport(rawRuntime);
+      return {
+        ...(rest as unknown as Extract<NodeEvent, { type: "ready" }>),
+        ...(runtime ? { runtime } : {}),
+      };
+    }
     case "inventory": {
       if (!isStr(value.ts) || !Array.isArray(value.harnesses)) return null;
       for (const h of value.harnesses) {

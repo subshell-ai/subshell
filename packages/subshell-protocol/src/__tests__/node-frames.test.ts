@@ -2,8 +2,11 @@ import { describe, expect, it } from "bun:test";
 import {
   HARNESS_BINARY_PLACEHOLDER,
   NODE_PROTOCOL_VERSION,
+  NODE_RESULT_KILLS_PANES,
+  NODE_RESULT_NOT_SUPERVISED,
   parseNodeCommandBody,
   parseNodeEvent,
+  parseNodeRuntimeReport,
 } from "../node-frames.js";
 
 const launchCmd = {
@@ -419,5 +422,70 @@ describe("detect command (inversion spec §4)", () => {
     expect(parseNodeCommandBody(noEnvNames)).toBeNull();
     expect(parseNodeCommandBody({ type: "detect", specs: [spec], envNames: "CLAUDE_CONFIG_DIR" })).toBeNull();
     expect(parseNodeCommandBody({ type: "detect", specs: [spec], envNames: ["A", 7] })).toBeNull();
+  });
+});
+
+describe("ready.runtime (additive)", () => {
+  const base = {
+    type: "ready",
+    agentVersion: "0.2.0",
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "h",
+    dataDir: "/d",
+    capabilities: [],
+  };
+  const runtime = {
+    startedAt: "2026-09-12T10:00:00.000Z",
+    supervised: true,
+    service: {
+      manager: "systemd",
+      installed: true,
+      definitionPath: "/u/.config/systemd/user/subshell.service",
+      state: "running",
+      pid: 42,
+      enabled: true,
+      paneSafety: "keeps",
+    },
+    configPath: "/u/.config/subshell/config.json",
+    logPath: null,
+    logHint: "journalctl --user -u subshell.service -f",
+    tmuxPath: "/usr/bin/tmux",
+    binaryPath: "/u/.local/bin/subshell",
+  };
+
+  it("accepts a ready with a well-formed runtime and without one", () => {
+    expect(parseNodeEvent({ ...base, runtime })).toMatchObject({ type: "ready", runtime });
+    expect(parseNodeEvent(base)).toMatchObject({ type: "ready" });
+  });
+
+  it("drops a malformed runtime but keeps the ready", () => {
+    const ev = parseNodeEvent({ ...base, runtime: { startedAt: 5 } });
+    expect(ev?.type).toBe("ready");
+    expect(ev && "runtime" in ev ? ev.runtime : undefined).toBeUndefined();
+  });
+
+  it("parseNodeRuntimeReport refuses a bad manager, paneSafety, or field type", () => {
+    expect(parseNodeRuntimeReport(runtime)).toEqual(runtime as never);
+    expect(parseNodeRuntimeReport({ ...runtime, service: { ...runtime.service, manager: "upstart" } })).toBeNull();
+    expect(parseNodeRuntimeReport({ ...runtime, service: { ...runtime.service, paneSafety: "maybe" } })).toBeNull();
+    expect(parseNodeRuntimeReport({ ...runtime, service: { ...runtime.service, manager: null } })).not.toBeNull();
+    expect(parseNodeRuntimeReport({ ...runtime, binaryPath: 7 })).toBeNull();
+    expect(parseNodeRuntimeReport({ ...runtime, logPath: null, logHint: null })).not.toBeNull();
+    expect(parseNodeRuntimeReport(null)).toBeNull();
+  });
+});
+
+describe("restart command", () => {
+  it("parses with and without force", () => {
+    expect(parseNodeCommandBody({ type: "restart" })).toEqual({ type: "restart" });
+    expect(parseNodeCommandBody({ type: "restart", force: true })).toEqual({ type: "restart", force: true });
+    expect(parseNodeCommandBody({ type: "restart", force: "yes" })).toBeNull();
+  });
+
+  it("names the two refusal strings as constants", () => {
+    expect(NODE_RESULT_NOT_SUPERVISED).toBe("not supervised");
+    expect(NODE_RESULT_KILLS_PANES).toBe("kills panes");
   });
 });

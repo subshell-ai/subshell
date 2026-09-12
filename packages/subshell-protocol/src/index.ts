@@ -46,12 +46,16 @@ export {
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
+  NODE_RESULT_KILLS_PANES,
+  NODE_RESULT_NOT_SUPERVISED,
   type NodeCommandBody,
   type NodeEvent,
+  type NodeRuntimeReport,
   type PluginReportWire,
   type ProfileDefinitionWire,
   parseNodeCommandBody,
   parseNodeEvent,
+  parseNodeRuntimeReport,
 } from "./node-frames.js";
 export {
   DEFAULT_NODE_RELEASE_API,
