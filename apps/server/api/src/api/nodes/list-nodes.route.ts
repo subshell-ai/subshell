@@ -35,8 +35,13 @@ export const listNodesRoute = new Elysia()
       const isAdmin = (await new UserMetaRepository(db).getRole(user.id)) === "admin";
       const shares = await new NodeSharesRepository(db).listForNodes(rows.map((r) => r.id));
       const entries = rows.flatMap((row) => {
-        const access = resolveNodeAccess(user.id, isAdmin, row, shares.get(row.id) ?? []);
-        return access === "none" ? [] : [{ row, access, isAdmin }];
+        const rowShares = shares.get(row.id) ?? [];
+        const access = resolveNodeAccess(user.id, isAdmin, row, rowShares);
+        // The unboosted reading rides along: `canLaunch` reads it for the
+        // control-plane host, where an admin's instance-wide `edit` must not
+        // stand in for a launch grant that was removed.
+        const granted = resolveNodeAccess(user.id, false, row, rowShares);
+        return access === "none" ? [] : [{ row, access, isAdmin, granted }];
       });
       return { nodes: await toNodeViews(entries) };
     },

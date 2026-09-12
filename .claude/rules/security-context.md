@@ -346,11 +346,18 @@ shares and subshell shares are two independent axes:
   shell history and server/access logs — same posture as enrollment links
   everywhere; revoke = delete the key.
 - **Disabling the control-plane host as a launch target** = an admin removing
-  `local`'s seeded Everyone/`edit` share row (the Settings toggle does exactly
-  this). The disable **survives restarts** — boot seeding creates that row only
-  when the `local` node row itself is created, never to "repair" a deliberate
-  removal. The row then vanishes from non-admin views like any invisible node —
-  no separate flag exists to drift out of sync with it.
+  `local`'s seeded Everyone/`edit` share row (the toggle on that node's page
+  does exactly this). The disable **survives restarts** — boot seeding creates
+  that row only when the `local` node row itself is created, never to "repair"
+  a deliberate removal. The row then vanishes from non-admin views like any
+  invisible node — no separate flag exists to drift out of sync with it.
+  **It applies to ADMINS too** (2026-09-12): `resolveNodeAccess` ranks every
+  admin at `edit` on every node, so without a rule the one person who can turn
+  the switch off was the one person it never applied to. `nodeCanLaunchOn`
+  reads the GRANTED access for `local` — the boost grants management, never
+  launch — which makes `local` the one node that can be visible and
+  unlaunchable at once. The admin must keep seeing it to switch it back on, so
+  that refusal is a **403**, not the 404 an invisible node answers with.
 - **Agent artifacts are never anonymous.** Prebuilt `subshell` binaries and
   their `.sha256` digests (`GET /api/downloads/node/*`) require a signed-in
   session cookie OR a valid unconsumed setup key; `GET /install.sh` renders a

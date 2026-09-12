@@ -37,7 +37,7 @@ export const getNodeRoute = new Elysia()
       // cached last-known inventory, and the page's next refetch sees the
       // fresh rows. `local` probes live on every read, so it is not asked.
       if (gate.row.kind !== "local") detectOnNodeBestEffort(gate.row.id);
-      const view = await toNodeView(gate.row, gate.access, gate.isAdmin);
+      const view = await toNodeView(gate.row, gate.access, gate.isAdmin, gate.granted);
       if (!nodeCanConfigure(gate.access)) return view;
       // How the agent process runs (spec 2026-09-12 § 6.2), on the same gate
       // as `shares` and for the same reason: a `view` grantee may LAUNCH here,

@@ -9,6 +9,7 @@ import {
   loadNodeAccess,
   nodeCanConfigure,
   nodeCanLaunch,
+  nodeCanLaunchOn,
   nodeCanManage,
   nodeCanManageFor,
   resolveNodeAccess,
@@ -197,5 +198,42 @@ describe("loadNodeAccess", () => {
     expect((await loadNodeAccess(deps, grantee, n.id, opts)).access).toBe("none");
     // …while the owner-match still resolves (a machine key acts on its own owner's rows).
     expect((await loadNodeAccess(deps, owner, n.id, opts)).access).toBe("owner");
+  });
+});
+
+/**
+ * Switching off launching on the control-plane host is the removal of
+ * `local`'s seeded Everyone/`edit` row — and an admin resolves to `edit` on
+ * every node. Without this rule the one person who can turn the switch off is
+ * the one person it never applied to (operator's call, 2026-09-12).
+ */
+describe("nodeCanLaunchOn", () => {
+  it("ignores the admin boost on the control-plane host", () => {
+    // Admin, no grant left: `access` is the boost, `granted` is the truth.
+    expect(nodeCanLaunchOn("local", "edit", "none")).toBe(false);
+    // The same admin on an AGENT node keeps the boost — this rule is `local`'s
+    // alone, and nothing about sharing someone else's machine changed.
+    expect(nodeCanLaunchOn("agent", "edit", "none")).toBe(true);
+  });
+
+  it("lets a real grant launch on the host, at any level", () => {
+    for (const granted of ["view", "edit", "owner"] as const) {
+      expect(nodeCanLaunchOn("local", "edit", granted)).toBe(true);
+    }
+  });
+
+  it("refuses a viewer with no access at all, on either kind", () => {
+    expect(nodeCanLaunchOn("local", "none", "none")).toBe(false);
+    expect(nodeCanLaunchOn("agent", "none", "none")).toBe(false);
+  });
+
+  // A non-admin's two readings are the same value, so the rule cannot change
+  // anything for them — which is what makes this safe to apply everywhere.
+  it("changes nothing for a viewer who was never boosted", () => {
+    for (const kind of ["local", "agent"] as const) {
+      for (const a of ["none", "view", "edit", "owner"] as const) {
+        expect(nodeCanLaunchOn(kind, a, a)).toBe(nodeCanLaunch(a));
+      }
+    }
   });
 });

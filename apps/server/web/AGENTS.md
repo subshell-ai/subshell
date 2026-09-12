@@ -67,6 +67,17 @@ mount fires no doomed 403. `/settings/audit` is the same shape
 so the card's query can be unconditional; its `staleTime: 0` is load-bearing,
 since mounting the page is now the only thing that refreshes the trail.
 
+**The launch form asks nothing it cannot answer.** `new-subshell-form.tsx`
+filters its node options on the server's own `canLaunch` (never a re-derived
+rule), hides the Machine field when the sole target is the control-plane host —
+a single AGENT node keeps it, because once a second machine exists the answer
+is news — and replaces itself with `no-launch-targets.tsx` when nothing is
+launchable. That empty state offers both routes out and gates only the one it
+must: adding a node needs a signed-in cookie, so that button is always there,
+while switching the host back on is a manage act and appears only when the
+server says this viewer manages it. Both rules are pure exports
+(`hideMachineField`, `launchableNodes`) tested without opening a dropdown.
+
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 Add-node dialog renders the install one-liner from `GET /api/settings/public →

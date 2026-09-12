@@ -45,6 +45,35 @@ export function resolveNodeAccess(
 }
 
 /**
+ * Whether this viewer may LAUNCH on this node, given both readings of their
+ * access (spec 2026-08-31 §2, amended 2026-09-12).
+ *
+ * For an agent node it is the plain rule: any share grants launch.
+ *
+ * **For `local` it is the GRANTED access alone, with the admin boost ignored.**
+ * Switching off launching on the control-plane host is the removal of that
+ * node's seeded Everyone/`edit` row, and an admin resolves to `edit` on every
+ * node — so without this the one person who can turn the switch off is the one
+ * person it never applied to, and the setting quietly means something
+ * different for whoever sets it. `local` is owned by the SYSTEM user, so no
+ * human is its owner and every human's launch access to it is a grant or
+ * nothing.
+ *
+ * This deliberately creates a VISIBLE-BUT-UNLAUNCHABLE node, which no other
+ * node has: an admin must keep seeing `local` to switch it back on. Callers
+ * must therefore refuse it as a 403 rather than the 404 an invisible node
+ * gets — a node the viewer can see on the Nodes page must not answer "not
+ * found" here.
+ *
+ * @param kind - the node's kind; only `local` reads `granted`
+ * @param access - the viewer's resolved access, admin boost included
+ * @param granted - the same resolution with `isAdmin` false
+ */
+export function nodeCanLaunchOn(kind: NodeKind, access: NodeAccess, granted: NodeAccess): boolean {
+  return kind === "local" ? nodeCanLaunch(granted) : nodeCanLaunch(access);
+}
+
+/**
  * TRUE when ANY share level grants launch — deliberately NOT the subshell rule,
  * where launch sits at edit. Product decision (spec 2026-08-31 §2): a `view`
  * grantee may start subshells on a node (launching is not configuring); the
@@ -98,6 +127,10 @@ export interface NodeAccessDeps {
  * access: "none" }` so the caller can map it to the same 404 as an invisible
  * node (never leaking that the id exists).
  *
+ * Answers BOTH readings of the viewer's access: `access` includes the admin
+ * boost, and `granted` is the same resolution without it — which is what
+ * `nodeCanLaunchOn` reads for the control-plane host.
+ *
  * @param opts.allowAdminAndShares - `true` (default) for a human in a browser:
  * admins get effective edit and shared grants count. Pass `false` for a machine
  * bearer token — it may act ONLY on its own owner's nodes, never on foreign or
@@ -109,11 +142,19 @@ export async function loadNodeAccess(
   viewerId: string,
   nodeId: string,
   opts: { allowAdminAndShares?: boolean } = {},
-): Promise<{ row: NodeTable | undefined; access: NodeAccess }> {
+): Promise<{ row: NodeTable | undefined; access: NodeAccess; granted: NodeAccess }> {
   const row = await deps.nodes.findById(nodeId);
-  if (!row) return { row: undefined, access: "none" };
+  if (!row) return { row: undefined, access: "none", granted: "none" };
   const allow = opts.allowAdminAndShares ?? true;
   const isAdmin = allow && (await deps.userMeta.getRole(viewerId)) === "admin";
   const shares = allow ? await deps.shares.listForNode(nodeId) : [];
-  return { row, access: resolveNodeAccess(viewerId, isAdmin, row, shares) };
+  return {
+    row,
+    access: resolveNodeAccess(viewerId, isAdmin, row, shares),
+    // The same resolution WITHOUT the admin boost. `nodeCanLaunchOn` reads it
+    // for `local`, where the boost must not stand in for the launch grant an
+    // admin just removed. Computed here rather than at the call site so the
+    // two readings can never come from two different share sets.
+    granted: resolveNodeAccess(viewerId, false, row, shares),
+  };
 }

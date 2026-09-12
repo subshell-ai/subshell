@@ -4,7 +4,7 @@ import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.r
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { type NodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
+import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
 import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
 import { localPlatform } from "@/services/nodes/seed-local.js";
@@ -112,6 +112,10 @@ export const NodeViewSchema = t.Object({
   canManage: t.Boolean({
     description:
       "Whether the caller manages this node (delete/re-share/rotate): real owner, or an admin on `local`; same rule as the route gate",
+  }),
+  canLaunch: t.Boolean({
+    description:
+      "Whether the caller may start a subshell here. Any share grants it on an agent node; on `local` it is the GRANTED access alone, so switching off launching on the server applies to admins too — which is why this node can be visible and unlaunchable at once",
   }),
   capabilities: t.Array(t.String({ description: "Capability string" }), {
     description: "Capability strings from `ready` (empty when none reported)",
@@ -233,7 +237,13 @@ function parseCapabilities(json: string | null): string[] {
  * `local`'s os/arch fall back to this process (see the inline note) — the only
  * row where the view is permitted to know more than the table.
  */
-function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean, allowedDirs: string[]) {
+function nodeViewBase(
+  row: NodeTable,
+  access: NodeViewableAccess,
+  isAdmin: boolean,
+  allowedDirs: string[],
+  granted: NodeAccess,
+) {
   return {
     // Empty = unrestricted (see the schema note). Passed in rather than read
     // here so the list path can batch one query for every row.
@@ -257,6 +267,9 @@ function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boole
     // The SAME rule the route gate applies — shared helper, so view and gate
     // can never drift (T14 review carry: the frontend cannot derive admin identity).
     canManage: nodeCanManageFor(row.kind, access, isAdmin),
+    // The SAME helper the launch gate calls, for the same reason `canManage`
+    // shares one: the picker must not re-derive a rule the server enforces.
+    canLaunch: nodeCanLaunchOn(row.kind, access, granted),
     capabilities: parseCapabilities(row.capabilities),
   };
 }
@@ -266,10 +279,15 @@ function nodeViewBase(row: NodeTable, access: NodeViewableAccess, isAdmin: boole
  * @param isAdmin - Whether the viewer holds the admin role (drives the
  *  seeded-`local` exception inside `canManage`)
  */
-export async function toNodeView(row: NodeTable, access: NodeViewableAccess, isAdmin: boolean): Promise<NodeView> {
+export async function toNodeView(
+  row: NodeTable,
+  access: NodeViewableAccess,
+  isAdmin: boolean,
+  granted: NodeAccess,
+): Promise<NodeView> {
   const { harnesses, stale } = await effectiveHarnessStates(row);
   const allowedDirs = await new NodeAllowedDirsRepository(db).listForNode(row.id);
-  return { ...nodeViewBase(row, access, isAdmin, allowedDirs), harnesses, inventoryStale: stale };
+  return { ...nodeViewBase(row, access, isAdmin, allowedDirs, granted), harnesses, inventoryStale: stale };
 }
 
 /**
@@ -279,7 +297,7 @@ export async function toNodeView(row: NodeTable, access: NodeViewableAccess, isA
  * disk pass, not one per row).
  */
 export async function toNodeViews(
-  entries: { row: NodeTable; access: NodeViewableAccess; isAdmin: boolean }[],
+  entries: { row: NodeTable; access: NodeViewableAccess; isAdmin: boolean; granted: NodeAccess }[],
 ): Promise<NodeView[]> {
   let localReport: EffectiveHarnessReport | undefined;
   const out: NodeView[] = [];
@@ -289,18 +307,18 @@ export async function toNodeViews(
   // ONE query for every row's rules, not one per row — the same batching the
   // catalog read above gets, for the same reason.
   const dirsBy = await new NodeAllowedDirsRepository(db).listForNodes(entries.map((e) => e.row.id));
-  for (const { row, access, isAdmin } of entries) {
+  for (const { row, access, isAdmin, granted } of entries) {
     const allowedDirs = dirsBy.get(row.id) ?? [];
     if (row.kind === "local") {
       localReport ??= await effectiveHarnessStates(row, installed);
       out.push({
-        ...nodeViewBase(row, access, isAdmin, allowedDirs),
+        ...nodeViewBase(row, access, isAdmin, allowedDirs, granted),
         harnesses: localReport.harnesses,
         inventoryStale: localReport.stale,
       });
     } else {
       const { harnesses, stale } = await effectiveHarnessStates(row, installed);
-      out.push({ ...nodeViewBase(row, access, isAdmin, allowedDirs), harnesses, inventoryStale: stale });
+      out.push({ ...nodeViewBase(row, access, isAdmin, allowedDirs, granted), harnesses, inventoryStale: stale });
     }
   }
   return out;

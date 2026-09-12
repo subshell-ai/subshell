@@ -6,7 +6,7 @@ import type { ShareEntry } from "@/db/repositories/subshell-shares.repository.js
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
-import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch } from "@/lib/node-access.js";
+import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
@@ -124,11 +124,25 @@ export async function resolveLaunchNode(
 ): Promise<{ nodeId: string }> {
   /** The steps 1/2 gate: existence → launch access → agent liveness. */
   const gate = async (nodeId: string, pinned: boolean): Promise<{ nodeId: string }> => {
-    const { row, access } = await loadNodeAccess(deps, userId, nodeId, { allowAdminAndShares: !machineActor });
+    const { row, access, granted } = await loadNodeAccess(deps, userId, nodeId, {
+      allowAdminAndShares: !machineActor,
+    });
     const why = pinned ? `Profile is pinned to node ${nodeId}, which can't launch right now` : undefined;
-    // any share grants launch (spec §2): access "none" ⇔ invisible ⇒ 404; no visible-but-unlaunchable state exists
+    // Any share grants launch (spec §2): access "none" ⇔ invisible ⇒ 404.
     if (!row || !nodeCanLaunch(access)) {
       throw new SubshellCreateError("node_not_found", why ?? "Node not found", 404);
+    }
+    // The ONE visible-but-unlaunchable node (spec 2026-09-12): launching on
+    // the control-plane host is off, and this viewer only reaches it through
+    // the admin boost. A 403 rather than the 404 above — they can see this
+    // node on the Nodes page, and "not found" about a row on their screen
+    // reads as a bug rather than as a setting.
+    if (!nodeCanLaunchOn(row.kind, access, granted)) {
+      throw new SubshellCreateError(
+        "node_launch_disabled",
+        why ?? "Launching on the server is switched off; turn it back on from the server's node page, or pick a node",
+        403,
+      );
     }
     if (row.kind === "agent" && !getLive(nodeId)) {
       throwApiError({
@@ -146,7 +160,9 @@ export async function resolveLaunchNode(
   // Step 3: the control-plane host, via the same gate (its seeded Everyone/
   // edit share is the launch switch; its absence relocates to step 4).
   const local = await loadNodeAccess(deps, userId, LOCAL_NODE_ID, { allowAdminAndShares: !machineActor });
-  if (local.row && nodeCanLaunch(local.access)) return { nodeId: LOCAL_NODE_ID };
+  if (local.row && nodeCanLaunch(local.access) && nodeCanLaunchOn(local.row.kind, local.access, local.granted)) {
+    return { nodeId: LOCAL_NODE_ID };
+  }
 
   // Step 4: single-online-agent auto-pick over the actor's candidate set.
   const candidates = machineActor ? await deps.nodes.listByOwner(userId) : await deps.nodes.findAccessible(userId);

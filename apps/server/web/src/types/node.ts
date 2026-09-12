@@ -79,6 +79,17 @@ export interface Node {
    */
   canManage: boolean;
   /**
+   * Whether this viewer may start a subshell here — the SERVER's answer, never
+   * re-derived on this side.
+   *
+   * Any share grants it on an agent node. On the control-plane host it is the
+   * granted access alone, so switching launching off there applies to admins
+   * too — which is why that one node can be visible and unlaunchable at once
+   * (spec 2026-09-12). Optional so a build talking to an older server, which
+   * omits it, reads as launchable exactly as it did before.
+   */
+  canLaunch?: boolean;
+  /**
    * Directories subshells may be created under on this node.
    *
    * **EMPTY MEANS UNRESTRICTED**, never "nothing permitted" — the

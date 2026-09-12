@@ -5,7 +5,7 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { nodeCanManageFor, resolveNodeAccess } from "@/lib/node-access.js";
+import { type NodeAccess, nodeCanManageFor, resolveNodeAccess } from "@/lib/node-access.js";
 
 /**
  * Per-request authorization snapshot for one node — the shared front door of
@@ -19,6 +19,15 @@ export interface NodeGate {
   row: NodeTable;
   /** Viewer-relative access (never "none" — that resolves to `undefined`). */
   access: NodeViewableAccess;
+  /**
+   * The same resolution WITHOUT the admin boost.
+   *
+   * `nodeCanLaunchOn` reads it for `local`, where an admin's instance-wide
+   * `edit` must not stand in for the launch grant they just removed. Resolved
+   * from the SAME share set as `access`, so the two readings cannot come from
+   * two different queries.
+   */
+  granted: NodeAccess;
   /** Whether the viewer holds the admin role. */
   isAdmin: boolean;
   /** The node's grant rows, loaded once for the whole request. */
@@ -48,6 +57,7 @@ export async function loadNodeGate(viewerId: string, nodeId: string): Promise<No
   return {
     row,
     access,
+    granted: resolveNodeAccess(viewerId, false, row, shares),
     isAdmin,
     shares,
     canManage: nodeCanManageFor(row.kind, access, isAdmin),

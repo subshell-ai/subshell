@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
+import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
 import { SearchableSelect } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { WorkingDirField } from "@/components/working-dir-field";
@@ -47,7 +48,41 @@ export function canSubmit(value: NewSubshellFormValue): boolean {
  * `buildNodeOptions`. Mirrored in mobile `src/lib/node-anchor.ts`.
  */
 function isSelectable(n: Node): boolean {
-  return !isOfflineAgent(n);
+  // `canLaunch` is the SERVER's answer to "may this viewer start a subshell
+  // here", and the one node that can be visible without it is the
+  // control-plane host with launching switched off (spec 2026-09-12). Read as
+  // `!== false` so a build talking to an older server, which omits the field,
+  // behaves exactly as it did before.
+  return !isOfflineAgent(n) && n.canLaunch !== false;
+}
+
+/**
+ * The machines this viewer can actually launch on.
+ *
+ * Unlaunchable rows are FILTERED rather than greyed: a greyed row is a choice
+ * with a reason, and "the host you cannot use" is not a choice at all — the
+ * empty state below says what to do about it, once, instead of every row
+ * saying it.
+ */
+export function launchableNodes(nodes: Node[]): Node[] {
+  return nodes.filter((n) => n.canLaunch !== false);
+}
+
+/**
+ * Whether to hide the machine field entirely.
+ *
+ * Only when the SOLE target is the control-plane host — a fresh install, where
+ * the row reads "Server · darwin/arm64" and the question it answers has not
+ * occurred to anyone yet (operator's call, 2026-09-12). A single AGENT node
+ * keeps the field: once a second machine exists at all, where a subshell runs
+ * is worth stating.
+ *
+ * Pure, like `pickNodeDefault`, so the matrix is testable without opening a
+ * dropdown.
+ */
+export function hideMachineField(nodes: Node[]): boolean {
+  const targets = launchableNodes(nodes);
+  return targets.length === 1 && targets[0]?.kind === "local";
 }
 
 /**
@@ -281,7 +316,8 @@ export function NewSubshellForm({
     // re-run the effect that waits on it.
   }, [recent, nodes, nodesPending, profiles, suggestion, value, onChange]);
 
-  const nodeOptions = buildNodeOptions(nodes ?? [], selectedProfile ?? null, suggestion?.id ?? null);
+  const targets = launchableNodes(nodes ?? []);
+  const nodeOptions = buildNodeOptions(targets, selectedProfile ?? null, suggestion?.id ?? null);
   // An unmade pick ("" ) never matches a row id, so selectedNode is already
   // null there — nothing extra to guard.
   const profileOptions = buildProfileOptions(profiles ?? [], selectedNode);
@@ -302,21 +338,34 @@ export function NewSubshellForm({
     profileOptions.every((o) => o.disabled);
   const noNodeHere = nodes !== null && selectedProfile !== undefined && nodeOptions.every((o) => o.disabled);
 
+  // Nowhere to launch: the form has no question to ask, so it asks none and
+  // says what to do instead. The caller's submit is already dead — `canSubmit`
+  // needs a node id and `pickNodeDefault` leaves it empty when nothing is
+  // selectable — so no caller has to learn about this state.
+  if (nodes !== null && targets.length === 0) {
+    return <NoLaunchTargets local={(nodes ?? []).find((n) => n.kind === "local") ?? null} />;
+  }
+
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor={ids.node}>{copy.node.label}</Label>
-        {copy.node.hint && <p className="text-muted-foreground text-xs">{copy.node.hint}</p>}
-        <SearchableSelect
-          id={ids.node}
-          value={value.nodeId}
-          placeholder="Choose a node"
-          options={nodeOptions}
-          // A pick through this control is the user's own — it outranks the
-          // profile pin's suggestion until the next profile change.
-          onValueChange={(nodeId) => nodeId !== "" && onChange({ ...value, nodeId, nodeExplicit: true })}
-        />
-      </div>
+      {/* Hidden when the host is the only place it could run: a picker with
+          one option is a control that cannot be used, and on a fresh install
+          it is also the first jargon this product says to anyone. */}
+      {!hideMachineField(nodes ?? []) && (
+        <div className="space-y-2">
+          <Label htmlFor={ids.node}>{copy.node.label}</Label>
+          {copy.node.hint && <p className="text-muted-foreground text-xs">{copy.node.hint}</p>}
+          <SearchableSelect
+            id={ids.node}
+            value={value.nodeId}
+            placeholder="Choose a node"
+            options={nodeOptions}
+            // A pick through this control is the user's own — it outranks the
+            // profile pin's suggestion until the next profile change.
+            onValueChange={(nodeId) => nodeId !== "" && onChange({ ...value, nodeId, nodeExplicit: true })}
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor={ids.profile}>{copy.profile.label}</Label>

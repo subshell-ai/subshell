@@ -71,8 +71,10 @@ export function LocalLaunchCard({ nodeId }: { nodeId: string }) {
         <CardTitle>Launch on the server</CardTitle>
         <CardDescription>
           Allow launching subshells on this control-plane host. Turning it off makes the host unselectable in the
-          new-subshell node picker. Subshells cannot start anywhere until another node is shared for launching. This
-          only removes or reinstalls the Everyone grants; custom per-user shares on it are kept.
+          new-subshell picker <strong>for everyone, including admins</strong> — you will not be able to launch here
+          yourself until you turn it back on from this page. Subshells cannot start anywhere until another node is
+          shared for launching. This only removes or reinstalls the Everyone grants; custom per-user shares on it are
+          kept.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

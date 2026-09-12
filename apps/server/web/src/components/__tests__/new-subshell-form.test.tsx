@@ -13,6 +13,8 @@ import {
   canSubmit,
   emptyNewSubshellForm,
   fieldCopy,
+  hideMachineField,
+  launchableNodes,
   NewSubshellForm,
   type NewSubshellFormValue,
   pickNodeDefault,
@@ -498,7 +500,9 @@ describe("NewSubshellForm copy", () => {
   });
 
   it("renders the first-run labels and hints when asked", async () => {
-    const restore = mockFetch([LOCAL], [profile({})]);
+    // A second machine, so the Machine field is on screen to be labelled at
+    // all: with the host alone it is hidden (see the hide rule's own tests).
+    const restore = mockFetch([LOCAL, AGENT_ONLINE], [profile({})]);
     try {
       await renderForm(emptyNewSubshellForm(), false, true);
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
@@ -508,6 +512,85 @@ describe("NewSubshellForm copy", () => {
       expect(labels).not.toContain("Profile");
       expect(screen.getByText(fieldCopy(true).node.hint as string)).toBeDefined();
       expect(screen.getByText(fieldCopy(true).profile.hint as string)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
+/**
+ * The machine field is a question, and a question with one possible answer is
+ * not one. Only the HOST counts as that case (operator's call, 2026-09-12):
+ * once a second machine exists at all, where a subshell runs is worth stating
+ * even if only one of them can take it today.
+ */
+describe("hideMachineField", () => {
+  it("hides the field when the host is the only place it could run", () => {
+    expect(hideMachineField([LOCAL])).toBe(true);
+  });
+
+  it("keeps it for a lone AGENT — a second machine exists, so the answer is news", () => {
+    expect(hideMachineField([AGENT_ONLINE])).toBe(false);
+  });
+
+  it("keeps it whenever there is a choice", () => {
+    expect(hideMachineField([LOCAL, AGENT_ONLINE])).toBe(false);
+    expect(hideMachineField([AGENT_ONLINE, AGENT_OFFLINE])).toBe(false);
+  });
+
+  // Nothing to hide, and nothing to ask: the empty state renders instead.
+  it("does not claim to hide anything when there is nowhere to launch", () => {
+    expect(hideMachineField([])).toBe(false);
+    expect(hideMachineField([node({ id: "local", kind: "local", canLaunch: false })])).toBe(false);
+  });
+
+  // The host with launching switched off is not a target, so a single agent
+  // beside it is the sole one — and that one keeps the field.
+  it("reads canLaunch, not merely the row count", () => {
+    const off = node({ id: "local", kind: "local", canLaunch: false });
+    expect(hideMachineField([off, AGENT_ONLINE])).toBe(false);
+    expect(hideMachineField([off, node({ id: "local2", kind: "local" })])).toBe(true);
+  });
+});
+
+describe("launchableNodes", () => {
+  it("drops what the server says this viewer cannot launch on", () => {
+    const off = node({ id: "local", kind: "local", canLaunch: false });
+    expect(launchableNodes([off, AGENT_ONLINE]).map((n) => n.id)).toEqual(["a1"]);
+  });
+
+  // An older server omits the field entirely. It must read as launchable, or
+  // a cached page would show "nowhere to launch" against a healthy instance.
+  it("treats an absent answer as launchable", () => {
+    expect(launchableNodes([LOCAL, AGENT_ONLINE]).length).toBe(2);
+  });
+});
+
+describe("nowhere to launch", () => {
+  it("replaces the form with the two ways out, and offers the host switch to whoever manages it", async () => {
+    const off = node({ id: "local", name: "Server", kind: "local", canManage: true, canLaunch: false });
+    const restore = mockFetch([off], [profile({})]);
+    try {
+      await renderForm();
+      await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());
+      expect(screen.getByRole("button", { name: "Enable on Server" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Add a node" })).toBeDefined();
+      // The form itself is gone — there is no question left to ask.
+      expect(screen.queryByLabelText("Working directory")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("offers a non-manager only the route they can take, and names who can take the other", async () => {
+    const off = node({ id: "local", name: "Server", kind: "local", canManage: false, canLaunch: false });
+    const restore = mockFetch([off], [profile({})]);
+    try {
+      await renderForm();
+      await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());
+      expect(screen.queryByRole("button", { name: /^Enable on/ })).toBeNull();
+      expect(screen.getByRole("button", { name: "Add a node" })).toBeDefined();
+      expect(screen.getByText(/An admin can switch Server back on/)).toBeDefined();
     } finally {
       restore();
     }
