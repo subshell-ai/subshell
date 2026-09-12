@@ -79,6 +79,8 @@ describe("resolveSocket memo (spec §6.3)", () => {
       watchers: new Map(),
       tails: new Map(),
       uploads: new Map(),
+      runtime: null,
+      requestRestart: () => {},
     };
 
     expect(await dispatchCommand(ctx, { type: "input", subshellId: S, data: "a" })).toEqual({ ok: true });

@@ -66,6 +66,13 @@ export const HEARTBEAT_MS = 15_000;
  */
 export const INVENTORY_PERIOD_MS = 300_000;
 
+/**
+ * How long a `restart` waits before taking the socket down (spec 2026-09-12
+ * § 6.3). Long enough that the `result { ok: true }` frame has left, short
+ * enough that the plane's waiter sees the node drop promptly.
+ */
+export const RESTART_EXIT_DELAY_MS = 250;
+
 /** Cap for the jti→result idempotence cache (FIFO; defense-in-depth over the jti LRU). */
 const IDEMPOTENCE_CAP = 256;
 
@@ -355,6 +362,29 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
     watchers: new Map(),
     tails: new Map(),
     uploads: new Map(),
+    runtime,
+    requestRestart: () => {
+      // Deferred, because the daemon is the only sender of `result`: the
+      // executor returns `{ ok: true }`, the frame leaves on this turn, and
+      // the exit happens a macrotask later. A restart that never answered
+      // would read as a timeout on the control plane rather than a success.
+      //
+      // The exit path is the signal handler's, verbatim: set `shuttingDown`,
+      // close the socket cleanly, and let the loop's `if (shuttingDown)
+      // stop(0)` do the rest. The service manager (`Restart=always` /
+      // `KeepAlive`) is what brings the process back — which is why
+      // `execRestart` refuses unless it is the manager's own pid.
+      setTimeout(() => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        log("restart requested by the control plane; exiting for the service manager to respawn");
+        try {
+          socket?.close(1000, "restart");
+        } catch {
+          /* already gone — the loop's pre-dial check exits 0 */
+        }
+      }, RESTART_EXIT_DELAY_MS);
+    },
   };
   // Startup sweep for upload temps orphaned by a crash mid-stream (spec §3.4).
   // Never throws by contract — a broken sweep must not cost the node its connection.

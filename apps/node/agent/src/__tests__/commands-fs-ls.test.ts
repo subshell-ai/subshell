@@ -55,6 +55,8 @@ function makeCtx(): CommandContext {
     watchers: new Map(),
     tails: new Map(),
     uploads: new Map(),
+    runtime: null,
+    requestRestart: () => {},
   };
 }
 

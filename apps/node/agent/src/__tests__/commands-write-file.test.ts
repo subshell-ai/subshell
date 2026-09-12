@@ -72,6 +72,8 @@ function setup(
     watchers: new Map(),
     tails: new Map(),
     uploads: new Map(),
+    runtime: null,
+    requestRestart: () => {},
   };
   return { dataDir, work, outside, ctx };
 }

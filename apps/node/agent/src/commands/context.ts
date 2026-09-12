@@ -1,5 +1,5 @@
 import type { TmuxRunner } from "@internal/pane-runtime";
-import type { JsonValue, NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
+import type { JsonValue, NodeCommandBody, NodeEvent, NodeRuntimeReport } from "@internal/subshell-protocol";
 import type { AgentConfig } from "../config.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
 
@@ -112,6 +112,19 @@ export interface CommandContext {
   tails: Map<string, TailHandle>;
   /** In-flight `write_file` streams by resolved final path (filled by write-file.ts; survives reconnects). */
   uploads: Map<string, UploadState>;
+  /**
+   * How this process runs (spec 2026-09-12 § 6.1), collected once at daemon
+   * start; `null` when the report could not be built. `restart` refuses on
+   * null — without the report there is no evidence that exiting would be a
+   * restart rather than a stop.
+   */
+  runtime: NodeRuntimeReport | null;
+  /**
+   * Ask the daemon to exit 0 AFTER the current result frame is sent. The
+   * executor cannot exit itself: the daemon is the only sender of `result`,
+   * and a restart that never answered would read as a timeout on the plane.
+   */
+  requestRestart: () => void;
 }
 
 /**

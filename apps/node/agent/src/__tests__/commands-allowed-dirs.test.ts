@@ -65,6 +65,8 @@ function makeCtx(dataDir: string): CommandContext {
     watchers: new Map(),
     tails: new Map(),
     uploads: new Map(),
+    runtime: null,
+    requestRestart: () => {},
   };
 }
 

@@ -11,6 +11,7 @@ import {
   NODE_PROTOCOL_VERSION,
   type NodeCommandBody,
   type NodeEvent,
+  type NodeRuntimeReport,
   parseNodeEvent,
   signCommand,
 } from "@internal/subshell-protocol";
@@ -147,7 +148,9 @@ afterAll(() => {
 });
 
 async function startDaemon(
-  overrides: Partial<Pick<DaemonDeps, "heartbeatMs" | "inventoryMs" | "rand" | "tmux" | "meta" | "WebSocketImpl">> = {},
+  overrides: Partial<
+    Pick<DaemonDeps, "heartbeatMs" | "inventoryMs" | "rand" | "tmux" | "meta" | "WebSocketImpl" | "runtime">
+  > = {},
 ): Promise<Harness> {
   const [keys, hostileKeys] = await Promise.all([keysReady, hostileKeysReady]);
   const plane = startPlane();
@@ -1136,5 +1139,59 @@ describe("4406 refusal message", () => {
     expect(line).toContain("newer subshell");
     expect(line).not.toContain("undefined");
     expect(updateRequiredMessage("")).toBe(line);
+  });
+});
+
+describe("restart command (spec 2026-09-12 § 6.3)", () => {
+  const supervised: NodeRuntimeReport = {
+    startedAt: "2026-09-12T00:00:00.000Z",
+    supervised: true,
+    service: {
+      manager: "systemd",
+      installed: true,
+      definitionPath: "/u/.config/systemd/user/subshell.service",
+      state: "running",
+      pid: process.pid,
+      enabled: true,
+      paneSafety: "keeps",
+    },
+    configPath: "/c",
+    logPath: null,
+    logHint: "journalctl --user -u subshell.service -f",
+    tmuxPath: "/usr/bin/tmux",
+    binaryPath: "/b",
+  };
+
+  test("carries the runtime report in ready, and the real parseNodeEvent keeps it", async () => {
+    const h = await startDaemon({ runtime: supervised });
+    const ready = await waitForReady(h);
+    expect(ready).toMatchObject({ type: "ready", runtime: supervised });
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  // The ORDER is the contract: the daemon is the only sender of `result`, so
+  // an executor that exited itself would leave the plane waiting out a
+  // timeout instead of seeing a success.
+  test("answers ok FIRST, then exits 0 for the service manager to respawn", async () => {
+    const h = await startDaemon({ runtime: supervised });
+    await waitForReady(h);
+    const jti = await signAndSend(h, { type: "restart" });
+    const res = await waitFor(h, (e) => e.type === "result" && e.ref === jti, "restart result");
+    expect(res).toMatchObject({ ok: true });
+    // The exit follows the frame, and it is a CLEAN 0 — a non-zero exit would
+    // read as a crash in the journal the operator checks after a restart.
+    await Promise.race([h.stopped, sleep(3000)]);
+    expect(h.exits).toEqual([0]);
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  test("an unsupervised agent refuses and keeps running", async () => {
+    const h = await startDaemon({ runtime: { ...supervised, supervised: false } });
+    await waitForReady(h);
+    const jti = await signAndSend(h, { type: "restart" });
+    const res = await waitFor(h, (e) => e.type === "result" && e.ref === jti, "restart refusal");
+    expect(res).toMatchObject({ ok: false, error: "not supervised" });
+    await sleep(400); // past RESTART_EXIT_DELAY_MS: nothing may have exited
+    expect(h.exits).toEqual([]);
   });
 });

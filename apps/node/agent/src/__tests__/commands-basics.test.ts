@@ -103,6 +103,8 @@ function makeCtx(spec: Spec, events: NodeEvent[]): { ctx: CommandContext; tmux: 
     watchers: new Map(),
     tails: new Map(),
     uploads: new Map(),
+    runtime: null,
+    requestRestart: () => {},
   };
   return { ctx, tmux: { calls, raw } };
 }

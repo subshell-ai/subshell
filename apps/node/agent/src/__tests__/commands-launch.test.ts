@@ -172,6 +172,8 @@ function makeCtx(
     watchers: new Map(),
     tails: new Map(),
     uploads: new Map(),
+    runtime: null,
+    requestRestart: () => {},
   };
   return { ctx, calls };
 }
@@ -1103,6 +1105,8 @@ it.skipIf(!HAS_TMUX)(
       watchers: new Map(),
       tails: new Map(),
       uploads: new Map(),
+      runtime: null,
+      requestRestart: () => {},
     };
     try {
       const result = await dispatchCommand(

@@ -18,6 +18,7 @@ import type { CommandContext, CommandResult } from "./context.js";
 import { execFsLs } from "./fs-ls.js";
 import { execLaunch } from "./launch.js";
 import { execPromptDeliver } from "./prompt.js";
+import { execRestart } from "./restart.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execWriteFile } from "./write-file.js";
 
@@ -96,6 +97,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSetAllowedDirs(ctx, cmd);
       case "write_file":
         return await execWriteFile(ctx, cmd);
+      case "restart":
+        return await execRestart(ctx, cmd);
       default:
         return { ok: false, error: "unsupported" };
     }

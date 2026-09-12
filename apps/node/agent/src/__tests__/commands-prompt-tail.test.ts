@@ -152,6 +152,8 @@ function makeCtx(
     watchers: new Map(),
     tails: new Map(),
     uploads: new Map(),
+    runtime: null,
+    requestRestart: () => {},
   };
   live.push(ctx);
   return { ctx, ws };
