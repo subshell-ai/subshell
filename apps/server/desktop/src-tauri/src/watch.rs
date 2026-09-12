@@ -76,7 +76,7 @@ pub fn spawn(app: AppHandle) {
             continue;
         };
         let settings = app.state::<subshell_desktop_core::settings::SettingsState>();
-        let probe = crate::control::probe_now(settings.get().binary_path.as_deref());
+        let probe = crate::control::probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
         let current = window.url().ok().map(|u| u.to_string());
         if let Some(next) = origin_changed(current.as_deref(), &probe) {
             // `open_main`'s existing-window branch navigates and re-raises;

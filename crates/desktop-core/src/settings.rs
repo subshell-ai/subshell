@@ -101,6 +101,36 @@ pub struct Settings {
     /// existed needs — a zoom of `0.0` is what a bare `f64` default would
     /// have handed them.
     pub zoom: f64,
+    /// Who runs the server on this machine (Subshell Server only).
+    ///
+    /// A PREFERENCE, and the disk outranks it: a unit or plist that exists
+    /// puts the machine in [`Supervision::Service`] whatever this says, and
+    /// the probe writes the correction back. Otherwise an operator who
+    /// installed a service from the CLI would have the app quietly believing
+    /// it owned the process, and stopping it on quit.
+    ///
+    /// `apps/client/desktop` never sets it; the two apps share this struct's
+    /// FORMAT and never the file, exactly as `plane_url` does in the other
+    /// direction.
+    pub supervision: Supervision,
+}
+
+/// Who starts and restarts the control-plane server on this machine.
+///
+/// The two answers differ in lifetime rather than in capability: a service
+/// outlives every window and comes back at login (see the CLI's
+/// `service enable`), while the app's own child lives exactly as long as the
+/// app does. Running subshells survive either going away — both stop the
+/// server's main process only, never its process group, because each local
+/// subshell's tmux server is a child of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum Supervision {
+    /// launchd or systemd owns it. The default, and what an absent field means.
+    #[default]
+    Service,
+    /// The desktop app runs it as a child process.
+    App,
 }
 
 /// Hand-written because two fields are not zero values, and both are clamped
@@ -118,6 +148,7 @@ impl Default for Settings {
             plane_url: None,
             onboarded: false,
             zoom: ZOOM_DEFAULT,
+            supervision: Supervision::Service,
         }
     }
 }
@@ -229,6 +260,7 @@ mod tests {
             plane_url: Some("https://subshell.example.com".into()),
             onboarded: true,
             zoom: 1.25,
+            supervision: Supervision::App,
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
@@ -328,5 +360,21 @@ mod tests {
         let back: Settings = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
         assert!(back.onboarded);
         std::fs::remove_dir_all(&dir).ok();
+    }
+    /// An absent `supervision` is Service — the mode every existing install
+    /// is in, so an upgrade must not silently hand the app a server it never
+    /// spawned and would stop on quit.
+    #[test]
+    fn supervision_defaults_to_service_and_round_trips() {
+        let old: Settings = serde_json::from_str(r#"{"closeToTray":true,"zoom":1.0}"#).unwrap();
+        assert_eq!(old.supervision, Supervision::Service);
+        let app: Settings = serde_json::from_str(r#"{"supervision":"app"}"#).unwrap();
+        assert_eq!(app.supervision, Supervision::App);
+        // kebab-case on the wire, because the file is one a person may read.
+        let json = serde_json::to_string(&app).unwrap();
+        assert!(json.contains("\"supervision\":\"app\""), "{json}");
+        // An unknown value is a parse failure for the WHOLE file, which the
+        // loader answers with defaults — the safe direction.
+        assert!(serde_json::from_str::<Settings>(r#"{"supervision":"nonsense"}"#).is_err());
     }
 }

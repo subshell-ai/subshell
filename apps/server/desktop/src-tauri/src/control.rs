@@ -21,11 +21,12 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::legal;
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
-use subshell_desktop_core::settings::SettingsState;
+use subshell_desktop_core::settings::{SettingsState, Supervision};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 
 use crate::server_bin::{self, decide_server, parse_server_version, ServerBinary, ServerChoice, SERVER_SIDECAR};
+use crate::supervisor;
 
 /// The single next action the console should offer.
 ///
@@ -101,6 +102,30 @@ pub struct Probe {
     /// typed, and compares against — one memoized read, so displayed and
     /// checked values cannot drift (spec § 7.1, R15).
     pub hostname: String,
+    /// Who runs the server here, AFTER the disk-wins correction.
+    ///
+    /// Never the stored preference alone: see [`effective_supervision`]. The
+    /// page branches on this rather than asking for the setting, so the two
+    /// cannot disagree about a machine whose service was installed from a
+    /// terminal.
+    pub supervision: Supervision,
+    /// The app's own child, when it is the one running the server.
+    ///
+    /// `None` in service mode and before the app has spawned anything, which
+    /// are different facts with the same rendering — the step says which.
+    pub supervisor: Option<SupervisorReport>,
+}
+
+/// What the app's own supervisor is doing, for the assistant to render.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisorReport {
+    /// The live child's pid, `None` between a crash and the respawn.
+    pub pid: Option<u32>,
+    /// One sentence about the last exit, `None` when nothing has exited yet.
+    pub last_exit: Option<String>,
+    /// Where this child's console output is being collected.
+    pub console_log: String,
 }
 
 impl Default for Probe {
@@ -119,6 +144,8 @@ impl Default for Probe {
             has_brew: false,
             onboarded: false,
             hostname: String::new(),
+            supervision: Supervision::Service,
+            supervisor: None,
         }
     }
 }
@@ -164,6 +191,18 @@ impl Probe {
         } else if field(&self.status, "configEnv").and_then(|c| c.get("exists")) != Some(&serde_json::Value::Bool(true))
         {
             ProbeStep::Init
+        } else if self.supervision == Supervision::App {
+            // The app runs the server here, so there is no service to install
+            // and no manager to ask: the port is the whole question. Without
+            // this branch `!installed` below would send an app-mode machine to
+            // InstallService forever — the assistant would nag to install the
+            // very thing the operator declined, `mark_onboarded` would never
+            // fire, and boot would never open the dashboard.
+            if self.listening() {
+                ProbeStep::Ready
+            } else {
+                ProbeStep::Start
+            }
         } else if self.service.is_none() {
             ProbeStep::Unreachable
         } else if !is_true(&self.service, "installed") {
@@ -271,15 +310,47 @@ pub(crate) fn bundled_version() -> Option<String> {
 /// ([`mark_onboarded`]) with this command and [`boot_probe`] as its callers,
 /// and `probe_now` itself untouched and still pure.
 #[tauri::command(async)]
-pub fn desktop_probe(settings: State<'_, SettingsState>) -> Probe {
-    let mut p = probe_now(settings.get().binary_path.as_deref());
+pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Probe {
+    let mut p = probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
     p.hostname = machine_hostname();
     p.onboarded = settings.get().onboarded;
     if p.next == ProbeStep::Ready && !p.onboarded {
         mark_onboarded(p.next, &settings);
         p.onboarded = true;
     }
+    attach_supervisor(&app, &mut p);
+    // The disk may have corrected the preference (a service installed from a
+    // terminal); write that back so one probe settles it rather than every
+    // probe re-deciding it. Same single-writer shape as `mark_onboarded`.
+    if p.supervision != settings.get().supervision {
+        let corrected = p.supervision;
+        let _ = settings.update(|s| s.supervision = corrected);
+    }
     p
+}
+
+/// Attach what the app's own supervisor is doing, in app mode only.
+///
+/// In service mode there is nothing to report and `None` says so. The last
+/// exit is turned into a sentence HERE rather than on the page, so the
+/// recovery screen renders a fact the Rust side owns — and a crash loop reads
+/// as a crash loop instead of a bare "Stopped".
+pub(crate) fn attach_supervisor(app: &AppHandle, p: &mut Probe) {
+    if p.supervision != Supervision::App {
+        return;
+    }
+    let snap = app.state::<supervisor::Supervisor>().snapshot();
+    let last_exit = supervisor::last_exit_sentence(snap.last_exit, std::time::SystemTime::now());
+    if p.error.is_none() && p.next != ProbeStep::Ready {
+        // Only while it is NOT up: a server that crashed an hour ago and has
+        // been running since is not a problem to report.
+        p.error = last_exit.clone();
+    }
+    p.supervisor = Some(SupervisorReport {
+        pid: snap.pid,
+        last_exit,
+        console_log: console_log_path().display().to_string(),
+    });
 }
 
 /// The machine's hostname, read once per process. `libc::gethostname` was
@@ -313,11 +384,32 @@ pub fn mark_onboarded(next: ProbeStep, settings: &SettingsState) {
     let _ = settings.update(|s| s.onboarded = true);
 }
 
+/// How long boot waits for an app-run server to bind before choosing a window.
+///
+/// `spawn` returns when the process exists; the window choice needs the PORT.
+/// Five seconds covers an ordinary cold start, and a server slower than that
+/// lands on the recovery screen rather than being waited for indefinitely —
+/// where Start is idempotent and the last exit is on screen.
+const BOOT_START_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Poll the machine until the app-run server answers, or the grace expires.
+pub fn wait_for_boot(app: &AppHandle, settings: &SettingsState) -> Probe {
+    let deadline = std::time::Instant::now() + BOOT_START_GRACE;
+    loop {
+        let mut p = boot_probe(settings);
+        attach_supervisor(app, &mut p);
+        if p.next == ProbeStep::Ready || std::time::Instant::now() >= deadline {
+            return p;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
 /// Boot's probe: look at the machine, mark what it proves, return the answer
 /// the window choice is made from. The write-in-read is deliberate — it is
 /// what lets a CLI-provisioned machine skip the wizard (spec § 4).
 pub fn boot_probe(settings: &SettingsState) -> Probe {
-    let mut p = probe_now(settings.get().binary_path.as_deref());
+    let mut p = probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
     p.hostname = machine_hostname();
     p.onboarded = settings.get().onboarded;
     mark_onboarded(p.next, settings);
@@ -352,7 +444,7 @@ pub fn boot_window(p: &Probe) -> WindowChoice {
 /// can disagree about which window this machine gets (spec § 5.5).
 pub fn open_home(app: &AppHandle) -> Result<(), String> {
     let settings = app.state::<SettingsState>();
-    let p = probe_now(settings.get().binary_path.as_deref());
+    let p = probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
     if p.next == ProbeStep::Ready {
         // Idempotent by construction (`mark_onboarded` returns early on a
         // flag already set), so this is the same single-writer rule the boot
@@ -370,7 +462,7 @@ pub fn open_home(app: &AppHandle) -> Result<(), String> {
 /// `pub(crate)` for `reset::arm_and_raise`, which re-reads at press time so
 /// the stashed delete plan is a fresh fact and not a page's cached value
 /// (spec R18).
-pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
+pub(crate) fn probe_now(configured: Option<&str>, stored: Supervision) -> Probe {
     let server = server_bin::resolve(configured);
     let managed = match (&server, sidecar::install_path(&SERVER_SIDECAR)) {
         (Some(s), Some(managed_path)) => s.argv.first().map(|p| p.as_str()) == managed_path.to_str(),
@@ -400,8 +492,36 @@ pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
             p.error = Some(format!("`service status --json` failed: {}", out.detail()));
         }
     }
+    // The DISK decides, not the stored preference — see `effective_supervision`.
+    p.supervision = effective_supervision(stored, service_installed(&p.service));
     p.decide();
     p
+}
+
+/// Who is really running the server here.
+///
+/// **A definition on disk outranks the stored preference**, and that is the
+/// whole rule. Someone can install a service from a terminal on a machine
+/// this app last set to app mode; if the preference won, the app would
+/// believe it owned a process it never spawned — and would stop it on quit,
+/// taking down a server the operator had just arranged to be permanent.
+///
+/// The reverse needs no rule: with nothing installed, the preference is the
+/// only fact there is.
+///
+/// `installed` is `None` when the service manager would not answer, which is
+/// not evidence of absence — the preference stands there rather than flipping
+/// a machine's mode on a `launchctl` hiccup.
+pub fn effective_supervision(stored: Supervision, installed: Option<bool>) -> Supervision {
+    match installed {
+        Some(true) => Supervision::Service,
+        _ => stored,
+    }
+}
+
+/// `service status --json`'s `installed`, or `None` when it did not answer.
+fn service_installed(service: &Option<serde_json::Value>) -> Option<bool> {
+    field(service, "installed")?.as_bool()
 }
 
 /// Set while a native action (setup, a service verb, an install, a reset) is
@@ -485,7 +605,7 @@ pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<Acti
 fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
-    let probe = probe_now(configured.as_deref());
+    let probe = probe_now(configured.as_deref(), settings.get().supervision);
     // Only tear down a service we are actually replacing. Stopping one that
     // points somewhere else would be an outage for no upgrade.
     let stop_target = probe
@@ -773,11 +893,139 @@ impl ServiceCommand {
     }
 }
 
-/// One `service` verb, straight through. The server decides whether to refuse.
+/// One `service` verb. In service mode the CLI decides; in app mode this app
+/// IS the manager, so the same three control verbs drive its own child.
 #[tauri::command(async)]
-pub fn desktop_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
+pub fn desktop_service(app: AppHandle, verb: ServiceCommand, force: bool) -> ActionResult {
     let _guard = ActionGuard::new();
+    let settings = app.state::<SettingsState>();
+    if effective_supervision(settings.get().supervision, installed_now(&settings)) == Supervision::App {
+        return supervise_now(&app, verb);
+    }
     service_now(&settings, verb, force)
+}
+
+/// The app-mode answer to a control verb.
+///
+/// `force` has no meaning here and is deliberately ignored rather than
+/// refused: it means "act even though live panes will die", and this
+/// supervisor signals the main pid only, so no verb of its own can kill one.
+///
+/// `install` and `uninstall` are not control verbs at all in this mode —
+/// there is no definition to write or remove — so they say so rather than
+/// silently succeeding. Switching modes is `desktop_set_supervision`.
+fn supervise_now(app: &AppHandle, verb: ServiceCommand) -> ActionResult {
+    let sup = app.state::<supervisor::Supervisor>();
+    let spawner = match server_spawner(app) {
+        Ok(s) => s,
+        Err(err) => {
+            return ActionResult {
+                ok: false,
+                stdout: String::new(),
+                stderr: err,
+            }
+        }
+    };
+    let done = |line: &str| ActionResult {
+        ok: true,
+        stdout: format!("{line}\n"),
+        stderr: String::new(),
+    };
+    match verb {
+        ServiceCommand::Start => {
+            sup.start(spawner);
+            done("subshell-server started.")
+        }
+        ServiceCommand::Stop => {
+            sup.stop(spawner.as_ref());
+            done("subshell-server stopped.")
+        }
+        ServiceCommand::Restart => {
+            sup.restart(spawner.as_ref());
+            done("subshell-server restarted.")
+        }
+        ServiceCommand::Install | ServiceCommand::Uninstall => ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "this server runs with the app; there is no service to install or remove".into(),
+        },
+    }
+}
+
+/// Whether a service definition exists on this machine right now.
+///
+/// `false` when the manager would not answer: the reset's stop needs a
+/// decision rather than a maybe, and stopping a supervisor that is not
+/// running is a no-op while failing to stop one that is would wipe data out
+/// from under a live process.
+pub(crate) fn service_installed_json(settings: &SettingsState) -> bool {
+    installed_now(settings) == Some(true)
+}
+
+/// `service status --json`'s `installed` for the machine right now.
+fn installed_now(settings: &SettingsState) -> Option<bool> {
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
+    let cmd = server_cmd(&server, &["service", "status", "--json"])?;
+    service_installed(&json_of(&run(&cmd, QUERY_TIMEOUT)))
+}
+
+/// Build the spawner that runs this machine's server as our child.
+///
+/// The config dir comes from the server's OWN `status --json` when it answers
+/// — the same rule the unit and plist follow with `WorkingDirectory` — and
+/// falls back to the documented default only when it does not, because a
+/// server that cannot be asked is one whose config home we can only guess at.
+pub(crate) fn server_spawner(app: &AppHandle) -> Result<std::sync::Arc<dyn supervisor::Spawner>, String> {
+    let settings = app.state::<SettingsState>();
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
+    let Some(argv) = server.as_ref().map(|s| s.argv.clone()) else {
+        return Err("no subshell-server found".into());
+    };
+    let probe_status = server_cmd(&server, &["status", "--json"]).map(|cmd| json_of(&run(&cmd, QUERY_TIMEOUT)));
+    let cwd = probe_status
+        .flatten()
+        .as_ref()
+        .and_then(|st| {
+            field(&Some(st.clone()), "configEnv")?
+                .get("path")?
+                .as_str()
+                .map(String::from)
+        })
+        .and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(default_config_dir);
+    Ok(std::sync::Arc::new(supervisor::ServerSpawner {
+        argv,
+        cwd,
+        console_log: console_log_path(),
+        own_pid: std::process::id(),
+    }))
+}
+
+/// `~/.config/subshell-server`, the CLI's own default config home.
+fn default_config_dir() -> std::path::PathBuf {
+    let home = subshell_desktop_core::shell_env::home_dir().unwrap_or_default();
+    std::path::Path::new(&home).join(".config").join("subshell-server")
+}
+
+/// Where an app-run server's console output is collected.
+///
+/// macOS deliberately reuses the file the plist names, so `desktop_logs`'
+/// existing fallback finds it with no new rung and a person who switched
+/// modes keeps reading the same path. Linux has no equivalent — the unit logs
+/// to the journal, which an app-run server has no part in — so it takes the
+/// XDG state directory, which is where a user-level program's non-essential
+/// records belong.
+pub(crate) fn console_log_path() -> std::path::PathBuf {
+    let home = subshell_desktop_core::shell_env::home_dir().unwrap_or_default();
+    let home = std::path::Path::new(&home);
+    if cfg!(target_os = "macos") {
+        return home.join("Library").join("Logs").join("subshell-server.log");
+    }
+    std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".local").join("state"))
+        .join("subshell-server")
+        .join("console.log")
 }
 
 /// `desktop_service`'s body, reachable without a command context.
@@ -882,7 +1130,7 @@ pub struct LogTail {
 /// the user to ignore the pane.
 #[tauri::command(async)]
 pub fn desktop_logs(settings: State<'_, SettingsState>) -> LogTail {
-    let probe = probe_now(settings.get().binary_path.as_deref());
+    let probe = probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
     if let Some(tail) = server_log_tail(&probe) {
         return tail;
     }
@@ -1050,7 +1298,7 @@ pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> 
 /// origin would open a window pointed at a server that is no longer there.
 pub fn open_main_now(app: &AppHandle) -> Result<(), String> {
     let configured = app.state::<SettingsState>();
-    let probe = probe_now(configured.get().binary_path.as_deref());
+    let probe = probe_now(configured.get().binary_path.as_deref(), configured.get().supervision);
     let origin = probe
         .origin()
         .ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
@@ -1145,7 +1393,7 @@ pub fn resolve_open_target(target: OpenTarget, probe: &Probe) -> Result<String, 
 /// Reveal one of a fixed set of the server's own files or directories.
 #[tauri::command(async)]
 pub fn desktop_open_path(app: AppHandle, settings: State<'_, SettingsState>, target: OpenTarget) -> Result<(), String> {
-    let probe = probe_now(settings.get().binary_path.as_deref());
+    let probe = probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
     let path = resolve_open_target(target, &probe)?;
     if !std::path::Path::new(&path).exists() {
         return Err(format!("{path} does not exist yet"));
@@ -1333,6 +1581,15 @@ mod tests {
             service,
             ..Default::default()
         };
+        p.decide();
+        p
+    }
+
+    /// A probe in app mode, which is `probe_with` plus the one field that
+    /// changes which branch `decide()` takes.
+    fn app_mode_probe(status: Option<serde_json::Value>, service: Option<serde_json::Value>) -> Probe {
+        let mut p = probe_with(status, service, true);
+        p.supervision = Supervision::App;
         p.decide();
         p
     }
@@ -1927,5 +2184,89 @@ mod tests {
             assert_eq!(got, want, "{raw}");
         }
         assert!(serde_json::from_str::<OpenTarget>(&json!("home").to_string()).is_err());
+    }
+
+    /// **The disk outranks the preference**, and only in that direction.
+    ///
+    /// Someone can install a service from a terminal on a machine this app
+    /// last set to app mode. If the stored preference won, the app would
+    /// believe it owned a process it never spawned — and `RunEvent::Exit`
+    /// would stop it on quit, taking down a server the operator had just
+    /// arranged to be permanent.
+    #[test]
+    fn a_service_on_disk_wins_over_the_stored_preference() {
+        assert_eq!(
+            effective_supervision(Supervision::App, Some(true)),
+            Supervision::Service
+        );
+        assert_eq!(
+            effective_supervision(Supervision::Service, Some(true)),
+            Supervision::Service
+        );
+        // Nothing installed: the preference is the only fact there is.
+        assert_eq!(effective_supervision(Supervision::App, Some(false)), Supervision::App);
+        assert_eq!(
+            effective_supervision(Supervision::Service, Some(false)),
+            Supervision::Service
+        );
+        // The manager would not answer. NOT evidence of absence — a launchctl
+        // hiccup must not flip a machine's mode.
+        assert_eq!(effective_supervision(Supervision::App, None), Supervision::App);
+        assert_eq!(effective_supervision(Supervision::Service, None), Supervision::Service);
+    }
+
+    /// The branch that gives app mode a steady state at all.
+    ///
+    /// Without it `!installed` sends an app-mode machine to `InstallService`
+    /// forever: the assistant nags to install the very thing the operator
+    /// declined, `mark_onboarded` never fires, and boot never opens the
+    /// dashboard.
+    #[test]
+    fn app_mode_reads_the_port_and_never_asks_for_a_service() {
+        let listening = json!({"configEnv": {"exists": true}, "settings": {},
+                               "listen": {"portValid": true, "port": 3080, "listening": true}});
+        let quiet = json!({"configEnv": {"exists": true}, "settings": {},
+                           "listen": {"portValid": true, "port": 3080, "listening": false}});
+        let no_service = json!({"installed": false});
+        assert_eq!(
+            app_mode_probe(Some(listening), Some(no_service.clone())).next,
+            ProbeStep::Ready
+        );
+        assert_eq!(
+            app_mode_probe(Some(quiet.clone()), Some(no_service)).next,
+            ProbeStep::Start
+        );
+        // Even with the manager silent, which in service mode is Unreachable.
+        assert_eq!(app_mode_probe(Some(quiet), None).next, ProbeStep::Start);
+    }
+
+    /// App mode does not skip the checks that come BEFORE it: a machine with
+    /// no binary or no config has the same first problem either way.
+    #[test]
+    fn app_mode_still_reaches_the_earlier_steps() {
+        let mut p = probe_with(None, None, false);
+        p.supervision = Supervision::App;
+        p.decide();
+        assert_eq!(p.next, ProbeStep::Setup, "no server is still no server");
+
+        let unconfigured = json!({"configEnv": {"exists": false}, "settings": {}, "listen": {}});
+        let mut p = probe_with(Some(unconfigured), Some(json!({"installed": false})), true);
+        p.supervision = Supervision::App;
+        p.decide();
+        assert_eq!(p.next, ProbeStep::Init, "an unconfigured server is still unconfigured");
+    }
+
+    /// The console log is a real path, and on macOS it is the SAME file the
+    /// plist names — so `desktop_logs`' existing fallback finds it with no new
+    /// rung, and someone who switches modes keeps reading one path.
+    #[test]
+    fn the_console_log_is_the_platform_s_own_place() {
+        let path = console_log_path();
+        assert!(path.is_absolute(), "{path:?}");
+        if cfg!(target_os = "macos") {
+            assert!(path.ends_with("Library/Logs/subshell-server.log"), "{path:?}");
+        } else {
+            assert!(path.ends_with("subshell-server/console.log"), "{path:?}");
+        }
     }
 }

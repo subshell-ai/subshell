@@ -14,6 +14,7 @@ mod control;
 mod menu;
 mod reset;
 mod server_bin;
+mod supervisor;
 mod tray;
 mod watch;
 mod windows;
@@ -142,6 +143,7 @@ pub fn run() {
         // page: the consent is spent by the command that mutates the disk,
         // and a window reload must not be able to lose or repeat it.
         .manage(reset::Stash::default())
+        .manage(supervisor::Supervisor::new())
         .invoke_handler(tauri::generate_handler![
             control::desktop_probe,
             control::desktop_logs,
@@ -212,7 +214,24 @@ pub fn run() {
             // first probe answers ready (spec 2026-09-12 § 5.2).
             let choice = {
                 let settings = handle.state::<subshell_desktop_core::settings::SettingsState>();
-                control::boot_window(&control::boot_probe(&settings))
+                let mut probe = control::boot_probe(&settings);
+                // App mode: nothing else will start this server, so boot does
+                // — and then waits briefly for the port, because `spawn`
+                // returns when the process exists and the window choice needs
+                // it LISTENING. A server that takes longer lands on recovery,
+                // whose Start is idempotent.
+                if probe.supervision == subshell_desktop_core::settings::Supervision::App
+                    && probe.next != control::ProbeStep::Ready
+                {
+                    match control::server_spawner(&handle) {
+                        Ok(spawner) => {
+                            handle.state::<supervisor::Supervisor>().start(spawner);
+                            probe = control::wait_for_boot(&handle, &settings);
+                        }
+                        Err(err) => eprintln!("subshell: could not start the server: {err}"),
+                    }
+                }
+                control::boot_window(&probe)
             };
             match choice {
                 control::WindowChoice::Wizard => {
@@ -248,6 +267,17 @@ pub fn run() {
                     && app.get_webview_window("main").is_some() =>
             {
                 api.prevent_exit();
+            }
+            // The app is going away, so its child must too — "runs with this
+            // app" is the promise app mode makes, and a server left behind
+            // would hold the port against the next launch while answering for
+            // an app that is gone. This is the one hook that runs on every
+            // exit path Tauri controls; a window merely hidden to the tray is
+            // still the app running, so nothing here fires for that.
+            tauri::RunEvent::Exit => {
+                if let Ok(spawner) = control::server_spawner(app) {
+                    app.state::<supervisor::Supervisor>().stop(spawner.as_ref());
+                }
             }
             // macOS: clicking the Dock icon of an app with no visible window.
             // Without this a window closed to the tray cannot be brought back

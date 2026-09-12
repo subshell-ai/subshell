@@ -33,7 +33,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT};
 use subshell_desktop_core::reset_guards::{consent_granted, delete_guard_ok, is_subshell_socket, path_rules_ok};
-use subshell_desktop_core::settings::SettingsState;
+use subshell_desktop_core::settings::{SettingsState, Supervision};
 use subshell_desktop_core::sidecar;
 
 use crate::control::{ActionResult, ServiceCommand};
@@ -133,7 +133,7 @@ pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), Stri
     let requested = parse_screen(screen);
     if requested == Screen::Reset {
         let settings = app.state::<SettingsState>();
-        let p = crate::control::probe_now(settings.get().binary_path.as_deref());
+        let p = crate::control::probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
         *stash.plan.lock().unwrap() = p.status.as_ref().and_then(parse_delete_plan);
     }
     // `Home` is stashed too, and deliberately: a live assistant sitting on
@@ -302,7 +302,31 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     // service definition at ...` on stderr): without it a Retry after any
     // step-5 failure dies here forever, because step 4 of the half-run
     // already removed what this step would then refuse on (PR review).
-    let stop = crate::control::service_now(&settings, ServiceCommand::Stop, false);
+    // In app mode there is no service to stop — the child IS the server — so
+    // the supervisor is stopped directly. `service_now` would ask a CLI to
+    // stop a definition that does not exist, and the wipe would then delete
+    // the data out from under a process still writing to it.
+    let app_mode = crate::control::effective_supervision(settings.get().supervision, None) == Supervision::App
+        && !crate::control::service_installed_json(&settings);
+    let stop = if app_mode {
+        match crate::control::server_spawner(&app) {
+            Ok(spawner) => {
+                app.state::<crate::supervisor::Supervisor>().stop(spawner.as_ref());
+                ActionResult {
+                    ok: true,
+                    stdout: "subshell-server stopped.\n".into(),
+                    stderr: String::new(),
+                }
+            }
+            Err(err) => ActionResult {
+                ok: false,
+                stdout: String::new(),
+                stderr: err,
+            },
+        }
+    } else {
+        crate::control::service_now(&settings, ServiceCommand::Stop, false)
+    };
     if let Some(stderr) = push_step(&mut log, &stop, &["nothing installed"]) {
         return Ok(ActionResult {
             ok: false,
@@ -383,6 +407,9 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     let _ = settings.update(|s| {
         s.binary_path = None;
         s.onboarded = false;
+        // A wiped machine is a fresh one, and a fresh one is service mode —
+        // the same default a new install gets.
+        s.supervision = Supervision::Service;
     });
     *stash.plan.lock().unwrap() = None; // the consent has been spent
 
@@ -468,7 +495,7 @@ pub fn desktop_pending_screen(app: AppHandle) -> Option<String> {
 /// its own refusal, which is the useful information.
 #[tauri::command(async)]
 pub fn desktop_arm_reset(app: AppHandle, settings: State<'_, SettingsState>) -> bool {
-    let p = crate::control::probe_now(settings.get().binary_path.as_deref());
+    let p = crate::control::probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
     let plan = p.status.as_ref().and_then(parse_delete_plan);
     let armed = plan.is_some();
     *app.state::<Stash>().plan.lock().unwrap() = plan;

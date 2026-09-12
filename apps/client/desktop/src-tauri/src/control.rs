@@ -2442,6 +2442,11 @@ mod path_tests {
             onboarded: false,
             // Read by the menus, never by the page — see the key-set test below.
             zoom: 1.0,
+            // Subshell Server's own: who runs the control plane there. This
+            // app has a node agent with its own service and no such mode, so
+            // it shares the struct and ignores the field, exactly as the
+            // server app ignores `plane_url`.
+            supervision: subshell_desktop_core::settings::Supervision::Service,
         }
     }
 

@@ -122,6 +122,24 @@ export interface Probe {
   onboarded: boolean;
   /** The hostname the reset screen shows, types for, and compares (R15). */
   hostname: string;
+  /**
+   * Who runs the server here, after the disk-wins correction. `service` is a
+   * launchd agent or systemd unit; `app` is this app's own child, which lives
+   * exactly as long as the app does.
+   */
+  supervision: "service" | "app";
+  /** What this app's own supervisor is doing; null in service mode. */
+  supervisor: SupervisorReport | null;
+}
+
+/** The app's own child, when it is the one running the server. */
+export interface SupervisorReport {
+  /** The live child's pid; null between a crash and the respawn. */
+  pid: number | null;
+  /** One sentence about the last exit; null when nothing has exited. */
+  lastExit: string | null;
+  /** Where this child's console output is collected. */
+  consoleLog: string;
 }
 
 // ---------------------------------------------------------------------------
