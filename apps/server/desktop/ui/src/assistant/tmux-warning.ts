@@ -1,11 +1,11 @@
 /**
  * The tmux warning: the reason the buttons are gated, and the way out.
  *
- * A FACTORY rather than a singleton, because two surfaces gate on tmux now —
- * Overview's setup actions and the Addresses section's Save. One element moved
- * between them would be owned by whichever rendered last, and the section that
- * did not render would silently lose its explanation; two elements cost a DOM
- * subtree and cannot get that wrong.
+ * A FACTORY rather than a singleton, because the assistant rebuilds its
+ * content on every render and a shared element would be re-parented rather
+ * than re-created — which is how the console lost one screen's explanation to
+ * whichever surface rendered last. A DOM subtree per caller cannot get that
+ * wrong.
  *
  * Nothing here may read the probe at build time — it does not exist yet at
  * that moment. Everything plan-dependent goes through `applyPlan`, which each
@@ -19,11 +19,11 @@
  */
 import type { InstallPlan } from "../lib/installers";
 import * as ipc from "../lib/ipc";
-import type { ConsoleHost } from "./state";
+import type { AssistantHost } from "./host";
 
 export type TmuxWarning = HTMLElement & { applyPlan: (plan: InstallPlan) => void };
 
-export function buildTmuxWarning(host: ConsoleHost, install: () => unknown): TmuxWarning {
+export function buildTmuxWarning(host: AssistantHost, install: () => unknown): TmuxWarning {
   const wrap = document.createElement("div");
   wrap.className = "tmux-warning";
   wrap.hidden = true;
@@ -74,8 +74,8 @@ export function buildTmuxWarning(host: ConsoleHost, install: () => unknown): Tmu
   // Reading, not running: the no-Homebrew plan needs somewhere to go, and
   // spec §6.1 names this page. A button calling a Rust command that holds the
   // URL itself, so no URL is a value that crosses the IPC boundary — the same
-  // rule `desktop_open_control_plane` follows. Opted out of the busy-disable
-  // like Copy: reading the docs is most apt while something else is in flight.
+  // rule `desktop_open_path` follows. Opted out of the busy-disable like
+  // Copy: reading the docs is most apt while something else is in flight.
   const docs = document.createElement("button");
   docs.type = "button";
   docs.textContent = "Read the docs";

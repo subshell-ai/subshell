@@ -777,11 +777,22 @@
   }
   .assistant details {
     margin-top: 16px;
+    width: 100%;
   }
   .assistant details > summary {
     cursor: pointer;
     color: var(--color-muted);
     font-size: 14px;
+  }
+  /* The recovery screen's log and last-action panes. Capped and scrollable
+     because the frame is a FIXED 1024x720 with a 72px bar: an uncapped tail
+     inside the disclosure pushes the screen's own scroll container past the
+     bottom of the window, and the bar is a separate grid row that cannot
+     follow it. The cap is what keeps Show Details a disclosure rather than a
+     new page. */
+  .assistant details .pane-pre {
+    max-height: 180px;
+    overflow: auto;
   }
   .big {
     width: 100%;

@@ -2,17 +2,21 @@
  * The three-way contract: the page, the Rust command set, and the ACL.
  *
  * A command name lives in `lib/ipc.ts`, in `src-tauri/permissions/desktop.toml`
- * and in `src-tauri/capabilities/console.json`. Changing one without the others
- * produces a command that is REFUSED AT RUNTIME with a message about
- * permissions — not a compile error, and not something any type check sees.
- * Nothing held those three files together before this test.
+ * and in a capability file. Changing one without the others produces a command
+ * that is REFUSED AT RUNTIME with a message about permissions — not a compile
+ * error, and not something any type check sees. Nothing held those three files
+ * together before this test.
  *
- * The `main` window is the other half of the boundary, and it is pinned too:
- * unlike Subshell Client's (which is granted NOTHING because a control plane
- * can live anywhere), this app's `main` shows the server IT manages over
- * loopback, so its origin is enumerable in `main.json` and it holds exactly
- * three commands. Three is a number worth a test: "a few harmless ones" is
- * how a boundary erodes.
+ * There are TWO windows now (spec 2026-09-12 § 5.1), and the boundary is which
+ * one a page came from:
+ *
+ * - `wizard` is the assistant — a bundled `tauri://` page this repo ships — and
+ *   it holds every command that drives the CLI, the destructive ones included.
+ * - `main` shows the SERVER's own SPA. Unlike Subshell Client's remote window
+ *   (which is granted NOTHING, because a control plane can live anywhere),
+ *   this one shows the server THIS APP manages over loopback, so its origin is
+ *   enumerable in `main.json` and it holds exactly three commands. Three is a
+ *   number worth a test: "a few harmless ones" is how a boundary erodes.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -37,19 +41,11 @@ function invokedCommands(): Set<string> {
  * The commands ONE page can reach: the `ipc.<name>` calls in its own modules,
  * mapped to command names through ipc.ts's own exports.
  *
- * This replaced "ipc.ts's full set == console.json" when the wizard arrived.
- * One shared `lib/ipc.ts` serving two windows makes the full set the union of
- * two grants, and a per-page pin is the only way both stay EXACT sets: a
- * command the console stops calling must leave console.json even while the
- * wizard still calls it (that is how `allow-desktop-open-assistant` was removed
- * from the console in the first place).
- *
- * A page is a LIST of files as of the console's split into `console/` (spec
- * 2026-09-11 § 9): the console page is `main.ts` plus every module under
- * `console/`, which are loaded by that entry and by nothing else. Reading the
- * entry alone would have made this pin blind to the modules that hold almost
- * every call — and blind in the SAFE-LOOKING direction, reporting a smaller
- * set than the window can actually reach.
+ * A page is a LIST of files, not one entry: the assistant is `wizard.ts` plus
+ * every module under `assistant/`, which are loaded by that entry and by
+ * nothing else. Reading the entry alone would make this pin blind to the
+ * modules that hold the reset and the tmux docs — and blind in the
+ * SAFE-LOOKING direction, reporting a smaller set than the window can reach.
  */
 function commandsInvokedBy(...pageFiles: string[]): Set<string> {
   const nameToCommand = new Map<string, string>();
@@ -68,16 +64,16 @@ function commandsInvokedBy(...pageFiles: string[]): Set<string> {
   return out;
 }
 
-/** Every file the console page loads: its entry and the section modules under `console/`. */
-function consolePageFiles(): string[] {
-  const dir = join(UI_SRC, "console");
+/** Every file the assistant loads: its entry and the modules under `assistant/`. */
+function assistantPageFiles(): string[] {
+  const dir = join(UI_SRC, "assistant");
   const modules = readdirSync(dir)
     .filter((name) => name.endsWith(".ts"))
-    .map((name) => join("console", name));
+    .map((name) => join("assistant", name));
   // A floor, so a directory that failed to list cannot pass this file's
   // equality checks by reporting an empty page.
-  expect(modules.length, "the console's section modules must be found").toBeGreaterThan(4);
-  return ["main.ts", ...modules];
+  expect(modules.length, "the assistant's screen modules must be found").toBeGreaterThan(2);
+  return ["wizard.ts", ...modules];
 }
 
 /** The `desktop_*` commands a capability file grants, expanded through the manifest. */
@@ -144,57 +140,55 @@ function sourceFiles(dir: string = UI_SRC): string[] {
   return out;
 }
 
-describe("the console's IPC contract", () => {
-  it("invokes exactly the commands the ACL grants this window", () => {
-    // Per-page since the wizard: the console page's ipc.* calls, and console's
-    // grants, are the same exact set - not merely a subset of anything.
-    expect([...commandsInvokedBy(...consolePageFiles())].sort()).toEqual([...grantedCommands("console.json")].sort());
+describe("the assistant's IPC contract", () => {
+  it("is the app's only two capability files", () => {
+    // The console's went with the console. A third capability file is a third
+    // window, and a window added without a deliberate grant list is exactly
+    // what the manifest below exists to prevent.
+    expect(readdirSync(join(TAURI_DIR, "capabilities")).sort()).toEqual(["main.json", "wizard.json"]);
   });
 
-  it("the wizard invokes exactly the commands its capability grants", () => {
-    // The third window holds the setup verbs and nothing else: no service, no
-    // init, no logs, no config reads, no tray settings. This set being exact is
-    // the wizard's whole boundary (§ 3 of the 2026-09-10 spec), and the Done
-    // screen's open-assistant here is the one command shared with `main`.
-    expect([...commandsInvokedBy("wizard.ts")].sort()).toEqual([...grantedCommands("wizard.json")].sort());
-    // And the union still lands where ipc.ts says it must: every command any
-    // page can invoke is granted SOMEWHERE, and ipc.ts hides nothing extra.
-    const pages = new Set([...commandsInvokedBy(...consolePageFiles()), ...commandsInvokedBy("wizard.ts")]);
-    expect([...invokedCommands()].sort()).toEqual([...pages].sort());
+  it("invokes exactly the commands the ACL grants this window", () => {
+    // An EXACT set, not a subset: a command the page stops calling must leave
+    // the capability too, or the window keeps a privilege nothing asked for.
+    expect([...commandsInvokedBy(...assistantPageFiles())].sort()).toEqual([...grantedCommands("wizard.json")].sort());
+    // And ipc.ts hides nothing extra: every command any page can invoke is
+    // granted somewhere, and nothing in the typed edge is unreachable.
+    expect([...invokedCommands()].sort()).toEqual([...commandsInvokedBy(...assistantPageFiles())].sort());
   });
 
   it("names no permission the manifest does not define", () => {
     const manifest = manifestPermissions();
     // `core:*`, `dialog:*` and `opener:*` come from Tauri and its plugins; only
     // this app's own `allow-desktop-*` identifiers have to exist in desktop.toml.
-    // ALL THREE capability files: an undefined id in main.json or wizard.json
-    // would contribute nothing to its file's expansion and slip past otherwise.
-    const own = [
-      ...capabilityPermissions("console.json"),
-      ...capabilityPermissions("main.json"),
-      ...capabilityPermissions("wizard.json"),
-    ].filter((id) => !id.includes(":"));
+    // BOTH capability files: an undefined id in either would contribute nothing
+    // to its file's expansion and slip past otherwise.
+    const own = [...capabilityPermissions("main.json"), ...capabilityPermissions("wizard.json")].filter(
+      (id) => !id.includes(":"),
+    );
     for (const id of own) expect(manifest.has(id), `${id} is granted but not defined`).toBe(true);
   });
 
   it("defines no app permission neither capability grants", () => {
     // A granted-nowhere permission is a command no page can call, which is the
-    // same runtime rejection read from the other end. This is the check that
-    // makes the reset permission's toml entry and its console.json grant land
-    // in the same commit (plan P1).
-    const granted = new Set([
-      ...capabilityPermissions("console.json"),
-      ...capabilityPermissions("main.json"),
-      ...capabilityPermissions("wizard.json"),
-    ]);
+    // same runtime rejection read from the other end — and after a deletion it
+    // is also how a dead command survives in Rust unnoticed.
+    const granted = new Set([...capabilityPermissions("main.json"), ...capabilityPermissions("wizard.json")]);
     for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
   });
 
   it("keeps `main` to exactly its three harmless commands", () => {
-    // Show a window that already exists, drop this app's own title bar, and
-    // display one fixed-shape notification. Nothing that touches the CLI, the
-    // config, the service or the filesystem may appear here; adding a fourth
-    // is the change this line exists to make loud.
+    // Raise a window, drop this app's own title bar, and display one
+    // fixed-shape notification. Nothing that touches the CLI, the config, the
+    // service or the filesystem may appear here; adding a fourth is the change
+    // this line exists to make loud.
+    //
+    // `desktop_open_assistant` is the deep link the SPA sends from three
+    // places — the Settings danger card (`{ screen: "reset" }`), the Service
+    // page's Update card (`{ screen: "update" }`) and the sidebar pill (no
+    // argument). It names a SCREEN, never a command: raising `update`
+    // performs one read-only probe, and every verb behind either screen needs
+    // a press inside the bundled page.
     const manifest = manifestPermissions();
     const appCommands = capabilityPermissions("main.json")
       .filter((id) => !id.includes(":"))
@@ -206,27 +200,38 @@ describe("the console's IPC contract", () => {
     expect(pluginPermissions.sort()).toEqual(["core:window:allow-start-dragging"]);
   });
 
-  it("keeps the console's dialog surface to open + ask", () => {
-    // The two the page calls: the file dialog (choose a server binary) and the
-    // native confirmations on update/restart. `ask` needed adding when the
-    // page moved to @tauri-apps/plugin-dialog — with only `allow-message`
-    // granted, `ask()` would reject at the ACL and "restart anyway" would
-    // strand on the first refusal.
-    const dialog = capabilityPermissions("console.json").filter((id) => id.startsWith("dialog:"));
-    expect(dialog.sort()).toEqual(["dialog:allow-ask", "dialog:allow-open"]);
-  });
-
-  it("keeps the wizard's dialog surface to open alone", () => {
-    // pickBinary's file dialog is the wizard's only native popup; its consent
-    // is on-screen (the Run screen's bullet list), not a system ask sheet.
+  it("keeps the assistant's dialog surface to open alone", () => {
+    // `pickBinary`'s file dialog is the page's only native popup. `ask` was
+    // the console's — its update and restart confirmations — and both of those
+    // are screens here, with their consequences written on the screen instead
+    // of inside a system sheet.
     const dialog = capabilityPermissions("wizard.json").filter((id) => id.startsWith("dialog:"));
     expect(dialog.sort()).toEqual(["dialog:allow-open"]);
   });
 
+  it("mentions no command the console took with it", () => {
+    // Deleted in Rust (spec 2026-09-12 § 5.6). A leftover name in ipc.ts or a
+    // page would be an invoke that rejects at runtime with a message about a
+    // command that does not exist — which is indistinguishable, from the
+    // page's side, from a permission it was never granted.
+    const gone = [
+      "desktop_open_console",
+      "desktop_init",
+      "desktop_settings",
+      "desktop_set_close_to_tray",
+      "desktop_open_control_plane",
+    ];
+    for (const file of sourceFiles()) {
+      if (file.endsWith("ipc-acl.test.ts")) continue;
+      const code = codeOf(file);
+      for (const name of gone) expect(code, `${file} still names ${name}`).not.toContain(name);
+    }
+  });
+
   it("reaches Tauri through lib/ipc.ts and nowhere else", () => {
-    // `withGlobalTauri` is off, so a stray `window.__TAURI__` read is dead
-    // code that will silently reject; a stray `invoke("desktop_...")` outside
-    // the typed boundary is a command the pins above have never seen.
+    // A stray `window.__TAURI__` read is dead code that will silently reject;
+    // a stray `invoke("desktop_...")` outside the typed boundary is a command
+    // the pins above have never seen.
     for (const file of sourceFiles()) {
       // This file names the tokens it scans for, in code rather than in
       // comments, and cannot also be forbidden from doing so. The client

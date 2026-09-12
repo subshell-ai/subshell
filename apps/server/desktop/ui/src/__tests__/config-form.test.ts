@@ -233,144 +233,61 @@ describe("fieldProblems", () => {
   });
 });
 
-describe("the console's wiring, pinned at the source", () => {
+describe("the assistant's wiring, pinned at the source", () => {
   // These read the render path because the tests here run without a DOM: the
-  // contract lives in code these files cannot execute.
+  // contract lives in code the test runner cannot execute. `wizard.ts` is the
+  // whole render path now that the console is gone, and the tmux warning is
+  // the one piece of it that lives in its own module.
   //
-  // It is a DIRECTORY now rather than one file (spec 2026-09-11 § 9), so each
-  // pin names the module that holds its subject: the entry keeps `guard` and
-  // the step table went to `console/steps.ts`, which is also the one surface
-  // left that builds the configure form — the Addresses section went to the
-  // SPA with `desktop_init` (spec 2026-09-12 § 5.6). Reading the wrong file
-  // would pass vacuously against a string that simply is not there, so every
-  // pin below also asserts its anchor was found.
-  const main = readFileSync(join(ROOT, "ui/src/main.ts"), "utf8");
-  const steps = readFileSync(join(ROOT, "ui/src/console/steps.ts"), "utf8");
-  const formView = readFileSync(join(ROOT, "ui/src/console/config-form-view.ts"), "utf8");
-  const tmuxWarning = readFileSync(join(ROOT, "ui/src/console/tmux-warning.ts"), "utf8");
-  /** The console page's whole render path, for pins that do not care which module. */
-  const page = [main, steps, formView, tmuxWarning].join("\n");
+  // Reading the wrong file would pass vacuously against a string that simply
+  // is not there, so every pin below also asserts its anchor was found.
+  const wizard = readFileSync(join(ROOT, "ui/src/wizard.ts"), "utf8");
+  const tmuxWarning = readFileSync(join(ROOT, "ui/src/assistant/tmux-warning.ts"), "utf8");
 
   /**
    * The form is prefilled, so `configPayload` decides what to send from an
    * `explicit` map rather than from blankness. That map MUST be seeded from
-   * `explicitFields` when the configure form is built: keyed on editing
-   * alone, opening it and saving without touching the addresses field sends
+   * `explicitFields` when the form is built: keyed on editing alone, opening
+   * Customize and pressing Set Up without touching the addresses field sends
    * an empty `trustedOrigins`, which means "no extra addresses" and wipes a
    * stored list. Pinned at the source because this wiring imports Tauri and
    * cannot be loaded here.
    */
-  test("the configure form seeds `explicit` from explicitFields, not from editing alone", () => {
-    // The seeding lives in `buildForm` itself now that the Addresses section
-    // (whose `enter()` used to do it) is gone. The contract is unchanged, and
-    // this is the surface that has to carry it: the `init` step reaches the
-    // form without any section-entry hook to seed it.
-    const at = formView.indexOf("export function buildForm()");
-    expect(at, "the form view must build the form").toBeGreaterThan(-1);
-    expect(formView.slice(at)).toContain("explicitFields(");
+  test("the address form seeds `explicit` from explicitFields, not from editing alone", () => {
+    const at = wizard.indexOf("function addressForm(");
+    expect(at, "the assistant must build an address form").toBeGreaterThan(-1);
+    const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
+    expect(body).toContain("explicitFields(");
     // And every send goes through the map. The floor is load-bearing: with
     // zero matches the loop passes vacuously, so renaming the call site would
     // silently erase this pin.
-    const sends = page.match(/configPayload\([^)]*\)/g) ?? [];
+    const sends = wizard.match(/configPayload\([^)]*\)/g) ?? [];
     expect(sends.length).toBeGreaterThanOrEqual(1);
-    for (const call of sends) {
-      expect(call).toBe("configPayload(state.form, state.explicit)");
-    }
+    for (const call of sends) expect(call).toBe("configPayload(form, explicit)");
   });
 
   /**
-   * `refresh` rewrites `problem` from `probe.error`, so the guard must apply
-   * an action's own failure line AFTER its settle loop, not inside the try.
-   * It did not, until 2026-09-10: every successful re-probe erased "That did
-   * not work. See the output below." before the render that showed it, and
-   * only the red output pane survived to say anything. Measured with the
-   * built page under a stubbed bridge — a refusal rendered, the line never
-   * did.
+   * The CLI refuses `init` and `service install` without tmux, so a recovery
+   * action that runs either must be disabled with its reason beside it — a
+   * button that can only produce the refusal is a button that teaches the
+   * reader to ignore it. Retry and Choose are exempt because neither launches
+   * a pane, and gating them would strand the one machine that has no server
+   * to install tmux for.
    */
-  test("an action's failure line is applied after the guard's re-probe", () => {
-    // `guard` stays in the entry module: it owns busy, the problem line and
-    // the re-probe, which are the page's, not a section's.
-    const start = main.indexOf("function guard(");
-    expect(start, "guard() must live in the entry module").toBeGreaterThan(-1);
-    const fn = main.slice(start, main.indexOf("\nconst host: ConsoleHost"));
-    const apply = fn.indexOf("if (failure !== null) state.problem = failure;");
-    const reprobe = fn.lastIndexOf("await refresh();");
-    expect(apply).toBeGreaterThan(-1);
-    expect(reprobe).toBeGreaterThan(-1);
-    expect(apply, "the failure line must be set after the last refresh()").toBeGreaterThan(reprobe);
-  });
-
-  test("every setup-advancing console action is tmux-gated", () => {
-    /** The `[...]` starting at `from`, found by bracket depth rather than by regex. */
-    const entryAt = (from: number): string => {
-      let depth = 0;
-      for (let i = from; i < steps.length; i++) {
-        if (steps[i] === "[") depth++;
-        else if (steps[i] === "]" && --depth === 0) return steps.slice(from + 1, i);
-      }
-      throw new Error("unbalanced action entry");
-    };
-
-    /** Split on TOP-LEVEL commas: a handler like `service("install", true)` has its own. */
-    const args = (entry: string): string[] => {
-      const out: string[] = [];
-      let depth = 0;
-      let start = 0;
-      for (let i = 0; i < entry.length; i++) {
-        const c = entry[i];
-        if (c === "(" || c === "[") depth++;
-        else if (c === ")" || c === "]") depth--;
-        else if (c === "," && depth === 0) {
-          out.push(entry.slice(start, i).trim());
-          start = i + 1;
-        }
-      }
-      out.push(entry.slice(start).trim());
-      return out;
-    };
-
-    // `renderStep` disables buttons flagged `data-tmux` while the probe finds
-    // no tmux, and the flag is the 4th argument to `button()`. Every step that
-    // ADVANCES setup must carry it: the CLI refuses `init`, `configure` and
-    // `service install` without tmux, so an enabled button there only produces
-    // the refusal.
-    //
-    // "Install server" was the one that did not. Installing the binary does
-    // not itself need tmux — which is why it looked correct — but the step
-    // immediately after it is `Create configuration`, which refuses. So the
-    // console walked the user to a wall it already knew about.
-    //
-    // "Set up and start" inherits that gate as the chain it replaced. Agent
-    // CLI installs moved to the control plane (spec 2026-09-11 § 7) and this
-    // app's own "Add agents in the dashboard" button only opens the
-    // dashboard — it is not gated, because opening a window needs no pane.
-    for (const label of ["Set up and start", "Save and start", "Install and start as a service", "Start"]) {
-      const at = steps.indexOf(`["${label}",`);
-      expect(at, `no action entry found for "${label}"`).toBeGreaterThan(-1);
-      expect(args(entryAt(at))[3], `"${label}" is not tmux-gated`).toBe("true");
-    }
-  });
-
-  test("the setup step offers nothing that cannot run without a server", () => {
-    // `setup` is emitted exactly when no binary resolves (`Setup` replaces
-    // `InstallServer` only where `resolve` found nothing), and every write
-    // verb answers "no subshell-server found" there. "Change addresses…"
-    // lived on this screen briefly: its save could only ever fail, and the
-    // next "Set up and start" discarded what was typed without a word. The
-    // form is reachable the moment a server exists, which is every screen
-    // after this one.
-    const at = steps.indexOf("    setup: {");
-    expect(at).toBeGreaterThan(-1);
-    const entry = steps.slice(at, steps.indexOf("\n    },", at));
-    expect(entry).not.toContain("doInit");
-    expect(entry).not.toContain('"addresses"');
+  test("the recovery screen gates every action that needs tmux, and only those", () => {
+    const at = wizard.indexOf("const gated =");
+    expect(at, "the recovery screen must compute a tmux gate").toBeGreaterThan(-1);
+    const expr = wizard.slice(at, wizard.indexOf(";", at));
+    expect(expr).toContain("tmuxMissing");
+    expect(expr).toContain('action.kind !== "retry"');
+    expect(expr).toContain('action.kind !== "choose-binary"');
   });
 
   test("the tmux warning links out to the docs", () => {
     // Spec §6.1 requires the no-Homebrew screen to LINK to the tmux formula
-    // page, not just show a command. The link is a button calling the fixed-URL
-    // command (`openTmuxDocs` in lib/ipc.ts — the page sends no URL anywhere,
-    // the same rule `desktop_open_path` follows; the command name
+    // page, not just show a command. The link is a button calling the
+    // fixed-URL command (`openTmuxDocs` in lib/ipc.ts — the page sends no URL
+    // anywhere, the same rule `desktop_open_path` follows; the command name
     // itself is pinned by ipc-acl.test.ts), and `applyPlan` decides its
     // visibility from the plan's `docsUrl`.
     expect(tmuxWarning).toContain("openTmuxDocs");
@@ -378,10 +295,10 @@ describe("the console's wiring, pinned at the source", () => {
   });
 });
 
-describe("the console's stylesheet", () => {
+describe("the assistant's stylesheet", () => {
   /**
    * `.warn-text` and `.hint` are both single-class selectors, so for an element
-   * carrying BOTH the later declaration wins. The problem lines the console
+   * carrying BOTH the later declaration wins. The problem lines this page
    * builds are `class="hint warn-text"` and rendered amber deliberately — with
    * `.warn-text` declared first they came out muted grey, indistinguishable
    * from the ordinary field hint directly above them. Same cascade LAYER is

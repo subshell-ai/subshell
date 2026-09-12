@@ -3,11 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Set Up Subshell Server</title>
+    <title>Subshell Server</title>
   </head>
   <body class="assistant">
-    <!-- The setup assistant (spec 2026-09-11 § 3, § 5): one frame, three
-         screens, the same CSP rules as index.html (module script with a src,
+    <!-- The assistant (spec 2026-09-11 § 3, § 5; spec 2026-09-12 § 5.3): one
+         frame, one screen at a time — first run, recovery, update — with the
+         same CSP rules the page has always had (a module script with a src,
          nothing inline). wizard.ts fills #art, #title, #subtitle, #content and
          the bar; the frame itself never changes shape. -->
     <main class="assistant-screen" id="screen">
@@ -18,11 +19,44 @@
       <p class="assistant-problem" id="problem"></p>
       <section class="assistant-content" id="content"></section>
     </main>
-    <footer class="assistant-bar">
+    <footer class="assistant-bar" id="bar">
       <div class="assistant-bar-left" id="bar-left"></div>
       <div class="assistant-dots" id="dots"></div>
       <div class="assistant-bar-right" id="bar-right"></div>
     </footer>
+
+    <!-- The Reset screen (spec § 7.1). It replaces the frame ABOVE rather
+         than rendering inside it, and both of those elements are hidden while
+         it is up: this screen's premise is that it is the only thing
+         happening, so a Back button in a live bottom bar would be a way out
+         from under a chain that has none. The hostname is DISPLAYED by this
+         page and compared by Rust against the same memoized probe value
+         (R15): the typed string is the only thing the page sends back, never
+         a path. -->
+    <div id="reset-view" class="reset-view" hidden>
+      <p class="reset-title">Reset this machine's Subshell instance</p>
+      <p class="hint mb-2.5" id="reset-refusal"></p>
+      <ul class="wizard-copy list-disc pl-5" id="reset-rows"></ul>
+      <div class="wizard-copy text-sm text-muted mb-2.5" id="reset-disclosures"></div>
+      <label class="mb-1 block text-sm" for="reset-confirm">Type this machine's hostname to confirm, exactly as shown: <code id="reset-hostname"></code></label>
+      <div class="flex gap-2">
+        <input id="reset-confirm" class="min-w-0 flex-1" spellcheck="false" autocapitalize="off" />
+        <button type="button" id="reset-run" class="primary" disabled>Reset everything</button>
+        <button type="button" id="reset-cancel">Cancel</button>
+      </div>
+      <!-- The same refusal as #reset-refusal, repeated BESIDE the control it
+           disables. The rule this app keeps is that no disabled control lacks
+           its reason next to it, and the copy above the fold does not satisfy
+           it: the disclosures are long and a reader who has scrolled to the
+           button cannot see a sentence at the top of the view. Empty (and
+           collapsed) whenever the button is live. -->
+      <p class="hint warn-text empty:hidden" id="reset-why"></p>
+      <!-- The half-run record lands HERE, where the human still is: the frame
+           is hidden while this screen is up, so a chain log rendered there
+           would be invisible — which is M1's whole promise unkept by the page. -->
+      <pre class="pane-pre mt-3" id="reset-log" aria-live="polite" hidden></pre>
+    </div>
+
     <script type="module" src="/src/wizard.ts"></script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "wizard",
-  "description": "The setup assistant window. It may probe the machine, run the setup chain, install tmux, pick a server binary, read the tmux docs, and open the dashboard or the console - and nothing else. Pinned equal to what wizard.ts actually invokes by ui/src/__tests__/ipc-acl.test.ts.",
+  "description": "The assistant window - the one bundled page, and the ONLY surface allowed to drive the subshell-server CLI. It owns first run, recovery, update and reset, so it holds every command that changes this machine, the destructive ones included. Pinned equal to what wizard.ts and the modules under ui/src/assistant/ actually invoke by ui/src/__tests__/ipc-acl.test.ts.",
   "local": true,
   "windows": [
     "wizard"
@@ -9,12 +9,20 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
+    "opener:allow-reveal-item-in-dir",
     "allow-desktop-probe",
     "allow-desktop-setup",
     "allow-desktop-install-tmux",
     "allow-desktop-set-server-bin",
-    "allow-desktop-open-tmux-docs",
+    "allow-desktop-service",
+    "allow-desktop-install-server",
+    "allow-desktop-logs",
+    "allow-desktop-open-path",
+    "allow-desktop-arm-reset",
+    "allow-desktop-reset",
     "allow-desktop-open-main",
-    "allow-desktop-open-assistant"
+    "allow-desktop-open-tmux-docs",
+    "allow-desktop-about",
+    "allow-desktop-open-web"
   ]
 }

@@ -7,7 +7,7 @@
  * root is now a Vite output (a test file cannot ship from inside it any more
  * than a React component can ship from `apps/server/web/src`), and the dev
  * hooks are what keep `tauri dev`/`tauri build` from ever bundling a stale
- * console.
+ * assistant.
  */
 import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
@@ -111,16 +111,25 @@ describe("the build wiring", () => {
     expect(config.build.frontendDist).toBe("../ui/dist");
   });
 
-  it("builds the wizard page beside the console, CSP-clean by the same rules", () => {
-    // Two bundled pages, two windows. A missing rollup input does not fail the
-    // build - it ships a bundle in which `WebviewUrl::App("wizard.html")`
-    // resolves to nothing, which a release build only discovers on someone's
-    // machine, so the pairing is pinned at the config text like the CSP half.
+  it("builds the ONE bundled page, CSP-clean", () => {
+    // The input is named rather than left to Vite's default, which is
+    // `index.html` — a file this app no longer has. A missing rollup input
+    // does not fail the build: it ships a bundle in which
+    // `WebviewUrl::App("wizard.html")` resolves to nothing, which a release
+    // build only discovers on someone's machine. So the pairing is pinned at
+    // the config text, like the CSP half.
     expect(viteConfig).toContain('wizard: path.resolve(dirname, "ui/wizard.html")');
     expect(existsSync(join(import.meta.dir, "../../wizard.html"))).toBe(true);
+    // And there is exactly one: a second page is a second window, which is
+    // the shape this app spent a release removing.
+    expect(viteConfig.match(/path\.resolve\(dirname, "ui\/[^"]+\.html"\)/g)).toHaveLength(1);
+    // The page the console left behind is gone, not merely unreferenced — an
+    // orphan `index.html` beside a config that names `wizard.html` is how the
+    // wrong page gets bundled back in.
+    expect(existsSync(join(import.meta.dir, "../../index.html"))).toBe(false);
     const wizard = readFileSync(join(import.meta.dir, "../../wizard.html"), "utf8");
-    // script-src 'self' / style-src 'self': module script with a src, nothing
-    // inline - the same rules index.html lives by.
+    // script-src 'self' / style-src 'self': a module script with a src,
+    // nothing inline.
     expect(wizard).not.toMatch(/<script(?![^>]*\bsrc=)/);
     expect(wizard).not.toMatch(/style=/);
     expect(wizard).toContain('src="/src/wizard.ts"');
@@ -147,13 +156,13 @@ describe("the build wiring", () => {
 });
 
 describe("the test runs", () => {
-  it("reaches the release-script tests and the console's", () => {
+  it("reaches the release-script tests and the page's", () => {
     expect(pkg.scripts.test).toContain("src");
     expect(pkg.scripts.test).toContain("ui/src");
   });
 
   it("needs no happy-dom preload, and has no bunfig to carry one", () => {
-    // The console's tests are pure — the same fs-and-pure-import shape as the
+    // The page's tests are pure — the same fs-and-pure-import shape as the
     // release script's. The moment a component test with a DOM arrives, this
     // assertion should be replaced by the client app's ui/bunfig.toml pattern
     // rather than by registering DOM globals unconditionally.

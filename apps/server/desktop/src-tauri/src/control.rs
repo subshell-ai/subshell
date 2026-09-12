@@ -1662,7 +1662,7 @@ mod tests {
     /// The two capability files, parsed.
     fn grants(file: &str) -> Vec<String> {
         let raw = match file {
-            "console" => include_str!("../capabilities/console.json"),
+            "wizard" => include_str!("../capabilities/wizard.json"),
             _ => include_str!("../capabilities/main.json"),
         };
         let v: serde_json::Value = serde_json::from_str(raw).expect("capability file is valid JSON");
@@ -1694,14 +1694,14 @@ mod tests {
         );
     }
 
-    /// Reading the server's log is a console-only surface.
+    /// Reading the server's log is an ASSISTANT-only surface.
     ///
     /// It takes no path, so it is not an arbitrary-file read, but it does hand
     /// back the server's own log lines — and the remote window is the one place
     /// whose page we do not control.
     #[test]
-    fn only_the_console_may_read_the_logs() {
-        assert!(grants("console").contains(&"allow-desktop-logs".to_string()));
+    fn only_the_assistant_may_read_the_logs() {
+        assert!(grants("wizard").contains(&"allow-desktop-logs".to_string()));
         assert!(!grants("main").contains(&"allow-desktop-logs".to_string()));
     }
 

@@ -1,35 +1,35 @@
 /**
- * The console's second view (spec § 7.1 of the 2026-09-10 design).
+ * The Reset screen (spec § 7.1 of the 2026-09-10 design; a screen rather than
+ * a takeover since spec 2026-09-12 § 5.3).
  *
- * Entered by the desktop-screen event from the dashboard's danger card, or by
- * the Settings section's own Reset button (spec § 4 of the 2026-09-11 design —
- * the button arms the plan itself before raising this view); it renders the
- * captured-plan truth from the live probe and compares the typed hostname the
- * same way Rust will (displayed value wins nowhere: both sides read the
- * probe's single memo, R15).
+ * Entered by the `desktop-screen` event from the dashboard's danger card, or
+ * by the recovery screen's footer link; it renders the captured-plan truth
+ * from the live probe and compares the typed hostname the same way Rust will
+ * (displayed value wins nowhere: both sides read the probe's single memo,
+ * R15).
  *
- * It covers the WHOLE shell, sidebar included. A reset that left the sidebar
- * live would let someone switch sections mid-chain, out from under a screen
- * whose entire premise is that it is the only thing happening.
+ * It still covers the whole window, and the reason is unchanged even though
+ * there is no sidebar left to cover: this screen's premise is that it is the
+ * only thing happening, so the assistant's own frame and its bottom bar go
+ * with it — a Back button live through a chain that stops a service and
+ * sweeps sockets is a way out from under a screen that has none.
  */
-import { listen } from "@tauri-apps/api/event";
-import type { SectionId } from "../lib/console-nav";
 import * as ipc from "../lib/ipc";
 import { armed, refusal, resetRows } from "../lib/reset";
-import { type ConsoleHost, el, errText, state } from "./state";
+import { type AssistantHost, el, errText } from "./host";
 
 export interface ResetView {
-  /** Whether the takeover is up, so the page renders it instead of a section. */
+  /** Whether the screen is up, so the page renders it instead of a frame screen. */
   isOpen(): boolean;
   render(): void;
-  /** Arm a plan and raise the screen — the Settings button's handler. */
+  /** Arm a plan and raise the screen. */
   open(): Promise<void>;
+  /** Drop the screen without arming anything — the page's own `close()` path. */
+  hide(): void;
 }
 
-export function createResetView(host: ConsoleHost): ResetView {
+export function createResetView(host: AssistantHost): ResetView {
   let open = false;
-  /** Where to go back to on Cancel: Settings from the button, wherever the deep link found us. */
-  let cameFrom: SectionId = "settings";
 
   /**
    * Why the last arming attempt did not stage a plan, or null when it did.
@@ -53,8 +53,8 @@ export function createResetView(host: ConsoleHost): ResetView {
   let resetRunLabel = "Reset everything";
 
   function render(): void {
-    const st = state.probe?.status;
-    const host_name = state.probe?.hostname ?? "";
+    const st = host.probe()?.status;
+    const host_name = host.probe()?.hostname ?? "";
     const why = armingProblem ?? refusal(st);
     // One sentence names one cause. A paths block that is complete but a name
     // that could not be read still leaves the button disabled (armed() refuses
@@ -82,8 +82,8 @@ export function createResetView(host: ConsoleHost): ResetView {
     // button stayed lit and lettered "Reset everything" through a chain that
     // stops a service and sweeps hundreds of sockets, so the one press that
     // matters looked like it had not registered and invited a second.
-    (el("reset-run") as HTMLButtonElement).disabled = state.busy || !(why === null && armed(typed, host_name));
-    el("reset-run").textContent = state.busy ? "Resetting…" : resetRunLabel;
+    (el("reset-run") as HTMLButtonElement).disabled = host.busy() || !(why === null && armed(typed, host_name));
+    el("reset-run").textContent = host.busy() ? "Resetting…" : resetRunLabel;
     el("reset-run").dataset.armed = String(armed(typed, host_name));
     // The reason, beside the control it disables. Only for a REFUSAL: "you
     // have not typed the hostname yet" is what the label above the box already
@@ -92,11 +92,24 @@ export function createResetView(host: ConsoleHost): ResetView {
     el("reset-why").textContent = why ?? "";
   }
 
+  /**
+   * Raise the screen: the assistant's frame and its bar step aside, because
+   * this screen owns the window while it is up.
+   */
   function show(): void {
     open = true;
-    el("shell").hidden = true;
+    el("screen").hidden = true;
+    el("bar").hidden = true;
     el("reset-view").hidden = false;
     render();
+  }
+
+  /** Put the frame back. The page then renders whatever the probe implies. */
+  function hide(): void {
+    open = false;
+    el("reset-view").hidden = true;
+    el("screen").hidden = false;
+    el("bar").hidden = false;
   }
 
   /**
@@ -112,7 +125,7 @@ export function createResetView(host: ConsoleHost): ResetView {
     try {
       if (await ipc.armReset()) return null;
       return (
-        refusal(state.probe?.status) ?? "This server did not report its data locations, so there is nothing to stage."
+        refusal(host.probe()?.status) ?? "This server did not report its data locations, so there is nothing to stage."
       );
     } catch (err) {
       // Say what is out of step, not what kind of build this is. Reset works
@@ -151,17 +164,15 @@ export function createResetView(host: ConsoleHost): ResetView {
 
   el("reset-confirm").addEventListener("input", render);
   el("reset-cancel").addEventListener("click", () => {
-    open = false;
-    el("reset-view").hidden = true;
-    el("shell").hidden = false;
-    host.goTo(cameFrom);
+    hide();
+    host.close();
   });
 
   el("reset-run").addEventListener("click", () => {
     void (async () => {
       const typed = (el("reset-confirm") as HTMLInputElement).value;
-      if (!armed(typed, state.probe?.hostname ?? "")) return;
-      state.busy = true;
+      if (!armed(typed, host.probe()?.hostname ?? "")) return;
+      host.setBusy(true);
       showResetResult("", false);
       host.render();
       try {
@@ -179,7 +190,7 @@ export function createResetView(host: ConsoleHost): ResetView {
         armingProblem = await armReset();
         if (armingProblem !== null) {
           showResetResult(armingProblem, true);
-          state.busy = false;
+          host.setBusy(false);
           host.render();
           return;
         }
@@ -193,7 +204,7 @@ export function createResetView(host: ConsoleHost): ResetView {
         // guard): one sentence, no partial log exists to show.
         showResetResult(errText(err), true);
       }
-      state.busy = false;
+      host.setBusy(false);
       try {
         await host.refresh();
       } catch {
@@ -203,18 +214,11 @@ export function createResetView(host: ConsoleHost): ResetView {
     })();
   });
 
-  void listen<string>("desktop-screen", (event) => {
-    if (event.payload === "reset") {
-      cameFrom = state.section;
-      show();
-    }
-  });
-
   return {
     isOpen: () => open,
     render,
+    hide,
     async open(): Promise<void> {
-      cameFrom = state.section;
       // `await` then show regardless: a refused or failed arming must still
       // raise the screen, because the screen is what explains the refusal
       // (`render`'s `why`).

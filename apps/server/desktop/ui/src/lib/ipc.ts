@@ -1,5 +1,13 @@
 /**
- * The typed edge of the IPC boundary — one function per `desktop_*` command.
+ * The typed edge of the IPC boundary — one function per `desktop_*` command
+ * THIS page can invoke.
+ *
+ * `desktop_open_assistant`, `desktop_shell_ready` and `desktop_notify` are
+ * deliberately absent: those three belong to the `main` window, whose page is
+ * the SERVER's own SPA and reaches them through its own bridge
+ * (`apps/server/web/src/lib/desktop.ts`, which reads `window.__TAURI__`). A
+ * wrapper here for a command this page never calls would break the exact-set
+ * pin below by describing a surface the assistant does not have.
  *
  * Every type below MIRRORS a Rust type in `../src-tauri/src/control.rs` (or,
  * for the ladder types, `server_bin.rs`), which serializes with
@@ -12,19 +20,19 @@
  *    ones the Rust docblocks spend the most words on.
  * 2. The **command names** are pinned by `__tests__/ipc-acl.test.ts`, which
  *    reads `src-tauri/permissions/desktop.toml` and the two capability files
- *    and asserts the set granted to `console` is exactly the set invoked here,
- *    and that `main` still holds exactly its three harmless commands. A name
- *    that appears in only two of the three places is a runtime permission
- *    rejection, not a compile error.
- * 3. The **step union** is derived from `ProbeStep`'s serde values; a step the
- *    console has never heard of is `fallbackStep()`'s problem, not a type
+ *    and asserts the set granted to `wizard` is exactly the set this page
+ *    invokes, and that `main` still holds exactly its three harmless
+ *    commands. A name that appears in only two of the three places is a
+ *    runtime permission rejection, not a compile error.
+ * 3. The **step union** is derived from `ProbeStep`'s serde values; a step
+ *    this build has never heard of is the render path's problem, not a type
  *    error, so the wire type is honest about being a closed set while the
- *    render path stays open.
+ *    page stays open to one it does not know.
  *
  * `invoke` is imported from `@tauri-apps/api/core` rather than read off
  * `window.__TAURI__`. The global still EXISTS — `withGlobalTauri` is `true`
  * because the `main` window's SPA bridge reads it (`desktop.ts`, pinned by
- * `tauri-config.test.ts` against the UA marker) — but the console takes the
+ * `tauri-config.test.ts` against the UA marker) — but this page takes the
  * typed path and never touches it.
  */
 import { invoke } from "@tauri-apps/api/core";
@@ -221,14 +229,6 @@ export const installTmux = (): Promise<ActionResult> => invoke<ActionResult>("de
 export const setServerBin = (path: string | null): Promise<void> => invoke<void>("desktop_set_server_bin", { path });
 
 export const openMain = (): Promise<void> => invoke<void>("desktop_open_main");
-
-/**
- * Raise the assistant window, optionally at a named screen. The argument
- * names a SCREEN, never a command, which is what makes this one of the three
- * grants `main` — the server's own page — is allowed to hold.
- */
-export const openAssistant = (screen?: "reset" | "update"): Promise<void> =>
-  invoke<void>("desktop_open_assistant", { screen: screen ?? null });
 
 export const openPath = (target: OpenTarget): Promise<void> => invoke<void>("desktop_open_path", { target });
 

@@ -18,7 +18,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_PORT = 5178;
 
 export default defineConfig({
-  // `ui/` is the Vite root, so `index.html` and `src/` sit together and the
+  // `ui/` is the Vite root, so `wizard.html` and `src/` sit together and the
   // app's own `src/` (the release script, run by bun, type-checked by its own
   // tsconfig) is not part of the web build at all.
   root: path.resolve(dirname, "ui"),
@@ -30,7 +30,7 @@ export default defineConfig({
   plugins: [tailwindcss()],
   build: {
     // Relative to `root`, i.e. apps/server/desktop/ui/dist — which is what
-    // `tauri.conf.json`'s frontendDist names. The console's logic lives in
+    // `tauri.conf.json`'s frontendDist names. The assistant's logic lives in
     // `ui/src/`; the shipped asset root is only ever built output.
     outDir: "dist",
     emptyOutDir: true,
@@ -43,19 +43,24 @@ export default defineConfig({
     // Vite's module-preload polyfill is injected as an INLINE <script>, which
     // that policy blocks silently; and an asset under `assetsInlineLimit`
     // becomes a `data:` URL, which `default-src 'self'` blocks for every type
-    // this page could load. The console renders with the server DOWN on
+    // this page could load. The assistant renders with the server DOWN on
     // someone's broken machine — a silently blank panel is the one failure
     // mode this app may not have.
     modulePreload: { polyfill: false },
     assetsInlineLimit: 0,
     rollupOptions: {
-      // Two bundled pages, two windows: the console (index.html) and the
-      // first-run wizard. Tauri resolves each by name against the dev server
-      // in dev and the bundle in prod (WebviewUrl::App), so both must be
-      // inputs or one window loads the other's page in a release build,
-      // silently. Pinned by tauri-config.test.ts.
+      // ONE bundled page: the assistant. `wizard.html` keeps that name
+      // because the name is an IDENTIFIER — `WebviewUrl::App("wizard.html")`
+      // in `windows.rs`, the `wizard` window label, and the capability file
+      // keyed to it — while the page it carries is first run, recovery,
+      // update and reset. Renaming it to `index.html` would move four things
+      // to rename one.
+      //
+      // Named explicitly rather than left to Vite's default, which is
+      // `index.html`: there is no `index.html` here, and a default that found
+      // nothing would ship a bundle in which `WebviewUrl::App` resolves to a
+      // 404 with no build error anywhere. Pinned by tauri-config.test.ts.
       input: {
-        index: path.resolve(dirname, "ui/index.html"),
         wizard: path.resolve(dirname, "ui/wizard.html"),
       },
     },

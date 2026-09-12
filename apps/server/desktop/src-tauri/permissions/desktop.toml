@@ -7,16 +7,18 @@
 # silently inherit the ability to drive the CLI. With it, each command is
 # granted deliberately, per window.
 #
-# The split that matters: the BUNDLED pages get the CLI-driving ones; `main` —
-# whose page comes from the SERVER — gets only the ones that cannot touch the
-# CLI, the config, the service or the filesystem, and only over loopback. See
-# `capabilities/main.json` for the current list.
+# The split that matters is window KIND, and there are two windows now (spec
+# 2026-09-12 § 5.1): `wizard` is the ASSISTANT, a bundled page this repo
+# ships, and it holds every command that drives the CLI — first run, recovery,
+# update and reset all live there. `main` shows the SERVER's own SPA and gets
+# only the three that cannot touch the CLI, the config, the service or the
+# filesystem, and only over loopback. See `capabilities/main.json`.
 
 "$schema" = "schemas/schema.json"
 
 [[permission]]
 identifier = "allow-desktop-logs"
-description = "Read a tail of the server's own log (the journal on Linux, the plist's log file on macOS). Takes no path."
+description = "Read a tail of the server's own capped log file, falling back to the service manager's log (the journal on Linux, the plist's file on macOS) where the server names none. Takes no path: this side decides what the server's log IS."
 commands.allow = ["desktop_logs"]
 
 [[permission]]
@@ -36,7 +38,7 @@ commands.allow = ["desktop_install_tmux"]
 
 [[permission]]
 identifier = "allow-desktop-setup"
-description = "The whole first-run chain in one call: install the bundled server, write config.env with the CLI's defaults, register the login service, start it. Stops at the first failure. Console-only: the server-origin page gets no part of the CLI."
+description = "The whole first-run chain in one call: install the bundled server, write config.env with the CLI's defaults, register the login service, start it. Stops at the first failure. Assistant-only: the server-origin page gets no part of the CLI."
 commands.allow = ["desktop_setup"]
 
 [[permission]]
@@ -46,12 +48,12 @@ commands.allow = ["desktop_service"]
 
 [[permission]]
 identifier = "allow-desktop-reset"
-description = "Wipe this machine's Subshell instance: stop and uninstall the service, close this instance's panes, delete the paths status reported, and clear this app's choices. Takes ONLY the typed hostname; the paths are a plan Rust captured when the screen was opened, and the command refuses without one. Console window only."
+description = "Wipe this machine's Subshell instance: stop and uninstall the service, close this instance's panes, delete the paths status reported, and clear this app's choices. Takes ONLY the typed hostname; the paths are a plan Rust captured when the screen was opened, and the command refuses without one. Assistant window only."
 commands.allow = ["desktop_reset"]
 
 [[permission]]
 identifier = "allow-desktop-arm-reset"
-description = "Read this machine now and stash the reset's delete plan, so the console can raise its own reset screen. Console-only: the server-origin page still names a SCREEN and nothing else, and the wizard has no reset at all."
+description = "Read this machine now and stash the reset's delete plan, so the assistant can re-arm on every press of its own Reset screen. Assistant-only: the server-origin page still names a SCREEN and nothing else."
 commands.allow = ["desktop_arm_reset"]
 
 [[permission]]
@@ -66,7 +68,7 @@ commands.allow = ["desktop_open_main"]
 
 [[permission]]
 identifier = "allow-desktop-open-assistant"
-description = "Raise the bundled assistant window, optionally at a named screen (`reset` | `update`). Safe for the server-origin page to call: it shows a window and names a SCREEN, never a command — the `reset` screen performs one read-only `status --json` the app already runs on a timer, and every verb behind it needs a press inside the bundled page."
+description = "Raise the assistant window, optionally at the reset or update screen. Executes nothing: the argument names a SCREEN from a closed enum, the update is a press inside the bundled page, and the reset needs the hostname typed there. Arming `reset` performs one read-only `status --json`, which the app already runs on its own watch."
 commands.allow = ["desktop_open_assistant"]
 
 [[permission]]

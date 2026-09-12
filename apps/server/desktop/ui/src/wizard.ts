@@ -1,11 +1,28 @@
 /**
- * The setup assistant (spec 2026-09-11 § 5): three screens in one fixed
- * frame, machine work as progress, the dashboard opened by the page itself.
- * DOM only; every judgment is imported from wizard-state and tested without
- * a webview. Shares lib/ with the console on purpose: prefill, the tmux plan
- * and the IPC edge are one contract, not two.
+ * The assistant (spec 2026-09-11 § 5; spec 2026-09-12 § 5.3): one fixed frame
+ * and one screen at a time.
+ *
+ * It owns everything that has to render with the server DOWN — the first run
+ * (Welcome, Install tmux, Set Up Your Server), the one Recovery screen a
+ * machine sees once it has been set up and its server is not answering, the
+ * Update screen, and Reset — and it is the only page granted the commands
+ * that drive the CLI. `screensFor(probe, onboarded)` picks the family;
+ * `update` and `reset` are entered by REQUEST, from the SPA's own cards over
+ * `desktop_open_assistant` or from the recovery footer.
+ *
+ * DOM only. Every judgment is imported from `lib/wizard-state.ts` and
+ * `lib/recovery-model.ts`, both pure and tested without a webview, and every
+ * screen module lives under `assistant/` and takes an `AssistantHost` rather
+ * than importing this file — a cycle back to the entry point is a temporal
+ * dead zone at module evaluation, i.e. a blank window on the machine someone
+ * is trying to repair.
  */
+import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { type AssistantHost, el, errText } from "./assistant/host";
+import { renderOutput, renderTail } from "./assistant/logs";
+import { createResetView } from "./assistant/reset-view";
+import { buildTmuxWarning, type TmuxWarning } from "./assistant/tmux-warning";
 import {
   CONFIG_FIELDS,
   configPayload,
@@ -17,17 +34,23 @@ import {
   fieldProblems,
 } from "./lib/config-form";
 import { tmuxInstallPlan } from "./lib/installers";
-import type { ActionResult, Probe } from "./lib/ipc";
+import type { About, ActionResult, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
-import { canSetup, dots, failureLine, prereqState, type ScreenId, screensFor, setupRows } from "./lib/wizard-state";
+import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
+import {
+  canSetup,
+  dots,
+  failureLine,
+  prereqState,
+  type RecoveryActionKind,
+  recoveryAction,
+  recoveryTitle,
+  type ScreenId,
+  screensFor,
+  setupRows,
+} from "./lib/wizard-state";
 import "./styles.css";
 
-const el = (id: string): HTMLElement => {
-  const node = document.getElementById(id);
-  if (node === null) throw new Error(`the setup page is missing #${id}`);
-  return node;
-};
-const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const POLL_MS = 1500;
 
 // ---------------------------------------------------------------------------
@@ -35,7 +58,13 @@ const POLL_MS = 1500;
 // is a probe fact or an in-flight action.
 // ---------------------------------------------------------------------------
 let probe: Probe | null = null;
-let screen: ScreenId = "welcome";
+/**
+ * The screen showing, or `null` for "whatever the probe implies".
+ *
+ * `null` is what a requested screen is dismissed BACK to, and what the first
+ * probe resolves; it is not a fourth state to render.
+ */
+let screen: ScreenId | null = null;
 /** A one-off act (tmux install, pick a binary) is in flight. */
 let busy = false;
 /** The setup chain is running. The poll must not stop for that. */
@@ -48,6 +77,29 @@ let opened = false;
 let openFailed = false;
 let problem = "";
 let customizeOpen = false;
+/** The last action's own words, for the recovery screen's Show Details. */
+let lastResult: ActionResult | null = null;
+/** The last log tail, refreshed on the poll only while the disclosure is open. */
+let lastTail: LogTail | null = null;
+/**
+ * Whether Show Details is expanded.
+ *
+ * Page state rather than the element's, because `#content` is rebuilt on
+ * every render and the poll renders every 1500 ms — a `<details>` whose
+ * openness lived only in the DOM would collapse under the reader twice a
+ * second. (The failure screen had exactly that defect.)
+ */
+let detailsOpen = false;
+/** True while the ready handoff is on screen, so its entrance replays once. */
+let handedOff = false;
+/**
+ * Who made this app, its version and its terms — read ONCE and kept.
+ *
+ * Nine constants that cannot change while the app runs, so re-reading them
+ * per render would be a CLI-free but still pointless round trip. A failed
+ * read leaves this null and the disclosure simply omits the block.
+ */
+let about: About | null = null;
 const form: FormValues = effectiveForm(undefined);
 const explicit: ExplicitMap = {};
 let seeded = false;
@@ -103,8 +155,11 @@ function text(tag: "p" | "span" | "div", s: string, cls = ""): HTMLElement {
 function renderDots(): void {
   const d = el("dots");
   d.textContent = "";
-  if (probe === null) return;
+  if (probe === null || screen === null) return;
   const { total, done, current } = dots(probe, screen);
+  // Recovery, Update and Reset are not steps on a journey, so there is no row
+  // at all rather than a row of six empties. `dots` answers -1 for them.
+  if (current < 0) return;
   const row = document.createElement("span");
   row.setAttribute("aria-hidden", "true");
   row.style.display = "contents";
@@ -118,14 +173,34 @@ function renderDots(): void {
 const here = (): string => (probe?.platform === "darwin" ? "this Mac" : "this machine");
 
 // ---------------------------------------------------------------------------
+// The host every `assistant/` module takes, so none of them imports this file.
+// ---------------------------------------------------------------------------
+const host: AssistantHost = {
+  probe: () => probe,
+  // `running` counts: the setup chain owns the machine for as long as it
+  // takes, and a control lit through it invites a second press.
+  busy: () => busy || running,
+  setBusy: (on: boolean) => {
+    busy = on;
+  },
+  render: () => render(),
+  refresh: () => refresh(),
+  fail: (err: unknown) => setProblem(err),
+  close: () => {
+    resetView.hide();
+    screen = null;
+    render();
+  },
+};
+
+const resetView = createResetView(host);
 /**
- * Which family of screens this page renders, as `screensFor`'s `onboarded`
- * argument. It is fixed `false` because the only screens built here are the
- * first run's; the recovery screen an onboarded machine is owed arrives with
- * the rest of the assistant's own screens, and asking the probe for the flag
- * before then would select a screen nothing draws.
+ * One warning for the one gated surface. The console needed a factory because
+ * two sections rendered at once; here it is a factory for the other half of
+ * the same reason — the element is re-appended by every render, and one
+ * created per render would throw away a half-finished Copy.
  */
-const FIRST_RUN_FAMILY = false;
+const tmuxWarn: TmuxWarning = buildTmuxWarning(host, () => void act(() => ipc.installTmux()));
 
 // Screens. Each fills #content and the bar; ordering comes from screensFor.
 // ---------------------------------------------------------------------------
@@ -168,7 +243,7 @@ function renderTmux(p: Probe): void {
 }
 
 function renderSetup(p: Probe): void {
-  if (running || p.next === "ready") {
+  if (running) {
     renderProgress(p);
     return;
   }
@@ -197,7 +272,7 @@ function renderSetup(p: Probe): void {
   content.append(links);
   if (customizeOpen) content.append(addressForm(p));
   const gate = canSetup(p, busy);
-  const list = screensFor(p, FIRST_RUN_FAMILY);
+  const list = screensFor(p, false);
   const prev = list[Math.max(0, list.indexOf("setup") - 1)] ?? "welcome";
   el("bar-left").append(button("Back", () => go(prev), "ghost"));
   if (!gate.ok && gate.reason) el("bar-right").append(text("span", gate.reason, "reason"));
@@ -224,30 +299,242 @@ function planRows(p: Probe): HTMLUListElement {
 }
 
 function renderProgress(p: Probe): void {
-  if (p.next === "ready") {
-    if (openFailed) {
-      setFrame("server", "Subshell Is Running", "The dashboard did not open by itself.");
-      el("bar-left").append(button("Open Status Page", () => void ipc.openAssistant().catch(setProblem), "ghost"));
-      el("bar-right").append(
-        button(
-          "Open Dashboard",
-          () => {
-            opened = false;
-            openFailed = false;
-            problem = "";
-            render();
-          },
-          "primary",
-        ),
-      );
-      return;
-    }
-    setFrame("server", "Setting Up Subshell…", "Opening your dashboard…");
-    openWhenReady();
-    return;
-  }
   setFrame("server", "Setting Up Subshell…", "This takes a moment.");
   el("content").append(checklist(p, "active"));
+}
+
+/**
+ * The last screen either family sees: the server answers, so the dashboard is
+ * what comes next and this window has nothing left to say.
+ *
+ * The title differs because the sentence does. A first run is finishing; an
+ * onboarded machine whose server just came back was never setting anything
+ * up, and telling it so would be the app narrating its own state machine.
+ */
+function renderHandoff(p: Probe): void {
+  if (openFailed) {
+    setFrame("server", "Subshell Is Running", "The dashboard did not open by itself.");
+    el("bar-right").append(
+      button(
+        "Open Dashboard",
+        () => {
+          opened = false;
+          openFailed = false;
+          problem = "";
+          render();
+        },
+        "primary",
+      ),
+    );
+    return;
+  }
+  setFrame("server", p.onboarded ? "Your Server Is Running" : "Setting Up Subshell…", "Opening your dashboard…");
+  openWhenReady();
+}
+
+/**
+ * The ONE screen a machine that has been set up sees while its server is not
+ * answering (spec 2026-09-12 § 5.3). The title IS the diagnosis, there is one
+ * primary action, and everything a person repairing an install would
+ * otherwise have opened a console for sits behind Show Details.
+ */
+function renderRecovery(p: Probe): void {
+  if (running) {
+    renderProgress(p);
+    return;
+  }
+  if (failure) {
+    renderFailure(p);
+    return;
+  }
+  setFrame("server", recoveryTitle(p.next, p.platform), recoverySubtitle(p.next));
+  const content = el("content");
+  const action = recoveryAction(p.next);
+  const tmuxMissing = p.tmux === null;
+  if (action) {
+    // The CLI refuses `init` and `service install` without tmux, so a button
+    // that could only produce the refusal is disabled with its reason
+    // directly below. Retry and Choose are not gated — neither runs a pane.
+    const gated = tmuxMissing && action.kind !== "retry" && action.kind !== "choose-binary";
+    content.append(button(action.label, () => runRecovery(action.kind), "primary big", gated));
+  }
+  // OFFERED here, never applied unasked: a newer bundled server is a choice,
+  // and the screen someone reached because their server is down is exactly
+  // where "the version you have may be the problem" belongs.
+  if (p.serverChoice === "upgrade-available") {
+    content.append(button(`Update Server to ${p.bundledVersion}…`, () => go("update"), "linkish"));
+  }
+  if (tmuxMissing) {
+    tmuxWarn.applyPlan(tmuxInstallPlan(p.platform, p.hasBrew));
+    tmuxWarn.hidden = false;
+    content.append(tmuxWarn);
+  }
+  content.append(detailsDisclosure());
+  el("bar-left").append(button(`Reset ${here()}…`, () => void openReset(), "ghost"));
+}
+
+/** Run the recovery screen's one action. Each is an existing path, named. */
+function runRecovery(kind: RecoveryActionKind): void {
+  switch (kind) {
+    // A press that only re-probes still goes through `act`, so it disables
+    // the screen and surfaces a refusal like every other press does.
+    case "retry":
+      void act(async () => null);
+      return;
+    case "choose-binary":
+      void pickBinary();
+      return;
+    case "setup":
+      void startSetup();
+      return;
+    case "install-service":
+      void act(() => ipc.service("install", false), true);
+      return;
+    case "start":
+      void act(() => ipc.service("start", false), true);
+      return;
+  }
+}
+
+/**
+ * The pre-boot facts, the server's log and the last action's words, behind
+ * one disclosure.
+ *
+ * All three were separate surfaces in the console — a Details list, a Logs
+ * section, an output pane — reachable only by navigating away from the thing
+ * that was wrong. They are one collapsed block under the diagnosis now, which
+ * is the whole argument for a single recovery screen.
+ */
+function detailsDisclosure(): HTMLElement {
+  const details = document.createElement("details");
+  details.open = detailsOpen;
+  details.addEventListener("toggle", () => {
+    detailsOpen = details.open;
+    // Pull a tail the moment it is asked for rather than waiting out the
+    // poll: an empty pane on open reads as "there are no logs".
+    if (detailsOpen) void refreshTail();
+  });
+  const summary = document.createElement("summary");
+  summary.textContent = "Show Details";
+  details.append(summary);
+
+  const dl = document.createElement("dl");
+  dl.className = "facts";
+  for (const f of recoveryFacts(probe)) {
+    const dt = document.createElement("dt");
+    dt.textContent = f.label;
+    const dd = document.createElement("dd");
+    const line = text("span", f.value, f.tone === "bad" ? "bad-text" : f.tone === "warn" ? "warn-text" : "");
+    dd.append(line);
+    if (f.reveal) {
+      const target = f.reveal;
+      // Names an INTENT, never a path: the Rust side re-reads the path from
+      // its own fresh probe, so a row can only reveal the fact it is showing.
+      dd.append(button("Reveal", () => void ipc.openPath(target).catch(setProblem), "linkish"));
+    }
+    if (f.sub) dd.append(text("span", f.sub, "fact-sub"));
+    dl.append(dt, dd);
+  }
+  details.append(dl);
+
+  details.append(text("p", "Server log", "group-heading"));
+  const log = document.createElement("pre");
+  log.className = "pane-pre";
+  renderTail(log, lastTail);
+  details.append(log);
+
+  const out = document.createElement("pre");
+  out.className = "pane-pre";
+  // Appended only when the last press actually said something: `.pane-pre:empty`
+  // collapses the box, so a heading over nothing is the one shape to avoid.
+  if (renderOutput(out, lastResult)) {
+    details.append(text("p", "Last action", "group-heading"), out);
+  }
+
+  // What this APP is, which no other surface can answer on a machine whose
+  // server is down: the SPA's About dialog needs the SPA, and the SPA needs
+  // the server this screen exists because of. Every string is Rust's copy of
+  // the shared legal constants, so the page stores none of them.
+  if (about !== null) {
+    const facts = document.createElement("dl");
+    facts.className = "facts";
+    for (const [label, value] of [
+      ["This app", `${about.appName} ${about.appVersion}`],
+      ["Terms", about.licenseSummary],
+      ["Copyright", about.copyright],
+    ]) {
+      const dt = document.createElement("dt");
+      dt.textContent = label as string;
+      const dd = document.createElement("dd");
+      dd.append(text("span", value as string, ""));
+      facts.append(dt, dd);
+    }
+    details.append(text("p", "About", "group-heading"), facts);
+    const links = document.createElement("p");
+    links.className = "about-links";
+    // A member of a CLOSED enum, never a URL: the same addresses travel here
+    // for display, and showing an address is a different capability from
+    // navigating to one.
+    for (const [label, target] of [
+      ["Website", "website"],
+      ["Licence", "license"],
+      ["Publisher", "company"],
+    ] as const) {
+      links.append(button(label, () => void ipc.openWeb(target).catch(setProblem), "linkish"));
+    }
+    details.append(links);
+  }
+  return details;
+}
+
+/**
+ * Update Your Server: the bundled copy is newer than the installed one.
+ *
+ * Reached from the SPA's Update card (`desktop_open_assistant({ screen:
+ * "update" })`) or from the recovery screen, and it renders over a RUNNING
+ * server — which is why `render()` lets a requested screen outrank the ready
+ * handoff, or this window would bounce straight back to the dashboard it was
+ * just asked to leave.
+ */
+function renderUpdate(p: Probe): void {
+  setFrame(
+    "server",
+    "Update Your Server",
+    `Subshell Server includes ${p.bundledVersion ?? "no server"}; ${here()} is running ${p.server?.version ?? "an unknown version"}.`,
+  );
+  const content = el("content");
+  if (paneRisk(p)) {
+    content.append(
+      text(
+        "p",
+        "The installed service definition does not spare live panes, so this restart closes every subshell running here.",
+        "hint warn-text",
+      ),
+    );
+  }
+  content.append(
+    button(
+      "Update and Restart",
+      () =>
+        void act(async () => {
+          const installed = await ipc.installServer();
+          if (!installed.ok) return installed;
+          // `--force` only where the definition would refuse over live panes;
+          // the CLI rejects the flag on every other verb.
+          return ipc.service("restart", paneRisk(p));
+        }, true),
+      "primary big",
+    ),
+  );
+  el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
+}
+
+/** Arm a plan and raise the Reset screen. */
+async function openReset(): Promise<void> {
+  screen = "reset";
+  // `open()` shows the screen whether or not a plan staged: the screen is
+  // what explains a refusal.
+  await resetView.open();
 }
 
 function renderFailure(p: Probe): void {
@@ -256,6 +543,14 @@ function renderFailure(p: Probe): void {
   content.append(checklist(p, "failed"));
   if (failure) {
     const details = document.createElement("details");
+    // The openness is PAGE state, for the same reason the recovery screen's
+    // is: `#content` is rebuilt on every render and the poll renders every
+    // 1500 ms, so a `<details>` that kept its state only in the DOM collapsed
+    // under the reader twice a second. It did exactly that until now.
+    details.open = detailsOpen;
+    details.addEventListener("toggle", () => {
+      detailsOpen = details.open;
+    });
     const summary = document.createElement("summary");
     summary.textContent = "Show Details";
     const pre = document.createElement("pre");
@@ -264,7 +559,10 @@ function renderFailure(p: Probe): void {
     details.append(summary, pre);
     content.append(details);
   }
-  el("bar-left").append(button("Open Status Page", () => void ipc.openAssistant().catch(setProblem), "ghost"));
+  // "Open Status Page" used to be here and on the ready screen, opening the
+  // console. There is no second window to offer: this page IS the status
+  // page now, and a failed chain leaves the reader on the screen that
+  // explains it (spec 2026-09-12 § 5.1).
   el("bar-right").append(button("Try Again", () => void startSetup(), "primary"));
 }
 
@@ -339,8 +637,11 @@ function resetForm(): void {
 // Navigation, actions, render, poll
 // ---------------------------------------------------------------------------
 function next(): ScreenId {
-  if (probe === null) return screen;
-  const list = screensFor(probe, FIRST_RUN_FAMILY);
+  if (probe === null || screen === null) return screen ?? "welcome";
+  // The first-run family: this is the Continue button's forward step, and
+  // only the first run has one — recovery is a single screen and the two
+  // requested screens are entered by name.
+  const list = screensFor(probe, false);
   return list[Math.min(list.length - 1, list.indexOf(screen) + 1)] ?? screen;
 }
 /**
@@ -363,18 +664,45 @@ function go(to: ScreenId): void {
   render();
 }
 
-async function act(fn: () => Promise<ActionResult | null>): Promise<void> {
+/** Pull a fresh tail for the Show Details pane. Failure leaves the last one. */
+async function refreshTail(): Promise<void> {
+  try {
+    lastTail = await ipc.logs();
+  } catch {
+    return;
+  }
+  render();
+}
+
+/**
+ * Run one press: nothing else may run beside it, the screen always re-renders,
+ * and a rejection is surfaced rather than leaving every control disabled.
+ *
+ * `settle` asks for the extra re-probes. Pass it when the whole POINT of the
+ * press is a running server (install, start, update): `service start` returns
+ * when the manager has spawned the process, not when the port is bound, so a
+ * single re-probe reads "installed but not running" on a server that came up
+ * fine — and the recovery screen would snap back to the diagnosis the press
+ * had just fixed.
+ */
+async function act(fn: () => Promise<ActionResult | null>, settle = false): Promise<void> {
   if (busy || running) return;
   busy = true;
   problem = "";
+  lastResult = null;
   render();
   try {
     const r = await fn();
+    lastResult = r;
     if (r && !r.ok) problem = failureLine(r);
   } catch (err) {
     problem = errText(err);
   }
   await refresh().catch(setProblem);
+  for (let i = 0; settle && i < 2 && probe?.next !== "ready"; i += 1) {
+    await new Promise((r) => setTimeout(r, 1500));
+    await refresh().catch(() => {});
+  }
   busy = false;
   render();
 }
@@ -431,40 +759,64 @@ function setProblem(err: unknown): void {
 function render(): void {
   el("problem").textContent = problem;
   clear("content", "bar-left", "bar-right");
-  renderDots();
+  // Reset replaces the frame rather than filling it, so nothing below runs.
+  if (resetView.isOpen()) {
+    resetView.render();
+    return;
+  }
   if (probe === null) {
+    renderDots();
     setFrame("icon", "Welcome to Subshell", "Checking this machine…");
     return;
   }
-  // A machine that became ready while any screen was up goes to the dashboard;
-  // the tmux screen advances the moment the fact lands. These two are
-  // AUTOMATIC advances (no button press routes through `go()`), so the
-  // replay has to be triggered here explicitly or this transition would be
-  // the one screen change that never animates.
-  if (probe.next === "ready" || (screen === "tmux" && probe.tmux !== null)) {
-    // The tmux half self-limits (`screen` stops being "tmux" after the first
-    // pass), but `probe.next === "ready"` stays true on EVERY later poll, so
-    // without this guard the replay fired every 1500ms forever — visibly on
+  const p = probe;
+  // A REQUESTED screen outranks the probe's own family. The SPA's Update card
+  // deep-links here on a machine whose server is running, and the ready
+  // handoff below would otherwise send the window straight back to the
+  // dashboard it was just asked to leave.
+  if (screen === "update") {
+    renderDots();
+    renderUpdate(p);
+    return;
+  }
+  const list = screensFor(p, p.onboarded);
+  if (list.length === 0) {
+    // Ready, in either family: the dashboard is what comes next. The replay
+    // is triggered HERE because no button press routed through `go()` — and
+    // it is guarded, because `next === "ready"` stays true on every later
+    // poll and an unguarded replay fired every 1500 ms forever, visibly on
     // the `openFailed` screen, which stays up indefinitely.
-    if (screen !== "setup") {
-      screen = "setup";
+    if (!handedOff) {
+      handedOff = true;
+      screen = null;
       replayEnter();
     }
+    renderDots();
+    renderHandoff(p);
+    return;
   }
-  const p = probe;
-  // PARTIAL because `ScreenId` now names the whole assistant — recovery,
-  // update and reset included — while this page still builds only the first
-  // run's three. Nothing can select one of the others here (`screen` is only
-  // ever set from `screensFor(probe, FIRST_RUN_FAMILY)`, and this page
-  // listens for no screen request), so the fallback is unreachable rather
-  // than a default; it exists so an unbuilt screen would be a Welcome screen
-  // instead of a blank window on a machine someone is repairing.
-  const views: Partial<Record<ScreenId, () => void>> = {
+  handedOff = false;
+  // The tmux screen advances itself the moment the fact lands — the second
+  // automatic advance, and the reason `replayEnter` is called here too.
+  if (screen === "tmux" && p.tmux !== null) {
+    screen = "setup";
+    replayEnter();
+  }
+  // Resolve `null`, and correct a screen the probe no longer offers: a
+  // machine that finishes its first run becomes onboarded, and "setup" is not
+  // on the recovery family's list.
+  if (screen === null || !list.includes(screen)) screen = list[0] ?? "welcome";
+  renderDots();
+  const views: Record<"welcome" | "tmux" | "setup" | "recovery", () => void> = {
     welcome: renderWelcome,
     tmux: () => renderTmux(p),
     setup: () => renderSetup(p),
+    recovery: () => renderRecovery(p),
   };
-  (views[screen] ?? renderWelcome)();
+  // `screen` is one of the four by construction — `list` only ever holds
+  // those — and the fallback exists so a family added later is a Welcome
+  // screen rather than a blank window on a machine someone is repairing.
+  (views[screen as "welcome" | "tmux" | "setup" | "recovery"] ?? renderWelcome)();
 }
 
 async function refresh(): Promise<void> {
@@ -473,15 +825,50 @@ async function refresh(): Promise<void> {
 }
 async function tick(): Promise<void> {
   if ((busy || document.hidden) && !running) return;
-  // Never redraw under a hand typing in the address form.
+  // Never redraw under a hand typing in the address form, or in the reset
+  // screen's confirmation box.
   if (document.activeElement instanceof HTMLInputElement) return;
   try {
     await refresh();
   } catch {
     return;
   }
+  // Only while someone is looking at it. A tail pulled on every tick for a
+  // collapsed disclosure is a CLI spawn per 1500 ms for a view nobody can
+  // see — the cost with none of the benefit, which is the rule the console's
+  // poll kept about its own hidden window.
+  if (detailsOpen) {
+    try {
+      lastTail = await ipc.logs();
+    } catch {
+      /* the pane keeps its last content */
+    }
+  }
   render();
 }
+
+/**
+ * A screen named from OUTSIDE this page: the SPA's danger and update cards,
+ * through `desktop_open_assistant`, and the post-reset handoff.
+ *
+ * The payload is a member of a closed enum Rust parsed (`reset::Screen`), so
+ * nothing here trusts a free string — `home` means "whatever the probe
+ * implies", which is what a reset leaves behind and what the sidebar pill
+ * asks for when it has no screen to name.
+ */
+void listen<string>("desktop-screen", (event) => {
+  if (event.payload === "reset") {
+    void openReset();
+    return;
+  }
+  resetView.hide();
+  screen = event.payload === "update" ? "update" : null;
+  // A reset returns this page to a machine with nothing set up, so the
+  // handoff guard has to be released or a later ready probe renders nothing.
+  handedOff = false;
+  replayEnter();
+  render();
+});
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) return;
@@ -492,10 +879,18 @@ document.addEventListener("keydown", (e) => {
 void (async () => {
   try {
     await refresh();
-    if (probe) screen = screensFor(probe, FIRST_RUN_FAMILY)[0] ?? "welcome";
   } catch (err) {
     problem = errText(err);
   }
   render();
   setInterval(() => void tick(), POLL_MS);
+  // After the first render, never before: nothing on screen waits for it, and
+  // a failed read must not stop the page from coming up on the machine it
+  // exists to repair.
+  try {
+    about = await ipc.about();
+    render();
+  } catch {
+    /* the disclosure omits the block */
+  }
 })();
