@@ -167,10 +167,50 @@ export const SetNodeSharesBodySchema = t.Object({
   ),
 });
 
+/**
+ * `ready.runtime`, mirrored onto the detail view (spec 2026-09-12 § 6.2).
+ *
+ * Shaped exactly like the protocol's `NodeRuntimeReport`, because it IS that
+ * object: the plane forwards what the agent reported rather than deriving
+ * anything, so there is nothing here the node did not say about itself.
+ */
+export const NodeRuntimeSchema = t.Object({
+  startedAt: t.String({ description: "ISO 8601 start of the agent process" }),
+  supervised: t.Boolean({
+    description: "Whether the service manager started this process, so exiting it would be a restart",
+  }),
+  service: t.Object({
+    manager: t.Nullable(t.Union([t.Literal("launchd"), t.Literal("systemd")]), {
+      description: "Per-user service manager on the node's platform, or null where there is none",
+    }),
+    installed: t.Boolean({ description: "Whether a unit/plist for the agent exists on disk" }),
+    definitionPath: t.Nullable(t.String(), { description: "Where that definition lives" }),
+    state: t.String({ description: "The manager's own word for the process state" }),
+    pid: t.Nullable(t.Number(), { description: "The manager's main pid" }),
+    enabled: t.Nullable(t.Boolean(), { description: "Whether it starts at login" }),
+    paneSafety: t.Union([t.Literal("keeps"), t.Literal("kills"), t.Literal("unknown")], {
+      description: "Whether a restart through that definition keeps live panes",
+    }),
+  }),
+  configPath: t.String({ description: "The agent's config.json" }),
+  logPath: t.Nullable(t.String(), { description: "The launchd log file; null under systemd" }),
+  logHint: t.Nullable(t.String(), { description: "The journal command when logPath is null" }),
+  tmuxPath: t.Nullable(t.String(), {
+    description: "tmux on the daemon's PATH, or null (the node accepts no launches)",
+  }),
+  binaryPath: t.String({ description: "The agent binary this process re-enters" }),
+});
+
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY when the viewer can configure. */
 export const GetNodeResponseSchema = t.Object({
   ...NodeViewSchema.properties,
   shares: t.Optional(t.Array(NodeShareSchema, { description: "Full grant set (config-capable viewers only)" })),
+  runtime: t.Optional(
+    t.Object(NodeRuntimeSchema.properties, {
+      description:
+        "How the agent runs — present only while the node is online, only for config-capable viewers, and only on agent nodes",
+    }),
+  ),
 });
 
 /** The `NodeTable.capabilities` JSON → string[]; junk or null reads as empty. */

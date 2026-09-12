@@ -283,6 +283,11 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           // field: they answer on the plane's `detect` round trip, whose
           // driver stashes them here (inventory.ts `detectOnNode`).
           ...(event.homeDir ? { homeDir: event.homeDir } : {}),
+          // Spec 2026-09-12 §6.1: how this agent PROCESS runs. Conditional
+          // spread for the same reason as the two above — an agent that
+          // predates the field must leave the key ABSENT, which is what the
+          // detail view reads as "no Runtime card", not present-and-undefined.
+          ...(event.runtime ? { runtime: event.runtime } : {}),
         };
       }
       // The floor FIRST, because its refusal is the one a person can act on:

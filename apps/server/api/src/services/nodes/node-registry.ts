@@ -1,4 +1,4 @@
-import { NODE_CLOSE_SUPERSEDED } from "@internal/subshell-protocol";
+import { NODE_CLOSE_SUPERSEDED, type NodeRuntimeReport } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { NodeRpcError } from "./node-rpc.js";
 
@@ -82,6 +82,18 @@ export interface NodeAgentFacts {
    * will-not-exist) default rather than skipping the probe.
    */
   homeDir?: string;
+  /**
+   * How the agent PROCESS runs, reported once per connect in `ready` (spec
+   * 2026-09-12 § 6.1): its service manager's view of it, whether exiting
+   * would be a restart, and where its config, log and binary live.
+   *
+   * It lives here rather than in the `nodes` table on purpose — these are
+   * facts about a running process, so when the node is offline they are stale
+   * by definition and the absence of a connection is the honest answer.
+   * Absent on agents that predate the field; the detail view then shows no
+   * Runtime card rather than an empty one.
+   */
+  runtime?: NodeRuntimeReport;
   /**
    * Values for the environment variables the plane's enabled harness
    * manifests declared (`subshell.hostEnv`), and only those — answered by

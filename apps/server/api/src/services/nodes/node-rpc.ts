@@ -33,12 +33,25 @@ export class NodeRpcError extends Error {
   readonly code: NodeRpcErrorCode;
   /** Node the command was addressed to. */
   readonly nodeId: string;
+  /**
+   * The agent's `result.error` string VERBATIM, on a `failed` rejection only.
+   *
+   * `message` wraps it in a sentence (`node "x" reported: …`), which is right
+   * for a log line and wrong for a decision: a route mapping a refusal to an
+   * API code would have to substring-match a sentence it does not own, and a
+   * later rewording of that sentence would silently change the mapping. The
+   * agent's refusals are exact wire constants (`NODE_RESULT_*`), so routes
+   * compare against this field by equality and fall back to a generic code
+   * for anything they do not recognize.
+   */
+  readonly detail: string | undefined;
 
-  constructor(code: NodeRpcErrorCode, message: string, nodeId: string) {
+  constructor(code: NodeRpcErrorCode, message: string, nodeId: string, detail?: string) {
     super(message);
     this.name = "NodeRpcError";
     this.code = code;
     this.nodeId = nodeId;
+    this.detail = detail;
   }
 }
 
@@ -170,7 +183,9 @@ export function resolveResult(conn: NodeConnection, event: NodeResultEvent): boo
   } else if (event.error === "unsupported") {
     pending.reject(new NodeRpcError("unsupported", `node "${conn.nodeId}" does not support this command`, conn.nodeId));
   } else {
-    pending.reject(new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId));
+    pending.reject(
+      new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId, event.error),
+    );
   }
   return true;
 }

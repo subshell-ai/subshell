@@ -7,6 +7,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
+import { getLive } from "@/services/nodes/node-registry.js";
 
 /**
  * `GET /api/nodes/:id` — one node view for the caller. Missing and invisible
@@ -38,7 +39,18 @@ export const getNodeRoute = new Elysia()
       if (gate.row.kind !== "local") detectOnNodeBestEffort(gate.row.id);
       const view = await toNodeView(gate.row, gate.access, gate.isAdmin);
       if (!nodeCanConfigure(gate.access)) return view;
-      return { ...view, shares: await toNodeShareViews(gate.shares) };
+      // How the agent process runs (spec 2026-09-12 § 6.2), on the same gate
+      // as `shares` and for the same reason: a `view` grantee may LAUNCH here,
+      // which needs none of the paths this block names. It rides the live
+      // CONNECTION, so an offline node simply has none — the facts would be
+      // stale by definition. `local` reports nothing: the control-plane host's
+      // own deployment is the Service page's subject, not a node's.
+      const runtime = gate.row.kind === "agent" ? getLive(gate.row.id)?.agent?.runtime : undefined;
+      return {
+        ...view,
+        shares: await toNodeShareViews(gate.shares),
+        ...(runtime ? { runtime } : {}),
+      };
     },
     {
       response: {
