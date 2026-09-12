@@ -92,6 +92,11 @@ export interface ServiceDeps {
    */
   pathEnv?: string;
   /**
+   * Pause between bootstrap attempts, in milliseconds (production:
+   * `Bun.sleepSync`). Injected so the retry below costs a test nothing.
+   */
+  sleep?: (ms: number) => void;
+  /**
    * tmux offer bundle (spec 2026-09-03): the CLI wires it with
    * `interactive = TTY` (service install takes no flags). Absent ⇒ the
    * preflight is its pre-offer self — refuse with the hint. NOTE: unlike
@@ -314,6 +319,46 @@ function systemdGuards(deps: ServiceDeps): CliResult | null {
 }
 
 /**
+ * Whether launchd is refusing because the label is still in the domain.
+ *
+ * `bootout` is not synchronous: it returns while the job is still being torn
+ * down, and a `bootstrap` of the same label in that window answers EIO —
+ * rendered as "Bootstrap failed: 5: Input/output error", which names a disk
+ * problem and is nothing of the kind. Matched on the CODE, with the text as a
+ * second signal, because the wording is Apple's to change.
+ */
+function domainBusy(run: { code: number; err: string; out: string }): boolean {
+  return run.code === 5 || /Input\/output error/i.test(`${run.err}${run.out}`);
+}
+
+/** How many times to try, and how long to wait between tries. */
+const BOOTSTRAP_ATTEMPTS = 6;
+const BOOTSTRAP_RETRY_MS = 500;
+
+/**
+ * Bootstrap the plist, waiting out a domain that is still busy.
+ *
+ * Reported on 2026-09-12: a reset (which stops the server, boots the job out
+ * and deletes the plist) followed by a fresh setup answered "launchctl
+ * bootstrap failed (exit 5): Input/output error", and the same command run by
+ * hand ninety seconds later succeeded. Nothing was wrong with the plist, the
+ * binary or the paths — the previous job was simply still leaving, and a
+ * server with live panes takes its time about it.
+ *
+ * Only a BUSY answer is retried. A malformed plist or a missing program fails
+ * the same way it always did, immediately and with its own words.
+ */
+function bootstrapWithRetry(deps: ServiceDeps, path: string): { code: number; out: string; err: string } {
+  const sleep = deps.sleep ?? ((ms: number) => Bun.sleepSync(ms));
+  let run = deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
+  for (let attempt = 1; attempt < BOOTSTRAP_ATTEMPTS && run.code !== 0 && domainBusy(run); attempt++) {
+    sleep(BOOTSTRAP_RETRY_MS);
+    run = deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
+  }
+  return run;
+}
+
+/**
  * Install the per-user service and start it. Guards first (platform →
  * config.env → tmux preflight → systemd reachability), ALL before any write.
  * Linux: write the unit, then `daemon-reload` + `enable --now` — a failed
@@ -372,14 +417,14 @@ export function installService(deps: ServiceDeps): CliResult {
 
   // darwin
   const path = plistPath(deps.home);
-  const reinstall = deps.fileExists(path); // must be sampled BEFORE the overwrite
   deps.writeFile(path, launchdPlist(execLine(deps), serverLogPath(deps.home), deps.configDir, deps.pathEnv));
-  if (reinstall) {
-    // Tolerated: bootout on a not-loaded service errors, and the fresh
-    // bootstrap below is what actually carries the new definition.
-    deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
-  }
-  const boot = deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
+  // ALWAYS, not only when the plist was already there. The authority on
+  // "is this label loaded" is launchd, and the file is only a proxy for it —
+  // a proxy that lies after a reset, which deletes the plist while the job is
+  // still in the domain. Tolerated either way: bootout on a not-loaded
+  // service errors, and the bootstrap below is what carries the definition.
+  deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
+  const boot = bootstrapWithRetry(deps, path);
   if (boot.code !== 0) {
     return errLine(
       `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` + `the plist was left at ${path}`,

@@ -128,7 +128,56 @@ describe("installService — macOS (launchd agent)", () => {
     expect(plist).toInclude("<key>StandardOutPath</key>");
     expect(plist).toInclude("<key>StandardErrorPath</key>");
 
-    expect(s.calls).toEqual([["launchctl", "bootstrap", "gui/1000", PLIST]]);
+    // A bootout precedes EVERY bootstrap, including this one where no plist
+    // was on disk: the file is only a proxy for "is this label loaded", and it
+    // lies after a reset, which deletes the plist while the job is still in
+    // the domain.
+    expect(s.calls).toEqual([
+      ["launchctl", "bootout", "gui/1000/dev.subshell.client"],
+      ["launchctl", "bootstrap", "gui/1000", PLIST],
+    ]);
+  });
+
+  /**
+   * The server CLI hit this for real on 2026-09-12 — reset, set up again,
+   * "Bootstrap failed: 5: Input/output error" while nothing was wrong with the
+   * plist. `bootout` returns before the job has left the domain.
+   */
+  test("a busy domain is waited out, not reported as a failure", async () => {
+    let bootstraps = 0;
+    const slept: number[] = [];
+    const s = stub({
+      platform: "darwin",
+      sleep: (ms: number) => {
+        slept.push(ms);
+      },
+      respond: (cmd) => {
+        if (cmd[1] !== "bootstrap") return { code: 0, out: "", err: "" };
+        bootstraps += 1;
+        return bootstraps <= 2
+          ? { code: 5, out: "", err: "Bootstrap failed: 5: Input/output error" }
+          : { code: 0, out: "", err: "" };
+      },
+    });
+    const res = await installService(s.deps);
+    expect(res.code).toBe(0);
+    expect(bootstraps).toBe(3);
+    expect(slept.length).toBe(2);
+  });
+
+  test("a real bootstrap failure is reported at once", async () => {
+    let bootstraps = 0;
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) => {
+        if (cmd[1] !== "bootstrap") return { code: 0, out: "", err: "" };
+        bootstraps += 1;
+        return { code: 112, out: "", err: "Could not find specified service" };
+      },
+    });
+    const res = await installService(s.deps);
+    expect(res.code).not.toBe(0);
+    expect(bootstraps).toBe(1);
   });
 
   test("reinstall: bootout (tolerated) before bootstrap; a bootout failure does not sink the install", async () => {

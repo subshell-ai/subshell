@@ -240,7 +240,14 @@ describe("installService — macOS (launchd agent)", () => {
     expect(plist.split(LOG).length - 1).toBe(2); // StandardOutPath AND StandardErrorPath
     expect(plist).not.toInclude(join(HOME, "Library", "Logs", "subshell.log"));
 
-    expect(s.calls).toEqual([["launchctl", "bootstrap", "gui/1000", PLIST]]);
+    // A bootout precedes EVERY bootstrap, including this one where no plist
+    // was on disk. The file is only a proxy for "is this label loaded", and it
+    // lies after a reset — which deletes the plist while the job is still in
+    // the domain (measured 2026-09-12).
+    expect(s.calls).toEqual([
+      ["launchctl", "bootout", "gui/1000/dev.subshell.server"],
+      ["launchctl", "bootstrap", "gui/1000", PLIST],
+    ]);
   });
 
   test("pathEnv bakes an EnvironmentVariables/PATH dict; absent → minimal plist", () => {
@@ -257,6 +264,56 @@ describe("installService — macOS (launchd agent)", () => {
     const without = stub({ platform: "darwin" });
     installService(without.deps);
     expect(without.files.get(PLIST) ?? "").not.toInclude("EnvironmentVariables");
+  });
+
+  /**
+   * Reported on 2026-09-12: reset, then set up again, and setup died on
+   * "launchctl bootstrap failed (exit 5): Input/output error" — while the
+   * plist, the binary and every path it names were fine. `bootout` is not
+   * synchronous; the previous job was still leaving the domain, and a server
+   * with live panes takes its time about it. The same command by hand ninety
+   * seconds later worked.
+   */
+  test("a busy domain is waited out, not reported as a failure", () => {
+    let bootstraps = 0;
+    const slept: number[] = [];
+    const s = stub({
+      platform: "darwin",
+      sleep: (ms: number) => slept.push(ms),
+      respond: (cmd) => {
+        if (cmd[1] !== "bootstrap") return { code: 0, out: "", err: "" };
+        bootstraps += 1;
+        // Busy for the first two tries, then in.
+        return bootstraps <= 2
+          ? { code: 5, out: "", err: "Bootstrap failed: 5: Input/output error" }
+          : { code: 0, out: "", err: "" };
+      },
+    });
+    const res = installService(s.deps);
+    expect(res.code).toBe(0);
+    expect(bootstraps).toBe(3);
+    expect(slept.length).toBe(2);
+  });
+
+  /**
+   * Only a BUSY answer is retried. A malformed plist or a missing program
+   * fails the way it always did — immediately, in launchd's own words —
+   * because retrying those would just make a person wait to read them.
+   */
+  test("a real bootstrap failure is reported at once", () => {
+    let bootstraps = 0;
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) => {
+        if (cmd[1] !== "bootstrap") return { code: 0, out: "", err: "" };
+        bootstraps += 1;
+        return { code: 112, out: "", err: "Could not find specified service" };
+      },
+    });
+    const res = installService(s.deps);
+    expect(res.code).not.toBe(0);
+    expect(bootstraps).toBe(1);
+    expect(res.err).toInclude("Could not find specified service");
   });
 
   test("reinstall: bootout (tolerated) before bootstrap; a bootout failure does not sink the install", () => {

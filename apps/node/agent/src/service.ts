@@ -48,6 +48,11 @@ export interface ServiceDeps {
    * `process.env.PATH`; tests omit it to keep the historical unit byte-exact.
    */
   servicePath?: string;
+  /**
+   * Pause between bootstrap attempts, in milliseconds (production:
+   * `Bun.sleep`). Injected so the retry costs a test nothing.
+   */
+  sleep?: (ms: number) => Promise<void> | void;
 }
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
@@ -200,6 +205,43 @@ const unsupported = (action: string, platform: string): string =>
   "run `subshell run` in a terminal (e.g. inside tmux/screen) to keep the daemon up for now";
 
 /**
+ * Whether launchd is refusing because the label is still in the domain.
+ *
+ * `bootout` is not synchronous: it returns while the job is still being torn
+ * down, and a `bootstrap` of the same label in that window answers EIO —
+ * rendered as "Bootstrap failed: 5: Input/output error", which names a disk
+ * problem and is nothing of the kind.
+ */
+function domainBusy(run: { code: number; err: string; out: string }): boolean {
+  return run.code === 5 || /Input\/output error/i.test(`${run.err}${run.out}`);
+}
+
+/** How many times to try, and how long to wait between tries. */
+const BOOTSTRAP_ATTEMPTS = 6;
+const BOOTSTRAP_RETRY_MS = 500;
+
+/**
+ * Bootstrap the plist, waiting out a domain that is still busy.
+ *
+ * The server CLI carries the same helper for the same reason, measured there
+ * on 2026-09-12: a reset followed by a fresh setup died on exit 5 while
+ * nothing was wrong with the plist, and the same command by hand ninety
+ * seconds later worked. Only a BUSY answer is retried — a malformed plist or
+ * a missing program still fails at once, in launchd's own words.
+ */
+async function bootstrapWithRetry(
+  deps: ServiceDeps,
+  path: string,
+): Promise<{ code: number; out: string; err: string }> {
+  let run = await deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
+  for (let attempt = 1; attempt < BOOTSTRAP_ATTEMPTS && run.code !== 0 && domainBusy(run); attempt++) {
+    await (deps.sleep ?? ((ms: number) => Bun.sleep(ms)))(BOOTSTRAP_RETRY_MS);
+    run = await deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
+  }
+  return run;
+}
+
+/**
  * Install the per-user service and start it. Linux: write the unit, then
  * `daemon-reload` + `enable --now` — a failed reload (typically the classic
  * "Failed to connect to bus" without a systemd user subshell) aborts with the
@@ -238,14 +280,14 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
 
   if (deps.platform === "darwin") {
     const path = plistPath(deps.home);
-    const reinstall = await deps.fileExists(path); // must be sampled BEFORE the overwrite
     await deps.writeFile(path, launchdPlist(execLine(deps), launchLogPath(deps.home), deps.servicePath));
-    if (reinstall) {
-      // Tolerated: bootout on a not-loaded service errors, and the fresh
-      // bootstrap below is what actually carries the new definition.
-      await deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
-    }
-    const boot = await deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
+    // ALWAYS, not only when the plist was already there. The authority on
+    // "is this label loaded" is launchd, and the file is only a proxy for it —
+    // a proxy that lies after a reset, which deletes the plist while the job
+    // is still in the domain. Tolerated either way: bootout on a not-loaded
+    // service errors, and the bootstrap below carries the definition.
+    await deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
+    const boot = await bootstrapWithRetry(deps, path);
     if (boot.code !== 0) {
       return errLine(
         `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` + `the plist was left at ${path}`,

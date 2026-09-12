@@ -145,6 +145,36 @@ pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), Stri
     Ok(())
 }
 
+/// How long the result frame gets before the process goes.
+///
+/// The page is waiting on this command's answer, and a restart that raced it
+/// would reach the reset screen as a dropped call rather than a success — the
+/// same ordering `restart.rs` keeps for the server's own restart.
+const RESTART_GRACE: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Restart the app once the caller has its answer.
+///
+/// **On the MAIN THREAD, deliberately.** Off it, `restart()` routes through
+/// `RunEvent::ExitRequested` — which this app PREVENTS while close-to-tray is
+/// on and a `main` window exists, and `main` may merely have been HIDDEN by
+/// that same preference a moment ago rather than closed. On the main thread
+/// Tauri skips those events and restarts the process directly, so the one
+/// preference that could swallow this cannot.
+fn schedule_restart(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(RESTART_GRACE);
+        let on_main = handle.clone();
+        if let Err(err) = handle.run_on_main_thread(move || {
+            on_main.restart();
+        }) {
+            // Nothing left to do about it: the windows below were already put
+            // where a person needs them, and the page is on first run.
+            eprintln!("subshell: could not restart after the reset: {err}");
+        }
+    });
+}
+
 /// Wipe this machine back to virgin, with the typed hostname as consent.
 ///
 /// The order is the confirmation's, step for step (spec § 7.2): stop, close
@@ -314,20 +344,32 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
         s.onboarded = false;
     });
     *stash.plan.lock().unwrap() = None; // the consent has been spent
-                                        // 7. Windows. With one bundled page there is no console to close
-                                        // last, so the zero-window hazard (N2) reduces to one rule: never
-                                        // close the assistant from inside the chain — it IS the window this
-                                        // command is running in, and closing it while `main` is already gone
-                                        // runs the last-window path and quits the app mid-reset. So: close
-                                        // `main` (its port just died) and send this page back to the
-                                        // first-run screens, which its own re-probe (now `onboarded: false`)
-                                        // agrees with.
+
+    // 7. The app restarts itself.
+    //
+    // Every fact this process is holding is now about a machine that is gone:
+    // memoized probes, the settings it just rewrote, and two windows pointed
+    // at an instance that no longer exists. Reaching first run by RESTARTING
+    // is by construction; reaching it by closing one window and telling the
+    // page to go back was by inference, and the inference ran against a
+    // machine still settling — the service is stopped, but a draining port can
+    // answer `ready` for a moment longer, and the ready path both re-opens the
+    // dashboard and CLOSES the assistant (`desktop_open_main`). Reported on
+    // 2026-09-12: the reset window closed and the dashboard stayed.
+    //
+    // It is also what a person expects after wiping a machine, which is how it
+    // was reported.
+    //
+    // The window steps below stay as the fallback for a restart that does not
+    // happen, and because closing `main` immediately is what makes the press
+    // feel answered.
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.close();
     }
     if let Some(w) = app.get_webview_window("wizard") {
         let _ = w.emit("desktop-screen", Screen::Home.as_str());
     }
+    schedule_restart(&app);
     Ok(ActionResult {
         ok: true,
         stdout: log,
