@@ -411,6 +411,10 @@ test("status --json without a config: JSON still prints (online:false + reason),
   expect(parsed.agentVersion).toBe(AGENT_VERSION);
   // Nothing to name a reset's targets against — no cfg, no dataDir.
   expect("paths" in parsed).toBe(false);
+  // The WHOLE key set, not a field list: `status` is a surface a person pastes
+  // into an issue, so a field added to this branch later — a key, a path, a
+  // config echo — has to be decided here rather than discovered in a paste.
+  expect(Object.keys(parsed).sort()).toEqual(["agentVersion", "nodeId", "online", "reason", "serverUrl"]);
 });
 
 // The desktop reset takes its deletion set from exactly this block, never from
