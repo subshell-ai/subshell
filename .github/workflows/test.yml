@@ -124,6 +124,14 @@ jobs:
       - name: Run Package(s) Tests
         run: bun run test
 
+      # `bun run test` is `turbo run test`, which only reaches WORKSPACES —
+      # and `scripts/` is not one, so its tests would never run anywhere
+      # without this line. They are pure (no network, no gh), so they belong
+      # beside the package suites rather than in the release path they
+      # describe.
+      - name: Run repo script tests
+        run: bun run test:scripts
+
       # Compiled-binary smoke guards against bundler import-graph defects
       # (e.g. oven-sh/bun#31586 — zod subpath duplication) that source-level
       # `bun test` cannot see.

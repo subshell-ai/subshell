@@ -12,6 +12,15 @@
     }
   },
   "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/hermes"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
   "scripts": {
     "build": "tsdown",
     "build:dev": "hash-runner",
@@ -42,7 +51,7 @@
     "type": "agent-harness",
     "name": "Hermes Agent",
     "description": "Nous Research's open agent CLI (interactive chat)",
-    "icon": "\ud83d\udcee",
+    "icon": "📮",
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "hermes",

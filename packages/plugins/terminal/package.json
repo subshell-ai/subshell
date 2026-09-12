@@ -12,6 +12,15 @@
     }
   },
   "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/terminal"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
   "scripts": {
     "build": "tsdown",
     "build:dev": "hash-runner",

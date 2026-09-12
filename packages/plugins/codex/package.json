@@ -12,6 +12,15 @@
     }
   },
   "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/codex"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
   "scripts": {
     "build": "tsdown",
     "build:dev": "hash-runner",
@@ -42,7 +51,7 @@
     "type": "agent-harness",
     "name": "Codex",
     "description": "OpenAI's agentic coding CLI (interactive TUI)",
-    "icon": "\ud83d\udcd6",
+    "icon": "📖",
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "codex",

@@ -26,14 +26,35 @@
  * AGPL package must be TYPE-ONLY. That is what keeps the section 7 exception
  * in apps/server/LICENSE describing what the code actually does.
  *
+ * Finally it checks what a PUBLISHED package hands its recipient: the licence
+ * TEXT (an SPDX field is metadata; Apache-2.0 §4(a) asks for a copy) and the
+ * three manifest fields that point back at the source. Those live here rather
+ * than in a script of their own because this one already enumerates the
+ * publishable manifests and already rewrites them under `--fix` — a second
+ * script would duplicate both halves to check three keys — and because
+ * "where did this come from" is the question a recipient asks right after
+ * "what may I do with it".
+ *
  *   bun scripts/license-fields.ts            # check (CI, pre-push)
- *   bun scripts/license-fields.ts --fix      # rewrite the wrong SPDX fields
+ *   bun scripts/license-fields.ts --fix      # rewrite the wrong fields, write missing files
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Glob } from "bun";
 
 const REPO_ROOT = resolve(new URL("..", import.meta.url).pathname);
+
+/**
+ * Paths of the two per-runtime constant files.
+ *
+ * Declared HERE rather than beside the notice checks that use them: the
+ * published-metadata stage reads `PRODUCT_URL` out of `legal.ts` at module
+ * evaluation, and a `const` used before its declaration line is a temporal
+ * dead zone rather than a hoisted binding — measured, as a crash on the first
+ * run.
+ */
+const LEGAL_TS = "packages/subshell-protocol/src/legal.ts";
+const LEGAL_RS = "crates/desktop-core/src/legal.rs";
 
 /** SPDX identifier for the copyleft half. */
 const AGPL = "AGPL-3.0-only";
@@ -342,6 +363,17 @@ const NOTICE_SOURCES: { path: string; pattern: RegExp; what: string }[] = [
   { path: "apps/server/LICENSE", pattern: /^Copyright \(C\) (?<line>\d{4} .+)$/m, what: "agpl" },
 ];
 
+/** One `export const NAME = "value";` from legal.ts, unwrapped if biome split it. */
+function legalConstant(name: string): string {
+  const source = readFileSync(resolve(REPO_ROOT, LEGAL_TS), "utf8").replace(/=\n\s+"/g, '= "');
+  const value = source.match(new RegExp(`^export const ${name} = "([^"]*)";$`, "m"))?.[1];
+  if (value === undefined) throw new Error(`legal.ts: ${name} not found`);
+  return value;
+}
+
+/** The product site, as `legal.ts` states it — not a second copy of the URL. */
+const PRODUCT_URL = legalConstant("PRODUCT_URL");
+
 /** Reads the TS holder/year, which are assembled rather than written out. */
 function typescriptCopyrightLine(): string {
   const source = readFileSync(resolve(REPO_ROOT, "packages/subshell-protocol/src/legal.ts"), "utf8");
@@ -350,10 +382,6 @@ function typescriptCopyrightLine(): string {
   if (!holder || !year) throw new Error("legal.ts: COPYRIGHT_HOLDER/COPYRIGHT_YEAR not found");
   return `Copyright ${year} ${holder}`;
 }
-
-/** Paths of the two per-runtime constant files. */
-const LEGAL_TS = "packages/subshell-protocol/src/legal.ts";
-const LEGAL_RS = "crates/desktop-core/src/legal.rs";
 
 /**
  * Every plain string constant the TS and Rust files BOTH declare, and whether
@@ -483,6 +511,75 @@ function fixLicenseText(path: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 5: where a published package says it came from
+// ---------------------------------------------------------------------------
+
+/** The repository every published package points back at. */
+const REPO_URL = "https://github.com/subshell-ai/subshell";
+
+/**
+ * The metadata a published package owes its recipient, beyond the terms.
+ *
+ * Without `repository`, npm renders the package page with no link to any
+ * source at all — so the licence, the NOTICE and the code it describes are
+ * reachable only by guessing. `directory` is what makes that link land on the
+ * package inside this monorepo rather than on the root, and npm's provenance
+ * UI reads it too. `homepage` and `bugs` are the other two questions a package
+ * page is asked, and neither is derivable from anything else in the manifest.
+ *
+ * Values are derived from the path, like the SPDX field above: nothing here is
+ * a per-package decision, so there is no list to maintain and an eighth
+ * package is covered the moment it exists.
+ */
+function expectedMetadata(dir: string): Record<string, unknown> {
+  return {
+    // `git+https`, the form npm normalizes to and the one its UI links from.
+    repository: { type: "git", url: `git+${REPO_URL}.git`, directory: dir },
+    homepage: PRODUCT_URL,
+    bugs: { url: `${REPO_URL}/issues` },
+  };
+}
+
+/** Published manifests whose pointer-back fields are missing or wrong. */
+function metadataProblems(manifests: Manifest[]): { path: string; missing: string[] }[] {
+  const problems: { path: string; missing: string[] }[] = [];
+  for (const manifest of manifests) {
+    if (manifest.kind !== "json" || !manifest.published) continue;
+    const declared = JSON.parse(readFileSync(resolve(REPO_ROOT, manifest.path), "utf8")) as Record<string, unknown>;
+    const expected = expectedMetadata(manifest.dir);
+    const missing = Object.keys(expected).filter(
+      (key) => JSON.stringify(declared[key]) !== JSON.stringify(expected[key]),
+    );
+    if (missing.length > 0) problems.push({ path: manifest.path, missing });
+  }
+  return problems;
+}
+
+/**
+ * Write the pointer-back fields into a manifest.
+ *
+ * Inserted after `types` (or, failing that, after `license`) because that is
+ * the slot `syncpack.config.js`'s `sortFirst` gives them — anywhere else and
+ * the next `syncpack:format` has a diff to make. Re-serialized wholesale
+ * rather than spliced line-by-line like the SPDX field, since three keys, two
+ * of them objects, is past what a line insert can do honestly.
+ */
+function fixMetadata(path: string, dir: string): void {
+  const full = resolve(REPO_ROOT, path);
+  const declared = JSON.parse(readFileSync(full, "utf8")) as Record<string, unknown>;
+  const expected = expectedMetadata(dir);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(declared)) {
+    if (key in expected) continue; // re-added in the canonical position below
+    out[key] = value;
+    if (key === "types" || (key === "license" && !("types" in declared))) Object.assign(out, expected);
+  }
+  // A manifest with neither anchor still gets them, at the end.
+  for (const [key, value] of Object.entries(expected)) if (!(key in out)) out[key] = value;
+  writeFileSync(full, `${JSON.stringify(out, null, 2)}\n`);
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -500,7 +597,13 @@ if (shouldFix) {
     fixLicenseText(problem.path);
     console.log(`  ${problem.path}: ${problem.why} → written`);
   }
-  const total = wrong.length + missingText.length;
+  const missingMeta = metadataProblems(manifests);
+  for (const problem of missingMeta) {
+    const manifest = manifests.find((m) => m.path === problem.path);
+    if (manifest) fixMetadata(manifest.path, manifest.dir);
+    console.log(`  ${problem.path}: ${problem.missing.join(", ")} → written`);
+  }
+  const total = wrong.length + missingText.length + missingMeta.length;
   console.log(total ? `✓ fixed ${total} file(s)` : "✓ nothing to fix");
   process.exit(0);
 }
@@ -561,6 +664,21 @@ if (missingLicenseText.length > 0) {
 } else {
   const shipped = manifests.filter((m) => m.published).length;
   console.log(`✓ all ${shipped} published packages ship the Apache-2.0 text`);
+}
+
+const metaProblems = metadataProblems(manifests);
+if (metaProblems.length > 0) {
+  failed = true;
+  console.error(`✗ ${metaProblems.length} published package(s) do not point back at their source:\n`);
+  for (const problem of metaProblems) console.error(`  ${problem.path}: ${problem.missing.join(", ")}`);
+  console.error(
+    "\n  Without `repository` npm renders the package page with no link to any source,\n" +
+      "  so the licence, the NOTICE and the code are reachable only by guessing; the\n" +
+      "  `directory` member is what lands that link on the package rather than the root.\n" +
+      "  Run `bun run lint:licenses:fix` to write them.\n",
+  );
+} else {
+  console.log("✓ every published package points back at its source");
 }
 
 const constantProblems = sharedConstantDisagreements();

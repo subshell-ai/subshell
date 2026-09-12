@@ -12,6 +12,15 @@
     }
   },
   "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/pi"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
   "scripts": {
     "build": "tsdown",
     "build:dev": "hash-runner",
@@ -42,7 +51,7 @@
     "type": "agent-harness",
     "name": "pi",
     "description": "Minimal, extensible agent harness from pi.dev (interactive TUI)",
-    "icon": "\u03c0",
+    "icon": "π",
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "pi",

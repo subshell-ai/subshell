@@ -35,6 +35,7 @@
     "lint:lockfile": "bun scripts/lockfile-workspace-versions.ts",
     "lint:lockfile:fix": "bun scripts/lockfile-workspace-versions.ts --fix",
     "test": "turbo run test --continue --",
+    "test:scripts": "bun test ./scripts/__tests__/",
     "test:e2e": "turbo run test:e2e",
     "test:e2e:install": "turbo run install-browsers",
     "release:node": "bun run --cwd apps/node/agent compile:release",

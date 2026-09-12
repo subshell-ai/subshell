@@ -12,6 +12,15 @@
     }
   },
   "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/claude-code"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
   "scripts": {
     "build": "tsdown",
     "build:dev": "hash-runner",
@@ -42,7 +51,7 @@
     "type": "agent-harness",
     "name": "Claude Code",
     "description": "Anthropic's agentic coding assistant (interactive CLI)",
-    "icon": "\ud83e\udd16",
+    "icon": "🤖",
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "claude",
@@ -54,7 +63,9 @@
         ".npm-global/bin/claude"
       ]
     },
-    "hostEnv": ["CLAUDE_CONFIG_DIR"],
+    "hostEnv": [
+      "CLAUDE_CONFIG_DIR"
+    ],
     "install": {
       "command": "curl -fsSL https://claude.ai/install.sh | bash",
       "docsUrl": "https://code.claude.com/docs/en/setup"

@@ -9,16 +9,20 @@
 #                 the six plugins). It VERSIONS ONLY, and ends by asking the
 #                 registry which of those seven versions are missing from npm.
 #                 Private packages: changesets creates NO tags or releases for
-#                 them (privatePackages.tag is false; create-github-releases
-#                 is off). `.changeset/config.json` ignores the other ten
-#                 workspaces.
-#   npm-publish — publishes those six and pushes their version tags, gated on
-#                 the job above finding something unpublished AND the repo
-#                 variable NPM_PUBLISH_ENABLED being "true". It is hosted by
-#                 necessity rather than by the policy that moved the rest of
-#                 this file: npm's OIDC trusted publishing does not support
-#                 self-hosted runners, so this job never had the choice the
-#                 others lost on 2026-09-11.
+#                 them (privatePackages.tag is false). `create-github-releases`
+#                 stays off HERE because this job does not publish — the
+#                 releases for the seven are created in `npm-publish`, after
+#                 the tags exist. `.changeset/config.json` ignores the other
+#                 ten workspaces.
+#   npm-publish — publishes those seven, pushes their version tags, and gives
+#                 each tag a GitHub Release whose body is that package's own
+#                 CHANGELOG section (scripts/package-releases.ts, self-healing
+#                 and never `latest`). Gated on the job above finding something
+#                 unpublished AND the repo variable NPM_PUBLISH_ENABLED being
+#                 "true". It is hosted by necessity rather than by the policy
+#                 that moved the rest of this file: npm's OIDC trusted
+#                 publishing does not support self-hosted runners, so this job
+#                 never had the choice the others lost on 2026-09-11.
 #   plan        — push events emit an EMPTY matrix (the merge of a version PR
 #                 does NOT auto-cut; the first-cut path is an explicit
 #                 workflow_dispatch — simpler and honest). A dispatch computes
@@ -258,6 +262,23 @@ jobs:
         env:
           NPM_TOKEN: ""
           NODE_AUTH_TOKEN: ""
+
+      # The tags above had no releases against them, so the Releases page
+      # showed the four app cuts and nothing else — and the prose changesets
+      # had already written into each package's CHANGELOG never reached a
+      # reader. Same gap the app releases had before their `body_path` step,
+      # and the same source for the fix.
+      #
+      # Runs even when the publish above found nothing new to ship: the script
+      # asks GitHub which of the CURRENT versions already have a release and
+      # creates the rest, so a half-finished run converges and versions
+      # published before it existed are backfilled. Every release it creates
+      # is `--latest=false`, because that badge belongs to something a person
+      # downloads.
+      - name: Give each published version a release
+        run: bun scripts/package-releases.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   plan:
     name: Plan the cut

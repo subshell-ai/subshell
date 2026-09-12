@@ -12,6 +12,15 @@
     }
   },
   "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/opencode"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
   "scripts": {
     "build": "tsdown",
     "build:dev": "hash-runner",
@@ -42,7 +51,7 @@
     "type": "agent-harness",
     "name": "OpenCode",
     "description": "Open-source omnichannel agentic coding CLI (interactive TUI)",
-    "icon": "\u2733\ufe0f",
+    "icon": "✳️",
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "opencode",
