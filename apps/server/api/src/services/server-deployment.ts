@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { collectStatus, type StatusView } from "@/commands/status.js";
-import { configEnvAppliedKeys, serverConfigDir } from "@/config-env.js";
+import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-env.js";
 import { APP_BASE_URL, DATABASE_PATH, DEFAULT_TRUSTED_ORIGINS, HOST, SERVER_PORT } from "@/constants.js";
 import { DEFAULT_DEPS, queryService, type ServiceState, SYSTEMD_UNIT_NAME } from "@/service.js";
 import { currentDebugLogging } from "@/services/logging-preference.js";
@@ -118,6 +118,8 @@ export interface DeploymentDeps {
   env?: NodeJS.ProcessEnv;
   /** Which keys the config.env loader applied (production: `configEnvAppliedKeys()`). */
   applied?: ReadonlySet<string>;
+  /** config.env's parsed contents, for the source attribution (production: `resolveConfig().values`). */
+  configValues?: Record<string, string>;
   /** The service manager query (production: a real `queryService`, which spawns systemctl/launchctl). */
   queryService?: () => ServiceState;
   /** The CLI's status view (production: `collectStatus`). */
@@ -142,16 +144,36 @@ export function isSupervised(service: Pick<ServiceState, "state" | "pid">, pid: 
 }
 
 /**
- * The source rule: a key the config.env loader APPLIED is attributed to the
- * file even though it now sits in `process.env` (applying it is what put it
- * there); a key in the environment the loader did not apply came from the
- * process environment, which a file write cannot change; anything else is the
- * built-in default.
+ * Which layer a setting's saved value comes from — and, because the PATCH
+ * route refuses `process env`, really the question "would writing this key to
+ * config.env take effect at the next boot?"
+ *
+ * Three rules, in order:
+ *
+ * 1. A key the loader APPLIED is the file's, even though it now sits in
+ *    `process.env`: applying it is what put it there.
+ * 2. A key the environment already held at process start, whose value the
+ *    file also names, is STILL the file's. That is not a curiosity, it is the
+ *    systemd deployment: the unit carries
+ *    `EnvironmentFile=<configDir>/config.env`, so every key arrives through
+ *    the environment, the loader applies nothing, and rule 1 alone would call
+ *    the whole file read-only on the one platform it is most used on — while
+ *    systemd re-reads that same file on the next start, so a write plainly
+ *    does take effect. `collectStatus` already attributes it this way.
+ * 3. Anything else in the environment genuinely overrides the file, and a
+ *    write to it would be masked at the next boot.
+ *
+ * @param file - config.env's parsed contents; omit when there is no file to compare against
  */
-export function settingSource(key: string, env: NodeJS.ProcessEnv, applied: ReadonlySet<string>): SettingSource {
+export function settingSource(
+  key: string,
+  env: NodeJS.ProcessEnv,
+  applied: ReadonlySet<string>,
+  file: Record<string, string> = {},
+): SettingSource {
   if (applied.has(key)) return "config.env";
-  if (env[key] !== undefined) return "process env";
-  return "default";
+  if (env[key] !== undefined) return file[key] === env[key] ? "config.env" : "process env";
+  return file[key] !== undefined ? "config.env" : "default";
 }
 
 /** Why a self-restart is impossible when nothing supervises this process. */
@@ -195,6 +217,7 @@ export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
   const pid = deps.pid ?? process.pid;
   const env = deps.env ?? process.env;
   const applied = deps.applied ?? configEnvAppliedKeys();
+  const configValues = deps.configValues ?? resolveConfig().values;
   const status = (deps.status ?? (() => collectStatus({ platform, home })))();
   const service = (
     deps.queryService ??
@@ -222,7 +245,7 @@ export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
         key,
         {
           saved: found.value,
-          source: settingSource(key, env, applied),
+          source: settingSource(key, env, applied, configValues),
           running: runningValue(key, env),
           ...(problems && problems.length > 0 ? { problems } : {}),
         } satisfies DeploymentSetting,

@@ -20,6 +20,24 @@ describe("settingSource", () => {
   it("attributes an absent key to the default", () => {
     expect(settingSource("HOST", {}, new Set())).toBe("default");
   });
+
+  /**
+   * The systemd deployment, which the applied-key rule alone gets wrong. The
+   * unit carries `EnvironmentFile=<configDir>/config.env`, so every key is in
+   * the environment before the process starts and the loader applies NONE of
+   * them — yet systemd re-reads that file on the next start, so writing it
+   * plainly does take effect. Without this the PATCH route would 409 on every
+   * key of every systemd install.
+   */
+  it("attributes a key the environment and the file agree on to config.env, applied or not", () => {
+    expect(settingSource("HOST", { HOST: "0.0.0.0" }, new Set(), { HOST: "0.0.0.0" })).toBe("config.env");
+  });
+  it("still attributes a genuine override to the process env", () => {
+    expect(settingSource("HOST", { HOST: "127.0.0.1" }, new Set(), { HOST: "0.0.0.0" })).toBe("process env");
+  });
+  it("attributes a key only the file names to config.env", () => {
+    expect(settingSource("HOST", {}, new Set(), { HOST: "0.0.0.0" })).toBe("config.env");
+  });
 });
 
 describe("collectDeployment", () => {
