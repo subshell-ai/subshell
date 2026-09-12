@@ -168,6 +168,7 @@ async function startDaemon(
   const exits: number[] = [];
   const h: Harness = { plane, config, keys, hostileKeys, exits, stopped: Promise.resolve() };
   const promise = runDaemon(config, {
+    runtime: null, // no `service status` spawn in tests; the report is Task 11's own suite
     rand: () => 0, // zero-jitter → instant reconnects (tests must not wait out backoff)
     heartbeatMs: 3_600_000, // interval effectively off; the heartbeat test overrides
     inventoryMs: 3_600_000, // periodic push effectively off; the P3-T8c tests override (the inventory COMMAND tests count frames against the connect-push baseline)
@@ -322,7 +323,7 @@ test("runDaemon dials the persisted nodeWsUrl; old configs still dial the derive
   await expect(
     runDaemon(
       { ...base, serverUrl: "https://control.example", nodeWsUrl: "wss://pin.example/ws/node" },
-      { WebSocketImpl: RecordingWs },
+      { WebSocketImpl: RecordingWs, runtime: null },
     ),
   ).rejects.toThrow(/cannot open wss:\/\/pin\.example\/ws\/node/);
   expect(dialed).toEqual(["wss://pin.example/ws/node"]);
@@ -330,7 +331,7 @@ test("runDaemon dials the persisted nodeWsUrl; old configs still dial the derive
   // Absent persisted URL (config from before 17c) ⇒ the derived path, verbatim.
   dialed.length = 0;
   await expect(
-    runDaemon({ ...base, serverUrl: "https://control.example" }, { WebSocketImpl: RecordingWs }),
+    runDaemon({ ...base, serverUrl: "https://control.example" }, { WebSocketImpl: RecordingWs, runtime: null }),
   ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
   expect(dialed).toEqual(["wss://control.example/ws/node"]);
 });
@@ -608,6 +609,7 @@ test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
   const exits: number[] = [];
   let refusedLoop = false;
   const promise = runDaemon(config, {
+    runtime: null,
     // Trap: the FIRST refused connect lands in the backoff path; throwing from
     // rand() ends the loop (a 401 retry loop would otherwise hammer the plane
     // for the rest of the suite).
@@ -656,6 +658,7 @@ test("SIGINT during the backoff sleep: exits 0 inside the raised slice budget an
       name: "test-node",
     },
     {
+      runtime: null,
       rand: () => 1, // full jitter at its max: delay = min(60 s, 1000·2^attempt), exact — no randomness
       exit: (code: number): never => {
         exits.push(code);

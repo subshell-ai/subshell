@@ -8,6 +8,7 @@ import {
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
+  type NodeRuntimeReport,
   SeqTracker,
   verifyCommand,
 } from "@internal/subshell-protocol";
@@ -23,6 +24,7 @@ import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
+import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { AGENT_VERSION } from "./version.js";
@@ -118,6 +120,12 @@ export interface DaemonDeps {
    * @internal test seam — production never passes one.
    */
   meta?: SubshellMetaStore;
+  /**
+   * The runtime report to send in `ready` (default: one `collectRuntime()`
+   * at daemon start, degraded to null if the service read throws).
+   * @internal test seam — pass `null` to skip the `service status` spawn.
+   */
+  runtime?: NodeRuntimeReport | null;
 }
 
 interface WsClose {
@@ -223,7 +231,7 @@ export function updateRequiredMessage(reason: string | undefined): string {
     : `the control plane refused this agent (close 4406); a newer subshell is required; exiting`;
 }
 
-function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> {
+function readyEvent(config: AgentConfig, runtime: NodeRuntimeReport | null): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
     agentVersion: AGENT_VERSION,
@@ -256,6 +264,11 @@ function readyEvent(config: AgentConfig): Extract<NodeEvent, { type: "ready" }> 
     // reported here — the node holds no manifests to know the names (§6);
     // they answer on the plane's `detect` round trip (host-env.ts).
     homeDir: reportHomeDir(),
+    // How this process runs (spec 2026-09-12 § 6.1) — collected once before
+    // the connect loop, so the frame is still built synchronously here.
+    // Omitted rather than nulled when the read failed: the field is optional
+    // on the wire and the plane simply shows no card.
+    ...(runtime ? { runtime } : {}),
   };
 }
 
@@ -293,6 +306,12 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   // `detect` round trip), and nothing here may delete user data (spec §6: no
   // users, leave it on disk).
   const controlPublicKey = parsePinnedKey(config.controlPublicKey);
+
+  // How this process runs (spec 2026-09-12 § 6.1), collected ONCE before the
+  // connect loop: one `service status` spawn per process, not per reconnect,
+  // and the answer cannot change while the pid does not. A failed read
+  // degrades to null — the `ready` simply carries no `runtime`.
+  const runtime = deps.runtime === undefined ? await collectRuntime().catch(() => null) : deps.runtime;
 
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
   const jtiLru = new JtiLru(); // survives every reconnect: a replayed jti never gets a second evaluation
@@ -541,7 +560,7 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         // there is no mid. (The census chain below and the ready send stay
         // LINEAR on purpose: `ready` before `subshells_report` before the
         // inventory push is pinned order.)
-        send(ws, readyEvent(config));
+        send(ws, readyEvent(config, runtime));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux

@@ -52,6 +52,13 @@ export interface ServiceDeps {
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
 export const SYSTEMD_UNIT_NAME = "subshell.service";
+
+/**
+ * How to read the daemon's log where the unit redirects nothing (Linux): the
+ * output is in the journal, so there is no path to report. The desktop app
+ * used to hold this string; the agent reports it now, in `ready.runtime`.
+ */
+export const AGENT_LOG_HINT = `journalctl --user -u ${SYSTEMD_UNIT_NAME} -f`;
 /**
  * launchd label (plist: `~/Library/LaunchAgents/<label>.plist`) — the SAME
  * string as Subshell Client's bundle identifier, which is also what the plist
