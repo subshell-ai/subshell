@@ -26,6 +26,40 @@ export type ScreenId = "welcome" | "tmux" | "setup" | "recovery" | "update" | "r
 /** The first-run trio, which is also every position a dot can take. */
 const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
 
+/**
+ * The label on the way into the Reset screen, and the Reset screen's own
+ * title. One string, because a button and the screen it opens disagreeing
+ * about what they are for is its own small betrayal.
+ *
+ * It was `Reset ${here()}…`, which rendered "Reset this Mac…" and was wrong
+ * twice over (operator report from a screenshot, 2026-09-12).
+ *
+ * It OVERCLAIMED. "Reset this Mac" is a sentence that means erase the
+ * computer. This stops and uninstalls one service and deletes one instance's
+ * data. A destructive label that is frightening about the wrong thing is
+ * worse than one that is frightening, because it teaches people that these
+ * labels do not mean what they say — and the next one they disbelieve will be
+ * accurate.
+ *
+ * And it read as TRUNCATED: "Mac" is a prefix of "Machine", the sibling
+ * string on Linux really is "this machine", and the label ended there under
+ * the ellipsis a button that opens a screen carries. Nothing told the eye
+ * whether the word had finished, which is how it was reported — as a layout
+ * bug.
+ *
+ * **Deliberately NOT "Reset Subshell", which is Subshell Client's string for
+ * its own twin of this screen.** The two apps install side by side, and their
+ * resets destroy different things: the client's takes a node's config, its
+ * key and its data directory, while this one takes the control plane —
+ * including the database that holds every user, every API key and the node
+ * signing keypair that rules every enrolled machine. One label over two acts
+ * of different severity is exactly the overloading the project's vocabulary
+ * rule exists to prevent, so this names the thing the vocabulary already has
+ * a word for. No platform word appears, because everything this app does is
+ * on this machine and saying so was only ever redundant.
+ */
+export const RESET_LABEL = "Reset This Server";
+
 /** How the tmux screen presents itself when missing. */
 export type PrereqState = "found" | "install" | "manual";
 

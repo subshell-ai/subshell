@@ -42,6 +42,7 @@ import {
   dots,
   failureLine,
   prereqState,
+  RESET_LABEL,
   type RecoveryActionKind,
   recoveryAction,
   recoveryTitle,
@@ -370,7 +371,8 @@ function renderRecovery(p: Probe): void {
     content.append(tmuxWarn);
   }
   content.append(detailsDisclosure());
-  el("bar-left").append(button(`Reset ${here()}…`, () => void openReset(), "ghost"));
+  // The ellipsis stays: it correctly says a screen follows rather than an act.
+  el("bar-left").append(button(`${RESET_LABEL}…`, () => void openReset(), "ghost"));
 }
 
 /** Run the recovery screen's one action. Each is an existing path, named. */

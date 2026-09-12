@@ -1,10 +1,13 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ActionResult, Probe } from "../lib/ipc";
 import {
   canSetup,
   dots,
   failureLine,
   prereqState,
+  RESET_LABEL,
   recoveryAction,
   recoveryTitle,
   screensFor,
@@ -61,6 +64,31 @@ describe("screensFor with onboarded", () => {
         expect(screens).not.toContain("reset");
       }
     }
+  });
+});
+
+describe("RESET_LABEL", () => {
+  it("names what is reset, not the computer, and never ends on 'Mac'", () => {
+    // Both halves were reported from a screenshot on 2026-09-12, as one bug.
+    // "Reset this Mac…" reads as erasing the computer, which is nothing like
+    // what this does; and a label ending on "Mac" reads as a truncated
+    // "Machine", against a sibling string that really is "this machine" and
+    // under the ellipsis a button that opens a screen carries.
+    expect(RESET_LABEL).toBe("Reset This Server");
+    expect(RESET_LABEL.endsWith("Mac")).toBe(false);
+    expect(RESET_LABEL).toContain("Server");
+    // No platform word on either side of the split: everything this app does
+    // is on this machine, so saying so was only ever redundant.
+    expect(RESET_LABEL).not.toContain("Machine");
+    expect(RESET_LABEL).not.toContain("machine");
+  });
+
+  it("is the Reset screen's own title too, so the door and the room agree", () => {
+    // The markup is static, so this is the only thing holding the two equal.
+    // A button labelled one thing opening a screen titled another is its own
+    // small betrayal on the one screen that may not be doubted.
+    const page = readFileSync(join(import.meta.dir, "../../wizard.html"), "utf8");
+    expect(page).toContain(`<p class="reset-title">${RESET_LABEL}</p>`);
   });
 });
 
