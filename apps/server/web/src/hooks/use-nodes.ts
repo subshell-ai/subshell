@@ -28,12 +28,34 @@ export function useNodes({ polling = false }: { polling?: boolean } = {}) {
   });
 }
 
-/** One node with its grant set (the key is absent for non-config-capable viewers). */
+/**
+ * One node with its grant set (the key is absent for non-config-capable viewers).
+ *
+ * **Polled, at the Service page's own cadence**, because the most important
+ * thing this view reports is the one thing no action on this page causes: the
+ * node GOING OFFLINE. Without it the page kept a full runtime card — pid,
+ * uptime, every Service verb enabled — on a machine that had dropped its
+ * socket minutes ago, until someone navigated away and back.
+ *
+ * Cheap, unlike its server-side sibling. `GET /api/nodes/:id` is DB reads plus
+ * an in-memory registry lookup for the live report; it never reaches the agent
+ * and spawns nothing, where `GET /api/admin/server` runs `netstat` and the
+ * service manager synchronously. That difference is why this one can poll
+ * without a memo behind it.
+ *
+ * Every component on the node page reads this same key, so they share ONE
+ * request, and TanStack's `refetchIntervalInBackground` defaults false — a
+ * hidden tab is silent.
+ */
 export function useNode(id: string, enabled = true) {
   return useQuery({
     queryKey: [...NODE_QUERY_KEY, id],
     queryFn: () => apiFetch<NodeDetail>(`/api/nodes/${id}`),
     enabled: enabled && id.length > 0,
+    refetchInterval: 5_000,
+    // Matched to the interval: above it, a remount would render a view older
+    // than the cadence the page promises.
+    staleTime: 5_000,
   });
 }
 

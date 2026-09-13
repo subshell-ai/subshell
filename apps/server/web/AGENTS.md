@@ -146,6 +146,23 @@ that route's three 409s — nothing installed, the app running this server, a
 manager that would not say — as a pure export, so the UI never offers what the
 server will refuse.
 
+**A node's page mirrors the Service page's behaviour, where a node has the
+same question.** Same follow/pause log at one second, same focusable scroller,
+same debug switch, same spinner while a restart lands, and `useNode` polls at
+5 s — for the change no action on that page causes, the node going offline.
+That poll is affordable in a way the server's is not: `GET /api/nodes/:id` is
+DB reads plus an in-memory registry lookup, where `GET /api/admin/server`
+spawns `netstat` and the service manager synchronously and needs a memo behind
+it. Every node mutation writes back or invalidates; `useNodeLogSlice` and
+`useSetNodeServerUrl` deliberately do not (a byte-range read driven by card
+state, and a value this plane does not store).
+
+Two places deliberately DIVERGE. There is no supervision card: Subshell Client
+has no supervisor, so a node has no "the app runs it as a child" mode to
+choose. And the Control plane card's "Restart to apply" has no wait-for-return
+— that restart sends the agent to a DIFFERENT plane, so watching for it here
+would time out and report a failure for the thing working exactly as asked.
+
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 Add-node dialog renders the install one-liner from `GET /api/settings/public →
