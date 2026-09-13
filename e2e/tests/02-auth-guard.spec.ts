@@ -18,7 +18,13 @@ test("protected APIs reject anonymous callers", async ({ request }) => {
 
 test("login page renders with its form", async ({ page }) => {
   await page.goto("/login");
-  await expect(page.getByText("Sign in to Subshell")).toBeVisible();
+  // The title is `Sign in to {instanceName ?? "Subshell"}` (login.tsx:89):
+  // the instance name rides an anonymous async query and defaults to the
+  // HOST'S NAME (spec 2026-09-08), so the word after "to" is either the
+  // wordmark fallback or this machine — whichever one wins the render race.
+  // Match the prefix; the identity of the plane is not this test's claim,
+  // the form below it is.
+  await expect(page.getByText(/^Sign in to /)).toBeVisible();
   await expect(page.locator("#email")).toBeVisible();
   await expect(page.locator("#password")).toBeVisible();
 });
