@@ -96,7 +96,7 @@ describe("launching on the server, switched off", () => {
 
   it("refuses an admin's explicit launch with 403, not the 404 an invisible node gets", async () => {
     await setLocalLaunch(false);
-    const res = await post({ presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
+    const res = await post({ harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
     expect(res.status).toBe(403);
     expect(((await res.json()) as { message: string }).message).toMatch(/switched off/i);
   });
@@ -112,7 +112,7 @@ describe("launching on the server, switched off", () => {
 
   it("stops defaulting to the host when no node is named", async () => {
     await setLocalLaunch(false);
-    const res = await post({ presetId, workingDir: "/tmp" });
+    const res = await post({ harnessId: "claude-code", presetId, workingDir: "/tmp" });
     // Past `local`, through the single-online-agent step, and out: there is
     // nothing to launch on. Never a silent fallback to the host the admin
     // just switched off.
@@ -123,7 +123,7 @@ describe("launching on the server, switched off", () => {
   it("lets the admin launch again the moment the grant is back", async () => {
     await setLocalLaunch(true);
     expect((await localView()).canLaunch).toBe(true);
-    const res = await post({ presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
+    const res = await post({ harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
     // Past the node gate entirely — whatever answers now is about the harness
     // or the directory, never about the node.
     expect(res.status).not.toBe(403);

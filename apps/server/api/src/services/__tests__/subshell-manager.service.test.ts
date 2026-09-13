@@ -30,7 +30,12 @@ import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import { defaultSubshellName, parsePreset, SubshellManagerService } from "@/services/subshell-manager.service.js";
+import {
+  defaultSubshellName,
+  EMPTY_PRESET,
+  parsePreset,
+  SubshellManagerService,
+} from "@/services/subshell-manager.service.js";
 
 let dbCleanup: (() => void) | undefined;
 let subshellManager: SubshellManagerService;
@@ -165,6 +170,7 @@ describe("SubshellManagerService", () => {
 
     const created = await subshellManager.createSubshell({
       userId: "u1",
+      harnessId: "claude-code",
       presetId,
       workingDir: workDir,
     });
@@ -190,14 +196,24 @@ describe("SubshellManagerService", () => {
 
   it("rejects subshells for a nonexistent preset", async () => {
     await expect(
-      subshellManager.createSubshell({ userId: "u1", presetId: "missing", workingDir: "/tmp" }),
+      subshellManager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId: "missing",
+        workingDir: "/tmp",
+      }),
     ).rejects.toThrow(/not found/i);
   });
 
   it("rejects a missing working directory", async () => {
     const presetId = await seedPreset(presetsRepo);
     await expect(
-      subshellManager.createSubshell({ userId: "u1", presetId, workingDir: "/definitely/not/here" }),
+      subshellManager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/definitely/not/here",
+      }),
     ).rejects.toThrow(/does not exist/i);
   });
 });
@@ -256,7 +272,12 @@ describe("SubshellManagerService restart", () => {
 
   it("restartSubshell kills a live source before respawning it (same row, same socket)", async () => {
     const presetId = await seedPresetFor("u1");
-    const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp" });
+    const created = await subshellManager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: "/tmp",
+    });
     trackTmuxSocket(created.tmuxSocket);
     expect(subshellManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(true);
     const restarted = await subshellManager.restartSubshell("u1", created.id);
@@ -379,7 +400,12 @@ describe("SubshellManagerService restart", () => {
   it("auto-restarts a restart_on_exit subshell after backoff, same row", async () => {
     const presetId = await seedPresetFor("u1");
     await presetsRepo.update(presetId, { restartOnExit: 1 });
-    const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp" });
+    const created = await subshellManager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: "/tmp",
+    });
     trackTmuxSocket(created.tmuxSocket);
     const id = created.id;
     // The subshell inherits the preset's auto-restart policy at creation.
@@ -644,7 +670,12 @@ describe("pane-title auto-naming (reconcile sweep)", () => {
 
   async function liveSubshell(): Promise<{ id: string; socket: string; defaultName: string }> {
     const presetId = await seedPreset(presetsRepo);
-    const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: TMP_RESOLVED });
+    const created = await subshellManager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: TMP_RESOLVED,
+    });
     trackTmuxSocket(created.tmuxSocket);
     const row = await subshellsRepo.findById(created.id);
     return { id: created.id, socket: created.tmuxSocket, defaultName: row?.name ?? "" };
@@ -776,7 +807,12 @@ describe("SubshellManagerService restart-resume", () => {
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
       const presetId = await seedPreset(presetsRepo);
-      const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
+      const created = await subshellManager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: workDir,
+      });
       trackTmuxSocket(created.tmuxSocket);
       try {
         const row = await subshellsRepo.findById(created.id);
@@ -797,7 +833,12 @@ describe("SubshellManagerService restart-resume", () => {
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
       const presetId = await seedPreset(presetsRepo);
-      const first = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
+      const first = await subshellManager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: workDir,
+      });
       trackTmuxSocket(first.tmuxSocket);
       const row1 = await subshellsRepo.findById(first.id);
       const pinned = row1?.harnessSessionId ?? "";
@@ -833,7 +874,12 @@ describe("SubshellManagerService restart-resume", () => {
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
       const presetId = await seedPreset(presetsRepo);
-      const first = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
+      const first = await subshellManager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: workDir,
+      });
       trackTmuxSocket(first.tmuxSocket);
       const pinned = (await subshellsRepo.findById(first.id))?.harnessSessionId ?? "";
       await subshellManager.terminateSubshell("u1", first.id);
@@ -862,7 +908,12 @@ describe("SubshellManagerService restart-resume", () => {
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
       const presetId = await seedPreset(presetsRepo);
-      const first = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
+      const first = await subshellManager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: workDir,
+      });
       trackTmuxSocket(first.tmuxSocket);
       const pinned = (await subshellsRepo.findById(first.id))?.harnessSessionId ?? "";
       try {
@@ -1502,5 +1553,74 @@ describe("deleteSubshell cleans the agent meta artifact (O3)", () => {
     expect(await f.manager.deleteSubshell("u-recon-local", id)).toBe(true);
     expect(f.launcher.removedPaths.at(-1)).toEqual([join(testDir, `${id}.log`)]);
     await subshellsRepo.delete(id);
+  });
+});
+
+describe("presetless launch and revive (spec 2026-09-13 §4)", () => {
+  it("create without a preset: the plugin receives EMPTY_PRESET; the row stores null + no inherited policy", async () => {
+    const f = remoteFixture();
+    const created = await f.manager.createSubshell({ userId: "u1", harnessId: "claude-code", workingDir: "/tmp" });
+    try {
+      expect(f.launcher.plans).toHaveLength(1);
+      expect(f.launcher.plans[0]?.preset).toEqual(EMPTY_PRESET); // the whole launch definition is emptiness
+      const row = await subshellsRepo.findById(created.id);
+      expect(row?.presetId).toBeNull();
+      expect(row?.harnessId).toBe("claude-code");
+      expect(row?.restartOnExit).toBe(0); // nothing to inherit from
+    } finally {
+      await f.manager.deleteSubshell("u1", created.id);
+    }
+  });
+
+  it("revive on a presetId: null row relaunches from EMPTY_PRESET", async () => {
+    const f = remoteFixture();
+    const created = await f.manager.createSubshell({ userId: "u1", harnessId: "claude-code", workingDir: "/tmp" });
+    try {
+      const restarted = await f.manager.restartSubshell("u1", created.id);
+      if (!restarted) throw new Error("expected a restarted subshell");
+      expect(f.launcher.plans).toHaveLength(2);
+      expect(f.launcher.plans[1]?.preset).toEqual(EMPTY_PRESET);
+      expect((await subshellsRepo.findById(created.id))?.alive).toBe(1);
+    } finally {
+      await f.manager.deleteSubshell("u1", created.id);
+    }
+  });
+
+  it("a preset deleted after the row was created (delete nulls the ref) revives on EMPTY_PRESET, not an error", async () => {
+    // The §6 ruling end-to-end at the manager boundary: preset DELETE nulls
+    // `subshells.preset_id`, and the next restart composes from the empty
+    // preset — the subshell outlives its preset instead of dying at revive.
+    const f = remoteFixture();
+    const presetId = await seedPreset(presetsRepo, { envJson: '{"LAYER":"yes"}', restartOnExit: 1 });
+    const created = await f.manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: "/tmp",
+    });
+    try {
+      expect(f.launcher.plans[0]?.preset.env).toEqual({ LAYER: "yes" }); // the create DID use the preset
+      await presetsRepo.delete(presetId); // the DELETE route's own write: nulls references
+      const restarted = await f.manager.restartSubshell("u1", created.id);
+      if (!restarted) throw new Error("expected a restarted subshell");
+      expect(f.launcher.plans).toHaveLength(2);
+      expect(f.launcher.plans[1]?.preset).toEqual(EMPTY_PRESET);
+      expect((await subshellsRepo.findById(created.id))?.alive).toBe(1);
+    } finally {
+      await f.manager.deleteSubshell("u1", created.id);
+    }
+  });
+
+  it("a NON-NULL presetId whose row vanished still throws at revive (null is not gone)", async () => {
+    const f = remoteFixture();
+    const created = await f.manager.createSubshell({ userId: "u1", harnessId: "claude-code", workingDir: "/tmp" });
+    try {
+      await subshellsRepo.update(created.id, { presetId: "ghost-preset" }); // bypasses the repository's null-out
+      await expect(f.manager.restartSubshell("u1", created.id)).rejects.toThrow(/preset/);
+      // The restart boundary rolled the parked row back and retired the token.
+      expect((await subshellsRepo.findById(created.id))?.status).toBe("terminated");
+    } finally {
+      await f.manager.deleteSubshell("u1", created.id);
+    }
   });
 });

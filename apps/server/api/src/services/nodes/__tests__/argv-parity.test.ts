@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { brokenBuiltIns, builtInHarnesses, getHarness, type PresetDefinition } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
 import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
+import { EMPTY_PRESET } from "@/services/subshell-manager.service.js";
 
 /**
  * THE GATE of the plugins-on-the-control-plane inversion (spec 2026-09-10 §5).
@@ -235,6 +236,23 @@ for (const id of BUILTIN_IDS) {
         expect(substituted).toEqual(nodeArgv);
       });
     }
+
+    test(`${id}: presetless launch — EMPTY_PRESET (spec 2026-09-13 §4) keeps parity`, () => {
+      // The constant the server ships when no preset was named, used verbatim:
+      // `name: ""` is the validator's most aggressive input, and parity must
+      // hold for the launch a presetless create actually sends.
+      const inputs = {
+        cwd: "/home/node-user/projects/presetless",
+        preset: EMPTY_PRESET,
+        subshellName: "",
+        mcp: realMcp,
+        harnessSession: undefined,
+      };
+      const serverArgv = harness.buildCommand({ ...inputs, binary: HARNESS_BINARY_PLACEHOLDER });
+      const nodeArgv = harness.buildCommand({ ...inputs, binary: REAL_BINARY });
+      expect(serverArgv.filter((a) => a === HARNESS_BINARY_PLACEHOLDER).length).toBe(1);
+      expect(serverArgv.map((a) => (a === HARNESS_BINARY_PLACEHOLDER ? REAL_BINARY : a))).toEqual(nodeArgv);
+    });
   });
 }
 

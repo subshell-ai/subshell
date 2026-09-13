@@ -185,7 +185,7 @@ describe("harness install/uninstall", () => {
     const subshell = await subshellRoutes.fetch(
       authedRequest("/api/subshells", token, {
         method: "POST",
-        body: JSON.stringify({ presetId, workingDir: "/tmp" }),
+        body: JSON.stringify({ harnessId: "claude-code", presetId, workingDir: "/tmp" }),
       }),
     );
     expect(subshell.status).toBe(409);

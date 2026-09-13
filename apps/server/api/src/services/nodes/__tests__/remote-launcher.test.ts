@@ -28,6 +28,7 @@ import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-e
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { NoLiveConnectionError, RemoteLauncher } from "@/services/nodes/remote-launcher.js";
+import { EMPTY_PRESET } from "@/services/subshell-manager.service.js";
 
 /**
  * RemoteLauncher — the command-mapping table of spec §6.3 pinned call by
@@ -425,6 +426,20 @@ describe("launch", () => {
     });
     expect(launch.mcp?.args).toEqual(expect.arrayContaining(["--mcp-config"]));
     expect("env" in (launch.mcp ?? {})).toBe(false);
+  });
+
+  it("EMPTY_PRESET — the presetless launch's wire shape — survives the frame parser", async () => {
+    // `name: ""` is the validator's edge case: a preset row always has a name,
+    // but a launch with NO preset ships the empty definition (spec
+    // 2026-09-13 §4), and the node must ACCEPT it, not refuse the frame.
+    const h = makeHarness();
+    await h.launcher.launch({ ...planBase(), preset: EMPTY_PRESET });
+    const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(cmd.preset).toEqual(EMPTY_PRESET);
+    const parsed = parseNodeCommandBody(JSON.parse(JSON.stringify(cmd)));
+    expect(parsed).not.toBeNull();
+    const launch = parsed as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(launch.preset).toEqual({ name: "", env: {}, flags: [], settings: null, configIsolation: false });
   });
 
   it("mcp content without mcpConfigPath throws locally without a send", async () => {

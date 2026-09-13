@@ -43,6 +43,10 @@ async function dropColumnIfPresent(db: Kysely<any>, table: string, column: strin
  * - `is_default` dies with the seeding it protected; `node_id` dies with the
  *   pin (launch precedence is body → local → single-online-agent now).
  * - On `subshells`: ADD `preset_id` → copy `profile_id` → DROP `profile_id`.
+ *   The copy is `NULLIF(profile_id, '')`: the old column's NOT NULL DEFAULT
+ *   '' spelled "no profile" the way the nullable one spells it NULL, and a
+ *   downgrade round-trip (down writes `''` back for a NULL) must land on
+ *   NULL again, not on a value the schema documents as impossible.
  *   NEVER a table rebuild — `workspace_panes.subshell_id` and
  *   `subshell_shares.subshell_id` cascade on `subshells.id`, and
  *   `PRAGMA foreign_keys` cannot be disabled inside the migrator's
@@ -70,7 +74,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   }
   if ((await hasColumn(db, "subshells", "profile_id")) && !(await hasColumn(db, "subshells", "preset_id"))) {
     await db.schema.alterTable("subshells").addColumn("preset_id", "text").execute();
-    await sql`UPDATE subshells SET preset_id = profile_id`.execute(db);
+    await sql`UPDATE subshells SET preset_id = NULLIF(profile_id, '')`.execute(db);
     await db.schema.alterTable("subshells").dropColumn("profile_id").execute();
   }
 }

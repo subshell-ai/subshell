@@ -115,8 +115,8 @@ beforeAll(async () => {
   await initMigration.up(db);
   await operatorUxMigration.up(db);
   await remoteOpsMigration.up(db);
-  await channelsMigration.up(db);
-  await profileDefaultFlagMigration.up(db); // 0010's is_default flag (dropped again by 0027) // adds subshells.api_key_id
+  await channelsMigration.up(db); // adds sessions.api_key_id (0019 renames the table)
+  await profileDefaultFlagMigration.up(db); // 0010's is_default flag (dropped again by 0027)
   await sessionNameLockedMigration.up(db); // SubshellsRepository defaults name_locked
   await sessionHarnessIdMigration.up(db); // subshells.harness_session_id
   await sessionNotificationsMigration.up(db); // subshells.notify / waiting_since + subscriptions
@@ -148,7 +148,12 @@ afterAll(() => {
 
 describe("createSubshell MCP integration", () => {
   it("bakes SUBSHELL_API_KEY / SUBSHELL_BASE_URL / SUBSHELL_ID into the tmux command", async () => {
-    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     expect(tokens.issued).toEqual([created.id]);
     const cmd = tmux.newSubshellCmds[0] ?? "";
     expect(cmd).toContain(`SUBSHELL_API_KEY='subshell_stub_${created.id.slice(0, 8)}'`);
@@ -161,6 +166,7 @@ describe("createSubshell MCP integration", () => {
     tmux.captureScript = ["", "", "claude> ready"];
     const created = await manager.createSubshell({
       userId: "u1",
+      harnessId: "claude-code",
       presetId,
       workingDir: testDir,
       prompt: "fix the flaky test",
@@ -177,6 +183,7 @@ describe("createSubshell MCP integration", () => {
     tmux.captureScript = [""]; // forever blank
     const created = await manager.createSubshell({
       userId: "u1",
+      harnessId: "claude-code",
       presetId,
       workingDir: testDir,
       prompt: "hello",
@@ -191,7 +198,12 @@ describe("createSubshell MCP integration", () => {
   });
 
   it("renders the subshell-mcp config, registers it with the harness, and cleans up on delete", async () => {
-    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     const cfg = JSON.parse(readFileSync(subshellMcpConfigPath(created.id), "utf8")) as {
       mcpServers: { subshell: { command: string; args: string[] } };
     };
@@ -211,26 +223,70 @@ describe("createSubshell MCP integration", () => {
   });
 
   it("terminate revokes the subshell's token", async () => {
-    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     await manager.terminateSubshell("u1", created.id);
     expect(tokens.revoked).toEqual([created.id]);
   });
 
   it("delete revokes too", async () => {
-    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     await manager.deleteSubshell("u1", created.id);
     expect(tokens.revoked).toEqual([created.id]);
   });
 
   it("reconcile revokes a dead non-restarting subshell", async () => {
-    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     tmux.alive = false; // crash: pane gone
     await manager.reconcile("u1");
     expect(tokens.revoked).toEqual([created.id]);
   });
 
+  it("presetless create: the pane command carries the wiring env but no preset layer", async () => {
+    // The contrast IS the claim: the same launch with a one-var preset splices
+    // it into the `env -i` list, and the presetless launch (EMPTY_PRESET)
+    // carries everything ELSE — token, id, base URL — and nothing more.
+    const layered = await seedPreset(presets, {
+      name: `layered-${crypto.randomUUID().slice(0, 8)}`,
+      envJson: '{"MCP_TEST_LAYER":"1"}',
+    });
+    const withPreset = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId: layered,
+      workingDir: testDir,
+    });
+    const without = await manager.createSubshell({ userId: "u1", harnessId: "claude-code", workingDir: testDir });
+    const layeredCmd = tmux.newSubshellCmds[0] ?? "";
+    const bareCmd = tmux.newSubshellCmds[1] ?? "";
+    expect(layeredCmd).toContain("MCP_TEST_LAYER='1'");
+    expect(bareCmd).not.toContain("MCP_TEST_LAYER");
+    expect(bareCmd).toContain("SUBSHELL_API_KEY="); // a real launch — just an empty one
+    await manager.terminateSubshell("u1", withPreset.id);
+    await manager.terminateSubshell("u1", without.id);
+  });
+
   it("restart rotates the token on the SAME row", async () => {
-    const first = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const first = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     const restarted = await manager.restartSubshell("u1", first.id);
     if (!restarted) throw new Error("restart returned null");
     expect(restarted.id).toBe(first.id);
@@ -256,7 +312,12 @@ describe("createSubshell MCP registration per harness dialect", () => {
 
   it("opencode: writes a merged config layer and exports OPENCODE_CONFIG to the pane", async () => {
     const pid = await harnessPreset("opencode", "OPENCODE_PATH");
-    const created = await manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "opencode",
+      presetId: pid,
+      workingDir: testDir,
+    });
     const cfgPath = subshellMcpConfigPath(created.id);
     const cmd = tmux.newSubshellCmds[0] ?? "";
     // The env is baked into the pane command (buildHarnessCommand's env -i list),
@@ -277,7 +338,12 @@ describe("createSubshell MCP registration per harness dialect", () => {
     // to spread last — a preset setting it (the CLI documents the var!)
     // silently dropped the subshell's subshell tools while the UI promised auto.
     const pid = await harnessPreset("opencode", "OPENCODE_PATH", { OPENCODE_CONFIG: "/home/user/my.json" });
-    const created = await manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "opencode",
+      presetId: pid,
+      workingDir: testDir,
+    });
     const cmd = tmux.newSubshellCmds[0] ?? "";
     expect(cmd).toContain(`OPENCODE_CONFIG='${subshellMcpConfigPath(created.id)}'`);
     expect(cmd).not.toContain("/home/user/my.json");
@@ -286,7 +352,12 @@ describe("createSubshell MCP registration per harness dialect", () => {
 
   it("hermes: registers nothing and injects no MCP wiring (manual harness)", async () => {
     const pid = await harnessPreset("hermes", "HERMES_PATH");
-    const created = await manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "hermes",
+      presetId: pid,
+      workingDir: testDir,
+    });
     const cmd = tmux.newSubshellCmds[0] ?? "";
     expect(cmd).not.toContain("--mcp-config");
     expect(existsSync(subshellMcpConfigPath(created.id))).toBe(false);
@@ -301,7 +372,12 @@ describe("createSubshell MCP registration per harness dialect", () => {
     // same subshell id, rotated credential, config file rewritten from scratch.
     const pid = await seedPreset(presets);
     await presets.update(pid, { restartOnExit: 1 });
-    const created = await manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId: pid,
+      workingDir: testDir,
+    });
     const cfgPath = subshellMcpConfigPath(created.id);
     // Simulate the crash + due backoff the reconciler looks for.
     tmux.alive = false;
@@ -348,7 +424,12 @@ describe("auto-restart failure bounds + terminate race", () => {
   async function liveRestartable(): Promise<string> {
     const pid = await seedPreset(presets, { name: `p-${crypto.randomUUID().slice(0, 8)}` });
     await presets.update(pid, { restartOnExit: 1 });
-    const created = await manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId: pid,
+      workingDir: testDir,
+    });
     return created.id;
   }
 
@@ -426,7 +507,12 @@ describe("auto-restart failure bounds + terminate race", () => {
     // answers with the post-terminate state) — the sweep must back off
     // entirely: stamping and retiring the token belong to the terminate.
     const pid = await seedPreset(presets, { name: `toctou-${crypto.randomUUID().slice(0, 8)}` });
-    const created = await manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId: pid,
+      workingDir: testDir,
+    });
     tmux.alive = false; // the pane is gone by sweep time
     const notified: string[] = [];
     class RereadingSubshells extends SubshellsRepository {
@@ -514,9 +600,9 @@ describe("log-pipe attach strictness (LaunchPlan.bestEffortLog)", () => {
   it("createSubshell stays strict: a pipe-pane failure aborts the spawn and rolls back", async () => {
     const pid = await seedPreset(presets, { name: `pipfail-${crypto.randomUUID().slice(0, 8)}` });
     tmux.failPipe = true;
-    await expect(manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir })).rejects.toThrow(
-      /pipe-pane/,
-    );
+    await expect(
+      manager.createSubshell({ userId: "u1", harnessId: "claude-code", presetId: pid, workingDir: testDir }),
+    ).rejects.toThrow(/pipe-pane/);
     // The pane DID spawn (pipePane throws after newSubshell) — the rollback
     // must kill it, or a live harness orphans under a terminated row.
     const row = (await subshells.listByUser("u1")).find((r) => r.presetId === pid);
@@ -534,7 +620,12 @@ describe("log-pipe attach strictness (LaunchPlan.bestEffortLog)", () => {
     // best-effort).
     const pid = await seedPreset(presets, { name: `pipeok-${crypto.randomUUID().slice(0, 8)}` });
     await presets.update(pid, { restartOnExit: 1 });
-    const created = await manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId: pid,
+      workingDir: testDir,
+    });
     tmux.alive = false; // crash
     tmux.failPipe = true; // and the log re-attach now fails
     await subshells.update(created.id, {
@@ -574,9 +665,9 @@ describe("revoke-failure cleanup (unlink fallback)", () => {
     };
     manager = new SubshellManagerService({ subshells, presets, tmux, tokens: failingTokens, audit: async () => {} });
 
-    await expect(manager.createSubshell({ userId: "u1", presetId: pid, workingDir: testDir })).rejects.toThrow(
-      /env var name/,
-    );
+    await expect(
+      manager.createSubshell({ userId: "u1", harnessId: "claude-code", presetId: pid, workingDir: testDir }),
+    ).rejects.toThrow(/env var name/);
     const row = (await subshells.listByUser("u1")).find((r) => r.presetId === pid);
     expect(row?.status).toBe("terminated"); // cleanup still ran…
     expect(row?.apiKeyId).toBeNull(); // …and the unlink fallback severed the link
@@ -611,7 +702,12 @@ describe("revoke-failure cleanup (unlink fallback)", () => {
       tokens: throwingRevokeTokens(),
       audit: async () => {},
     });
-    const created = await broken.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await broken.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     expect((await subshells.findById(created.id))?.apiKeyId).toBe(`key_${created.id}`);
     await broken.terminateSubshell("u1", created.id); // must not throw
     const row = await subshells.findById(created.id);
@@ -639,7 +735,12 @@ describe("revoke-failure cleanup (unlink fallback)", () => {
       tokens: throwingRevokeTokens(),
       audit: async () => {},
     });
-    const created = await broken.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await broken.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     await broken.deleteSubshell("u1", created.id); // must not throw
     expect(await subshells.findById(created.id)).toBeUndefined(); // deleted despite the broken revoke
     expect(capturing.apiKeyIdAtDelete).toBeNull(); // unlink ran BEFORE the delete

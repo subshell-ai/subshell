@@ -4,7 +4,13 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const CreateSubshellBodySchema = t.Object({
-  presetId: t.String({ minLength: 1, description: "Preset to launch with" }),
+  harnessId: t.String({ minLength: 1, description: "Harness plugin id to launch" }),
+  presetId: t.Optional(
+    t.String({
+      minLength: 1,
+      description: "Preset to launch with; omitted = launch the harness with no saved settings",
+    }),
+  ),
   workingDir: t.String({ minLength: 1, description: "Absolute working directory" }),
   name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Subshell display name" })),
   prompt: t.Optional(
@@ -40,6 +46,7 @@ export const createSubshellRoute = new Elysia()
       // not spawn a control-plane subshell), hence `machineActor` below.
       return await ctx.services.subshells.createSubshell({
         userId: user.id,
+        harnessId: body.harnessId,
         presetId: body.presetId,
         workingDir: body.workingDir,
         name: body.name,

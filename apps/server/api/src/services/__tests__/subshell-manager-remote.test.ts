@@ -105,6 +105,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     try {
       const created = await manager.createSubshell({
         userId: "u1",
+        harnessId: "claude-code",
         presetId,
         workingDir: "/tmp",
         name: "remote-create",
@@ -144,7 +145,13 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const nodeId = "rmgr-node-reporter";
     const off = nodeOnline(nodeId, ["mcp"]);
     try {
-      const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId });
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
       // The node reported a PREFIX; the plane appends its own verb. The
       // control plane's own binary path would be meaningless on that machine.
       expect(fake.plans[0].reporter).toEqual({ command: "/usr/bin/subshell", args: ["report"] });
@@ -166,7 +173,13 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const nodeId = "rmgr-node-reporter-nomcp";
     const off = nodeOnline(nodeId, []);
     try {
-      const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId });
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
       expect(fake.plans[0].mcp).toBeUndefined();
       expect(fake.plans[0].reporter).toEqual({ command: "/usr/bin/subshell", args: ["report"] });
       await subshellsRepo.delete(created.id);
@@ -187,7 +200,13 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const nodeId = "rmgr-node-b";
     const off = nodeOnline(nodeId, []);
     try {
-      const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId });
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
       expect(fake.plans).toHaveLength(1);
       expect(fake.plans[0].mcp).toBeUndefined();
       expect(fake.plans[0].mcpConfigPath).toBeUndefined();
@@ -211,7 +230,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     // is the manager's own #planMcp guard (`NodeRpcError("offline")`), the RPC
     // twin of the RemoteLauncher's NoLiveConnectionError.
     const err = await manager
-      .createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId })
+      .createSubshell({ userId: "u1", harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(NodeRpcError);
     expect((err as NodeRpcError).code).toBe("offline");

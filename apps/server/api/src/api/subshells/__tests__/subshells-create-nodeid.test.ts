@@ -37,10 +37,11 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  * this file pins the HTTP surface: status codes + bodies, the strict
  * bearer-actor rule, `nodeOffline` on views, and the unchanged 200/shape.
  *
- * The resolution-success path is proven WITHOUT launching: presets carry
- * `harnessId: "no-such-harness"`, so a resolved request stops at the
+ * The resolution-success path is proven WITHOUT launching: bodies name
+ * `harnessId: "no-such-harness"` (their preset carries the same, so the
+ * mismatch gate stays silent), so a resolved request stops at the
  * `harness_disabled` 409 (which also proves `harnessUsable` saw the resolved
- * node id — see the online-agent case). One real 200 runs against a stub
+ * node id — see the online-agent case). Real 200s run against a stub
  * harness (CLAUDE_PATH) and a real tmux socket, terminated in cleanup.
  */
 
@@ -124,7 +125,8 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     );
   }
 
-  const base = (presetId: string) => ({ presetId, workingDir: "/tmp" });
+  /** Body helper: `harnessId` is the required half now (spec 2026-09-13 §4). */
+  const base = (presetId: string, harnessId = "no-such-harness") => ({ harnessId, presetId, workingDir: "/tmp" });
 
   it("bogus preset + omitted nodeId → unchanged behavior (404 Preset not found)", async () => {
     const res = await post(base("no-such-preset"));
@@ -188,7 +190,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       // per-node harness gate must reject it. A local-probe bug would fall
       // through to a real launch (200) instead of this 409. The AGENT copy
       // must name the node, not "this machine".
-      const agentRes = await post({ ...base(claudePresetId), nodeId });
+      const agentRes = await post({ ...base(claudePresetId, "claude-code"), nodeId });
       expect(agentRes.status).toBe(409);
       expect(((await agentRes.json()) as { message: string }).message).toBe(
         "That harness is disabled or not installed on that node",
@@ -255,7 +257,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       selfInvoke: { command: "/usr/bin/subshell", args: [] },
     };
     try {
-      const res = await post({ ...base(claudePresetId), nodeId, name: "cnode-gate" });
+      const res = await post({ ...base(claudePresetId, "claude-code"), nodeId, name: "cnode-gate" });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { id: string };
       createdSubshellIds.push(body.id);
@@ -344,7 +346,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     try {
-      const res = await post({ ...base(claudePresetId), name: "cnode-200" });
+      const res = await post({ ...base(claudePresetId, "claude-code"), name: "cnode-200" });
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(Object.keys(body).sort()).toEqual(["id", "promptDelivered", "tmuxSocket"]);
@@ -387,6 +389,106 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       if (prev === undefined) delete process.env.CLAUDE_PATH;
       else process.env.CLAUDE_PATH = prev;
     }
+  });
+
+  it("presetless launch: no presetId → 200, row presetId null + restartOnExit 0, view echoes presetId null", async () => {
+    const stub = join(testDir, "claude-stub3");
+    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    const prev = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = stub;
+    try {
+      const res = await post({ harnessId: "claude-code", workingDir: "/tmp", name: "cnode-presetless" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { id: string; tmuxSocket: string };
+      createdSubshellIds.push(body.id);
+      sockets.add(body.tmuxSocket);
+
+      const row = await new SubshellsRepository(db).findById(body.id);
+      expect(row?.presetId).toBeNull(); // the null is stored, not merely absent
+      expect(row?.harnessId).toBe("claude-code");
+      expect(row?.restartOnExit).toBe(0); // a presetless launch inherits nothing
+
+      const get = await app.fetch(
+        new Request(`http://localhost:3080/api/subshells/${body.id}`, {
+          headers: { cookie: `better-auth.session_token=${cookie}` },
+        }),
+      );
+      expect(get.status).toBe(200);
+      expect(((await get.json()) as { presetId: string | null }).presetId).toBeNull();
+
+      await app.fetch(
+        new Request(`http://localhost:3080/api/subshells/${body.id}/terminate`, {
+          method: "POST",
+          headers: { cookie: `better-auth.session_token=${cookie}` },
+        }),
+      );
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prev;
+    }
+  });
+
+  it("preset with restartOnExit: 1 → the row inherits the policy (preset path unchanged)", async () => {
+    const stub = join(testDir, "claude-stub4");
+    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    const prev = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = stub;
+    try {
+      const inheritPreset = await new PresetsRepository(db).create({
+        id: crypto.randomUUID(),
+        userId,
+        harnessId: "claude-code",
+        name: `cnode-inherit-${crypto.randomUUID().slice(0, 8)}`,
+        description: null,
+        envJson: null,
+        flagsJson: null,
+        settingsJson: null,
+        configIsolation: 0,
+        restartOnExit: 1,
+      });
+      createdPresetIds.push(inheritPreset.id);
+      const res = await post(base(inheritPreset.id, "claude-code"));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { id: string; tmuxSocket: string };
+      createdSubshellIds.push(body.id);
+      sockets.add(body.tmuxSocket);
+      const row = await new SubshellsRepository(db).findById(body.id);
+      expect(row?.presetId).toBe(inheritPreset.id);
+      expect(row?.restartOnExit).toBe(1);
+      await app.fetch(
+        new Request(`http://localhost:3080/api/subshells/${body.id}/terminate`, {
+          method: "POST",
+          headers: { cookie: `better-auth.session_token=${cookie}` },
+        }),
+      );
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prev;
+    }
+  });
+
+  it("foreign presetId → 404 (never the owner's own view of it)", async () => {
+    const foreign = await mkPreset(otherId, "claude-code");
+    const res = await post(base(foreign, "claude-code"));
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { message: string }).message).toBe("Preset not found");
+  });
+
+  it("presetId whose harness ≠ body harnessId → 400 naming both harnesses", async () => {
+    // The body asks for claude-code; the preset customizes no-such-harness.
+    // The mismatch gate fires BEFORE node resolution and the harness gate,
+    // so this is a 400 even though neither harness would launch here.
+    const res = await post({ harnessId: "claude-code", presetId: bogusPresetId, workingDir: "/tmp" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("no-such-harness");
+    expect(body.message).toContain("claude-code");
+  });
+
+  it("missing harnessId → 400 validation (the preset no longer carries it)", async () => {
+    const res = await post({ presetId: claudePresetId, workingDir: "/tmp" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
   });
 
   it("GET /api/subshells/:id echoes nodeId (row default is 'local')", async () => {

@@ -205,5 +205,13 @@ describe("migration 0027-presets", () => {
       .where("id", "=", "s1")
       .executeTakeFirstOrThrow();
     expect(s1Again.preset_id).toBe("p-default");
+    // The presetless row's downgrade `''` comes back as NULL — the round-trip
+    // is lossless in the direction the schema documents (NULLIF on the copy).
+    const s2Again = await db
+      .selectFrom("subshells")
+      .select("preset_id")
+      .where("id", "=", "s2")
+      .executeTakeFirstOrThrow();
+    expect(s2Again.preset_id).toBeNull();
   });
 });

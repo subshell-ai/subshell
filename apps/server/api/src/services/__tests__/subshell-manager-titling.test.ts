@@ -115,7 +115,12 @@ afterAll(() => {
 
 describe("pane titling — who gets --name", () => {
   it("create without a user name: no --name in the pane command, row keeps the date/time placeholder", async () => {
-    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     const cmd = tmux.newSubshellCmds[0] ?? "";
     expect(cmd).not.toContain("'--name'");
     const row = await subshells.findById(created.id);
@@ -127,6 +132,7 @@ describe("pane titling — who gets --name", () => {
   it("create with a user name: it is forwarded verbatim as --name", async () => {
     const created = await manager.createSubshell({
       userId: "u1",
+      harnessId: "claude-code",
       presetId,
       workingDir: testDir,
       name: "Ship the fix",
@@ -137,7 +143,12 @@ describe("pane titling — who gets --name", () => {
   });
 
   it("restart of an unlocked row: an auto-adopted title is NOT re-sent as --name", async () => {
-    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
     // Simulate what the sweep does: adopt the pane title into an UNLOCKED row.
     await subshells.update(created.id, { name: "Fix auth bug" });
     await manager.restartSubshell("u1", created.id);
@@ -151,6 +162,7 @@ describe("pane titling — who gets --name", () => {
   it("restart of a locked row: the pinned name IS re-sent as --name", async () => {
     const created = await manager.createSubshell({
       userId: "u1",
+      harnessId: "claude-code",
       presetId,
       workingDir: testDir,
       name: "Pinned",

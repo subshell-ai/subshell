@@ -172,6 +172,7 @@ describe("an installed plugin resolves on the plane's side of a launch", () => {
     });
     const created = await manager.createSubshell({
       userId: aliceId,
+      harnessId: "acme",
       presetId,
       workingDir: testDir,
     });

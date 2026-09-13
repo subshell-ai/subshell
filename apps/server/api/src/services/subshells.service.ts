@@ -204,15 +204,21 @@ export class SubshellsService extends BaseService {
    * resolves — control-plane host unless stated otherwise) and returns only
    * the client-safe fields — the MCP apiKey is issued once inside the
    * manager for env injection and is NEVER echoed to the HTTP client.
-   * @throws SubshellCreateError 404 when the preset is absent, or the
-   *         requested node is absent OR invisible (spec §2: 404-not-403
-   *         — an invisible node never answers 403).
+   * The preset is OPTIONAL (spec 2026-09-13 §4): `harnessId` names what
+   * launches, and an omitted preset composes the launch from nothing —
+   * `EMPTY_PRESET` adds no env, no flags, no isolation.
+   * @throws SubshellCreateError 404 when the (given) preset is absent, or
+   *         the requested node is absent OR invisible (spec §2: 404-not-403
+   *         — an invisible node never answers 403); 400 when a given preset
+   *         belongs to a different harness than the body names
+   *         (`preset_harness_mismatch`); 403 (node launch switched off).
    * @throws ApiError 409 NODE_OFFLINE (agent node unreachable), 400
-   *         NODE_REQUIRED (no launch-eligible node), 409 when the preset's
-   *         harness is disabled/unusable ON THE RESOLVED NODE.
+   *         NODE_REQUIRED (no launch-eligible node), 409 when the harness is
+   *         disabled/unusable ON THE RESOLVED NODE.
    */
   async createSubshell({
     userId,
+    harnessId,
     presetId,
     workingDir,
     name,
@@ -222,8 +228,10 @@ export class SubshellsService extends BaseService {
   }: {
     /** Owner of the new subshell (never taken from the body). */
     userId: string;
-    /** Preset to launch with. */
-    presetId: string;
+    /** Harness plugin to launch — the ONE required thing this call needs. */
+    harnessId: string;
+    /** Preset to launch with; absent/null = a presetless launch (EMPTY_PRESET). */
+    presetId?: string | null;
     /** Absolute working directory. */
     workingDir: string;
     /** Optional subshell display name. */
@@ -242,9 +250,21 @@ export class SubshellsService extends BaseService {
     // Gate new subshells here, not inside SubshellManagerService: its own
     // restart path reuses createSubshell, and an existing subshell's harness
     // must keep starting even once its harness is disabled.
-    const presetRow = await this.repos.presets.findById(presetId);
-    if (!presetRow || presetRow.userId !== userId) {
-      throw new SubshellCreateError("not_found", "Preset not found", 404);
+    if (presetId) {
+      const presetRow = await this.repos.presets.findById(presetId);
+      if (!presetRow || presetRow.userId !== userId) {
+        throw new SubshellCreateError("not_found", "Preset not found", 404);
+      }
+      if (presetRow.harnessId !== harnessId) {
+        // A preset only customises ITS harness — silently launching the
+        // preset's harness instead of the asked-for one (or the asked-for
+        // one without the settings it names) would both be a lie.
+        throw new SubshellCreateError(
+          "preset_harness_mismatch",
+          `Preset is for harness "${presetRow.harnessId}", not "${harnessId}"`,
+          400,
+        );
+      }
     }
     // §6.6 precedence BEFORE the harness gate: "where" must be settled first,
     // since "usable" is per-node now (spec §6.2).
@@ -252,7 +272,7 @@ export class SubshellsService extends BaseService {
       { userId, machineActor, requestedNodeId: nodeId },
       { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
     );
-    if (!(await harnessUsable(presetRow.harnessId, resolvedNodeId))) {
+    if (!(await harnessUsable(harnessId, resolvedNodeId))) {
       // Copy honesty: on an AGENT node "this machine" is a lie — the harness
       // may simply not be installed there (spec §6.2 per-node inventory). The
       // local wording stays verbatim — legacy tests pin it.
@@ -270,7 +290,8 @@ export class SubshellsService extends BaseService {
     const created = await this.#manager
       .createSubshell({
         userId,
-        presetId,
+        harnessId,
+        presetId: presetId ?? null,
         workingDir,
         name,
         prompt,

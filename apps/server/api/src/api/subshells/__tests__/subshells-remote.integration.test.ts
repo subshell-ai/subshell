@@ -106,6 +106,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
   /** `POST /api/subshells` pinned to the scripted node; asserts the honest 200 shape. */
   async function createOnNode(extra: Record<string, unknown> = {}) {
     const res = await post("/api/subshells", {
+      harnessId: "claude-code",
       presetId,
       workingDir: "/srv/work/remote",
       nodeId,

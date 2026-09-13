@@ -257,13 +257,19 @@ export class SubshellManagerService {
   }
 
   /**
-   * Creates a new subshell: validates the preset + working directory, records
-   * the DB row, mints the subshell's MCP token, then spawns the harness under
-   * tmux with a curated env (including the injected SUBSHELL_* credentials). When
-   * `prompt` is given, it is typed into the pane once the harness has settled.
+   * Creates a new subshell: validates the (optional) preset + working
+   * directory, records the DB row, mints the subshell's MCP token, then
+   * spawns the harness under tmux with a curated env (including the injected
+   * SUBSHELL_* credentials). When `prompt` is given, it is typed into the
+   * pane once the harness has settled.
+   * @throws Error "Preset not found" (a given preset absent or foreign),
+   *         "Preset harness mismatch" (the preset's harness ≠ `harnessId`),
+   *         "Unknown harness: …" — the route gates these first; this is the
+   *         same contract under a plain Error for every other caller.
    */
   async createSubshell({
     userId,
+    harnessId,
     presetId,
     workingDir,
     name,
@@ -275,7 +281,10 @@ export class SubshellManagerService {
     nodeId,
   }: {
     userId: string;
-    presetId: string;
+    /** Harness plugin to launch — required, with or without a preset. */
+    harnessId: string;
+    /** Preset row to launch with; absent/null = the launch composes from EMPTY_PRESET. */
+    presetId?: string | null;
     workingDir: string;
     name?: string;
     /** Optional task text typed into the pane after the harness settles. */
@@ -303,20 +312,23 @@ export class SubshellManagerService {
      */
     nodeId?: string;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
-    const presetRow = await this.#presets.findById(presetId);
-    if (!presetRow || presetRow.userId !== userId) {
+    const presetRow = presetId ? await this.#presets.findById(presetId) : undefined;
+    if (presetId && (!presetRow || presetRow.userId !== userId)) {
       throw new Error("Preset not found");
     }
-    const harness = getHarness(presetRow.harnessId);
+    if (presetRow && presetRow.harnessId !== harnessId) {
+      throw new Error("Preset harness mismatch");
+    }
+    const harness = getHarness(harnessId);
     if (!harness) {
-      throw new Error(`Unknown harness: ${presetRow.harnessId}`);
+      throw new Error(`Unknown harness: ${harnessId}`);
     }
 
     const targetNode = nodeId ?? LOCAL_NODE_ID;
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
     await assertDirAllowed(targetNode, realPath);
-    const preset = parsePreset(presetRow);
+    const preset = presetRow ? parsePreset(presetRow) : EMPTY_PRESET;
     const binary = await launcher.resolveBinary(harness);
     if (!binary) {
       throw new Error(`Harness "${harness.name}" is not installed on this machine.`);
@@ -336,12 +348,13 @@ export class SubshellManagerService {
     const harnessSession = await this.#planHarnessSession(launcher, harness, resumeFromId ?? null, realPath);
 
     // Record intent in the DB first so the row exists even if tmux errors.
-    // The preset's auto-restart policy is inherited at creation time.
+    // The preset's auto-restart policy is inherited at creation time; a
+    // presetless launch inherits nothing (0 = no auto-restart).
     await this.#subshells.create({
       id,
       userId,
-      presetId,
-      harnessId: presetRow.harnessId,
+      presetId: presetRow?.id ?? null,
+      harnessId,
       name: subshellName,
       workingDir: realPath,
       tmuxSocket: socket,
@@ -352,7 +365,7 @@ export class SubshellManagerService {
       lastOutputAt: new Date().toISOString(),
       alive: 1,
       startedAt: new Date().toISOString(),
-      restartOnExit: presetRow.restartOnExit,
+      restartOnExit: presetRow?.restartOnExit ?? 0,
       harnessSessionId: harnessSession?.id ?? null,
       // Default-silent unless explicitly requested (restart inherits the bell).
       notify: notify ? 1 : 0,
@@ -424,16 +437,20 @@ export class SubshellManagerService {
       throw err;
     }
 
-    logger.info(
-      `subshell created: ${id} (${subshellName}) harness=${presetRow.harnessId} cwd=${realPath} node=${targetNode}`,
-    );
+    logger.info(`subshell created: ${id} (${subshellName}) harness=${harnessId} cwd=${realPath} node=${targetNode}`);
     // Audit trail: best-effort sink (default app-wide recorder), never throws.
     await this.#audit({
       actorUserId: userId,
       action: "subshell.create",
       targetType: "subshell",
       targetId: id,
-      metadataJson: JSON.stringify({ name: subshellName, presetId, workingDir: realPath, nodeId: targetNode }),
+      metadataJson: JSON.stringify({
+        name: subshellName,
+        harnessId,
+        presetId: presetId ?? null,
+        workingDir: realPath,
+        nodeId: targetNode,
+      }),
     });
     return { id, tmuxSocket: socket, apiKey, promptDelivered };
   }
@@ -879,8 +896,11 @@ export class SubshellManagerService {
    *         structured 409 NODE_OFFLINE of spec §5.6.
    */
   async #reviveRow(row: SubshellTable, { backoffCount }: { backoffCount: number }): Promise<boolean> {
+    // A NULL `presetId` is not a missing preset — it is a presetless launch
+    // (spec 2026-09-13 §4), and it revives as exactly what it was created
+    // as: EMPTY_PRESET. Only a NON-NULL reference whose row vanished throws.
     const presetRow = row.presetId ? await this.#presets.findById(row.presetId) : undefined;
-    if (!presetRow) throw new Error("preset missing");
+    if (row.presetId && !presetRow) throw new Error("preset missing");
     const harness = getHarness(row.harnessId);
     if (!harness) throw new Error("harness missing");
     // The row's node owns this revive end to end (spec §6.3). An agent that
@@ -895,7 +915,7 @@ export class SubshellManagerService {
     await assertDirAllowed(row.nodeId, realPath);
     const binary = await launcher.resolveBinary(harness);
     if (!binary) throw new Error("harness binary missing");
-    const preset = parsePreset(presetRow);
+    const preset = presetRow ? parsePreset(presetRow) : EMPTY_PRESET;
     // Rotate the MCP token: the old process is gone and its baked key must
     // die with it; the new pane bakes the freshly issued one. A failed
     // revoke must NOT abort the restart — `issue` below rewrites the row's
@@ -1327,6 +1347,15 @@ export class SubshellManagerService {
     return h ? h.isInstalled() : false;
   }
 }
+
+/** The launch definition of a subshell created without a preset: adds nothing, isolates nothing. */
+export const EMPTY_PRESET: PresetDefinition = Object.freeze({
+  name: "",
+  env: {},
+  flags: [],
+  settings: null,
+  configIsolation: false,
+});
 
 /** Parses a preset row's JSON blobs into the plugin-facing shape. */ export function parsePreset(row: {
   envJson: string | null;
