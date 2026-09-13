@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { McpSetupSection } from "@/components/mcp-setup-section";
 
 /**
- * The profile-form block that answers "how does THIS harness get cross-subshell
+ * The preset-form block that answers "how does THIS harness get cross-subshell
  * comms" — the question the UI used to leave unanswered. Auto harnesses get a
  * plain statement; manual harnesses must show their steps VERBATIM so the
  * operator can copy the exact command the backend resolved.

@@ -4,7 +4,7 @@ import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvi
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { InstancePluginRow, PluginImpact } from "@/hooks/use-instance-plugins";
-import { PROFILES_QUERY_KEY } from "@/hooks/use-profiles";
+import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { apiFetch } from "@/lib/api";
 import { Route } from "@/routes/settings_.plugins";
 
@@ -76,7 +76,7 @@ function mockServer(fx: PageFixture) {
     const method = init?.method ?? "GET";
     calls.push({ method, pathname: url.pathname, search: url.search, body: init?.body as string | undefined });
     const json = (obj: unknown) => Promise.resolve(new Response(JSON.stringify(obj)));
-    if (url.pathname === "/api/profiles" && method === "GET") return json([]);
+    if (url.pathname === "/api/presets" && method === "GET") return json([]);
     if (url.pathname.startsWith("/api/plugins") && method === "PATCH") {
       if (failRemaining > 0) {
         failRemaining--;
@@ -102,10 +102,10 @@ function mockServer(fx: PageFixture) {
       const id = patch[1] ?? "unknown";
       return json(row({ id, name: id }));
     }
-    if (patch && method === "DELETE") return json({ ok: true, mode: "keep", profilesRemoved: 0 });
+    if (patch && method === "DELETE") return json({ ok: true, mode: "keep", presetsRemoved: 0 });
     const impact = /^\/api\/plugins\/([^/]+)\/impact$/.exec(url.pathname);
     if (impact && method === "GET") {
-      return json(fx.impact ?? { profiles: 0, distinctUsers: 0, defaults: 0, runningSubshells: 0 });
+      return json(fx.impact ?? { presets: 0, distinctUsers: 0, runningSubshells: 0 });
     }
     return json({});
   }) as typeof fetch;
@@ -129,22 +129,22 @@ function mockServer(fx: PageFixture) {
 }
 
 /**
- * Holds a PROFILES_QUERY_KEY query ACTIVE for the duration of a render, so
+ * Holds a PRESETS_QUERY_KEY query ACTIVE for the duration of a render, so
  * `invalidateQueries` against it must produce a visible refetch (TanStack
  * only refetches stale keys that have observers). Used by the uninstall test:
- * `mode=delete` sweeps profiles for EVERY user, so the uninstall mutation
+ * `mode=delete` sweeps presets for EVERY user, so the uninstall mutation
  * must invalidate this key or the viewer keeps a phantom list until refetch-
  * on-focus.
  */
-function ProfilesProbe() {
+function PresetsProbe() {
   useQuery({
-    queryKey: PROFILES_QUERY_KEY,
-    queryFn: () => apiFetch<unknown[]>("/api/profiles"),
+    queryKey: PRESETS_QUERY_KEY,
+    queryFn: () => apiFetch<unknown[]>("/api/presets"),
   });
   return null;
 }
 
-function renderPage(probeProfiles = false) {
+function renderPage(probePresets = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // Re-parented onto a test root carrying the ConfirmProvider, the same
   // provider __root mounts in production (install-by-name confirms through it).
@@ -152,7 +152,7 @@ function renderPage(probeProfiles = false) {
     component: () => (
       <ConfirmProvider>
         <Outlet />
-        {probeProfiles && <ProfilesProbe />}
+        {probePresets && <PresetsProbe />}
       </ConfirmProvider>
     ),
   });
@@ -258,18 +258,18 @@ describe("instance plugins page", () => {
     }
   });
 
-  it("uninstall shows the blast radius and defaults to keeping profiles", async () => {
+  it("uninstall shows the blast radius and defaults to keeping presets", async () => {
     const fixture: PageFixture = {
       admin: true,
       installed: [{ id: "acme", name: "Acme" }],
-      impact: { profiles: 4, distinctUsers: 3, defaults: 2, runningSubshells: 1 },
+      impact: { presets: 4, distinctUsers: 3, runningSubshells: 1 },
     };
     const m = mockServer(fixture);
     try {
       renderPage();
       fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
-      expect(await screen.findByText(/4 profiles use it, across 3 users/i)).toBeDefined();
-      const keep = screen.getByRole("radio", { name: /keep the profiles/i }) as HTMLInputElement;
+      expect(await screen.findByText(/4 presets use it, across 3 users/i)).toBeDefined();
+      const keep = screen.getByRole("radio", { name: /keep the presets/i }) as HTMLInputElement;
       expect(keep.checked).toBe(true);
       expect(screen.getByText(/running subshells are unaffected/i)).toBeDefined();
       // The dialog's own confirm is the only button named exactly "Uninstall";
@@ -285,14 +285,14 @@ describe("instance plugins page", () => {
     const fixture: PageFixture = {
       admin: true,
       installed: [{ id: "acme", name: "Acme" }],
-      impact: { profiles: 4, distinctUsers: 3, defaults: 2, runningSubshells: 1 },
+      impact: { presets: 4, distinctUsers: 3, runningSubshells: 1 },
     };
     const m = mockServer(fixture);
     try {
       renderPage();
       fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
-      await screen.findByText(/4 profiles use it, across 3 users/i);
-      fireEvent.click(screen.getByRole("radio", { name: /delete the 4 profiles permanently/i }));
+      await screen.findByText(/4 presets use it, across 3 users/i);
+      fireEvent.click(screen.getByRole("radio", { name: /delete the 4 presets permanently/i }));
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
       await waitFor(() => expect(m.deletedWith()).toEqual({ mode: "delete" }));
     } finally {
@@ -304,14 +304,14 @@ describe("instance plugins page", () => {
     const fixture: PageFixture = {
       admin: true,
       installed: [{ id: "acme", name: "Acme" }],
-      impact: { profiles: 4, distinctUsers: 3, defaults: 2, runningSubshells: 1 },
+      impact: { presets: 4, distinctUsers: 3, runningSubshells: 1 },
     };
     const m = mockServer(fixture);
     try {
       renderPage();
       fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
-      await screen.findByText(/4 profiles use it, across 3 users/i);
-      expect(screen.getByText(/restart of one whose profile was deleted will fail/i)).toBeDefined();
+      await screen.findByText(/4 presets use it, across 3 users/i);
+      expect(screen.getByText(/restart of one whose preset was deleted will fail/i)).toBeDefined();
     } finally {
       m.restore();
     }
@@ -321,14 +321,14 @@ describe("instance plugins page", () => {
     const fixture: PageFixture = {
       admin: true,
       installed: [{ id: "acme", name: "Acme" }],
-      impact: { profiles: 0, distinctUsers: 0, defaults: 0, runningSubshells: 0 },
+      impact: { presets: 0, distinctUsers: 0, runningSubshells: 0 },
     };
     const m = mockServer(fixture);
     try {
       renderPage();
       fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
-      expect(await screen.findByText(/no profiles use it/i)).toBeDefined();
-      expect(screen.getByRole("radio", { name: /keep the profiles/i })).toBeDefined();
+      expect(await screen.findByText(/no presets use it/i)).toBeDefined();
+      expect(screen.getByRole("radio", { name: /keep the presets/i })).toBeDefined();
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
       await waitFor(() => expect(m.deletedWith()).toEqual({ mode: "keep" }));
     } finally {
@@ -366,21 +366,21 @@ describe("instance plugins page", () => {
     }
   });
 
-  it("uninstall with mode=delete re-fetches the viewer's profiles list", async () => {
+  it("uninstall with mode=delete re-fetches the viewer's presets list", async () => {
     const m = mockServer({ admin: true, installed: [{ id: "thing", name: "Thing" }] });
     try {
-      renderPage(true); // profiles probe active, so invalidation shows on the wire
-      const profilesGets = () => m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/profiles").length;
+      renderPage(true); // presets probe active, so invalidation shows on the wire
+      const presetsGets = () => m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/presets").length;
       await screen.findByText("Thing");
-      expect(profilesGets()).toBeGreaterThanOrEqual(1);
+      expect(presetsGets()).toBeGreaterThanOrEqual(1);
       fireEvent.click(screen.getByRole("button", { name: "Uninstall Thing" }));
       const dialog = await screen.findByRole("dialog");
-      fireEvent.click(within(dialog).getByRole("radio", { name: /Delete the profiles/i }));
+      fireEvent.click(within(dialog).getByRole("radio", { name: /Delete the presets/i }));
       fireEvent.click(within(dialog).getByRole("button", { name: "Uninstall" }));
       await waitFor(() => expect(m.deletedWith()).toMatchObject({ mode: "delete" }));
-      // The sweep covers EVERY user's profiles and the Defaults included; a
-      // profiles list left stale until refetch-on-focus is a phantom.
-      await waitFor(() => expect(profilesGets()).toBeGreaterThanOrEqual(2));
+      // The sweep covers EVERY user's presets; a presets list left stale
+      // until refetch-on-focus is a phantom.
+      await waitFor(() => expect(presetsGets()).toBeGreaterThanOrEqual(2));
     } finally {
       m.restore();
     }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
-import { buildAgentOptions, buildNodeOptions, defaultAgentId, harnessFitsNode, type LaunchAgent } from "@/lib/subshell-compat";
+import {
+  buildAgentOptions,
+  buildNodeOptions,
+  defaultAgentId,
+  harnessFitsNode,
+  type LaunchAgent,
+} from "@/lib/subshell-compat";
 import type { Node } from "@/types/node";
 
 function node(overrides: Partial<Node>): Node {
@@ -155,7 +161,11 @@ describe("buildAgentOptions", () => {
 });
 
 describe("defaultAgentId", () => {
-  const HERE = node({ id: "local", kind: "local", harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }] });
+  const HERE = node({
+    id: "local",
+    kind: "local",
+    harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
+  });
 
   it("takes the most recent subshell's agent when it is still usable", () => {
     const plugins = [CLAUDE, PI];

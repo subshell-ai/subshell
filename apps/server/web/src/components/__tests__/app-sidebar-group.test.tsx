@@ -67,7 +67,7 @@ function renderRail(initialPath: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
   // Every path the rail links to must exist, or clicking a child throws.
-  const paths = ["/", "/workspaces", "/nodes", "/profiles", "/settings", "/users"];
+  const paths = ["/", "/workspaces", "/nodes", "/presets", "/settings", "/users"];
   const children = paths.map((path) => createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
   for (const path of [
     "/settings/api-keys",
@@ -170,7 +170,7 @@ describe("the Server Settings group's open/close wiring", () => {
       await waitFor(() => expect(expanded()).toBe("true"));
       // Leaving again shuts it, proving the open above came from the route
       // rather than from the press that survived.
-      fireEvent.click(screen.getByRole("link", { name: "Profiles" }));
+      fireEvent.click(screen.getByRole("link", { name: "Presets" }));
       await waitFor(() => expect(expanded()).toBe("false"));
     });
   });

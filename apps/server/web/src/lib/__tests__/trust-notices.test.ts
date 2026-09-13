@@ -7,7 +7,7 @@ import type { SubshellView } from "@/types/subshell";
 function subshell(over: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "s1",
-    profileId: "p",
+    presetId: "p",
     harnessId: "claude-code",
     nodeId: "local",
     nodeOffline: false,

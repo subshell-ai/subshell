@@ -6,7 +6,7 @@ import { filterSubshells, groupSubshells } from "../subshell-filter";
 function subshell(overrides: Partial<SubshellView>): SubshellView {
   return {
     id: crypto.randomUUID(),
-    profileId: "p1",
+    presetId: "p1",
     harnessId: "claude",
     name: "subshell",
     workingDir: "/mnt/code",

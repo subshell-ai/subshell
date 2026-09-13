@@ -30,12 +30,12 @@ describe("visibleNavItems", () => {
       // before 2026-09-11: a member reaches the roster through the sharing
       // dialog, and the route still renders for them by URL. What went away
       // is only the rail entry.
-      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/profiles"]);
+      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets"]);
     }
   });
 
   it("gives an admin every group page, flattened in rail order", () => {
-    expect(visibleNavItems(true).map((i) => i.to)).toEqual(["/", "/workspaces", "/nodes", "/profiles", ...GROUP_PAGES]);
+    expect(visibleNavItems(true).map((i) => i.to)).toEqual(["/", "/workspaces", "/nodes", "/presets", ...GROUP_PAGES]);
   });
 });
 

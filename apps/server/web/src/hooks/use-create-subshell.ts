@@ -39,13 +39,7 @@ export interface CreateSubshellInput {
  * @param input - The collected form values
  * @returns The JSON body for `POST /api/subshells`
  */
-export function toSubshellCreateBody({
-  harnessId,
-  presetId,
-  workingDir,
-  name,
-  nodeId,
-}: CreateSubshellInput): {
+export function toSubshellCreateBody({ harnessId, presetId, workingDir, name, nodeId }: CreateSubshellInput): {
   harnessId: string;
   presetId?: string;
   workingDir: string;

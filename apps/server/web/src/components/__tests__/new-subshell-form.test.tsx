@@ -18,9 +18,9 @@ import {
   type NewSubshellFormValue,
   pickNodeDefault,
 } from "@/components/subshell-picker/new-subshell-form";
-import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
-import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
+import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
+import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import type { Node } from "@/types/node";
 
 /**
@@ -232,9 +232,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
       expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
       expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
-      expect(canSubmit({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "local" })).toBe(
-        true,
-      );
+      expect(canSubmit({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "local" })).toBe(true);
       // Wire pin: the preset list carries NO query — `?node=any` went with
       // the pin (spec 2026-09-13 §5), the server's local-usability filter now
       // agrees with the Agent picker's own server-side greys.
@@ -292,7 +290,13 @@ describe("NewSubshellForm agent/preset defaults", () => {
     // Both usable against the host; Terminal first in catalog order. The
     // default skips it (spec §5) — a plain shell is a fallback, not the
     // headline.
-    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [CLAUDE_ON, TERM_ON] });
+    const host = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [CLAUDE_ON, TERM_ON],
+    });
     const restore = mockFetch([host], [TERM, CLAUDE]);
     try {
       const { latest } = await renderForm();
@@ -335,13 +339,22 @@ describe("NewSubshellForm agent/preset defaults", () => {
 
 describe("NewSubshellForm preset row", () => {
   it("lists None first and keeps a foreign preset from surviving the guard", async () => {
-    const restore = mockFetch([LOCAL, AGENT_ONLINE], [CLAUDE, plugin({ id: "pi", name: "Pi" })], [
-      preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
-      preset({ id: "p-pi", harnessId: "pi", name: "Pi one" }),
-    ]);
+    const restore = mockFetch(
+      [LOCAL, AGENT_ONLINE],
+      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [
+        preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
+        preset({ id: "p-pi", harnessId: "pi", name: "Pi one" }),
+      ],
+    );
     try {
       // The held pair is inconsistent: a Pi preset under the Claude agent.
-      const { latest } = await renderForm({ harnessId: "claude-code", presetId: "p-pi", workingDir: "/x", nodeId: "local" });
+      const { latest } = await renderForm({
+        harnessId: "claude-code",
+        presetId: "p-pi",
+        workingDir: "/x",
+        nodeId: "local",
+      });
       await waitFor(() => expect(latest().presetId).toBeNull());
       // And the picker stands at None (Base UI prints the mapped label).
       await waitFor(() => expect(screen.getByText("None")).toBeDefined());
@@ -351,11 +364,14 @@ describe("NewSubshellForm preset row", () => {
   });
 
   it("a chosen agent's own preset survives the guard and reads on the trigger", async () => {
-    const restore = mockFetch([LOCAL], [CLAUDE], [
-      preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
-    ]);
+    const restore = mockFetch([LOCAL], [CLAUDE], [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })]);
     try {
-      const { latest } = await renderForm({ harnessId: "claude-code", presetId: "p-claude", workingDir: "/x", nodeId: "local" });
+      const { latest } = await renderForm({
+        harnessId: "claude-code",
+        presetId: "p-claude",
+        workingDir: "/x",
+        nodeId: "local",
+      });
       await settle();
       expect(latest().presetId).toBe("p-claude");
       expect(screen.getByText("Fast")).toBeDefined();
@@ -374,11 +390,18 @@ describe("NewSubshellForm preset row", () => {
       access: "view",
       harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
     });
-    const restore = mockFetch([host, AGENT_ONLINE], [CLAUDE, plugin({ id: "pi", name: "Pi" })], [
-      preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
-    ]);
+    const restore = mockFetch(
+      [host, AGENT_ONLINE],
+      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
+    );
     try {
-      const { latest } = await renderForm({ harnessId: "claude-code", presetId: "p-claude", workingDir: "/x", nodeId: "local" });
+      const { latest } = await renderForm({
+        harnessId: "claude-code",
+        presetId: "p-claude",
+        workingDir: "/x",
+        nodeId: "local",
+      });
       const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
       // Keyboard-open the picker (happy-dom cannot emulate the pointer path
       // Base UI arms on); a held selection does not filter the freshly
@@ -397,7 +420,9 @@ describe("NewSubshellForm preset row", () => {
     const restore = mockFetch([LOCAL], [CLAUDE], []);
     try {
       await renderForm();
-      await waitFor(() => expect(screen.getByText("Saved flags, env vars and restart policy for Claude Code.")).toBeDefined());
+      await waitFor(() =>
+        expect(screen.getByText("Saved flags, env vars and restart policy for Claude Code.")).toBeDefined(),
+      );
       expect(screen.getByText("No presets for Claude Code yet.")).toBeDefined();
     } finally {
       restore();
@@ -422,9 +447,9 @@ describe("NewSubshellForm preset row", () => {
       fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Brand new" } });
       fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
       await waitFor(() =>
-        expect(
-          (client.getQueryData<{ id: string }[]>(PRESETS_QUERY_KEY) ?? []).some((r) => r.id === "p-new"),
-        ).toBe(true),
+        expect((client.getQueryData<{ id: string }[]>(PRESETS_QUERY_KEY) ?? []).some((r) => r.id === "p-new")).toBe(
+          true,
+        ),
       );
       await waitFor(() => expect(latest().presetId).toBe("p-new"));
       // The trigger reads the new row's name; the dialog is gone.
@@ -494,9 +519,7 @@ describe("NewSubshellForm honest hints", () => {
       // "node offline"; the hint must not claim the node holds no plugins.
       await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2" }, true);
       expect(
-        screen.queryByText(
-          (_text, el) => el?.tagName === "P" && /Nothing installed on/.test(el.textContent ?? ""),
-        ),
+        screen.queryByText((_text, el) => el?.tagName === "P" && /Nothing installed on/.test(el.textContent ?? "")),
       ).toBeNull();
     } finally {
       restore();
@@ -569,9 +592,16 @@ describe("NewSubshellForm working-dir defaults", () => {
     // `reHomed` guard cannot see this ordering; only waiting for the node
     // list can.
     const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
-    const restore = mockFetch([AGENT_ONLY], [], [], [], (n) => ({ paths: [], home: n === "a1" ? "/home/on-a1" : "/home/left-behind" }), {
-      nodesDelayMs: 30,
-    });
+    const restore = mockFetch(
+      [AGENT_ONLY],
+      [],
+      [],
+      [],
+      (n) => ({ paths: [], home: n === "a1" ? "/home/on-a1" : "/home/left-behind" }),
+      {
+        nodesDelayMs: 30,
+      },
+    );
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().nodeId).toBe("a1"));

@@ -2,74 +2,56 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { ProfileFields } from "@/components/profile-fields";
-import { emptyProfileForm, type ProfileFormValue, toProfileUpdatePayload } from "@/lib/profile-form";
-import type { HarnessInfo } from "@/types/harness";
-import type { Node } from "@/types/node";
+import { PresetFields } from "@/components/presets/preset-fields";
+import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
+import { emptyPresetForm, type PresetFormValue } from "@/lib/preset-form";
 
 /**
- * The profile editor's node-pin fallback: a pin whose node is no longer in
- * the caller's visible list (deleted, or the share revoked since it was set)
- * is refused by the server on save, so the editor must show "Any node" AND
- * normalize the form value to the "" sentinel — saving any other field then
- * PUTs `nodeId: null`, never the ghost id.
+ * The preset editor's AGENT block. The Node pin block these tests used to
+ * carry is gone with the pin (spec 2026-09-13 §2.3); what is pinned here is
+ * the frozen id/copy surface: `preset-harness` + "Agent" unlocked, static
+ * text locked, the progressive-disclosure gate, and the single-usable-agent
+ * auto-pick.
  */
-const claude: HarnessInfo = {
-  id: "claude",
-  name: "Claude",
-  type: "agent-harness",
-  binary: "claude",
-  envOverride: "CLAUDE_PATH",
-  description: "",
-  installed: true,
-  installedHere: true,
-  install: { command: "", docsUrl: "" },
-};
-
-function node(overrides: Partial<Node> = {}): Node {
+function plugin(p: {
+  id: string;
+  name?: string;
+  installed?: boolean;
+  enabled?: boolean;
+  broken?: string;
+}): InstancePluginRow {
   return {
-    id: "local",
-    name: "this host",
-    kind: "local",
-    os: "linux",
-    arch: "x64",
-    hostname: "host",
-    status: "online",
-    lastSeenAt: null,
-    agentVersion: null,
-    protocolVersion: null,
-    access: "owner",
-    canManage: true,
-    capabilities: [],
-    harnesses: [],
-    inventoryStale: false,
-    ...overrides,
+    id: p.id,
+    name: p.name ?? p.id,
+    description: "",
+    installed: p.installed ?? true,
+    enabled: p.enabled ?? true,
+    builtIn: true,
+    ...(p.broken !== undefined ? { broken: p.broken } : {}),
   };
 }
 
-function mockFetch(nodes: Node[]) {
+const CLAUDE = plugin({ id: "claude-code", name: "Claude Code" });
+const PI = plugin({ id: "pi", name: "Pi" });
+
+function mockFetch(plugins: InstancePluginRow[]) {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
-    if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes })));
-    if (path === "/api/setup/harnesses") return Promise.resolve(new Response(JSON.stringify([claude])));
+    if (path === "/api/plugins") return Promise.resolve(new Response(JSON.stringify({ plugins })));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
 }
 
-/**
- * Stateful controlled parent (like the create form / edit page): onChange
- * flows back into `value`, and every emitted value is recorded in `seen` so
- * the assertions can inspect what a save would PUT.
- */
-function renderEditor(initial: ProfileFormValue, seen: ProfileFormValue[]) {
+/** Stateful controlled parent (like the create dialog / edit page). */
+function renderEditor(initial: PresetFormValue, seen: PresetFormValue[], lockedHarness?: string) {
   function Wrapper() {
     const [value, setValue] = useState(initial);
     return (
-      <ProfileFields
+      <PresetFields
         value={value}
-        lockHarness
+        lockedHarness={lockedHarness}
         onChange={(v) => {
           seen.push(v);
           setValue(v);
@@ -87,34 +69,90 @@ function renderEditor(initial: ProfileFormValue, seen: ProfileFormValue[]) {
 
 afterEach(cleanup);
 
-describe("ProfileFields node pin", () => {
-  it("normalizes a dead pin to '' (Any node) so the save payload sends nodeId null", async () => {
-    const restore = mockFetch([node()]);
+describe("PresetFields agent select (unlocked)", () => {
+  it("carries the frozen ids and copy, and hides everything else until an agent is chosen", async () => {
+    const restore = mockFetch([CLAUDE, PI]);
     try {
-      const seen: ProfileFormValue[] = [];
-      renderEditor({ ...emptyProfileForm(), harnessId: "claude", name: "P", nodeId: "ghost" }, seen);
-      // The picker falls back to the "Any node (default)" row…
-      await screen.findByText("Any node (default)");
-      // …and the FORM value moved too — saving any field PUTs null, not "ghost".
-      await waitFor(() => expect(seen.some((v) => v.nodeId === "")).toBe(true));
-      const last = seen[seen.length - 1];
-      expect(toProfileUpdatePayload(last).nodeId).toBeNull();
+      const seen: PresetFormValue[] = [];
+      renderEditor(emptyPresetForm(), seen);
+      expect(await screen.findByText("Agent")).toBeDefined();
+      expect(document.getElementById("preset-harness")).not.toBeNull();
+      expect(screen.getByText("Which agent CLI subshells started with this preset will run.")).toBeDefined();
+      expect(screen.getByText("Select an agent to see the rest of the options.")).toBeDefined();
+      // Progressive disclosure: Name/Env/Flags/restart are not on screen yet.
+      expect(document.getElementById("preset-name")).toBeNull();
+      expect(screen.queryByText("Name")).toBeNull();
     } finally {
       restore();
     }
   });
 
-  it("leaves a live pin alone once the list arrives (no unpin mid-load, no ghost-clear)", async () => {
-    const restore = mockFetch([node(), node({ id: "agent1", name: "Alpha Box", kind: "agent", access: "edit" })]);
+  it("reveals the fields with the frozen ids once an agent is held", async () => {
+    const restore = mockFetch([CLAUDE]);
     try {
-      const seen: ProfileFormValue[] = [];
-      renderEditor({ ...emptyProfileForm(), harnessId: "claude", name: "P", nodeId: "agent1" }, seen);
-      // The mapped label only renders after the list resolved the id — proof
-      // the effect had its chance and correctly did nothing. The label carries
-      // the ` · {os}/{arch}` platform suffix (49553b2) from the fixture's
-      // linux/x64.
-      await screen.findByText("Alpha Box · linux/x64");
-      expect(seen).toHaveLength(0);
+      renderEditor({ ...emptyPresetForm(), harnessId: "claude-code" }, []);
+      await screen.findByText("Agent");
+      expect(document.getElementById("preset-name")).not.toBeNull();
+      expect(document.getElementById("preset-env")).not.toBeNull();
+      expect(document.getElementById("preset-flags")).not.toBeNull();
+      expect(document.getElementById("preset-restart")).not.toBeNull();
+      expect((document.getElementById("preset-name") as HTMLInputElement).placeholder).toBe("e.g. Fast model");
+      // The gated hint is gone.
+      expect(screen.queryByText("Select an agent to see the rest of the options.")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("auto-picks the ONLY usable agent rather than forcing a one-option decision", async () => {
+    const restore = mockFetch([plugin({ id: "gone", name: "Gone", installed: false }), CLAUDE]);
+    try {
+      const seen: PresetFormValue[] = [];
+      renderEditor(emptyPresetForm(), seen);
+      await waitFor(() => expect(seen.some((v) => v.harnessId === "claude-code")).toBe(true));
+    } finally {
+      restore();
+    }
+  });
+
+  it("does NOT auto-pick when several are usable — that is a real decision", async () => {
+    const restore = mockFetch([CLAUDE, PI]);
+    try {
+      const seen: PresetFormValue[] = [];
+      renderEditor(emptyPresetForm(), seen);
+      await screen.findByText("Agent");
+      // Let any (wrong) effect fire, then check nothing was written.
+      await new Promise((r) => setTimeout(r, 60));
+      expect(seen.filter((v) => v.harnessId !== "")).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("PresetFields locked agent", () => {
+  it("renders the agent as static text with the lock explanation, and no select", async () => {
+    const restore = mockFetch([CLAUDE]);
+    try {
+      renderEditor({ ...emptyPresetForm(), harnessId: "claude-code", name: "P" }, [], "claude-code");
+      expect(
+        await screen.findByText("An agent is chosen when a preset is created and cannot change afterwards."),
+      ).toBeDefined();
+      // The name shows; the control does not.
+      expect(screen.getByText("Claude Code")).toBeDefined();
+      expect(document.getElementById("preset-harness")).toBeNull();
+      // The rest of the form is already open (the locked agent is always set).
+      expect(document.getElementById("preset-name")).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls back to the id when the catalog cannot name the locked harness", async () => {
+    const restore = mockFetch([]); // catalog knows nothing
+    try {
+      renderEditor({ ...emptyPresetForm(), harnessId: "acme", name: "P" }, [], "acme");
+      expect(await screen.findByText("acme")).toBeDefined();
     } finally {
       restore();
     }

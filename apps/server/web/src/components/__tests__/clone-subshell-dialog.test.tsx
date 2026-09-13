@@ -15,7 +15,7 @@ import type { SubshellView } from "@/types/subshell";
 function makeSource(overrides: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "src-1",
-    profileId: "profile-1",
+    presetId: "preset-1",
     harnessId: "claude",
     nodeId: "mac-mini",
     nodeOffline: false,
@@ -41,14 +41,18 @@ function makeSource(overrides: Partial<SubshellView> = {}): SubshellView {
 }
 
 describe("cloneInputFromSource", () => {
-  it("copies profile/dir/node and trims the name; absent node means local", () => {
+  it("copies agent/preset/dir/node and trims the name; absent node means local", () => {
     expect(cloneInputFromSource(makeSource(), "  Copy  ")).toEqual({
-      profileId: "profile-1",
+      harnessId: "claude",
+      presetId: "preset-1",
       workingDir: "/home/theo/projects/demo",
       nodeId: "mac-mini",
       name: "Copy",
     });
     expect(cloneInputFromSource(makeSource({ nodeId: undefined }), "").nodeId).toBe("local");
+  });
+  it("a presetless source clones presetless — null, not an invented id", () => {
+    expect(cloneInputFromSource(makeSource({ presetId: null }), "x").presetId).toBeNull();
   });
 });
 
@@ -56,9 +60,10 @@ describe("CloneSubshellDialog", () => {
   afterEach(cleanup);
 
   /** Records fetch calls (JSON bodies parsed, so comparisons are
-   *  key-order independent); profiles/node lists answer with one row each;
-   *  the create POST answers with a new id. */
-  function mockFetch(createBody?: unknown) {
+   *  key-order independent); presets/plugins/node lists answer with one row
+   *  each; the create POST answers with a new id. `presetRow: false` serves a
+   *  caller whose source preset no longer resolves (deleted / hidden). */
+  function mockFetch(createBody?: unknown, opts: { presetRow?: boolean } = {}) {
     const calls: { method: string; url: string; body: unknown }[] = [];
     const original = globalThis.fetch;
     globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -69,10 +74,42 @@ describe("CloneSubshellDialog", () => {
         url: url.pathname,
         body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
       });
-      if (url.pathname === "/api/profiles")
+      if (url.pathname === "/api/presets")
         return Promise.resolve(
-          new Response(JSON.stringify([{ id: "profile-1", name: "Claude", harnessId: "claude" }])),
+          new Response(
+            JSON.stringify(
+              opts.presetRow === false
+                ? []
+                : [
+                    {
+                      id: "preset-1",
+                      harnessId: "claude",
+                      name: "Work",
+                      description: null,
+                      envJson: null,
+                      flagsJson: null,
+                      settingsJson: null,
+                      configIsolation: 0,
+                      restartOnExit: 0,
+                      createdAt: "2026-09-13T00:00:00.000Z",
+                      updatedAt: "2026-09-13T00:00:00.000Z",
+                    },
+                  ],
+            ),
+          ),
         );
+      if (url.pathname === "/api/plugins")
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              plugins: [
+                { id: "claude", name: "Claude Code", description: "", installed: true, enabled: true, builtIn: true },
+              ],
+            }),
+          ),
+        );
+      if (url.pathname === "/api/subshells" && method === "GET")
+        return Promise.resolve(new Response(JSON.stringify([])));
       if (url.pathname === "/api/nodes")
         return Promise.resolve(
           new Response(
@@ -143,7 +180,7 @@ describe("CloneSubshellDialog", () => {
     await settle();
   }
 
-  it("shows the copied node, profile and working directory read-only and launches with the typed name", async () => {
+  it("shows agent, preset, node and working directory read-only and launches with the typed name", async () => {
     const { calls, restore } = mockFetch();
     try {
       // Captures every onOpenChange argument so the success path can assert the
@@ -154,7 +191,8 @@ describe("CloneSubshellDialog", () => {
         openArgs.push(o);
       });
       expect(await screen.findByText("mac-mini · darwin/arm64")).toBeDefined();
-      expect(screen.getByText("Claude (claude)")).toBeDefined();
+      expect(screen.getByText("Claude Code")).toBeDefined();
+      expect(screen.getByText("Work")).toBeDefined();
       expect(screen.getByText("/home/theo/projects/demo")).toBeDefined();
       fireEvent.change(screen.getByRole("textbox", { name: "Clone name" }), { target: { value: "demo copy" } });
       fireEvent.click(screen.getByRole("button", { name: "Launch clone" }));
@@ -163,7 +201,8 @@ describe("CloneSubshellDialog", () => {
           method: "POST",
           url: "/api/subshells",
           body: {
-            profileId: "profile-1",
+            harnessId: "claude",
+            presetId: "preset-1",
             workingDir: "/home/theo/projects/demo",
             nodeId: "mac-mini",
             name: "demo copy",
@@ -173,6 +212,28 @@ describe("CloneSubshellDialog", () => {
       // A successful launch closes the dialog (the navigate that follows leaves
       // a still-open dialog over a dead route otherwise).
       await waitFor(() => expect(openArgs).toContain(false));
+    } finally {
+      restore();
+    }
+  });
+
+  it("a presetless source reads None and posts no presetId", async () => {
+    const { calls, restore } = mockFetch();
+    try {
+      await renderDialog(makeSource({ presetId: null }));
+      expect(await screen.findByText("None")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Launch clone" }));
+      await waitFor(() =>
+        expect(calls).toContainEqual({
+          method: "POST",
+          url: "/api/subshells",
+          body: {
+            harnessId: "claude",
+            workingDir: "/home/theo/projects/demo",
+            nodeId: "mac-mini",
+          },
+        }),
+      );
     } finally {
       restore();
     }

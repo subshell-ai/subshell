@@ -13,7 +13,7 @@ import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialo
 /**
  * Gating + composition only: the form itself is pinned by new-subshell-form.
  * test.tsx and the POST by use-create-subshell's existing coverage — filling
- * the searchable profile combobox here would re-test the combobox, not the
+ * the searchable agent combobox here would re-test the combobox, not the
  * dialog. The launch flow is e2e-pinned on /new (same hooks).
  */
 afterEach(cleanup);

@@ -131,11 +131,7 @@ function count(n: number, singular: string, plural = `${singular}s`): string {
  * Default (spec 2026-09-13 §2.2); running subshells got their own sentence
  * under the radios instead of a tail on this one.
  */
-export function blastRadius(impact: {
-  presets: number;
-  distinctUsers: number;
-  runningSubshells: number;
-}): string {
+export function blastRadius(impact: { presets: number; distinctUsers: number; runningSubshells: number }): string {
   if (impact.presets === 0) return "No presets use it.";
   const verb = impact.presets === 1 ? "uses" : "use";
   const presetWord = impact.presets === 1 ? "preset" : "presets";

@@ -55,7 +55,12 @@ describe("toSubshellCreateBody", () => {
 
   it("sends the preset id when one is chosen", () => {
     const body = toSubshellCreateBody({ harnessId: "p1", presetId: "pr-9", workingDir: "/tmp/x", name: "n" });
-    expect(JSON.parse(JSON.stringify(body))).toEqual({ harnessId: "p1", presetId: "pr-9", workingDir: "/tmp/x", name: "n" });
+    expect(JSON.parse(JSON.stringify(body))).toEqual({
+      harnessId: "p1",
+      presetId: "pr-9",
+      workingDir: "/tmp/x",
+      name: "n",
+    });
   });
 
   it("a presetless launch sends NO presetId — null is absence, not a field (spec §2.2)", () => {

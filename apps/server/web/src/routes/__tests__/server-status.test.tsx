@@ -34,7 +34,7 @@ const HEALTHY: AdminStatus = {
     nodes: { total: 5, online: 3, needingUpdate: [] },
     workspaces: 4,
     channels: 6,
-    profiles: 7,
+    presets: 7,
   },
   security: {
     registrationsOpen: false,

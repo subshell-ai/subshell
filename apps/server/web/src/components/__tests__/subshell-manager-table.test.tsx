@@ -16,7 +16,7 @@ import type { SubshellView } from "@/types/subshell";
 function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "id-1",
-    profileId: "profile-1",
+    presetId: "preset-1",
     harnessId: "claude",
     nodeId: "mac",
     nodeOffline: false,
@@ -51,12 +51,12 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 function mockFetch() {
-  // The per-row actions menu runs a profiles query on mount; answer it (and
+  // The per-row actions menu runs a presets query on mount; answer it (and
   // anything else) so nothing escapes to the real network.
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
-    return Promise.resolve(new Response(JSON.stringify(path.startsWith("/api/profiles") ? [] : {})));
+    return Promise.resolve(new Response(JSON.stringify(path.startsWith("/api/presets") ? [] : {})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
 }

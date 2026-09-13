@@ -6,8 +6,8 @@ describe("sidebar nav icons (spec 2026-09-02 §3, 2026-09-11 §3.1)", () => {
   const entries = visibleNavEntries(true);
   const items = visibleNavItems(true);
 
-  it("Profiles uses SlidersHorizontal, not the Server gear", () => {
-    expect(items.find((i) => i.to === "/profiles")?.icon).toBe(SlidersHorizontal);
+  it("Presets uses SlidersHorizontal, not the Server gear", () => {
+    expect(items.find((i) => i.to === "/presets")?.icon).toBe(SlidersHorizontal);
   });
 
   it("General keeps the plain Settings gear", () => {

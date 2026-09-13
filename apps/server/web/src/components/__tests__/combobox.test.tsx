@@ -6,6 +6,7 @@ const OPTIONS: ComboboxOption[] = [
   { value: "a", label: "Alpha · linux/x64" },
   { value: "b", label: "Beta · darwin/arm64", disabled: true, reason: "no pi here" },
 ];
+const ICONED: ComboboxOption[] = [{ value: "c", label: "Claude Code", icon: "🤖" }];
 
 afterEach(cleanup);
 
@@ -72,10 +73,9 @@ describe("SearchableSelect — dialog scroll restoration (2026-09-04)", () => {
     const scroller = document.createElement("div");
     popup.appendChild(scroller);
     document.body.appendChild(popup);
-    render(
-      <SearchableSelect id="picker-profile" value="" onValueChange={() => {}} placeholder="p" options={OPTIONS} />,
-      { container: scroller },
-    );
+    render(<SearchableSelect id="picker-agent" value="" onValueChange={() => {}} placeholder="p" options={OPTIONS} />, {
+      container: scroller,
+    });
     return scroller;
   }
 
@@ -97,6 +97,20 @@ describe("SearchableSelect — dialog scroll restoration (2026-09-04)", () => {
     expect(await screen.queryByRole("option", { name: /Alpha/ })).toBeNull();
     expect(scroller.scrollTop).toBe(0);
     scroller.remove();
+  });
+
+  it("renders an option's icon aria-hidden BEFORE the label — the accessible name stays the label", async () => {
+    render(<SearchableSelect id="picker-agent" value="" onValueChange={() => {}} placeholder="p" options={ICONED} />);
+    const input = screen.getByPlaceholderText("p") as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    // The name match alone proves the glyph contributes nothing to it: with
+    // the icon exposed, the accessible name would read "🤖 Claude Code".
+    const option = await screen.findByRole("option", { name: "Claude Code" });
+    const icon = option.querySelector("span[aria-hidden]") as HTMLElement;
+    expect(icon.textContent).toBe("🤖");
+    // aria-hidden on the glyph, BEFORE the label text.
+    expect(option.textContent?.startsWith("🤖")).toBe(true);
   });
 
   it("leaves the scroller alone when nothing shifted (desktop case)", async () => {

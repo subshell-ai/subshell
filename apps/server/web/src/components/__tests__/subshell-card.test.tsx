@@ -44,7 +44,7 @@ function agent(overrides: Partial<Node> = {}): Node {
 function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "s1",
-    profileId: "p1",
+    presetId: "p1",
     harnessId: "claude",
     nodeId: "local",
     nodeOffline: false,
@@ -74,7 +74,7 @@ function mockNodes(nodes: Node[]) {
   globalThis.fetch = ((input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes })));
-    if (path === "/api/profiles") return Promise.resolve(new Response(JSON.stringify([])));
+    if (path === "/api/presets") return Promise.resolve(new Response(JSON.stringify([])));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
@@ -145,7 +145,7 @@ describe("SubshellCard node pill", () => {
     globalThis.fetch = ((input: unknown) => {
       const path = new URL(String(input), "http://localhost").pathname;
       if (path === "/api/nodes") return new Promise<Response>(() => {});
-      if (path === "/api/profiles") return Promise.resolve(new Response(JSON.stringify([])));
+      if (path === "/api/presets") return Promise.resolve(new Response(JSON.stringify([])));
       return Promise.resolve(new Response(JSON.stringify({})));
     }) as typeof fetch;
     try {

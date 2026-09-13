@@ -16,7 +16,7 @@ import type { SubshellView } from "@/types/subshell";
 function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "id-1",
-    profileId: "profile-1",
+    presetId: null,
     harnessId: "claude",
     nodeOffline: false,
     name: "subshell",
@@ -41,7 +41,7 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
 }
 
 /**
- * The menu needs a router (its profile-edit item calls `useNavigate`), so it
+ * The menu needs a router (its preset-edit item calls `useNavigate`), so it
  * renders as an index route of a minimal memory router — the same context
  * the app itself installs.
  */
@@ -69,15 +69,34 @@ async function renderMenu(subshell: SubshellView, children?: ReactNode) {
   );
 }
 
-/** Records every request's method/url/body; answers the profiles query with
- *  [] and mutations with `{ ok: true }`. */
-function mockFetch() {
+/** One preset row; only the fields the menu's lookup reads. */
+function presetRow(p: { id: string; name: string }) {
+  return {
+    id: p.id,
+    harnessId: "claude",
+    name: p.name,
+    description: null,
+    envJson: null,
+    flagsJson: null,
+    settingsJson: null,
+    configIsolation: 0,
+    restartOnExit: 0,
+    createdAt: "2026-09-13T00:00:00.000Z",
+    updatedAt: "2026-09-13T00:00:00.000Z",
+  };
+}
+
+/** Records every request's method/url/body; answers the presets query with
+ *  `presets` (default: none) and mutations with `{ ok: true }`. */
+function mockFetch(presets: unknown[] = []) {
   const calls: { method: string; url: string; body: string | undefined }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     calls.push({ method: init?.method ?? "GET", url: url.pathname, body: init?.body as string | undefined });
-    return Promise.resolve(new Response(JSON.stringify(url.pathname.startsWith("/api/profiles") ? [] : { ok: true })));
+    return Promise.resolve(
+      new Response(JSON.stringify(url.pathname.startsWith("/api/presets") ? presets : { ok: true })),
+    );
   }) as typeof fetch;
   return {
     calls,
@@ -175,7 +194,7 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
     }
   });
 
-  it("Clone… is owner-only (an edit grantee's clone would 404 on the profile) and opens the clone dialog", async () => {
+  it("Clone… is owner-only (an edit grantee's clone would 404 on the preset) and opens the clone dialog", async () => {
     const { restore } = mockFetch();
     try {
       await renderMenu(makeSubshell({ access: "edit" }));
@@ -209,6 +228,50 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
           body: JSON.stringify({ name: "Renamed" }),
         }),
       );
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("SubshellActionsMenu — Edit preset (dead-row recovery loop)", () => {
+  afterEach(cleanup);
+
+  const FAST = [presetRow({ id: "p1", name: "Fast" })];
+
+  it("a dead subshell that launched from a preset offers the named Edit preset item", async () => {
+    const { restore } = mockFetch(FAST);
+    try {
+      await renderMenu(makeSubshell({ alive: false, presetId: "p1" }));
+      await openMenu("subshell");
+      fireEvent.click(screen.getByRole("menuitem", { name: 'Edit preset "Fast"' }));
+    } finally {
+      restore();
+    }
+  });
+
+  it("absent while the subshell lives, and for a presetless launch either way", async () => {
+    const { restore } = mockFetch(FAST);
+    try {
+      await renderMenu(makeSubshell({ alive: true, presetId: "p1" }));
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: /Edit preset/ })).toBeNull();
+      cleanup();
+
+      await renderMenu(makeSubshell({ alive: false, presetId: null }));
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: /Edit preset/ })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays hidden until the preset row resolves — a bare id would only confuse", async () => {
+    const { restore } = mockFetch([]); // the row is gone (deleted, or a foreign user's)
+    try {
+      await renderMenu(makeSubshell({ alive: false, presetId: "p1" }));
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: /Edit preset/ })).toBeNull();
     } finally {
       restore();
     }

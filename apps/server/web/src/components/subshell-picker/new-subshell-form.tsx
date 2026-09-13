@@ -4,12 +4,12 @@ import type { JSX } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
+import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkingDirField } from "@/components/working-dir-field";
-import { useInstancePlugins, type InstancePluginRow } from "@/hooks/use-instance-plugins";
+import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
@@ -182,9 +182,7 @@ export function NewSubshellForm({
   const { data: pluginData } = useInstancePlugins();
   // A well-formed catalog response is `{ plugins: [...] }`; anything else
   // (an error body, an older stub) leaves the picker empty, never broken.
-  const plugins: InstancePluginRow[] | undefined = Array.isArray(pluginData?.plugins)
-    ? pluginData.plugins
-    : undefined;
+  const plugins: InstancePluginRow[] | undefined = Array.isArray(pluginData?.plugins) ? pluginData.plugins : undefined;
   const { data: presetRows } = usePresets();
   const presets = presetRows ?? [];
 
@@ -318,7 +316,9 @@ export function NewSubshellForm({
       <div className="space-y-2">
         <Label htmlFor={ids.agent}>Agent</Label>
         {firstRun && (
-          <p className="text-muted-foreground text-xs">The agent CLI this subshell runs. Terminal needs nothing installed.</p>
+          <p className="text-muted-foreground text-xs">
+            The agent CLI this subshell runs. Terminal needs nothing installed.
+          </p>
         )}
         <SearchableSelect
           id={ids.agent}

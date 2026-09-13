@@ -7,7 +7,7 @@ import type { SubshellView } from "@/types/subshell";
 function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "id-1",
-    profileId: "profile-1",
+    presetId: "preset-1",
     harnessId: "claude",
     name: "subshell",
     nameLocked: false,

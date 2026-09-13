@@ -52,8 +52,10 @@ interface SetupMocks {
   harnesses?: HarnessInfo[];
   /** What GET /api/nodes answers (launch step) */
   nodes?: unknown[];
-  /** What GET /api/profiles answers (launch step) */
-  profiles?: unknown[];
+  /** What GET /api/plugins answers (launch step — the Agent picker) */
+  plugins?: unknown[];
+  /** What GET /api/presets answers (launch step — hidden first run, still fetched) */
+  presets?: unknown[];
   /** What GET /api/files/recent answers (launch step) */
   recent?: { paths: { path: string; label: string | null }[]; home: string | null };
   /** What POST /api/subshells answers; default is a created subshell */
@@ -83,7 +85,11 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify({ user: { id: "u1", name: "Ada" } })));
     }
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes: opts.nodes ?? [] })));
-    if (path === "/api/profiles") return Promise.resolve(new Response(JSON.stringify(opts.profiles ?? [])));
+    if (path === "/api/plugins") return Promise.resolve(new Response(JSON.stringify({ plugins: opts.plugins ?? [] })));
+    if (path === "/api/presets") return Promise.resolve(new Response(JSON.stringify(opts.presets ?? [])));
+    if (path === "/api/subshells" && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify([])));
+    }
     if (path === "/api/files/recent") {
       return Promise.resolve(new Response(JSON.stringify(opts.recent ?? { paths: [], home: null })));
     }
@@ -145,19 +151,20 @@ const LAUNCH_NODE = {
 
 const LAUNCH_AGENT = { ...LAUNCH_NODE, id: "agent-1", name: "Mac Studio", kind: "agent", harnesses: [] };
 
-const LAUNCH_PROFILE = {
-  id: "p-term",
-  harnessId: "terminal",
-  name: "Default",
-  description: null,
-  envJson: null,
-  flagsJson: null,
-  settingsJson: null,
-  configIsolation: 0,
-  restartOnExit: 0,
-  isDefault: 1,
-  nodeId: null,
-};
+/** The clean-machine catalog the wizard's launch step sees: Terminal is the
+ *  only usable agent (spec 2026-09-10 §6 — what makes a fresh box launchable). */
+const LAUNCH_PLUGINS = [
+  { id: "claude-code", name: "Claude Code", description: "", installed: false, enabled: true, builtIn: true },
+  {
+    id: "terminal",
+    name: "Terminal",
+    description: "",
+    installed: true,
+    enabled: true,
+    builtIn: true,
+    type: "terminal",
+  },
+];
 
 /**
  * Renders the wizard and walks it to `upto`: 0 = account form,
@@ -289,12 +296,27 @@ describe("setup wizard: the dot row continues the native assistant", () => {
 });
 
 describe("setup wizard: the launch step", () => {
-  /** The mocks a step-2 render needs: a real-shaped node list, one launchable profile, a home. */
+  /** The mocks a step-2 render needs: a real-shaped node list, a catalog with
+   *  one usable agent, no presets (a fresh account has none), a home. */
   const LAUNCH_MOCKS: SetupMocks = {
     nodes: [LAUNCH_NODE, LAUNCH_AGENT],
-    profiles: [LAUNCH_PROFILE],
+    plugins: LAUNCH_PLUGINS,
     recent: { paths: [], home: "/home/ada" },
   };
+
+  it("asks for the Agent (setup-agent), hides the Preset row, and teaches Terminal", async () => {
+    await renderSetup(LAUNCH_MOCKS, 2);
+    const agentInput = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
+    expect(agentInput.id).toBe("setup-agent");
+    // The terminal default composed: the picker reads Terminal.
+    await waitFor(() => expect(agentInput.value).toBe("Terminal"));
+    // First run hides the Preset row entirely — there is nothing to choose.
+    expect(screen.queryByLabelText("Preset")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New preset" })).toBeNull();
+    // And the Agent gets its one teaching hint (spec §5: the setup screen is
+    // where the word is taught, once).
+    expect(screen.getByText("The agent CLI this subshell runs. Terminal needs nothing installed.")).toBeDefined();
+  });
 
   it("arrives filled in: Task 6's defaults make it submittable without input", async () => {
     await renderSetup(LAUNCH_MOCKS, 2);

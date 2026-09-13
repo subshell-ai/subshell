@@ -14,10 +14,7 @@ import type { Node } from "@/types/node";
  */
 
 /** The plugin fields the Agent pickers read. */
-export type LaunchAgent = Pick<
-  InstancePluginRow,
-  "id" | "name" | "icon" | "installed" | "enabled" | "broken" | "type"
->;
+export type LaunchAgent = Pick<InstancePluginRow, "id" | "name" | "icon" | "installed" | "enabled" | "broken" | "type">;
 
 /**
  * Why a harness cannot launch on a node.

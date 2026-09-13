@@ -4,7 +4,7 @@ import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 
 /**
  * Launch-failure copy (spec 2026-08-31 §6.6): the create path answers 409
- * NODE_OFFLINE when a picked (or profile-pinned) agent node has no live
+ * NODE_OFFLINE when a picked remote node has no live
  * connection; NODE_UNREACHABLE is the sibling the node RPC family produces
  * when the agent accepts but never answers. Everything else — the 404 for an
  * invisible node (deliberately NOT a 403, §2), harness-unusable-on-that-node

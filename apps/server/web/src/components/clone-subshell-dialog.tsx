@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useCreateSubshell, type CreateSubshellInput } from "@/hooks/use-create-subshell";
+import { type CreateSubshellInput, useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";

@@ -7,7 +7,7 @@ import { setConfirmHandler } from "@/lib/confirm";
 /**
  * Regression pin for the plaintext-once guarantee across a node switch:
  * TanStack reuses route components across param changes (same hazard the
- * repo notes in routes/profiles_.$id), so a rerender with a new `nodeId` —
+ * repo notes in routes/presets_.$id), so a rerender with a new `nodeId` —
  * no unmount — must still retire the previous node's revealed key. With an
  * empty-deps reset effect this fails: the old plaintext rides along.
  */
