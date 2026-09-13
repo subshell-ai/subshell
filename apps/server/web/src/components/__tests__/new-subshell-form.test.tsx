@@ -113,11 +113,6 @@ interface MockOpts {
   subshellsGate?: Promise<unknown>;
   /** Answer POST /api/presets with this row (the inline-create case). */
   createdPreset?: ReturnType<typeof preset>;
-  /** Harness ids the CONTROL PLANE can run. When set, a GET /api/presets
-   *  without `?node=any` answers the LOCAL-filtered list exactly as the
-   *  route does, so a test can pin that the form reads the unfiltered
-   *  variant. Absent: every GET answers the full store. */
-  localUsableHarnesses?: string[];
 }
 
 function mockFetch(
@@ -149,15 +144,10 @@ function mockFetch(
     }
     if (path === "/api/presets" && method === "GET") {
       lastPresetsUrl = path + url.search;
-      // Mirror the route's rule: `?node=any` skips the control plane's
-      // harness-usability filter; without it, rows for agents this host
-      // cannot run are hidden.
-      let rows: unknown[] = presetStore;
-      if (opts.localUsableHarnesses !== undefined && url.searchParams.get("node") !== "any") {
-        const usable = new Set(opts.localUsableHarnesses);
-        rows = rows.filter((p) => usable.has((p as { harnessId: string }).harnessId));
-      }
-      return Promise.resolve(new Response(JSON.stringify(rows)));
+      // Mirror the route's rule since the store-scoping follow-up: the list
+      // is the whole store-scoped answer for EVERY caller — no variants, no
+      // local probe.
+      return Promise.resolve(new Response(JSON.stringify(presetStore)));
     }
     if (path === "/api/presets" && method === "POST") {
       const created = opts.createdPreset ?? preset({ id: "new-p", harnessId: "claude-code" });
@@ -256,12 +246,13 @@ describe("NewSubshellForm agent/preset defaults", () => {
       expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
       expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
       expect(canSubmit({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "local" })).toBe(true);
-      // Wire pin: the form reads the UNFILTERED list. The default list is
-      // filtered by the control plane's probe while the picker's greys come
-      // from the SELECTED node — the two agree only when that node is the
-      // host itself, so the form must not read it (regression, final review
-      // 2026-09-13: presets vanished for a node-only agent).
-      expect(lastPresetsUrl).toBe("/api/presets?node=any");
+      // Wire pin: ONE list for every surface. The store-scoped server
+      // already answers for agents that run only on another node, so the
+      // launch form reads the plain URL the /presets page does — no query,
+      // no second cache key (the node=any variant that escaped invalidation
+      // is gone; the node-only-agent regression it guarded is fixed at the
+      // server, spec 2026-09-13 follow-up).
+      expect(lastPresetsUrl).toBe("/api/presets");
     } finally {
       restore();
     }
@@ -428,12 +419,13 @@ describe("NewSubshellForm preset row", () => {
   });
 
   it("offers a preset for an agent only the SELECTED node runs", async () => {
-    // The pairing the filtered list hid (final review, 2026-09-13): the
-    // control-plane host has no claude, "mac mini" does, and the form reads
-    // `node=any` — so with the node picked and its agent chosen, the preset
-    // is offered and survives the guard. On the default list the mock would
-    // answer [] (host cannot run claude), the guard would null the pick, and
-    // the row would never surface.
+    // The pairing the LOCAL-filtered list used to hide (final review,
+    // 2026-09-13; settled server-side, spec follow-up): the control-plane
+    // host has no claude binary, "mac mini" does, and the claude-code
+    // PLUGIN is in the instance store — so the one store-scoped list already
+    // answers with the preset, no escape-hatch query. With the node picked
+    // and its agent chosen, the preset is offered and survives the guard;
+    // per-node fit stays the grey matrix, never a list filter.
     const NO_CLAUDE_LOCAL = node({
       id: "local",
       name: "this host",
@@ -445,9 +437,6 @@ describe("NewSubshellForm preset row", () => {
       [NO_CLAUDE_LOCAL, AGENT_ONLINE],
       [CLAUDE, TERM],
       [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
-      [],
-      undefined,
-      { localUsableHarnesses: ["terminal"] },
     );
     try {
       const { latest } = await renderForm({

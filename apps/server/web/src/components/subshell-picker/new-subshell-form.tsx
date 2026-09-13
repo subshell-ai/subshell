@@ -48,7 +48,7 @@ export function canSubmit(value: NewSubshellFormValue): boolean {
  * launching there 409s `NODE_OFFLINE`, and offering a target we know is down
  * would only invite a confusing failure. (The pick list can always be stale;
  * the 409 path covers the race.) Harness compatibility greys separately, via
- * `buildNodeOptions`. Mirrored in mobile `src/lib/node-anchor.ts`.
+ * `buildNodeOptions`. Mirrored in mobile `src/lib/node-pick.ts`.
  */
 function isSelectable(n: Node): boolean {
   // `canLaunch` is the SERVER's answer to "may this viewer start a subshell
@@ -95,7 +95,7 @@ export function hideMachineField(nodes: Node[]): boolean {
  * forcing); else "" — an explicit choice is due (submit stays blocked until
  * it happens).
  * Pure so the fallback matrix is testable without opening a dropdown.
- * Mirrored in mobile `src/lib/node-anchor.ts`.
+ * Mirrored in mobile `src/lib/node-pick.ts`.
  */
 export function pickNodeDefault(nodes: Node[], current: string): string {
   if (nodes.some((n) => n.id === current && isSelectable(n))) return current;
@@ -183,13 +183,13 @@ export function NewSubshellForm({
   // A well-formed catalog response is `{ plugins: [...] }`; anything else
   // (an error body, an older stub) leaves the picker empty, never broken.
   const plugins: InstancePluginRow[] | undefined = Array.isArray(pluginData?.plugins) ? pluginData.plugins : undefined;
-  // `node=any`: a preset whose agent is installed only on ANOTHER machine
-  // must be listable here while that machine is picked — the default list is
-  // filtered by the control plane's own probe, while the Agent picker enables
-  // agents from the SELECTED node's inventory. Agent-scoping stays
-  // client-side (`p.harnessId === value.harnessId`); the server never pairs
-  // rows per node.
-  const { data: presetRows } = usePresets({ node: "any" });
+  // One list, one key: availability is the SERVER's store-scoped question
+  // (is the agent installed+enabled on the instance), so a preset whose
+  // agent runs only on ANOTHER machine is listed here too — the form reads
+  // the same `["presets"]` every other surface does. Agent-scoping stays
+  // client-side (`p.harnessId === value.harnessId`); per-node fit is the
+  // grey matrix, never a list filter.
+  const { data: presetRows } = usePresets();
   const presets = presetRows ?? [];
 
   // The default agent reads the user's most recent subshell — data the ONE
