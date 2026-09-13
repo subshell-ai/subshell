@@ -383,11 +383,15 @@ function planRows(p: Probe): HTMLUListElement {
   ul.append(
     question({
       id: "plan-autostart",
-      label: "Start it at every login",
+      label: "Start it again at every login",
+      // What this ADDS over the box above, which is the thing people read as
+      // already covered: both managers run the server inside your own login
+      // session, so it stops when you log out either way. This is what starts
+      // it the next time.
       detail: !autostartSupported(p)
         ? `needs subshell-server ${MIN_AUTOSTART_SERVER_VERSION}`
         : supervision.background
-          ? ""
+          ? "otherwise it stays stopped after you log out"
           : "needs the box above",
       checked: supervision.autostart && autostartSupported(p),
       // Nothing to start at login without a service to start — and nothing to
@@ -713,7 +717,10 @@ function renderSupervision(p: Probe): void {
     render();
     refocus("sup-login");
   });
-  login.append(loginBox, text("span", "Start it at every login", "label"));
+  login.append(loginBox, text("span", "Start it again at every login", "label"));
+  if (chosen.background && autostartSupported(p)) {
+    login.append(text("span", "Otherwise it stays stopped after you log out.", "hint"));
+  }
   if (!autostartSupported(p)) {
     login.append(text("span", `Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`, "hint"));
   }

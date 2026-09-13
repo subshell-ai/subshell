@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
-import type { SupervisionMode } from "@/components/service/supervision-card";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ADMIN_STATUS_QUERY_KEY } from "@/hooks/use-admin-status";
-import { apiPost } from "@/lib/api";
+import { apiFetch, apiPost } from "@/lib/api";
 import { desktopInvokeStrict } from "@/lib/desktop";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
+import { currentMode, type SupervisionMode } from "@/lib/supervision";
+import type { ServerDeployment } from "@/types/server-deployment";
 
 /** What the desktop app answers: the CLI's own words, plus where it ended. */
 interface SupervisionResult {
@@ -29,8 +30,15 @@ interface SupervisionResult {
 export interface SetSupervision {
   /** Move the machine to `mode`; `autostart` is read only when `mode` is `service`. */
   set(mode: SupervisionMode, autostart: boolean, force: boolean): Promise<boolean>;
-  /** True while the chain is running */
+  /** True while the desktop command itself is running */
   pending: boolean;
+  /**
+   * The mode being waited FOR, once the command has returned and the server is
+   * coming back — null when nothing is in flight.
+   */
+  settling: SupervisionMode | null;
+  /** True when that wait gave up */
+  timedOut: boolean;
   /** Why the last attempt failed, null when it did not */
   error: string | null;
   /** The whole chain log behind that failure, null when there is none */
@@ -54,6 +62,10 @@ function lastLine(result: SupervisionResult): string {
   return last(result.stderr) || last(result.stdout) || "The switch stopped without saying why.";
 }
 
+/** How often the settle wait asks, and how long before it gives up. */
+const SETTLE_POLL_MS = 1_000;
+const SETTLE_TIMEOUT_MS = 60_000;
+
 /**
  * `desktop_set_supervision`, from the dashboard.
  *
@@ -62,27 +74,83 @@ function lastLine(result: SupervisionResult): string {
  * it, a switch back stops the app's child — so nothing the server serves can
  * be the thing that performs it. The desktop app is what outlives the server,
  * and this page reaches it over the webview's IPC, which survives the
- * server going away. The call returns once the new server is starting.
+ * server going away.
  *
- * Both admin queries are invalidated on success rather than written: the
- * answer here is a `SupervisionResult`, not a view, and the server that would
- * produce a view has just been replaced.
+ * **The command returning is NOT the switch being done**, and conflating the
+ * two is what made this feel broken. It returns once the new server is
+ * STARTING; the page then has to wait for that server to answer before the
+ * card can honestly move, and the card reflects the machine rather than the
+ * press. So there is a second phase — `settling` — which polls the deployment
+ * route directly until it reports the mode that was asked for, exactly as
+ * `useServerRestart` waits for a new boot. Without it the dialog closed onto a
+ * card still showing the old mode, with nothing on screen saying why.
+ *
+ * The wait polls DIRECTLY rather than through the query cache, for the same
+ * reason the restart waiter does: the cache's unbounded network retry belongs
+ * to the offline banner, and a second consumer would fight it for ownership of
+ * the same failure. Here the failures are expected and silent.
  */
 export function useSetSupervision(): SetSupervision {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
+  const [settling, setSettling] = useState<SupervisionMode | null>(null);
+  const [timedOut, setTimedOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<string | null>(null);
+  // Set on unmount, so navigating away mid-switch leaves no loop running
+  // against a server that may never answer.
+  const gone = useRef(false);
+  useEffect(
+    () => () => {
+      gone.current = true;
+    },
+    [],
+  );
+
+  /** Poll the deployment route until the machine reports `target`. */
+  const waitForMode = useCallback(
+    async (target: SupervisionMode): Promise<void> => {
+      const began = Date.now();
+      for (;;) {
+        if (gone.current) return;
+        try {
+          const view = await apiFetch<ServerDeployment>("/api/admin/server");
+          if (currentMode(view) === target) {
+            if (gone.current) return;
+            // Written, not just invalidated: this answer IS the fresh view, and
+            // invalidating alone would leave the card on the old mode for one
+            // more round trip — the exact gap this wait exists to close.
+            queryClient.setQueryData(SERVER_DEPLOYMENT_QUERY_KEY, view);
+            void queryClient.invalidateQueries({ queryKey: ADMIN_STATUS_QUERY_KEY });
+            setSettling(null);
+            return;
+          }
+        } catch {
+          // Down, or coming back up: both are the expected shape of this wait.
+        }
+        if (Date.now() - began > SETTLE_TIMEOUT_MS) {
+          if (!gone.current) {
+            setSettling(null);
+            setTimedOut(true);
+          }
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
+      }
+    },
+    [queryClient],
+  );
 
   const set = useCallback(
     async (mode: SupervisionMode, autostart: boolean, force: boolean): Promise<boolean> => {
       setPending(true);
       setError(null);
       setDetails(null);
-      // BEFORE the invoke, and deliberately unawaited-on-failure: this records
-      // the act in the instance's audit trail, and the server is about to go
-      // away. `server.autostart.update` wrote a row for the SMALLER change
-      // while this one — which removes a service definition — wrote none.
+      setTimedOut(false);
+      // BEFORE the invoke, and its failure is swallowed: this records the act
+      // in the instance's audit trail, and the server is about to go away.
+      // `server.autostart.update` wrote a row for the SMALLER change while
+      // this one — which removes a service definition — wrote none.
       //
       // It records HONEST use and nothing more. Anything calling the Tauri
       // command directly skips it, an XSS in this page included, which is the
@@ -124,17 +192,15 @@ export function useSetSupervision(): SetSupervision {
           void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
           return false;
         }
-        // `void`, NOT `await`. `invalidateQueries` resolves only once the
-        // refetch settles, and this app retries a `NetworkError` UNBOUNDED
-        // (`lib/query-client.ts`) — so during the outage this very switch
-        // causes, awaiting it never returns. `pending` then stays true, and
-        // the dialog disables its own Cancel and refuses to dismiss: a modal
-        // saying "Switching…" forever, on a page whose server is gone, which
-        // is the one surface that could have explained what happened.
-        //
-        // They still refetch, and still recover when the server answers.
-        void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
-        void queryClient.invalidateQueries({ queryKey: ADMIN_STATUS_QUERY_KEY });
+        // A no-op that landed where it was asked to needs no wait.
+        if (result.noop) {
+          void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
+          return true;
+        }
+        // The command is done; the SERVER is not. Hand the dialog its success
+        // so it can close, and keep waiting on the card.
+        setSettling(mode);
+        void waitForMode(mode);
         return true;
       } catch (err) {
         // A refusal before anything was touched arrives as the command's
@@ -145,7 +211,7 @@ export function useSetSupervision(): SetSupervision {
         setPending(false);
       }
     },
-    [queryClient],
+    [queryClient, waitForMode],
   );
 
   // Without this the failure from an "app" attempt greets the next "service"
@@ -153,6 +219,7 @@ export function useSetSupervision(): SetSupervision {
   const reset = useCallback(() => {
     setError(null);
     setDetails(null);
+    setTimedOut(false);
   }, []);
-  return { set, pending, error, details, reset };
+  return { set, pending, settling, timedOut, error, details, reset };
 }

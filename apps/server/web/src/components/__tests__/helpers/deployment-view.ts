@@ -1,6 +1,6 @@
-import type { SupervisionMode } from "@/components/service/supervision-card";
 import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { SetSupervision } from "@/hooks/use-set-supervision";
+import type { SupervisionMode } from "@/lib/supervision";
 import type { ServerDeployment, ServerSetting, SettingSource } from "@/types/server-deployment";
 
 /**
@@ -83,12 +83,21 @@ export function stubAutostart(over: Partial<ServerAutostart> = {}): ServerAutost
 
 /** A mode-switch handle that records calls and answers as told. */
 export function stubSupervision(
-  over: { result?: boolean; error?: string | null; details?: string | null; pending?: boolean } = {},
+  over: {
+    result?: boolean;
+    error?: string | null;
+    details?: string | null;
+    pending?: boolean;
+    settling?: SupervisionMode | null;
+    timedOut?: boolean;
+  } = {},
 ): SetSupervision & { calls: { mode: string; autostart: boolean; force: boolean }[]; resets: number } {
   const calls: { mode: string; autostart: boolean; force: boolean }[] = [];
   const handle = {
     calls,
     resets: 0,
+    settling: over.settling ?? null,
+    timedOut: over.timedOut ?? false,
     set: async (mode: SupervisionMode, autostart: boolean, force: boolean) => {
       calls.push({ mode, autostart, force });
       return over.result ?? true;

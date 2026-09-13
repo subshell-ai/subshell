@@ -99,8 +99,38 @@ switch does and calls `desktop_set_supervision` through the desktop bridge
 (`useSetSupervision`) — no assistant window (operator's call, 2026-09-12;
 `docs/security.md` carries the accounting for granting that command to the
 SPA window). The radio shows the MACHINE, not the pick — it does not move until
-the next poll reports the change — so dismissing the dialog cannot leave the
+the machine reports the change — so dismissing the dialog cannot leave the
 card claiming a mode that never took effect.
+
+**The command returning is NOT the switch being done, and that gap needs a
+state of its own.** `desktop_set_supervision` answers once the new server is
+STARTING; the card cannot move until that server answers. So `useSetSupervision`
+has a second phase — `settling` — which polls `GET /api/admin/server` directly
+until `currentMode` reports the mode that was asked for, then WRITES the view
+it already holds into the cache (invalidating alone costs another round trip on
+the exact sentence that is the confirmation). The card renders a spinner and
+"Switching to …, waiting for the server to come back", and locks both radios
+while it runs; a 60 s cap turns into "The server has not come back." Without
+this the dialog closed onto a card still showing the old mode with nothing on
+screen saying why, and it read as a page that had ignored the click.
+`ServiceCard`'s restart line carries the same spinner, for the same reason.
+
+**The model is `lib/supervision.ts`, not the card.** `SupervisionMode`,
+`currentMode`, `loginDisabledReason` and `modeLabel` live there because the
+HOOK needs `currentMode` to know when the switch has landed, and importing it
+from the component would make a real value-level cycle. `currentMode` answers
+`null` for a server nobody supervises — started by hand, a container, the e2e
+stack — rather than defaulting to the background mode, which put "A launchd
+agent runs it" directly under `ServiceCard`'s "Running, not supervised".
+
+**The mode and the login switch are two axes, and the copy has to keep them
+apart.** The radio answers WHO runs the server; the switch answers whether it
+comes back BY ITSELF next time you log in. Both managers run the server inside
+the user's own login session, so it stops at logout either way — which is why
+"keeps it running whether or not the app is open" was misread as covering
+logins and now reads "runs it, whether or not Subshell Server is open", with
+the switch saying what it adds ("nothing brings it back after you log out or
+restart"). The desktop assistant's two screens carry the same distinction.
 
 **The act cannot be a route, and the reason is specific rather than the usual
 one.** Switching needs an actor that outlives the server: going to app mode

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { deploymentView, stubAutostart, stubSupervision } from "@/components/__tests__/helpers/deployment-view";
-import { currentMode, loginDisabledReason, SupervisionCard } from "@/components/service/supervision-card";
+import { SupervisionCard } from "@/components/service/supervision-card";
 import { resetDesktopShellForTests } from "@/lib/desktop";
+import { currentMode, loginDisabledReason } from "@/lib/supervision";
 
 /**
  * Bun runs every test FILE in one process, so a UA left overwritten here is
@@ -258,6 +259,46 @@ describe("SupervisionCard", () => {
     // refuses to close is a page with no way back to itself.
     act(() => screen.getByRole("button", { name: "Continue in the background" }).click());
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows a spinner and the target while the switch is landing", () => {
+    asShell(DESKTOP);
+    render(
+      <SupervisionCard
+        view={deploymentView()}
+        autostart={stubAutostart()}
+        supervision={stubSupervision({ settling: "app" })}
+      />,
+    );
+    // The command returning is not the switch being done: the server is
+    // coming back, the card still shows the machine's OLD mode, and without
+    // this the dialog closed onto a page that looked like it had done nothing.
+    expect(screen.getByText(/Switching to the Subshell Server app/)).toBeTruthy();
+    // And the radios are locked, because a second switch would race the first
+    // for the port — `ActionGuard` would refuse it anyway.
+    for (const radio of modes()) expect(radio.disabled).toBe(true);
+  });
+
+  it("says so when the server never comes back", () => {
+    asShell(DESKTOP);
+    render(
+      <SupervisionCard
+        view={deploymentView()}
+        autostart={stubAutostart()}
+        supervision={stubSupervision({ timedOut: true })}
+      />,
+    );
+    expect(screen.getByText(/has not come back/)).toBeTruthy();
+  });
+
+  it("keeps the two axes distinct: who runs it, and whether it comes back", () => {
+    asShell(DESKTOP);
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
+    // The mode says WHO runs the server; it must not also claim to answer
+    // logins, which is what "keeps it running whether or not the app is open"
+    // was read as. Both managers run inside the login session.
+    expect(screen.getByText(/runs it, whether or not Subshell Server is open/)).toBeTruthy();
+    expect(screen.getByText(/nothing brings it back after you log out/)).toBeTruthy();
   });
 
   it("surfaces a failed login change", () => {

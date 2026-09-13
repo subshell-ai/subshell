@@ -14,8 +14,8 @@ describe("consequences", () => {
     expect(mac.at(-1)).toBe("Running subshells keep running");
     const linux = consequences("service", "linux", false);
     expect(linux[1]).toBe("Installs a systemd user service and starts it");
-    expect(linux).toContain("Does not start it at login");
-    expect(consequences("service", "linux", true)).toContain("Starts it again at every login");
+    expect(linux).toContain("Does not come back after you log out — you would start it yourself");
+    expect(consequences("service", "linux", true)).toContain("Starts it again the next time you log in");
   });
 });
 
@@ -48,7 +48,7 @@ describe("SupervisionDialog", () => {
         onConfirm={(a) => got.push(a)}
       />,
     );
-    expect(screen.queryByRole("switch", { name: "Start it at every login" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Start it again at every login" })).toBeNull();
     act(() => screen.getByRole("button", { name: "Run with the app" }).click());
     expect(got).toEqual([true]);
   });
@@ -66,7 +66,7 @@ describe("SupervisionDialog", () => {
         onConfirm={(a) => got.push(a)}
       />,
     );
-    const login = screen.getByRole("switch", { name: "Start it at every login" });
+    const login = screen.getByRole("switch", { name: "Start it again at every login" });
     expect(login.getAttribute("aria-checked")).toBe("true");
     act(() => login.click());
     act(() => screen.getByRole("button", { name: "Run in the background" }).click());

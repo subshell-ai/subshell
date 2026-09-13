@@ -1,3 +1,4 @@
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import type { SupervisionMode } from "@/components/service/supervision-card";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,9 @@ export function consequences(
   return [
     "Stops the server this app is running",
     `Installs a ${agent} and starts it`,
-    autostart ? "Starts it again at every login" : "Does not start it at login",
+    autostart
+      ? "Starts it again the next time you log in"
+      : "Does not come back after you log out — you would start it yourself",
     // Leaving app mode stops a child the app signals by main pid only, so
     // panes always survive that direction.
     "Running subshells keep running",
@@ -130,7 +133,7 @@ export function SupervisionDialog({
         {!toApp && (
           <div className="flex items-center gap-3 text-sm">
             <Switch checked={autostart} onCheckedChange={setAutostart} id="supervision-dialog-autostart" />
-            <label htmlFor="supervision-dialog-autostart">Start it at every login</label>
+            <label htmlFor="supervision-dialog-autostart">Start it again at every login</label>
           </div>
         )}
         {lethal && (
@@ -178,6 +181,7 @@ export function SupervisionDialog({
             onClick={() => onConfirm(autostart, lethal)}
             disabled={pending}
           >
+            {pending && <LoaderCircle className="animate-spin" aria-hidden />}
             {pending
               ? "Switching…"
               : lethal

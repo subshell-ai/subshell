@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
-import { ADMIN_STATUS_QUERY_KEY } from "@/hooks/use-admin-status";
+import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { useSetSupervision } from "@/hooks/use-set-supervision";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 
@@ -22,18 +22,40 @@ function installTauri(invoke: Invoke): void {
  */
 const audited: unknown[] = [];
 let realFetch: typeof globalThis.fetch;
+/** What `GET /api/admin/server` answers the settle wait; set per test. */
+let machine: () => unknown = () => {
+  throw new Error("server down");
+};
+
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+/** A deployment view reporting the machine in `mode`. */
+function viewIn(mode: "service" | "app") {
+  const view = deploymentView();
+  if (mode === "app") {
+    view.service.manager = "app";
+  } else {
+    view.service.manager = "launchd";
+    view.service.installed = true;
+  }
+  return view;
+}
+
 beforeEach(() => {
   audited.length = 0;
+  machine = () => {
+    throw new Error("server down");
+  };
   realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url.endsWith("/api/admin/server/supervision")) {
       audited.push(JSON.parse(String(init?.body)));
-      return new Response(JSON.stringify({ recorded: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return json({ recorded: true });
     }
+    if (url.endsWith("/api/admin/server")) return json(machine());
     throw new Error(`unexpected fetch ${url}`);
   }) as typeof globalThis.fetch;
 });
@@ -55,7 +77,7 @@ function makeWrapper(): { Wrapper: (p: { children: ReactNode }) => ReactElement;
 }
 
 describe("useSetSupervision", () => {
-  it("invokes the desktop command with the mode and login answer, then invalidates both admin queries", async () => {
+  it("invokes the desktop command, then WAITS for the machine to report the new mode", async () => {
     const calls: unknown[] = [];
     installTauri(async (command, args) => {
       calls.push([command, args]);
@@ -63,7 +85,6 @@ describe("useSetSupervision", () => {
     });
     const { Wrapper, qc } = makeWrapper();
     qc.setQueryData(SERVER_DEPLOYMENT_QUERY_KEY, { stale: true });
-    qc.setQueryData(ADMIN_STATUS_QUERY_KEY, { stale: true });
     const { result } = renderHook(() => useSetSupervision(), { wrapper: Wrapper });
 
     let ok = false;
@@ -72,15 +93,53 @@ describe("useSetSupervision", () => {
     });
     expect(ok).toBe(true);
     expect(calls).toEqual([["desktop_set_supervision", { mode: "app", autostart: true, force: false }]]);
-    // Invalidated, not written: the answer is an ActionResult, and the server
-    // that would produce a fresh view has just been replaced.
-    expect(qc.getQueryState(SERVER_DEPLOYMENT_QUERY_KEY)?.isInvalidated).toBe(true);
-    expect(qc.getQueryState(ADMIN_STATUS_QUERY_KEY)?.isInvalidated).toBe(true);
     expect(result.current.error).toBe(null);
     // The instance's trail records the act. It cannot be the desktop app's
     // job — that side holds no session — and `server.autostart.update` was
     // already auditing the SMALLER change while this one wrote nothing.
     expect(audited).toEqual([{ mode: "app", autostart: true, force: false }]);
+
+    // The command has returned and the server has NOT come back. This is the
+    // window that used to be silent: the dialog closed, the card still showed
+    // the old mode, and nothing said the page was waiting on anything.
+    expect(result.current.pending).toBe(false);
+    expect(result.current.settling).toBe("app");
+
+    // The server answers, in the new mode.
+    machine = () => viewIn("app");
+    await waitFor(() => expect(result.current.settling).toBe(null), { timeout: 5_000 });
+    // Written rather than invalidated: this response IS the fresh view, and
+    // invalidating alone would leave the card on the old mode for one more
+    // round trip — the exact gap the wait exists to close.
+    expect(qc.getQueryData(SERVER_DEPLOYMENT_QUERY_KEY)).toMatchObject({ service: { manager: "app" } });
+  }, 10_000);
+
+  it("does not settle on a view that still reports the OLD mode", async () => {
+    installTauri(async () => ({ ok: true, stdout: "", stderr: "" }));
+    // The old server answering one last time, or a memoized view from just
+    // before the switch — neither is the machine having moved.
+    machine = () => viewIn("service");
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useSetSupervision(), { wrapper: Wrapper });
+    await act(async () => {
+      await result.current.set("app", true, false);
+    });
+    expect(result.current.settling).toBe("app");
+    await new Promise((settle) => setTimeout(settle, 1_500));
+    expect(result.current.settling).toBe("app");
+  }, 10_000);
+
+  it("needs no wait when the machine was already where it was asked to go", async () => {
+    installTauri(async () => ({ ok: true, stdout: "Nothing to change.\n", stderr: "", mode: "app", noop: true }));
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useSetSupervision(), { wrapper: Wrapper });
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.set("app", true, false);
+    });
+    // Nothing ran, so nothing is coming back — a spinner here would be a lie.
+    expect(ok).toBe(true);
+    expect(result.current.settling).toBe(null);
   });
 
   it("switches anyway when the audit row cannot be written", async () => {

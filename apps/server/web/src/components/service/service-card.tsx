@@ -1,3 +1,4 @@
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { FactCard } from "@/components/admin-status/fact-list";
 import { RestartDialog, resumeElsewhere } from "@/components/service/restart-dialog";
@@ -65,11 +66,19 @@ export function ServiceCard({
 
   return (
     <FactCard title="Service">
-      <p className={restarting ? "col-span-full text-sm text-warning" : "col-span-full text-sm"}>
+      <p
+        className={restarting ? "col-span-full flex items-center gap-2 text-sm text-warning" : "col-span-full text-sm"}
+      >
         {restarting ? (
           <>
-            Restarting… waiting for the server to come back.
-            {elsewhere && <ElsewhereLink href={elsewhere} />}
+            {/* The wait is up to a minute and the page is losing its server
+                while it happens, so a static sentence reads as a page that
+                has stopped rather than one that is working. */}
+            <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+            <span>
+              Restarting… waiting for the server to come back.
+              {elsewhere && <ElsewhereLink href={elsewhere} />}
+            </span>
           </>
         ) : (
           supervisionLine(view, bootedAt)
