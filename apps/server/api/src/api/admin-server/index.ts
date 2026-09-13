@@ -5,6 +5,7 @@ import { loggingRoute } from "@/api/admin-server/logging.route.js";
 import { logsRoute } from "@/api/admin-server/logs.route.js";
 import { patchConfigRoute } from "@/api/admin-server/patch-config.route.js";
 import { restartRoute } from "@/api/admin-server/restart.route.js";
+import { supervisionAuditRoute } from "@/api/admin-server/supervision-audit.route.js";
 
 /**
  * `/api/admin/server` — the server's view of, and levers on, its own
@@ -18,4 +19,5 @@ export const adminServerRoutes = new Elysia({ prefix: "/api/admin/server" })
   .use(restartRoute)
   .use(autostartRoute)
   .use(logsRoute)
-  .use(loggingRoute);
+  .use(loggingRoute)
+  .use(supervisionAuditRoute);

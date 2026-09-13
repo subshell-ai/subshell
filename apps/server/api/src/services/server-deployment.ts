@@ -260,9 +260,26 @@ export function appSupervised(env: NodeJS.ProcessEnv, ppid: number): boolean {
 }
 
 /**
- * Build the whole § 3.1 view. READS ONLY — but not cheap: `collectStatus`
- * probes the port and PATH, and `queryService` spawns the service manager, so
- * this is a polled route's worth of work rather than a hot path's.
+ * How long a collected view is reused. Short enough that nothing on the page
+ * is visibly stale (the SPA polls every 5 s), long enough that N open tabs
+ * cost ONE probe rather than N.
+ */
+export const DEPLOYMENT_CACHE_MS = 2_000;
+
+let memo: { view: DeploymentView; at: number } | null = null;
+
+/**
+ * Build the whole § 3.1 view. READS ONLY — but not cheap, and worse than
+ * "not cheap": `collectStatus` runs `netstat -an -p tcp` through
+ * `Bun.spawnSync` and `queryService` spawns the service manager the same way.
+ * Bun is single-threaded, so each of those is a WHOLE-PROCESS stall — it does
+ * not slow the poller down, it stops every terminal WebSocket frame and every
+ * other API request for its duration.
+ *
+ * That is why this memoizes. The Service page is the one an admin leaves
+ * open, the tab count is unbounded, and it polls every 5 s; without a memo,
+ * four tabs meant four `netstat` dumps every five seconds, paid by everyone
+ * else on the instance.
  *
  * `saved` and `problems` come from the CLI's own `collectStatus` rather than
  * being recomputed, so the web page and `subshell-server status` cannot
@@ -272,6 +289,53 @@ export function appSupervised(env: NodeJS.ProcessEnv, ppid: number): boolean {
  * the fact rather than the inference.
  */
 export function collectDeployment(deps: DeploymentDeps = {}): DeploymentView {
+  // Injected deps mean a test or a caller asking about a DIFFERENT machine;
+  // neither reads nor writes the memo, which is only ever about this one.
+  if (Object.keys(deps).length > 0) return buildDeployment(deps);
+  const view = buildDeployment(deps);
+  // Every writer route (`patch-config`, `autostart`, `logging`) returns a
+  // fresh view by calling this, so refreshing the memo HERE is what stops the
+  // polled read from serving a pre-write view for the rest of its window.
+  // No writer has to remember to invalidate anything.
+  memo = { view, at: Date.now() };
+  return view;
+}
+
+/**
+ * `collectDeployment()` for the POLLED read, reused for {@link DEPLOYMENT_CACHE_MS}.
+ *
+ * Only `GET /api/admin/server` uses this. Writers call `collectDeployment()`
+ * so their response describes what they just did, with no window at all.
+ */
+export function collectDeploymentCached(now: number = Date.now()): DeploymentView {
+  if (memo && now - memo.at < DEPLOYMENT_CACHE_MS) return memo.view;
+  // Stamped with the caller's clock, not `Date.now()`, so the window is
+  // measured against the same reading that just missed it.
+  const view = buildDeployment({});
+  memo = { view, at: now };
+  return view;
+}
+
+/**
+ * Drop the memo. For tests, and for anything that knows the machine changed
+ * underneath this process.
+ * @internal
+ */
+export function resetDeploymentCache(): void {
+  memo = null;
+}
+
+/**
+ * Build the whole § 3.1 view, uncached. See {@link collectDeployment}.
+ *
+ * `saved` and `problems` come from the CLI's own `collectStatus` rather than
+ * being recomputed, so the web page and `subshell-server status` cannot
+ * disagree about the same host. `source` is computed here instead, from the
+ * loader's applied-key set: `status` has to infer the layer by comparing
+ * values, and this route's 409 "the environment owns this key" refusal needs
+ * the fact rather than the inference.
+ */
+function buildDeployment(deps: DeploymentDeps): DeploymentView {
   const platform = deps.platform ?? process.platform;
   const home = deps.home ?? homedir();
   const pid = deps.pid ?? process.pid;

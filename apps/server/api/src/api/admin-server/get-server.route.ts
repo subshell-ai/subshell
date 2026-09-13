@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { DeploymentViewSchema } from "@/api/admin-server/schemas.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { collectDeployment } from "@/services/server-deployment.js";
+import { collectDeploymentCached } from "@/services/server-deployment.js";
 
 /**
  * `GET /api/admin/server` — how this server is DEPLOYED, as against
@@ -16,7 +16,13 @@ import { collectDeployment } from "@/services/server-deployment.js";
  * `set`/`missing` — and its test asserts the whole key set, so a field added
  * later is a decision rather than an accident.
  */
-export const getServerRoute = new Elysia().use(requireAdmin).get("/", () => collectDeployment(), {
+/**
+ * The CACHED collector, and this is the one route that uses it: the page polls
+ * this every 5 s per open tab, and collecting spawns `netstat` and the service
+ * manager SYNCHRONOUSLY — a whole-process stall on a single-threaded runtime,
+ * paid by every other request. Writers call the uncached one.
+ */
+export const getServerRoute = new Elysia().use(requireAdmin).get("/", () => collectDeploymentCached(), {
   response: DeploymentViewSchema,
   detail: {
     operationId: "getServerDeployment",
