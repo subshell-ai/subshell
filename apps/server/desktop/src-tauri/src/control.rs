@@ -567,6 +567,39 @@ impl ActionGuard {
         ACTION_IN_FLIGHT.store(true, Ordering::SeqCst);
         ActionGuard
     }
+
+    /// Take the flag only if no action is already running.
+    ///
+    /// **This is a refusal, not a lock, and the difference is deliberate.**
+    /// Blocking would be the obvious fix and is the wrong one here: these are
+    /// `#[tauri::command(async)]` bodies doing synchronous CLI work, so a
+    /// caller that spammed them would park one executor thread per call and
+    /// take the app down instead of the server.
+    ///
+    /// It exists because `desktop_set_supervision` is reachable from the
+    /// SERVED page (`capabilities/main.json`), and that page is the one whose
+    /// contents this repo does not control. One call from an XSS there flips
+    /// the machine between supervisors, which is the accounted-for cost in
+    /// `docs/security.md`. A HUNDRED concurrent calls were something else: the
+    /// chain uninstalls a service, writes a setting and installs another, and
+    /// interleaved copies of that can leave a machine with no definition and
+    /// no running server, needing a hand to repair. `ACTION_IN_FLIGHT` looked
+    /// like it prevented that and never did — it is a hint for the watch
+    /// thread, and `Drop` clears it even when a second action is still
+    /// running.
+    ///
+    /// The assistant's own commands keep [`ActionGuard::new`]: its page
+    /// serializes its presses through one action runner, and a refusal there
+    /// would be a new failure mode on the surface that repairs a broken
+    /// machine.
+    pub fn try_new() -> Option<Self> {
+        // `compare_exchange`, not load-then-store: two callers that both read
+        // false would both proceed, which is the race this is here to close.
+        ACTION_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+            .then_some(ActionGuard)
+    }
 }
 
 impl Default for ActionGuard {
@@ -1161,7 +1194,12 @@ pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force:
 /// still matches what is on disk.
 #[tauri::command(async)]
 pub fn desktop_set_supervision(app: AppHandle, mode: String, autostart: bool) -> Result<ActionResult, String> {
-    let _guard = ActionGuard::new();
+    // Refused rather than queued while anything else is running — see
+    // `ActionGuard::try_new`. This is the one command in this file a page we
+    // did not write can invoke.
+    let Some(_guard) = ActionGuard::try_new() else {
+        return Err("Another action is already running on this machine.".into());
+    };
     let want = match mode.as_str() {
         "app" => Supervision::App,
         "service" => Supervision::Service,
@@ -2156,6 +2194,34 @@ mod tests {
             .iter()
             .map(|p| p.as_str().expect("permission is a string").to_string())
             .collect()
+    }
+
+    /// The one command a page we did not write can invoke refuses to
+    /// interleave with anything else.
+    ///
+    /// `ACTION_IN_FLIGHT` looked like it prevented this and never did: it is a
+    /// hint for the watch thread, `new()` stores true unconditionally, and
+    /// `Drop` clears it even while a second action is still running. That was
+    /// harmless while every caller was the assistant page, which serializes
+    /// its own presses — and stopped being harmless when `main.json` granted
+    /// `desktop_set_supervision` to the served page, where an XSS can fire a
+    /// hundred at once into a chain that uninstalls a service and installs
+    /// another.
+    #[test]
+    fn a_second_action_cannot_start_while_one_is_running() {
+        // Nothing running: the first caller takes it.
+        ACTION_IN_FLIGHT.store(false, Ordering::SeqCst);
+        let first = ActionGuard::try_new().expect("an idle machine admits one");
+        // A second, concurrent caller is REFUSED rather than queued: blocking
+        // would park an executor thread per call and take the app down
+        // instead of the server.
+        assert!(ActionGuard::try_new().is_none());
+        drop(first);
+        // ...and the next one after it finishes is admitted again.
+        let second = ActionGuard::try_new().expect("released");
+        assert!(ActionGuard::try_new().is_none());
+        drop(second);
+        assert!(!ACTION_IN_FLIGHT.load(Ordering::SeqCst));
     }
 
     /// The REMOTE window's grant list, pinned whole.

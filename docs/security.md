@@ -1305,6 +1305,23 @@ those stay assistant-only, and `ipc-acl.test.ts` (TS) and `control.rs` (Rust)
 both pin `main` at exactly these five entries. The dialog on the page is a
 confirmation for the PERSON, and is not counted as a defence against the page.
 
+**The command refuses to interleave with itself**, and that is part of what
+makes the accounting above true. One call flips a supervisor; a hundred
+concurrent calls are a different act, because the chain uninstalls a service,
+writes a setting and installs another — interleaved copies can leave a machine
+with no definition and no running server, needing a hand to repair.
+`ACTION_IN_FLIGHT` looked like it prevented that and never did: it is a hint
+for the watch thread, set unconditionally and cleared on the first `Drop`.
+`desktop_set_supervision` takes it with a compare-and-exchange and REFUSES
+when it is already held (`ActionGuard::try_new`). A refusal rather than a
+queue: these are async commands doing synchronous CLI work, so blocking would
+park an executor thread per call and take the app down instead of the server.
+
+The same non-guarantee still applies to the assistant-only commands, and is
+left as it is: that page serializes its own presses through one action runner,
+and a refusal on the surface that repairs a broken machine would be a new
+failure mode for no gain.
+
 ### The desktop app as supervisor
 
 Subshell Server can run the control plane as its own child instead of
