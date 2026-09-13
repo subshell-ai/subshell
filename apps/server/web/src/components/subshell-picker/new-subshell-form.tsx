@@ -345,6 +345,17 @@ export function NewSubshellForm({
         )}
         <SearchableSelect
           id={ids.agent}
+          // The dead-end hints below explain THIS field; without the
+          // association a screen reader announces "Agent, combobox" and
+          // nothing about why every option is greyed.
+          describedBy={
+            [
+              noAgentHere && selectedNode ? `${ids.agent}-no-agent` : "",
+              noNodeHere && selectedAgent ? `${ids.agent}-no-node` : "",
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
           value={value.harnessId}
           placeholder="Choose an agent"
           options={agentOptions}
@@ -352,7 +363,7 @@ export function NewSubshellForm({
           onValueChange={(harnessId) => harnessId !== "" && onChange({ ...value, harnessId, presetId: null })}
         />
         {noAgentHere && selectedNode ? (
-          <p className="text-muted-foreground text-xs">
+          <p id={`${ids.agent}-no-agent`} className="text-muted-foreground text-xs">
             {"Nothing installed on "}
             <Link to="/nodes/$id" params={{ id: selectedNode.id }} className="underline">
               {selectedNode.name}
@@ -361,7 +372,7 @@ export function NewSubshellForm({
           </p>
         ) : null}
         {noNodeHere && selectedAgent ? (
-          <p className="text-muted-foreground text-xs">
+          <p id={`${ids.agent}-no-node`} className="text-muted-foreground text-xs">
             {`No available node can run ${agentName}. `}
             <Link to="/nodes" className="underline">
               Check your nodes
@@ -387,7 +398,18 @@ export function NewSubshellForm({
                 // labels must match the item texts below exactly.
                 items={[{ value: "none", label: "None" }, ...agentPresets.map((p) => ({ value: p.id, label: p.name }))]}
               >
-                <SelectTrigger id={ids.preset}>
+                <SelectTrigger
+                  id={ids.preset}
+                  // Same association as the Agent field: the lines under this
+                  // select say what a preset IS here and whether this agent
+                  // has any, and only `aria-describedby` puts them in the
+                  // announcement.
+                  aria-describedby={
+                    value.harnessId !== ""
+                      ? `${ids.preset}-hint${agentPresets.length === 0 ? ` ${ids.preset}-empty` : ""}`
+                      : undefined
+                  }
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -412,9 +434,13 @@ export function NewSubshellForm({
           </div>
           {value.harnessId !== "" && (
             <>
-              <p className="text-muted-foreground text-xs">Saved flags, env vars and restart policy for {agentName}.</p>
+              <p id={`${ids.preset}-hint`} className="text-muted-foreground text-xs">
+                Saved flags, env vars and restart policy for {agentName}.
+              </p>
               {agentPresets.length === 0 && (
-                <p className="text-muted-foreground text-xs">No presets for {agentName} yet.</p>
+                <p id={`${ids.preset}-empty`} className="text-muted-foreground text-xs">
+                  No presets for {agentName} yet.
+                </p>
               )}
             </>
           )}

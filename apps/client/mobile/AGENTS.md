@@ -166,7 +166,7 @@ create body (the server default), keeping single-machine payloads
 byte-identical to pre-nodes ones; a presetless launch omits `presetId` the
 same way — absence, never null.
 
-Two divergences from web are ACCEPTED here — decisions, not omissions,
+Three divergences from web are ACCEPTED here — decisions, not omissions,
 recorded so the next reader does not "fix" them by accident:
 
 - **A greyed agent chip carries no reason text.** `new.tsx` only dims the chip
@@ -178,6 +178,17 @@ recorded so the next reader does not "fix" them by accident:
   with "No presets for {agent} yet." outside first run; mobile has no inline
   `+` to create one, so an empty row would offer only "None". (First run
   hiding the row is the rule the two surfaces share.)
+- **Node chips grey on the NODE's own state only, never against the chosen
+  agent.** `new.tsx` greys with `isSelectable(n)` — offline, or `canLaunch`
+  false; web's `buildNodeOptions` additionally greys a node that cannot run
+  the held agent, which is what makes an incompatible pair unreachable by
+  pointer there. Here it stays reachable and the launch 409s. Accepted
+  because the reverse pairing IS handled — the agent chips grey against the
+  chosen node (`installedOnNode`), so the incompatible combination is
+  unreachable in the order a phone user actually picks — and closing the
+  other direction needs a per-node inventory read the screen does not have.
+  Recorded 2026-09-13 (review finding). If the chip row ever gains reason
+  text, close this at the same time.
 
 ## Verifying on Android
 

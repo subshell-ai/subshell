@@ -16,6 +16,25 @@ test.use({ storageState: ADMIN_STATE });
  * asserts that via the API), and each test cleans up after itself so the
  * canonical launch in every later spec starts from "None".
  */
+
+/**
+ * The names these tests create. Each test deletes its own on the happy path
+ * — that deletion is part of what test 1 asserts — and this is the FAILURE
+ * path: an assertion throwing before the delete would leak the row onto the
+ * shared DB, where it changes what every later spec's launch form opens on.
+ * Swept by name rather than by clearing the table, so a preset another spec
+ * seeded for itself is never collateral.
+ */
+const CREATED_BY_THIS_SPEC = ["E2E shell", "Inline shell"];
+
+test.afterEach(async ({ page }) => {
+  const res = await page.request.get("/api/presets");
+  if (!res.ok()) return; // a stack that is already down owes no cleanup
+  const rows = (await res.json()) as { id: string; name: string }[];
+  for (const row of rows.filter((r) => CREATED_BY_THIS_SPEC.includes(r.name))) {
+    await page.request.delete(`/api/presets/${row.id}`);
+  }
+});
 test("create a preset from the page, verify it via the API, delete it", async ({ page }) => {
   await page.goto("/presets");
   // A fresh user has zero presets: the page opens on its empty state, not a

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PLUGIN_API_VERSION } from "@subshell-ai/plugin-api";
 
@@ -28,13 +28,20 @@ interface DeclaredVersion {
 
 /** Reads every built-in's package.json from `packages/plugins/`. */
 function readBuiltInManifests(): DeclaredVersion[] {
-  return readdirSync(PLUGINS_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => {
-      const raw = readFileSync(join(PLUGINS_DIR, entry.name, "package.json"), "utf8");
-      const pkg = JSON.parse(raw) as { name?: string; subshell?: { apiVersion?: unknown } };
-      return { name: pkg.name ?? entry.name, apiVersion: pkg.subshell?.apiVersion };
-    });
+  return (
+    readdirSync(PLUGINS_DIR, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      // A directory with no package.json is not a built-in — a stray `dist`,
+      // an editor's scratch folder. Skipping it lets the count assertion below
+      // report a real disappearance instead of this function dying on ENOENT
+      // before any assertion runs.
+      .filter((entry) => existsSync(join(PLUGINS_DIR, entry.name, "package.json")))
+      .map((entry) => {
+        const raw = readFileSync(join(PLUGINS_DIR, entry.name, "package.json"), "utf8");
+        const pkg = JSON.parse(raw) as { name?: string; subshell?: { apiVersion?: unknown } };
+        return { name: pkg.name ?? entry.name, apiVersion: pkg.subshell?.apiVersion };
+      })
+  );
 }
 
 describe("built-in plugin manifests", () => {

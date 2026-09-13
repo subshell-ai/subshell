@@ -154,7 +154,16 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
       description:
         "Spawn a new agent subshell on a harness plugin, optionally applying a named preset of that harness, in a working directory; an optional prompt is typed into the harness once it settles.",
       inputSchema: z.object({
-        harness: z.string().describe("Harness plugin id to launch (see list_presets for the ids in use)"),
+        harness: z
+          .string()
+          // NOT only list_presets: a fresh instance has zero presets by
+          // design (spec 2026-09-13), so that list is empty exactly when an
+          // agent most needs to learn an id. Every subshell row carries its
+          // harnessId, which makes list_subshells the source that still
+          // answers on a new instance.
+          .describe(
+            "Harness plugin id to launch — e.g. an id shown by list_presets, or the harnessId of any row from list_subshells",
+          ),
         preset: z.string().optional().describe("Optional preset name of that harness; omit for no saved settings"),
         name: z.string().optional(),
         working_dir: z.string(),

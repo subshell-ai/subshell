@@ -29,6 +29,13 @@ export interface SearchableSelectProps {
   /** Input placeholder, also the unselected closed state */
   placeholder: string;
   options: readonly ComboboxOption[];
+  /**
+   * Ids of the elements that explain this field — the hint lines rendered
+   * under it. Forwarded to the real <input>, because visual reading order is
+   * not an association: a screen reader announces the field without them
+   * unless it is told.
+   */
+  describedBy?: string;
 }
 
 /**
@@ -45,6 +52,7 @@ export function SearchableSelect({
   onValueChange,
   placeholder,
   options,
+  describedBy,
 }: SearchableSelectProps): JSX.Element {
   // Item values are the option objects; the external contract stays the
   // plain id string. Object identity would break under rebuilt arrays, so
@@ -77,6 +85,7 @@ export function SearchableSelect({
     >
       <ComboboxPrimitive.Input
         id={id}
+        aria-describedby={describedBy}
         placeholder={placeholder}
         onPointerDownCapture={() => {
           // CAPTURE phase, before Base UI's own target-phase pointerdown

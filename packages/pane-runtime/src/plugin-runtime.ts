@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   capabilityMismatches,
+  PLUGIN_API_VERSION,
   parseManifest,
   type SubshellManifest,
   type SubshellPlugin,
@@ -229,7 +230,18 @@ export function createInProcessRuntime(): PluginRuntime {
         const required = ["buildCommand", "validatePreset", "capabilities"] as const;
         const absent = required.filter((m) => typeof plugin?.[m] !== "function");
         if (absent.length > 0) {
-          return broken(manifest, `the factory returned an object missing: ${absent.join(", ")}`, stale);
+          // Name BOTH numbers when the declaration is BELOW the host's, for
+          // `parseManifest`'s reason pointing the other way: there, the
+          // reader must choose between upgrading the plugin and upgrading
+          // the agent. Here the missing member is a SYMPTOM of the skew —
+          // `validatePreset` absent because the plugin was built against
+          // plugin-api 1, where it was `validateProfile` — and the member
+          // name alone does not say that rebuilding is the fix.
+          const skew =
+            manifest.apiVersion < PLUGIN_API_VERSION
+              ? `; it declares plugin-api ${manifest.apiVersion} and this host implements ${PLUGIN_API_VERSION} — rebuild it against ${PLUGIN_API_VERSION}`
+              : "";
+          return broken(manifest, `the factory returned an object missing: ${absent.join(", ")}${skew}`, stale);
         }
         // A declaration that disagrees with the members present is refused
         // here rather than surfacing later as a feature that silently does

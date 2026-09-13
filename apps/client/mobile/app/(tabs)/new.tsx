@@ -21,7 +21,7 @@ import { usePresets } from "@/hooks/use-presets";
 import { useSubshells } from "@/hooks/use-subshells";
 import { agentDefault } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
-import { isSelectable, pickNodeDefault } from "@/lib/node-pick";
+import { isSelectable, nodePickSettled, pickNodeDefault } from "@/lib/node-pick";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/files";
@@ -94,11 +94,15 @@ export default function NewSubshell() {
   // subshells list is gated stricter, inside `agentDefault` (ruled
   // 2026-09-13): unanswered — pending or errored, data undefined — must not
   // fill; answered-EMPTY is a real answer, and the first-usable tier stands.
+  // `nodePickSettled` is the third gate and the reason the two effects can
+  // stay separate here: the agent default reads a PER-NODE inventory, so it
+  // must not fill while the re-home below is still about to move the node
+  // under it (see that helper for the failure it prevents).
   useEffect(() => {
-    if (harnessId !== null || !nodes.isFetched) return;
+    if (harnessId !== null || !nodes.isFetched || !nodePickSettled(nodes.data, nodeId)) return;
     const pick = agentDefault(plugins.data, installedOnNode, subshells.data);
     if (pick) setHarnessId(pick);
-  }, [harnessId, nodes.isFetched, plugins.data, subshells.data, installedOnNode]);
+  }, [harnessId, nodes.isFetched, nodes.data, nodeId, plugins.data, subshells.data, installedOnNode]);
 
   // The chosen agent's presets — the row exists only when there is at least
   // one (spec §5: "a new account has zero presets and the row would offer
@@ -220,6 +224,13 @@ export default function NewSubshell() {
                         setPresetId(null);
                       }}
                       disabled={!usable}
+                      // Selection and greying are carried by border colour and
+                      // opacity, which a screen reader cannot see. The state
+                      // props are the only announcement of either — and the
+                      // greyed chips are new in this cut, so the disabled half
+                      // had no announcement at all before.
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: sel, disabled: !usable }}
                       style={{
                         padding: 10,
                         borderRadius: radius,
@@ -248,6 +259,8 @@ export default function NewSubshell() {
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <Pressable
                   onPress={() => setPresetId(null)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: presetId === null }}
                   style={{
                     padding: 10,
                     borderRadius: radius,
@@ -264,6 +277,8 @@ export default function NewSubshell() {
                     <Pressable
                       key={pr.id}
                       onPress={() => setPresetId(pr.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: sel }}
                       style={{
                         padding: 10,
                         borderRadius: radius,

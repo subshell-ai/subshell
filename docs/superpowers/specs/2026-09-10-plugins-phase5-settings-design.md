@@ -8,6 +8,14 @@
 > contract and called by nothing. What CHANGES: §2.3's write-only secret kept
 > credentials off the control plane, which is not achievable once the plugin
 > runs there. See the superseding spec §9.
+>
+> **Naming, additionally, superseded 2026-09-13 by
+> [2026-09-13-presets-design.md](2026-09-13-presets-design.md).** Everything
+> this spec calls a **profile** is now a **preset**, including the contract
+> member it identified as required-and-uncalled: `validateProfile` is
+> `validatePreset`, and the loader refuses a plugin missing it by name. The
+> finding itself carries forward unchanged — nothing calls it, and it is a
+> contract gate rather than a crash guard.
 
 Date: 2026-09-10
 Status: approved design (brainstorm 2026-09-10), pending implementation plan

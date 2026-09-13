@@ -1,7 +1,15 @@
 # Profile create form: gate fields behind harness selection
 
 Date: 2026-08-29
-Status: approved (approach A)
+Status: approved (approach A) — **superseded 2026-09-13**
+
+> **Superseded 2026-09-13 in its VOCABULARY by
+> [2026-09-13-presets-design.md](2026-09-13-presets-design.md).** A profile is
+> a **preset**: the form this spec designed is `preset-fields.tsx`, the route
+> is `/presets`, and the field ids are `#preset-*`. The design itself stands —
+> gating the fields behind the agent pick is exactly what the launch form does
+> now, and the harness-first ordering this spec argued for became the whole
+> shape of the new form. Read it for the argument, not for the names.
 
 ## Problem
 

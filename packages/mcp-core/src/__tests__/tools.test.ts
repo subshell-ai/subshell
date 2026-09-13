@@ -262,11 +262,40 @@ describe("mcp tools (handler-level, real crypto)", () => {
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    // 'dev' matches NEITHER spelling exactly, so the case-insensitive set of
+    // two stands and the tie is real.
     await expect(createSubshell(deps, { harness: "claude-code", preset: "dev", workingDir: "/tmp" })).rejects.toThrow(
-      /more than one preset named 'dev' for harness 'claude-code'; rename them or call list_presets/,
+      /more than one preset named 'dev' for harness 'claude-code'/,
+    );
+    // The spellings are NAMED: with a case-only collision they are the whole
+    // actionable content of "rename one".
+    await expect(createSubshell(deps, { harness: "claude-code", preset: "dev", workingDir: "/tmp" })).rejects.toThrow(
+      /'Dev', 'DEV'/,
     );
     // Refused at resolution — no launch was ever attempted.
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("create_subshell takes an EXACT spelling over a case-insensitive tie", async () => {
+    // `Dev` and `DEV` collide only case-insensitively. Asking for `Dev` names
+    // exactly one row, so refusing it would be a refusal invented by the
+    // lookup rather than found in the data.
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          { id: "pre-1", name: "Dev", harnessId: "claude-code" },
+          { id: "pre-2", name: "DEV", harnessId: "claude-code" },
+        ];
+      if (req.path === "/api/subshells") return { id: "sub-1" };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    const res = await createSubshell(deps, { harness: "claude-code", preset: "Dev", workingDir: "/tmp" });
+    expect(res.id).toBe("sub-1");
+    // The launch carried the EXACTLY spelled row, not the other one.
+    const launch = calls.find((c) => c.path === "/api/subshells");
+    expect((launch?.body as { presetId?: string } | undefined)?.presetId).toBe("pre-1");
   });
 
   it("create_subshell with an unknown preset name gives guidance, not a stack trace", async () => {

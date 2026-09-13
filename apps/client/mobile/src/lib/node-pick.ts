@@ -35,3 +35,23 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
   if (selectable.length === 1) return selectable[0].id;
   return "";
 }
+
+/**
+ * Whether the node pick has SETTLED: the list has not answered yet, or it has
+ * and {@link pickNodeDefault} would leave the current pick where it is.
+ *
+ * The agent default reads a PER-NODE inventory, so it must not run while the
+ * node is still about to move under it. Both effects fire on the commit where
+ * the nodes list first arrives, in declaration order, and the default writes
+ * `harnessId` — which makes its own "only while nothing is picked" guard
+ * early-return forever afterwards. Without this gate a viewer whose `local`
+ * is visible-but-unlaunchable gets an agent chosen from the control-plane
+ * host's inventory and then re-homed onto an agent node that cannot run it:
+ * greyed-but-selected, Start enabled, and a 409 at launch. Web composes both
+ * writes into one commit instead (`new-subshell-form.tsx`); this is the
+ * mobile mirror of that guarantee — change one, change both.
+ */
+export function nodePickSettled(nodes: Node[] | undefined, current: string): boolean {
+  if (!nodes) return true;
+  return pickNodeDefault(nodes, current) === current;
+}

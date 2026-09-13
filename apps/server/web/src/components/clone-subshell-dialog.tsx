@@ -68,13 +68,23 @@ export function CloneSubshellDialog({
   const { data: nodeData } = useNodes();
   const { data: pluginData } = useInstancePlugins();
   // Both lookups name what the POST already carries by id (`harnessId`,
-  // `presetId`); a row the caller cannot see — deleted since, or owned by
-  // nobody now — degrades to the id, never to a blank.
+  // `presetId`). An unresolvable HARNESS degrades to its id, which is a
+  // readable slug ("claude-code"); a preset id is a uuid and gets prose
+  // instead — see below.
   const agentName = (pluginData?.plugins ?? []).find((p) => p.id === source.harnessId)?.name ?? source.harnessId;
+  // A preset id that resolves to no row is rendered as prose, never as the
+  // uuid: this dialog's whole job is "here is what will be copied", and a
+  // bare uuid answers that with a fact the reader cannot use. The case is
+  // reachable — the preset was deleted, or its plugin was disabled, which
+  // now removes it from the list (availability is the store, spec
+  // 2026-09-13 amendment). An UNANSWERED list is not that case: absence
+  // proves nothing while the query is still in flight.
   const presetName =
     source.presetId === null
       ? "None"
-      : ((presets ?? []).find((p) => p.id === source.presetId)?.name ?? source.presetId);
+      : presets === undefined
+        ? "…"
+        : (presets.find((p) => p.id === source.presetId)?.name ?? "(preset no longer available)");
   const node = (nodeData?.nodes ?? []).find((n) => n.id === cloneNodeId(source));
   // `cloneNodeId` still feeds the create request, where `local` is the correct
   // IDENTIFIER — but it is never rendered: an id is not a label.

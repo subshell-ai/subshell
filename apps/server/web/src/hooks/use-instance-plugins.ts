@@ -73,14 +73,23 @@ export function useInstallInstancePlugin() {
       apiFetch<InstancePluginRow>("/api/plugins", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: INSTANCE_PLUGINS_QUERY_KEY });
+      // Availability is the STORE now (spec 2026-09-13 amendment): the list
+      // route filters on installed ∧ enabled ∧ ¬broken, so an install makes
+      // presets for this plugin appear. Same reason the uninstall below
+      // refreshes them.
+      void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
     },
   });
 }
 
 /**
  * Offers a plugin (true) or holds its bytes without offering them (false).
- * Presets are never touched in either direction — disabling is the
- * operation uninstall cannot express, which is why it exists.
+ * No preset ROW is touched in either direction — disabling is the operation
+ * uninstall cannot express, which is why it exists — but which presets are
+ * LISTED does change: availability is the store (spec 2026-09-13 amendment),
+ * so disabling hides this plugin's presets exactly as an uninstall does and
+ * enabling brings them back. Rows and visibility are different questions;
+ * only the first is what "never touched" was ever about.
  */
 export function useSetPluginEnabled() {
   const queryClient = useQueryClient();
@@ -89,6 +98,10 @@ export function useSetPluginEnabled() {
       apiFetch<InstancePluginRow>(`/api/plugins/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: INSTANCE_PLUGINS_QUERY_KEY });
+      // See the docblock: the toggle changes what the preset list ANSWERS,
+      // so a mounted /presets page or an open launch dialog is stale the
+      // moment this returns.
+      void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
     },
   });
 }

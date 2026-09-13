@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isSelectable, pickNodeDefault } from "@/lib/node-pick";
+import { isSelectable, nodePickSettled, pickNodeDefault } from "@/lib/node-pick";
 import type { Node } from "@/types/node";
 
 /** Minimal Node factory — the decision only reads id/name/status. */
@@ -52,5 +52,33 @@ describe("pickNodeDefault", () => {
 
   it('empty list → "" (web parity: a loaded-but-empty registry is no target)', () => {
     expect(pickNodeDefault([], "local")).toBe("");
+  });
+});
+
+describe("nodePickSettled", () => {
+  const LOCAL = make({ id: "local", name: "control plane", kind: "local" });
+  const A1 = make({ id: "a1", name: "mac mini" });
+
+  it("an unanswered list is settled — the pick cannot move yet", () => {
+    // A pre-nodes instance 404s the route and `data` stays undefined forever;
+    // gating on it would leave the agent default permanently unarmed.
+    expect(nodePickSettled(undefined, "local")).toBe(true);
+  });
+
+  it("a pick the list keeps is settled", () => {
+    expect(nodePickSettled([LOCAL, A1], "local")).toBe(true);
+  });
+
+  it("a pick the re-home is about to MOVE is not settled", () => {
+    // The exact shape of the bug: `local` visible but unlaunchable, one agent
+    // node left. Reading the agent inventory now would read the WRONG node's,
+    // and the resulting harnessId would stick through the re-home.
+    const unlaunchable = make({ id: "local", kind: "local", canLaunch: false });
+    expect(pickNodeDefault([unlaunchable, A1], "local")).toBe("a1");
+    expect(nodePickSettled([unlaunchable, A1], "local")).toBe(false);
+  });
+
+  it("a pick the re-home is about to CLEAR is not settled either", () => {
+    expect(nodePickSettled([make({ id: "a9" }), A1], "local")).toBe(false);
   });
 });

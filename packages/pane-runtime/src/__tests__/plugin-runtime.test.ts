@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PLUGIN_API_VERSION } from "@subshell-ai/plugin-api";
 import { createPluginHost } from "../plugin-host.js";
 import { createInProcessRuntime, resetImportedForTests } from "../plugin-runtime.js";
 
@@ -89,6 +90,12 @@ describe("PluginRuntime", () => {
     expect(result.error).toContain("validatePreset");
     // Names what is ABSENT, not the v1 member that is present.
     expect(result.error).not.toContain("validateProfile");
+    // …and names the SKEW, which is the only actionable half: the missing
+    // member is a symptom, "rebuild against 2" is the fix. `parseManifest`
+    // names both numbers in the above-host direction; this is the
+    // below-host one, which is the direction this rename actually creates.
+    expect(result.error).toContain("declares plugin-api 1");
+    expect(result.error).toContain(`rebuild it against ${PLUGIN_API_VERSION}`);
     // Broken but NAMED — the manifest parsed before the module ran.
     expect(result.manifest?.id).toBe("v1-skew");
   });

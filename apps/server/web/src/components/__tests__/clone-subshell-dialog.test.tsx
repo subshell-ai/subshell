@@ -212,6 +212,22 @@ describe("CloneSubshellDialog", () => {
     }
   });
 
+  it("a preset that no longer resolves reads as prose, never as its uuid", async () => {
+    // Reachable two ways now: the preset was deleted, or its plugin was
+    // disabled — availability is the instance store (spec 2026-09-13
+    // amendment), so a disabled plugin's presets leave the list while the
+    // subshell row keeps pointing at one. A dialog whose job is "here is what
+    // will be copied" cannot answer that with a uuid.
+    const { restore } = mockFetch();
+    try {
+      await renderDialog(makeSource({ presetId: "00000000-0000-4000-8000-000000000000" }));
+      expect(await screen.findByText("(preset no longer available)")).toBeDefined();
+      expect(screen.queryByText("00000000-0000-4000-8000-000000000000")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("a presetless source reads None and posts no presetId", async () => {
     const { calls, restore } = mockFetch();
     try {

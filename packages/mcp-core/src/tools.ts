@@ -230,15 +230,27 @@ export async function createSubshell(
     // The name is the agent's addressing key, and no unique index enforces
     // it — so a tie is REFUSED, never silently won by whichever row sorts
     // first. Launching the wrong preset writes the wrong credential layer.
-    const matches = presets.filter((p) => p.name.toLowerCase() === want);
+    //
+    // Exact spelling wins outright before the tie is even considered: with
+    // `Dev` and `DEV` both present, asking for `Dev` names ONE row and the
+    // case-insensitive set is the wrong question. Only a genuine collision —
+    // the same spelling twice, or several near-spellings and none exact —
+    // reaches the refusal.
+    const insensitive = presets.filter((p) => p.name.toLowerCase() === want);
+    const exact = insensitive.filter((p) => p.name === args.preset);
+    const matches = exact.length > 0 ? exact : insensitive;
     if (matches.length === 0) {
       throw new Error(
         `subshell: no preset named '${args.preset}' for harness '${args.harness}'; call list_presets for options`,
       );
     }
     if (matches.length > 1) {
+      // Name the SPELLINGS: when the collision is case-only they are the
+      // whole actionable content, and "rename them" without them forces a
+      // round trip to list_presets to find out what to rename.
+      const spellings = matches.map((p) => `'${p.name}'`).join(", ");
       throw new Error(
-        `subshell: more than one preset named '${args.preset}' for harness '${args.harness}'; rename them or call list_presets`,
+        `subshell: more than one preset named '${args.preset}' for harness '${args.harness}' (${spellings}); rename one, or ask for an exact spelling`,
       );
     }
     presetId = matches[0].id;
