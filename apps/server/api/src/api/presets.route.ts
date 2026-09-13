@@ -1,7 +1,7 @@
 import { getHarness } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
-import { getAllHarnessIds, harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
+import { getAllHarnessIds } from "@/api/harness-utils.js";
 import { HarnessSchemaResponseSchema, PresetSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -54,8 +54,19 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       if (!getHarness(body.harnessId)) {
         throw new PresetError("bad_request", `Unknown harness: ${body.harnessId}`, 400);
       }
-      if (!(await harnessUsable(body.harnessId))) {
-        throw new PresetError("harness_unavailable", "That harness is unavailable (disabled or not installed)", 409);
+      // A preset is INSTANCE-scoped; only launches are node-scoped. Saving
+      // settings must not require the agent's binary to answer on THIS
+      // machine — the agent may live on any node the user later launches on
+      // (spec 2026-09-13 follow-up). The gate is the instance's store state
+      // (installed ∧ enabled ∧ ¬broken — the exact set
+      // `GET /api/presets/harness-ids` answers); per-node binary detection
+      // stays where it belongs, at the launch gate's per-node 409.
+      if (!(await getAllHarnessIds()).includes(body.harnessId)) {
+        throw new PresetError(
+          "harness_unavailable",
+          "That harness is unavailable (disabled or not installed on the server)",
+          409,
+        );
       }
       const repo = new PresetsRepository(db);
       const created = await repo.create({
@@ -91,16 +102,14 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       // they are not listed anywhere (cards, new-subshell pickers), and
       // re-enabling/installing the harness brings them back — nothing here
       // is ever deleted.
-      // The gate is LOCAL by nature (usableHarnessIds() probes this machine).
-      // `?node=any` skips it entirely: the new-subshell dialog pairs presets
-      // against the SELECTED node's inventory client-side (the compat matrix),
-      // so it must see rows this host would hide. Per-NODE server filtering is
-      // deliberately not offered — the matrix needs the full list anyway.
-      let visible = rows;
-      if (query.node !== "any") {
-        const usable = await usableHarnessIds();
-        visible = rows.filter((p) => usable.has(p.harnessId));
-      }
+      // The gate is STORE-scoped (spec 2026-09-13 follow-up): the instance's
+      // plugin set decides availability, not this host's binary probe — a
+      // preset for an agent installed only on another machine lists here,
+      // because the preset was never node-scoped. Per-node compatibility is
+      // the launch picker's grey matrix, client-side; the `?node=any` escape
+      // hatch died with the LOCAL filter it existed to escape.
+      const inStore = new Set(await getAllHarnessIds());
+      const visible = rows.filter((p) => inStore.has(p.harnessId));
       if (actor === "cookie") return visible;
       // Reads stay open to bearer actors for `list_presets`, but that
       // tool only projects {id,name,harnessId} — the REST body's `envJson`
@@ -115,22 +124,13 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     {
       query: t.Object({
         harnessId: t.Optional(t.String({ description: "Filter by harness id" })),
-        // Closed one-value set (a literal, not a free string): typos and
-        // future `?node=<id>` guesses 400 instead of silently returning the
-        // LOCAL-filtered list.
-        node: t.Optional(
-          t.Literal("any", {
-            description:
-              'Pass "any" to skip the local harness-usability filter (the launch dialog pairs presets per node client-side)',
-          }),
-        ),
       }),
       response: t.Array(PresetSchema, { description: "User's presets" }),
       detail: {
         operationId: "listPresets",
         tags: ["presets"],
         description:
-          "Lists the authenticated user's presets (bearer/machine actors get envJson redacted to null; cookie sessions see full rows). Pass node=any to skip the local harness-usability filter",
+          "Lists the authenticated user's presets (bearer/machine actors get envJson redacted to null; cookie sessions see full rows). Filtered to harnesses the INSTANCE store offers — installed, enabled, not broken",
       },
     },
   )

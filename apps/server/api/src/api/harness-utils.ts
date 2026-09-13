@@ -125,10 +125,12 @@ export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<
 }
 
 /**
- * Usable for ONE (harness × node) pair — the launch gate at the call sites
- * (`subshells.service` create, `subshell-manager` auto-restart, preset
- * create). Delegates to the one batch rule so the picker and the gate cannot
- * disagree, with only this plugin's binary probed on the local path.
+ * Usable for ONE (harness × node) pair — the LAUNCH gate at the call sites
+ * (`subshells.service` create, `subshell-manager` auto-restart). Delegates to
+ * the one batch rule so the picker and the gate cannot disagree, with only
+ * this plugin's binary probed on the local path. Preset create/list do NOT
+ * call this: a preset is instance-scoped and gates on the store alone
+ * (spec 2026-09-13 follow-up).
  */
 export async function harnessUsable(id: string, nodeId: string = LOCAL_NODE_ID): Promise<boolean> {
   return (await usableHarnessIdSet(nodeId, id)).has(id);

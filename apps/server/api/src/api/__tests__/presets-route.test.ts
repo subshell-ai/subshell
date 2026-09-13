@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
-import { usableHarnessIds } from "@/api/harness-utils.js";
 import { presetRoutes } from "@/api/presets.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -15,13 +15,7 @@ import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { installLocalPlugin, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import {
-  authedRequest,
-  deleteUserByEmailOrId,
-  seedLocalPluginsForTests,
-  setupAuthTables,
-  signIn,
-} from "./helpers/auth-tables.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
  * Preset WRITES (POST /, PUT /:id, DELETE /:id) are cookie-only; reads stay
@@ -249,21 +243,20 @@ describe("preset write routes (cookie only) + env name validation", () => {
     expect(body.message).toBe(`invalid env var name: ${badKey}`);
   });
 
-  it("cookie create with valid env keys -> 200 when a harness is usable (409 otherwise)", async () => {
-    const usable = [...(await usableHarnessIds())];
-    const harnessId = usable[0] ?? "claude-code";
+  it("cookie create with valid env keys -> 200", async () => {
+    // claude-code is in the INSTANCE store (setupAuthTables seeds the
+    // built-ins), and the create gate reads exactly that — the store cases
+    // (absent / disabled → 409) live in the store-gate suite below.
     const res = await app.fetch(
       authedRequest("/api/presets", cookie, {
         method: "POST",
-        body: JSON.stringify({ harnessId, name: "goodenv", env: { MY_VAR_2: "any value; incl. $(parens)" } }),
+        body: JSON.stringify({
+          harnessId: "claude-code",
+          name: "goodenv",
+          env: { MY_VAR_2: "any value; incl. $(parens)" },
+        }),
       }),
     );
-    if (usable.length === 0) {
-      // No harness installed on this machine: the env gate passed (not 400)
-      // and the normal availability rule answered instead.
-      expect(res.status).toBe(409);
-      return;
-    }
     expect(res.status).toBe(200);
     const created = (await res.json()) as { id: string; envJson: string };
     createdPresetIds.push(created.id);
@@ -452,24 +445,58 @@ describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
 });
 
 /**
- * `?node=any` (spec 2026-09-02 node-profile-pairing §4a): the new-subshell
- * form pairs presets against EVERY node client-side, so it must see presets
- * whose harness is off here. The default listing keeps its local gate —
- * mobile and the presets page rely on the hiding.
+ * Preset availability is the INSTANCE STORE (spec 2026-09-13 follow-up — the
+ * ruling that retired `?node=any` and settles TODO 13's server half, plus 15,
+ * 16 and 20 at the root): a preset is instance-scoped; only launches are
+ * node-scoped. The list and the create gate read the store set (installed ∧
+ * enabled ∧ ¬broken, `getAllHarnessIds()`), never this host's binary probe —
+ * so a preset for an agent installed only on ANOTHER machine is simply listed
+ * everywhere, and the pairing-matrix escape hatch has nothing left to escape.
+ *
+ * The `?node=any` suite this replaces pinned the old local filter plus the
+ * typo-400 for the closed one-value `node` param; the param is gone, so both
+ * pins are.
+ *
+ * NOT covered here: the ¬broken arm. The installer load-checks before
+ * swapping, so a test cannot install a broken plugin — broken rows are
+ * reported-state only (`plugins-route.test.ts` says so); the arm is one
+ * filter at the shared store read.
  */
-describe("GET /api/presets — node=any", () => {
+describe("preset availability is the instance store (list + create)", () => {
   let userId: string;
   let cookie: string;
   let presetId: string;
-  const email = `profany-${crypto.randomUUID()}@subshell.local`;
-  const password = "profany-pass-1234";
+  const email = `storegate-${crypto.randomUUID()}@subshell.local`;
+  const password = "storegate-pass-1234";
   const presets = new PresetsRepository(db);
+  const pluginState = new PluginStateRepository(db);
+  const createdPresetIds: string[] = [];
+
+  async function listIds(): Promise<string[]> {
+    const res = await app.fetch(authedRequest("/api/presets", cookie));
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { id: string }[]).map((r) => r.id);
+  }
+
+  /** `POST /api/presets` for claude-code; returns status, message and row id. */
+  async function createClaudePreset(name: string): Promise<{ status: number; message?: string; id?: string }> {
+    const res = await app.fetch(
+      authedRequest("/api/presets", cookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name }),
+      }),
+    );
+    const body = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
+    if (body.id) createdPresetIds.push(body.id);
+    return { status: res.status, ...body };
+  }
 
   beforeAll(async () => {
-    // claude-code's BINARY must read as installed, so the row's absence under
-    // the default listing can only come from the host not having the PLUGIN.
-    // Those were the same fact when this was an enable flag; they are two now.
-    process.env.CLAUDE_PATH = TRUE_BINARY;
+    // The binary must NOT read as installed locally — the half of the fact
+    // the retired default filter keyed on and the store gate ignores.
+    // CLAUDE_PATH is the plugin's documented binary override (the old suite
+    // pointed it at TRUE_BINARY for exactly the opposite reason).
+    process.env.CLAUDE_PATH = "/definitely/not/here/claude";
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
@@ -482,7 +509,7 @@ describe("GET /api/presets — node=any", () => {
         id: crypto.randomUUID(),
         userId,
         harnessId: "claude-code",
-        name: `any-${crypto.randomUUID()}`,
+        name: `storegate-${crypto.randomUUID()}`,
         description: null,
         envJson: null,
         flagsJson: null,
@@ -491,40 +518,75 @@ describe("GET /api/presets — node=any", () => {
         restartOnExit: 0,
       })
     ).id;
-    await seedLocalPluginsForTests();
-    await uninstallLocalPlugin("claude-code");
+    // Every case starts from the same store state: installed (the embedded
+    // copy; idempotent) and enabled (an absent row means enabled — clear any
+    // leftover flag).
+    await installLocalPlugin("claude-code");
+    await pluginState.clear("claude-code");
   });
 
   afterAll(async () => {
-    // Put it back: these suites share one data dir, so leaving it uninstalled
-    // changes what every later suite in the process sees.
+    // Put it back: these suites share one data dir, so leaving claude-code
+    // uninstalled or disabled changes what every later suite sees.
     await installLocalPlugin("claude-code");
+    await pluginState.clear("claude-code");
+    delete process.env.CLAUDE_PATH;
+    for (const id of createdPresetIds) await presets.delete(id);
     await deleteUserByEmailOrId(email);
   });
 
-  it("hides the preset of a harness this host does not have, without the param", async () => {
-    const res = await app.fetch(authedRequest("/api/presets", cookie));
-    expect(res.status).toBe(200);
-    const rows = (await res.json()) as { id: string }[];
-    expect(rows.map((r) => r.id)).not.toContain(presetId);
+  it("lists the preset even though its harness binary is NOT detected here", async () => {
+    // The headline inversion: exactly what the default (unparametrised) list
+    // used to hide and what `?node=any` existed to un-hide. The store has the
+    // plugin, the host's PATH does not — the row is listed.
+    expect(await listIds()).toContain(presetId);
   });
 
-  it("returns it when node=any is passed", async () => {
-    const res = await app.fetch(authedRequest("/api/presets?node=any", cookie));
-    expect(res.status).toBe(200);
-    const rows = (await res.json()) as { id: string }[];
-    expect(rows.map((r) => r.id)).toContain(presetId);
+  it("hides it while the plugin is out of the instance store", async () => {
+    await uninstallLocalPlugin("claude-code");
+    expect(await listIds()).not.toContain(presetId);
+    await installLocalPlugin("claude-code");
+    expect(await listIds()).toContain(presetId);
   });
 
-  /**
-   * `node` is a closed one-value set (t.Literal, spec 2026-09-02 §4a): a
-   * misspelling must 400 loudly, never silently degrade to the local-filtered
-   * list — the exact bug class the param exists to remove.
-   */
-  it("400s a node value outside {any} instead of silently filtering", async () => {
-    for (const bad of ["ANY", "anyy", "mac-mini"]) {
-      const res = await app.fetch(authedRequest(`/api/presets?node=${bad}`, cookie));
-      expect(res.status, `node=${bad}`).toBe(400);
-    }
+  it("hides it while the plugin is disabled in the instance store", async () => {
+    await pluginState.setEnabled("claude-code", false);
+    expect(await listIds()).not.toContain(presetId);
+    await pluginState.setEnabled("claude-code", true);
+    expect(await listIds()).toContain(presetId);
+  });
+
+  it("creates through the store gate with no local binary", async () => {
+    // TODO 13's server half: creating a preset used to 409 on any host
+    // without the agent's CLI on PATH. Saved settings are not node-scoped —
+    // the LAUNCH gate still checks the binary per node.
+    const { status } = await createClaudePreset("no-local-binary");
+    expect(status).toBe(200);
+  });
+
+  it("409s a disabled plugin, and the refusal names the server", async () => {
+    await pluginState.setEnabled("claude-code", false);
+    const { status, message } = await createClaudePreset("while-disabled");
+    expect(status).toBe(409);
+    expect(message).toBe("That harness is unavailable (disabled or not installed on the server)");
+    await pluginState.setEnabled("claude-code", true);
+  });
+
+  it("409s a plugin absent from the store", async () => {
+    await uninstallLocalPlugin("claude-code");
+    const { status } = await createClaudePreset("while-uninstalled");
+    expect(status).toBe(409);
+    await installLocalPlugin("claude-code");
+  });
+
+  it("400s an id no plugin answers at all — getHarness still runs FIRST", async () => {
+    const res = await app.fetch(
+      authedRequest("/api/presets", cookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "no-such-plugin", name: "ghost" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toBe("Unknown harness: no-such-plugin");
   });
 });
