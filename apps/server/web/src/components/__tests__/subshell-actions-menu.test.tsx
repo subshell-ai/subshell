@@ -46,7 +46,7 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
  * the app itself installs.
  */
 async function renderMenu(subshell: SubshellView, children?: ReactNode) {
-  // retry: 0 so the profiles query settles on the first canned response.
+  // retry: 0 so the presets query settles on the first canned response.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({

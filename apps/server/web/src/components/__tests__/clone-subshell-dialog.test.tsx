@@ -148,7 +148,7 @@ describe("CloneSubshellDialog", () => {
   }
 
   /** Renders the dialog inside a throwaway router (it calls useNavigate),
-   *  loaded and settled so the first paint and the profiles/nodes queries
+   *  loaded and settled so the first paint and the presets/nodes queries
    *  have landed by the time the caller asserts. */
   async function renderDialog(source: SubshellView, onOpenChange = (_: boolean) => {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

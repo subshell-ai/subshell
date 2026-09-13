@@ -13,7 +13,7 @@ describe("usableFirst", () => {
   });
 
   it("is stable within each group — the caller's order carries meaning", () => {
-    // Profiles arrive sorted and nodes arrive with the control plane's row
+    // Presets arrive sorted and nodes arrive with the control plane's row
     // first; re-sorting either would trade one confusing order for another.
     const rows = ["b", "a", "d", "c"].map((id, i) => ({ id, ok: i % 2 === 0 }));
     expect(usableFirst(rows, (r) => r.ok).map((r) => r.id)).toEqual(["b", "d", "a", "c"]);
