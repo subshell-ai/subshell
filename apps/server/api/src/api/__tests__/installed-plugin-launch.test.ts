@@ -75,7 +75,7 @@ async function installAcme(): Promise<void> {
     join(dir, "index.js"),
     "export default () => ({\n" +
       "  capabilities: () => [],\n" +
-      "  buildCommand: (input) => [input.binary, '--acme-harness', ...input.profile.flags],\n" +
+      "  buildCommand: (input) => [input.binary, '--acme-harness', ...input.preset.flags],\n" +
       "  validatePreset: () => ({ valid: true, issues: [] }),\n" +
       "});\n",
     "utf8",

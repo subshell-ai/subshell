@@ -61,6 +61,7 @@ import type { JsonValue } from "./json.js";
  * lines (operator's call), so that the first debug line anyone writes is
  * already controllable from the browser that is the only way to read a
  * headless node's log.
+ *
  * **6 → 7 is the preset rename (spec 2026-09-13).** The `launch` frame's
  * `profile` field becomes `preset` (`ProfileDefinitionWire` →
  * `PresetDefinitionWire`), and the plugin-report settings field becomes
