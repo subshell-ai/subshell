@@ -186,6 +186,7 @@
         "@better-auth/passkey": "1.7.1",
         "@internal/backend-client": "workspace:*",
         "@internal/backend-errors": "workspace:*",
+        "@internal/server": "workspace:*",
         "@internal/subshell-protocol": "workspace:*",
         "@loglayer/transport-simple-pretty-terminal": "3.3.0",
         "@tanstack/react-query": "5.101.4",

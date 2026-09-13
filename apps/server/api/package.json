@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./config-values": {
+      "types": "./dist/commands/config-values.d.ts",
+      "import": "./dist/commands/config-values.js"
     }
   },
   "types": "dist/index.d.ts",

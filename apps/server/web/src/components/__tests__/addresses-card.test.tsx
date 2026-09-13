@@ -11,6 +11,23 @@ afterEach(() => {
   for (const undo of restore.splice(0)) undo();
 });
 
+/** Records PATCH bodies and answers with a fresh view. */
+function stubPatch(): unknown[] {
+  const sent: unknown[] = [];
+  const original = globalThis.fetch;
+  restore.push(() => {
+    globalThis.fetch = original;
+  });
+  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ ...deploymentView(), restartRequired: true, warnings: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof globalThis.fetch;
+  return sent;
+}
+
 function renderCard(view = deploymentView()) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
   return render(
@@ -45,7 +62,8 @@ describe("AddressesCard", () => {
 
     renderCard();
     fireEvent.change(screen.getByLabelText("Port"), { target: { value: "3090" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    // "Save and restart" where a restart is possible, which the fixture is.
+    fireEvent.click(screen.getByRole("button", { name: "Save and restart" }));
     await waitFor(() => expect(sent).toEqual([{ port: 3090 }]));
   });
 
@@ -97,5 +115,75 @@ describe("invalidField", () => {
     expect(invalidField(refusal("DATABASE_PATH: not settable here"))).toBeNull();
     expect(invalidField(new Error("network"))).toBeNull();
     expect(invalidField(null)).toBeNull();
+  });
+});
+
+describe("form validation", () => {
+  const edit = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const save = () => fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+
+  it("refuses a bad value before the request, under the field it is about", () => {
+    const sent = stubPatch();
+    renderCard();
+    edit("Port", "99999");
+    save();
+    // The SERVER'S own words: this form imports `validateValue` rather than
+    // restating its rules, so the sentence is the one the CLI prints too.
+    expect(screen.getByText(/expected an integer 1-65535/)).toBeTruthy();
+    // And nothing was sent, which is the point — not saving the bad value.
+    expect(sent).toEqual([]);
+  });
+
+  it("catches the subtle ones a hand-written validator would not have", () => {
+    stubPatch();
+    renderCard();
+    // A leading zero parses as a port and writes an UNBOOTABLE config.env,
+    // because the boot path reads it through a stricter parser. Nobody would
+    // think to write this rule twice; importing it means nobody has to.
+    edit("Port", "080");
+    save();
+    expect(screen.getByText(/leading zero/)).toBeTruthy();
+  });
+
+  it("refuses an origin a browser could never match", () => {
+    stubPatch();
+    renderCard();
+    edit("Other addresses browsers will use", "box.local:3080");
+    save();
+    // The exact sentence is the validator's, and it is NOT the one the view's
+    // `problems` array uses for the same input — writing this expectation by
+    // hand got it wrong, which is the drift importing the rules removes.
+    expect(screen.getByText(/expected a bare http\(s\) origin with no path/)).toBeTruthy();
+  });
+
+  it("catches a trailing comma, which reads as an empty origin", () => {
+    stubPatch();
+    renderCard();
+    edit("Other addresses browsers will use", "http://localhost:5173, ");
+    save();
+    expect(screen.getByText(/stray or trailing comma/)).toBeTruthy();
+  });
+
+  it("clears a field's complaint when it is edited, and leaves the others", () => {
+    stubPatch();
+    renderCard();
+    edit("Port", "99999");
+    edit("Public base URL", "not-a-url");
+    save();
+    expect(screen.getByText(/expected an integer 1-65535/)).toBeTruthy();
+    expect(screen.getByText(/expected a full http\(s\) URL/)).toBeTruthy();
+
+    edit("Port", "3081");
+    // Being worked on, so its complaint goes; the other is still true.
+    expect(screen.queryByText(/expected an integer 1-65535/)).toBeNull();
+    expect(screen.getByText(/expected a full http\(s\) URL/)).toBeTruthy();
+  });
+
+  it("sends a valid change", async () => {
+    const sent = stubPatch();
+    renderCard();
+    edit("Port", "3081");
+    save();
+    await waitFor(() => expect(sent).toEqual([{ port: 3081 }]));
   });
 });

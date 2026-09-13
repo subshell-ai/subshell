@@ -66,7 +66,11 @@ export function RestartDialog({
   /** Called with `force` when the person confirms */
   onConfirm: (force: boolean) => void;
 }) {
-  const kills = view.service.paneSafety !== "keeps";
+  // Gated on `installed` for the reason `ServiceCard` is: `paneSafety` is
+  // "unknown" when there is no definition to read, and "unknown" is not
+  // "keeps", so a machine with no service warned about a definition that does
+  // not exist. App mode reports "keeps" and is unaffected either way.
+  const kills = view.service.installed && view.service.paneSafety !== "keeps";
   const elsewhere = resumeElsewhere(view);
 
   return (
@@ -76,7 +80,7 @@ export function RestartDialog({
           <DialogTitle>Restart the server?</DialogTitle>
           <DialogDescription>
             {kills
-              ? "This server's service definition will close every running subshell. Reinstall the service definition to fix this, or restart anyway."
+              ? "This server's service definition will close every running subshell. Rewrite it by running `subshell-server service install` on this machine, or restart anyway."
               : "Running subshells keep running; open terminals reconnect in a few seconds."}
           </DialogDescription>
         </DialogHeader>

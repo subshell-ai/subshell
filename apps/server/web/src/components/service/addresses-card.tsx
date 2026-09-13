@@ -2,21 +2,59 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { useState } from "react";
 import { RestartDialog } from "@/components/service/restart-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUpdateServerConfig } from "@/hooks/use-server-deployment";
 import type { ServerRestart } from "@/hooks/use-server-restart";
 import { ApiError, errMessage } from "@/lib/api";
+import { formProblems } from "@/lib/config-validation";
 import type { ServerConfigPatch, ServerDeployment, ServerSettingKey } from "@/types/server-deployment";
 
-/** The four editable keys, in the order the card lays them out. */
+/**
+ * The four editable keys, in the order the card lays them out — each with the
+ * one thing about it that is not obvious from its label.
+ *
+ * Per FIELD rather than one description for the card, because these four are
+ * not variations on a theme: two decide where the server listens and two
+ * decide what a browser may be when it calls, and the mistakes they invite are
+ * different mistakes. A card-level sentence had to gloss all four at once, so
+ * it ended up saying something true of none of them in particular — and the
+ * one field that genuinely needed a warning had it hard-coded beside the
+ * input, which is the shape this replaces.
+ */
 const FIELDS = [
-  { key: "SERVER_PORT", id: "server-port", label: "Port" },
-  { key: "HOST", id: "server-host", label: "Bind address" },
-  { key: "APP_BASE_URL", id: "server-base-url", label: "Public base URL" },
-  { key: "TRUSTED_ORIGINS", id: "server-trusted-origins", label: "Other addresses browsers will use" },
-] as const satisfies readonly { key: ServerSettingKey; id: string; label: string }[];
+  {
+    key: "SERVER_PORT",
+    id: "server-port",
+    label: "Port",
+    hint: "The port this server listens on. The public base URL below usually has to name it too.",
+  },
+  {
+    key: "HOST",
+    id: "server-host",
+    label: "Bind address",
+    // The genuinely non-obvious one, and the default is the permissive value.
+    hint: "0.0.0.0 accepts connections from anywhere on your network; 127.0.0.1 only from this machine.",
+  },
+  {
+    key: "APP_BASE_URL",
+    id: "server-base-url",
+    label: "Public base URL",
+    // The passkey consequence is not guessable and is not reversible for a
+    // credential already registered against the old host.
+    hint: "The address this server hands out in links and to nodes. Changing it moves where passkeys work.",
+  },
+  {
+    key: "TRUSTED_ORIGINS",
+    id: "server-trusted-origins",
+    label: "Other addresses browsers will use",
+    // The trap this field exists for: on the default bind the derived set is
+    // the two loopback spellings, so a phone or a LAN name fails sign-in with
+    // an error that names nothing you could change.
+    hint: "Comma-separated. A browser at an address that is not listed here is refused at sign-in with \u201cInvalid origin\u201d \u2014 add a LAN name or a phone\u2019s address here.",
+  },
+] as const satisfies readonly { key: ServerSettingKey; id: string; label: string; hint: string }[];
 
 /** The keys this card may write. `DATABASE_PATH` is deliberately not one of them. */
 type EditableKey = (typeof FIELDS)[number]["key"];
@@ -99,7 +137,34 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   const touched = Object.keys(drafts) as EditableKey[];
   const fieldFailure = invalidField(update.error);
 
+  // Saving and applying are two acts, and this button is both — because
+  // nobody edits a port in order to leave it not listening there. It saves
+  // first and then opens the RESTART DIALOG rather than restarting: that
+  // dialog is where the cost is stated (running subshells close on an old
+  // service definition; open terminals reconnect either way) and where the
+  // `force` override and the "comes back at…" link live, for the case where
+  // the value just changed is the address this page is served from.
+  //
+  // Cancelling it is therefore the save-without-restarting path, and it is
+  // the honest one: the change IS saved, and the banner above says so. That
+  // covers the admin staging a change for a quiet window without giving the
+  // button two meanings.
+  const canRestart = view.restart.available;
+
+  // Checked on SAVE, not on every keystroke: a reason appearing under a field
+  // while someone is halfway through typing a URL reads as being told off for
+  // an unfinished thought. Held in state rather than recomputed, so it clears
+  // on the next attempt instead of following a field that has since been
+  // corrected.
+  const [problems, setProblems] = useState<Partial<Record<EditableKey, string>>>({});
+
   function save(): void {
+    // The SERVER'S rules, imported — see `lib/config-validation.ts`. Nothing
+    // here decides what a value may be, so the form cannot start refusing what
+    // the route would accept.
+    const found = formProblems(drafts);
+    setProblems(found);
+    if (Object.keys(found).length > 0) return;
     const patch = touched.reduce<ServerConfigPatch>(
       (body, key) => Object.assign(body, patchFor(key, drafts[key] ?? "")),
       {},
@@ -108,7 +173,11 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
       // The answer is the fresh view and it is already in the cache, so
       // dropping the drafts re-seeds every field from what the server stored
       // — including anything it canonicalized on the way in.
-      onSuccess: () => setDrafts({}),
+      onSuccess: () => {
+        setDrafts({});
+        setProblems({});
+        if (canRestart) setConfirming(true);
+      },
     });
   }
 
@@ -116,22 +185,31 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
     <Card>
       <CardHeader>
         <CardTitle>Addresses</CardTitle>
-        <CardDescription>
-          Where this server listens, and which addresses a browser is allowed to reach it from. Saved to the config
-          file; a restart is what applies them.
-        </CardDescription>
+        {/* No card-level description. It said "Saved to the config file; a
+            restart is what applies them", which existed to explain why Save
+            appeared to do nothing and is stale now the button says "Save and
+            restart"; and it glossed four fields at once, which is work each
+            field's own `hint` does better. */}
       </CardHeader>
       <CardContent className="space-y-4">
         {view.restartRequired && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/50 px-3 py-2 text-sm text-warning">
-            <span>Saved. Restart the server to apply.</span>
-            <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
-              Restart
-            </Button>
+            <span>
+              {view.restart.available
+                ? "Saved. Restart the server to apply."
+                : `Saved. ${view.restart.reason ?? "This server cannot restart itself from here."}`}
+            </span>
+            {/* Gated: this button was always live, so on a server nothing
+                supervises it opened a dialog for an act the route then 409s. */}
+            {view.restart.available && (
+              <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+                Restart
+              </Button>
+            )}
           </div>
         )}
 
-        {FIELDS.map(({ key, id, label }) => {
+        {FIELDS.map(({ key, id, label, hint }) => {
           const setting = view.settings[key];
           const fromEnv = setting.source === "process env";
           return (
@@ -143,20 +221,31 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                 readOnly={fromEnv}
                 disabled={update.isPending}
                 className={fromEnv ? "text-muted-foreground" : undefined}
-                onChange={(event) => setDrafts((prev) => ({ ...prev, [key]: event.target.value }))}
+                onChange={(event) => {
+                  setDrafts((prev) => ({ ...prev, [key]: event.target.value }));
+                  // This field's complaint goes as soon as it is being worked
+                  // on; the others stay, because they are still true.
+                  setProblems((prev) => (key in prev ? { ...prev, [key]: undefined } : prev));
+                }}
               />
               {fromEnv && (
                 <p className="text-muted-foreground text-xs">Set by the environment ({key}); change it there.</p>
               )}
-              {key === "APP_BASE_URL" && (
-                <p className="text-muted-foreground text-xs">Changing this moves where passkeys work.</p>
-              )}
+              {/* The field's own explanation, in the same place for every
+                  field — replacing a card-level gloss and a hard-coded
+                  special case for one of them. Suppressed where the value is
+                  the environment's: the line above already says the only
+                  thing that matters there, which is that this is not where to
+                  change it. */}
+              {!fromEnv && <p className="text-muted-foreground text-xs">{hint}</p>}
               {setting.saved !== setting.running && (
                 <p className="text-warning text-xs">
                   Saved {setting.saved || "(blank)"} · running {setting.running || "(blank)"}
                 </p>
               )}
-              {fieldFailure?.key === key && <p className="text-destructive text-xs">{fieldFailure.reason}</p>}
+              {(problems[key] ?? (fieldFailure?.key === key ? fieldFailure.reason : null)) && (
+                <p className="text-destructive text-xs">{problems[key] ?? fieldFailure?.reason}</p>
+              )}
               {setting.problems?.map((problem) => (
                 <p key={problem.entry} className="text-destructive text-xs">
                   {problem.entry}: {problem.reason}
@@ -167,8 +256,17 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
         })}
 
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" disabled={touched.length === 0 || update.isPending} onClick={save}>
-            Save
+          {/* Named for what it does. Where the server cannot restart itself —
+              nothing supervising it — it saves and says so, rather than
+              promising an act the route would refuse. */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={touched.length === 0 || update.isPending}
+            title={canRestart ? undefined : (view.restart.reason ?? undefined)}
+            onClick={save}
+          >
+            {update.isPending ? "Saving…" : canRestart ? "Save and restart" : "Save"}
           </Button>
           {update.isSuccess && touched.length === 0 && <span className="text-success text-xs">saved</span>}
         </div>
