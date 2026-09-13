@@ -1,4 +1,5 @@
 import type { NodeServiceVerb } from "@internal/subshell-protocol";
+import { LoaderCircle } from "lucide-react";
 import type { JSX } from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -151,7 +152,13 @@ export function NodeServiceCard({ node }: { node: NodeDetail }): JSX.Element | n
           })}
         </div>
         {wait.outcome === "waiting" && (
-          <p className="text-sm text-warning">Restarting… waiting for {node.name} to come back.</p>
+          <p className="flex items-center gap-2 text-sm text-warning">
+            {/* The agent drops its socket and comes back; that is tens of
+                seconds during which the card would otherwise sit still and
+                read as a page that had ignored the press. */}
+            <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+            <span>Restarting… waiting for {node.name} to come back.</span>
+          </p>
         )}
         {wait.outcome === "timeout" && (
           <p className="text-destructive text-sm">The node has not come back. Check the agent on that machine.</p>

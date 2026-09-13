@@ -480,7 +480,7 @@ export interface ServiceState {
   state: ServiceRunState;
   /** Main PID when the manager reports one, else `null`. */
   pid: number | null;
-  /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad`). `null` when unknown. */
+  /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad` OR `KeepAlive`). `null` when unknown. */
   enabled: boolean | null;
   /**
    * launchd only: whether the job is BOOTSTRAPPED in `gui/<uid>` — the fact
@@ -683,10 +683,35 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
   };
 }
 
+/** `<key>NAME</key><true/>`, tolerating either spelling of the empty element. */
+function plistTrue(text: string, key: string): boolean {
+  return new RegExp(`<key>\\s*${key}\\s*</key>\\s*(<true\\s*/>|<true>\\s*</true>)`).test(text);
+}
+
+/**
+ * Whether a loaded agent will come up at login — `RunAtLoad` OR `KeepAlive`.
+ *
+ * **Not `RunAtLoad` alone, which is what this read before.** `KeepAlive=true`
+ * starts the job whether or not `RunAtLoad` is set: measured on macOS 26.6.2
+ * for the server's own agent, where a `KeepAlive=true` + `RunAtLoad=false`
+ * plist reported `runs = 1` two seconds after `bootstrap` while a control
+ * without `KeepAlive` reported `runs = 0`. Our template ships BOTH keys true,
+ * so the old read happened to be right for a plist we wrote — and said "no"
+ * for a hand-edited one that would still start. Reporting "does not start at
+ * login" about a job that does is the failure worth avoiding here; there is
+ * no verb on this side that turns it off, so this is a reporting fix.
+ *
+ * The server-side control for the same question is the plist's DIRECTORY, not
+ * a key (`apps/server/api/src/service.ts`), for exactly this reason.
+ */
+function startsAtLogin(text: string): boolean {
+  return plistTrue(text, "RunAtLoad") || plistTrue(text, "KeepAlive");
+}
+
 async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<ServiceState> {
   const text = await deps.readFile(definitionPath);
   const paneSafety = await abandonProcessGroup(deps, definitionPath, text);
-  const enabled = text === null ? null : /<key>\s*RunAtLoad\s*<\/key>\s*(<true\s*\/>|<true>\s*<\/true>)/.test(text);
+  const enabled = text === null ? null : startsAtLogin(text);
   // `launchctl print gui/<uid>/<label>`, NOT the legacy `launchctl list`:
   // `list` resolves an IMPLICIT domain, so over SSH (where the session is
   // "Background", not "Aqua") it reports a running gui/<uid> job as absent —

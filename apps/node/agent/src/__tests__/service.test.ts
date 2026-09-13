@@ -544,6 +544,24 @@ describe("queryService", () => {
     expect(state).toMatchObject({ installed: true, state: "running", pid: 5150, enabled: true, paneSafety: "keeps" });
   });
 
+  // The pairing that made `RunAtLoad` alone the wrong thing to read. Measured
+  // on macOS 26.6.2 (for the server's own agent, same launchd): a
+  // `KeepAlive=true` + `RunAtLoad=false` job reported `runs = 1` two seconds
+  // after `bootstrap`, while a control without `KeepAlive` reported `runs = 0`.
+  test("darwin: KeepAlive starts it at login even with RunAtLoad false", async () => {
+    const s = darwinServiceStub();
+    s.files.set(PLIST, "<key>RunAtLoad</key><false/><key>KeepAlive</key><true/>");
+    // Reporting "does not start at login" about a job that does is the failure
+    // worth avoiding; there is no verb on this side that turns it off.
+    expect((await queryService(s.deps)).enabled).toBe(true);
+  });
+
+  test("darwin: neither key means it really does not come back on its own", async () => {
+    const s = darwinServiceStub();
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/>");
+    expect((await queryService(s.deps)).enabled).toBe(false);
+  });
+
   // `launchctl print` nests `state = active` lines under endpoints; only the
   // single-tab top-level one describes the job.
   test("darwin: nested endpoint `state` lines do not confuse the parse", async () => {

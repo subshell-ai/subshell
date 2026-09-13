@@ -189,12 +189,23 @@ export function useSetNodeAllowedDirs(id: string) {
  * an agent that is not running — say so before asking for either.
  */
 export function useNodeService(id: string) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { verb: NodeServiceVerb; force?: boolean }) =>
       apiFetch<{ ok: true; detail?: string }>(`/api/nodes/${id}/service`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    // Every verb here changes the runtime report the card is drawn from —
+    // whether a definition exists, whether it starts at login, the pid — and
+    // this mutation used to write nothing back. The node detail query does NOT
+    // poll, so "Install service" left the card showing "not installed" until
+    // someone navigated away and back. `restart` is the one verb with its own
+    // waiter (the agent's socket has to return first); the rest are answered
+    // by the agent that is still connected, so a refetch now is correct.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+    },
   });
 }
 
