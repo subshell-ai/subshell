@@ -42,6 +42,15 @@ async function dropColumnIfPresent(db: Kysely<any>, table: string, column: strin
  * - Its index is re-created under the new name (SQLite has no index rename).
  * - `is_default` dies with the seeding it protected; `node_id` dies with the
  *   pin (launch precedence is body → local → single-online-agent now).
+ *   Dying means the rows it marked go with it: an upgraded instance must end
+ *   presetless of Defaults the way a fresh one does (spec §6, controller's
+ *   ruling), or the blank seeded Default would ship as a phantom preset
+ *   beside the new "None" option — a preset for a concept the cut deletes.
+ *   The purge runs AFTER `preset_id` exists and BEFORE `is_default` drops
+ *   (order load-bearing: after the drop there is nothing left to find the
+ *   rows by), and it hunts by FLAG, never by name — a user-created preset
+ *   called "Default" has `is_default = 0` and SURVIVES, because the flag
+ *   named the seeder, not the string.
  * - On `subshells`: ADD `preset_id` → copy `profile_id` → DROP `profile_id`.
  *   The copy is `NULLIF(profile_id, '')`: the old column's NOT NULL DEFAULT
  *   '' spelled "no profile" the way the nullable one spells it NULL, and a
@@ -69,13 +78,27 @@ export async function up(db: Kysely<any>): Promise<void> {
       .on("presets")
       .columns(["user_id", "harness_id"])
       .execute();
-    await dropColumnIfPresent(db, "presets", "is_default");
     await dropColumnIfPresent(db, "presets", "node_id");
   }
   if ((await hasColumn(db, "subshells", "profile_id")) && !(await hasColumn(db, "subshells", "preset_id"))) {
     await db.schema.alterTable("subshells").addColumn("preset_id", "text").execute();
     await sql`UPDATE subshells SET preset_id = NULLIF(profile_id, '')`.execute(db);
     await db.schema.alterTable("subshells").dropColumn("profile_id").execute();
+  }
+  // Purge the seeded Defaults (spec §6) — BEFORE the flag that names them is
+  // dropped, after `preset_id` exists to be freed. `NULL IN (...)` is never
+  // true, so presetless rows are untouched, and the NULLIF'd copy above
+  // already turned `''` into NULL — the old and new "no preset" spellings
+  // both land here correctly. Guarded on the column, so re-runs skip it.
+  if ((await hasTable(db, "presets")) && (await hasColumn(db, "presets", "is_default"))) {
+    if (await hasColumn(db, "subshells", "preset_id")) {
+      await sql`
+        UPDATE subshells SET preset_id = NULL
+        WHERE preset_id IN (SELECT id FROM presets WHERE is_default = 1)
+      `.execute(db);
+    }
+    await sql`DELETE FROM presets WHERE is_default = 1`.execute(db);
+    await dropColumnIfPresent(db, "presets", "is_default");
   }
 }
 
@@ -89,7 +112,11 @@ export async function up(db: Kysely<any>): Promise<void> {
  * of a post-presets row that had no preset simply names no row). And
  * `is_default` cannot be re-derived: the flag's meaning was "the seeder made
  * this row", and nothing downstream of `up` records that any more, so every
- * downgraded row comes back deletable (0).
+ * downgraded row comes back deletable (0). A third loss is deliberate
+ * history: the purge of seeded Defaults is NOT undone. The deleted rows are
+ * gone, and the subshells freed from them downgrade to `''` (their NULL has
+ * no row to name any more) — a downgrade returns the schema, not the data
+ * the cut chose to delete.
  */
 export async function down(db: Kysely<any>): Promise<void> {
   if ((await hasColumn(db, "subshells", "preset_id")) && !(await hasColumn(db, "subshells", "profile_id"))) {
