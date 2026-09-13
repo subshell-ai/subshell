@@ -211,8 +211,8 @@ export function PresetFields({
               <Label htmlFor="preset-restart">Auto-restart on exit</Label>
             </div>
             <p className="text-muted-foreground text-sm">
-              When a subshell's agent process exits on its own, bring the subshell back up automatically, with a
-              growing delay between attempts while it keeps failing. Leave off to decide manually.
+              When a subshell's agent process exits on its own, bring the subshell back up automatically, with a growing
+              delay between attempts while it keeps failing. Leave off to decide manually.
             </p>
           </div>
           {schema?.mcp && <McpSetupSection mcp={schema.mcp} />}
