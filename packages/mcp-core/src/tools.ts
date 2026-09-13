@@ -202,7 +202,12 @@ export async function getSubshell(deps: ToolDeps, id: string): Promise<SubshellR
   return await deps.api.req<SubshellRow>(`/api/subshells/${encodeURIComponent(id)}`);
 }
 
-/** `list_presets` */
+/**
+ * `list_presets` — the owner's presets across every agent the INSTANCE offers
+ * (the server's list is store-scoped since the 2026-09-13 follow-up: a
+ * harness installed and enabled on the instance lists its presets regardless
+ * of which node's PATH holds the binary; per-node fit is decided at launch).
+ */
 export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
   const rows = await deps.api.req<PresetRow[]>("/api/presets");
   return rows.map(({ id, name, harnessId }) => ({ id, name, harnessId }));
@@ -222,13 +227,21 @@ export async function createSubshell(
     // Scope the lookup to the harness: preset names are only unique per harness.
     const presets = await deps.api.req<PresetRow[]>("/api/presets", { query: { harnessId: args.harness } });
     const want = args.preset.toLowerCase();
-    const match = presets.find((p) => p.name.toLowerCase() === want);
-    if (!match) {
+    // The name is the agent's addressing key, and no unique index enforces
+    // it — so a tie is REFUSED, never silently won by whichever row sorts
+    // first. Launching the wrong preset writes the wrong credential layer.
+    const matches = presets.filter((p) => p.name.toLowerCase() === want);
+    if (matches.length === 0) {
       throw new Error(
         `subshell: no preset named '${args.preset}' for harness '${args.harness}'; call list_presets for options`,
       );
     }
-    presetId = match.id;
+    if (matches.length > 1) {
+      throw new Error(
+        `subshell: more than one preset named '${args.preset}' for harness '${args.harness}'; rename them or call list_presets`,
+      );
+    }
+    presetId = matches[0].id;
   }
   return await deps.api.req<{ id: string; promptDelivered: boolean }>("/api/subshells", {
     method: "POST",

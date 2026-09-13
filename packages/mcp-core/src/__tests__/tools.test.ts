@@ -247,6 +247,28 @@ describe("mcp tools (handler-level, real crypto)", () => {
     }
   });
 
+  it("create_subshell refuses an AMBIGUOUS preset name instead of picking a winner", async () => {
+    // PresetTable.name is documented unique per user+harness but no index
+    // enforces it; with the name as the agent's addressing key, a tie must
+    // never be won by whichever row sorts first — a wrong-preset launch
+    // writes the wrong credential layer.
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          { id: "pre-1", name: "Dev", harnessId: "claude-code" },
+          { id: "pre-2", name: "DEV", harnessId: "claude-code" }, // distinct spellings, ONE lowercase key
+        ];
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await expect(createSubshell(deps, { harness: "claude-code", preset: "dev", workingDir: "/tmp" })).rejects.toThrow(
+      /more than one preset named 'dev' for harness 'claude-code'; rename them or call list_presets/,
+    );
+    // Refused at resolution — no launch was ever attempted.
+    expect(calls).toHaveLength(1);
+  });
+
   it("create_subshell with an unknown preset name gives guidance, not a stack trace", async () => {
     const own = await generateKeypair();
     const { api } = fakeApi(() => [{ id: "pre-1", name: "Dev", harnessId: "claude-code" }]);
