@@ -365,6 +365,25 @@ shares and subshell shares are two independent axes:
   revocable, audited. The install command embeds one in a URL, so it lands in
   shell history and server/access logs — same posture as enrollment links
   everywhere; revoke = delete the key.
+- **Who may MINT one is an instance setting** (`allow_node_enrollment`, admin
+  toggle under Settings → General, audited `settings.update`). An absent row
+  means TRUE, so an instance that never touched it keeps the behaviour it had:
+  any signed-in user may add a machine. Turned off, `POST /api/nodes/setup-keys`
+  refuses non-admins with 403 and admins are unaffected — the same shape as an
+  admin creating a user through `POST /api/users` while sign-up is closed.
+  Enforced THERE and nowhere else, because minting is the only chokepoint:
+  enrolling is unauthenticated by design (the key IS the credential), so there
+  is nothing to gate on `POST /api/nodes/enroll` and gating it would refuse
+  keys the instance itself handed out.
+  **It does not revoke what is outstanding** (operator's call, 2026-09-13):
+  flipping it off means "stop handing these out", not "invalidate the ones
+  already minted" — the same semantics as closing registrations, which signs
+  nobody out. An unconsumed key stays usable until it expires (24 h) or an
+  admin deletes it, which is the act that revokes and is separately audited.
+  So the switch bounds the FUTURE; the ≤24 h window it leaves is closed by
+  deleting keys, not by the toggle.
+  It governs ADDING a node only. Who may launch on one they were shared, and
+  what a share confers, are the unchanged axes above.
 - **Disabling the control-plane host as a launch target** = an admin removing
   `local`'s seeded Everyone/`edit` share row (the toggle on that node's page
   does exactly this). The disable **survives restarts** — boot seeding creates

@@ -44,7 +44,7 @@ function SettingsPage() {
     refetch: refetchSettings,
   } = useQuery({
     queryKey: ["settings"],
-    queryFn: () => apiFetch<{ allowRegistrations: boolean }>("/api/settings"),
+    queryFn: () => apiFetch<{ allowRegistrations: boolean; allowNodeEnrollment: boolean }>("/api/settings"),
     // Admin-only endpoint: without this gate a non-admin visiting /settings
     // (the page renders the "admins only" sentence for them) fired two
     // silent 403s per mount. Unknown ≠ open — fetch only once the server
@@ -52,7 +52,16 @@ function SettingsPage() {
     enabled: viewerIsAdmin === true,
   });
 
-  async function toggleRegistrations() {
+  /**
+   * Flip one boolean setting.
+   *
+   * One function for both switches rather than a copy per setting: the error
+   * handling below is the load-bearing part — without the catch a failed
+   * PATCH was an unhandled rejection and the switch silently snapped back on
+   * the next cache read, with no feedback at all — and that is exactly the
+   * kind of thing a second copy quietly omits.
+   */
+  async function toggle(key: "allowRegistrations" | "allowNodeEnrollment", whatFailed: string) {
     if (!settings) return;
     setBusy(true);
     setSaved(false);
@@ -60,14 +69,12 @@ function SettingsPage() {
     try {
       await apiFetch("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify({ allowRegistrations: !settings.allowRegistrations }),
+        body: JSON.stringify({ [key]: !settings[key] }),
       });
       setSaved(true);
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (err) {
-      // Without this catch a failed PATCH was an unhandled rejection and the
-      // switch silently snapped back on the next cache read — no feedback.
-      setRegError(errMessage(err, "Couldn't change the registration setting."));
+      setRegError(errMessage(err, whatFailed));
     } finally {
       setBusy(false);
     }
@@ -96,7 +103,7 @@ function SettingsPage() {
                     actually reported, and only moves once it has. */}
                 <Switch
                   checked={settings?.allowRegistrations ?? false}
-                  onCheckedChange={() => void toggleRegistrations()}
+                  onCheckedChange={() => void toggle("allowRegistrations", "Couldn't change the registration setting.")}
                   disabled={busy || !settings}
                   aria-label="Allow new registrations"
                 />
@@ -120,6 +127,38 @@ function SettingsPage() {
                   }
                 />
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Nodes</CardTitle>
+              <CardDescription>
+                Let users add their own machines as nodes. Registering a node delegates command execution on it to this
+                instance, so turning this off leaves adding them to admins.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-4">
+                {/* Same "Unknown ≠ on" rule as the switch above: it claims a
+                    state only once the server has reported one. */}
+                <Switch
+                  checked={settings?.allowNodeEnrollment ?? false}
+                  onCheckedChange={() => void toggle("allowNodeEnrollment", "Couldn't change the node setting.")}
+                  disabled={busy || !settings}
+                  aria-label="Let users add their own nodes"
+                />
+                <Label>
+                  {settings ? (settings.allowNodeEnrollment ? "Anyone signed in" : "Admins only") : "Unknown"}
+                </Label>
+              </div>
+              {/* Said here rather than discovered later: turning this off is
+                  "stop handing out new keys", and any key already minted stays
+                  usable until it expires or is deleted. */}
+              <p className="text-muted-foreground text-xs">
+                Turning this off does not revoke setup keys that already exist — they expire after 24 hours, or can be
+                deleted from the Nodes page.
+              </p>
             </CardContent>
           </Card>
 

@@ -16,8 +16,22 @@ import {
 import { autoFetchEnabled } from "@/services/node-release.js";
 import { SERVER_VERSION } from "@/version.js";
 
+/**
+ * The `settings` row governing who may add a node.
+ *
+ * An ABSENT row means true, like `allow_registrations`: an instance that has
+ * never touched this keeps the behaviour it had, where any signed-in user
+ * could mint a setup key. Exported because `create-setup-key.route.ts` reads
+ * the same row, and a second spelling of it would be a second setting.
+ */
+export const ALLOW_NODE_ENROLLMENT_KEY = "allow_node_enrollment";
+
 const SettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
+  allowNodeEnrollment: t.Boolean({
+    description:
+      "Whether a non-admin may mint a node setup key, and so add a machine to this instance. Absent means true: an instance that never set it is unchanged. Admins are unaffected.",
+  }),
   instanceName: t.String({
     minLength: 0,
     maxLength: INSTANCE_NAME_MAX,
@@ -46,6 +60,12 @@ const TerminalHistorySchema = t.Object({
  * only that the hatch is armed, which the banner itself broadcasts. */
 const PublicSettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
+  // Read by the Nodes page, which hides "Add node" rather than offering a
+  // button the route would refuse.
+  allowNodeEnrollment: t.Boolean({
+    description:
+      "Whether a non-admin may mint a node setup key, and so add a machine to this instance. Absent means true: an instance that never set it is unchanged. Admins are unaffected.",
+  }),
   // Rides the shared public read like serverVersion — every signed-in page
   // already holds this payload, and the sidebar needs it on every route.
   instanceName: t.String({
@@ -111,6 +131,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       const allow = await repo.get("allow_registrations", true);
       return {
         allowRegistrations: allow,
+        allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
         instanceName: await resolveInstanceName(db),
         emergencyLoginActive: emergencyLoginArmed(),
         appBaseUrl: APP_BASE_URL,
@@ -144,7 +165,11 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       }
       const repo = new SettingsRepository(db);
       const allow = await repo.get("allow_registrations", true);
-      return { allowRegistrations: allow, instanceName: await resolveInstanceName(db) } as const;
+      return {
+        allowRegistrations: allow,
+        allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
+        instanceName: await resolveInstanceName(db),
+      } as const;
     },
     {
       response: SettingsSchema,
@@ -182,6 +207,23 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           });
         }
       }
+      if (body.allowNodeEnrollment !== undefined) {
+        const before = await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true);
+        await repo.set(ALLOW_NODE_ENROLLMENT_KEY, body.allowNodeEnrollment);
+        // Audited on a REAL flip only, like the registration one. Turning it
+        // ON widens who may bring a machine into this instance — and a node
+        // is arbitrary command execution under its own OS user — so the trail
+        // should say who opened it and when.
+        if (before !== body.allowNodeEnrollment) {
+          await audit({
+            actorUserId: user.id,
+            action: "settings.update",
+            targetType: "settings",
+            targetId: ALLOW_NODE_ENROLLMENT_KEY,
+            metadataJson: JSON.stringify({ from: before, to: body.allowNodeEnrollment }),
+          });
+        }
+      }
       if (body.instanceName !== undefined) {
         // Audited on a REAL change only, like the registration flip: the name
         // is what every user sees the instance called, so a silent edit by one
@@ -200,7 +242,11 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         }
       }
       const allow = await repo.get("allow_registrations", true);
-      return { allowRegistrations: allow, instanceName: await resolveInstanceName(db) } as const;
+      return {
+        allowRegistrations: allow,
+        allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
+        instanceName: await resolveInstanceName(db),
+      } as const;
     },
     {
       body: t.Partial(SettingsSchema),

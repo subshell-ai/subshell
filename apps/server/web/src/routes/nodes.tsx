@@ -9,8 +9,10 @@ import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { useDeleteNode, useNodes } from "@/hooks/use-nodes";
+import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
+import { canAddNode } from "@/lib/node-enrollment";
 import type { Node } from "@/types/node";
 
 export const Route = createFileRoute("/nodes")({
@@ -27,6 +29,10 @@ function NodesPage() {
   const navigate = useNavigate();
   const deleteNode = useDeleteNode();
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Whether to OFFER adding a node — `lib/node-enrollment.ts` carries the
+  // rule and why the unknown case reads as allowed. The route is the gate.
+  const { data: publicSettings } = usePublicSettings();
+  const mayAddNode = canAddNode(publicSettings);
   const { data, isLoading, isError, refetch } = useNodes({ polling: dialogOpen });
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -61,11 +67,22 @@ function NodesPage() {
         title="Nodes"
         subtitle="Machines subshells can run on: the server plus enrolled nodes"
         action={
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus /> Add node
-          </Button>
+          // Hidden, not disabled: a non-admin on an instance where adding is
+          // off cannot make this work, and a greyed control they can never
+          // use is a worse answer than the sentence below saying who can.
+          mayAddNode ? (
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus /> Add node
+            </Button>
+          ) : undefined
         }
       />
+
+      {!mayAddNode && (
+        <p className="text-muted-foreground text-sm">
+          An admin has turned off adding nodes on this instance. Ask one to add a machine for you.
+        </p>
+      )}
 
       {actionError && <p className="text-destructive text-sm">{actionError}</p>}
 

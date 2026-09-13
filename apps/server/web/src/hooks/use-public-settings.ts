@@ -8,6 +8,8 @@ export const PUBLIC_SETTINGS_QUERY_KEY = ["settings-public"] as const;
 export interface PublicSettings {
   /** Whether new users can register (the login page hides the sign-up link when false) */
   allowRegistrations: boolean;
+  /** Whether a non-admin may add a node; absent row on the server means true */
+  allowNodeEnrollment: boolean;
   /** True while SUBSHELL_EMERGENCY_PASSWORD is set (spec 2026-08-31 §6) */
   emergencyLoginActive: boolean;
   /**

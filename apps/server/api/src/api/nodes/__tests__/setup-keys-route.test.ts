@@ -2,9 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
+import { ALLOW_NODE_ENROLLMENT_KEY } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -34,12 +36,14 @@ describe("/api/nodes/setup-keys", () => {
   let aliceId: string;
   let aliceCookie: string;
   let bobCookie: string;
+  const adminEmail = `nsk-admin-${crypto.randomUUID()}@subshell.local`;
+  let adminCookie: string;
   let subshellKey: string;
   const createdApiKeyIds: string[] = [];
   const repo = new NodeSetupKeysRepository(db);
 
-  async function mkUser(email: string): Promise<string> {
-    return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+  async function mkUser(email: string, role: "user" | "admin" = "user"): Promise<string> {
+    return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role });
   }
 
   beforeAll(async () => {
@@ -48,6 +52,8 @@ describe("/api/nodes/setup-keys", () => {
     await mkUser(bobEmail);
     aliceCookie = await signIn(aliceEmail, pw);
     bobCookie = await signIn(bobEmail, pw);
+    await mkUser(adminEmail, "admin");
+    adminCookie = await signIn(adminEmail, pw);
 
     // A real subshell bearer key owned by alice — proves cookie-only enforcement.
     await new SubshellsRepository(db).create({
@@ -67,7 +73,7 @@ describe("/api/nodes/setup-keys", () => {
   afterAll(async () => {
     for (const kid of createdApiKeyIds) authDatabase().run("DELETE FROM apikey WHERE id = ?", [kid]);
     await db.deleteFrom("subshells").where("id", "=", "s_nsk").execute();
-    for (const email of [aliceEmail, bobEmail]) await deleteUserByEmailOrId(email);
+    for (const email of [aliceEmail, bobEmail, adminEmail]) await deleteUserByEmailOrId(email);
   });
 
   async function req(
@@ -166,5 +172,62 @@ describe("/api/nodes/setup-keys", () => {
 
   it("unauthenticated → 401", async () => {
     expect((await req("GET", "/setup-keys")).status).toBe(401);
+  });
+
+  describe("the allow_node_enrollment setting", () => {
+    const settings = new SettingsRepository(db);
+    async function setAllowed(value: boolean | null): Promise<void> {
+      if (value === null) await db.deleteFrom("settings").where("key", "=", ALLOW_NODE_ENROLLMENT_KEY).execute();
+      else await settings.set(ALLOW_NODE_ENROLLMENT_KEY, value);
+    }
+
+    it("is ON when the row is absent, so an instance that never set it is unchanged", async () => {
+      await setAllowed(null);
+      const res = await req("POST", "/setup-keys", { cookie: bobCookie, body: { label: "default-on" } });
+      expect(res.status).toBe(201);
+    });
+
+    it("refuses a non-admin when it is off, with a reason naming who can", async () => {
+      await setAllowed(false);
+      try {
+        const res = await req("POST", "/setup-keys", { cookie: bobCookie, body: { label: "nope" } });
+        expect(res.status).toBe(403);
+        // Actionable rather than "Forbidden": the person cannot fix this
+        // themselves, and the sentence says who can.
+        expect(((await res.json()) as { message: string }).message).toContain("ask one");
+      } finally {
+        await setAllowed(null);
+      }
+    });
+
+    it("never applies to admins", async () => {
+      await setAllowed(false);
+      try {
+        // The same shape as an admin creating a user through POST /api/users
+        // while sign-up is closed: the switch governs everyone else.
+        const res = await req("POST", "/setup-keys", { cookie: adminCookie, body: { label: "admin-ok" } });
+        expect(res.status).toBe(201);
+      } finally {
+        await setAllowed(null);
+      }
+    });
+
+    it("does NOT invalidate a key already minted (operator's call)", async () => {
+      await setAllowed(null);
+      const minted = await req("POST", "/setup-keys", { cookie: bobCookie, body: { label: "before" } });
+      expect(minted.status).toBe(201);
+      const { id } = (await minted.json()) as { id: string };
+      await setAllowed(false);
+      try {
+        // Flipping it off means "stop handing these out", not "revoke what is
+        // outstanding" — the same semantics as closing registrations, which
+        // signs nobody out. Revoking is deleting the key, which is its own
+        // audited act; anything left expires in 24 h.
+        const listed = await req("GET", "/setup-keys", { cookie: bobCookie });
+        expect(((await listed.json()) as { keys: KeyRow[] }).keys.some((k) => k.id === id)).toBe(true);
+      } finally {
+        await setAllowed(null);
+      }
+    });
   });
 });

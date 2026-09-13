@@ -163,6 +163,19 @@ choose. And the Control plane card's "Restart to apply" has no wait-for-return
 — that restart sends the agent to a DIFFERENT plane, so watching for it here
 would time out and report a failure for the thing working exactly as asked.
 
+**Whether "Add node" is offered is `lib/node-enrollment.ts`, not an expression
+at each call site.** Two surfaces ask — the Nodes page and the launch picker's
+empty state — and both mirror `POST /api/nodes/setup-keys`'s own gate
+(`allow_node_enrollment`, admins exempt) so neither offers a button the route
+refuses. The half a second copy gets wrong is the UNKNOWN one: an unanswered
+settings read counts as ALLOWED, matching the server's absent-row default,
+because reading `undefined` as "off" hides the control from everyone on every
+load until the request lands. The argument is `Partial<>` for the same reason —
+a payload from a server older than the setting carries no such field. The
+button is HIDDEN rather than disabled where it does not apply: a non-admin
+cannot make it work, so a greyed control is worse than a sentence naming who
+can.
+
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 Add-node dialog renders the install one-liner from `GET /api/settings/public →

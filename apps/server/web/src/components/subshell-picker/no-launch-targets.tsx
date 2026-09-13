@@ -1,6 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
+import { usePublicSettings } from "@/hooks/use-public-settings";
+import { canAddNode } from "@/lib/node-enrollment";
 import type { Node } from "@/types/node";
 
 /**
@@ -14,13 +16,20 @@ import type { Node } from "@/types/node";
  * first button is the way back.
  *
  * **Both routes are offered to everyone who can take them.** Adding a node
- * needs only a signed-in cookie — setup keys are not admin-gated — so that
- * button is never hidden. Switching the host back on is a manage act on the
- * `local` row, so it appears only when the server says this viewer manages
- * it; a non-admin gets the sentence instead, which names who can.
+ * needs a signed-in cookie AND the instance's `allow_node_enrollment`
+ * setting, which an admin can turn off; switching the host back on is a
+ * manage act on the `local` row. Each button appears only for a viewer who
+ * could actually complete it, and a viewer who cannot gets the sentence
+ * naming who can — an offer that ends in a 403 is worse than no offer.
+ *
+ * The node button is NOT hidden merely because the settings request has not
+ * answered yet: absent reads as allowed, the same default the server applies
+ * to an absent row, so the control does not flicker away on every load.
  */
 export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onNavigate?: () => void }): JSX.Element {
   const navigate = useNavigate();
+  const { data: publicSettings } = usePublicSettings();
+  const mayAddNode = canAddNode(publicSettings);
 
   /**
    * Leave for a page that can fix this — closing whatever contains us first.
@@ -61,9 +70,11 @@ export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onN
             Enable on {hostName}
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={() => leaveFor(() => void navigate({ to: "/nodes" }))}>
-          Add a node
-        </Button>
+        {mayAddNode && (
+          <Button variant="outline" size="sm" onClick={() => leaveFor(() => void navigate({ to: "/nodes" }))}>
+            Add a node
+          </Button>
+        )}
       </div>
       {local && !canEnableHost && (
         <p className="text-muted-foreground text-xs">An admin can switch {hostName} back on from its node page.</p>
