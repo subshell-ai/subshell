@@ -103,11 +103,11 @@ test("swipe left/right on /subshells/$id walks creation order", async ({ page })
   test.setTimeout(150_000);
   const tag = `e2e-swipe-${test.info().retry}`;
 
-  const profiles = (await (await page.request.get("/api/profiles")).json()) as { id: string }[];
-  expect(profiles.length).toBeGreaterThan(0);
+  // Harness-first launch (spec 2026-09-13): no preset lookup — a preset is
+  // optional and a fresh account owns none.
   const mk = async (name: string): Promise<string> => {
     const res = await page.request.post("/api/subshells", {
-      data: { profileId: profiles[0].id, workingDir: "/tmp", name },
+      data: { harnessId: "pi", workingDir: "/tmp", name },
     });
     expect(res.ok(), await res.text()).toBe(true);
     return ((await res.json()) as { id: string }).id;

@@ -27,13 +27,6 @@ interface NodeView {
   inventoryStale: boolean;
 }
 
-/** A profile row (GET /api/profiles, ProfileSchema — the fields this spec reads). */
-interface ProfileRow {
-  id: string;
-  harnessId: string;
-  isDefault?: boolean;
-}
-
 /**
  * True when a tmux session named `paneName` lives on ANY server under
  * `tmuxBase` — spec 12's check, local copy, same reason: the agent daemonises
@@ -174,16 +167,15 @@ test("a registry plugin installed on the control plane launches on a node that h
       await sleep(1_000);
     }
 
-    // ── 5. And LAUNCHABLE: the install seeded every user a Default profile,
-    // so the create POST has something to pair. API-first like this spec's
-    // tradition — the picker's UI for the same state is spec 13's turf.
-    const profilesRes = await request.get("/api/profiles?node=any");
-    expect(profilesRes.ok(), await profilesRes.text()).toBe(true);
-    const profile = ((await profilesRes.json()) as ProfileRow[]).find((p) => p.harnessId === "e2e-demo");
-    if (!profile) throw new Error("install did not seed the Default profile for e2e-demo");
+    // ── 5. And LAUNCHABLE: the launch is harness-first (spec 2026-09-13),
+    // so the create POST names the plugin with NO presetId at all — which
+    // also makes this the remote-host end-to-end proof of the empty-preset
+    // argv path on a third-party plugin (apiVersion 2 + validatePreset).
+    // API-first like this spec's tradition — the picker's UI for the same
+    // state is spec 13's turf.
     const workingDir = mkdtempSync(path.join(home, "cwd"));
     const created = await request.post("/api/subshells", {
-      data: { profileId: profile.id, workingDir, nodeId, name: subshellName },
+      data: { harnessId: "e2e-demo", workingDir, nodeId, name: subshellName },
     });
     expect(created.ok(), await created.text()).toBe(true);
     subshellId = (await created.json()).id as string;

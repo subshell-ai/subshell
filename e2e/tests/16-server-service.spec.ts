@@ -163,7 +163,7 @@ test.describe("server service page", () => {
       await expect
         .poll(
           async () => {
-            await page.request.get("/api/profiles");
+            await page.request.get("/api/presets");
             return (await tail()).includes("incoming request");
           },
           { timeout: 15_000 },

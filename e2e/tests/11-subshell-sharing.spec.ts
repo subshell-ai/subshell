@@ -22,11 +22,12 @@ test("sharing: view is read-only, edit manages, private subshells are invisible"
   const created = await admin.request.post("/api/users", { data: member });
   expect(created.ok(), await created.text()).toBe(true);
 
-  const profiles = (await (await admin.request.get("/api/profiles")).json()) as { id: string }[];
-  expect(profiles.length).toBeGreaterThan(0);
-  const profileId = profiles[0].id;
+  // Harness-first launch (spec 2026-09-13): no preset lookup — a preset is
+  // optional and a fresh account owns none.
   const mkSubshell = async (name: string): Promise<string> => {
-    const res = await admin.request.post("/api/subshells", { data: { profileId, workingDir: "/tmp", name } });
+    const res = await admin.request.post("/api/subshells", {
+      data: { harnessId: "pi", workingDir: "/tmp", name },
+    });
     expect(res.ok(), await res.text()).toBe(true);
     return ((await res.json()) as { id: string }).id;
   };

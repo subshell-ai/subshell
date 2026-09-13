@@ -171,19 +171,25 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   // Step 3: the form arrives filled in. Assert that BEFORE clicking, so a
   // regression in the defaults fails here rather than as a disabled button.
   await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
-  await expect(page.getByPlaceholder("Choose a profile")).toHaveValue(/terminal/);
-  // First-run copy (design §6.3): the pickers lead with a plain word here, so
-  // the first screen after "Add an Agent" never says "Node" or "Profile" to an
-  // account ninety seconds old. Every other launch surface keeps the nouns —
-  // `fieldCopy` pins that half.
+  // The agent default rule on a clean machine: no recent subshell, no usable
+  // non-Terminal agent (every detect override points at a missing file), so
+  // Terminal — the one that needs nothing installed — carries the launch.
+  await expect(page.locator("#setup-agent")).toHaveValue("Terminal");
+  // First-run copy (spec 2026-09-13 §5): the wizard asks WHO (Agent) and
+  // WHERE, and the first screen after "Add an Agent" never says "Node" or
+  // "Preset" to an account ninety seconds old.
   await expect(page.getByLabel("Agent")).toBeVisible();
-  // And it does not ask WHERE (2026-09-12). This machine is the only place a
-  // subshell could run, so the field would be a control with one option — and
-  // on the first screen of a ninety-second-old account it would also be the
-  // first jargon the product says. The rule is the host being the SOLE target,
-  // not first run: spec 12 picks a node on this same form once a second
-  // machine is enrolled.
-  await expect(page.getByLabel("Machine")).toHaveCount(0);
+  // Preset row hidden ENTIRELY on first run: a new account has zero presets
+  // and the row would offer only "None" (the spec-04 inline path owns the
+  // row's existence on the regular launch form).
+  await expect(page.getByLabel("Preset")).toHaveCount(0);
+  // And it does not ask WHERE by machine (2026-09-12). This machine is the
+  // only place a subshell could run, so the field would be a control with one
+  // option — and on the first screen of a ninety-second-old account it would
+  // also be the first jargon the product says. The rule is the host being the
+  // SOLE target, not first run: spec 12 picks a node on this same form once a
+  // second machine is enrolled.
+  await expect(page.getByLabel("Node")).toHaveCount(0);
   // And it asks for no name: the server names it, renaming is its own act.
   await expect(page.getByLabel(/name/i)).toHaveCount(0);
   const start = page.getByRole("button", { name: "Start" });

@@ -37,7 +37,14 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   // setup exactly like a launch does — this also pins that no stray pane
   // is left on the shared DB by the wizard itself.
   await expect(page.getByText("Step 3 of 3")).toBeVisible();
+  // The agent auto-defaulted: on THIS stack pi is detected (step 2 proved
+  // it), so the default rule takes the first usable non-Terminal agent —
+  // Terminal last is spec 15's clean-machine case.
+  await expect(page.locator("#setup-agent")).toHaveValue("pi");
   await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
+  // First run hides the Preset row entirely (spec 2026-09-13 §5): a brand-
+  // new account has zero presets and the row would offer only "None".
+  await expect(page.getByLabel("Preset")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start" })).toBeEnabled();
   await page.getByRole("button", { name: "Skip" }).click();
   await expect(page.getByRole("heading", { name: "Subshells" })).toBeVisible();
@@ -46,33 +53,14 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await page.goto("/setup");
   await expect(page).toHaveURL(/\/$/);
 
-  // Auto-defaulted profile: registration seeded a "Default" for each declared
-  // harness; GET /api/profiles filters to usable ones (declared ∧ program
-  // found), so on the e2e stack (stub pi, the rest absent) the admin already
-  // has exactly the pi Default — a subshell can be launched without ever
-  // touching the profile UI.
-  const profiles = await page.evaluate(async () => {
-    return (await (await fetch("/api/profiles")).json()) as {
-      id: string;
-      name: string;
-      harnessId: string;
-      envJson: string | null;
-      isDefault: number;
-    }[];
+  // Zero presets for a fresh admin (spec 2026-09-13): the registration-era
+  // auto-seeding of a "Default" per harness is gone, along with the
+  // unremovable flag and the DELETE-409 it carried — the launch is
+  // harness-first and a preset is optional.
+  const presets = await page.evaluate(async () => {
+    return (await (await fetch("/api/presets")).json()) as unknown[];
   });
-  const piDefault = profiles.find((p) => p.harnessId === "pi" && p.name === "Default");
-  expect(piDefault, "registration should have seeded a pi Default profile").toBeDefined();
-  expect(piDefault?.envJson).toBeNull();
-  expect(piDefault?.isDefault, "seeded profiles carry the unremovable flag").toBe(1);
-
-  // Unremovable: the DELETE endpoint refuses a Default (409), row intact.
-  const delStatus = await page.evaluate(async (id) => {
-    const res = await fetch(`/api/profiles/${id}`, { method: "DELETE" });
-    const stillThere = (await (await fetch("/api/profiles")).json()).some((p: { id: string }) => p.id === id);
-    return { status: res.status, stillThere };
-  }, piDefault?.id ?? "");
-  expect(delStatus.status).toBe(409);
-  expect(delStatus.stillThere).toBe(true);
+  expect(presets).toEqual([]);
 
   // Sign out through the sidebar user menu (spec 2026-09-02 settings-split
   // §3 — it replaced the bare Logout button), then real login through the form.

@@ -89,7 +89,7 @@ test("drawer quick-add: inline ✕, dialog opens, drawer dismissed", async ({ pa
   await expect(page.getByRole("dialog", { name: "New subshell" })).toBeVisible();
 });
 
-test("launch dialog survives the profile dropdown's scroll shift", async ({ page }) => {
+test("launch dialog survives the agent dropdown's scroll shift", async ({ page }) => {
   // 2026-09-04 report #4: focusing the type-to-filter combobox shifts the
   // dialog's scroller on phones (keyboard/scroll-into-view) and the shift
   // used to survive the dismiss, stranding the header off-screen. Searchable-
@@ -105,7 +105,10 @@ test("launch dialog survives the profile dropdown's scroll shift", async ({ page
   // and it lost a field when the node picker began hiding itself on a
   // single-target instance (2026-09-12) — at 420 it now fits, `parked` came
   // back 0, and the assertion below caught exactly that. The comment on that
-  // assertion predicted this day; this is it.
+  // assertion predicted this day; this is it. (The Agent/Preset/Working-dir
+  // form of 2026-09-13 is one field TALLER again — Agent combobox, Preset
+  // select, working dir — so the overflow is comfortably real at 320; the
+  // dynamic `parked` computation below stays field-count-proof either way.)
   await page.setViewportSize({ width: 1024, height: 320 });
   await page.goto("/");
 
@@ -130,7 +133,7 @@ test("launch dialog survives the profile dropdown's scroll shift", async ({ page
     return el.scrollTop;
   });
   expect(parked).toBeGreaterThan(0);
-  const combo = await page.getByRole("combobox", { name: "Profile" }).boundingBox();
+  const combo = await page.getByRole("combobox", { name: "Agent" }).boundingBox();
   expect(combo).toBeTruthy();
   await page.touchscreen.tap(combo!.x + combo!.width / 2, combo!.y + combo!.height / 2);
   await page.waitForTimeout(400);
