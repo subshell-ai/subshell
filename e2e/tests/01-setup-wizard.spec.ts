@@ -37,10 +37,16 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   // setup exactly like a launch does — this also pins that no stray pane
   // is left on the shared DB by the wizard itself.
   await expect(page.getByText("Step 3 of 3")).toBeVisible();
-  // The agent auto-defaulted: on THIS stack pi is detected (step 2 proved
-  // it), so the default rule takes the first usable non-Terminal agent —
-  // Terminal last is spec 15's clean-machine case.
-  await expect(page.locator("#setup-agent")).toHaveValue("pi");
+  // The wizard lands with a usable agent already picked, with no user act —
+  // the wiring the old auto-filled profile combobox used to prove. WHICH
+  // agent is host-dependent BY DESIGN of the stack: the local node's probe
+  // reads this machine's real PATH, so tier 2 lands on "Claude Code" where
+  // `claude` is installed and on "pi" where it is not. The default RULE is
+  // unit-tested (subshell-compat's `defaultAgentId`, the form suites); this
+  // spec pins only that the answered-empty subshells gate opens and the
+  // form fills itself. Spec 15 owns the deterministic pick on a machine
+  // whose detection is override-starved.
+  await expect(page.locator("#setup-agent")).not.toHaveValue("");
   await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
   // First run hides the Preset row entirely (spec 2026-09-13 §5): a brand-
   // new account has zero presets and the row would offer only "None".
