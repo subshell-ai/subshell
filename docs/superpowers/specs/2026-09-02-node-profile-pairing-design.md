@@ -1,5 +1,13 @@
 # Node ↔ Profile pairing at launch (Design 2026-09-02)
 
+> **Superseded in part 2026-09-13 by
+> [2026-09-13-presets-design.md](2026-09-13-presets-design.md).** The PIN half
+> is dead: presets carry no `node_id`, the launch form lost its
+> `suggestDecision` state machine, and node compatibility is decided by the
+> agent chosen first. What lives on is the pairing itself — greyed never
+> hidden, node-aware usability — now rendered by the Agent picker. The profile
+> naming throughout is historical; that word is preset now.
+
 **Problem.** The new-session form asks for a Profile before a Node, yet a profile
 is only launchable where its harness is enabled + installed. The profile list is
 filtered by LOCAL usability only (the phase-1 note in `profiles.route.ts`), so

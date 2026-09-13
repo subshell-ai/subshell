@@ -5,8 +5,9 @@ implements.
 
 A plugin teaches Subshell how to drive one agent CLI: how to build its launch
 command, how to register the cross-subshell MCP server with it, and what its
-settings are. Subshell ships five built in (Claude Code, Codex, OpenCode,
-Hermes, pi); this package is what you build against to add another.
+settings are. Subshell ships six built in (Claude Code, Codex, OpenCode,
+Hermes, pi, and Terminal — a plain shell that drives no agent CLI); this
+package is what you build against to add another.
 
 ## The one thing to know first
 
@@ -30,7 +31,7 @@ detect its binary without importing or running a line of your code:
   "type": "module",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "subshell": {
-    "apiVersion": 1,
+    "apiVersion": 2,
     "id": "mytool",
     "type": "agent-harness",
     "name": "My Tool",
@@ -43,10 +44,12 @@ detect its binary without importing or running a line of your code:
     },
     "install": { "command": "npm i -g mytool", "docsUrl": "https://example.com/install" }
   },
-  "devDependencies": { "@subshell-ai/plugin-api": "^0.1.0" }
+  "devDependencies": { "@subshell-ai/plugin-api": "^1.0.0" }
 }
 ```
 
+A preset is an optional saved customisation for one harness — the host builds
+a launch on no preset at all by handing `buildCommand` an empty one.
 `src/index.ts` default-exports a factory:
 
 ```ts
@@ -55,24 +58,24 @@ import {
   type PluginFactory,
   type PluginHost,
   type SubshellPlugin,
-  validateGenericProfile,
+  validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
 const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => ["settings"],
 
-  buildCommand({ binary, profile, subshellName, extraFlags }) {
+  buildCommand({ binary, preset, subshellName, extraFlags }) {
     const args = [binary];
-    const model = profile.settings?.model;
+    const model = preset.settings?.model;
     if (typeof model === "string") args.push("--model", model);
     if (subshellName) args.push("--name", subshellName);
-    args.push(...profile.flags, ...(extraFlags ?? []));
+    args.push(...preset.flags, ...(extraFlags ?? []));
     return args;
   },
 
-  validateProfile: (profile) => validateGenericProfile(profile),
+  validatePreset: (preset) => validateGenericPreset(preset),
 
-  profileSettings: () => [
+  presetSettings: () => [
     { key: "model", label: "Model", type: "string", description: "Model name" },
   ],
 });
@@ -102,9 +105,18 @@ rather than letting a restart silently begin a fresh conversation.
 | capability | what you must implement |
 |---|---|
 | `mcp` | `mcpRegistration` (a per-subshell config file) or `mcpSetup` (one-time manual steps) |
-| `resume` | `resume.allocateHarnessSessionId` and `resume.canResume` |
+| `resume` | `resume.allocateHarnessSessionId` and the pure `resume.resumePath` |
 | `attention` | `supportsAttentionHooks: true`, with the hooks wired in `buildCommand` |
-| `settings` | `profileSettings()` |
+| `settings` | `presetSettings()` |
+
+## Versioning
+
+The loader checks your plugin's members by name against this contract, so a
+v1 plugin (the `profile` spelling) is diagnosed rather than silently accepted.
+Declare `"apiVersion": 2` in the manifest block above; a host that implements
+a lower number refuses the plugin with the version to upgrade, and a host at a
+higher one keeps older plugins working — host fields are ADDED and never
+removed or retyped.
 
 ## Testing
 
@@ -120,10 +132,11 @@ const plugin = createPlugin(createTestHost());
 
 ## Trust
 
-A plugin runs in the Subshell agent's process, with that user's privileges and
-no sandbox. Installing one is the same trust decision as installing the CLI it
-drives. Say so honestly in your README, and prefer manifest data over code
-wherever both would work.
+A plugin runs in the control plane's process, with that user's privileges and
+no sandbox — a malicious one reaches every enrolled node, not one machine.
+Installing one is the same trust decision as installing the CLI it drives,
+made once for the instance. Say so honestly in your README, and prefer
+manifest data over code wherever both would work.
 
 ## Licence
 

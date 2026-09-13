@@ -39,7 +39,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
 | Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 13 MCP tools (6 channel, 7 subshell) |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/server/web/.migration/`) |
-| Harnesses | **Plugin packages** the control plane loads (spec 2026-09-10): installed into the instance store at Settings → Plugins, admin-only; a node executes the plane-built argv and holds nothing plugin-shaped. The contract is `@subshell-ai/plugin-api` (`packages/plugin-api`); five plugins ship in `packages/plugins/*`: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the profile editor) |
+| Harnesses | **Plugin packages** the control plane loads (spec 2026-09-10): installed into the instance store at Settings → Plugins, admin-only; a node executes the plane-built argv and holds nothing plugin-shaped. The contract is `@subshell-ai/plugin-api` (`packages/plugin-api`); six plugins ship in `packages/plugins/*`: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the preset editor), and terminal (a plain shell, no agent CLI) |
 | Frontend | React 19 + TanStack Router/Query + Tailwind; Vite dev server (port 5174) proxies `/api` + `/ws` to backend |
 | WS protocol | **All client frames JSON** (`{type:"input"\|"resize"}`) — see `packages/subshell-protocol` |
 | Uploads | Dropped/pasted files → `<workingDir>/.subshell/uploads/`, working-directory-scoped, git-excluded, paths injected via bracketed paste |
@@ -88,15 +88,14 @@ packages/tsconfig          shared TS config (scaffold)
 ## Key flows
 
 1. **Setup wizard** (first visit): register admin → manage harnesses → done. No
-   profile step — every enabled harness already carries a blank auto-seeded
-   **Default** profile (created at registration / admin user-creation / harness
-   enable / boot backfill; self-healing: re-seeded only when a user has zero
-   profiles for an enabled harness, never on a list read, never overwriting).
-   A Default is unremovable (`is_default` flag; DELETE refuses it) but fully
-   editable — to get rid of one, disable its harness: that hides every profile
-   it owns and blocks new subshells, and re-enabling brings them all back.
-2. **Create subshell**: choose host folder (in-app browser), profile, optional name
-   (defaults to date/time) → backend validates, spawns tmux + harness with `env -i` curated env
+   preset step — launching needs only an agent and a folder, and a fresh instance
+   carries no presets at all (nothing is seeded; every preset is deletable).
+   The wizard's final screen pre-fills the agent: the detected agent CLI wins,
+   and where none is detected Terminal does — the same rule the launch form
+   applies everywhere (most recent usable agent, else first usable non-terminal,
+   else anything usable).
+2. **Create subshell**: choose agent, optional preset, host folder (in-app browser),
+   optional name (defaults to date/time) → backend validates, spawns tmux + harness with `env -i` curated env
 3. **Terminal page** (`/subshells/:id`): fetches a single-use WS token via an authenticated
    REST call (HttpOnly cookie works for HTTP), connects `/ws?subshell=&token=`, streams
    `replay` + `output` frames into xterm, forwards keystrokes; `capture-pane` replay on attach
@@ -125,7 +124,7 @@ model, including the accepted risks and what is deliberately not defended.
 - WS attach requires a **short-lived (30s) single-use token** issued by the authenticated
   REST endpoint — replay-resistant (verified: second use gets `4001 unauthorized`)
 - Harness processes run under `env -i` with a **curated env** — app secrets (DB path, auth
-  secret) never reach the agent; profile env vars merge on top
+  secret) never reach the agent; preset env vars merge on top
 - Harness argv built from parts (`buildCommand`), never a shell string
 - PTY output treated as untrusted — rendered only by xterm, never as HTML
 - Path traversal guard on `/api/files/explore`
@@ -158,7 +157,7 @@ model, including the accepted risks and what is deliberately not defended.
 `MIN_AGENT_VERSION` 0.3.0). Everything below is shipped and on `main`.
 
 - **Core** — single-port serving (built SPA + API + WS + `/docs`), tmux-backed
-  subshells, profiles, workspaces (tiling above 1024px, tabs below), uploads.
+  subshells, presets, workspaces (tiling above 1024px, tabs below), uploads.
 - **Cross-subshell comms** — E2EE channels + the 13-tool `subshell mcp` server,
   pinned by a two-process end-to-end test (real backend + two `subshell mcp`
   children; ciphertext-only storage asserted at the byte level).

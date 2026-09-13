@@ -78,6 +78,22 @@ while switching the host back on is a manage act and appears only when the
 server says this viewer manages it. Both rules are pure exports
 (`hideMachineField`, `launchableNodes`) tested without opening a dropdown.
 
+**The form asks Agent → Preset → Node → Working directory** (spec
+2026-09-13, presets replace profiles; `#picker-agent` / `#picker-preset` are
+the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The Agent
+select offers the whole `GET /api/plugins` set, greyed never hidden, and its
+default (`defaultAgentId`) is the agent of the user's most recent subshell when
+usable — evaluated only after the subshells LIST has ANSWERED, so an
+unanswered read cannot outvote the recent one — else the first usable
+non-terminal agent, else anything usable; `useSubshellsList()` already holds
+the data, so the rule costs no request. Preset lists only the chosen agent's
+presets with **None** first and selected; changing the agent resets it to None,
+and its `+` opens `create-preset-dialog.tsx` nested in the launch dialog with
+the agent locked — a created preset is selected on return. First run hides the
+Preset row entirely: a new account has zero presets, so the row would offer
+only "None". The saved set lives at `/presets`, grouped by agent under real
+`<h2>` headers. A presetless launch omits `presetId` — absence, never null.
+
 **Two cards, because they are two kinds of thing.** `ServiceCard` is about the
 running PROCESS — who supervises it, since when, and Restart. `SupervisionCard`
 is about the MACHINE: which of the two modes it is in, and — below both, a

@@ -1,8 +1,16 @@
 # Auto-Defaulted Profiles + Two-Step Wizard
 
 **Date:** 2026-08-31
-**Status:** Approved design (Theo: "execute and implement")
+**Status:** Approved design (Theo: "execute and implement") — **superseded 2026-09-13**
 **Author:** Theo + Claude (brainstorming)
+
+> **Superseded 2026-09-13 in whole by
+> [2026-09-13-presets-design.md](2026-09-13-presets-design.md).** Profiles
+> became presets, and every piece of machinery this spec existed to build —
+> the profile required at launch, the auto-seeded blank **Default**, its
+> `is_default` undeletable guard — is deleted: launching needs only an agent
+> and a folder, a fresh instance has zero presets, and every preset is
+> deletable. The body below is kept as the history of what was built and why.
 
 ## 1. Problem
 

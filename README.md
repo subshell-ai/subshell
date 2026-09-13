@@ -9,7 +9,8 @@ A web application for creating, viewing, and managing interactive **agent harnes
 browser, attach/detach via a terminal UI, and terminate them — all local-first.
 
 - **tmux-backed subshells** — subshells survive browser close; attach/detach freely
-- **Profiles per harness** — env vars, CLI flags, settings JSON, config-source isolation
+- **Presets per harness** — optional saved launch settings: env vars, CLI flags,
+  settings JSON, config-source isolation. A launch needs only an agent and a folder
 - **Plugins** — harnesses are packages behind the published `@subshell-ai/plugin-api`
   contract; six ship built in (terminal, claude-code, opencode, codex, hermes, pi),
   installed and disabled instance-wide at Settings → Plugins (admin)
@@ -147,8 +148,8 @@ bun run start        # turbo watch dev — one command for the whole stack
 
 Open http://localhost:5174 — the first visit runs the **setup assistant**: create the admin
 account, add an agent (optional, and the screen says what it found on this machine), then
-start your first subshell. Installing a harness auto-seeds a blank **Default** profile, so
-there is no profile step to complete.
+start your first subshell. A launch needs only an agent and a folder — a fresh instance has
+no presets, and none are needed to start.
 
 The two Tauri desktop apps are not part of `turbo watch dev` — a `dev` task for them would
 open a window on every developer's machine. Each has its own root command, which stages the
@@ -170,8 +171,9 @@ their agent can talk to the other subshells on the instance — and spawn new on
   subshell holds an ECDH keypair (generated on first run, stored in its data dir);
   messages are sealed per-recipient (ECDH-ES + A256GCM via `jose`). The server only ever
   stores and forwards ciphertext it cannot read.
-- **Subshell CRUD from the agent** — `create_subshell` (profile + directory + optional
-  starter prompt), list/get/restart/terminate/delete, profiles, channels — 13 tools in all.
+- **Subshell CRUD from the agent** — `create_subshell` (harness + directory, with an
+  optional preset, name and starter prompt), list/get/restart/terminate/delete, presets,
+  channels — 13 tools in all.
 - **Per-subshell credentials** — starting a subshell mints a 7-day API key baked into its
   environment; long-running agents self-extend it, and it is revoked the moment the
   subshell dies or is deleted (auto-restart rotates it).
@@ -182,7 +184,7 @@ their agent can talk to the other subshells on the instance — and spawn new on
 Each harness is wired in its own dialect, decided by its plugin: **claude-code** gets
 the generated file via `--mcp-config`; **opencode** gets a merged config layer pointed
 at by `OPENCODE_CONFIG` (your own opencode config stays intact). **hermes** and **pi**
-have no per-subshell config — their profile editor shows the one-time registration
+have no per-subshell config — their preset editor shows the one-time registration
 command; after that, every subshell authenticates through its own baked credentials.
 Override how the server is launched with `SUBSHELL_MCP_COMMAND` and `SUBSHELL_MCP_ARGS`
 (JSON array) — by default the backend launches itself (`subshell-server mcp`, or the
@@ -420,7 +422,7 @@ defended against, is **[docs/security.md](docs/security.md)**.
   message sizes), and it does not defend against a local OS user who can read a subshell's
   keypair from disk. See `.claude/rules/security-context.md`.
 - Harness processes run with a curated env (`env -i`): no app secrets (DB path, auth
-  secrets) leak into them. Profile env vars merge on top. A subshell's bearer token *does*
+  secrets) leak into them. Preset env vars merge on top. A subshell's bearer token *does*
   reach its harness (that is how it talks as itself); it is scoped and revoked on death.
 - PTY output is treated as untrusted: rendered only by xterm, never as HTML.
 - **Sharing widens exposure deliberately.** A `view` grant shows the grantee everything on

@@ -35,7 +35,7 @@ serves the browser, the agents, and the outside tooling on a single port.
 ┌──────────────────────▼─────────────────────────────────────────────┐
 │ backend (Bun + Elysia)                                             │
 │  routes.ts: subshells · channels · identities · system-keys ·      │
-│             profiles · workspaces · files · users · audit · ws …   │
+│             presets · workspaces · files · users · audit · ws …    │
 │  SQLite (bun:sqlite, WAL) — app Kysely handle + separate auth      │
 │  handle (better-auth tables, incl. `apikey`)                       │
 └──────┬─────────────────────────────────────────────────────────────┘
@@ -206,7 +206,7 @@ How the child gets spawned is the harness plugin's dialect decision
   (a `mcp.subshell` local entry) and the env `OPENCODE_CONFIG=<path>`; opencode
   merges that layer over the user's own config (verified deep-merge). The
   backend bakes the wiring env LAST in the pane precedence (curated host env <
-  `SUBSHELL_*` < profile env < wiring env), so a profile setting `OPENCODE_CONFIG`
+  `SUBSHELL_*` < preset env < wiring env), so a preset setting `OPENCODE_CONFIG`
   cannot silently drop the subshell's comms.
 - **codex** — the registration returns per-invocation argv instead: `-c
   mcp_servers.subshell.command="…" -c mcp_servers.subshell.args=[…]` (dotted config
@@ -217,7 +217,7 @@ How the child gets spawned is the harness plugin's dialect decision
   reference codex never reads.
 - **hermes, pi** — no per-subshell config format exists (hermes reads only the
   fixed `~/.hermes/config.yaml`; pi needs the community `pi-mcp-adapter`).
-  They register once, manually: the profile editor renders the plugin's
+  They register once, manually: the preset editor renders the plugin's
   `mcpSetup()` steps verbatim (resolved launch paths included). The single
   global entry stays per-subshell-correct because the spawned child inherits
   each pane's own `SUBSHELL_*` credentials.
@@ -259,7 +259,7 @@ under `bun run`) → the `subshell` node agent on PATH (`subshell mcp`).
 
 Channels (6): `list_channels · create_channel · join_channel ·
 channel_members · post_channel · read_channel`.
-Subshells (7): `list_subshells · get_subshell · list_profiles ·
+Subshells (7): `list_subshells · get_subshell · list_presets ·
 create_subshell · restart_subshell · terminate_subshell ·
 delete_subshell`.
 
@@ -281,14 +281,14 @@ Handler-level notes:
 
 ## 5. Subshell lifecycle & token choreography
 
-`SubshellManagerService` (constructor-injected `subshells`, `profiles`,
+`SubshellManagerService` (constructor-injected `subshells`, `presets`,
 `tokens`, `tmux`) orchestrates everything; routes stay thin.
 
 **Create** (`POST /api/subshells`, also driven by the agent via
 `create_subshell`):
 
 ```
-validate profile+dir → insert DB row → issueSubshellToken (writes api_key_id)
+validate harness+preset+dir (preset optional) → insert DB row → issueSubshellToken (writes api_key_id)
 → subshellMcpEnv(apiKey, id, name)  ← single producer, merged into `env -i`
 → registerSubshellMcp (writes the 0600 config file; NO secrets — env carries them)
 → tmux new-session → #deliverPrompt (optional prompt typed once the pane
@@ -483,7 +483,7 @@ is ONE server setting (`SUBSHELL_PLUGIN_REGISTRY_URL`;
 `subshell-server status` prints it — the agent has no registry config any
 more). The plane resolves what it stores: a registry overlay is pointed at
 the store at boot and after every install and uninstall, so `getHarness`
-answers for an installed plugin — detect specs, profile validation, argv —
+answers for an installed plugin — detect specs, preset validation, argv —
 the moment the install returns. The six `@subshell-ai/*`
 packages are wired for npm OIDC trusted publishing on version-PR merge, but
 whether that shard runs on a GitHub-hosted runner — the only kind npm's OIDC

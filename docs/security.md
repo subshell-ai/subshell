@@ -214,8 +214,8 @@ The boundary is what the *app* hands it, not what the OS stops it doing.
 **Curated environment.** Harnesses spawn under `env -i` with an explicit
 allowlist — `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`,
 `LC_ALL`, plus `CLAUDE_PATH`. App secrets (the database path, the auth secret)
-never reach the agent. Profile env vars merge on top, then the MCP wiring env
-last, so a profile cannot silently drop a subshell's comms by setting
+never reach the agent. Preset env vars merge on top, then the MCP wiring env
+last, so a preset cannot silently drop a subshell's comms by setting
 `OPENCODE_CONFIG` itself.
 
 **Argv is built from parts.** `buildCommand` assembles an argv array; there is no
@@ -1172,8 +1172,8 @@ single largest change in that document, stated here in exactly its terms):
   to one.
 - **What is unchanged.** Signing still proves who sent a command and never
   whether the target supports it; a compromised control plane is still all
-  nodes (§6); `profile.flags` still reaches argv, and if that ever needs a
-  check the place is where profiles are saved, not the node.
+  nodes (§6); `preset.flags` still reaches argv, and if that ever needs a
+  check the place is where presets are saved, not the node.
 
 What contains what:
 

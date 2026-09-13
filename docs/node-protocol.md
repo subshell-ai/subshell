@@ -96,26 +96,31 @@ The agent's first frame is `ready`:
 ```jsonc
 {
   "type": "ready",
-  "agentVersion": "0.3.1",
-  "protocolVersion": 3,
+  "agentVersion": "0.5.0",
+  "protocolVersion": 7,
   "os": "darwin",              // linux | darwin | unknown
   "arch": "arm64",
   "hostname": "mac-mini",
   "dataDir": "/Users/x/.config/subshell/data",
   "capabilities": ["uploads", "mcp"],
-  "mcpLaunch": { "command": "/Users/x/.local/bin/subshell", "args": ["mcp"] },
+  "selfInvoke": { "command": "/Users/x/.local/bin/subshell", "args": [] },
   "homeDir": "/Users/x"                        // resume-path defaults hang off it
 }
 ```
 
-`mcpLaunch` is the agent's FULL self-invocation of its `mcp` subcommand: the
-control plane composes the pane's MCP registration from `command` + `args`
-verbatim. It cannot derive this itself — under a bun-interpreted agent run the
-process's exec path is `bun`, and `bun mcp` is not a command; the agent answers
-`{ command: <bun>, args: [<entry script>, "mcp"] }` in that case (its
-`selfInvocation`). Only `mcp`-capable agents send it; absent means the control
-plane falls back to `subshell` mcp on PATH. `homeDir` is the fallback root the
-control plane computes resume paths against (spec 2026-09-10 §5); a node
+`selfInvoke` is how to re-enter this agent's binary — the `{ command, args }`
+PREFIX a subcommand is appended to, whatever "this machine's subshell" turns
+out to be: a compiled binary answers `{ command: <self>, args: [] }`, a
+bun-interpreted run answers `{ command: <bun>, args: [<entry script>] }` (the
+entry ABSOLUTE, because both consumers spawn in the subshell's cwd). The
+control plane cannot derive this from any single path — under a bun-interpreted
+run the process's exec path is `bun`, and `bun mcp` is not a command. It is
+subcommand-LESS since protocol 4, where `ready.mcpLaunch` became
+`ready.selfInvoke`: the plane re-enters the agent for two unrelated things —
+`mcp` for a pane's MCP registration and `report` for its harness hooks — and
+one reported fact serving both is what keeps them from drifting. Absent means
+the control plane falls back to `subshell` on PATH. `homeDir` is the fallback
+root the control plane computes resume paths against (spec 2026-09-10 §5); a node
 reporting none gets the plugin's default path computed anyway (which simply
 will not exist). The resume path's other input — the env VALUES a plugin
 declares — is NOT reported here: a node holds no manifests and so cannot know
@@ -124,14 +129,14 @@ the names. They are asked by name on the `detect` round trip (§5).
 The identity is persisted **before** either gate below, so a refused agent still
 shows its version on the Nodes page instead of being invisible.
 
-**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.1.0`) is the
+**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.5.0`) is the
 operator-facing statement "this server needs subshell >= X". It runs first
 precisely because it is the gate an operator can *act* on, and the close reason
 names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `3`) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `7`) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -200,7 +205,7 @@ and answered by exactly one `result` event.
 
 | Command | |
 |---|---|
-| `launch` | Start a harness pane: `cwd` (already stat-verified), `harnessId`, a `ProfileDefinitionWire`, the `SUBSHELL_*` credential env, an optional 0600 MCP registration file to write first, optional resume pin and initial geometry. `bestEffortLog` downgrades a log-attach failure to a note instead of failing the launch. Since protocol 3 the node builds nothing itself: `argv` (REQUIRED) is the complete command line the CONTROL PLANE built, with `@@HARNESS_BINARY@@` in the binary slot; `resolve` (REQUIRED) is the manifest's lookup rule (`binaryName`/`envOverride`/`knownPaths`) the node runs at the moment of spawn to fill that slot — late binding of the one fact the node owns; and `mcp.args` / `mcp.env` ride alongside the file content, so the node no longer recomputes the harness's MCP dialect (the spawn command inside it is still node-supplied knowledge — the agent's `selfInvocation` answer, carried on `ready` as `mcpLaunch` and composed by the plane, never guessed from a path) |
+| `launch` | Start a harness pane: `cwd` (already stat-verified), `harnessId`, a `preset` (`PresetDefinitionWire`; the field was `profile` until protocol 6), the `SUBSHELL_*` credential env, an optional 0600 MCP registration file to write first, optional resume pin and initial geometry. `bestEffortLog` downgrades a log-attach failure to a note instead of failing the launch. Since protocol 3 the node builds nothing itself: `argv` (REQUIRED) is the complete command line the CONTROL PLANE built, with `@@HARNESS_BINARY@@` in the binary slot; `resolve` (REQUIRED) is the manifest's lookup rule (`binaryName`/`envOverride`/`knownPaths`) the node runs at the moment of spawn to fill that slot — late binding of the one fact the node owns; and `mcp.args` / `mcp.env` ride alongside the file content, so the node no longer recomputes the harness's MCP dialect (the spawn command inside it is still node-supplied knowledge — the agent's `selfInvoke` answer, carried on `ready` and composed by the plane, never guessed from a path) |
 | `terminate` / `kill` | Graceful stop / hard kill of a subshell's tmux tree |
 | `prompt_deliver` | Agent-side settle loop: capture-poll until the pane is quiet, then type the text and Enter |
 
@@ -253,7 +258,7 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 
 | Event | |
 |---|---|
-| `ready` | First frame — identity, versions, capabilities, the `mcpLaunch` self-invocation (only for `mcp`-capable agents), and the resume-path `homeDir` (§3, spec 2026-09-10 §5; the resume env is NOT here — it is asked by name on `detect`) |
+| `ready` | First frame — identity, versions, capabilities, the subcommand-less `selfInvoke` prefix (`mcp` and `report` both append to it), the resume-path `homeDir` (§3, spec 2026-09-10 §5; the resume env is NOT here — it is asked by name on `detect`), and, from agents that report it, the `runtime` supervision snapshot (spec 2026-09-12 §6.1) |
 | `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp. Since protocol 3 the event carries NO plugin set (the node has none) and the agent's answer is an empty `harnesses` list — the periodic push and the `inventory` command are protocol filler the wire still expects, and the server treats the empty array as "nothing to apply" so it can never wipe the detection rows its own `detect` command collected. Those detect answers, not this event, are the node's harness facts |
 | `heartbeat` | Every 15 s (`HEARTBEAT_MS`) |
 | `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — answers one command |
@@ -378,11 +383,28 @@ Two numbers, changed on different schedules:
   `resolve` rule, the inventory event losing its plugin set, and `ready`
   gaining `homeDir` plus the manifest-declared env values. It is the first
   BREAKING bump of the restarted numbering: the exact-match gate refuses a v2
-  agent outright, which is the point — server and agent ship as a pair. Old
-  numbers from the retired sequence do not recur here (their history is in
-  git).
+  agent outright, which is the point — server and agent ship as a pair.
+  **3 → 4 moved harness reporting into the binary** (the hooks a plugin wires
+  run where the pane runs, and the only program guaranteed there is the one
+  that launched it): `ready.mcpLaunch` became `ready.selfInvoke`, the same
+  self-invocation WITHOUT its subcommand, so the plane appends `mcp` or
+  `report` to one reported fact instead of keeping two fields free to drift.
+  **4 → 5 was the node Service surface** (spec 2026-09-12, node half):
+  `restart` folded into `service` as one of five verbs — one service manager,
+  one refusal path — and `agent_log_read` and `set_server_url` arrived beside
+  it, so a headless node can be supervised, read and repointed from a browser.
+  **5 → 6 is `set_log_level`**, the agent's log-file level gate, breaking only
+  because the gate is exact-match. **6 → 7 is the preset rename** (spec
+  2026-09-13): the `launch` frame's `profile` field becomes `preset`
+  (`ProfileDefinitionWire` → `PresetDefinitionWire`) and the plugin-report
+  settings field becomes `presetSettings` — wire-shaped, not semantic: the
+  same JSON under new names. Old numbers from the retired sequence do not
+  recur here (their history is in git).
 - **`MIN_AGENT_VERSION`** — bump when the server needs newer agent *behaviour*
-  that the frames alone do not express.
+  that the frames alone do not express, and in the same commit as a protocol
+  bump so the refusal an operator sees names a version that exists. Currently
+  `0.5.0`, raised with protocol 7 alongside the agent package's own hand-raise
+  to the same number.
 
 An exact-match protocol was chosen over a compatibility window on purpose. A
 window buys the ability to add a command without a node rollout and pays for it

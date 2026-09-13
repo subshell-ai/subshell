@@ -33,8 +33,8 @@ argument is `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md`.
   **"Server"**. `local` remains its id, its `kind`, and its route path —
   identifiers, per the rule below that directory names and component ids are a
   different thing from labels. What changed is that **nothing rendered derives
-  from the id**: the launch pickers, the profile pin, the clone dialog and the
-  compat matrix all read `node.name`, so a rename reaches every surface.
+  from the id**: the launch pickers, the clone dialog and the compat matrix
+  all read `node.name`, so a rename reaches every surface.
 - The instance itself has a **display name** (a `settings` row, admin-editable,
   defaulting to this host's hostname), rendered in the sidebar and on the
   sign-in page so a person running several planes can tell them apart.
@@ -122,7 +122,7 @@ privileged lives on the bundled node page — see `apps/client/desktop/AGENTS.md
 `apps/server/web` is the SERVER's SPA and nothing else's, which is what the
 nesting says out loud. `apps/client/mobile` is a client because it is a person's
 interface to a control plane — it calls `/api/auth`, `/api/subshells`,
-`/api/nodes`, `/api/profiles` and `/api/devices` and depends on no agent
+`/api/nodes`, `/api/presets` and `/api/devices` and depends on no agent
 package — not because it is "a client of the API".
 
 **Directory names and component IDS are two different things.** `server`,

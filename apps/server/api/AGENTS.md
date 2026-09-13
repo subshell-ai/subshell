@@ -909,8 +909,9 @@ This package's suites set up against that shared DB through migrations and
 better-auth table creation, and bun's 5000 ms per-test/hook default blew
 three times in three CI runs, each time in a different file — which is the
 signature of load, not of a bug: the auth-registration `beforeAll` at
-8830 ms (run 34581907693), the heaviest `default-profiles` case at 5508 ms
-with siblings at 242-298 ms (run 34583881882), the `passkey-plugin`
+8830 ms (run 34581907693), the heaviest `default-profiles` case (suite since
+removed — the seeding went with spec 2026-09-13) at 5508 ms with siblings at
+242-298 ms (run 34583881882), the `passkey-plugin`
 `beforeAll` at 5428 ms (run 34584698469). Every one PASSED on an idle
 machine and failed with "timed out", never an assertion. Per-file budgets
 were tried first and abandoned as whack-a-mole: the unit that is actually

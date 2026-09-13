@@ -271,10 +271,11 @@ All public classes, methods, and functions should have JSDoc comments that descr
 
 ```typescript
 /**
- * Creates a new subshell: validates the profile + working directory, records
- * the DB row, mints the subshell's MCP token, then spawns the harness under
- * tmux with a curated env (including the injected SUBSHELL_* credentials). When
- * `prompt` is given, it is typed into the pane once the harness has settled.
+ * Creates a new subshell: validates the harness (+ its optional preset) and the
+ * working directory, records the DB row, mints the subshell's MCP token, then
+ * spawns the harness under tmux with a curated env (including the injected
+ * SUBSHELL_* credentials). When `prompt` is given, it is typed into the pane
+ * once the harness has settled.
  */
 async createSubshell(input: CreateSubshellInput): Promise<SubshellView> {
   // ...
