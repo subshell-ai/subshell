@@ -1,3 +1,4 @@
+import type { SupervisionMode } from "@/components/service/supervision-card";
 import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { SetSupervision } from "@/hooks/use-set-supervision";
 import type { ServerDeployment, ServerSetting, SettingSource } from "@/types/server-deployment";
@@ -65,9 +66,7 @@ export function deploymentView(over: Partial<ServerDeployment["settings"]> = {})
 export const idleRestart = {
   outcome: "idle" as const,
   error: null,
-  resumeAt: null,
   restart: async () => {},
-  reset: () => {},
 };
 
 /** A start-at-login handle that records presses and never resolves anything. */
@@ -84,16 +83,22 @@ export function stubAutostart(over: Partial<ServerAutostart> = {}): ServerAutost
 
 /** A mode-switch handle that records calls and answers as told. */
 export function stubSupervision(
-  over: { result?: boolean; error?: string | null; pending?: boolean } = {},
-): SetSupervision & { calls: { mode: string; autostart: boolean }[] } {
-  const calls: { mode: string; autostart: boolean }[] = [];
-  return {
+  over: { result?: boolean; error?: string | null; details?: string | null; pending?: boolean } = {},
+): SetSupervision & { calls: { mode: string; autostart: boolean; force: boolean }[]; resets: number } {
+  const calls: { mode: string; autostart: boolean; force: boolean }[] = [];
+  const handle = {
     calls,
-    set: async (mode, autostart) => {
-      calls.push({ mode, autostart });
+    resets: 0,
+    set: async (mode: SupervisionMode, autostart: boolean, force: boolean) => {
+      calls.push({ mode, autostart, force });
       return over.result ?? true;
     },
     pending: over.pending ?? false,
     error: over.error ?? null,
+    details: over.details ?? null,
+    reset: () => {
+      handle.resets += 1;
+    },
   };
+  return handle;
 }

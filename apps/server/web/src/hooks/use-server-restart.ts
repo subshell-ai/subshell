@@ -44,13 +44,17 @@ export interface ServerRestart {
   outcome: RestartOutcome;
   /** Why the request itself failed, null when it did not */
   error: string | null;
-  /** The address the server said it would come back at, null before a press */
-  resumeAt: string | null;
   /** Ask the server to restart itself; `force` overrides the pane-safety refusal */
   restart(opts: { force?: boolean }): Promise<void>;
-  /** Return to idle and stop waiting */
-  reset(): void;
 }
+
+// Two members were removed here once "Back." was deleted: `resumeAt` (the
+// address the 202 named — `RestartStrip` derives the same address from the
+// deployment view instead, which it has anyway) and `reset()` (nothing
+// dismissed anything any more; unmount already stops the waiter). `"back"`
+// looks equally unread and is NOT: no component names it, but it is what
+// takes `outcome` out of `"waiting"`, which is what puts the supervision
+// line back on screen.
 
 /**
  * Press, 202, then wait for the server to come back (spec 2026-09-12 § 4.4).
@@ -73,7 +77,6 @@ export function useServerRestart(opts: { pollMs?: number; timeoutMs?: number } =
   const queryClient = useQueryClient();
   const [outcome, setOutcome] = useState<RestartOutcome>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [resumeAt, setResumeAt] = useState<string | null>(null);
   const cancelled = useRef(false);
 
   useEffect(
@@ -91,6 +94,12 @@ export function useServerRestart(opts: { pollMs?: number; timeoutMs?: number } =
         const status = await apiFetch<AdminStatus>("/api/admin/status");
         if (isNewBoot(before, status.runtime.bootedAt)) {
           if (cancelled.current) return;
+          // Written, not just invalidated. `"back"` un-hides the supervision
+          // line, and that line IS the confirmation — so for the one round
+          // trip an invalidation takes, it rendered the PRE-restart pid and
+          // start time: the sentence that proves the restart landed, saying
+          // the wrong thing. The fresh status is already in hand here.
+          queryClient.setQueryData(ADMIN_STATUS_QUERY_KEY, status);
           setOutcome("back");
           void queryClient.invalidateQueries({ queryKey: ADMIN_STATUS_QUERY_KEY });
           void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
@@ -110,29 +119,22 @@ export function useServerRestart(opts: { pollMs?: number; timeoutMs?: number } =
   return {
     outcome,
     error,
-    resumeAt,
     async restart(body: { force?: boolean }): Promise<void> {
       setError(null);
       // Read the baseline BEFORE the press: once the process is gone there is
       // nothing to ask, and the cached value is the last thing this page saw.
       const before = queryClient.getQueryData<AdminStatus>(ADMIN_STATUS_QUERY_KEY)?.runtime.bootedAt;
       try {
-        const res = await apiFetch<{ restarting: true; resumeAt: string }>("/api/admin/server/restart", {
+        await apiFetch<{ restarting: true; resumeAt: string }>("/api/admin/server/restart", {
           method: "POST",
           body: JSON.stringify(body),
         });
-        setResumeAt(res.resumeAt);
         setOutcome("waiting");
         cancelled.current = false;
         void waitForNewBoot(before);
       } catch (err) {
         setError(errMessage(err, "The restart could not be requested"));
       }
-    },
-    reset(): void {
-      cancelled.current = true;
-      setOutcome("idle");
-      setError(null);
     },
   };
 }

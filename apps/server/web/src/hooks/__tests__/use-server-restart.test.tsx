@@ -64,7 +64,6 @@ describe("useServerRestart", () => {
     const { result } = renderHook(() => useServerRestart({ pollMs: 5, timeoutMs: 5000 }), { wrapper: makeWrapper() });
     await act(() => result.current.restart({}));
     expect(result.current.outcome).toBe("waiting");
-    expect(result.current.resumeAt).toBe("http://localhost:3080");
     await waitFor(() => expect(result.current.outcome).toBe("back"));
   });
 

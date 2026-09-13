@@ -28,6 +28,7 @@ describe("SupervisionDialog", () => {
         view={deploymentView()}
         pending={false}
         error={null}
+        details={null}
         onConfirm={noop}
       />,
     );
@@ -43,6 +44,7 @@ describe("SupervisionDialog", () => {
         view={deploymentView()}
         pending={false}
         error={null}
+        details={null}
         onConfirm={(a) => got.push(a)}
       />,
     );
@@ -60,6 +62,7 @@ describe("SupervisionDialog", () => {
         view={deploymentView()}
         pending={false}
         error={null}
+        details={null}
         onConfirm={(a) => got.push(a)}
       />,
     );
@@ -78,12 +81,39 @@ describe("SupervisionDialog", () => {
         view={deploymentView()}
         pending
         error={null}
+        details={null}
         onConfirm={noop}
       />,
     );
     const go = screen.getByRole("button", { name: "Switching…" }) as HTMLButtonElement;
     expect(go.disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    // The dismiss button stays LIVE, and says "Close" rather than "Cancel"
+    // because it does not cancel anything — the chain runs in the desktop app
+    // either way. It was disabled, and that turned the one surface able to
+    // explain a failed switch into a modal saying "Switching…" forever on a
+    // page whose server was gone.
+    const close = screen.getByRole("button", { name: "Continue in the background" }) as HTMLButtonElement;
+    expect(close.disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
+  it("renders the chain log behind a failure, collapsed", () => {
+    render(
+      <SupervisionDialog
+        target="service"
+        onOpenChange={noop}
+        view={deploymentView()}
+        pending={false}
+        error="install failed"
+        details={"Stopped the server this app was running.\ninstall failed"}
+        onConfirm={noop}
+      />,
+    );
+    // The steps are destructive in order, so the log is the only record of how
+    // far the machine moved — "the server is now stopped" is not in the one
+    // stderr line the dialog leads with.
+    expect(screen.getByText("What ran before it stopped")).toBeTruthy();
+    expect(screen.getByText(/Stopped the server this app was running/)).toBeTruthy();
   });
 
   it("shows the refusal where the person is", () => {
@@ -94,6 +124,7 @@ describe("SupervisionDialog", () => {
         view={deploymentView()}
         pending={false}
         error="no subshell-server found"
+        details={null}
         onConfirm={noop}
       />,
     );

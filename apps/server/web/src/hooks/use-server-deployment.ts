@@ -22,9 +22,18 @@ import type { ServerConfigPatch, ServerConfigUpdate, ServerDeployment } from "@/
  * Five seconds because this is the page an operator watches WHILE changing
  * the machine from somewhere else, and a slower cadence reads as a page that
  * is not updating at all. The Refresh button that used to paper over that is
- * gone. It is not free — each poll is a `collectDeployment()`, which probes
- * the port and spawns the service manager — so it stays `enabled`-gated to
- * admins and this is the only consumer.
+ * gone.
+ *
+ * **What made five seconds affordable is on the SERVER, not here.** A poll is
+ * a `collectDeployment()`, which runs `netstat` and the service manager
+ * through `Bun.spawnSync` — and Bun is single-threaded, so the cost is not
+ * paid by the poller. It is a whole-process stall: every terminal WebSocket
+ * frame and every other API request waits for it. Tripling the rate of that
+ * (it was 15 s) was only defensible once `GET /api/admin/server` memoized the
+ * collection for ~2 s, so N open tabs cost ONE probe per window instead of N.
+ * Do not raise the rate past that window without moving it too.
+ *
+ * It stays `enabled`-gated to admins, and this is the only consumer.
  *
  * @param enabled - true only once the server has confirmed this viewer is an admin
  */

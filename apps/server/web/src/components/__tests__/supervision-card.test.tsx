@@ -46,17 +46,30 @@ const loginSwitch = () => screen.getByRole("switch", { name: "Start at login" })
 const switchDisabled = () => loginSwitch().getAttribute("data-disabled") !== null;
 
 describe("currentMode", () => {
-  it("reads app mode from the manager, and treats everything else as background", () => {
+  it("reads app mode from the manager, and an installed definition as background", () => {
     const app = deploymentView();
     app.service.manager = "app";
     expect(currentMode(app)).toBe("app");
     for (const manager of ["launchd", "systemd", null] as const) {
       const view = deploymentView();
       view.service.manager = manager;
-      // A machine with no manager at all is still the background answer:
-      // that is what an operator would install if they installed anything.
+      // `installed` is true in the fixture, and that is what "in the
+      // background" means — it stays the answer while the service is merely
+      // stopped, when no running supervisor exists to name.
       expect(currentMode(view)).toBe("service");
     }
+  });
+
+  it("answers NEITHER for a server started by hand", () => {
+    const bare = deploymentView();
+    bare.service.manager = null;
+    bare.service.installed = false;
+    bare.service.supervised = false;
+    // This used to answer "service", so the radio read "A launchd agent keeps
+    // it running" directly under the Service card's "Running, not supervised".
+    // Both were on screen, and one was false. It is also the ordinary state of
+    // every non-desktop deployment — the audience this card was widened for.
+    expect(currentMode(bare)).toBe(null);
   });
 });
 
@@ -100,7 +113,7 @@ describe("SupervisionCard", () => {
     expect(modes()[1]?.checked).toBe(true);
   });
 
-  it("opens the confirmation dialog on THIS page, and invokes nothing until it is confirmed", () => {
+  it("opens the confirmation dialog on THIS page, and invokes nothing until it is confirmed", async () => {
     asShell(DESKTOP);
     const supervision = stubSupervision();
     render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={supervision} />);
@@ -112,8 +125,11 @@ describe("SupervisionCard", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.getByText(/Run the server with the app\?/)).toBeTruthy();
     expect(supervision.calls).toEqual([]);
-    act(() => screen.getByRole("button", { name: "Run with the app" }).click());
-    expect(supervision.calls).toEqual([{ mode: "app", autostart: true }]);
+    await act(async () => {
+      screen.getByRole("button", { name: "Run with the app" }).click();
+      await Promise.resolve();
+    });
+    expect(supervision.calls).toEqual([{ mode: "app", autostart: true, force: false }]);
   });
 
   it("keeps the dialog open with the reason when the switch is refused", () => {
@@ -185,6 +201,63 @@ describe("SupervisionCard", () => {
     render(<SupervisionCard view={view} autostart={stubAutostart()} supervision={stubSupervision()} />);
     expect(switchDisabled()).toBe(true);
     expect(screen.getByText(/open Subshell Server at login/)).toBeTruthy();
+  });
+
+  it("checks NEITHER radio on a hand-started server, and says why", () => {
+    asShell(DESKTOP);
+    const bare = deploymentView();
+    bare.service.manager = null;
+    bare.service.installed = false;
+    bare.service.supervised = false;
+    render(<SupervisionCard view={bare} autostart={stubAutostart()} supervision={stubSupervision()} />);
+    for (const radio of modes()) expect(radio.checked).toBe(false);
+    expect(screen.getByText(/started by hand/)).toBeTruthy();
+  });
+
+  it("names the radios as one group, so they are not announced as two unrelated controls", () => {
+    asShell(DESKTOP);
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
+    expect(screen.getByRole("radiogroup", { name: "How this server runs" })).toBeTruthy();
+  });
+
+  it("forgets the previous attempt's failure when a new dialog opens", () => {
+    asShell(DESKTOP);
+    const supervision = stubSupervision({ result: false, error: "no subshell-server found" });
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={supervision} />);
+    act(() => modes()[1]?.click());
+    // Otherwise the failure from the "app" attempt greets the next dialog,
+    // describing something the person is no longer doing.
+    expect(supervision.resets).toBe(1);
+  });
+
+  it("closes the dialog when the switch succeeds", async () => {
+    asShell(DESKTOP);
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
+    act(() => modes()[1]?.click());
+    // The close lands in the `.then` of `set()`, a microtask after the click —
+    // so the click and the flush have to be inside the SAME act.
+    await act(async () => {
+      screen.getByRole("button", { name: "Run with the app" }).click();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("stays dismissible while the switch is in flight", () => {
+    asShell(DESKTOP);
+    render(
+      <SupervisionCard
+        view={deploymentView()}
+        autostart={stubAutostart()}
+        supervision={stubSupervision({ pending: true })}
+      />,
+    );
+    act(() => modes()[1]?.click());
+    // The chain runs in the desktop app whether this dialog is open or not,
+    // and the switch deliberately takes the server away — so a modal that
+    // refuses to close is a page with no way back to itself.
+    act(() => screen.getByRole("button", { name: "Continue in the background" }).click());
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("surfaces a failed login change", () => {

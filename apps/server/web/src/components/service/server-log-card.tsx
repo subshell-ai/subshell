@@ -47,7 +47,7 @@ export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabl
   const [paused, setPaused] = useState(false);
   const logs = useServerLogs(enabled, { paused });
   const setDebug = useSetDebugLogging();
-  const scroller = useRef<HTMLPreElement | null>(null);
+  const scroller = useRef<HTMLElement | null>(null);
   const stuck = useRef(true);
   const fromEnv = view.logging.source === "process env";
   const lines = logs.data?.lines;
@@ -77,11 +77,14 @@ export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabl
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* A toggle, so it reports state as well as offering the act: the
-              label names what pressing DOES, and `aria-pressed` names what
-              the log is doing now — which the line above also says, for
-              anyone reading the card rather than the control. */}
-          <Button variant="outline" size="sm" aria-pressed={paused} onClick={() => setPaused((was) => !was)}>
+          {/* The label changes, and `aria-pressed` is therefore ABSENT. It was
+              there, and the pair announced "Resume, toggle button, pressed"
+              while paused — which reads as "Resume is on", the exact inverse
+              of the truth. APG treats a changing label as an ALTERNATIVE to
+              `aria-pressed`, not a companion: an accessibility tree has one
+              name and one state, and these two were made to disagree. The
+              card's header line already says "paused"/"following". */}
+          <Button variant="outline" size="sm" onClick={() => setPaused((was) => !was)}>
             {/* Sizing is the Button's own (`[&_svg]:size-4`), which beats a
                 class here on specificity — so it is not set twice. */}
             {paused ? <Play aria-hidden /> : <Pause aria-hidden />}
@@ -92,14 +95,19 @@ export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabl
           ) : (
             <span className="flex items-center gap-2">
               <Label htmlFor="server-debug-logging">Debug logging</Label>
+              {/* Named by the Label beside it, with NO `aria-label`. This
+                  carried one, on the stated reason that Base UI's Switch Root
+                  is a `<span role="switch">` and `htmlFor` names form controls
+                  only. That is false at @base-ui/react 1.7.0 — read, not
+                  assumed: `SwitchRoot` puts the caller's `id` on its hidden
+                  `<input>` (so `htmlFor` associates with THAT), and
+                  `useAriaLabelledBy` reflects the associated label back onto
+                  the `role="switch"` element as `aria-labelledby`. Which is
+                  also why the supervision dialog's label-only switch works.
+                  Both together is the two-competing-names shape, harmless here
+                  only because the strings happened to match. */}
               <Switch
                 id="server-debug-logging"
-                // Base UI's Switch Root is a `<span role="switch">`, and
-                // `htmlFor` names form controls only — so the Label beside it
-                // gives this control NO accessible name on its own. Every
-                // other Switch in this app carries an explicit one for the
-                // same reason; an e2e spec found this one missing.
-                aria-label="Debug logging"
                 checked={view.logging.debug}
                 disabled={setDebug.isPending}
                 onCheckedChange={(checked: boolean) => setDebug.mutate(checked)}
@@ -114,24 +122,35 @@ export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabl
           KB and replaced when full.
         </p>
         {logs.error && <p className="text-destructive text-sm">The server log could not be read.</p>}
-        <pre
+        {/* A named, FOCUSABLE scroll box. It was a bare `overflow-auto` `<pre>`,
+            which a keyboard-only reader could not scroll at all — there was
+            nothing to tab to. `<section>` rather than `role="region"` on the
+            `<pre>` because the semantic element is the same thing said
+            properly, and the scroll and focus have to live on the same
+            element the overflow does. */}
+        <section
           ref={scroller}
           onScroll={onScroll}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container needs the keyboard
+          tabIndex={0}
+          aria-label="Server log"
           className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-[12px] leading-relaxed"
         >
-          {lines?.length
-            ? lines.map((line, index) => (
-                // Log lines have no id and repeat verbatim; position within
-                // the fetched tail is the only stable key available.
-                // biome-ignore lint/suspicious/noArrayIndexKey: log lines carry no identity
-                <div key={index} className={levelClass(line.level)}>
-                  {lineText(line)}
-                </div>
-              ))
-            : logs.isLoading
-              ? "Loading…"
-              : "Nothing logged yet."}
-        </pre>
+          <pre>
+            {lines?.length
+              ? lines.map((line, index) => (
+                  // Log lines have no id and repeat verbatim; position within
+                  // the fetched tail is the only stable key available.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: log lines carry no identity
+                  <div key={index} className={levelClass(line.level)}>
+                    {lineText(line)}
+                  </div>
+                ))
+              : logs.isLoading
+                ? "Loading…"
+                : "Nothing logged yet."}
+          </pre>
+        </section>
         <p className="break-all font-mono text-muted-foreground text-xs">
           <CopyableValue value={view.paths.serverLog} label="Server log" />
         </p>

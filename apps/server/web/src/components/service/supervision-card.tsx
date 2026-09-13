@@ -11,14 +11,30 @@ import type { ServerDeployment } from "@/types/server-deployment";
 export type SupervisionMode = "service" | "app";
 
 /**
- * Which mode this machine is in, from the deployment view.
+ * Which mode this machine is in, or `null` when it is in NEITHER.
  *
- * `manager: "app"` is the only positive signal — every other value, including
- * a machine with no manager at all, is the background answer, because that is
- * what an operator would install if they installed anything.
+ * `null` is not a missing answer, it is an answer: a server started by hand —
+ * `bun run start`, a container, the e2e stack — is supervised by nothing, and
+ * this used to report it as "In the background" on the reasoning that a
+ * background service is what an operator would install if they installed
+ * anything. That is a fair default for a pending CHOICE and wrong for this
+ * control, whose whole documented contract is that it shows the MACHINE. It
+ * also put two sentences on one screen that could not both be true: the radio
+ * naming a launchd agent that keeps the server running, directly under the
+ * Service card's "Running, not supervised".
+ *
+ * It is the ordinary state of every non-desktop deployment — which is the
+ * audience this card was widened for.
  */
-export function currentMode(view: ServerDeployment): SupervisionMode {
-  return view.service.manager === "app" ? "app" : "service";
+export function currentMode(view: ServerDeployment): SupervisionMode | null {
+  const service = view.service;
+  if (service.manager === "app") return "app";
+  // A definition on disk is what "in the background" MEANS here, and it stays
+  // the answer while the service is merely stopped. `manager` alone is not
+  // enough: it reports what is running now, and an installed-but-stopped
+  // service has no running supervisor to name.
+  if (service.installed || service.manager === "launchd" || service.manager === "systemd") return "service";
+  return null;
 }
 
 /**
@@ -62,13 +78,20 @@ export function loginDisabledReason(view: ServerDeployment): string | null {
  * can now learn what the machine is doing, which the old card never told
  * them.
  *
- * **The act is not here, and cannot be.** Switching either way needs someone
- * to outlive the server: going to app mode uninstalls the service, which
+ * **The act is not the server's to perform, and this is why the switch is a
+ * Tauri command rather than a route.** Switching either way needs an actor
+ * that outlives the server: going to app mode uninstalls the service, which
  * stops the server, and the thing that must then start it is the desktop app;
  * going back means installing a service while the server this page is served
- * by is the very process holding the port. So this card carries the CHOICE
- * and the assistant carries the act — named as a screen, the way the reset
- * card names one.
+ * by is the very process holding the port. So the ACT belongs to the desktop
+ * app — reached here over the webview's IPC, which survives the server going
+ * away — while the CHOICE and its confirmation live on this page.
+ *
+ * They did not always. This card used to hand the act to the desktop
+ * assistant, which opened a window to ask one question; that read as a bug
+ * rather than as the trust boundary it was, and the operator's call on
+ * 2026-09-12 was to confirm here instead. `docs/security.md` carries the
+ * accounting for granting `desktop_set_supervision` to this window.
  */
 export function SupervisionCard({
   view,
@@ -105,11 +128,12 @@ export function SupervisionCard({
    */
   const ask = (mode: SupervisionMode) => {
     if (mode === current) return;
+    supervision.reset();
     setConfirming(mode);
   };
 
   const option = (mode: SupervisionMode, title: string, body: string) => (
-    <label className="col-span-full flex cursor-pointer items-start gap-3">
+    <label className="flex cursor-pointer items-start gap-3">
       <input
         type="radio"
         name="supervision-mode"
@@ -134,8 +158,23 @@ export function SupervisionCard({
 
   return (
     <FactCard title="How this server runs">
-      {option("service", "In the background", `${agent} keeps it running whether or not Subshell Server is open.`)}
-      {option("app", "With the Subshell Server app", "Runs while the app is open; quitting the app stops it.")}
+      {/* A `<dl>` takes `<dt>`, `<dd>` and `<div>` — a bare `<label>` is none
+          of those — and two radios with no group carry no group NAME, so a
+          screen reader announced them as two unrelated controls with no "1 of
+          2". One `<div>` fixes both: valid child, named radiogroup. */}
+      <div role="radiogroup" aria-label="How this server runs" className="col-span-full space-y-3">
+        {option("service", "In the background", `${agent} keeps it running whether or not Subshell Server is open.`)}
+        {option("app", "With the Subshell Server app", "Runs while the app is open; quitting the app stops it.")}
+      </div>
+      {current === null && (
+        // Neither radio is checked here, and this says why rather than leaving
+        // the card looking like it failed to load. Picking either option is
+        // still the way OUT of this state, so nothing is disabled.
+        <p className="col-span-full text-muted-foreground text-xs">
+          Neither: this server was started by hand, so nothing brings it back when it stops. Choosing an option above
+          changes that.
+        </p>
+      )}
       {!desktop && (
         <p className="col-span-full text-muted-foreground text-xs">
           Changing this is done in the Subshell Server app on that machine.
@@ -144,13 +183,20 @@ export function SupervisionCard({
       <SupervisionDialog
         target={confirming}
         onOpenChange={(open) => {
-          if (!open && !supervision.pending) setConfirming(null);
+          // Closable even while pending: the chain runs in the desktop app
+          // regardless, and trapping someone in a modal is worse than letting
+          // them watch the card instead.
+          if (!open) setConfirming(null);
         }}
         view={view}
         pending={supervision.pending}
         error={supervision.error}
-        onConfirm={(withLogin) => {
-          void supervision.set(confirming ?? "service", withLogin).then((ok) => {
+        details={supervision.details}
+        onConfirm={(withLogin, force) => {
+          // No `?? "service"` default: "I do not know which mode you meant" is
+          // answered by doing nothing, not by picking one.
+          if (!confirming) return;
+          void supervision.set(confirming, withLogin, force).then((ok) => {
             // Stay open on failure, where the reason has just been rendered.
             if (ok) setConfirming(null);
           });

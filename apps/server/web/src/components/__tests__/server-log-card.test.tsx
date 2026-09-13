@@ -95,14 +95,25 @@ describe("ServerLogCard", () => {
     await waitFor(() => expect(calls()).toBeGreaterThan(1), { timeout: 4_000 });
 
     const pause = screen.getByRole("button", { name: /Pause/ });
-    expect(pause.getAttribute("aria-pressed")).toBe("false");
+    // The NAME carries the state, and `aria-pressed` is deliberately absent:
+    // the two together announced "Resume, toggle button, pressed" while
+    // paused — which reads as the opposite of the truth. One name, one state.
+    expect(pause.getAttribute("aria-pressed")).toBe(null);
     expect(screen.getByText(/following/)).toBeTruthy();
     fireEvent.click(pause);
 
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Resume/ }).getAttribute("aria-pressed")).toBe("true"),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /Resume/ })).toBeTruthy());
+    expect(screen.getByRole("button", { name: /Resume/ }).getAttribute("aria-pressed")).toBe(null);
     expect(screen.getByText(/paused/)).toBeTruthy();
+
+    // Resume brings the polling BACK — the half the old test never proved.
+    // A control that stops a poll and cannot restart it is a worse bug than
+    // one that never stopped it.
+    const whilePaused = calls();
+    fireEvent.click(screen.getByRole("button", { name: /Resume/ }));
+    await waitFor(() => expect(calls()).toBeGreaterThan(whilePaused), { timeout: 4_000 });
+    fireEvent.click(screen.getByRole("button", { name: /Pause/ }));
+    await waitFor(() => expect(screen.getByText(/paused/)).toBeTruthy());
 
     // Frozen: more than two intervals' worth of grace, and not one more ask.
     const atPause = calls();
