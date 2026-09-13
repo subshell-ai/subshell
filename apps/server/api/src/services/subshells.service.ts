@@ -1,4 +1,5 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
+import { getHarness } from "@internal/pane-runtime";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
@@ -272,6 +273,13 @@ export class SubshellsService extends BaseService {
       { userId, machineActor, requestedNodeId: nodeId },
       { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
     );
+    // A typo'd id names NO plugin — say so (400, the same wording
+    // `POST /api/presets` uses) before the availability gate can call it
+    // "disabled" (TODO 11: the two surfaces used to disagree about this
+    // exact input). Disabled-but-known still 409s below.
+    if (!getHarness(harnessId)) {
+      throw new SubshellCreateError("bad_request", `Unknown harness: ${harnessId}`, 400);
+    }
     if (!(await harnessUsable(harnessId, resolvedNodeId))) {
       // Copy honesty: on an AGENT node "this machine" is a lie — the harness
       // may simply not be installed there (spec §6.2 per-node inventory). The

@@ -37,12 +37,17 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  * this file pins the HTTP surface: status codes + bodies, the strict
  * bearer-actor rule, `nodeOffline` on views, and the unchanged 200/shape.
  *
- * The resolution-success path is proven WITHOUT launching: bodies name
- * `harnessId: "no-such-harness"` (their preset carries the same, so the
- * mismatch gate stays silent), so a resolved request stops at the
- * `harness_disabled` 409 (which also proves `harnessUsable` saw the resolved
- * node id — see the online-agent case). Real 200s run against a stub
- * harness (CLAUDE_PATH) and a real tmux socket, terminated in cleanup.
+ * The resolution-success path is proven WITHOUT launching: bodies whose stop
+ * is the harness gate name `harnessId: "pi"` with `PI_PATH` pointed at a
+ * missing file (their preset carries the same harness, so the mismatch gate
+ * stays silent) — a KNOWN plugin the local probe cannot find, which stops a
+ * resolved request at the `harness_disabled` 409 (which also proves
+ * `harnessUsable` saw the resolved node id — see the online-agent case). A
+ * harness id NO plugin answers is a different refusal now: 400 `Unknown
+ * harness`, pinned below — it cannot stand in for "unusable" (only for
+ * cases that stop BEFORE the harness gate, like the preset-mismatch pair).
+ * Real 200s run against a stub harness (CLAUDE_PATH) and a real tmux socket,
+ * terminated in cleanup.
  */
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
@@ -59,6 +64,8 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
   const createdPresetIds: string[] = [];
   const sockets = new Set<string>();
   let bogusPresetId: string;
+  /** A preset for pi — the known-but-undetectable stand-in for harness-gate stops. */
+  let unusablePresetId: string;
   let claudePresetId: string;
   const testDir = mkdtempSync(join(tmpdir(), "subshell-cnode-"));
 
@@ -86,6 +93,11 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
   }
 
   beforeAll(async () => {
+    // The suite's "known but unusable" stand-in: pi is a built-in plugin in
+    // the instance store, and PI_PATH (its documented binary override) points
+    // at a missing file — the local probe fails, the harness stays
+    // resolvable. (Same negative case `harness-enable.test.ts` runs.)
+    process.env.PI_PATH = "/definitely/not/here/pi";
     await setupAuthTables();
     await ensureLocalNode(db);
     userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
@@ -96,6 +108,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     });
     cookie = await signIn(email, pw);
     bogusPresetId = await mkPreset(userId, "no-such-harness");
+    unusablePresetId = await mkPreset(userId, "pi");
     claudePresetId = await mkPreset(userId, "claude-code");
   });
 
@@ -112,6 +125,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
     }
     rmSync(testDir, { recursive: true, force: true });
+    delete process.env.PI_PATH;
     await deleteUserByEmailOrId(email);
     await deleteUserByEmailOrId(otherEmail);
   });
@@ -135,14 +149,28 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
   });
 
   it("omitted nodeId → resolves to local (stops at harness_disabled, NOT a node error)", async () => {
-    const res = await post(base(bogusPresetId));
+    // `pi` with a bogus PI_PATH: a KNOWN plugin (an unknown id is a 400 now —
+    // pinned below) that the local probe cannot find, so the usable gate is
+    // what answers.
+    const res = await post(base(unusablePresetId, "pi"));
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; message: string };
     expect(body.message).toBe("That harness is disabled on this machine");
   });
 
+  it("a harness id no plugin answers → 400 Unknown harness, not the 409 disabled wording", async () => {
+    // TODO 11: the two create surfaces used to disagree about a typo'd id —
+    // POST /api/presets said 400 Unknown harness, this one said 409 "that
+    // harness is disabled". A 409 calls a typo a STATE of the machine; the
+    // disagreement is the bug this pins closed.
+    const res = await post({ harnessId: "no-such-harness", workingDir: "/tmp" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.message).toBe("Unknown harness: no-such-harness");
+  });
+
   it('nodeId "local" → same resolution as omitted', async () => {
-    const res = await post({ ...base(bogusPresetId), nodeId: LOCAL_NODE_ID });
+    const res = await post({ ...base(unusablePresetId, "pi"), nodeId: LOCAL_NODE_ID });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
   });
@@ -331,12 +359,12 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     // The bearer acts AS its owning user, so the preset must be the system
     // user's (a foreign preset 404s before node resolution — correct, and
     // not what this test is about).
-    const systemPreset = await mkPreset(systemId, "no-such-harness");
+    const systemPreset = await mkPreset(systemId, "pi");
     const created = (await getAuth().api.createApiKey({
       body: { name: "cnode-sys", userId: systemId, metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
-    const res = await post(base(systemPreset), created.key);
-    expect(res.status).toBe(409); // resolution PASSED (local) — stops at the bogus harness
+    const res = await post(base(systemPreset, "pi"), created.key);
+    expect(res.status).toBe(409); // resolution PASSED (local) — stops at the unusable harness
     expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
   });
 
