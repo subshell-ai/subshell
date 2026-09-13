@@ -19,7 +19,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePlugins } from "@/hooks/use-plugins";
 import { usePresets } from "@/hooks/use-presets";
 import { useSubshells } from "@/hooks/use-subshells";
-import { defaultAgentId, mostRecentHarnessId } from "@/lib/agent-default";
+import { agentDefault } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
 import { isSelectable, pickNodeDefault } from "@/lib/node-pick";
 import { colors, radius, touchTarget } from "@/lib/tokens";
@@ -90,12 +90,15 @@ export default function NewSubshell() {
   // uninstalled on a node switch (the server 409 stays the backstop).
   // `nodes.isFetched` gates the node-blocked term: a pre-nodes instance 404s
   // the route, `data` stays undefined, and the rule then runs with an
-  // all-unknown inventory exactly as it did before nodes existed.
+  // all-unknown inventory exactly as it did before nodes existed. The
+  // subshells list is gated stricter, inside `agentDefault` (ruled
+  // 2026-09-13): unanswered — pending or errored, data undefined — must not
+  // fill; answered-EMPTY is a real answer, and the first-usable tier stands.
   useEffect(() => {
-    if (harnessId !== null || !plugins.data || !nodes.isFetched) return;
-    const pick = defaultAgentId(plugins.data, installedOnNode, mostRecentHarnessId(subshells.data ?? []));
+    if (harnessId !== null || !nodes.isFetched) return;
+    const pick = agentDefault(plugins.data, installedOnNode, subshells.data);
     if (pick) setHarnessId(pick);
-  }, [harnessId, plugins.data, nodes.isFetched, subshells.data, installedOnNode]);
+  }, [harnessId, nodes.isFetched, plugins.data, subshells.data, installedOnNode]);
 
   // The chosen agent's presets — the row exists only when there is at least
   // one (spec §5: "a new account has zero presets and the row would offer
@@ -104,6 +107,17 @@ export default function NewSubshell() {
     () => (presets.data ?? []).filter((p) => p.harnessId === harnessId),
     [presets.data, harnessId],
   );
+
+  // Coherence guard (web's one-liner in new-subshell-form.tsx): a held
+  // preset that has vanished from the chosen agent's list — deleted on
+  // another device — falls back to None instead of riding the submit into a
+  // 404. Only an answered list may clear: while presets are still loading,
+  // absence proves nothing. (Changing the agent already resets the pick, so
+  // web's harness-mismatch branch is unreachable here by construction.)
+  useEffect(() => {
+    if (presetId === null || !presets.data) return;
+    if (!agentPresets.some((p) => p.id === presetId)) setPresetId(null);
+  }, [presetId, presets.data, agentPresets]);
 
   // Node re-home (web parity): a pick whose node vanished (e.g. an admin
   // turned off Local launching) or went unselectable is moved — auto-picked

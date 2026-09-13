@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { defaultAgentId, mostRecentHarnessId } from "@/lib/agent-default";
+import { agentDefault, defaultAgentId, mostRecentHarnessId } from "@/lib/agent-default";
 import type { PluginView } from "@/types/plugin";
 
 /** Minimal PluginView factory — the rule reads installed/enabled/broken/type. */
@@ -68,6 +68,31 @@ describe("defaultAgentId", () => {
     const nothing = [plugin({ id: "a", installed: false }), plugin({ id: "b", enabled: false })];
     expect(defaultAgentId(nothing, ALL_INSTALLED, null)).toBeNull();
     expect(defaultAgentId([CLAUDE], () => false, "claude-code")).toBeNull();
+  });
+});
+
+describe("agentDefault — the cold-start gate (ruled 2026-09-13)", () => {
+  const CLAUDE = plugin({ id: "claude-code", name: "Claude Code" });
+  const CODEX = plugin({ id: "codex", name: "Codex" });
+  const TERMINAL = plugin({ id: "terminal", name: "Terminal", type: "terminal" });
+  const at = (harnessId: string, createdAt: string) => ({ harnessId, createdAt });
+
+  it("no fill while the subshells list has not answered", () => {
+    // Pending (or errored dataless) — the query's data is undefined, and
+    // load timing must not choose the default agent.
+    expect(agentDefault([CLAUDE, CODEX], ALL_INSTALLED, undefined)).toBeNull();
+    // Same while plugins are still loading.
+    expect(agentDefault(undefined, ALL_INSTALLED, [])).toBeNull();
+  });
+
+  it("settled-then-EMPTY answers through the first-usable tier", () => {
+    // An empty list is a real answer: recent is null, the ordinary rule stands.
+    expect(agentDefault([TERMINAL, CLAUDE], ALL_INSTALLED, [])).toBe("claude-code");
+  });
+
+  it("settled list honors the recent tier", () => {
+    const rows = [at("claude-code", "2026-09-10T00:00:00.000Z"), at("codex", "2026-09-12T00:00:00.000Z")];
+    expect(agentDefault([CLAUDE, CODEX], ALL_INSTALLED, rows)).toBe("codex");
   });
 });
 

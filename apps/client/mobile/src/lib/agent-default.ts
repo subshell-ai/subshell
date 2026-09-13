@@ -3,8 +3,9 @@ import type { SubshellView } from "@/types/subshell";
 
 /**
  * The New screen's default-agent rule (spec 2026-09-13 §5) — the mobile
- * mirror of the default pick in
- * `apps/server/web/src/components/subshell-picker/new-subshell-form.tsx`,
+ * mirror of `defaultAgentId` in
+ * `apps/server/web/src/lib/subshell-compat.ts` (its call site there is
+ * `apps/server/web/src/components/subshell-picker/new-subshell-form.tsx`),
  * kept in step by hand (the repo convention for this screen; change one,
  * change both). Pure so the rule is testable without a device.
  *
@@ -51,4 +52,21 @@ export function mostRecentHarnessId(subshells: Pick<SubshellView, "harnessId" | 
     if (!newest || s.createdAt > newest.createdAt) newest = s;
   }
   return newest?.harnessId ?? null;
+}
+
+/**
+ * The default fill gated on the subshells list having ANSWERED (ruled
+ * 2026-09-13, cross-client): the recent tier is only evaluable once the list
+ * replies, and filling before it does would let load timing choose the
+ * user's default agent. A still-pending or errored dataless list (query
+ * `data` undefined) answers nothing and returns null; an answered-EMPTY list
+ * is a real answer — recent tier skipped, first-usable stands.
+ */
+export function agentDefault(
+  plugins: PluginView[] | undefined,
+  nodeHarnessInstalled: (harnessId: string) => boolean,
+  subshells: Pick<SubshellView, "harnessId" | "createdAt">[] | undefined,
+): string | null {
+  if (!plugins || subshells === undefined) return null;
+  return defaultAgentId(plugins, nodeHarnessInstalled, mostRecentHarnessId(subshells));
 }
