@@ -8,8 +8,16 @@ export const PUBLIC_SETTINGS_QUERY_KEY = ["settings-public"] as const;
 export interface PublicSettings {
   /** Whether new users can register (the login page hides the sign-up link when false) */
   allowRegistrations: boolean;
-  /** Whether a non-admin may add a node; absent row on the server means true */
-  allowNodeEnrollment: boolean;
+  /**
+   * Whether a non-admin may add a node; an absent row on the server means true.
+   *
+   * OPTIONAL, like the other fields added after this payload existed: a
+   * server older than the setting sends no such key, which is precisely the
+   * case `lib/node-enrollment.ts` treats as allowed. Declaring it required
+   * while the code is written around its absence makes the type say something
+   * the code does not believe.
+   */
+  allowNodeEnrollment?: boolean;
   /** True while SUBSHELL_EMERGENCY_PASSWORD is set (spec 2026-08-31 §6) */
   emergencyLoginActive: boolean;
   /**

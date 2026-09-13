@@ -156,12 +156,51 @@ describe("form validation", () => {
     expect(screen.getByText(/expected a bare http\(s\) origin with no path/)).toBeTruthy();
   });
 
-  it("catches a trailing comma, which reads as an empty origin", () => {
-    stubPatch();
+  it("ACCEPTS a trailing comma, because the route would have", async () => {
+    const sent = stubPatch();
     renderCard();
+    // This used to be refused. The patch builder drops empty entries, so the
+    // route received a clean list and accepted it — the form was rejecting
+    // input its own patch builder would have fixed, which is strictly worse
+    // than a round trip and the opposite of what importing the server's rules
+    // was for. Validation now runs on the string the route will see.
     edit("Other addresses browsers will use", "http://localhost:5173, ");
     save();
-    expect(screen.getByText(/stray or trailing comma/)).toBeTruthy();
+    expect(screen.queryByText(/stray or trailing comma/)).toBeNull();
+    await waitFor(() => expect(sent).toEqual([{ trustedOrigins: ["http://localhost:5173"] }]));
+  });
+
+  it("still refuses an entry that normalizing cannot save", () => {
+    stubPatch();
+    renderCard();
+    // Trimming and dropping blanks does not make this an origin, so the
+    // refusal stands — the relaxation above is about whitespace, not about
+    // letting the route decide everything.
+    edit("Other addresses browsers will use", "http://localhost:5173, box.local:3080");
+    save();
+    expect(screen.getByText(/expected a bare http\(s\) origin with no path/)).toBeTruthy();
+  });
+
+  it("clears a stale SERVER refusal when a later click never reaches the route", async () => {
+    const sent = stubPatch();
+    // A view nothing supervises, so Save does NOT open the restart dialog —
+    // that dialog is modal and marks the card behind it aria-hidden, which
+    // would hide the very text under test. The behaviour being pinned has
+    // nothing to do with restarting.
+    const unsupervised = deploymentView();
+    unsupervised.restart = { available: false, reason: "not supervised" };
+    renderCard(unsupervised);
+    edit("Port", "3081");
+    save();
+    await waitFor(() => expect(sent.length).toBe(1));
+
+    // A second attempt that fails client-side must not leave the previous
+    // round trip's message on screen: it describes a value that is no longer
+    // in the form, so it reads as "the server refuses my corrected input".
+    edit("Port", "99999");
+    save();
+    expect(screen.getByText(/expected an integer 1-65535/)).toBeTruthy();
+    expect(sent.length).toBe(1);
   });
 
   it("clears a field's complaint when it is edited, and leaves the others", () => {

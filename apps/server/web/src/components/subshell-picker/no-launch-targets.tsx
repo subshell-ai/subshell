@@ -57,7 +57,11 @@ export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onN
         <p className="text-muted-foreground text-sm">
           {local
             ? `Launching on ${hostName} is switched off, and no other machine is registered as a node.`
-            : "No machine is available to you. Register one as a node, or ask an admin to switch launching on the server back on."}
+            : mayAddNode
+              ? "No machine is available to you. Register one as a node, or ask an admin to switch launching on the server back on."
+              : // Told to "register one as a node" with no button and no
+                // permission, this named the one route it had just hidden.
+                "No machine is available to you. Ask an admin to add one, or to switch launching on the server back on."}
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
@@ -78,6 +82,14 @@ export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onN
       </div>
       {local && !canEnableHost && (
         <p className="text-muted-foreground text-xs">An admin can switch {hostName} back on from its node page.</p>
+      )}
+      {/* Every hidden route owes a sentence naming who can take it — that is
+          the rule this component's docblock states, and the node route was
+          the half not honouring it. */}
+      {!mayAddNode && (
+        <p className="text-muted-foreground text-xs">
+          Adding nodes is turned off on this instance; an admin can add one.
+        </p>
       )}
     </div>
   );

@@ -17,7 +17,18 @@ credential kinds:
 
 - **better-auth session cookie** (email/password, HttpOnly, `SameSite=Lax`) — the browser
   path and the only path allowed on admin surfaces. The first registered user becomes the
-  admin; registration is gated by a settings toggle.
+  admin; registration is gated by a settings toggle that is **closed by
+  default**. An absent `allow_registrations` row means open ONLY while the
+  instance has no users at all — the first account is how an admin comes to
+  exist, so a closed empty instance could never mint the one person able to
+  open it, and a fresh install would be bricked behind a sign-up form that
+  refuses. The door is open exactly until someone walks through it, and closes
+  behind them; an admin who wants it open afterwards says so explicitly, and
+  that is audited. It still FAILS CLOSED on a corrupt or non-boolean row, and
+  the no-users carve-out is not a way back in for that. One function decides
+  it (`services/registration-gate.ts`) because three surfaces act on the
+  answer — better-auth's `before` hook, the admin switch, and the sign-in
+  page — and reading the row separately is how they come to disagree.
   - *Passkeys* (WebAuthn, `@better-auth/passkey`) mint the SAME session cookie — an
     additional browser credential per user/device, never a second factor. The rpID is
     the **configured `APP_BASE_URL` host** (better-auth 1.7.1 derives it from the

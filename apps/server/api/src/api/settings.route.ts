@@ -14,17 +14,8 @@ import {
   setInstanceName,
 } from "@/services/instance-name.js";
 import { autoFetchEnabled } from "@/services/node-release.js";
+import { ALLOW_NODE_ENROLLMENT_KEY, ALLOW_REGISTRATIONS_KEY, registrationOpen } from "@/services/registration-gate.js";
 import { SERVER_VERSION } from "@/version.js";
-
-/**
- * The `settings` row governing who may add a node.
- *
- * An ABSENT row means true, like `allow_registrations`: an instance that has
- * never touched this keeps the behaviour it had, where any signed-in user
- * could mint a setup key. Exported because `create-setup-key.route.ts` reads
- * the same row, and a second spelling of it would be a second setting.
- */
-export const ALLOW_NODE_ENROLLMENT_KEY = "allow_node_enrollment";
 
 const SettingsSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
@@ -128,7 +119,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     "/public",
     async ({ user, actor }) => {
       const repo = new SettingsRepository(db);
-      const allow = await repo.get("allow_registrations", true);
+      const allow = await registrationOpen(db);
       return {
         allowRegistrations: allow,
         allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
@@ -164,7 +155,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         throw new SettingsError("forbidden", "Admins only (cookie session)");
       }
       const repo = new SettingsRepository(db);
-      const allow = await repo.get("allow_registrations", true);
+      const allow = await registrationOpen(db);
       return {
         allowRegistrations: allow,
         allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
@@ -190,8 +181,8 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       }
       const repo = new SettingsRepository(db);
       if (body.allowRegistrations !== undefined) {
-        const before = await repo.get("allow_registrations", true);
-        await repo.set("allow_registrations", body.allowRegistrations);
+        const before = await registrationOpen(db);
+        await repo.set(ALLOW_REGISTRATIONS_KEY, body.allowRegistrations);
         // Audited on REAL flips only (best-effort like every audit call):
         // opening sign-up on a live instance is the step a scripted session
         // used to mint a throwaway admin (2026-09-03 deploy-bot incident),
@@ -202,7 +193,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
             actorUserId: user.id,
             action: "settings.update",
             targetType: "settings",
-            targetId: "allow_registrations",
+            targetId: ALLOW_REGISTRATIONS_KEY,
             metadataJson: JSON.stringify({ from: before, to: body.allowRegistrations }),
           });
         }
@@ -241,7 +232,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           });
         }
       }
-      const allow = await repo.get("allow_registrations", true);
+      const allow = await registrationOpen(db);
       return {
         allowRegistrations: allow,
         allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),

@@ -9,10 +9,18 @@ export interface EmptyStateProps {
   title: string;
   /** One or two sentences explaining what fills this space */
   description: string;
-  /** CTA label, e.g. "Create your first profile" */
-  actionLabel: string;
-  /** Opens the creation flow */
-  onAction: () => void;
+  /**
+   * CTA label, e.g. "Create your first profile".
+   *
+   * Optional together with {@link onAction}: an empty state a viewer cannot
+   * act on is a real shape, not a missing prop. `/nodes` reaches it when an
+   * admin has turned off adding nodes — the alternative was offering a button
+   * whose route answers 403, which is worse than an explanation and no
+   * button.
+   */
+  actionLabel?: string;
+  /** Opens the creation flow; omit with `actionLabel` for a stateless card */
+  onAction?: () => void;
   /** Disables the CTA while the action is in flight */
   busy?: boolean;
   /** Label while `busy` (e.g. "Creating…"); falls back to `actionLabel` */
@@ -45,11 +53,15 @@ export function EmptyState({
         </CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <Button onClick={onAction} disabled={busy}>
-          <Plus /> {busy && busyLabel ? busyLabel : actionLabel}
-        </Button>
-      </CardContent>
+      {/* Both or neither: `onAction` without a label is a nameless button,
+          and a label without a handler is a button that does nothing. */}
+      {actionLabel && onAction && (
+        <CardContent>
+          <Button onClick={onAction} disabled={busy}>
+            <Plus /> {busy && busyLabel ? busyLabel : actionLabel}
+          </Button>
+        </CardContent>
+      )}
     </Card>
   );
 }

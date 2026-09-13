@@ -1,3 +1,4 @@
+import { REINSTALL_COMMAND } from "@/components/service/service-card";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -80,7 +81,7 @@ export function RestartDialog({
           <DialogTitle>Restart the server?</DialogTitle>
           <DialogDescription>
             {kills
-              ? "This server's service definition will close every running subshell. Rewrite it by running `subshell-server service install` on this machine, or restart anyway."
+              ? `This server's service definition will close every running subshell. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`
               : "Running subshells keep running; open terminals reconnect in a few seconds."}
           </DialogDescription>
         </DialogHeader>

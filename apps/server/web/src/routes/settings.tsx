@@ -13,6 +13,9 @@ import { usePublicSettings } from "@/hooks/use-public-settings";
 import { apiFetch, errMessage } from "@/lib/api";
 import { isDesktop } from "@/lib/desktop";
 
+/** The two instance switches this page owns. */
+type SettingKey = "allowRegistrations" | "allowNodeEnrollment";
+
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
@@ -26,14 +29,15 @@ export const Route = createFileRoute("/settings")({
  * It is the first page of the Server Settings group rather than the whole
  * admin surface (spec 2026-09-11 §4.1): API keys, the audit log, plugins and
  * status are pages the rail reaches directly, and the local-launch switch
- * moved to the `local` node's own page. What is left is the three things this
- * page is named for — the instance's name, registration, and the reset.
+ * moved to the `local` node's own page. What is left is the four things this
+ * page is named for — the instance's name, registration, who may add nodes,
+ * and the reset.
  */
 function SettingsPage() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [regError, setRegError] = useState<string | null>(null);
+  /** Which switch last reported, and what it said — see `toggle`. */
+  const [outcome, setOutcome] = useState<{ key: SettingKey; saved?: boolean; error?: string } | null>(null);
 
   const { data: publicSettings } = usePublicSettings();
   const viewerIsAdmin = publicSettings?.viewerIsAdmin;
@@ -61,30 +65,47 @@ function SettingsPage() {
    * the next cache read, with no feedback at all — and that is exactly the
    * kind of thing a second copy quietly omits.
    */
-  async function toggle(key: "allowRegistrations" | "allowNodeEnrollment", whatFailed: string) {
+  async function toggle(key: SettingKey, whatFailed: string) {
     if (!settings) return;
     setBusy(true);
-    setSaved(false);
-    setRegError(null);
+    // Keyed by SETTING, not shared. Both switches wrote one `saved`/`error`
+    // pair that only the Registration card rendered, so flipping the node
+    // switch flashed "saved" beside the registration one and reported its
+    // failures there too — under a control the person had not touched, and on
+    // a narrow window possibly off screen. That is the same silent-feedback
+    // failure the shared function exists to prevent, arriving by a different
+    // door.
+    setOutcome(null);
     try {
       await apiFetch("/api/settings", {
         method: "PATCH",
         body: JSON.stringify({ [key]: !settings[key] }),
       });
-      setSaved(true);
+      setOutcome({ key, saved: true });
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
     } catch (err) {
-      setRegError(errMessage(err, whatFailed));
+      setOutcome({ key, error: errMessage(err, whatFailed) });
     } finally {
       setBusy(false);
     }
+  }
+
+  /** This card's "saved" flash and refusal, or nothing when it was not this one. */
+  function feedbackFor(key: SettingKey) {
+    if (outcome?.key !== key) return null;
+    return (
+      <>
+        {outcome.saved && <span className="text-success text-xs">saved</span>}
+        {outcome.error && <p className="text-destructive text-sm">{outcome.error}</p>}
+      </>
+    );
   }
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       {/* No action slot: Status and Plugins were buttons here because the rail
           did not list them. The Server Settings group does now. */}
-      <PageHeader title="General" subtitle="Instance name, registration, and reset (admins)" />
+      <PageHeader title="General" subtitle="Instance name, registration, nodes, and reset (admins)" />
       {/* Gating mirrors the nav rule: these cards hit admin-only endpoints, so
           rendering them for a non-admin would only produce error banners. The
           server-side gates remain the actual enforcement either way. */}
@@ -108,9 +129,8 @@ function SettingsPage() {
                   aria-label="Allow new registrations"
                 />
                 <Label>{settings ? (settings.allowRegistrations ? "Open" : "Closed") : "Unknown"}</Label>
-                {saved && <span className="text-success text-xs">saved</span>}
+                {feedbackFor("allowRegistrations")}
               </div>
-              {regError && <p className="text-destructive text-sm">{regError}</p>}
               {settingsError && (
                 <ErrorBanner
                   message="Couldn't load instance settings."
@@ -151,6 +171,7 @@ function SettingsPage() {
                 <Label>
                   {settings ? (settings.allowNodeEnrollment ? "Anyone signed in" : "Admins only") : "Unknown"}
                 </Label>
+                {feedbackFor("allowNodeEnrollment")}
               </div>
               {/* Said here rather than discovered later: turning this off is
                   "stop handing out new keys", and any key already minted stays

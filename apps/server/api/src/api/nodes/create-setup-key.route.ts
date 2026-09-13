@@ -1,7 +1,6 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { ALLOW_NODE_ENROLLMENT_KEY } from "@/api/settings.route.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -9,6 +8,7 @@ import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
+import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
 
 const CreateBodySchema = t.Object({
   label: t.String({ minLength: 1, maxLength: 64, description: "Human label for the key (e.g. 'mac mini')" }),

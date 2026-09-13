@@ -28,12 +28,12 @@ function AboutLink({ href, children }: { href: string; children: string }) {
  * already holds, so the dialog costs no request of its own.
  *
  * Two versions, because they move independently: the SERVER's, and — only
- * under the desktop marker — the shell's own. They are labelled "Server" and
- * "Desktop app": near-identical names for two different programs is how a
- * version box stops being readable, and these two are usually the SAME number
- * anyway, because a desktop release bundles the server built beside it. On
- * Linux this replaces what the console's About box used to say; macOS keeps
- * its native About as well.
+ * under the desktop marker — the shell's own. They are labelled "Desktop app"
+ * and "CLI": near-identical names for two different programs is how a version
+ * box stops being readable, and these two are usually the SAME number anyway,
+ * because a desktop release bundles the server built beside it. On Linux this
+ * replaces what the console's About box used to say; macOS keeps its native
+ * About as well.
  */
 export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { data: settings } = usePublicSettings();

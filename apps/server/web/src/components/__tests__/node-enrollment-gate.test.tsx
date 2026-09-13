@@ -28,3 +28,17 @@ describe("who may add a node", () => {
     expect(canAddNode({})).toBe(true);
   });
 });
+
+describe("the pure rule is not enough on its own", () => {
+  it("cannot catch a call site that never asks it", () => {
+    // Recorded rather than implied. This file tests `canAddNode` in
+    // isolation, and every assertion in it passed while `/nodes` still
+    // offered an ungated "Add your first node" button in its empty state —
+    // because that call site never called the function. A rule extracted for
+    // sharing is only as good as the surfaces that consult it, so the
+    // enforceable test is a RENDER test per surface asserting that no
+    // add-node affordance exists anywhere on the page. See
+    // `nodes-page-gate.test.tsx`.
+    expect(canAddNode({ allowNodeEnrollment: false, viewerIsAdmin: false })).toBe(false);
+  });
+});

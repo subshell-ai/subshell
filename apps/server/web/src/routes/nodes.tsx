@@ -78,7 +78,10 @@ function NodesPage() {
         }
       />
 
-      {!mayAddNode && (
+      {/* Only where the list has rows — the empty state says it itself, and
+          two copies of the same sentence on one screen is how a page stops
+          being read. */}
+      {!mayAddNode && nodes.length > 0 && (
         <p className="text-muted-foreground text-sm">
           An admin has turned off adding nodes on this instance. Ask one to add a machine for you.
         </p>
@@ -106,13 +109,22 @@ function NodesPage() {
         />
       )}
 
+      {/* The SECOND opener. Gating only the header button left this one
+          offering the dialog to exactly the viewer the setting targets: a
+          non-admin with no node visible to them sees `nodes.length === 0`,
+          presses "Add your first node", and gets a 403 — which is the thing
+          this page states twice that it does not do. */}
       {!isLoading && !isError && nodes.length === 0 && (
         <EmptyState
           icon={Server}
           title="No nodes yet"
-          description="Enroll another machine with a setup key to run subshells on it."
-          actionLabel="Add your first node"
-          onAction={() => setDialogOpen(true)}
+          description={
+            mayAddNode
+              ? "Enroll another machine with a setup key to run subshells on it."
+              : "An admin has turned off adding nodes on this instance. Ask one to add a machine for you."
+          }
+          actionLabel={mayAddNode ? "Add your first node" : undefined}
+          onAction={mayAddNode ? () => setDialogOpen(true) : undefined}
         />
       )}
 

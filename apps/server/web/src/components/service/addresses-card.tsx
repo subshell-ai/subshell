@@ -60,8 +60,34 @@ const FIELDS = [
 type EditableKey = (typeof FIELDS)[number]["key"];
 
 /**
+ * The value the ROUTE will actually see for this key, from what was typed.
+ *
+ * **Validation and the patch body have to agree about this string**, and they
+ * did not. `patchFor` drops empty entries from the origin list, so a trailing
+ * comma — an entirely ordinary typing artifact in a comma-separated field —
+ * was cleaned on the way out and accepted by the route, while validation ran
+ * against the RAW draft and refused it first. The form was rejecting input
+ * its own patch builder would have fixed: strictly worse than a round trip,
+ * and the exact thing importing the server's rules was supposed to prevent.
+ *
+ * So normalization happens once, here, and both halves read it.
+ */
+function wireValue(key: EditableKey, draft: string): string {
+  return key === "TRUSTED_ORIGINS"
+    ? draft
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .join(",")
+    : draft;
+}
+
+/**
  * One key's contribution to the PATCH body — the SPA's spelling of the key on
  * the left, the value in the shape the route wants on the right.
+ *
+ * Takes a {@link wireValue}, so the split below is over an already-normalized
+ * string and cannot disagree with what was validated.
  */
 function patchFor(key: EditableKey, value: string): ServerConfigPatch {
   switch (key) {
@@ -159,14 +185,26 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   const [problems, setProblems] = useState<Partial<Record<EditableKey, string>>>({});
 
   function save(): void {
-    // The SERVER'S rules, imported — see `lib/config-validation.ts`. Nothing
-    // here decides what a value may be, so the form cannot start refusing what
-    // the route would accept.
-    const found = formProblems(drafts);
+    // Validated as the ROUTE will see it, not as it was typed — see
+    // `wireValue`. The rules themselves are the server's, imported (see
+    // `lib/config-validation.ts`): nothing here decides what a value may be.
+    const wire = Object.fromEntries(touched.map((key) => [key, wireValue(key, drafts[key] ?? "")])) as Partial<
+      Record<EditableKey, string>
+    >;
+    const found = formProblems(wire);
     setProblems(found);
-    if (Object.keys(found).length > 0) return;
+    if (Object.keys(found).length > 0) {
+      // The previous SERVER refusal is no longer about what is on screen.
+      // Without this, a click that never reaches the route leaves the last
+      // 400 rendered under a field the person has since corrected — so the
+      // page says the server rejects a value that is not there any more.
+      // Before this early return existed, every Save reached `mutate`, which
+      // cleared it; the guard is what made a stale one reachable.
+      update.reset();
+      return;
+    }
     const patch = touched.reduce<ServerConfigPatch>(
-      (body, key) => Object.assign(body, patchFor(key, drafts[key] ?? "")),
+      (body, key) => Object.assign(body, patchFor(key, wire[key] ?? "")),
       {},
     );
     update.mutate(patch, {

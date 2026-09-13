@@ -205,6 +205,58 @@ describe("settings routes (admin cookie only)", () => {
   // session to mint a throwaway admin (the 2026-09-03 deploy-bot incident),
   // and the flip left no trace in audit_events. Every CHANGED write is now
   // audited; a no-change PATCH stays silent so the trail reads as flips.
+  it("PATCH of allowNodeEnrollment audits real flips only, like its sibling", async () => {
+    const patchTo = async (allowNodeEnrollment: boolean) => {
+      const res = await app.fetch(
+        authedRequest("/api/settings", adminCookie, {
+          method: "PATCH",
+          body: JSON.stringify({ allowNodeEnrollment }),
+        }),
+      );
+      expect(res.status).toBe(200);
+    };
+    const clearEvents = async () =>
+      await db
+        .deleteFrom("auditEvents")
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .execute();
+
+    await clearEvents();
+    await patchTo(false);
+    await patchTo(false); // no flip — must not add an event
+    await patchTo(true);
+
+    const events = await db
+      .selectFrom("auditEvents")
+      .select(["targetType", "targetId", "metadataJson"])
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .execute();
+    expect(events.length).toBe(2);
+    expect(events.map((e) => [e.targetType, e.targetId])).toEqual([
+      ["settings", "allow_node_enrollment"],
+      ["settings", "allow_node_enrollment"],
+    ]);
+    // Turning it ON widens who may bring a machine into this instance, and a
+    // node is arbitrary command execution under its own OS user — so the
+    // trail has to name who opened it, not just that something changed.
+    expect(JSON.parse(events[0]?.metadataJson ?? "{}")).toEqual({ from: true, to: false });
+    expect(JSON.parse(events[1]?.metadataJson ?? "{}")).toEqual({ from: false, to: true });
+    await clearEvents();
+  });
+
+  it("reports allowNodeEnrollment as true with no row, on BOTH reads", async () => {
+    await db.deleteFrom("settings").where("key", "=", "allow_node_enrollment").execute();
+    // The absent-row default is what leaves an existing instance unchanged,
+    // and it has to be the same answer everywhere — a page reporting "off"
+    // while the route still admits non-admins is the disagreement this pins.
+    const admin = await (await app.fetch(authedRequest("/api/settings", adminCookie))).json();
+    expect((admin as { allowNodeEnrollment: boolean }).allowNodeEnrollment).toBe(true);
+    const pub = await (await app.fetch(authedRequest("/api/settings/public", adminCookie))).json();
+    expect((pub as { allowNodeEnrollment: boolean }).allowNodeEnrollment).toBe(true);
+  });
+
   it("PATCH of allow_registrations audits every real flip with actor and from/to", async () => {
     const patchTo = async (allowRegistrations: boolean) => {
       const res = await app.fetch(

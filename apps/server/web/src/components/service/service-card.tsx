@@ -16,7 +16,7 @@ import type { ServerDeployment } from "@/types/server-deployment";
  * separate verb, and nothing in the dashboard can do it: installing is one of
  * the acts with no HTTP route, because it leaves the server unreachable.
  */
-const REINSTALL_COMMAND = "subshell-server service install";
+export const REINSTALL_COMMAND = "subshell-server service install";
 
 /** What the supervisor is CALLED in a sentence; the id `app` is not a name. */
 function managerName(manager: ServerDeployment["service"]["manager"]): string {

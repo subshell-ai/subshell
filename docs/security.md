@@ -508,6 +508,30 @@ subshell may only be launched in one of them or beneath it.
   audited. The install command embeds one in a URL, so it lands in shell history
   and server access logs — the same posture as enrollment links everywhere.
   Revoking is deleting the key.
+- **Who may MINT one is an instance setting** (`allow_node_enrollment`; admin
+  toggle under Settings → General, audited `settings.update`). An absent row
+  means TRUE, so an instance that never touched it keeps the behaviour it had:
+  any signed-in user may add a machine. Turned off,
+  `POST /api/nodes/setup-keys` refuses non-admins with 403 and admins are
+  unaffected — the same shape as an admin creating a user through
+  `POST /api/users` while sign-up is closed.
+
+  Enforced at the mint and nowhere else, because that is the only chokepoint:
+  `NodeSetupKeysRepository.create` has one call site, and `NodesRepository.create`
+  has two — the enroll route, which requires a consumed key, and boot seeding of
+  the `local` row. Enrolling is unauthenticated by design (the key IS the
+  credential), so there is nothing to gate at `POST /api/nodes/enroll`, and
+  gating it would refuse keys the instance itself handed out.
+
+  **It does not revoke what is outstanding.** Flipping it off means "stop
+  handing these out", not "invalidate the ones already minted" — the same
+  semantics as closing registrations, which signs nobody out. An unconsumed key
+  stays usable until it expires (24 h) or an admin deletes it, which is the act
+  that revokes and is separately audited. The switch bounds the FUTURE; the
+  ≤24 h window it leaves is closed by deleting keys.
+
+  It governs ADDING a node only. Who may launch on one they were shared, and
+  what a share confers, are the unchanged axes above.
 - **Artifacts are never anonymous.** Prebuilt binaries and their `.sha256`
   digests (`GET /api/downloads/node/*`) require a session cookie **or** a valid
   unconsumed setup key. `GET /install.sh` renders a usage script for an
