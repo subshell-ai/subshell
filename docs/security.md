@@ -425,15 +425,17 @@ consequences are:
   UI says. It also does not rename: `config.json`'s name never reaches the
   plane outside the enroll body, so the plane owns a node's name.
 
-### What the node discloses to the plane (protocol 3)
+### What the node discloses to the plane (protocol 7)
 
 Connecting a node is itself a disclosure, and the frames it rides on are
 bounded on purpose:
 
 - **`ready` discloses machine facts**: `agentVersion`, protocol/os/arch,
   `hostname`, the agent's `dataDir` path, its capability set, the
-  `mcpLaunch` self-invocation (paths under the node's own user), and
-  `homeDir`. Resume-path defaults hang off the home; the plane cannot
+  `selfInvoke` prefix for re-entering the agent's own binary (paths under
+  the node's own user; `ready.mcpLaunch` became this in protocol 4),
+  `homeDir`, and — from agents that report it — the `runtime` supervision
+  snapshot. Resume-path defaults hang off the home; the plane cannot
   expand `~` against a filesystem it cannot see.
 - **`detect` answers binary facts and named env values.** The PLANE names
   everything it asks: the `detect` command carries the detection rules

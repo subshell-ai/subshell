@@ -44,7 +44,7 @@ detect its binary without importing or running a line of your code:
     },
     "install": { "command": "npm i -g mytool", "docsUrl": "https://example.com/install" }
   },
-  "devDependencies": { "@subshell-ai/plugin-api": "^1.0.0" }
+  "devDependencies": { "@subshell-ai/plugin-api": "^2.0.0" }
 }
 ```
 

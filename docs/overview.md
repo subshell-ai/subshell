@@ -151,10 +151,11 @@ model, including the accepted risks and what is deliberately not defended.
 - E2E: the repo-root `e2e/` Playwright suite is separate from `bun run test` — `bun run test:e2e`
   boots its own backend on :3199 and needs a real tmux (see `e2e/AGENTS.md`)
 
-## Status (2026-09-05)
+## Status
 
-`@internal/server` 1.6.0 · `@internal/node` 0.3.1 (node protocol floor
-`MIN_AGENT_VERSION` 0.3.0). Everything below is shipped and on `main`.
+Everything below is shipped and on `main`. (Version numbers deliberately not
+quoted here — this file outlives every release, and a pinned number rots the
+day the next cut lands.)
 
 - **Core** — single-port serving (built SPA + API + WS + `/docs`), tmux-backed
   subshells, presets, workspaces (tiling above 1024px, tabs below), uploads.

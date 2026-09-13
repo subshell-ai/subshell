@@ -1,6 +1,6 @@
 ---
-"@subshell-ai/plugin-api": minor
-"@subshell-ai/plugin-claude-code": minor
+"@subshell-ai/plugin-api": major
+"@subshell-ai/plugin-claude-code": major
 "@subshell-ai/plugin-codex": minor
 "@subshell-ai/plugin-hermes": minor
 "@subshell-ai/plugin-opencode": minor
