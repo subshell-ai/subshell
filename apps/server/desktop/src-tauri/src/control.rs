@@ -293,17 +293,37 @@ impl Probe {
 /// this returns `None` before reading the environment at all; a variable left
 /// set in a user's shell reaches nothing. The value is still required to be a
 /// loopback http origin, and `open_main` re-checks that independently.
+#[cfg(not(test))]
 fn dev_spa_origin() -> Option<String> {
     if !cfg!(debug_assertions) {
         return None;
     }
     let raw = std::env::var("SUBSHELL_DESKTOP_SPA_URL").ok();
     let chosen = dev_spa_origin_from(raw.as_deref())?;
-    // Said out loud, every time. A window pointing somewhere other than the
-    // server it reports on is exactly the kind of thing that becomes a
-    // mystery an hour later.
-    eprintln!("subshell: dev override — opening the dashboard at {chosen} instead of the server's own address");
+    // ONCE per process, not once per call. `watch.rs` asks every five
+    // seconds for the life of the session, so printing on each one buried the
+    // disclosure under ~720 identical lines an hour, interleaved with Vite's
+    // own output — a line repeated that often is read as noise, which is the
+    // opposite of saying it out loud.
+    static ANNOUNCED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if ANNOUNCED.set(()).is_ok() {
+        eprintln!("subshell: dev override — opening the dashboard at {chosen} instead of the server's own address");
+    }
     Some(chosen)
+}
+
+/// **Test builds read no environment at all.**
+///
+/// The variable is process-wide, and five tests reach this through
+/// `Probe::origin` / `origin_changed` — so exporting it, which
+/// `apps/server/desktop/AGENTS.md` documents as the way to use a non-default
+/// port, made `cargo test` fail in five places with no connection to anything
+/// the developer had changed. Removing the WRITER from the tests was half the
+/// fix; this removes the reader, which retires the class rather than the two
+/// instances. `dev_spa_origin_from` still carries the validation coverage.
+#[cfg(test)]
+fn dev_spa_origin() -> Option<String> {
+    None
 }
 
 /// The validation half of {@link dev_spa_origin}, with no environment in it.
@@ -313,17 +333,25 @@ fn dev_spa_origin() -> Option<String> {
 /// served from — `open_main` refuses a non-loopback origin independently, so
 /// this agreeing with it is belt and braces rather than the only gate.
 fn dev_spa_origin_from(raw: Option<&str>) -> Option<String> {
-    let raw = raw?.trim();
-    if raw.is_empty() {
+    // Parsed with the SAME parser the webview will use, and reduced to an
+    // actual origin. The hand-rolled `url_host` disagreed with WHATWG on
+    // inputs like `http://evil.com\@localhost:5174/` — it read the host as
+    // `localhost` where `Url` reads `evil.com` — so the two checks could
+    // differ about what a value even was. `open_main` refused that one, which
+    // made the outcome safe and the comment here wrong: it was not "belt and
+    // braces", it was the only correct gate. Now they agree by construction.
+    //
+    // `Url::origin()` also drops any path, query or fragment, so this returns
+    // an origin rather than whatever was typed — which is what the name says
+    // and what `watch.rs` needs in order to compare.
+    let url: tauri::Url = raw?.trim().parse().ok()?;
+    if url.scheme() != "http" {
         return None;
     }
-    if !raw.starts_with("http://") {
+    if !url.host_str().map(is_loopback).unwrap_or(false) {
         return None;
     }
-    url_host(raw).filter(|h| is_loopback(h))?;
-    // Trailing slash removed: `watch.rs` compares this against the window's
-    // own origin, and the two spellings would never match.
-    Some(raw.trim_end_matches('/').to_string())
+    Some(url.origin().ascii_serialization())
 }
 
 /// Host of an http(s) URL, without pulling in a URL crate for one field.
@@ -2462,6 +2490,20 @@ mod tests {
         );
         // Not loopback: this window holds privileged globals.
         assert_eq!(dev_spa_origin_from(Some("http://example.com:5174")), None);
+        // **The input that made the hand-rolled host parser disagree with
+        // WHATWG.** A backslash terminates the authority, so `Url` reads the
+        // host as `evil.com` where the old `url_host` read `localhost` and
+        // let it through — safe only because `open_main` refused it
+        // afterwards. Parsing with the webview's own parser makes the two
+        // agree here instead of downstream.
+        assert_eq!(dev_spa_origin_from(Some("http://evil.com\\@localhost:5174/")), None);
+        // Reduced to an ORIGIN: a path, query or fragment is dropped rather
+        // than passed through, which is what the name promises and what
+        // `watch.rs` compares against.
+        assert_eq!(
+            dev_spa_origin_from(Some("http://localhost:5174/foo?a=b#c")).as_deref(),
+            Some("http://localhost:5174")
+        );
         // Not http, not a URL, absent, blank.
         assert_eq!(dev_spa_origin_from(Some("https://localhost:5174")), None);
         assert_eq!(dev_spa_origin_from(Some("5174")), None);
@@ -2568,6 +2610,21 @@ mod tests {
             .collect()
     }
 
+    /// Serializes the tests that drive `ACTION_IN_FLIGHT`.
+    ///
+    /// It is a process-wide static and cargo runs tests in parallel threads,
+    /// so two of them setting and clearing it race — invisibly while the rest
+    /// of the suite happens to interleave them apart, and then not. Found by
+    /// running with a filter, which changed which tests were in flight
+    /// together; a filter must not decide whether a test passes.
+    ///
+    /// It sits ABOVE the next test's own doc block on purpose: inserted
+    /// between that block and its `#[test]`, it silently took ownership of a
+    /// paragraph written about the test, leaving the test undocumented and
+    /// this mutex explained by a security rationale that has nothing to do
+    /// with it.
+    static GUARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// The one command a page we did not write can invoke refuses to
     /// interleave with anything else.
     ///
@@ -2579,15 +2636,6 @@ mod tests {
     /// `desktop_set_supervision` to the served page, where an XSS can fire a
     /// hundred at once into a chain that uninstalls a service and installs
     /// another.
-    /// Serializes the tests that drive `ACTION_IN_FLIGHT`.
-    ///
-    /// It is a process-wide static and cargo runs tests in parallel threads,
-    /// so two of them setting and clearing it race — invisibly while the rest
-    /// of the suite happens to interleave them apart, and then not. Found by
-    /// running with a filter, which changed which tests were in flight
-    /// together; a filter must not decide whether a test passes.
-    static GUARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn a_second_action_cannot_start_while_one_is_running() {
         let _serial = GUARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());

@@ -399,7 +399,11 @@ async function runDev(app: DesktopApp): Promise<number> {
     } else {
       console.log(
         `==> no SPA dev server on ${SPA_DEV_URL}: the dashboard will show the installed binary's embedded SPA, ` +
-          "which will NOT pick up edits under apps/server/web. Run `bun run dev --cwd apps/server/web` first for that.",
+          // `--cwd` BEFORE the script name. The other spelling is what this
+          // printed, and it fails with `Script not found "dev"` — the one
+          // line a confused developer copy-pastes, in a feature whose whole
+          // point is that the absence of hot reload should not be a mystery.
+          "which will NOT pick up edits under apps/server/web. Run `bun run --cwd apps/server/web dev` first for that.",
       );
     }
   }
