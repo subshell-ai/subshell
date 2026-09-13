@@ -185,8 +185,8 @@ export interface SubshellRow {
   workingDir: string;
 }
 
-/** A profile row (subset). */
-interface ProfileRow {
+/** A preset row (subset). */
+interface PresetRow {
   id: string;
   name: string;
   harnessId: string;
@@ -202,25 +202,43 @@ export async function getSubshell(deps: ToolDeps, id: string): Promise<SubshellR
   return await deps.api.req<SubshellRow>(`/api/subshells/${encodeURIComponent(id)}`);
 }
 
-/** `list_profiles` */
-export async function listProfiles(deps: ToolDeps): Promise<ProfileRow[]> {
-  const rows = await deps.api.req<ProfileRow[]>("/api/profiles");
+/** `list_presets` */
+export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
+  const rows = await deps.api.req<PresetRow[]>("/api/presets");
   return rows.map(({ id, name, harnessId }) => ({ id, name, harnessId }));
 }
 
-/** `create_subshell` — resolves the profile by NAME (ids are not shared context). */
+/**
+ * `create_subshell` — launches from a harness plugin id with an optional
+ * preset NAME resolved within that harness (ids are not shared context).
+ * No preset named means no saved settings, which is a complete launch.
+ */
 export async function createSubshell(
   deps: ToolDeps,
-  args: { name?: string; profile: string; workingDir: string; prompt?: string },
+  args: { name?: string; harness: string; preset?: string; workingDir: string; prompt?: string },
 ): Promise<{ id: string; promptDelivered: boolean }> {
-  const profiles = await deps.api.req<ProfileRow[]>("/api/profiles");
-  const match = profiles.find((p) => p.name.toLowerCase() === args.profile.toLowerCase());
-  if (!match) {
-    throw new Error(`subshell: no profile named '${args.profile}'; call list_profiles for options`);
+  let presetId: string | undefined;
+  if (args.preset !== undefined) {
+    // Scope the lookup to the harness: preset names are only unique per harness.
+    const presets = await deps.api.req<PresetRow[]>("/api/presets", { query: { harnessId: args.harness } });
+    const want = args.preset.toLowerCase();
+    const match = presets.find((p) => p.name.toLowerCase() === want);
+    if (!match) {
+      throw new Error(
+        `subshell: no preset named '${args.preset}' for harness '${args.harness}'; call list_presets for options`,
+      );
+    }
+    presetId = match.id;
   }
   return await deps.api.req<{ id: string; promptDelivered: boolean }>("/api/subshells", {
     method: "POST",
-    body: { profileId: match.id, workingDir: args.workingDir, name: args.name, prompt: args.prompt },
+    body: {
+      harnessId: args.harness,
+      presetId,
+      workingDir: args.workingDir,
+      name: args.name,
+      prompt: args.prompt,
+    },
   });
 }
 

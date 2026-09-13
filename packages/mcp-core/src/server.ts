@@ -27,7 +27,7 @@ import {
   getSubshell,
   joinChannel,
   listChannels,
-  listProfiles,
+  listPresets,
   listSubshells,
   postChannel,
   readChannel,
@@ -138,39 +138,43 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     guard(({ id }: { id: string }) => getSubshell(deps, id)),
   );
   server.registerTool(
-    "list_profiles",
+    "list_presets",
     {
-      title: "List profiles",
-      description: "List the profiles usable to launch a subshell (pass a profile name to create_subshell).",
+      title: "List presets",
+      description:
+        "List the presets usable to launch a subshell — each carries the harness plugin id it belongs to, the pairs create_subshell takes.",
       inputSchema: z.object({}),
     },
-    guard(() => listProfiles(deps)),
+    guard(() => listPresets(deps)),
   );
   server.registerTool(
     "create_subshell",
     {
       title: "Create subshell",
       description:
-        "Spawn a new agent subshell from a profile name + working directory; an optional prompt is typed into the harness once it settles.",
+        "Spawn a new agent subshell on a harness plugin, optionally applying a named preset of that harness, in a working directory; an optional prompt is typed into the harness once it settles.",
       inputSchema: z.object({
+        harness: z.string().describe("Harness plugin id to launch (see list_presets for the ids in use)"),
+        preset: z.string().optional().describe("Optional preset name of that harness; omit for no saved settings"),
         name: z.string().optional(),
-        profile: z.string(),
         working_dir: z.string(),
         prompt: z.string().optional(),
       }),
     },
     guard(
       ({
+        harness,
+        preset,
         name,
-        profile,
         working_dir,
         prompt,
       }: {
+        harness: string;
+        preset?: string;
         name?: string;
-        profile: string;
         working_dir: string;
         prompt?: string;
-      }) => createSubshell(deps, { name, profile, workingDir: working_dir, prompt }),
+      }) => createSubshell(deps, { name, harness, preset, workingDir: working_dir, prompt }),
     ),
   );
   server.registerTool(
@@ -178,7 +182,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Restart subshell",
       description:
-        "Restart a subshell in place (same id): kills its process tree and respawns it from the same profile + directory. Calling it on your OWN subshell terminates you.",
+        "Restart a subshell in place (same id): kills its process tree and respawns it from the same harness, preset and directory. Calling it on your OWN subshell terminates you.",
       inputSchema: z.object({ id: z.string() }),
     },
     guard(({ id }: { id: string }) => restartSubshell(deps, id)),

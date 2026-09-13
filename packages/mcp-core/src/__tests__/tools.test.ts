@@ -8,7 +8,7 @@ import { reloadPinSettingsForTests } from "../pin-store.js";
 import {
   createSubshell,
   describeToolError,
-  listProfiles,
+  listPresets,
   postChannel,
   readChannel,
   type ToolApi,
@@ -23,7 +23,14 @@ interface Recorded {
   query?: Record<string, unknown>;
 }
 
-function fakeApi(handler: (req: { path: string; method: string; body?: Record<string, unknown> }) => unknown) {
+function fakeApi(
+  handler: (req: {
+    path: string;
+    method: string;
+    body?: Record<string, unknown>;
+    query?: Record<string, unknown>;
+  }) => unknown,
+) {
   const calls: Recorded[] = [];
   const api: ToolApi = {
     async req<T>(
@@ -158,33 +165,57 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(calls[1].query).toMatchObject({ since: 7 });
   });
 
-  it("create_subshell resolves the profile by name and reports prompt delivery", async () => {
+  it("create_subshell resolves the preset by name within its harness and reports prompt delivery", async () => {
     const own = await generateKeypair();
     const { api, calls } = fakeApi((req) => {
-      if (req.path === "/api/profiles") return [{ id: "prof-1", name: "Dev", harnessId: "claude-code" }];
+      if (req.path === "/api/presets") return [{ id: "pre-1", name: "Dev", harnessId: "claude-code" }];
       if (req.path === "/api/subshells") return { id: "s1", promptDelivered: true };
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    const res = await createSubshell(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
+    const res = await createSubshell(deps, {
+      harness: "claude-code",
+      preset: "dev",
+      workingDir: "/tmp",
+      prompt: "do it",
+    });
     expect(res).toEqual({ id: "s1", promptDelivered: true });
+    // Name lookup is scoped to the harness — preset names are only unique per harness.
+    const list = calls.find((c) => c.path === "/api/presets");
+    expect(list?.query).toEqual({ harnessId: "claude-code" });
     const create = calls.find((c) => c.path === "/api/subshells");
-    expect(create?.body?.profileId).toBe("prof-1");
+    expect(create?.body?.harnessId).toBe("claude-code");
+    expect(create?.body?.presetId).toBe("pre-1");
     expect(create?.body?.prompt).toBe("do it");
+  });
+
+  it("create_subshell without a preset launches on the harness alone — no lookup, no presetId", async () => {
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/subshells") return { id: "s2", promptDelivered: false };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    const res = await createSubshell(deps, { harness: "terminal", workingDir: "/tmp" });
+    expect(res).toEqual({ id: "s2", promptDelivered: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body?.harnessId).toBe("terminal");
+    expect(calls[0]?.body?.presetId).toBeUndefined();
   });
 
   it("create_subshell over the REAL SubshellApi with fetch stubbed makes the expected REST calls", async () => {
     // Folded in from the agent's port-parity suite (which this package replaced):
     // no fakeApi — a stubbed global fetch (api-client.test pattern), so the full
-    // client path (SubshellApi.req → fetch) is proven: GET /api/profiles (bearer),
-    // then POST /api/subshells with the NAME-resolved profileId and the prompt.
+    // client path (SubshellApi.req → fetch) is proven: GET /api/presets scoped
+    // by harnessId (bearer), then POST /api/subshells with the NAME-resolved
+    // presetId and the prompt.
     const savedFetch = globalThis.fetch;
     const seen: Request[] = [];
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const req = new Request(String(input), init);
       seen.push(req);
-      if (req.url === "http://h:3080/api/profiles") {
-        return new Response(JSON.stringify([{ id: "prof-1", name: "Dev", harnessId: "claude-code" }]));
+      if (req.url === "http://h:3080/api/presets?harnessId=claude-code") {
+        return new Response(JSON.stringify([{ id: "pre-1", name: "Dev", harnessId: "claude-code" }]));
       }
       return new Response(JSON.stringify({ id: "s1", promptDelivered: true }));
     }) as never;
@@ -194,15 +225,21 @@ describe("mcp tools (handler-level, real crypto)", () => {
         api: new SubshellApi({ apiKey: "subshell_key123", baseUrl: "http://h:3080" }),
         own: { principalId: "sess:me", ...own },
       };
-      const res = await createSubshell(deps, { profile: "dev", workingDir: "/tmp", prompt: "do it" });
+      const res = await createSubshell(deps, {
+        harness: "claude-code",
+        preset: "dev",
+        workingDir: "/tmp",
+        prompt: "do it",
+      });
       expect(res).toEqual({ id: "s1", promptDelivered: true });
       expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual([
-        "GET http://h:3080/api/profiles",
+        "GET http://h:3080/api/presets?harnessId=claude-code",
         "POST http://h:3080/api/subshells",
       ]);
       expect(seen[0]?.headers.get("authorization")).toBe("Bearer subshell_key123");
       const body = (await seen[1]?.json()) as Record<string, unknown>;
-      expect(body.profileId).toBe("prof-1");
+      expect(body.harnessId).toBe("claude-code");
+      expect(body.presetId).toBe("pre-1");
       expect(body.prompt).toBe("do it");
       expect(body.workingDir).toBe("/tmp");
     } finally {
@@ -210,26 +247,26 @@ describe("mcp tools (handler-level, real crypto)", () => {
     }
   });
 
-  it("create_subshell with an unknown profile name gives guidance, not a stack trace", async () => {
+  it("create_subshell with an unknown preset name gives guidance, not a stack trace", async () => {
     const own = await generateKeypair();
-    const { api } = fakeApi(() => [{ id: "prof-1", name: "Dev", harnessId: "claude-code" }]);
+    const { api } = fakeApi(() => [{ id: "pre-1", name: "Dev", harnessId: "claude-code" }]);
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    await expect(createSubshell(deps, { profile: "nope", workingDir: "/tmp" })).rejects.toThrow(
-      /no profile named 'nope'.*list_profiles/,
+    await expect(createSubshell(deps, { harness: "codex", preset: "nope", workingDir: "/tmp" })).rejects.toThrow(
+      /no preset named 'nope' for harness 'codex'; call list_presets/,
     );
   });
 
-  it("list_profiles projects rows down to {id, name, harnessId} — no field passthrough", async () => {
-    // M-6a (final review): GET /api/profiles redaction for bearers relies on
+  it("list_presets projects rows down to {id, name, harnessId} — no field passthrough", async () => {
+    // M-6a (final review): GET /api/presets redaction for bearers relies on
     // THIS client-side projection — if it ever passed rows through, envJson
-    // (profile env, may hold provider tokens) and flags would resurface to
+    // (preset env, may hold provider tokens) and flags would resurface to
     // every subshell key. Pinned here so a "simplification" trips first.
     const own = await generateKeypair();
     const { api } = fakeApi((req) => {
-      if (req.path === "/api/profiles") {
+      if (req.path === "/api/presets") {
         return [
           {
-            id: "prof-1",
+            id: "pre-1",
             name: "Dev",
             harnessId: "claude-code",
             envJson: '{"ANTHROPIC_API_KEY":"sk-secret"}',
@@ -240,8 +277,8 @@ describe("mcp tools (handler-level, real crypto)", () => {
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    const rows = await listProfiles(deps);
-    expect(rows).toEqual([{ id: "prof-1", name: "Dev", harnessId: "claude-code" }]);
+    const rows = await listPresets(deps);
+    expect(rows).toEqual([{ id: "pre-1", name: "Dev", harnessId: "claude-code" }]);
     expect(JSON.stringify(rows)).not.toContain("sk-secret");
     expect(JSON.stringify(rows)).not.toContain("flags");
   });
