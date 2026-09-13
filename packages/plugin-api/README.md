@@ -111,12 +111,15 @@ rather than letting a restart silently begin a fresh conversation.
 
 ## Versioning
 
-The loader checks your plugin's members by name against this contract, so a
-v1 plugin (the `profile` spelling) is diagnosed rather than silently accepted.
-Declare `"apiVersion": 2` in the manifest block above; a host that implements
-a lower number refuses the plugin with the version to upgrade, and a host at a
-higher one keeps older plugins working — host fields are ADDED and never
-removed or retyped.
+Declare `"apiVersion": 2` in the manifest block above. A host implementing a
+lower number refuses the plugin outright, naming both versions so the operator
+knows which side to upgrade. A host at a higher number lets the plugin through
+that manifest gate, but that is not a compatibility window: the loader checks
+members by name, so a rename across API versions refuses the older plugin at
+load with a named diagnosis — a v1 plugin (the `profile` spelling) comes back
+as missing `validatePreset`, never as silently working. Host members are
+additive within a version line; across one, rebuild. This release is exactly
+that across: rename the members and declare 2.
 
 ## Testing
 

@@ -90,10 +90,10 @@ packages/tsconfig          shared TS config (scaffold)
 1. **Setup wizard** (first visit): register admin → manage harnesses → done. No
    preset step — launching needs only an agent and a folder, and a fresh instance
    carries no presets at all (nothing is seeded; every preset is deletable).
-   The wizard's final screen pre-fills the agent: the detected agent CLI wins,
-   and where none is detected Terminal does — the same rule the launch form
-   applies everywhere (most recent usable agent, else first usable non-terminal,
-   else anything usable).
+   The wizard's final screen pre-fills the agent: a detected agent CLI wins
+   (first usable, Terminal last) — the same rule the launch form applies
+   everywhere (most recent usable agent, else first usable non-terminal, else
+   anything usable).
 2. **Create subshell**: choose agent, optional preset, host folder (in-app browser),
    optional name (defaults to date/time) → backend validates, spawns tmux + harness with `env -i` curated env
 3. **Terminal page** (`/subshells/:id`): fetches a single-use WS token via an authenticated
