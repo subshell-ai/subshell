@@ -28,8 +28,12 @@ function AboutLink({ href, children }: { href: string; children: string }) {
  * already holds, so the dialog costs no request of its own.
  *
  * Two versions, because they move independently: the SERVER's, and — only
- * under the desktop marker — the shell's own. On Linux this replaces what the
- * console's About box used to say; macOS keeps its native About as well.
+ * under the desktop marker — the shell's own. They are labelled "Server" and
+ * "Desktop app": near-identical names for two different programs is how a
+ * version box stops being readable, and these two are usually the SAME number
+ * anyway, because a desktop release bundles the server built beside it. On
+ * Linux this replaces what the console's About box used to say; macOS keeps
+ * its native About as well.
  */
 export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { data: settings } = usePublicSettings();
@@ -47,8 +51,19 @@ export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChang
           />
           <DialogTitle className="text-base">{settings?.instanceName ?? ""}</DialogTitle>
           <div className="space-y-0.5 text-muted-foreground text-sm">
-            <p>Server {settings?.serverVersion ?? "—"}</p>
-            {shell && <p>Subshell Server {shell.version}</p>}
+            {/* **"Desktop app" and "CLI".** Two different programs — the app
+                wrapping this, and the `subshell-server` binary serving it —
+                named "Server" and "Subshell Server" before, which is two
+                strings one word apart for things a person has no way to tell
+                apart. They also usually carry the SAME version, since a
+                desktop release bundles the server built beside it, so the box
+                read as one fact printed twice rather than two that can drift.
+                The same pair labels Subshell Client's About, and they are the
+                words the released artifacts carry — the Desktop bundles versus
+                `subshell-server-cli-<triple>`. In a browser there is no shell,
+                so only the CLI line renders, which is the whole truth there. */}
+            {shell && <p>Desktop app {shell.version}</p>}
+            <p>CLI {settings?.serverVersion ?? "—"}</p>
           </div>
           <p className="text-muted-foreground text-xs">{LICENSE_SUMMARY}</p>
           <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-muted-foreground text-xs">

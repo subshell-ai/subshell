@@ -38,9 +38,12 @@ function AboutLink(props: { label: string; target: WebTarget }) {
  * equal to the TypeScript copy and to the root LICENSE. A copy in this file
  * would be the one that detector cannot see.
  *
- * The AGENT's version comes from the probe rather than from that call: it is a
- * different program's, and this pair — the app's and the agent's — is what a
- * person opens an About for, usually to put in a bug report.
+ * The CLI's version comes from the probe rather than from that call: it is a
+ * different program's, and this pair — the desktop app's and the CLI's — is
+ * what a person opens an About for, usually to put in a bug report. They are
+ * LABELLED "Desktop app" and "CLI", matching Subshell Server's About and the
+ * names the released artifacts carry, so the distinction is one a person
+ * learns once rather than per app.
  */
 export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined; onClose: () => void }) {
   const { data } = useQuery<About>({
@@ -68,10 +71,17 @@ export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined
       {data ? (
         <div className="space-y-4 text-center text-sm">
           <div>
-            <p className="font-medium">
-              {data.appName} {data.appVersion}
-            </p>
-            {agent && <p className="text-muted-foreground">Agent {agent}</p>}
+            {/* **"Desktop app" and "CLI"**, the same pair Subshell Server's
+                About uses, so one reading teaches both. They are also the
+                words the release artifacts already carry — the bundles versus
+                `subshell-node-cli-<triple>` — which is the vocabulary a person
+                meets first when they download either.
+                The app is not named here because the frame's title already is
+                ("About Subshell Client"); repeating it would spend the line
+                that should say which of the two programs the number belongs
+                to. */}
+            <p className="font-medium">Desktop app {data.appVersion}</p>
+            {agent && <p className="text-muted-foreground">CLI {agent}</p>}
           </div>
           <p className="text-muted-foreground text-xs">{data.licenseSummary}</p>
           <div className="flex flex-wrap items-center justify-center gap-x-3 text-muted-foreground text-xs">

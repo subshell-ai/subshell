@@ -23,7 +23,7 @@ describe("the About screen", () => {
     const fake = installFakeIpc({ handlers: { node_about: () => ABOUT } });
     try {
       renderApp(<AboutScreen shell={shell} probe={undefined} onClose={() => {}} />);
-      await waitFor(() => expect(screen.getByText(/Subshell Client 0\.1\.3/)).toBeTruthy());
+      await waitFor(() => expect(screen.getByText(/Desktop app 0\.1\.3/)).toBeTruthy());
       expect(screen.getByText(ABOUT.licenseSummary)).toBeTruthy();
       expect(screen.getByText(ABOUT.copyright)).toBeTruthy();
       // The links are NAMED, never rendered as three addresses side by side.
@@ -39,14 +39,20 @@ describe("the About screen", () => {
    * bug report — and the agent's comes from the probe rather than from
    * `node_about`, because it is a different program's version.
    */
-  it("names the agent's version beside the app's when the machine has one", async () => {
+  it("labels the two programs 'Desktop app' and 'CLI', not by product name", async () => {
     const fake = installFakeIpc({ handlers: { node_about: () => ABOUT } });
     try {
       const probe = makeProbe();
       renderApp(<AboutScreen shell={shell} probe={probe} onClose={() => {}} />);
-      await waitFor(() => expect(screen.getByText(/Subshell Client 0\.1\.3/)).toBeTruthy());
+      // The same pair Subshell Server's About uses, and the words the released
+      // artifacts carry — so the distinction is learned once, not per app.
+      await waitFor(() => expect(screen.getByText(/Desktop app 0\.1\.3/)).toBeTruthy());
+      // The product name is NOT repeated here: the frame's title already says
+      // "About Subshell Client", and this line's job is to say which of the
+      // two programs the number belongs to.
+      expect(screen.queryByText(/Subshell Client 0\.1\.3/)).toBeNull();
       if (probe.agent?.version) {
-        expect(screen.getByText(`Agent ${probe.agent.version}`)).toBeTruthy();
+        expect(screen.getByText(`CLI ${probe.agent.version}`)).toBeTruthy();
       }
     } finally {
       fake.restore();

@@ -46,18 +46,24 @@ afterEach(() => {
 });
 
 describe("AboutDialog", () => {
-  it("names the instance and the server version, with the licence and links, in a browser", () => {
+  it("names the instance and the CLI version, with the licence and links, in a browser", () => {
     renderAbout("Mozilla/5.0");
     expect(screen.getByText("Prod plane")).toBeTruthy();
-    expect(screen.getByText(/Server 0\.2\.0/)).toBeTruthy();
+    // In a browser the CLI line is the whole truth — there is no app wrapping
+    // anything here.
+    expect(screen.getByText(/CLI 0\.2\.0/)).toBeTruthy();
     // No shell to name: the desktop line is absent rather than blank.
-    expect(screen.queryByText(/Subshell Server 0\./)).toBeNull();
+    expect(screen.queryByText(/Desktop app 0\./)).toBeNull();
     expect(screen.getByRole("link", { name: "Licence" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Website" })).toBeTruthy();
   });
 
   it("adds the desktop shell's version under the marker", () => {
     renderAbout("Mozilla/5.0 SubshellDesktop/0.2.0 (macos; p=1)");
-    expect(screen.getByText(/Subshell Server 0\.2\.0/)).toBeTruthy();
+    // "Desktop app" and "CLI" — the pair Subshell Client's About uses too,
+    // and the words the released artifacts carry. It was "Server" and
+    // "Subshell Server": two labels one word apart for two different
+    // programs, which usually carry the same number anyway.
+    expect(screen.getByText(/Desktop app 0\.2\.0/)).toBeTruthy();
   });
 });
