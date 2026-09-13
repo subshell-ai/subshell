@@ -1,3 +1,4 @@
+import { Pause, Play } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CopyableValue } from "@/components/service/copyable-value";
@@ -60,8 +61,9 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
   const read = useNodeLogSlice(node.id);
   const [text, setText] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
   const offset = useRef(0);
-  const scroller = useRef<HTMLPreElement | null>(null);
+  const scroller = useRef<HTMLElement | null>(null);
   const stuck = useRef(true);
   // The mutation object is new on every render, so the poll effect must not
   // depend on it — this keeps the latest call without re-arming the interval.
@@ -87,10 +89,14 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
   }, []);
 
   useEffect(() => {
+    // Paused means the REQUESTS stop, not that a label changes over a tail
+    // that is still moving — which is the failure the server log card's own
+    // test asserts against by counting fetches rather than reading the button.
+    if (paused) return;
     void pull();
     const timer = setInterval(() => void pull(), POLL_MS);
     return () => clearInterval(timer);
-  }, [pull]);
+  }, [pull, paused]);
 
   // Re-pin after every poll. `text` IS the dependency, and it is READ in the
   // body so the exhaustive-deps fixer cannot decide otherwise and quietly turn
@@ -116,7 +122,7 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
         <CardTitle>Log</CardTitle>
         <CardDescription>
           What the agent on this machine logged. One file, capped and replaced when full, so this is recent history
-          rather than everything that ever happened.
+          rather than everything that ever happened. · {paused ? "paused" : `following, every ${POLL_MS / 1000}s`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -125,9 +131,16 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
             <CopyableValue value={node.runtime.agentLogPath} label="Log file" />
           </div>
         )}
-        <pre
+        {/* A named, FOCUSABLE scroll box — `<section>`, not a bare `<pre>`.
+            An `overflow-auto` box with nothing to tab to cannot be scrolled
+            without a pointer at all. Same fix, same reason, as the server's
+            own log card. */}
+        <section
           ref={scroller}
           onScroll={onScroll}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container needs the keyboard
+          tabIndex={0}
+          aria-label={`Log for ${node.name}`}
           className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-background px-3 py-2.5 font-mono text-[11.5px] leading-relaxed"
         >
           {lines.length === 0 ? (
@@ -143,12 +156,20 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
               );
             })
           )}
-        </pre>
+        </section>
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" disabled={read.isPending} onClick={() => void pull()}>
-            Refresh
+          {/* Pause/Resume, NOT Refresh. This polls, so a Refresh button asked
+              for something already on its way and the stamp beside it said so
+              twice — the pair the server's Service page deleted. What is
+              missing when a view follows on its own is a way to make it STOP,
+              so a person can read something without the next poll moving it.
+              The label carries the state and `aria-pressed` is absent: the two
+              together announce "Resume, pressed" while paused, the inverse of
+              the truth. */}
+          <Button variant="outline" size="sm" onClick={() => setPaused((was) => !was)}>
+            {paused ? <Play aria-hidden /> : <Pause aria-hidden />}
+            {paused ? "Resume" : "Pause"}
           </Button>
-          <span className="text-muted-foreground text-xs">refreshes every {POLL_MS / 1000}s</span>
         </div>
         {failure && (
           <p role="alert" className="text-destructive text-sm">

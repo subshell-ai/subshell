@@ -5,11 +5,32 @@ import { Badge } from "@/components/ui/badge";
 import type { NodeDetail, NodeRuntime } from "@/types/node";
 
 /** Who is running the agent, and since when. */
-function supervisionLine(runtime: NodeRuntime): string {
+export function supervisionLine(runtime: NodeRuntime): string {
   if (!runtime.supervised) return "Not supervised";
   const manager = runtime.service.manager ?? "a service manager";
   const pid = runtime.service.pid === null ? "" : ` (pid ${runtime.service.pid})`;
   return `${manager}${pid}${runtime.service.enabled ? " · starts at login" : ""}`;
+}
+
+/**
+ * The part "starts at login" does not say, on systemd.
+ *
+ * A `--user` unit runs inside the owner's login session, so it comes up at
+ * login and goes down at LOGOUT — which on a headless box that nobody logs
+ * into is the difference between an agent that is there and one that is not.
+ * `loginctl enable-linger` is what decouples the two, and the agent's own
+ * install prints that advice... to a terminal, on a machine most people never
+ * open a terminal on. This card is the only surface a headless node's owner
+ * sees, so the caveat belongs here too.
+ *
+ * launchd has no equivalent knob and needs no note: a LaunchAgent's lifetime
+ * is the GUI session by design, and a machine with no one logged in is not
+ * running one either way.
+ */
+export function lingerNote(runtime: NodeRuntime): string | null {
+  if (!runtime.supervised || runtime.service.enabled !== true) return null;
+  if (runtime.service.manager !== "systemd") return null;
+  return "Starting at login is not the same as staying up after logout: a systemd user service stops when its owner logs out. `loginctl enable-linger` on that machine keeps it running.";
 }
 
 /**
@@ -35,11 +56,15 @@ export function NodeRuntimeCard({ node }: { node: NodeDetail }): JSX.Element | n
   if (!runtime) return null;
 
   const kills = runtime.service.paneSafety !== "keeps";
+  const linger = lingerNote(runtime);
 
   return (
     <FactCard title="Runtime">
       <Fact label="Up since">{new Date(runtime.startedAt).toLocaleString()}</Fact>
-      <Fact label="Supervised by">{supervisionLine(runtime)}</Fact>
+      <Fact label="Supervised by">
+        {supervisionLine(runtime)}
+        {linger && <span className="mt-1 block text-muted-foreground text-xs">{linger}</span>}
+      </Fact>
       <Fact label="tmux">
         {runtime.tmuxPath ? (
           <span className="break-all font-mono text-xs">{runtime.tmuxPath}</span>
