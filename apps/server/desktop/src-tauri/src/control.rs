@@ -233,9 +233,29 @@ impl Probe {
     /// rest of the URL is config we should not trust into a window that holds
     /// privileged globals.
     pub fn origin(&self) -> Option<String> {
+        self.origin_with(dev_spa_origin().as_deref())
+    }
+
+    /// [`Probe::origin`] with the dev override passed IN rather than read from
+    /// the environment.
+    ///
+    /// Split so the tests never set a process-wide variable: cargo runs tests
+    /// in parallel across modules, and an env var one test sets is read by
+    /// another test's `origin()` on a different thread. That is not a
+    /// hypothetical — it is what the first version of these tests did, and it
+    /// broke `watch::tests` two modules away.
+    fn origin_with(&self, dev: Option<&str>) -> Option<String> {
         let listen = self.status.as_ref()?.get("listen")?;
         if listen.get("portValid")? != &serde_json::Value::Bool(true) {
             return None;
+        }
+        // AFTER the readiness check, deliberately: the override changes WHERE
+        // the dashboard window points, never whether there is a server worth
+        // pointing it at. A window opened at the SPA's dev server with nothing
+        // behind the proxy is a page of failed requests, which is a worse dev
+        // experience than the recovery screen that would otherwise show.
+        if let Some(dev) = dev {
+            return Some(dev.to_string());
         }
         let port = listen.get("port")?.as_u64()?;
         let base = self
@@ -250,6 +270,60 @@ impl Probe {
         let host = if host.contains(':') { format!("[{host}]") } else { host };
         Some(format!("http://{host}:{port}"))
     }
+}
+
+/// A DEV-ONLY substitute for the dashboard window's address.
+///
+/// **Why this exists.** `tauri dev` gives the bundled assistant page real HMR
+/// — `devUrl` points at its own Vite server — but the dashboard window loads
+/// the RUNNING SERVER's origin, and that server is the installed
+/// `subshell-server` binary serving the SPA embedded in it at build time. So
+/// an edit anywhere in `apps/server/web` reaches that window not slowly but
+/// NOT AT ALL, until the SPA is rebuilt, embedded into a new binary, installed
+/// and restarted. Pointing the window at the SPA's own Vite server instead
+/// (`http://localhost:5174`, which proxies `/api` and `/ws` to the real
+/// server) is what makes the dashboard editable in the app at all.
+///
+/// Applied inside [`Probe::origin`] rather than at the `open_main` call sites,
+/// because `watch.rs` compares the window's current URL against this same
+/// answer and navigates when they differ — an override the watcher did not
+/// know about would be dragged back to the server's own port on the next tick.
+///
+/// **It cannot exist in a release build.** `debug_assertions` is off there, so
+/// this returns `None` before reading the environment at all; a variable left
+/// set in a user's shell reaches nothing. The value is still required to be a
+/// loopback http origin, and `open_main` re-checks that independently.
+fn dev_spa_origin() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let raw = std::env::var("SUBSHELL_DESKTOP_SPA_URL").ok();
+    let chosen = dev_spa_origin_from(raw.as_deref())?;
+    // Said out loud, every time. A window pointing somewhere other than the
+    // server it reports on is exactly the kind of thing that becomes a
+    // mystery an hour later.
+    eprintln!("subshell: dev override — opening the dashboard at {chosen} instead of the server's own address");
+    Some(chosen)
+}
+
+/// The validation half of {@link dev_spa_origin}, with no environment in it.
+///
+/// Loopback http only. The dashboard window holds privileged globals, and a
+/// convenience for developers is not the place to widen where those may be
+/// served from — `open_main` refuses a non-loopback origin independently, so
+/// this agreeing with it is belt and braces rather than the only gate.
+fn dev_spa_origin_from(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if !raw.starts_with("http://") {
+        return None;
+    }
+    url_host(raw).filter(|h| is_loopback(h))?;
+    // Trailing slash removed: `watch.rs` compares this against the window's
+    // own origin, and the two spellings would never match.
+    Some(raw.trim_end_matches('/').to_string())
 }
 
 /// Host of an http(s) URL, without pulling in a URL crate for one field.
@@ -2368,6 +2442,59 @@ mod tests {
         assert_eq!(p.server_choice, ServerChoice::UpgradeAvailable);
     }
 
+    /// The dev override replaces the ADDRESS, never the readiness check.
+    ///
+    /// Driven through the PURE helpers, so nothing here sets a process-wide
+    /// variable — cargo runs tests in parallel across modules, and the first
+    /// version of this test set `SUBSHELL_DESKTOP_SPA_URL` and broke
+    /// `watch::tests` on another thread.
+    #[test]
+    fn the_dev_spa_override_takes_only_loopback_http() {
+        assert_eq!(
+            dev_spa_origin_from(Some("http://localhost:5174")).as_deref(),
+            Some("http://localhost:5174")
+        );
+        // A trailing slash would make `watch.rs`'s origin comparison disagree
+        // with itself and re-navigate the window on every tick.
+        assert_eq!(
+            dev_spa_origin_from(Some("http://127.0.0.1:5174/")).as_deref(),
+            Some("http://127.0.0.1:5174")
+        );
+        // Not loopback: this window holds privileged globals.
+        assert_eq!(dev_spa_origin_from(Some("http://example.com:5174")), None);
+        // Not http, not a URL, absent, blank.
+        assert_eq!(dev_spa_origin_from(Some("https://localhost:5174")), None);
+        assert_eq!(dev_spa_origin_from(Some("5174")), None);
+        assert_eq!(dev_spa_origin_from(Some("   ")), None);
+        assert_eq!(dev_spa_origin_from(None), None);
+    }
+
+    #[test]
+    fn a_server_that_is_not_ready_is_still_not_opened_under_the_override() {
+        // `portValid: false` means there is no server worth pointing at.
+        // Overriding the ADDRESS must not turn that into a window of failed
+        // requests against a proxy with nothing behind it.
+        let down = probe_with(
+            Some(serde_json::json!({ "listen": { "portValid": false, "port": 3080 } })),
+            None,
+            true,
+        );
+        assert_eq!(down.origin_with(Some("http://localhost:5174")), None);
+
+        // Ready: the override is what the window opens at.
+        let up = probe_with(
+            Some(serde_json::json!({ "listen": { "portValid": true, "port": 3080 } })),
+            None,
+            true,
+        );
+        assert_eq!(
+            up.origin_with(Some("http://localhost:5174")).as_deref(),
+            Some("http://localhost:5174")
+        );
+        // And without one, the server's own address, unchanged.
+        assert_eq!(up.origin_with(None).as_deref(), Some("http://127.0.0.1:3080"));
+    }
+
     #[test]
     fn origin_prefers_the_servers_own_loopback_spelling() {
         let p = probe_with(
@@ -2452,8 +2579,18 @@ mod tests {
     /// `desktop_set_supervision` to the served page, where an XSS can fire a
     /// hundred at once into a chain that uninstalls a service and installs
     /// another.
+    /// Serializes the tests that drive `ACTION_IN_FLIGHT`.
+    ///
+    /// It is a process-wide static and cargo runs tests in parallel threads,
+    /// so two of them setting and clearing it race — invisibly while the rest
+    /// of the suite happens to interleave them apart, and then not. Found by
+    /// running with a filter, which changed which tests were in flight
+    /// together; a filter must not decide whether a test passes.
+    static GUARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn a_second_action_cannot_start_while_one_is_running() {
+        let _serial = GUARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         // Nothing running: the first caller takes it.
         ACTION_IN_FLIGHT.store(false, Ordering::SeqCst);
         let first = ActionGuard::try_new().expect("an idle machine admits one");
@@ -2479,6 +2616,7 @@ mod tests {
     /// interleave `try_new` exists to prevent, reachable without any race.
     #[test]
     fn a_non_owning_guard_does_not_release_the_owner_s_flag() {
+        let _serial = GUARD_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         ACTION_IN_FLIGHT.store(false, Ordering::SeqCst);
         let owner = ActionGuard::try_new().expect("an idle machine admits one");
         // The assistant proceeds anyway — that part is unchanged.

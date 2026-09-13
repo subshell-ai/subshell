@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { AddressesCard } from "@/components/service/addresses-card";
+import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
 import { LocationsCard } from "@/components/service/locations-card";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
@@ -83,6 +84,7 @@ function ServicePage() {
           <UpdateCard serverVersion={publicSettings?.serverVersion} />
           {view && (
             <>
+              <DevProxyNotice />
               <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />
               <SupervisionCard view={view} autostart={autostart} supervision={supervision} />
               <AddressesCard view={view} restart={restart} />

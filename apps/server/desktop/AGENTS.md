@@ -738,6 +738,40 @@ their consequences written on the screen rather than inside a system sheet, so
 nothing calls `ask` — and a granted permission with no caller is the erosion
 these pins exist to catch, read from the other end.
 
+**HMR reaches the assistant and NOT the dashboard, and that is the shape of
+the app rather than a broken config.** `tauri dev` starts the bundled page's
+own Vite server (`devUrl`, `beforeDevCommand`), so edits under `ui/` hot-reload.
+The dashboard window loads the RUNNING SERVER's origin, and that server is the
+installed `subshell-server` binary serving the SPA embedded in it at build
+time — so an edit in `apps/server/web` reaches that window not slowly but not
+at all, until the SPA is rebuilt, embedded, installed and restarted.
+
+**`bun run dev:desktop-server` does this for you.** The launcher probes
+`http://localhost:5174` and, when the SPA's own Vite server answers, points the
+dashboard window THERE — it proxies `/api` and `/ws` to the real server, and
+it is the only way that window hot-reloads. It says which of the two it chose
+on startup, so the absence of hot reload is never a silent mystery.
+
+Detected rather than assumed, and never started: a window aimed at a dead port
+is worse than the default, and starting a second Vite would fight the one
+`bun run dev` may already own. So the order is `bun run dev` in
+`apps/server/web` first, then the app. `SUBSHELL_DESKTOP_SPA_URL` still wins
+when set explicitly, which is what makes a non-default port possible.
+Three things make it safe rather than a hole: it is read only under
+`debug_assertions`, so a release build ignores the variable before looking at
+it; the value must be a loopback `http://` origin, which `open_main` re-checks
+independently; and it is applied inside `Probe::origin` rather than at the
+`open_main` call sites, because `watch.rs` compares the window's URL against
+that same answer and would otherwise navigate back to the server's port on the
+next tick. The substitution is printed on stderr every time.
+
+Two consequences to expect, both correct: the Service page reports the
+SERVER's port (3080), not the window's (5174), because it describes the server
+— `DevProxyNotice` says so on that page and on Status, in dev builds only —
+and `resumeElsewhere` fires permanently, because the base URL's origin really
+is not the page's. Editing the Port field under the override moves the server
+out from under Vite's fixed proxy target until Vite restarts.
+
 **`withGlobalTauri` is load-bearing for `main`, not for the bundled page.**
 The SPA's desktop bridge (`apps/server/web/src/lib/desktop.ts`) reads
 `window.__TAURI__` — it imports nothing — and it takes its desktop branch

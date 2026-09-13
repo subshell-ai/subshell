@@ -5,6 +5,7 @@ import { SecurityCard } from "@/components/admin-status/security-card";
 import { VersionsCard } from "@/components/admin-status/versions-card";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
+import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
 import { Button } from "@/components/ui/button";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -61,6 +62,7 @@ function ServerStatusPage() {
           {isLoading && !status && <p className="text-muted-foreground text-sm">Loading…</p>}
           {status && (
             <>
+              <DevProxyNotice />
               <VersionsCard status={status} />
               <RuntimeCard status={status} />
               <InventoryCard status={status} />

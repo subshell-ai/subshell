@@ -332,6 +332,16 @@ working tree:
   since that rung outranks the managed copy. `SUBSHELL_DEV_SKIP_INSTALL=1` opts
   out; `--check` does everything except launch the app.
 
+**One more thing the server app's launcher does: it finds the SPA dev
+server.** `tauri dev` gives the app's own bundled page HMR, but the DASHBOARD
+window loads the running server's origin — the installed binary, serving the
+SPA embedded in it at build time — so an edit under `apps/server/web` reaches
+that window not slowly but not at all. The launcher probes
+`http://localhost:5174` and points the window there when Vite answers, saying
+which it chose either way. Run `bun run dev` in `apps/server/web` first if you
+want that; it is detected, never started, because a second Vite would fight
+the first and a window aimed at a dead port is worse than no hot reload.
+
 The cost of not doing this was measured on 2026-09-11: a `service uninstall`
 fix landed seven minutes after the installed binary was compiled, the desktop
 reset kept failing with the exact error the fix removes, and the fix looked

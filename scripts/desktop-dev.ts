@@ -351,11 +351,62 @@ function warnIfServiceOutranksManaged(app: DesktopApp, dest: string): void {
   console.log(`NOTE: ${definition} runs ${first}, which outranks the copy above — the app will resolve THAT one.`);
 }
 
-/** `tauri dev` for one app, inheriting stdio so its output and Ctrl-C behave. */
+/** Where `apps/server/web`'s own Vite server listens (its `vite.config.ts`). */
+const SPA_DEV_URL = "http://localhost:5174";
+
+/**
+ * The SPA dev server's address when one is actually listening, else null.
+ *
+ * **Detected rather than assumed, and never started.** Pointing the dashboard
+ * window at a port with nothing behind it is worse than the default — a
+ * window of failed requests instead of a working app — so this only reports
+ * what is there. Starting one here was the alternative and is worse in a
+ * different way: `bun run dev` may already own that port, and a second Vite
+ * fighting it is a confusing failure to hand someone who just wanted the app.
+ */
+async function spaDevServer(): Promise<string | null> {
+  try {
+    // A HEAD against the dev server's root. Vite answers; nothing listening
+    // rejects immediately, which is the case this is distinguishing.
+    await fetch(SPA_DEV_URL, { method: "HEAD", signal: AbortSignal.timeout(700) });
+    return SPA_DEV_URL;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `tauri dev` for one app, inheriting stdio so its output and Ctrl-C behave.
+ *
+ * **The server app's dashboard window is pointed at the SPA dev server when
+ * one is running**, which is the only way an edit in `apps/server/web` reaches
+ * that window at all: it otherwise loads the installed binary's EMBEDDED SPA,
+ * built at release time. Detected here rather than left to an environment
+ * variable a person has to remember — the variable still wins when set
+ * explicitly, which is what makes a non-default port possible.
+ *
+ * Not for the client app: its remote window is a control plane that can live
+ * anywhere, is granted no commands, and ships without the desktop marker, so
+ * there is nothing here to hot-reload.
+ */
 async function runDev(app: DesktopApp): Promise<number> {
+  const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  if (app.id === "server" && env.SUBSHELL_DESKTOP_SPA_URL === undefined) {
+    const found = await spaDevServer();
+    if (found) {
+      env.SUBSHELL_DESKTOP_SPA_URL = found;
+      console.log(`==> SPA dev server on ${found} — the dashboard will open THERE, so the SPA hot-reloads.`);
+    } else {
+      console.log(
+        `==> no SPA dev server on ${SPA_DEV_URL}: the dashboard will show the installed binary's embedded SPA, ` +
+          "which will NOT pick up edits under apps/server/web. Run `bun run dev --cwd apps/server/web` first for that.",
+      );
+    }
+  }
   const proc = Bun.spawn(["bun", "run", "--cwd", `apps/${app.dir}`, "dev:app"], {
     cwd: REPO_ROOT,
     stdio: ["inherit", "inherit", "inherit"],
+    env,
   });
   return await proc.exited;
 }
