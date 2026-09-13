@@ -55,8 +55,12 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   await expect(envSection.getByRole("combobox", { name: "Variable 1" })).toHaveValue("E2E_ONE");
   await page.getByRole("button", { name: "Create preset" }).click();
   // The row appears under its agent's group header (the list is grouped by
-  // agent now; the row itself carries no harness badge).
-  await expect(page.getByText("pi", { exact: true })).toBeVisible();
+  // agent now; the row itself carries no harness badge). The header is an
+  // <h2> (icon span aria-hidden, then the name) — matching it by ROLE is what
+  // keeps "pi" single-match: a getByText of the bare name would also hit a
+  // future no-env preset's row, whose copy-launch command line renders
+  // exactly "pi".
+  await expect(page.getByRole("heading", { name: "pi", exact: true })).toBeVisible();
   await expect(page.getByText("E2E shell")).toBeVisible();
 
   // The pasted rows must reach storage, not just the form.
