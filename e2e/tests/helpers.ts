@@ -123,21 +123,6 @@ export async function pickAgent(input: Locator, label: string): Promise<void> {
 }
 
 /**
- * Choose a preset from the launch form's Preset select by its exact label
- * ("None" is always its first item).
- *
- * No settle wait here, unlike {@link openAgentPicker}: this is a Base UI
- * Select, not a type-to-filter combobox. Its trigger is a button, its options
- * do not filter against the trigger's text, and its value ("None" at rest) is
- * never empty — so the auto-selection race the agent picker guards has no
- * counterpart. Click the trigger, click the option.
- */
-export async function pickPreset(page: Page, label: string, trigger = "#picker-preset"): Promise<void> {
-  await page.locator(trigger).click();
-  await page.getByRole("option", { name: label, exact: true }).click();
-}
-
-/**
  * Dismiss the working-directory PANEL inside a dialog, without closing the
  * dialog itself.
  *
