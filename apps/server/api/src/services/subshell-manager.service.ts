@@ -13,7 +13,7 @@ import {
 } from "@internal/pane-runtime";
 import { dirAllowed, type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
-import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
@@ -98,7 +98,7 @@ const defaultNotify: (subshellId: string, kind: NotifyKind) => Promise<void> = a
  */
 export class SubshellManagerService {
   readonly #subshells: SubshellsRepository;
-  readonly #profiles: ProfilesRepository;
+  readonly #presets: PresetsRepository;
   /**
    * Constructor-injected launcher (or the deprecated `tmux` shim wrapped in
    * one). A TEST OVERRIDE: when set it answers for EVERY node id, so the
@@ -113,7 +113,7 @@ export class SubshellManagerService {
 
   constructor({
     subshells,
-    profiles,
+    presets,
     tmux,
     audit = defaultAudit,
     tokens = defaultTokens,
@@ -122,7 +122,7 @@ export class SubshellManagerService {
     sendNode = sendCommand,
   }: {
     subshells: SubshellsRepository;
-    profiles: ProfilesRepository;
+    presets: PresetsRepository;
     /**
      * @deprecated test-compat shim — wrapped in a {@link LocalLauncher} when
      * no `launcher` is given, so MockTmux-style injection keeps working.
@@ -148,7 +148,7 @@ export class SubshellManagerService {
     sendNode?: typeof sendCommand;
   }) {
     this.#subshells = subshells;
-    this.#profiles = profiles;
+    this.#presets = presets;
     this.#testLauncher = launcher ?? (tmux !== undefined ? new LocalLauncher({ tmux }) : undefined);
     this.#audit = audit;
     this.#tokens = tokens;
@@ -257,14 +257,14 @@ export class SubshellManagerService {
   }
 
   /**
-   * Creates a new subshell: validates the profile + working directory, records
+   * Creates a new subshell: validates the preset + working directory, records
    * the DB row, mints the subshell's MCP token, then spawns the harness under
    * tmux with a curated env (including the injected SUBSHELL_* credentials). When
    * `prompt` is given, it is typed into the pane once the harness has settled.
    */
   async createSubshell({
     userId,
-    profileId,
+    presetId,
     workingDir,
     name,
     prompt,
@@ -275,7 +275,7 @@ export class SubshellManagerService {
     nodeId,
   }: {
     userId: string;
-    profileId: string;
+    presetId: string;
     workingDir: string;
     name?: string;
     /** Optional task text typed into the pane after the harness settles. */
@@ -303,20 +303,20 @@ export class SubshellManagerService {
      */
     nodeId?: string;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
-    const profileRow = await this.#profiles.findById(profileId);
-    if (!profileRow || profileRow.userId !== userId) {
-      throw new Error("Profile not found");
+    const presetRow = await this.#presets.findById(presetId);
+    if (!presetRow || presetRow.userId !== userId) {
+      throw new Error("Preset not found");
     }
-    const harness = getHarness(profileRow.harnessId);
+    const harness = getHarness(presetRow.harnessId);
     if (!harness) {
-      throw new Error(`Unknown harness: ${profileRow.harnessId}`);
+      throw new Error(`Unknown harness: ${presetRow.harnessId}`);
     }
 
     const targetNode = nodeId ?? LOCAL_NODE_ID;
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
     await assertDirAllowed(targetNode, realPath);
-    const preset = parsePreset(profileRow);
+    const preset = parsePreset(presetRow);
     const binary = await launcher.resolveBinary(harness);
     if (!binary) {
       throw new Error(`Harness "${harness.name}" is not installed on this machine.`);
@@ -336,12 +336,12 @@ export class SubshellManagerService {
     const harnessSession = await this.#planHarnessSession(launcher, harness, resumeFromId ?? null, realPath);
 
     // Record intent in the DB first so the row exists even if tmux errors.
-    // The profile's auto-restart policy is inherited at creation time.
+    // The preset's auto-restart policy is inherited at creation time.
     await this.#subshells.create({
       id,
       userId,
-      profileId,
-      harnessId: profileRow.harnessId,
+      presetId,
+      harnessId: presetRow.harnessId,
       name: subshellName,
       workingDir: realPath,
       tmuxSocket: socket,
@@ -352,7 +352,7 @@ export class SubshellManagerService {
       lastOutputAt: new Date().toISOString(),
       alive: 1,
       startedAt: new Date().toISOString(),
-      restartOnExit: profileRow.restartOnExit,
+      restartOnExit: presetRow.restartOnExit,
       harnessSessionId: harnessSession?.id ?? null,
       // Default-silent unless explicitly requested (restart inherits the bell).
       notify: notify ? 1 : 0,
@@ -425,7 +425,7 @@ export class SubshellManagerService {
     }
 
     logger.info(
-      `subshell created: ${id} (${subshellName}) harness=${profileRow.harnessId} cwd=${realPath} node=${targetNode}`,
+      `subshell created: ${id} (${subshellName}) harness=${presetRow.harnessId} cwd=${realPath} node=${targetNode}`,
     );
     // Audit trail: best-effort sink (default app-wide recorder), never throws.
     await this.#audit({
@@ -433,7 +433,7 @@ export class SubshellManagerService {
       action: "subshell.create",
       targetType: "subshell",
       targetId: id,
-      metadataJson: JSON.stringify({ name: subshellName, profileId, workingDir: realPath, nodeId: targetNode }),
+      metadataJson: JSON.stringify({ name: subshellName, presetId, workingDir: realPath, nodeId: targetNode }),
     });
     return { id, tmuxSocket: socket, apiKey, promptDelivered };
   }
@@ -578,7 +578,7 @@ export class SubshellManagerService {
    * @returns the restarted id + tmuxSocket (unchanged by definition), or null
    *          when the subshell is absent/not the caller's, was deleted, or a
    *          terminate won the race (so the caller converges on "gone")
-   * @throws Error when the relaunch cannot be composed (profile/harness/
+   * @throws Error when the relaunch cannot be composed (preset/harness/
    *         binary gone, working dir unlinked, tmux refused the spawn) — or
    *         when the row's agent node is offline, in the offline-flavored
    *         shape (`NodeRpcError("offline")` / "has no live connection")
@@ -871,7 +871,7 @@ export class SubshellManagerService {
    *                       a manual restart resets to 0)
    * @returns true when the pane spawned and the row revived; false when a
    *          terminate won the race (orphan pane killed, fresh token revoked)
-   * @throws when the launch cannot even be composed (profile/harness/binary
+   * @throws when the launch cannot even be composed (preset/harness/binary
    *         gone, working dir unlinked, tmux refused the spawn) — or when
    *         the row's agent node has no live connection: the throw is
    *         offline-flavored (NodeRpcError("offline") or the same message
@@ -879,8 +879,8 @@ export class SubshellManagerService {
    *         structured 409 NODE_OFFLINE of spec §5.6.
    */
   async #reviveRow(row: SubshellTable, { backoffCount }: { backoffCount: number }): Promise<boolean> {
-    const profileRow = await this.#profiles.findById(row.profileId);
-    if (!profileRow) throw new Error("profile missing");
+    const presetRow = row.presetId ? await this.#presets.findById(row.presetId) : undefined;
+    if (!presetRow) throw new Error("preset missing");
     const harness = getHarness(row.harnessId);
     if (!harness) throw new Error("harness missing");
     // The row's node owns this revive end to end (spec §6.3). An agent that
@@ -895,7 +895,7 @@ export class SubshellManagerService {
     await assertDirAllowed(row.nodeId, realPath);
     const binary = await launcher.resolveBinary(harness);
     if (!binary) throw new Error("harness binary missing");
-    const preset = parsePreset(profileRow);
+    const preset = parsePreset(presetRow);
     // Rotate the MCP token: the old process is gone and its baked key must
     // die with it; the new pane bakes the freshly issued one. A failed
     // revoke must NOT abort the restart — `issue` below rewrites the row's
@@ -914,7 +914,7 @@ export class SubshellManagerService {
     // re-pin when it didn't (or the row predates the feature).
     const harnessSession = await this.#planHarnessSession(launcher, harness, row.harnessSessionId ?? null, realPath);
     const socket = row.tmuxSocket ?? tmuxSocketFor(row.id);
-    // Cheap last look before the spawn: everything above (profile lookup,
+    // Cheap last look before the spawn: everything above (preset lookup,
     // findBinary, two token round-trips) is a window in which the operator
     // can terminate the subshell — never bake a pane under a killed row.
     const preSpawn = await this.#subshells.findById(row.id);
@@ -1328,7 +1328,7 @@ export class SubshellManagerService {
   }
 }
 
-/** Parses a profile row's JSON blobs into the plugin-facing shape. */ export function parsePreset(row: {
+/** Parses a preset row's JSON blobs into the plugin-facing shape. */ export function parsePreset(row: {
   envJson: string | null;
   flagsJson: string | null;
   settingsJson: string | null;
@@ -1522,7 +1522,7 @@ export function toSubshellView(
   row: {
     id: string;
     userId: string;
-    profileId: string;
+    presetId: string | null;
     harnessId: string;
     nodeId: string;
     name: string;
@@ -1561,7 +1561,7 @@ export function toSubshellView(
 ) {
   return {
     id: row.id,
-    profileId: row.profileId,
+    presetId: row.presetId,
     harnessId: row.harnessId,
     nodeId: row.nodeId,
     name: row.name,

@@ -11,7 +11,7 @@ import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -42,6 +42,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 interface PluginRow {
   id: string;
   name: string;
+  type: "agent-harness" | "terminal";
   description: string;
   installed: boolean;
   enabled: boolean;
@@ -50,16 +51,15 @@ interface PluginRow {
   broken?: string;
 }
 interface Impact {
-  profiles: number;
+  presets: number;
   distinctUsers: number;
-  defaults: number;
   runningSubshells: number;
 }
 
 const app = new Elysia().use(errorHandlerPlugin).use(pluginsRoutes);
 const reg: FakeRegistry = startFakeRegistry();
 
-const profiles = new ProfilesRepository(db);
+const presets = new PresetsRepository(db);
 const subshells = new SubshellsRepository(db);
 
 async function get(path: string, cookie: string): Promise<Response> {
@@ -159,7 +159,7 @@ describe("/api/plugins", () => {
       await installLocalPlugin("codex").catch(() => {});
     }
     await new PluginStateRepository(db).clear("claude-code").catch(() => {});
-    await db.deleteFrom("profiles").where("harnessId", "=", "third").execute();
+    await db.deleteFrom("presets").where("harnessId", "=", "third").execute();
     await db.deleteFrom("subshells").where("harnessId", "=", "third").execute();
     if (systemKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [systemKeyId]);
     for (const email of Object.values(emails)) await deleteUserByEmailOrId(email);
@@ -177,6 +177,10 @@ describe("/api/plugins", () => {
     expect(cc?.enabled).toBe(true); // an absent row means enabled
     expect(cc?.builtIn).toBe(true);
     expect(cc?.name.length).toBeGreaterThan(0);
+    // The web Agent picker's default rule ("terminal last") needs the type
+    // from this one read: every built-in carries its manifest's value.
+    expect(cc?.type).toBe("agent-harness");
+    expect(rowOf(plugins, "terminal")?.type).toBe("terminal");
   });
 
   it("the list merges the catalog: an embedded built-in missing from disk still appears, uninstalled", async () => {
@@ -274,9 +278,10 @@ describe("/api/plugins", () => {
       source: "registry",
       spec: "plg-third@1.0.0",
     });
-    // §6.1's install side effect: every real user gains a Default for the new
-    // harness (the picker needs something to pick).
-    expect((await profiles.listByUser(aliceId)).some((p) => p.harnessId === "third")).toBe(true);
+    // Install writes NO preset rows (spec 2026-09-13): the Default seeding is
+    // gone, and a presetless launch of the new harness works the moment the
+    // overlay lands — which the assertions above just proved.
+    expect(await presets.listByHarness("third")).toEqual([]);
   });
 
   // ── the enable flag: computed availability, rows never touched ────────────
@@ -294,7 +299,7 @@ describe("/api/plugins", () => {
       expect((await usableHarnessIds()).has("claude-code")).toBe(true);
 
       // A row the toggle must never touch.
-      const row = await profiles.create({
+      const row = await presets.create({
         id: crypto.randomUUID(),
         userId: aliceId,
         harnessId: "claude-code",
@@ -305,7 +310,7 @@ describe("/api/plugins", () => {
         settingsJson: null,
         configIsolation: 0,
       });
-      const before = (await profiles.listByHarness("claude-code")).map((p) => p.id).sort();
+      const before = (await presets.listByHarness("claude-code")).map((p) => p.id).sort();
 
       const off = await send("PATCH", "/api/plugins/claude-code", adminCookie, { enabled: false });
       expect(off.status).toBe(200);
@@ -318,7 +323,7 @@ describe("/api/plugins", () => {
       const on = await send("PATCH", "/api/plugins/claude-code", adminCookie, { enabled: true });
       expect(((await on.json()) as PluginRow).enabled).toBe(true);
       expect((await usableHarnessIds()).has("claude-code")).toBe(true);
-      const after = (await profiles.listByHarness("claude-code")).map((p) => p.id).sort();
+      const after = (await presets.listByHarness("claude-code")).map((p) => p.id).sort();
       expect(after).toEqual(before); // every row survived both flips, untouched
       expect(after).toContain(row.id);
 
@@ -326,7 +331,7 @@ describe("/api/plugins", () => {
       const actions = (await pluginAudit("claude-code")).map((a) => a.action);
       expect(actions).toContain("plugin.disable");
       expect(actions).toContain("plugin.enable");
-      await profiles.delete(row.id);
+      await presets.delete(row.id);
     } finally {
       plugin.detect = origDetect;
       plugin.versionAt = origVersionAt;
@@ -341,17 +346,17 @@ describe("/api/plugins", () => {
 
   // ── impact + uninstall modes ──────────────────────────────────────────────
 
-  it("impact counts profiles, DISTINCT OWNERS (the dialog's 'across N users'), Defaults, and RUNNING subshells", async () => {
+  it("impact counts presets, DISTINCT OWNERS (the dialog's 'across N users'), and RUNNING subshells", async () => {
     // Deterministic table with a deliberately ASYMMETRIC owner split: the
-    // caller owns TWO rows (one of them the Default) and alice one. That
-    // distinguishes the number the dialog asks for — DISTINCT OWNERS
-    // including the caller (2) — from the count impact used to carry
-    // (profiles owned by others, here 1). A fixture where both compute the
-    // same number cannot regress between the two semantics.
-    await profiles.deleteByHarness("third");
+    // caller owns TWO rows and alice one. That distinguishes the number the
+    // dialog asks for — DISTINCT OWNERS including the caller (2) — from the
+    // count impact used to carry (presets owned by others, here 1). A fixture
+    // where both compute the same number cannot regress between the two
+    // semantics.
+    await presets.deleteByHarness("third");
     await db.deleteFrom("subshells").where("harnessId", "=", "third").execute();
-    const mk = (userId: string, name: string, isDefault = 0) =>
-      profiles.create({
+    const mk = (userId: string, name: string) =>
+      presets.create({
         id: crypto.randomUUID(),
         userId,
         harnessId: "third",
@@ -361,17 +366,16 @@ describe("/api/plugins", () => {
         flagsJson: null,
         settingsJson: null,
         configIsolation: 0,
-        isDefault,
       });
     await mk(adminId, "admin-regular");
-    await mk(adminId, "admin-default", 1);
+    await mk(adminId, "admin-second");
     await mk(aliceId, "alice-regular");
     const mkSub = async (name: string, running: boolean) => {
       const id = crypto.randomUUID();
       await subshells.create({
         id,
         userId: aliceId,
-        profileId: "p",
+        presetId: "p",
         harnessId: "third",
         name,
         workingDir: "/tmp",
@@ -386,32 +390,32 @@ describe("/api/plugins", () => {
     const res = await get("/api/plugins/third/impact", adminCookie);
     expect(res.status).toBe(200);
     const impact = (await res.json()) as Impact;
-    expect(impact).toEqual({ profiles: 3, distinctUsers: 2, defaults: 1, runningSubshells: 1 });
+    expect(impact).toEqual({ presets: 3, distinctUsers: 2, runningSubshells: 1 });
   });
 
-  it("uninstall?mode=keep removes the bytes and leaves every profile row standing; running subshells survive", async () => {
+  it("uninstall?mode=keep removes the bytes and leaves every preset row standing; running subshells survive", async () => {
     // Disable first, so the state row exists and the uninstall's cleanup of it
     // is observable rather than an assertion about a row that was never there.
     expect((await send("PATCH", "/api/plugins/third", adminCookie, { enabled: false })).status).toBe(200);
-    const before = (await profiles.listByHarness("third")).map((p) => p.id).sort();
+    const before = (await presets.listByHarness("third")).map((p) => p.id).sort();
     const runningBefore = (await subshells.listRunning()).map((s) => s.id).sort();
 
     const res = await send("DELETE", "/api/plugins/third?mode=keep", adminCookie);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; mode: string; profilesRemoved: number };
-    expect(body).toMatchObject({ ok: true, mode: "keep", profilesRemoved: 0 });
+    const body = (await res.json()) as { ok: boolean; mode: string; presetsRemoved: number };
+    expect(body).toMatchObject({ ok: true, mode: "keep", presetsRemoved: 0 });
 
     expect((await localPluginReports()).find((r) => r.id === "third")).toBeUndefined();
     // The uninstall-side proof of the same seam: resolution follows the store,
     // so the launch path can no longer reach what the store no longer holds.
     expect(getHarness("third")).toBeUndefined();
-    const after = (await profiles.listByHarness("third")).map((p) => p.id).sort();
+    const after = (await presets.listByHarness("third")).map((p) => p.id).sort();
     expect(after).toEqual(before); // rows untouched — availability is computed, not stored
     expect((await subshells.listRunning()).map((s) => s.id).sort()).toEqual(runningBefore);
 
     expect((await pluginAudit("third"))[0]).toMatchObject({
       action: "plugin.uninstall",
-      metadata: { pluginId: "third", mode: "keep", profilesRemoved: 0 },
+      metadata: { pluginId: "third", mode: "keep", presetsRemoved: 0 },
     });
     // The state row is gone with the install: a later reinstall starts enabled,
     // because "installing writes nothing, the default is on" only means
@@ -423,23 +427,23 @@ describe("/api/plugins", () => {
     expect(
       (await send("POST", "/api/plugins", adminCookie, { pluginId: "third", spec: "plg-third@1.0.0" })).status,
     ).toBe(200);
-    const before = (await profiles.listByHarness("third")).length;
+    const before = (await presets.listByHarness("third")).length;
     const res = await send("DELETE", "/api/plugins/third", adminCookie);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { mode: string }).mode).toBe("keep");
-    expect((await profiles.listByHarness("third")).length).toBe(before);
+    expect((await presets.listByHarness("third")).length).toBe(before);
   });
 
-  it("mode=delete sweeps profiles across EVERY user INCLUDING Defaults; a running subshell survives", async () => {
+  it("mode=delete sweeps presets across EVERY user; a running subshell survives, presetless", async () => {
     expect(
       (await send("POST", "/api/plugins", adminCookie, { pluginId: "third", spec: "plg-third@1.0.0" })).status,
     ).toBe(200);
-    // Deterministic again (the reinstall seeded Defaults for every real user,
-    // including users other suites may hold): exactly admin-regular,
-    // alice-regular, alice-default, plus the still-running subshell row.
-    await profiles.deleteByHarness("third");
-    const mk = (userId: string, name: string, isDefault = 0) =>
-      profiles.create({
+    // Deterministic again: exactly admin-regular, alice-regular,
+    // alice-second, plus one running subshell whose `preset_id` the sweep must
+    // NULL rather than dangle (spec 2026-09-13 §6).
+    await presets.deleteByHarness("third");
+    const mk = (userId: string, name: string) =>
+      presets.create({
         id: crypto.randomUUID(),
         userId,
         harnessId: "third",
@@ -449,16 +453,16 @@ describe("/api/plugins", () => {
         flagsJson: null,
         settingsJson: null,
         configIsolation: 0,
-        isDefault,
       });
-    await mk(adminId, "admin-regular");
+    const adminRegular = await mk(adminId, "admin-regular");
     const aliceRegular = await mk(aliceId, "alice-regular");
-    const aliceDefault = await mk(aliceId, "alice-default", 1);
+    const aliceSecond = await mk(aliceId, "alice-second");
     await db.deleteFrom("subshells").where("harnessId", "=", "third").execute();
+    const runnerId = crypto.randomUUID();
     await subshells.create({
-      id: crypto.randomUUID(),
+      id: runnerId,
       userId: aliceId,
-      profileId: "p",
+      presetId: adminRegular.id,
       harnessId: "third",
       name: "third-running",
       workingDir: "/tmp",
@@ -467,21 +471,21 @@ describe("/api/plugins", () => {
 
     const res = await send("DELETE", "/api/plugins/third?mode=delete", adminCookie);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; mode: string; profilesRemoved: number };
+    const body = (await res.json()) as { ok: boolean; mode: string; presetsRemoved: number };
     expect(body.mode).toBe("delete");
-    expect(body.profilesRemoved).toBe(3);
+    expect(body.presetsRemoved).toBe(3);
 
-    expect(await profiles.listByHarness("third")).toEqual([]);
-    // The Default flag did NOT protect alice's Default from this sweep —
-    // deliberate, here and nowhere else (spec §6.1).
-    expect(await profiles.findById(aliceRegular.id)).toBeUndefined();
-    expect(await profiles.findById(aliceDefault.id)).toBeUndefined();
-    // And the subshell that was RUNNING is still running.
+    expect(await presets.listByHarness("third")).toEqual([]);
+    expect(await presets.findById(adminRegular.id)).toBeUndefined();
+    expect(await presets.findById(aliceRegular.id)).toBeUndefined();
+    expect(await presets.findById(aliceSecond.id)).toBeUndefined();
+    // And the subshell that was RUNNING is still running — presetless.
     const still = (await subshells.listRunning()).filter((s) => s.harnessId === "third");
     expect(still.length).toBe(1);
     expect(still[0]?.name).toBe("third-running");
+    expect(still[0]?.presetId).toBeNull();
 
-    expect((await pluginAudit("third"))[0]?.metadata).toMatchObject({ mode: "delete", profilesRemoved: 3 });
+    expect((await pluginAudit("third"))[0]?.metadata).toMatchObject({ mode: "delete", presetsRemoved: 3 });
     for (const s of still) await subshells.delete(s.id);
   });
 

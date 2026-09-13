@@ -59,7 +59,7 @@ describe("/api/nodes/setup-keys", () => {
     await new SubshellsRepository(db).create({
       id: "s_nsk",
       userId: aliceId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "s_nsk",
       workingDir: "/tmp",

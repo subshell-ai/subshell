@@ -214,28 +214,12 @@ export class NodesRepository extends BaseRepository {
   }
 
   /**
-   * Profiles pinned to this node — the delete confirm dialog warns with this
-   * count (spec §5.4); deleting the node un-pins them, it never deletes them.
-   */
-  async countPinnedProfiles(id: string): Promise<number> {
-    const r = await this.db
-      .selectFrom("profiles")
-      .select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("nodeId", "=", id)
-      .executeTakeFirst();
-    return Number(r?.n ?? 0);
-  }
-
-  /**
-   * Delete a node, unpinning profiles in the same transaction (spec §5.4:
-   * `profiles.node_id` is NULLed so the profile survives as "any node" and
-   * `node_shares` rides the FK cascade; the plugin set was never row-scoped
-   * state to clean — since the inversion the instance owns it).
+   * Delete a node (spec §5.4). `node_shares` ride the FK cascade; the plugin
+   * set was never row-scoped state to clean — since the inversion the instance
+   * owns it. The preset pin died with spec 2026-09-13 §2.3, so there is no
+   * un-pin step left: presets never reference a node any more.
    */
   async deleteById(id: string): Promise<void> {
-    await this.db.transaction().execute(async (tx) => {
-      await tx.updateTable("profiles").set({ nodeId: null }).where("nodeId", "=", id).execute();
-      await tx.deleteFrom("nodes").where("id", "=", id).execute();
-    });
+    await this.db.deleteFrom("nodes").where("id", "=", id).execute();
   }
 }

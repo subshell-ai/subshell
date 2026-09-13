@@ -30,7 +30,7 @@ const EMBEDDED_STATIC_PLUGIN_NAME = "subshell-static-embedded";
  * - any other dotted top-level path (e.g. `/manifest.webmanifest`,
  *   `/icons/*.png`) is served from the dist root when the file exists there,
  *   otherwise 404 — same traversal guard as `/assets/*`
- * - any other top-level path (SPA route, e.g. `/profiles`) falls back to
+ * - any other top-level path (SPA route, e.g. `/presets`) falls back to
  *   `index.html` so client-side routing can take over
  *
  * API routes (`/api/*`) are intentionally NOT handled here — they are

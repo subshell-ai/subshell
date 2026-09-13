@@ -1,3 +1,5 @@
+import { PLUGIN_API_VERSION } from "@subshell-ai/plugin-api";
+
 /**
  * Minimal ustar writers for the vendored-tgz tests: enough of the format to
  * exercise every reader rule in `tar-vendor.ts` (and later, the plugin-pack
@@ -141,7 +143,7 @@ export function makePluginTgz(opts: {
   entryBody?: string;
 }): Uint8Array<ArrayBuffer> {
   const subshell = {
-    apiVersion: opts.apiVersion ?? 1,
+    apiVersion: opts.apiVersion ?? PLUGIN_API_VERSION,
     id: opts.id ?? opts.name.replace(/^(@[^/]+\/)?plugin-/, ""),
     type: "agent-harness",
     name: "fixture",

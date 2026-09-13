@@ -119,7 +119,7 @@ const InventorySchema = t.Object({
   }),
   workspaces: t.Number({ description: "Workspaces across all users" }),
   channels: t.Number({ description: "Cross-subshell channels" }),
-  profiles: t.Number({ description: "Harness profiles across all users" }),
+  presets: t.Number({ description: "Harness presets across all users" }),
 });
 
 const SecuritySchema = t.Object({

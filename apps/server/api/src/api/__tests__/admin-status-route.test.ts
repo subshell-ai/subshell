@@ -76,7 +76,7 @@ describe("GET /api/admin/status", () => {
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId: adminId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "admin-status-test",
       workingDir: "/tmp",
@@ -134,7 +134,7 @@ describe("GET /api/admin/status", () => {
     await new SubshellsRepository(db).create({
       id: countedId,
       userId: adminId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "admin-status-count",
       workingDir: "/tmp",

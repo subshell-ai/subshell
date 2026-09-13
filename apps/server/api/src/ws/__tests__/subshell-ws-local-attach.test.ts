@@ -105,7 +105,7 @@ async function seedLocalRow() {
   return repos.subshells.create({
     id: crypto.randomUUID(),
     userId: `u-ws-leak-${rowSeq}`,
-    profileId: "p-test",
+    presetId: "p-test",
     harnessId: "shell",
     name: "ws-leak-regression",
     workingDir: "/tmp",

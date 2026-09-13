@@ -96,7 +96,7 @@ describe("/api/nodes service + runtime", () => {
     await new SubshellsRepository(db).create({
       id: sid,
       userId: aliceId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: sid,
       workingDir: "/tmp",

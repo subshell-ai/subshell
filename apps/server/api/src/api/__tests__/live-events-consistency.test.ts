@@ -71,7 +71,7 @@ describe("SSE events feed matches the REST list (one cache, two producers)", () 
     await new SubshellsRepository(db).create({
       id,
       userId: ownerId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "foreign-session",
       workingDir: "/tmp",

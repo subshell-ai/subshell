@@ -26,7 +26,7 @@ const SetupStatusSchema = t.Object({
  * these do you want installed". A BROKEN plugin is NOT counted installed
  * here — the same filter the mirrored read applied before this move, so a
  * plugin that will not load reads as not-installed to every consumer of
- * `installedHere` (the profile editor filters its picker on exactly that).
+ * `installedHere` (the preset editor filters its picker on exactly that).
  * The admin's instance page is the surface that shows the broken row and its
  * reason: `GET /api/plugins` iterates the disk reports, `broken` included.
  */
@@ -108,13 +108,13 @@ export async function resolveSetupActor(request: Request): Promise<"cookie" | "a
  * `POST /api/nodes/local/plugins` restricts to admins (`local`'s `canManage`
  * resolves to admin). Leaving this at "any signed-in user" would have made it
  * the weaker of two doors onto one operation: any user could have removed
- * claude-code from the host, hiding every user's claude-code profiles and
+ * claude-code from the host, hiding every user's claude-code presets and
  * refusing every claude-code launch instance-wide.
  *
  * Bearer keys are refused on writes even for an admin-owned key: this is
  * machine configuration with no machine consumer (the `subshell mcp` binary
  * never calls it; its endpoint census in packages/mcp-core/src/tools.ts covers
- * subshells, channels, profiles reads and identities only).
+ * subshells, channels, presets reads and identities only).
  *
  * The pre-auth window stays open, because the wizard runs before any user
  * exists and the first person through it is the admin. What keeps that window

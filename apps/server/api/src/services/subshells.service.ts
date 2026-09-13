@@ -84,18 +84,18 @@ function rethrowUnlessNodeOffline(err: unknown): never {
  *    sees because seeing it is how they switch it back on. The 404 above runs
  *    FIRST, so the 403 can only ever name a node already on the caller's own
  *    Nodes page. An AGENT node with no live connection ⇒ 409 NODE_OFFLINE.
- * 2. `profile.nodeId` (the pin) — the same gate, but every failure carries
- *    the "profile is pinned" message: a pin that cannot launch right now is
- *    an error, never a relocation.
- * 3. `local` when its own access check grants launch — today's default, and
+ * 2. `local` when its own access check grants launch — today's default, and
  *    the disable-switch (an admin deleting local's Everyone row turns this
  *    step off for EVERYONE, admins included: `nodeCanLaunchOn` reads the
  *    granted access there, never the admin boost, or the one person who can
  *    throw the switch would be the one person it does not apply to).
- * 4. Auto-pick: exactly one ONLINE agent among the caller's candidates —
+ * 3. Auto-pick: exactly one ONLINE agent among the caller's candidates —
  *    `findAccessible` for a browser actor, `listByOwner` for a bearer. Zero
  *    or several ⇒ 400 NODE_REQUIRED ("pick one"; the spec's single-online
  *    auto-pick is read literally — two online nodes is NOT a choice).
+ *
+ * The preset pin died with spec 2026-09-13 §2.3 — a preset never names a
+ * node, so "where" is the body, then the host, then the lone online agent.
  *
  * MACHINE actors (`machineActor: true` — any bearer token, subshell or
  * system key) get the STRICT loader everywhere: no admin boost, no shares,
@@ -115,7 +115,6 @@ export async function resolveLaunchNode(
     userId,
     machineActor,
     requestedNodeId,
-    profile,
   }: {
     /** The creating user (bearer actors arrive as their owning user). */
     userId: string;
@@ -123,20 +122,17 @@ export async function resolveLaunchNode(
     machineActor: boolean;
     /** Explicit `body.nodeId` (may name `local`). */
     requestedNodeId?: string;
-    /** The resolved profile row — only `nodeId` (the pin) is read. */
-    profile: { nodeId: string | null };
   },
   deps: NodeAccessDeps,
 ): Promise<{ nodeId: string }> {
-  /** The steps 1/2 gate: existence → launch access → agent liveness. */
-  const gate = async (nodeId: string, pinned: boolean): Promise<{ nodeId: string }> => {
+  /** The step-1 gate: existence → launch access → agent liveness. */
+  const gate = async (nodeId: string): Promise<{ nodeId: string }> => {
     const { row, access, granted } = await loadNodeAccess(deps, userId, nodeId, {
       allowAdminAndShares: !machineActor,
     });
-    const why = pinned ? `Profile is pinned to node ${nodeId}, which can't launch right now` : undefined;
     // Any share grants launch (spec §2): access "none" ⇔ invisible ⇒ 404.
     if (!row || !nodeCanLaunch(access)) {
-      throw new SubshellCreateError("node_not_found", why ?? "Node not found", 404);
+      throw new SubshellCreateError("node_not_found", "Node not found", 404);
     }
     // The ONE visible-but-unlaunchable node (spec 2026-09-12): launching on
     // the control-plane host is off, and this viewer only reaches it through
@@ -146,31 +142,30 @@ export async function resolveLaunchNode(
     if (!nodeCanLaunchOn(row.kind, access, granted)) {
       throw new SubshellCreateError(
         "node_launch_disabled",
-        why ?? "Launching on the server is switched off; turn it back on from the server's node page, or pick a node",
+        "Launching on the server is switched off; turn it back on from the server's node page, or pick a node",
         403,
       );
     }
     if (row.kind === "agent" && !getLive(nodeId)) {
       throwApiError({
         code: BackendErrorCodes.NODE_OFFLINE,
-        message: why ?? "That node has no live agent connection",
+        message: "That node has no live agent connection",
         doNotLog: true,
       });
     }
     return { nodeId };
   };
 
-  if (requestedNodeId) return gate(requestedNodeId, false);
-  if (profile.nodeId) return gate(profile.nodeId, true);
+  if (requestedNodeId) return gate(requestedNodeId);
 
-  // Step 3: the control-plane host, via the same gate (its seeded Everyone/
-  // edit share is the launch switch; its absence relocates to step 4).
+  // Step 2: the control-plane host, via the same gate (its seeded Everyone/
+  // edit share is the launch switch; its absence relocates to step 3).
   const local = await loadNodeAccess(deps, userId, LOCAL_NODE_ID, { allowAdminAndShares: !machineActor });
   if (local.row && nodeCanLaunch(local.access) && nodeCanLaunchOn(local.row.kind, local.access, local.granted)) {
     return { nodeId: LOCAL_NODE_ID };
   }
 
-  // Step 4: single-online-agent auto-pick over the actor's candidate set.
+  // Step 3: single-online-agent auto-pick over the actor's candidate set.
   const candidates = machineActor ? await deps.nodes.listByOwner(userId) : await deps.nodes.findAccessible(userId);
   const online = candidates.filter((n) => n.kind === "agent" && getLive(n.id));
   if (online.length === 1) return { nodeId: online[0].id };
@@ -188,7 +183,7 @@ export async function resolveLaunchNode(
  * Business logic behind `/api/subshells`, one method per endpoint.
  *
  * A thin layer over {@link SubshellManagerService} (the subshell lifecycle truth,
- * built once per service instance — not per call) plus the profile/harness
+ * built once per service instance — not per call) plus the preset/harness
  * gating and permission-adjacent checks the HTTP surface needs. Errors ride
  * the global error handler as `status`-carrying classes.
  */
@@ -200,7 +195,7 @@ export class SubshellsService extends BaseService {
     super(params);
     this.#manager = new SubshellManagerService({
       subshells: params.repos.subshells,
-      profiles: params.repos.profiles,
+      presets: params.repos.presets,
     });
   }
 
@@ -209,16 +204,16 @@ export class SubshellsService extends BaseService {
    * resolves — control-plane host unless stated otherwise) and returns only
    * the client-safe fields — the MCP apiKey is issued once inside the
    * manager for env injection and is NEVER echoed to the HTTP client.
-   * @throws SubshellCreateError 404 when the profile is absent, or the
-   *         requested/pinned node is absent OR invisible (spec §2: 404-not-403
+   * @throws SubshellCreateError 404 when the preset is absent, or the
+   *         requested node is absent OR invisible (spec §2: 404-not-403
    *         — an invisible node never answers 403).
    * @throws ApiError 409 NODE_OFFLINE (agent node unreachable), 400
-   *         NODE_REQUIRED (no launch-eligible node), 409 when the profile's
+   *         NODE_REQUIRED (no launch-eligible node), 409 when the preset's
    *         harness is disabled/unusable ON THE RESOLVED NODE.
    */
   async createSubshell({
     userId,
-    profileId,
+    presetId,
     workingDir,
     name,
     prompt,
@@ -227,8 +222,8 @@ export class SubshellsService extends BaseService {
   }: {
     /** Owner of the new subshell (never taken from the body). */
     userId: string;
-    /** Profile to use for this subshell. */
-    profileId: string;
+    /** Preset to launch with. */
+    presetId: string;
     /** Absolute working directory. */
     workingDir: string;
     /** Optional subshell display name. */
@@ -247,17 +242,17 @@ export class SubshellsService extends BaseService {
     // Gate new subshells here, not inside SubshellManagerService: its own
     // restart path reuses createSubshell, and an existing subshell's harness
     // must keep starting even once its harness is disabled.
-    const profile = await this.repos.profiles.findById(profileId);
-    if (!profile || profile.userId !== userId) {
-      throw new SubshellCreateError("not_found", "Profile not found", 404);
+    const presetRow = await this.repos.presets.findById(presetId);
+    if (!presetRow || presetRow.userId !== userId) {
+      throw new SubshellCreateError("not_found", "Preset not found", 404);
     }
     // §6.6 precedence BEFORE the harness gate: "where" must be settled first,
     // since "usable" is per-node now (spec §6.2).
     const { nodeId: resolvedNodeId } = await resolveLaunchNode(
-      { userId, machineActor, requestedNodeId: nodeId, profile },
+      { userId, machineActor, requestedNodeId: nodeId },
       { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
     );
-    if (!(await harnessUsable(profile.harnessId, resolvedNodeId))) {
+    if (!(await harnessUsable(presetRow.harnessId, resolvedNodeId))) {
       // Copy honesty: on an AGENT node "this machine" is a lie — the harness
       // may simply not be installed there (spec §6.2 per-node inventory). The
       // local wording stays verbatim — legacy tests pin it.
@@ -275,7 +270,7 @@ export class SubshellsService extends BaseService {
     const created = await this.#manager
       .createSubshell({
         userId,
-        profileId,
+        presetId,
         workingDir,
         name,
         prompt,

@@ -83,9 +83,9 @@ beforeAll(async () => {
   await runMigrations();
   await runAuthMigrations();
   setAuthPolicyDb(db);
-  // The seeding hook gives a new user one Default per harness this host
-  // OFFERS, which since phase 2b is the plugins installed on it. A host with
-  // none offers none, so without this the hook correctly seeds nothing.
+  // The instance plugin store, prepared like boot's. The tests here assert
+  // sign-up posture, but the per-process suites share this data dir and many
+  // of them read harness usability off the seeded built-ins.
   await seedLocalPluginsForTests();
 });
 
@@ -93,10 +93,9 @@ afterAll(async () => {
   await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
   for (const id of createdUserIds) {
     await db.deleteFrom("userMeta").where("userId", "=", id).execute();
-    // Real sign-ups run the seeding hook, so these users own Default
-    // profiles — remove them too, or the shared per-process DB keeps
-    // unremovable rows for users that no longer exist.
-    await db.deleteFrom("profiles").where("userId", "=", id).execute();
+    // A user's preset rows must not outlive the user in the shared
+    // per-process DB.
+    await db.deleteFrom("presets").where("userId", "=", id).execute();
   }
   for (const email of createdEmails) {
     await sql`DELETE FROM user WHERE email = ${email}`.execute(db);
@@ -195,28 +194,5 @@ describe("registration gate fails closed (F6a)", () => {
     await setRegistrationSetting("true");
     const r = await signUpEmail(newEmail());
     expect(r.user.id).toBeTruthy();
-  });
-});
-
-describe("default-profile seeding hook (auto-defaulted profiles)", () => {
-  // The registration seam's only end-to-end proof: this file is the one suite
-  // that drives the REAL signUpEmail path with setAuthPolicyDb applied, so the
-  // better-auth after-hook (promotion + seeding) actually runs here. Calling
-  // the service directly (default-profiles.test.ts) cannot catch the hook
-  // itself being dropped.
-  it("a real sign-up lands a blank, unremovable Default per enabled harness", async () => {
-    const r = await signUpEmail(newEmail());
-    const rows = await db.selectFrom("profiles").selectAll().where("userId", "=", r.user.id).execute();
-    expect(rows.length).toBeGreaterThan(0);
-    for (const p of rows) {
-      expect(p.name).toBe("Default");
-      expect(p.isDefault).toBe(1); // the unremovable flag rides along
-      expect(p.envJson).toBeNull();
-      expect(p.flagsJson).toBeNull();
-      expect(p.settingsJson).toBeNull();
-    }
-    // No harness may collect more than one seeded row per pair.
-    const perHarness = new Set(rows.map((p) => p.harnessId));
-    expect(perHarness.size).toBe(rows.length);
   });
 });

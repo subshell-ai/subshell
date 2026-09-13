@@ -97,7 +97,7 @@ describe("authGuard bearer path", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "guard-test",
       workingDir: "/tmp",

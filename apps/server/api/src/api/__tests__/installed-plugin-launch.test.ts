@@ -12,10 +12,10 @@ import {
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
-import { profileRoutes } from "@/api/profiles.route.js";
+import { presetRoutes } from "@/api/presets.route.js";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -33,7 +33,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * never validate a preset, and never build an argv. A scripted "acme" plugin
  * written into the server's own plugin dir must therefore flow through the
  * whole plane side of a launch: the detect spec the plane ships to nodes,
- * the profile-create validation, and the argv assembly — which is exactly
+ * the preset-create validation, and the argv assembly — which is exactly
  * what Task 13's e2e spec 14 will assert end to end from a node holding
  * nothing.
  *
@@ -43,7 +43,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  */
 
 const testDir = mkdtempSync(join(tmpdir(), "acme-launch-"));
-const app = new Elysia().use(errorHandlerPlugin).use(profileRoutes);
+const app = new Elysia().use(errorHandlerPlugin).use(presetRoutes);
 
 /** The stub binary `detect` finds, via the manifest's envOverride. */
 const ACME_STUB = join(testDir, "acme-cli");
@@ -86,7 +86,7 @@ async function installAcme(): Promise<void> {
 let aliceCookie = "";
 let aliceId = "";
 let aliceEmail = "";
-let profileId = "";
+let presetId = "";
 
 beforeAll(async () => {
   await setupAuthTables();
@@ -109,7 +109,7 @@ afterAll(async () => {
   await uninstallPlugin(SUBSHELL_SERVER_DATA_DIR, "acme").catch(() => {});
   await refreshInstalledPlugins(SUBSHELL_SERVER_DATA_DIR).catch(() => {});
   delete process.env.ACME_CLI_PATH;
-  await new ProfilesRepository(db).deleteByHarness("acme").catch(() => {});
+  await new PresetsRepository(db).deleteByHarness("acme").catch(() => {});
   await db
     .deleteFrom("subshells")
     .where("harnessId", "=", "acme")
@@ -144,19 +144,19 @@ describe("an installed plugin resolves on the plane's side of a launch", () => {
     expect((await usableHarnessIds()).has("acme")).toBe(true);
   });
 
-  it("a profile-create for acme validates and the harness schema reads", async () => {
+  it("a preset-create for acme validates and the harness schema reads", async () => {
     const res = await app.fetch(
-      authedRequest("/api/profiles", aliceCookie, {
+      authedRequest("/api/presets", aliceCookie, {
         method: "POST",
         body: JSON.stringify({ harnessId: "acme", name: "Acme Default", flags: ["--acme-flag"] }),
       }),
     );
     expect(res.status).toBe(200);
-    const profile = (await res.json()) as { id: string; harnessId: string };
-    profileId = profile.id;
-    expect(profile.harnessId).toBe("acme");
+    const created = (await res.json()) as { id: string; harnessId: string };
+    presetId = created.id;
+    expect(created.harnessId).toBe("acme");
 
-    const schema = await app.fetch(authedRequest("/api/profiles/harnesses/acme/schema", aliceCookie));
+    const schema = await app.fetch(authedRequest("/api/presets/harnesses/acme/schema", aliceCookie));
     expect(schema.status).toBe(200);
     expect(((await schema.json()) as { settingsFields: unknown[] }).settingsFields).toEqual([]);
   });
@@ -165,14 +165,14 @@ describe("an installed plugin resolves on the plane's side of a launch", () => {
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({
       subshells: new SubshellsRepository(db),
-      profiles: new ProfilesRepository(db),
+      presets: new PresetsRepository(db),
       launcher: fake,
       tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
       audit: async () => {},
     });
     const created = await manager.createSubshell({
       userId: aliceId,
-      profileId,
+      presetId,
       workingDir: testDir,
     });
 
@@ -204,16 +204,16 @@ describe("an installed plugin resolves on the plane's side of a launch", () => {
     await new SubshellsRepository(db).delete(created.id);
   });
 
-  it("after an uninstall, acme stops resolving and profile-create is a 400 again", async () => {
+  it("after an uninstall, acme stops resolving and preset-create is a 400 again", async () => {
     // The revert-proof of the whole seam: resolution follows the store, so
-    // what remains after removal is the pre-Task-9b refusal — the profile
+    // what remains after removal is the pre-Task-9b refusal — the preset
     // gate asks `getHarness`, and it is the overlay that answered for acme.
     expect(await uninstallPlugin(SUBSHELL_SERVER_DATA_DIR, "acme")).toBe(true);
     await refreshInstalledPlugins(SUBSHELL_SERVER_DATA_DIR);
     expect(getHarness("acme")).toBeUndefined();
 
     const res = await app.fetch(
-      authedRequest("/api/profiles", aliceCookie, {
+      authedRequest("/api/presets", aliceCookie, {
         method: "POST",
         body: JSON.stringify({ harnessId: "acme", name: "Ghost" }),
       }),

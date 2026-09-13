@@ -22,7 +22,7 @@ export class InstanceStatsRepository extends BaseRepository {
    * because the public surface is the whole snapshot: a caller that could ask
    * for counts one at a time would fan out N round-trips for one page.
    */
-  private async countOf(table: "subshells" | "nodes" | "workspaces" | "channels" | "profiles"): Promise<number> {
+  private async countOf(table: "subshells" | "nodes" | "workspaces" | "channels" | "presets"): Promise<number> {
     const row = await this.db
       .selectFrom(table)
       .select((eb) => eb.fn.countAll().as("count"))
@@ -97,17 +97,17 @@ export class InstanceStatsRepository extends BaseRepository {
     workspaces: number;
     /** Cross-subshell channels */
     channels: number;
-    /** Harness profiles across all users */
-    profiles: number;
+    /** Harness presets across all users */
+    presets: number;
   }> {
-    const [users, subshells, running, nodes, workspaces, channels, profiles] = await Promise.all([
+    const [users, subshells, running, nodes, workspaces, channels, presets] = await Promise.all([
       this.countUsersByRole(),
       this.countOf("subshells"),
       this.countRunningSubshells(),
       this.countOf("nodes"),
       this.countOf("workspaces"),
       this.countOf("channels"),
-      this.countOf("profiles"),
+      this.countOf("presets"),
     ]);
     return {
       users,
@@ -115,7 +115,7 @@ export class InstanceStatsRepository extends BaseRepository {
       nodes,
       workspaces,
       channels,
-      profiles,
+      presets,
     };
   }
 }

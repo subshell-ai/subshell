@@ -11,7 +11,6 @@ import type { PluginReportWire } from "@internal/subshell-protocol";
 import { SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
-import { ensureDefaultProfilesForHarness } from "@/services/default-profiles.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
@@ -67,7 +66,7 @@ export async function enabledInstalledPlugins(): Promise<PluginReportWire[]> {
  * Re-points the pane-runtime registry overlay at this store.
  *
  * This process is the plugin host now, so resolving an installed plugin
- * (`getHarness`, `detectSpecs`, profile validation, argv building) has to
+ * (`getHarness`, `detectSpecs`, preset validation, argv building) has to
  * consult the bytes in `<SUBSHELL_SERVER_DATA_DIR>/plugins/`, not just the
  * compiled-in built-ins. `refreshInstalledPlugins` is the one registration
  * path, and every write to this store runs it, so a just-installed plugin is
@@ -95,13 +94,11 @@ async function syncPluginRegistry(): Promise<void> {
 }
 
 /**
- * Installs a plugin into the instance store, then seeds profiles.
+ * Installs a plugin into the instance store.
  *
- * The profile seeding is not decoration: a user who has never made a profile
- * for a harness cannot launch it, so a freshly installed plugin would appear
- * in the picker and then have nothing to pick. Best-effort — the install has
- * already happened, and an optional insert failing must not turn it into an
- * error.
+ * No rows are written for it anywhere else: presets are user-made
+ * customisation now (spec 2026-09-13), and a fresh install is launchable the
+ * moment its overlay lands — a presetless launch is the whole point.
  *
  * Phase 3's registry door is kept as written: with a `spec` the bytes come
  * from an npm registry, verified against the digest THAT registry announced,
@@ -119,17 +116,13 @@ export async function installLocalPlugin(
   registryUrl: string = SUBSHELL_PLUGIN_REGISTRY_URL,
 ): Promise<void> {
   await installPlugin(SUBSHELL_SERVER_DATA_DIR, { id: pluginId, spec, registryUrl });
-  // The overlay BEFORE the profiles: the seeding below validates nothing
-  // against the registry, but a caller that gets a 200 back must be able to
-  // launch immediately, and that is the dialog's whole promise.
+  // A caller that gets a 200 back must be able to launch immediately, and
+  // that is the dialog's whole promise — the overlay is what makes it true.
   await syncPluginRegistry();
-  await ensureDefaultProfilesForHarness(db, pluginId).catch((err: unknown) => {
-    getLogger().withError(err).warn(`default-profile seeding failed after installing "${pluginId}"`);
-  });
 }
 
 /**
- * Removes a plugin from the instance store (bytes only — profiles are a
+ * Removes a plugin from the instance store (bytes only — presets are a
  * route-level decision, see `plugins.route.ts`).
  * @returns true when something was removed, false when it was already absent
  */

@@ -5,7 +5,7 @@ import type { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-d
 import type { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import type { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import type { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import type { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -22,7 +22,7 @@ import type { WorkspacesRepository } from "@/db/repositories/workspaces.reposito
  */
 export interface Repositories {
   readonly subshells: SubshellsRepository;
-  readonly profiles: ProfilesRepository;
+  readonly presets: PresetsRepository;
   readonly workspaces: WorkspacesRepository;
   readonly workspacePanes: WorkspacePanesRepository;
   readonly channels: ChannelsRepository;

@@ -9,7 +9,7 @@ import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.r
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -49,7 +49,7 @@ export class ApiContext {
     this.log = params.log;
     this.repos = {
       subshells: new SubshellsRepository(params.db),
-      profiles: new ProfilesRepository(params.db),
+      presets: new PresetsRepository(params.db),
       workspaces: new WorkspacesRepository(params.db),
       workspacePanes: new WorkspacePanesRepository(params.db),
       channels: new ChannelsRepository(params.db),

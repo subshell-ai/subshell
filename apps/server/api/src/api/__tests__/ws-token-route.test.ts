@@ -53,7 +53,7 @@ describe("ws-token route (cookie only)", () => {
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "wstok-test",
       workingDir: "/tmp",

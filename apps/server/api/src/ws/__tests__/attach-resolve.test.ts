@@ -19,7 +19,7 @@ async function seedRow() {
   return repos.subshells.create({
     id: crypto.randomUUID(),
     userId: `u-attach-resolve-${seq}`,
-    profileId: "p-test",
+    presetId: "p-test",
     harnessId: "shell",
     name: "attach-resolve",
     workingDir: "/tmp",

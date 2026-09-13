@@ -241,7 +241,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // Omitted/'local' needs no visibility check — own local recents are
       // one's own, and the response stays byte-identical to the pre-nodes
       // behavior. Any other id must be a node the caller can SEE: the same
-      // rule the profile pin applies (spec 2026-08-31 §6.2) — absent and
+      // rule the node routes apply (spec 2026-08-31 §6.2) — absent and
       // invisible collapse to one 404, never 403, so node ids cannot be
       // probed through the recents list.
       if (nodeId !== LOCAL_NODE_ID) {

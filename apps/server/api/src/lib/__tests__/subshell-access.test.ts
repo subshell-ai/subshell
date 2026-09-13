@@ -4,6 +4,7 @@ import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -74,6 +75,7 @@ describe("loadSubshellAccess", () => {
     await initMigration.up(db as Kysely<any>);
     await sharingMigration.up(db as Kysely<any>);
     await subshellRenameMigration.up(db as Kysely<any>); // renamed schema the code sees
+    await presetsMigration.up(db as Kysely<any>); // profiles → presets (spec 2026-09-13 §6)
     return db;
   }
 
@@ -88,7 +90,7 @@ describe("loadSubshellAccess", () => {
   async function seedSubshell(db: Kysely<Database>, id: string, userId: string) {
     await (db as Kysely<any>)
       .insertInto("subshells")
-      .values({ id, userId, profileId: "p", harnessId: "h", name: id, workingDir: "/tmp", tmuxSocket: null })
+      .values({ id, userId, presetId: "p", harnessId: "h", name: id, workingDir: "/tmp", tmuxSocket: null })
       .execute();
   }
 

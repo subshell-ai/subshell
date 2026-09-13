@@ -261,7 +261,7 @@ describe("files explore ?node (remote folder picker)", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "explore-node-test",
       workingDir: "/tmp",

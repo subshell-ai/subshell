@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { db } from "@/db/index.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { ApiContext, getRequestlessContext, resetRequestlessContext } from "@/lib/context.js";
 import { SubshellsService } from "@/services/subshells.service.js";
@@ -26,7 +26,7 @@ describe("getRequestlessContext", () => {
   it("builds the repositories", () => {
     const ctx = getRequestlessContext();
     expect(ctx.repos.subshells).toBeInstanceOf(SubshellsRepository);
-    expect(ctx.repos.profiles).toBeInstanceOf(ProfilesRepository);
+    expect(ctx.repos.presets).toBeInstanceOf(PresetsRepository);
   });
 
   it("builds the services and links the sibling map", () => {

@@ -34,11 +34,11 @@ import { subshellRoutes } from "@/api/subshells/index.js";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
+import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
@@ -91,12 +91,12 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
   const pw = "it-remote-pass-1";
   let userId: string;
   let cookie: string;
-  let profileId: string;
+  let presetId: string;
   let nodeId: string;
   const createdSubshellIds: string[] = [];
 
   const subshellsRepo = new SubshellsRepository(db);
-  const profilesRepo = new ProfilesRepository(db);
+  const presetsRepo = new PresetsRepository(db);
   const nodesRepo = new NodesRepository(db);
 
   async function post(path: string, body?: Record<string, unknown>, method = "POST") {
@@ -106,7 +106,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
   /** `POST /api/subshells` pinned to the scripted node; asserts the honest 200 shape. */
   async function createOnNode(extra: Record<string, unknown> = {}) {
     const res = await post("/api/subshells", {
-      profileId,
+      presetId,
       workingDir: "/srv/work/remote",
       nodeId,
       ...extra,
@@ -122,7 +122,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
     await ensureLocalNode(db);
     userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
     cookie = await signIn(email, pw);
-    profileId = await seedProfile(profilesRepo, { userId, name: "it-profile" });
+    presetId = await seedPreset(presetsRepo, { userId, name: "it-preset" });
     nodeId = crypto.randomUUID();
     await nodesRepo.create({ id: nodeId, ownerUserId: userId, name: `it-${nodeId}`, kind: "agent" });
     // FRESH installed-claude inventory: the strict §6.2 launch gate and the
@@ -140,7 +140,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
     resetNodeRegistryForTests();
     for (const id of createdSubshellIds) await subshellsRepo.delete(id).catch(() => {});
     await nodesRepo.deleteById(nodeId);
-    await db.deleteFrom("profiles").where("id", "=", profileId).execute();
+    await db.deleteFrom("presets").where("id", "=", presetId).execute();
     await deleteUserByEmailOrId(email);
   });
 
@@ -165,7 +165,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       expect(launch.cwd).toBe("/srv/work/remote"); // stat_dir's echoed realpath
       expect(launch.harnessId).toBe("claude-code");
       expect(launch.subshellName).toBe("it-remote");
-      expect(launch.preset.name).toBe("it-profile");
+      expect(launch.preset.name).toBe("it-preset");
       // Pure remote MCP plan (spec §6.4): the path composes under the FAKE
       // dataDir the scripted `ready` advertised, content ships inline.
       expect(launch.mcp?.path).toBe(`${SCRIPTED_DATA_DIR}/mcp/${id}.json`);
@@ -226,7 +226,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       const probeSends: NodeCommandBody[] = [];
       const manager = new SubshellManagerService({
         subshells: subshellsRepo,
-        profiles: profilesRepo,
+        presets: presetsRepo,
         sendNode: (nodeId, cmd, timeoutMs) => {
           probeSends.push(cmd);
           return sendCommand(nodeId, cmd, timeoutMs); // delegate — the re-attach sweep below still fires
@@ -394,7 +394,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
         name: "it-upload",
         workingDir,
         harnessId: "claude-code",
-        profileId,
+        presetId,
         status: "running",
         tmuxSocket: `subshell-it-${id.slice(0, 8)}`,
         nodeId,

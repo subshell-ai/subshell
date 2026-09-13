@@ -117,7 +117,7 @@ async function usableHarnessIdSet(nodeId: string, onlyId?: string): Promise<Set<
 
 /**
  * The subset of ids currently usable on `nodeId` (default: this machine — one
- * probe pass for the whole set, what the profile-list filter consumes). Every
+ * probe pass for the whole set, what the preset-list filter consumes). Every
  * node runs the same rule; see {@link usableHarnessIdSet}.
  */
 export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<Set<string>> {
@@ -126,7 +126,7 @@ export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<
 
 /**
  * Usable for ONE (harness × node) pair — the launch gate at the call sites
- * (`subshells.service` create, `subshell-manager` auto-restart, profile
+ * (`subshells.service` create, `subshell-manager` auto-restart, preset
  * create). Delegates to the one batch rule so the picker and the gate cannot
  * disagree, with only this plugin's binary probed on the local path.
  */

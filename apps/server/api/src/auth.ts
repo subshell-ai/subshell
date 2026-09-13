@@ -4,9 +4,7 @@ import { betterAuth } from "better-auth";
 import { sql } from "kysely";
 import { authDatabase } from "@/auth/database.js";
 import { APP_BASE_URL, AUTH_SECRET, TRUSTED_ORIGINS } from "@/constants.js";
-import { ensureDefaultProfilesForUser } from "@/services/default-profiles.js";
 import { registrationOpen } from "@/services/registration-gate.js";
-import { logger } from "@/utils/logger.js";
 
 /**
  * The raw better-auth options, exported for `runAuthMigrations`:
@@ -86,21 +84,6 @@ export const AUTH_OPTIONS = {
         },
         after: async (createdUser) => {
           await promoteFirstUserToAdmin(createdUser.id);
-          // A new user must be able to open a session without first filling a
-          // profile form: seed a blank Default for each enabled harness.
-          // Idempotent and never overwrites (insert-only when a pair has zero
-          // profiles) — see services/default-profiles.ts. Guarded like the
-          // promotion above it: without the injected policy DB there is nothing
-          // to seed into, and registration still succeeds. BEST-EFFORT for the
-          // same reason: the user row is already committed, so a seeding
-          // failure (e.g. SQLITE_BUSY) must not turn sign-up into a 500 — the
-          // account exists and a retry would hit "email already in use". The
-          // boot sweep heals the gap; log so it is diagnosable meanwhile.
-          if (appDb) {
-            await ensureDefaultProfilesForUser(appDb, createdUser.id).catch((err) => {
-              logger.withError(err).warn(`default-profile seeding failed for user ${createdUser.id}`);
-            });
-          }
         },
       },
     },

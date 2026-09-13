@@ -26,9 +26,9 @@ const OkSchema = t.Object({ ok: t.Boolean({ description: "Always true on success
  * ONLINE → 409 (force may not ambush a live machine — remote terminate is
  * phase 2, so "go offline first" is the honest instruction).
  *
- * Teardown: disable + delete the node's api key, delete the row (profiles
- * un-pin via the repo transaction; shares/harness states ride the FK
- * cascade; the `node:<id>` E2EE identity row is dropped explicitly), then
+ * Teardown: disable + delete the node's api key, delete the row (shares/
+ * harness states ride the FK cascade; the `node:<id>` E2EE identity row is
+ * dropped explicitly), then
  * evict + close a live socket (4401) and fail its in-flight commands —
  * AFTER the DB changes, so the socket can never outlive its credential by
  * even one frame's worth of trust.
@@ -115,8 +115,7 @@ export const deleteNodeRoute = new Elysia()
       detail: {
         operationId: "deleteNode",
         tags: ["nodes"],
-        description:
-          "Delete a node (owner only; un-pins profiles, revokes its key; ?force=true for offline nodes with subshells)",
+        description: "Delete a node (owner only; revokes its key; ?force=true for offline nodes with subshells)",
       },
     },
   );

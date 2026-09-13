@@ -64,7 +64,7 @@ describe("admin user management", () => {
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId: adminId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "user-mgmt-test",
       workingDir: "/tmp",

@@ -16,11 +16,12 @@ import * as sessionNotificationsMigration from "@/db/migrations/0014-session-not
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
-import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
+import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
 
 /**
@@ -64,11 +65,11 @@ class StubTokens implements SubshellTokenProvider {
 
 const testDir = mkdtempSync(join(tmpdir(), "subshell-titling-test-"));
 let db: Kysely<Database>;
-let profiles: ProfilesRepository;
+let presets: PresetsRepository;
 let subshells: SubshellsRepository;
 let tmux: MockTmux;
 let manager: SubshellManagerService;
-let profileId: string;
+let presetId: string;
 let previousClaudePath: string | undefined;
 
 beforeAll(async () => {
@@ -93,15 +94,16 @@ beforeAll(async () => {
   await sessionNotificationsMigration.up(db);
   await nodesMigration.up(db);
   await sharingMigration.up(db);
-  await subshellRenameMigration.up(db);
-  profiles = new ProfilesRepository(db);
+  await subshellRenameMigration.up(db); // renamed schema the code sees
+  await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
+  presets = new PresetsRepository(db);
   subshells = new SubshellsRepository(db);
-  profileId = await seedProfile(profiles);
+  presetId = await seedPreset(presets);
 });
 
 beforeEach(() => {
   tmux = new MockTmux();
-  manager = new SubshellManagerService({ subshells, profiles, tmux, tokens: new StubTokens(), audit: async () => {} });
+  manager = new SubshellManagerService({ subshells, presets, tmux, tokens: new StubTokens(), audit: async () => {} });
 });
 
 afterAll(() => {
@@ -113,7 +115,7 @@ afterAll(() => {
 
 describe("pane titling — who gets --name", () => {
   it("create without a user name: no --name in the pane command, row keeps the date/time placeholder", async () => {
-    const created = await manager.createSubshell({ userId: "u1", profileId, workingDir: testDir });
+    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
     const cmd = tmux.newSubshellCmds[0] ?? "";
     expect(cmd).not.toContain("'--name'");
     const row = await subshells.findById(created.id);
@@ -125,7 +127,7 @@ describe("pane titling — who gets --name", () => {
   it("create with a user name: it is forwarded verbatim as --name", async () => {
     const created = await manager.createSubshell({
       userId: "u1",
-      profileId,
+      presetId,
       workingDir: testDir,
       name: "Ship the fix",
     });
@@ -135,7 +137,7 @@ describe("pane titling — who gets --name", () => {
   });
 
   it("restart of an unlocked row: an auto-adopted title is NOT re-sent as --name", async () => {
-    const created = await manager.createSubshell({ userId: "u1", profileId, workingDir: testDir });
+    const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: testDir });
     // Simulate what the sweep does: adopt the pane title into an UNLOCKED row.
     await subshells.update(created.id, { name: "Fix auth bug" });
     await manager.restartSubshell("u1", created.id);
@@ -149,7 +151,7 @@ describe("pane titling — who gets --name", () => {
   it("restart of a locked row: the pinned name IS re-sent as --name", async () => {
     const created = await manager.createSubshell({
       userId: "u1",
-      profileId,
+      presetId,
       workingDir: testDir,
       name: "Pinned",
     });

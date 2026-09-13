@@ -6,7 +6,7 @@ import { subshellRoutes } from "@/api/subshells/index.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -36,7 +36,7 @@ describe("launching on the server, switched off", () => {
   const adminEmail = `loff-admin-${crypto.randomUUID()}@subshell.local`;
   let adminCookie = "";
   let adminId = "";
-  let profileId = "";
+  let presetId = "";
   let systemId = "";
 
   /** Drop every Everyone row, keeping any per-user grant — the switch's own write. */
@@ -54,7 +54,7 @@ describe("launching on the server, switched off", () => {
     adminCookie = await signIn(adminEmail, pw);
     systemId = await ensureSystemUser();
     await ensureLocalNode(db);
-    const profile = await new ProfilesRepository(db).create({
+    const preset = await new PresetsRepository(db).create({
       id: crypto.randomUUID(),
       userId: adminId,
       harnessId: "claude-code",
@@ -64,15 +64,14 @@ describe("launching on the server, switched off", () => {
       flagsJson: null,
       settingsJson: null,
       configIsolation: 0,
-      nodeId: null,
     });
-    profileId = profile.id;
+    presetId = preset.id;
   });
 
   afterAll(async () => {
     // The seeded grant is shared state for every other suite in this process.
     await setLocalLaunch(true);
-    await db.deleteFrom("profiles").where("id", "=", profileId).execute();
+    await db.deleteFrom("presets").where("id", "=", presetId).execute();
     await deleteUserByEmailOrId(adminEmail);
   });
 
@@ -97,7 +96,7 @@ describe("launching on the server, switched off", () => {
 
   it("refuses an admin's explicit launch with 403, not the 404 an invisible node gets", async () => {
     await setLocalLaunch(false);
-    const res = await post({ profileId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
+    const res = await post({ presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
     expect(res.status).toBe(403);
     expect(((await res.json()) as { message: string }).message).toMatch(/switched off/i);
   });
@@ -113,7 +112,7 @@ describe("launching on the server, switched off", () => {
 
   it("stops defaulting to the host when no node is named", async () => {
     await setLocalLaunch(false);
-    const res = await post({ profileId, workingDir: "/tmp" });
+    const res = await post({ presetId, workingDir: "/tmp" });
     // Past `local`, through the single-online-agent step, and out: there is
     // nothing to launch on. Never a silent fallback to the host the admin
     // just switched off.
@@ -124,7 +123,7 @@ describe("launching on the server, switched off", () => {
   it("lets the admin launch again the moment the grant is back", async () => {
     await setLocalLaunch(true);
     expect((await localView()).canLaunch).toBe(true);
-    const res = await post({ profileId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
+    const res = await post({ presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
     // Past the node gate entirely — whatever answers now is about the harness
     // or the directory, never about the node.
     expect(res.status).not.toBe(403);

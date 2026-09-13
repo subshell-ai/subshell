@@ -77,7 +77,7 @@ describe("static plugin", () => {
   });
 
   it("falls back to index.html for SPA routes when the client accepts HTML", async () => {
-    const res = await get("/profiles", { accept: "text/html" });
+    const res = await get("/presets", { accept: "text/html" });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(await res.text()).toContain("<title>subshell</title>");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SubshellManifest, SubshellPlugin } from "@subshell-ai/plugin-api";
+import { PLUGIN_API_VERSION, type SubshellManifest, type SubshellPlugin } from "@subshell-ai/plugin-api";
 import { adaptPlugin, versionOf } from "../plugin-adapter.js";
 
 /**
@@ -16,7 +16,7 @@ import { adaptPlugin, versionOf } from "../plugin-adapter.js";
  */
 
 const MANIFEST: SubshellManifest = {
-  apiVersion: 1,
+  apiVersion: PLUGIN_API_VERSION,
   id: "stub",
   type: "agent-harness",
   name: "Stub Harness",

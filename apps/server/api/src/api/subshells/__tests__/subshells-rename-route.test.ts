@@ -40,7 +40,7 @@ describe("PATCH /api/subshells/:id/name", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name,
       workingDir: "/tmp",

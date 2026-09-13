@@ -39,7 +39,7 @@ describe("GET /api/subshells/summary", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: `sum-${kind}`,
       workingDir: "/tmp",

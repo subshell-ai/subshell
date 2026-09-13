@@ -77,7 +77,7 @@ describe("settings routes (admin cookie only)", () => {
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId: adminId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "settings-token-test",
       workingDir: "/tmp",
@@ -495,7 +495,7 @@ describe("/api/settings/terminal-history (per-user, cookie only)", () => {
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "term-hist-token-test",
       workingDir: "/tmp",

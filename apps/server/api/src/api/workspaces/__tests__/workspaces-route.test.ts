@@ -3,16 +3,16 @@ import { hashPassword } from "better-auth/crypto";
 import { workspaceRoutes } from "@/api/workspaces/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
-/** Creates a profile + subshell owned by `userId`, returning the subshell id. */
+/** Creates a preset + subshell owned by `userId`, returning the subshell id. */
 async function makeSubshell(userId: string): Promise<string> {
-  const profile = await new ProfilesRepository(db).create({
+  const preset = await new PresetsRepository(db).create({
     id: crypto.randomUUID(),
     userId,
     harnessId: "claude-code",
@@ -27,7 +27,7 @@ async function makeSubshell(userId: string): Promise<string> {
   await new SubshellsRepository(db).create({
     id,
     userId,
-    profileId: profile.id,
+    presetId: preset.id,
     harnessId: "claude-code",
     name: "s",
     workingDir: "/tmp",
@@ -63,7 +63,7 @@ describe("workspaces route", () => {
 
   afterAll(async () => {
     await db.deleteFrom("subshells").where("userId", "in", [ownerId, otherId]).execute();
-    await db.deleteFrom("profiles").where("userId", "in", [ownerId, otherId]).execute();
+    await db.deleteFrom("presets").where("userId", "in", [ownerId, otherId]).execute();
     await db.deleteFrom("userMeta").where("userId", "=", ownerId).execute();
     await db.deleteFrom("userMeta").where("userId", "=", otherId).execute();
     await deleteUserByEmailOrId(ownerEmail);

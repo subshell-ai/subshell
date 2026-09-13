@@ -99,7 +99,7 @@ describe("subshells attention + notify routes", () => {
     await new SubshellsRepository(db).create({
       id,
       userId: ownerId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name,
       workingDir: "/tmp",

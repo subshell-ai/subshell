@@ -10,28 +10,24 @@ export const UserInfoSchema = t.Object({
   role: t.String({ description: "Role (admin/user)" }),
 });
 
-export const ProfileSchema = t.Object({
-  id: t.String({ description: "Profile id" }),
+export const PresetSchema = t.Object({
+  id: t.String({ description: "Preset id" }),
   userId: t.String({ description: "Owning user id" }),
   harnessId: t.String({ description: "Harness plugin id" }),
-  name: t.String({ description: "Profile name" }),
+  name: t.String({ description: "Preset name" }),
   description: t.Union([t.String({ description: "Longer description" }), t.Null()]),
   envJson: t.Union([t.String({ description: "JSON env vars" }), t.Null()]),
   flagsJson: t.Union([t.String({ description: "JSON CLI flags" }), t.Null()]),
   settingsJson: t.Union([t.String({ description: "JSON settings object" }), t.Null()]),
   configIsolation: t.Number({ description: "1 = isolated config sources" }),
   restartOnExit: t.Number({ description: "1 = new subshells auto-restart on exit" }),
-  nodeId: t.Nullable(t.String({ description: "Node id this profile is pinned to" }), {
-    description: "Pinned launch node id (validated visible at pin time); null = any node",
-  }),
-  isDefault: t.Number({ description: "1 = auto-seeded default profile (cannot be deleted)" }),
   createdAt: t.String({ description: "Created timestamp" }),
   updatedAt: t.String({ description: "Updated timestamp" }),
 });
 
 export const SubshellSchema = t.Object({
   id: t.String({ description: "Subshell id" }),
-  profileId: t.String({ description: "Profile id" }),
+  presetId: t.Nullable(t.String({ description: "Preset launched with (null = presetless launch)" })),
   harnessId: t.String({ description: "Harness plugin id" }),
   nodeId: t.String({ description: "Node the subshell runs on ('local' = control-plane host)" }),
   name: t.String({ description: "Subshell display name" }),
@@ -203,13 +199,13 @@ export const SettingsFieldSchema = t.Object({
   default: t.Optional(t.Union([t.String(), t.Boolean(), t.Number()], { description: "Default when unset" })),
 });
 
-/** A known env var suggestion for the profile editor. */
+/** A known env var suggestion for the preset editor. */
 export const SuggestedEnvSchema = t.Object({
   key: t.String({ description: "Environment variable name" }),
   description: t.String({ description: "What it does" }),
 });
 
-/** A known CLI flag suggestion for the profile editor. */
+/** A known CLI flag suggestion for the preset editor. */
 export const SuggestedFlagSchema = t.Object({
   flag: t.String({ description: "Flag as typed, e.g. '--model sonnet'" }),
   description: t.String({ description: "What it does" }),
@@ -237,7 +233,7 @@ export const McpSetupSchema = t.Union([
   }),
 ]);
 
-/** Everything the profile editor needs to know about one harness. */
+/** Everything the preset editor needs to know about one harness. */
 export const HarnessSchemaResponseSchema = t.Object({
   settingsFields: t.Array(SettingsFieldSchema, { description: "Settings editor schema (empty if none)" }),
   suggestedEnv: t.Array(SuggestedEnvSchema, { description: "Known env var suggestions" }),

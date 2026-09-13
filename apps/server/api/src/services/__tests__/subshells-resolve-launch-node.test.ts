@@ -16,7 +16,7 @@ import { resolveLaunchNode } from "@/services/subshells.service.js";
 /**
  * The §6.6 launch-node resolution matrix, asserted directly against
  * `resolveLaunchNode` (the HTTP half lives in `subshells-create-nodeid.test.ts`).
- * Dimensions: requested × pinned × share × online × machine-actor. Error
+ * Dimensions: requested × share × online × machine-actor. Error
  * shapes are the contract: absent AND invisible ride the status-carrying 404
  * class (spec §2: 404-not-403 — a 403 here would be a node-id existence
  * oracle); 409 NODE_OFFLINE and 400 NODE_REQUIRED ride `ApiError`
@@ -73,8 +73,6 @@ const apiErr = (err: unknown): ApiError => {
   return err as ApiError;
 };
 
-const unpin = { nodeId: null } as const;
-
 beforeAll(async () => {
   await setupAuthTables();
   ownerId = await mkUser("user");
@@ -93,10 +91,7 @@ afterAll(async () => {
 describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   it("unknown id → 404 (the status-carrying class; absent and invisible never leak more)", async () => {
     const err = await grab(() =>
-      resolveLaunchNode(
-        { userId: ownerId, machineActor: false, requestedNodeId: "no-such-node", profile: unpin },
-        deps,
-      ),
+      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: "no-such-node" }, deps),
     );
     expect(statusOf(err)).toBe(404);
   });
@@ -104,7 +99,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   it("foreign private node → 404 (access 'none' ⇔ invisible; never 403 — spec §2)", async () => {
     const node = await mkAgent(otherId);
     const err = await grab(() =>
-      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node, profile: unpin }, deps),
+      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
     );
     expect(statusOf(err)).toBe(404);
   });
@@ -114,9 +109,9 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
     await deps.shares.replaceForNode(node, [{ granteeUserId: null, permission: "view" }], otherId);
     const off = online(node);
     try {
-      expect(
-        await resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node, profile: unpin }, deps),
-      ).toEqual({ nodeId: node });
+      expect(await resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps)).toEqual({
+        nodeId: node,
+      });
     } finally {
       off();
       await deps.shares.replaceForNode(node, [], otherId);
@@ -126,7 +121,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   it("own agent with no live connection → 409 ApiError NODE_OFFLINE (doNotLog class)", async () => {
     const node = await mkAgent(ownerId);
     const err = await grab(() =>
-      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node, profile: unpin }, deps),
+      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
     );
     expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_OFFLINE);
     expect((err as ApiError).statusCode).toBe(409);
@@ -136,9 +131,9 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
     const node = await mkAgent(ownerId);
     const off = online(node);
     try {
-      expect(
-        await resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node, profile: unpin }, deps),
-      ).toEqual({ nodeId: node });
+      expect(await resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps)).toEqual({
+        nodeId: node,
+      });
     } finally {
       off();
     }
@@ -146,10 +141,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
 
   it('explicit "local" as a browser actor → the seeded Everyone/edit grant', async () => {
     expect(
-      await resolveLaunchNode(
-        { userId: ownerId, machineActor: false, requestedNodeId: LOCAL_NODE_ID, profile: unpin },
-        deps,
-      ),
+      await resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: LOCAL_NODE_ID }, deps),
     ).toEqual({ nodeId: LOCAL_NODE_ID });
   });
 
@@ -157,9 +149,9 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
     const node = await mkAgent(otherId);
     const off = online(node);
     try {
-      expect(
-        await resolveLaunchNode({ userId: adminId, machineActor: false, requestedNodeId: node, profile: unpin }, deps),
-      ).toEqual({ nodeId: node });
+      expect(await resolveLaunchNode({ userId: adminId, machineActor: false, requestedNodeId: node }, deps)).toEqual({
+        nodeId: node,
+      });
     } finally {
       off();
     }
@@ -168,75 +160,25 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   it("MACHINE actors get no admin boost and no shares: an admin user's bearer still 404s a foreign node", async () => {
     const node = await mkAgent(otherId);
     const err = await grab(() =>
-      resolveLaunchNode({ userId: adminId, machineActor: true, requestedNodeId: node, profile: unpin }, deps),
+      resolveLaunchNode({ userId: adminId, machineActor: true, requestedNodeId: node }, deps),
     );
     expect(statusOf(err)).toBe(404);
   });
 
   it("MACHINE actor on local → 404 for a regular user; only local's OWNER (the system user) keeps it (leaked harness keys must not spawn control-plane subshells)", async () => {
     const denied = await grab(() =>
-      resolveLaunchNode({ userId: ownerId, machineActor: true, requestedNodeId: LOCAL_NODE_ID, profile: unpin }, deps),
+      resolveLaunchNode({ userId: ownerId, machineActor: true, requestedNodeId: LOCAL_NODE_ID }, deps),
     );
     expect(statusOf(denied)).toBe(404);
     expect(
-      await resolveLaunchNode(
-        { userId: systemId, machineActor: true, requestedNodeId: LOCAL_NODE_ID, profile: unpin },
-        deps,
-      ),
+      await resolveLaunchNode({ userId: systemId, machineActor: true, requestedNodeId: LOCAL_NODE_ID }, deps),
     ).toEqual({ nodeId: LOCAL_NODE_ID });
   });
 });
 
-describe("resolveLaunchNode — profile pin (step 2)", () => {
-  it("a pinned node that cannot launch ERRORS with the pin message — never silently relocates", async () => {
-    const node = await mkAgent(ownerId);
-    const err = await grab(() =>
-      resolveLaunchNode({ userId: ownerId, machineActor: false, profile: { nodeId: node } }, deps),
-    );
-    expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_OFFLINE);
-    expect((err as Error).message).toContain("pinned");
-  });
-
-  it("pinned to a gone node → 404 with the pin message", async () => {
-    const err = await grab(() =>
-      resolveLaunchNode({ userId: ownerId, machineActor: false, profile: { nodeId: "deleted-node" } }, deps),
-    );
-    expect(statusOf(err)).toBe(404);
-    expect((err as Error).message).toContain("pinned");
-  });
-
-  it("an explicit body nodeId outranks the pin", async () => {
-    const pinned = await mkAgent(ownerId);
-    const requested = await mkAgent(ownerId);
-    const off = online(requested);
-    try {
-      expect(
-        await resolveLaunchNode(
-          { userId: ownerId, machineActor: false, requestedNodeId: requested, profile: { nodeId: pinned } },
-          deps,
-        ),
-      ).toEqual({ nodeId: requested });
-    } finally {
-      off();
-    }
-  });
-
-  it("a launchable pin is honored when no node was requested", async () => {
-    const node = await mkAgent(ownerId);
-    const off = online(node);
-    try {
-      expect(
-        await resolveLaunchNode({ userId: ownerId, machineActor: false, profile: { nodeId: node } }, deps),
-      ).toEqual({ nodeId: node });
-    } finally {
-      off();
-    }
-  });
-});
-
-describe("resolveLaunchNode — implicit local (step 3) and auto-pick (step 4)", () => {
-  it("nothing requested/pinned + the local switch ON → local (today's behavior preserved)", async () => {
-    expect(await resolveLaunchNode({ userId: ownerId, machineActor: false, profile: unpin }, deps)).toEqual({
+describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)", () => {
+  it("nothing requested + the local switch ON → local (today's behavior preserved)", async () => {
+    expect(await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps)).toEqual({
       nodeId: LOCAL_NODE_ID,
     });
   });
@@ -244,7 +186,7 @@ describe("resolveLaunchNode — implicit local (step 3) and auto-pick (step 4)",
   it("local switch OFF + no online agents → 400 ApiError NODE_REQUIRED ('pick one')", async () => {
     await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
     try {
-      const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: false, profile: unpin }, deps));
+      const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: false }, deps));
       expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_REQUIRED);
       expect((err as ApiError).statusCode).toBe(400);
       expect((err as Error).message).toMatch(/pick one/i);
@@ -258,7 +200,7 @@ describe("resolveLaunchNode — implicit local (step 3) and auto-pick (step 4)",
     await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
     const off = online(node);
     try {
-      expect(await resolveLaunchNode({ userId: ownerId, machineActor: false, profile: unpin }, deps)).toEqual({
+      expect(await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps)).toEqual({
         nodeId: node,
       });
     } finally {
@@ -274,7 +216,7 @@ describe("resolveLaunchNode — implicit local (step 3) and auto-pick (step 4)",
     const offA = online(a);
     const offB = online(b);
     try {
-      const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: false, profile: unpin }, deps));
+      const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: false }, deps));
       expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_REQUIRED);
       expect((err as Error).message).toMatch(/multiple/i);
     } finally {
@@ -289,7 +231,7 @@ describe("resolveLaunchNode — implicit local (step 3) and auto-pick (step 4)",
     await deps.shares.replaceForNode(sharedOnline, [{ granteeUserId: null, permission: "edit" }], otherId);
     const off = online(sharedOnline);
     try {
-      const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: true, profile: unpin }, deps));
+      const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: true }, deps));
       expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_REQUIRED);
     } finally {
       off();

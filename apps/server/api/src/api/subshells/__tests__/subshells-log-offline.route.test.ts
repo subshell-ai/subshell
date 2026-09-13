@@ -38,7 +38,7 @@ describe("GET /api/subshells/:id/log onto an offline node (spec §5.6)", () => {
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "logoff-row",
       workingDir: "/tmp",

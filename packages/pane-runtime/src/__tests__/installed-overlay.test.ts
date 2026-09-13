@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PLUGIN_API_VERSION } from "@subshell-ai/plugin-api";
 import { pluginsDir, uninstallPlugin } from "../plugins-dir.js";
 import {
   allHarnesses,
@@ -59,7 +60,7 @@ async function writePlugin(
       version: "1.0.0",
       type: "module",
       subshell: {
-        apiVersion: 1,
+        apiVersion: PLUGIN_API_VERSION,
         id,
         type: "agent-harness",
         name: `${id} plugin`,

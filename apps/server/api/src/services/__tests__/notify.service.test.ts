@@ -9,6 +9,7 @@ import * as initMigration from "@/db/migrations/0001-init.js";
 import * as notificationsMigration from "@/db/migrations/0014-session-notifications.js";
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -29,6 +30,7 @@ async function freshDb() {
   // user_meta.notify_enabled — read by the master-switch gate in notifySubshell.
   await sharingMigration.up(db as Kysely<any>);
   await subshellRenameMigration.up(db as Kysely<any>); // renamed schema the code sees
+  await presetsMigration.up(db as Kysely<any>); // profiles → presets (spec 2026-09-13 §6)
   return db;
 }
 
@@ -67,7 +69,7 @@ describe("notifySubshell", () => {
       .values({
         id: "s1",
         userId: "u1",
-        profileId: "p",
+        presetId: "p",
         harnessId: "h",
         name: "n",
         workingDir: "/tmp",
@@ -99,7 +101,7 @@ describe("notifySubshell", () => {
       .values({
         id: "s1",
         userId: "u1",
-        profileId: "p",
+        presetId: "p",
         harnessId: "h",
         name: "n",
         workingDir: "/tmp",
@@ -132,7 +134,7 @@ describe("notifySubshell", () => {
       .values({
         id: "s1",
         userId: "u1",
-        profileId: "p",
+        presetId: "p",
         harnessId: "h",
         name: "n",
         workingDir: "/tmp",
@@ -173,7 +175,7 @@ describe("notifySubshell", () => {
       .values({
         id: "s1",
         userId: "u1",
-        profileId: "p",
+        presetId: "p",
         harnessId: "h",
         name: "n",
         workingDir: "/tmp",
@@ -203,7 +205,7 @@ describe("notifySubshell", () => {
       .values({
         id: "s1",
         userId: "u1",
-        profileId: "p",
+        presetId: "p",
         harnessId: "h",
         name: "n",
         workingDir: "/tmp",

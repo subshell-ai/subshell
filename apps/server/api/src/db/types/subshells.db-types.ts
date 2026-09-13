@@ -11,8 +11,11 @@ export interface SubshellTable {
   id: string;
   /** Owning user id */
   userId: string;
-  /** Profile used to launch this subshell */
-  profileId: string;
+  /**
+   * Preset launched with; NULL = a presetless launch (the empty-preset path,
+   * spec 2026-09-13) — also the state left by deleting the preset it used.
+   */
+  presetId: string | null;
   /** Harness plugin id used to launch this subshell */
   harnessId: string;
   /** Human-friendly subshell name (defaults to the created timestamp) */
@@ -77,6 +80,7 @@ export interface SubshellTable {
  */
 export type NewSubshell = Omit<
   SubshellTable,
+  | "presetId"
   | "createdAt"
   | "endedAt"
   | "status"
@@ -96,6 +100,8 @@ export type NewSubshell = Omit<
   | "nodeId"
   | "terminalReplayLines"
 > & {
+  /** Preset launched with; omitted = NULL (presetless launch). Defaults on insert. */
+  presetId?: string | null;
   /** Node to launch on; omitted = DB default 'local' */
   nodeId?: string;
   /** Per-subshell terminal replay cap; omitted = NULL = instance default */

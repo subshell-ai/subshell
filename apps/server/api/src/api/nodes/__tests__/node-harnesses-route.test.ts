@@ -146,7 +146,7 @@ describe("/api/nodes harness state + recheck", () => {
     await new SubshellsRepository(db).create({
       id: "s_nh10",
       userId: aliceId,
-      profileId: "p",
+      presetId: "p",
       harnessId: H0,
       name: "s_nh10",
       workingDir: "/tmp",

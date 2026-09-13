@@ -125,7 +125,7 @@ async function seedAgentRow() {
   await repos.subshells.create({
     id,
     userId: `u-it-ws-${rowSeq}`,
-    profileId: "p-it",
+    presetId: "p-it",
     harnessId: "claude-code",
     name: "it-ws-remote",
     workingDir: "/srv/work/remote",
@@ -247,7 +247,7 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
     await repos.subshells.create({
       id,
       userId,
-      profileId: "p-it",
+      presetId: "p-it",
       harnessId: "shell",
       name: "it-ws-local",
       workingDir: "/tmp",

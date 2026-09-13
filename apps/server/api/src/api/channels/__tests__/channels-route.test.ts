@@ -296,7 +296,7 @@ describe("channels route", () => {
       await new SubshellsRepository(db).create({
         id: bobSess,
         userId: bob,
-        profileId: "p",
+        presetId: "p",
         harnessId: "claude-code",
         name: "b",
         workingDir: "/tmp",
@@ -370,7 +370,7 @@ describe("channels route", () => {
         await new SubshellsRepository(db).create({
           id,
           userId: bob,
-          profileId: "p",
+          presetId: "p",
           harnessId: "claude-code",
           name: "w",
           workingDir: "/tmp",

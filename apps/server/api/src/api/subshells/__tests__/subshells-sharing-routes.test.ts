@@ -36,7 +36,7 @@ describe("subshell sharing — access matrix over routes", () => {
     await new SubshellsRepository(db).create({
       id,
       userId: aliceId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: id,
       workingDir: "/tmp",

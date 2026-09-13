@@ -6,7 +6,7 @@ import { HarnessStateError } from "@/api/harness-utils.js";
 import { IS_TEST, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
@@ -25,9 +25,10 @@ import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/
  *
  * The lifecycle (§6.1): `enabled` is a DB flag (absent row = enabled), never
  * in `install.json` which the installer rewrites; uninstalling a plugin that
- * other people's profiles use ASKS first (the impact endpoint feeds the
- * dialog), and `mode=delete` is the one place the Default-profile guard is
- * deliberately bypassed (see `ProfilesRepository.deleteByHarness`).
+ * other people's presets use ASKS first (the impact endpoint feeds the
+ * dialog), and `mode=delete` sweeps those presets too — every one of them is
+ * real customisation now (the seeded Default is gone, spec 2026-09-13), and
+ * subshells that used a swept preset survive presetless.
  *
  * | verb   | path                          | gate              |
  * |--------|-------------------------------|-------------------|
@@ -47,6 +48,10 @@ const InstallSourceSchema = t.Union([t.Literal("embedded"), t.Literal("registry"
 const PluginRowSchema = t.Object({
   id: t.String({ description: "Plugin id (its directory name under the instance's plugins dir)" }),
   name: t.String({ description: "Display name, from the installed plugin or this build's manifest" }),
+  type: t.Union([t.Literal("agent-harness"), t.Literal("terminal")], {
+    description:
+      "Manifest plugin type: an agent CLI, or a plain shell. The web Agent picker's default rule puts terminal last",
+  }),
   description: t.String({ description: "One-line description" }),
   icon: t.Optional(t.String({ description: "Icon label" })),
   binary: t.Optional(
@@ -90,17 +95,16 @@ const InstallBodySchema = t.Object({
 const PatchBodySchema = t.Object({
   enabled: t.Boolean({
     description:
-      "Offer the plugin (true) or hold its bytes without offering them (false). Profiles are never touched in either direction",
+      "Offer the plugin (true) or hold its bytes without offering them (false). Presets are never touched in either direction",
   }),
 });
 
 const ImpactResponseSchema = t.Object({
-  profiles: t.Number({ description: "Profiles using this harness, across every user" }),
+  presets: t.Number({ description: "Presets using this harness, across every user" }),
   distinctUsers: t.Number({
     description:
-      "Every user who owns one of these profiles, the caller included — the 'across N users' count the uninstall dialog renders",
+      "Every user who owns one of these presets, the caller included — the 'across N users' count the uninstall dialog renders",
   }),
-  defaults: t.Number({ description: "How many are auto-seeded Defaults (mode=delete removes these too)" }),
   runningSubshells: t.Number({ description: "RUNNING subshells on this harness. Uninstalling touches none of them" }),
 });
 
@@ -109,7 +113,7 @@ const DeleteResponseSchema = t.Object({
   mode: t.Union([t.Literal("keep"), t.Literal("delete")], {
     description: "The mode the uninstall ran in (defaults to keep)",
   }),
-  profilesRemoved: t.Number({ description: "Profiles deleted (0 for keep, and 0 for a plugin nothing used)" }),
+  presetsRemoved: t.Number({ description: "Presets deleted (0 for keep, and 0 for a plugin nothing used)" }),
 });
 
 const PARAMS = t.Object({ pluginId: t.String({ description: "Plugin id" }) });
@@ -169,6 +173,14 @@ function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | 
   const row: Static<typeof PluginRowSchema> = {
     id,
     name: report?.name ?? harness?.name ?? id,
+    // The manifest's type, whichever source knows this id. The wire type is a
+    // plain string (manifest data, not re-validated here), so an unknown value
+    // reads as agent-harness — the type only groups and labels; nothing
+    // branches on it server-side.
+    type:
+      report?.type === "agent-harness" || report?.type === "terminal"
+        ? report.type
+        : (harness?.type ?? "agent-harness"),
     description: report?.description ?? harness?.description ?? "",
     ...(icon ? { icon } : {}),
     ...(harness ? { binary: harness.binaryName } : {}),
@@ -292,7 +304,7 @@ const adminRoutes = new Elysia()
         operationId: "installInstancePlugin",
         tags: ["plugins"],
         description:
-          "Installs a plugin into the instance store (cookie admin). A `spec` fetches that npm package and its code then runs IN THIS PROCESS; absent, this build's embedded copy. Seeds every user a Default profile for the harness",
+          "Installs a plugin into the instance store (cookie admin). A `spec` fetches that npm package and its code then runs IN THIS PROCESS; absent, this build's embedded copy",
       },
     },
   )
@@ -341,7 +353,7 @@ const adminRoutes = new Elysia()
         operationId: "setInstancePluginEnabled",
         tags: ["plugins"],
         description:
-          "Enables or disables an installed plugin (cookie admin). Disabling hides its profiles everywhere and blocks its launches; nothing is stored per-profile, so re-enabling brings the same rows back",
+          "Enables or disables an installed plugin (cookie admin). Disabling hides its presets everywhere and blocks its launches; nothing is stored per-preset, so re-enabling brings the same rows back",
       },
     },
   )
@@ -351,16 +363,15 @@ const adminRoutes = new Elysia()
       if (!SAFE_PLUGIN_ID.test(params.pluginId)) {
         throw new HarnessStateError(`"${params.pluginId}" is not a valid plugin id`, 400);
       }
-      const rows = await new ProfilesRepository(db).listByHarness(params.pluginId);
+      const rows = await new PresetsRepository(db).listByHarness(params.pluginId);
       return {
-        profiles: rows.length,
-        // Distinct OWNERS, counting every user who owns one of these profiles
-        // including the caller — the `N` in the dialog's "M profiles use it,
-        // across N users". A foreign-profile count could not say that number
-        // (three others' profiles are one teammate or three, and the dialog
-        // names users, not profiles).
+        presets: rows.length,
+        // Distinct OWNERS, counting every user who owns one of these presets
+        // including the caller — the `N` in the dialog's "M presets use it,
+        // across N users". A foreign-preset count could not say that number
+        // (three others' presets are one teammate or three, and the dialog
+        // names users, not presets).
         distinctUsers: new Set(rows.map((r) => r.userId)).size,
-        defaults: rows.filter((r) => r.isDefault === 1).length,
         runningSubshells: await new SubshellsRepository(db).countRunningByHarness(params.pluginId),
       };
     },
@@ -375,8 +386,7 @@ const adminRoutes = new Elysia()
       detail: {
         operationId: "getInstancePluginImpact",
         tags: ["plugins"],
-        description:
-          "The blast radius an uninstall would have: profiles, other users' share, Defaults, running subshells",
+        description: "The blast radius an uninstall would have: presets, other users' share, running subshells",
       },
     },
   )
@@ -388,32 +398,32 @@ const adminRoutes = new Elysia()
         throw new HarnessStateError(`"${params.pluginId}" is not a valid plugin id`, 400);
       }
       // Bytes first: a failed uninstall must not have already deleted
-      // profiles for a plugin that stayed installed. `uninstallLocalPlugin`
+      // presets for a plugin that stayed installed. `uninstallLocalPlugin`
       // also clears the enable-flag row, so a later reinstall starts enabled
       // — "installing writes nothing, the default is on" only means
       // something if the uninstall took the old opinion with it.
       const removedBytes = await uninstallLocalPlugin(params.pluginId);
-      let profilesRemoved = 0;
+      let presetsRemoved = 0;
       if (mode === "delete") {
-        // THE one sanctioned bypass of the Default-profile guard: a Default
-        // for a harness that no longer exists is meaningless, and leaving it
-        // would be the one row its owner cannot remove (spec §6.1). The
-        // per-profile `DELETE /api/profiles/:id` guard stays as written.
-        profilesRemoved = await new ProfilesRepository(db).deleteByHarness(params.pluginId);
+        // Every swept row is customisation someone made — the seeded Default
+        // is gone (spec 2026-09-13) — and subshells that used one survive as
+        // presetless launches (`PresetsRepository.deleteByHarness` nulls the
+        // references; spec §6).
+        presetsRemoved = await new PresetsRepository(db).deleteByHarness(params.pluginId);
       }
       // An already-absent plugin with nothing using it is the state the
       // caller asked for — 200, and NO audit line for a change that did not
       // happen.
-      if (removedBytes || profilesRemoved > 0) {
+      if (removedBytes || presetsRemoved > 0) {
         await audit({
           actorUserId: user.id,
           action: "plugin.uninstall",
           targetType: "plugin",
           targetId: params.pluginId,
-          metadataJson: JSON.stringify({ pluginId: params.pluginId, mode, profilesRemoved }),
+          metadataJson: JSON.stringify({ pluginId: params.pluginId, mode, presetsRemoved }),
         });
       }
-      return { ok: true, mode, profilesRemoved } as const;
+      return { ok: true, mode, presetsRemoved } as const;
     },
     {
       params: PARAMS,
@@ -421,7 +431,7 @@ const adminRoutes = new Elysia()
         mode: t.Optional(
           t.Union([t.Literal("keep"), t.Literal("delete")], {
             description:
-              "'keep' (default): bytes only, profiles survive hidden until reinstalled. 'delete': also removes every profile using this harness, across every user, Defaults included. Running subshells are untouched either way",
+              "'keep' (default): bytes only, presets survive hidden until reinstalled. 'delete': also removes every preset using this harness, across every user. Running subshells are untouched either way",
           }),
         ),
       }),
@@ -435,7 +445,7 @@ const adminRoutes = new Elysia()
         operationId: "uninstallInstancePlugin",
         tags: ["plugins"],
         description:
-          "Uninstalls a plugin from the instance store (cookie admin). Default mode `keep` never touches profiles; `delete` sweeps them including Defaults. A plugin already absent succeeds",
+          "Uninstalls a plugin from the instance store (cookie admin). Default mode `keep` never touches presets; `delete` sweeps them. A plugin already absent succeeds",
       },
     },
   );

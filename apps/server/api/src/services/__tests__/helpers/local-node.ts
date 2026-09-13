@@ -16,7 +16,7 @@ import { ensureLocalNode } from "@/services/nodes/seed-local.js";
  * renamed one. `nodes.repository.test.ts` left it owned by a fixture user with
  * its share revoked, and `seed-local.test.ts` left it deleted outright; between
  * them they broke 24 assertions across ten later files, all of which looked
- * like independent node/profile/harness bugs.
+ * like independent node/preset/harness bugs.
  *
  * The re-seed goes through the real {@link ensureLocalNode}, not a hand-written
  * copy of the row, so a restored `local` cannot drift from the one boot

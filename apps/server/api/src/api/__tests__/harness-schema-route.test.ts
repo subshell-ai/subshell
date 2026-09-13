@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
-import { profileRoutes } from "@/api/profiles.route.js";
+import { presetRoutes } from "@/api/presets.route.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
- * GET /api/profiles/harnesses/:id/schema — the reference endpoint that backs
- * the profile editor's env/flag autocomplete. Read-only over the static
+ * GET /api/presets/harnesses/:id/schema — the reference endpoint that backs
+ * the preset editor's env/flag autocomplete. Read-only over the static
  * harness registry, so one user's view is every user's view.
  */
 describe("harness schema route", () => {
@@ -31,12 +31,12 @@ describe("harness schema route", () => {
   });
 
   it("anonymous -> 401", async () => {
-    const res = await profileRoutes.fetch(new Request("http://localhost/api/profiles/harnesses/claude-code/schema"));
+    const res = await presetRoutes.fetch(new Request("http://localhost/api/presets/harnesses/claude-code/schema"));
     expect(res.status).toBe(401);
   });
 
   it("known harness -> full schema payload", async () => {
-    const res = await profileRoutes.fetch(authedRequest("/api/profiles/harnesses/claude-code/schema", token));
+    const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/claude-code/schema", token));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       settingsFields: { key: string }[];
@@ -54,7 +54,7 @@ describe("harness schema route", () => {
   });
 
   it("manual harness -> copy-paste mcp setup steps with the resolved launch", async () => {
-    const res = await profileRoutes.fetch(authedRequest("/api/profiles/harnesses/hermes/schema", token));
+    const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/hermes/schema", token));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       mcp: { mode: string; steps?: { label: string; command: string }[] };
@@ -74,13 +74,13 @@ describe("harness schema route", () => {
   });
 
   it("opencode harness -> settings map to flags", async () => {
-    const res = await profileRoutes.fetch(authedRequest("/api/profiles/harnesses/opencode/schema", token));
+    const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/opencode/schema", token));
     const body = (await res.json()) as { settingsFields: { key: string }[] };
     expect(body.settingsFields.map((f) => f.key).sort()).toEqual(["agent", "auto", "model"]);
   });
 
   it("unknown harness -> 404", async () => {
-    const res = await profileRoutes.fetch(authedRequest("/api/profiles/harnesses/nope/schema", token));
+    const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/nope/schema", token));
     expect(res.status).toBe(404);
   });
 });

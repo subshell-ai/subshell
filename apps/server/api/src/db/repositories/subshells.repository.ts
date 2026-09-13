@@ -58,6 +58,9 @@ export class SubshellsRepository extends BaseRepository {
         notify: subshell.notify ?? 0,
         waitingSince: subshell.waitingSince ?? null,
         status: subshell.status ?? "running",
+        // A presetless launch is a real launch (spec 2026-09-13): null is the
+        // column's own default, mirrored so the typed insert is complete.
+        presetId: subshell.presetId ?? null,
         // Node pin defaults in the DB (migration 0017); mirror it so the typed
         // insert is complete and the row reads back whole.
         nodeId: subshell.nodeId ?? LOCAL_NODE_ID,

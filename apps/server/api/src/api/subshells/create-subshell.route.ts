@@ -4,7 +4,7 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const CreateSubshellBodySchema = t.Object({
-  profileId: t.String({ minLength: 1, description: "Profile to use for this subshell" }),
+  presetId: t.String({ minLength: 1, description: "Preset to launch with" }),
   workingDir: t.String({ minLength: 1, description: "Absolute working directory" }),
   name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Subshell display name" })),
   prompt: t.Optional(
@@ -34,14 +34,13 @@ export const createSubshellRoute = new Elysia()
     async ({ body, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       // Phase 2 (spec §6.6): `nodeId` resolves for real — the service gates
-      // the requested node (404/403/409), honors the profile pin, falls back
-      // to `local` (its Everyone share is the switch), and auto-picks a lone
-      // online agent. Bearer actors get the STRICT owner-only rule everywhere
+      // the requested node (404/403/409), falls back to `local` (its Everyone
+      // share is the switch), and auto-picks a lone online agent. Bearer actors get the STRICT owner-only rule everywhere
       // on this path (no admin boost, no shares — a leaked harness key must
       // not spawn a control-plane subshell), hence `machineActor` below.
       return await ctx.services.subshells.createSubshell({
         userId: user.id,
-        profileId: body.profileId,
+        presetId: body.presetId,
         workingDir: body.workingDir,
         name: body.name,
         prompt: body.prompt,

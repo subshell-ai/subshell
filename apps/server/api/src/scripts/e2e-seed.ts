@@ -3,7 +3,7 @@ import { DATABASE_PATH } from "@/constants.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
@@ -18,7 +18,7 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
  * produces DATA only; all assertions live in the test.
  *
  * Modes:
- * - `create`     seed user + profile + two subshell rows, print their tokens as JSON
+ * - `create`     seed user + preset + two subshell rows, print their tokens as JSON
  * - `ciphertext` JSON report of the stored `e2e` posts and a plaintext-marker
  *                byte-scan of the database files (incl. the WAL)
  */
@@ -28,7 +28,7 @@ async function prepareDb(): Promise<void> {
   await runAuthMigrations();
 }
 
-/** Print `{ userId, profileId, subshells: [{id, token}] }` for two fake subshells. */
+/** Print `{ userId, presetId, subshells: [{id, token}] }` for two fake subshells. */
 async function create(): Promise<void> {
   await prepareDb();
   const users = new UsersRepository(db);
@@ -37,12 +37,12 @@ async function create(): Promise<void> {
     passwordHash: await hashPassword("e2e-pass-1234"),
     role: "admin",
   });
-  const profileId = (
-    await new ProfilesRepository(db).create({
+  const presetId = (
+    await new PresetsRepository(db).create({
       id: crypto.randomUUID(),
       userId,
       harnessId: "e2e-fake",
-      name: "e2e-profile",
+      name: "e2e-preset",
       description: null,
       envJson: null,
       flagsJson: null,
@@ -60,7 +60,7 @@ async function create(): Promise<void> {
     await subshells.create({
       id,
       userId,
-      profileId,
+      presetId,
       harnessId: "e2e-fake",
       name,
       workingDir: "/tmp",
@@ -68,7 +68,7 @@ async function create(): Promise<void> {
     });
     out.push({ id, token: await issueSubshellToken(id, userId) });
   }
-  process.stdout.write(`${JSON.stringify({ userId, profileId, subshells: out })}\n`);
+  process.stdout.write(`${JSON.stringify({ userId, presetId, subshells: out })}\n`);
 }
 
 /**

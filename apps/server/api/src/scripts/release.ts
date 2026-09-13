@@ -180,8 +180,8 @@ export interface EmbedPluginsDeps {
  * Bakes the built-in plugins into the compiled binary, BEFORE any compile.
  *
  * Without this the server binary ships the tracked empty stub, and on a host
- * with no checkout `builtInIds()` answers nothing: boot seeds an empty store,
- * no user gets a Default profile, and every launch refuses. The server owns
+ * with no checkout `builtInIds()` answers nothing: boot seeds an empty store
+ * and every launch refuses. The server owns
  * the plugin store (inversion spec §6), so the server MUST embed, not just the
  * agent.
  *

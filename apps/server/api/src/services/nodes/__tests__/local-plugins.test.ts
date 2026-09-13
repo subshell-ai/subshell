@@ -2,10 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getHarness, listInstalled } from "@internal/pane-runtime";
-import { hashPassword } from "better-auth/crypto";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
-import { UsersRepository } from "@/db/repositories/users.repository.js";
 import {
   installLocalPlugin,
   localPluginReports,
@@ -14,7 +12,7 @@ import {
   uninstallLocalPlugin,
 } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { deleteUserByEmailOrId, setupAuthTables } from "../../../api/__tests__/helpers/auth-tables.js";
+import { setupAuthTables } from "../../../api/__tests__/helpers/auth-tables.js";
 import { type FakeRegistry, makePluginTgz, startFakeRegistry } from "./helpers/fake-npm-registry.js";
 
 /**
@@ -110,7 +108,7 @@ describe("the control-plane host's plugins", () => {
         version: "1.0.0",
         type: "module",
         subshell: {
-          apiVersion: 1,
+          apiVersion: 2, // the entry below speaks v2 member names
           id: "acme-boot",
           type: "agent-harness",
           name: "Acme Boot",
@@ -146,8 +144,6 @@ describe("the control-plane host's plugins", () => {
    */
   describe("installing from the registry", () => {
     const reg: FakeRegistry = startFakeRegistry();
-    const email = `lp-reg-${crypto.randomUUID()}@subshell.local`;
-    let userId: string;
 
     beforeAll(async () => {
       reg.served.set("third-party", {
@@ -159,32 +155,26 @@ describe("the control-plane host's plugins", () => {
         tamper: true,
         versions: { "1.0.0": makePluginTgz({ name: "tampered", version: "1.0.0", id: "tampered" }) },
       });
-      // Profile seeding targets every real user, so the suite needs one to
-      // be observable (a pristine moment in the shared DB would seed nobody).
-      userId = await new UsersRepository(db).createUser({
-        email,
-        passwordHash: await hashPassword("lp-reg-1"),
-        role: "user",
-      });
     });
 
     afterAll(async () => {
       reg.stop();
-      // The seeded Defaults carry `isDefault = 1`; that flag is enforced by
-      // the DELETE route, so the sweep goes straight at the table.
-      await db.deleteFrom("profiles").where("harnessId", "in", ["third", "tampered"]).execute();
-      await deleteUserByEmailOrId(email);
+      // Belt-and-braces: install writes no preset rows any more (spec
+      // 2026-09-13), but a stray fixture row for one of this suite's harness
+      // ids must not leak into a later suite's counts.
+      await db.deleteFrom("presets").where("harnessId", "in", ["third", "tampered"]).execute();
     });
 
-    it("installs a spec into the instance store and seeds profiles", async () => {
+    it("installs a spec into the instance store and writes NO preset rows", async () => {
       await prepareLocalPlugins();
 
       await installLocalPlugin("third", "third-party@1.0.0", reg.base);
 
       expect((await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id)).toContain("third");
       expect((await localPluginReports()).map((r) => r.id)).toContain("third");
-      const seeded = await db.selectFrom("profiles").select("userId").where("harnessId", "=", "third").execute();
-      expect(seeded.map((r) => r.userId)).toContain(userId);
+      // The Default seeding is gone (spec 2026-09-13): an install arms the
+      // harness, not anyone's rows. A fresh account launches it presetless.
+      expect(await db.selectFrom("presets").select("id").where("harnessId", "=", "third").execute()).toEqual([]);
     });
 
     it("a spec that fails integrity throws, and the store is unchanged", async () => {

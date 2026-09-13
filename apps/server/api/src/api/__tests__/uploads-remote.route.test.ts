@@ -180,7 +180,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       name: "uprem-test",
       workingDir,
       harnessId: "claude-code",
-      profileId: crypto.randomUUID(),
+      presetId: crypto.randomUUID(),
       status: "running",
       tmuxSocket: `subshell-uprem-${id.slice(0, 8)}`,
       nodeId,

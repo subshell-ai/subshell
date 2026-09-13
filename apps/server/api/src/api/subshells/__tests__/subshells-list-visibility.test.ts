@@ -33,7 +33,7 @@ describe("GET /api/subshells visibility + access", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: id,
       workingDir: "/tmp",

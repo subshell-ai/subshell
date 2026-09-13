@@ -40,7 +40,7 @@ describe("POST /api/subshells/:id/extend-token", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "ext",
       workingDir: "/tmp",
@@ -87,7 +87,7 @@ describe("POST /api/subshells/:id/extend-token", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "no-token",
       workingDir: "/tmp",
@@ -117,7 +117,7 @@ describe("POST /api/subshells/:id/extend-token", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "scoped",
       workingDir: "/tmp",

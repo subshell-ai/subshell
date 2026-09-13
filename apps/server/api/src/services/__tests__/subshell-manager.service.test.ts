@@ -18,13 +18,14 @@ import * as sessionNotificationsMigration from "@/db/migrations/0014-session-not
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
-import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
+import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
@@ -33,7 +34,7 @@ import { defaultSubshellName, parsePreset, SubshellManagerService } from "@/serv
 
 let dbCleanup: (() => void) | undefined;
 let subshellManager: SubshellManagerService;
-let profilesRepo: ProfilesRepository;
+let presetsRepo: PresetsRepository;
 let subshellsRepo: SubshellsRepository;
 const testDir = mkdtempSync(join(tmpdir(), "subshell-test-"));
 
@@ -110,18 +111,19 @@ beforeAll(async () => {
   await initMigration.up(db);
   await operatorUxMigration.up(db);
   await remoteOpsMigration.up(db);
-  await profileDefaultFlagMigration.up(db); // ProfilesRepository.create writes is_default
+  await profileDefaultFlagMigration.up(db); // 0010's is_default flag (dropped again by 0027)
   await sessionNameLockedMigration.up(db); // SubshellsRepository defaults name_locked
   await sessionHarnessIdMigration.up(db); // subshells.harness_session_id
   await sessionNotificationsMigration.up(db); // subshells.notify / waiting_since + subscriptions
   await nodesMigration.up(db); // subshells.node_id (SubshellsRepository.create writes it)
   await sharingMigration.up(db); // 0019 renames session_shares
   await subshellRenameMigration.up(db); // renamed schema the code sees
-  profilesRepo = new ProfilesRepository(db);
+  await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
+  presetsRepo = new PresetsRepository(db);
   subshellsRepo = new SubshellsRepository(db);
   subshellManager = new SubshellManagerService({
     subshells: subshellsRepo,
-    profiles: profilesRepo,
+    presets: presetsRepo,
     tmux: new TmuxRunner(),
     // These tests exercise subshell/tmux mechanics against a hermetic DB that
     // better-auth knows nothing about; stub the token lifecycle (the real one
@@ -159,11 +161,11 @@ describe("SubshellManagerService", () => {
     const workDir = mkdtempSync(join(testDir, "ws-"));
     writeFileSync(join(workDir, "file.txt"), "x");
 
-    const profileId = await seedProfile(profilesRepo, { name: "Default" });
+    const presetId = await seedPreset(presetsRepo, { name: "Default" });
 
     const created = await subshellManager.createSubshell({
       userId: "u1",
-      profileId,
+      presetId,
       workingDir: workDir,
     });
     trackTmuxSocket(created.tmuxSocket);
@@ -186,28 +188,28 @@ describe("SubshellManagerService", () => {
     expect(subshellManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(false);
   });
 
-  it("rejects subshells for a nonexistent profile", async () => {
+  it("rejects subshells for a nonexistent preset", async () => {
     await expect(
-      subshellManager.createSubshell({ userId: "u1", profileId: "missing", workingDir: "/tmp" }),
+      subshellManager.createSubshell({ userId: "u1", presetId: "missing", workingDir: "/tmp" }),
     ).rejects.toThrow(/not found/i);
   });
 
   it("rejects a missing working directory", async () => {
-    const profileId = await seedProfile(profilesRepo);
+    const presetId = await seedPreset(presetsRepo);
     await expect(
-      subshellManager.createSubshell({ userId: "u1", profileId, workingDir: "/definitely/not/here" }),
+      subshellManager.createSubshell({ userId: "u1", presetId, workingDir: "/definitely/not/here" }),
     ).rejects.toThrow(/does not exist/i);
   });
 });
 
 describe("SubshellManagerService restart", () => {
   /** Inserts a subshell row directly (no tmux involvement). */
-  async function seedSubshell(userId: string, profileId: string): Promise<string> {
+  async function seedSubshell(userId: string, presetId: string): Promise<string> {
     const id = crypto.randomUUID();
     await subshellsRepo.create({
       id,
       userId,
-      profileId,
+      presetId,
       harnessId: "claude-code",
       name: "Original",
       workingDir: "/tmp",
@@ -216,12 +218,12 @@ describe("SubshellManagerService restart", () => {
     return id;
   }
 
-  /** Real profile row (restartSubshell re-validates + spawns tmux). */
-  const seedProfileFor = (userId: string) => seedProfile(profilesRepo, { userId });
+  /** Real preset row (restartSubshell re-validates + spawns tmux). */
+  const seedPresetFor = (userId: string) => seedPreset(presetsRepo, { userId });
 
-  it("restartSubshell revives the SAME row (same id, name, profile; parked fields cleared)", async () => {
-    const profileId = await seedProfileFor("u1");
-    const id = await seedSubshell("u1", profileId);
+  it("restartSubshell revives the SAME row (same id, name, preset; parked fields cleared)", async () => {
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId);
     await subshellsRepo.update(id, {
       status: "terminated",
       alive: 0,
@@ -236,7 +238,7 @@ describe("SubshellManagerService restart", () => {
     expect(restarted.id).toBe(id); // NOT a new id — in-place revival
     const row = await subshellsRepo.findById(id);
     expect(row?.name).toBe("Original"); // no " (2)" suffix ever
-    expect(row?.profileId).toBe(profileId);
+    expect(row?.presetId).toBe(presetId);
     expect(row?.status).toBe("running");
     expect(row?.alive).toBe(1);
     expect(row?.exitCode).toBeNull();
@@ -253,8 +255,8 @@ describe("SubshellManagerService restart", () => {
   });
 
   it("restartSubshell kills a live source before respawning it (same row, same socket)", async () => {
-    const profileId = await seedProfileFor("u1");
-    const created = await subshellManager.createSubshell({ userId: "u1", profileId, workingDir: "/tmp" });
+    const presetId = await seedPresetFor("u1");
+    const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp" });
     trackTmuxSocket(created.tmuxSocket);
     expect(subshellManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(true);
     const restarted = await subshellManager.restartSubshell("u1", created.id);
@@ -267,8 +269,8 @@ describe("SubshellManagerService restart", () => {
   });
 
   it("restartSubshell keeps the bell on the row (operator monitoring survives a restart)", async () => {
-    const profileId = await seedProfileFor("u1");
-    const id = await seedSubshell("u1", profileId);
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId);
     await subshellsRepo.update(id, { notify: 1 });
     const restarted = await subshellManager.restartSubshell("u1", id);
     if (!restarted) throw new Error("expected a restarted subshell");
@@ -287,8 +289,8 @@ describe("SubshellManagerService restart", () => {
   // assert a SECOND instance joins it (never spawns), and that a foreign
   // caller is rejected on ownership BEFORE it can ride A's lease.
   it("concurrent restartSubshell across two manager instances joins one revival", async () => {
-    const profileId = await seedProfileFor("u1");
-    const id = await seedSubshell("u1", profileId);
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId);
 
     let releaseGate: () => void = () => {};
     const gate = new Promise<void>((r) => {
@@ -299,7 +301,7 @@ describe("SubshellManagerService restart", () => {
     const mkManager = (tally: () => void, gateOnIssue = false) =>
       new SubshellManagerService({
         subshells: subshellsRepo,
-        profiles: profilesRepo,
+        presets: presetsRepo,
         tmux: new TmuxRunner(),
         tokens: {
           issue: async () => {
@@ -343,9 +345,9 @@ describe("SubshellManagerService restart", () => {
   // parked `running` row back to `terminated`, so the sweep neither sees a
   // `running` zombie nor auto-revives it when the harness later reappears.
   it("restartSubshell rolls the row back to terminated when the relaunch throws", async () => {
-    const id = await seedSubshell("u1", "no-such-profile"); // reviveRow throws: profile gone
+    const id = await seedSubshell("u1", "no-such-preset"); // reviveRow throws: preset gone
     await subshellsRepo.update(id, { status: "terminated", alive: 0, exitCode: 1 });
-    await expect(subshellManager.restartSubshell("u1", id)).rejects.toThrow(/profile/);
+    await expect(subshellManager.restartSubshell("u1", id)).rejects.toThrow(/preset/);
     const row = await subshellsRepo.findById(id);
     expect(row?.status).toBe("terminated"); // NOT left running
     expect(row?.alive).toBe(0);
@@ -361,8 +363,8 @@ describe("SubshellManagerService restart", () => {
   });
 
   it("reconcile marks a dead tmux subshell as not-alive (crash)", async () => {
-    const profileId = await seedProfileFor("u1");
-    const id = await seedSubshell("u1", profileId); // tmuxSocket null → not alive
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId); // tmuxSocket null → not alive
     await subshellManager.reconcile("u1");
     const row = await subshellsRepo.findById(id);
     expect(row?.alive).toBe(0);
@@ -375,12 +377,12 @@ describe("SubshellManagerService restart", () => {
   });
 
   it("auto-restarts a restart_on_exit subshell after backoff, same row", async () => {
-    const profileId = await seedProfileFor("u1");
-    await profilesRepo.update(profileId, { restartOnExit: 1 });
-    const created = await subshellManager.createSubshell({ userId: "u1", profileId, workingDir: "/tmp" });
+    const presetId = await seedPresetFor("u1");
+    await presetsRepo.update(presetId, { restartOnExit: 1 });
+    const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp" });
     trackTmuxSocket(created.tmuxSocket);
     const id = created.id;
-    // The subshell inherits the profile's auto-restart policy at creation.
+    // The subshell inherits the preset's auto-restart policy at creation.
     expect((await subshellsRepo.findById(id))?.restartOnExit).toBe(1);
 
     // Real crash: kill the tmux tree, then stamp the row dead with a
@@ -446,7 +448,7 @@ describe("reconcile notifications", () => {
     const calls: Array<[string, string]> = [];
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       tmux: new TmuxRunner(),
       tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
       audit: async () => {},
@@ -462,7 +464,7 @@ describe("reconcile notifications", () => {
     await subshellsRepo.create({
       id,
       userId: "u-notify",
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "Notify me",
       workingDir: "/tmp",
@@ -618,7 +620,7 @@ describe("buildHarnessCommand", () => {
     expect(name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
-  it("parses a profile row's JSON blobs into a preset", () => {
+  it("parses a preset row's JSON blobs into a preset", () => {
     const p = parsePreset({
       name: "n",
       envJson: '{"A":"1"}',
@@ -641,8 +643,8 @@ describe("pane-title auto-naming (reconcile sweep)", () => {
   }
 
   async function liveSubshell(): Promise<{ id: string; socket: string; defaultName: string }> {
-    const profileId = await seedProfile(profilesRepo);
-    const created = await subshellManager.createSubshell({ userId: "u1", profileId, workingDir: TMP_RESOLVED });
+    const presetId = await seedPreset(presetsRepo);
+    const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: TMP_RESOLVED });
     trackTmuxSocket(created.tmuxSocket);
     const row = await subshellsRepo.findById(created.id);
     return { id: created.id, socket: created.tmuxSocket, defaultName: row?.name ?? "" };
@@ -773,8 +775,8 @@ describe("SubshellManagerService restart-resume", () => {
     const sb = await resumeSandbox("pin");
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
-      const profileId = await seedProfile(profilesRepo);
-      const created = await subshellManager.createSubshell({ userId: "u1", profileId, workingDir: workDir });
+      const presetId = await seedPreset(presetsRepo);
+      const created = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
       trackTmuxSocket(created.tmuxSocket);
       try {
         const row = await subshellsRepo.findById(created.id);
@@ -794,8 +796,8 @@ describe("SubshellManagerService restart-resume", () => {
     const sb = await resumeSandbox("resume");
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
-      const profileId = await seedProfile(profilesRepo);
-      const first = await subshellManager.createSubshell({ userId: "u1", profileId, workingDir: workDir });
+      const presetId = await seedPreset(presetsRepo);
+      const first = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
       trackTmuxSocket(first.tmuxSocket);
       const row1 = await subshellsRepo.findById(first.id);
       const pinned = row1?.harnessSessionId ?? "";
@@ -830,8 +832,8 @@ describe("SubshellManagerService restart-resume", () => {
     const sb = await resumeSandbox("repin");
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
-      const profileId = await seedProfile(profilesRepo);
-      const first = await subshellManager.createSubshell({ userId: "u1", profileId, workingDir: workDir });
+      const presetId = await seedPreset(presetsRepo);
+      const first = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
       trackTmuxSocket(first.tmuxSocket);
       const pinned = (await subshellsRepo.findById(first.id))?.harnessSessionId ?? "";
       await subshellManager.terminateSubshell("u1", first.id);
@@ -859,8 +861,8 @@ describe("SubshellManagerService restart-resume", () => {
     const sb = await resumeSandbox("live");
     try {
       const workDir = mkdtempSync(join(testDir, "ws-"));
-      const profileId = await seedProfile(profilesRepo);
-      const first = await subshellManager.createSubshell({ userId: "u1", profileId, workingDir: workDir });
+      const presetId = await seedPreset(presetsRepo);
+      const first = await subshellManager.createSubshell({ userId: "u1", presetId, workingDir: workDir });
       trackTmuxSocket(first.tmuxSocket);
       const pinned = (await subshellsRepo.findById(first.id))?.harnessSessionId ?? "";
       try {
@@ -932,7 +934,7 @@ function remoteFixture(
   };
   const manager = new SubshellManagerService({
     subshells: subshellsRepo,
-    profiles: profilesRepo,
+    presets: presetsRepo,
     launcher,
     tokens: {
       issue: async () => {
@@ -963,7 +965,7 @@ async function seedAgentRow(
   await subshellsRepo.create({
     id,
     userId: "u-recon",
-    profileId: "p",
+    presetId: "p",
     harnessId: "claude-code",
     name: "Agent row",
     workingDir: "/tmp",
@@ -1313,7 +1315,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
     // exactly the window the shared death helper must refuse to enter.
     const gated = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       launcher: f.launcher,
       tokens: {
         issue: async () => {
@@ -1329,8 +1331,8 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
       },
       sendNode: f.sendNode,
     });
-    const liveProfile = await seedProfile(profilesRepo);
-    const id = await seedAgentRow(nodeId, { alive: 0, profileId: liveProfile }); // parked row → restart revives it
+    const livePreset = await seedPreset(presetsRepo);
+    const id = await seedAgentRow(nodeId, { alive: 0, presetId: livePreset }); // parked row → restart revives it
     const restartP = gated.restartSubshell("u-recon", id);
     for (let i = 0; !reachedIssue && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
     expect(reachedIssue).toBe(true);
@@ -1434,7 +1436,7 @@ describe("terminateSubshell on an offline agent node — best-effort stop (O2 ru
     const audits: Array<Record<string, unknown>> = [];
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       tokens: {
         issue: async () => "subshell_stub",
         revoke: async (id: string) => {

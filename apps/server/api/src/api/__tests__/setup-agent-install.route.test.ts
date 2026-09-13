@@ -83,7 +83,7 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
     await new SubshellsRepository(db).create({
       id: subshellId,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "agent-install-test",
       workingDir: "/tmp",

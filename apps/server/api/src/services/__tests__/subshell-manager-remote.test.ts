@@ -15,13 +15,14 @@ import * as sessionNotificationsMigration from "@/db/migrations/0014-session-not
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
-import { seedProfile } from "@/services/__tests__/helpers/seed-profile.js";
+import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
@@ -39,9 +40,9 @@ import { SubshellManagerService, type SubshellTokenProvider } from "@/services/s
 
 const testDir = mkdtempSync(join(tmpdir(), "subshell-rmgr-"));
 let dbHandle: Kysely<Database>;
-let profilesRepo: ProfilesRepository;
+let presetsRepo: PresetsRepository;
 let subshellsRepo: SubshellsRepository;
-let profileId: string;
+let presetId: string;
 let _issued = 0;
 const tokens: SubshellTokenProvider = {
   issue: async () => {
@@ -77,9 +78,10 @@ beforeAll(async () => {
   await nodesMigration.up(dbHandle);
   await sharingMigration.up(dbHandle); // 0019 renames session_shares
   await subshellRenameMigration.up(dbHandle); // renamed schema the code sees
-  profilesRepo = new ProfilesRepository(dbHandle);
+  await presetsMigration.up(dbHandle); // profiles → presets (spec 2026-09-13 §6)
+  presetsRepo = new PresetsRepository(dbHandle);
   subshellsRepo = new SubshellsRepository(dbHandle);
-  profileId = await seedProfile(profilesRepo);
+  presetId = await seedPreset(presetsRepo);
 });
 
 afterAll(async () => {
@@ -93,7 +95,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       launcher: fake,
       tokens,
       audit: async () => {},
@@ -103,7 +105,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     try {
       const created = await manager.createSubshell({
         userId: "u1",
-        profileId,
+        presetId,
         workingDir: "/tmp",
         name: "remote-create",
         nodeId,
@@ -134,7 +136,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       launcher: fake,
       tokens,
       audit: async () => {},
@@ -142,7 +144,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const nodeId = "rmgr-node-reporter";
     const off = nodeOnline(nodeId, ["mcp"]);
     try {
-      const created = await manager.createSubshell({ userId: "u1", profileId, workingDir: "/tmp", nodeId });
+      const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId });
       // The node reported a PREFIX; the plane appends its own verb. The
       // control plane's own binary path would be meaningless on that machine.
       expect(fake.plans[0].reporter).toEqual({ command: "/usr/bin/subshell", args: ["report"] });
@@ -156,7 +158,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       launcher: fake,
       tokens,
       audit: async () => {},
@@ -164,7 +166,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const nodeId = "rmgr-node-reporter-nomcp";
     const off = nodeOnline(nodeId, []);
     try {
-      const created = await manager.createSubshell({ userId: "u1", profileId, workingDir: "/tmp", nodeId });
+      const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId });
       expect(fake.plans[0].mcp).toBeUndefined();
       expect(fake.plans[0].reporter).toEqual({ command: "/usr/bin/subshell", args: ["report"] });
       await subshellsRepo.delete(created.id);
@@ -177,7 +179,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       launcher: fake,
       tokens,
       audit: async () => {},
@@ -185,7 +187,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const nodeId = "rmgr-node-b";
     const off = nodeOnline(nodeId, []);
     try {
-      const created = await manager.createSubshell({ userId: "u1", profileId, workingDir: "/tmp", nodeId });
+      const created = await manager.createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId });
       expect(fake.plans).toHaveLength(1);
       expect(fake.plans[0].mcp).toBeUndefined();
       expect(fake.plans[0].mcpConfigPath).toBeUndefined();
@@ -199,7 +201,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       launcher: fake,
       tokens,
       audit: async () => {},
@@ -209,7 +211,7 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     // is the manager's own #planMcp guard (`NodeRpcError("offline")`), the RPC
     // twin of the RemoteLauncher's NoLiveConnectionError.
     const err = await manager
-      .createSubshell({ userId: "u1", profileId, workingDir: "/tmp", nodeId })
+      .createSubshell({ userId: "u1", presetId, workingDir: "/tmp", nodeId })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(NodeRpcError);
     expect((err as NodeRpcError).code).toBe("offline");
@@ -225,7 +227,7 @@ describe("manager restartSubshell on an offline agent row (real launcher path)",
     // RemoteLauncher for row.nodeId, which answers with NodeRpcError("offline").
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       tokens,
       audit: async () => {},
     });
@@ -234,7 +236,7 @@ describe("manager restartSubshell on an offline agent row (real launcher path)",
     await subshellsRepo.create({
       id,
       userId: "u1",
-      profileId,
+      presetId,
       harnessId: "claude-code",
       name: "parked-agent",
       workingDir: "/tmp",
@@ -257,7 +259,7 @@ describe("nodeOffline on views (spec §5.6)", () => {
     const fake = new FakeNodeLauncher(testDir);
     const manager = new SubshellManagerService({
       subshells: subshellsRepo,
-      profiles: profilesRepo,
+      presets: presetsRepo,
       launcher: fake,
       tokens,
       audit: async () => {},
@@ -272,7 +274,7 @@ describe("nodeOffline on views (spec §5.6)", () => {
       await subshellsRepo.create({
         id,
         userId: "u1",
-        profileId,
+        presetId,
         harnessId: "claude-code",
         name: `v-${id.slice(0, 4)}`,
         workingDir: "/tmp",

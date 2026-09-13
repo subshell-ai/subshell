@@ -73,9 +73,9 @@ describe("subshell uploads route", () => {
       name: "upload-test",
       workingDir,
       harnessId: "claude-code",
-      // No foreign key on subshells.profile_id (see migration 0001-init.ts),
-      // so a random id is sufficient without creating a profile row.
-      profileId: crypto.randomUUID(),
+      // No foreign key on subshells.preset_id (0027 added the column without
+      // one), so a random id is sufficient without creating a preset row.
+      presetId: crypto.randomUUID(),
       status: "running",
       tmuxSocket: `subshell-upload-${id.slice(0, 8)}`,
     });

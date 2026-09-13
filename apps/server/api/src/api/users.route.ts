@@ -8,8 +8,6 @@ import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { DEFAULT_USER_ROLE, USER_ROLES } from "@/db/types/user-role.js";
 import { audit } from "@/services/audit.js";
-import { ensureDefaultProfilesForUser } from "@/services/default-profiles.js";
-import { logger } from "@/utils/logger.js";
 
 const UserRowSchema = t.Object({
   id: t.String({ description: "User id" }),
@@ -145,15 +143,6 @@ const adminOnly = new Elysia()
         }
         throw err;
       }
-      // An admin-minted user bypasses the better-auth registration hook, so
-      // seed their Default profiles here too — best-effort like the audit
-      // below (a seed failure leaves them without a default until the next
-      // boot/harness-enable sweep, but must not 500 an otherwise-good create).
-      await ensureDefaultProfilesForUser(db, id).catch((err) => {
-        // Logged, not silenced: without a line here a user lands on zero
-        // profiles with nothing to trace (the repair only runs at next boot).
-        logger.withError(err).warn(`default-profile seeding failed for admin-created user ${id}`);
-      });
       // Audit the admin action; best-effort (never breaks the create).
       await audit({
         actorUserId: user.id,

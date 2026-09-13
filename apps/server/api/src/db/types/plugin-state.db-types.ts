@@ -10,7 +10,7 @@
 export interface PluginStateTable {
   /** Plugin id (matches `<dataDir>/plugins/<id>/`); also the PK */
   pluginId: string;
-  /** 1 = offered, 0 = disabled (bytes and profiles kept). An absent row means 1 */
+  /** 1 = offered, 0 = disabled (bytes and presets kept). An absent row means 1 */
   enabled: number;
   /** ISO 8601 when the flag was last written */
   updatedAt: string;

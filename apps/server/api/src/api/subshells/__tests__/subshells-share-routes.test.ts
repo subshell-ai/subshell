@@ -46,7 +46,7 @@ describe("/api/subshells/:id/shares", () => {
     await new SubshellsRepository(db).create({
       id: "s_own",
       userId: aliceId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "s_own",
       workingDir: "/tmp",

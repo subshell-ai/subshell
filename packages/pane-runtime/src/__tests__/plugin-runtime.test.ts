@@ -114,7 +114,7 @@ describe("re-loading a plugin whose files changed", () => {
         version,
         private: true,
         subshell: {
-          apiVersion: 1,
+          apiVersion: 2, // the entry below speaks v2 member names
           id: "reload",
           type: "agent-harness",
           name: "Reload",
@@ -156,7 +156,7 @@ describe("re-loading a plugin whose files changed", () => {
         version: "1.0.0",
         private: true,
         subshell: {
-          apiVersion: 1,
+          apiVersion: 2, // the entry below speaks v2 member names
           id: "steady",
           type: "agent-harness",
           name: "Steady",
@@ -189,7 +189,7 @@ describe("upgrading a plugin that was BROKEN", () => {
         name: id,
         version: "1.0.0",
         private: true,
-        subshell: { apiVersion: 1, id, type: "agent-harness", name: id, description: "", entry: "index.js" },
+        subshell: { apiVersion: 2, id, type: "agent-harness", name: id, description: "", entry: "index.js" },
       }),
     );
     await Bun.write(join(dir, "index.js"), body);
@@ -250,7 +250,7 @@ describe("re-installing the same version", () => {
       name: "same",
       version: "1.0.0",
       private: true,
-      subshell: { apiVersion: 1, id: "same", type: "agent-harness", name: "Same", description: "", entry: "index.js" },
+      subshell: { apiVersion: 2, id: "same", type: "agent-harness", name: "Same", description: "", entry: "index.js" },
     });
     const body = `export default () => ({ buildCommand: () => [], validatePreset: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
     await Bun.write(join(dir, "package.json"), pkg);

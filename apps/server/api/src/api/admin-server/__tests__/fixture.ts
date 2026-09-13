@@ -49,7 +49,7 @@ export async function setupAdminServerFixture(prefix: string): Promise<AdminServ
   await new SubshellsRepository(db).create({
     id: subshellId,
     userId: adminId,
-    profileId: "p",
+    presetId: "p",
     harnessId: "claude-code",
     name: `${prefix}-fixture`,
     workingDir: "/tmp",

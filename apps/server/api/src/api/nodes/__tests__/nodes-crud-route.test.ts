@@ -162,7 +162,7 @@ describe("/api/nodes registry CRUD", () => {
     await new SubshellsRepository(db).create({
       id: "s_ncrud",
       userId: aliceId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "s_ncrud",
       workingDir: "/tmp",
@@ -406,7 +406,7 @@ describe("/api/nodes registry CRUD", () => {
     await new SubshellsRepository(db).create({
       id: `s_${n.id}`,
       userId: aliceId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "on-the-node",
       workingDir: "/tmp",

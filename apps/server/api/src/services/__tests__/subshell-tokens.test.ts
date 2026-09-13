@@ -32,7 +32,7 @@ describe("subshell tokens", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "profile-x",
+      presetId: "preset-x",
       harnessId: "claude-code",
       name: "token-test",
       workingDir: "/tmp",

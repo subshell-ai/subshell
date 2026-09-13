@@ -11,7 +11,7 @@ import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
@@ -31,13 +31,13 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
 /**
  * The phase-2 create-subshell node contract (spec 2026-08-31 §6.6): the
  * phase-1 `NODE_LAUNCH_NOT_READY` blanket is gone — `POST /api/subshells`
- * resolves a launch node (requested → pinned → local → single-online-agent
- * auto-pick) and every refusal is the resolution's own structured error.
+ * resolves a launch node (requested → local → single-online-agent auto-pick)
+ * and every refusal is the resolution's own structured error.
  * The matrix itself is unit-tested in `subshells-resolve-launch-node.test.ts`;
  * this file pins the HTTP surface: status codes + bodies, the strict
  * bearer-actor rule, `nodeOffline` on views, and the unchanged 200/shape.
  *
- * The resolution-success path is proven WITHOUT launching: profiles carry
+ * The resolution-success path is proven WITHOUT launching: presets carry
  * `harnessId: "no-such-harness"`, so a resolved request stops at the
  * `harness_disabled` 409 (which also proves `harnessUsable` saw the resolved
  * node id — see the online-agent case). One real 200 runs against a stub
@@ -55,14 +55,14 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
   let cookie: string;
   const createdSubshellIds: string[] = [];
   const createdNodeIds: string[] = [];
-  const createdProfileIds: string[] = [];
+  const createdPresetIds: string[] = [];
   const sockets = new Set<string>();
-  let bogusProfileId: string;
-  let claudeProfileId: string;
+  let bogusPresetId: string;
+  let claudePresetId: string;
   const testDir = mkdtempSync(join(tmpdir(), "subshell-cnode-"));
 
-  async function mkProfile(owner: string, harnessId: string, nodeId?: string): Promise<string> {
-    const row = await new ProfilesRepository(db).create({
+  async function mkPreset(owner: string, harnessId: string): Promise<string> {
+    const row = await new PresetsRepository(db).create({
       id: crypto.randomUUID(),
       userId: owner,
       harnessId,
@@ -72,9 +72,8 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       flagsJson: null,
       settingsJson: null,
       configIsolation: 0,
-      nodeId: nodeId ?? null,
     });
-    createdProfileIds.push(row.id);
+    createdPresetIds.push(row.id);
     return row.id;
   }
 
@@ -95,8 +94,8 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       role: "user",
     });
     cookie = await signIn(email, pw);
-    bogusProfileId = await mkProfile(userId, "no-such-harness");
-    claudeProfileId = await mkProfile(userId, "claude-code");
+    bogusPresetId = await mkPreset(userId, "no-such-harness");
+    claudePresetId = await mkPreset(userId, "claude-code");
   });
 
   afterAll(async () => {
@@ -105,7 +104,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       await new SubshellsRepository(db).delete(id).catch(() => {});
     }
     for (const id of createdNodeIds) await new NodesRepository(db).deleteById(id);
-    for (const id of createdProfileIds) await db.deleteFrom("profiles").where("id", "=", id).execute();
+    for (const id of createdPresetIds) await db.deleteFrom("presets").where("id", "=", id).execute();
     await db.deleteFrom("recentPaths").where("userId", "=", userId).execute();
     // Reap any tmux server the 200-path spawned (same net the manager suite uses).
     for (const socket of sockets) {
@@ -125,29 +124,29 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     );
   }
 
-  const base = (profileId: string) => ({ profileId, workingDir: "/tmp" });
+  const base = (presetId: string) => ({ presetId, workingDir: "/tmp" });
 
-  it("bogus profile + omitted nodeId → unchanged behavior (404 Profile not found)", async () => {
-    const res = await post(base("no-such-profile"));
+  it("bogus preset + omitted nodeId → unchanged behavior (404 Preset not found)", async () => {
+    const res = await post(base("no-such-preset"));
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { message: string }).message).toBe("Profile not found");
+    expect(((await res.json()) as { message: string }).message).toBe("Preset not found");
   });
 
   it("omitted nodeId → resolves to local (stops at harness_disabled, NOT a node error)", async () => {
-    const res = await post(base(bogusProfileId));
+    const res = await post(base(bogusPresetId));
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; message: string };
     expect(body.message).toBe("That harness is disabled on this machine");
   });
 
   it('nodeId "local" → same resolution as omitted', async () => {
-    const res = await post({ ...base(bogusProfileId), nodeId: LOCAL_NODE_ID });
+    const res = await post({ ...base(bogusPresetId), nodeId: LOCAL_NODE_ID });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
   });
 
-  it("unknown nodeId → 404 naming the node (not the profile)", async () => {
-    const res = await post({ ...base(bogusProfileId), nodeId: crypto.randomUUID() });
+  it("unknown nodeId → 404 naming the node (not the preset)", async () => {
+    const res = await post({ ...base(bogusPresetId), nodeId: crypto.randomUUID() });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { code: string; message: string };
     expect(body.code).toBe("NOT_FOUND_ERROR");
@@ -156,14 +155,14 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
 
   it("foreign private node → 404 (invisible, never 403 — spec §2: no node-id existence oracle)", async () => {
     const node = await mkAgent(otherId);
-    const res = await post({ ...base(bogusProfileId), nodeId: node });
+    const res = await post({ ...base(bogusPresetId), nodeId: node });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { message: string }).message).toMatch(/node/i);
   });
 
   it("own agent with no live connection → 409 NODE_OFFLINE", async () => {
     const node = await mkAgent(userId);
-    const res = await post({ ...base(bogusProfileId), nodeId: node });
+    const res = await post({ ...base(bogusPresetId), nodeId: node });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; statusCode: number };
     expect(body.code).toBe("NODE_OFFLINE");
@@ -189,7 +188,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       // per-node harness gate must reject it. A local-probe bug would fall
       // through to a real launch (200) instead of this 409. The AGENT copy
       // must name the node, not "this machine".
-      const agentRes = await post({ ...base(claudeProfileId), nodeId });
+      const agentRes = await post({ ...base(claudePresetId), nodeId });
       expect(agentRes.status).toBe(409);
       expect(((await agentRes.json()) as { message: string }).message).toBe(
         "That harness is disabled or not installed on that node",
@@ -220,7 +219,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     const nodes = new NodesRepository(db);
     await nodes.create({ id: nodeId, ownerUserId: userId, name: `cnode-${nodeId}`, kind: "agent" });
     // Fresh inventory is what passes the strict agent launch gate for the
-    // claude-code profile (CLAUDE_PATH / local probes are irrelevant here).
+    // claude-code preset (CLAUDE_PATH / local probes are irrelevant here).
     await nodes.applyInventory(
       nodeId,
       JSON.stringify([{ harnessId: "claude-code", installed: true, binaryPath: "/usr/bin/claude" }]),
@@ -256,7 +255,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       selfInvoke: { command: "/usr/bin/subshell", args: [] },
     };
     try {
-      const res = await post({ ...base(claudeProfileId), nodeId, name: "cnode-gate" });
+      const res = await post({ ...base(claudePresetId), nodeId, name: "cnode-gate" });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { id: string };
       createdSubshellIds.push(body.id);
@@ -299,22 +298,12 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     }
   });
 
-  it("a pin that cannot launch errors with the pin message — never silently relocates", async () => {
-    const offlineAgent = await mkAgent(userId);
-    const pinned = await mkProfile(userId, "no-such-harness", offlineAgent);
-    const res = await post(base(pinned));
-    expect(res.status).toBe(409);
-    const body = (await res.json()) as { code: string; message: string };
-    expect(body.code).toBe("NODE_OFFLINE");
-    expect(body.message).toContain("pinned");
-  });
-
   it("SECURITY (leaked harness keys can't spawn control-plane subshells): a regular user's bearer token gets 400 NODE_REQUIRED even with local's Everyone grant present", async () => {
     const sid = `s_cnode_tok_${crypto.randomUUID().slice(0, 8)}`;
     await new SubshellsRepository(db).create({
       id: sid,
       userId,
-      profileId: bogusProfileId,
+      presetId: bogusPresetId,
       harnessId: "claude-code",
       name: "token-source",
       workingDir: "/tmp",
@@ -322,7 +311,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     });
     createdSubshellIds.push(sid);
     const key = await issueSubshellToken(sid, userId);
-    const res = await post(base(bogusProfileId), key);
+    const res = await post(base(bogusPresetId), key);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { code: string };
     expect(body.code).toBe("NODE_REQUIRED");
@@ -337,14 +326,14 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
 
   it("the system key still resolves local (it OWNS the local row — the strict rule targets foreign bearer actors only)", async () => {
     const systemId = await ensureSystemUser();
-    // The bearer acts AS its owning user, so the profile must be the system
-    // user's (a foreign profile 404s before node resolution — correct, and
+    // The bearer acts AS its owning user, so the preset must be the system
+    // user's (a foreign preset 404s before node resolution — correct, and
     // not what this test is about).
-    const systemProfile = await mkProfile(systemId, "no-such-harness");
+    const systemPreset = await mkPreset(systemId, "no-such-harness");
     const created = (await getAuth().api.createApiKey({
       body: { name: "cnode-sys", userId: systemId, metadata: { kind: "system" } },
     })) as unknown as { id: string; key: string };
-    const res = await post(base(systemProfile), created.key);
+    const res = await post(base(systemPreset), created.key);
     expect(res.status).toBe(409); // resolution PASSED (local) — stops at the bogus harness
     expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
   });
@@ -355,7 +344,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     try {
-      const res = await post({ ...base(claudeProfileId), name: "cnode-200" });
+      const res = await post({ ...base(claudePresetId), name: "cnode-200" });
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(Object.keys(body).sort()).toEqual(["id", "promptDelivered", "tmuxSocket"]);
@@ -405,7 +394,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "cnode-view",
       workingDir: "/tmp",
@@ -440,7 +429,7 @@ describe("POST /api/subshells/:id/restart onto an offline node (spec §5.6)", ()
     resetNodeRegistryForTests();
     for (const id of createdNodeIds) await new NodesRepository(db).deleteById(id);
     await db.deleteFrom("subshells").where("userId", "=", userId).execute();
-    await db.deleteFrom("profiles").where("userId", "=", userId).execute();
+    await db.deleteFrom("presets").where("userId", "=", userId).execute();
     await deleteUserByEmailOrId(email);
   });
 
@@ -448,7 +437,7 @@ describe("POST /api/subshells/:id/restart onto an offline node (spec §5.6)", ()
     const nodeId = crypto.randomUUID();
     createdNodeIds.push(nodeId);
     await new NodesRepository(db).create({ id: nodeId, ownerUserId: userId, name: `conode-${nodeId}`, kind: "agent" });
-    const profile = await new ProfilesRepository(db).create({
+    const preset = await new PresetsRepository(db).create({
       id: crypto.randomUUID(),
       userId,
       harnessId: "claude-code",
@@ -458,7 +447,6 @@ describe("POST /api/subshells/:id/restart onto an offline node (spec §5.6)", ()
       flagsJson: null,
       settingsJson: null,
       configIsolation: 0,
-      nodeId,
     });
     const id = `s_conode_${crypto.randomUUID().slice(0, 8)}`;
     // Parked shape (what a crashed auto-restart row looks like) — the restart
@@ -466,7 +454,7 @@ describe("POST /api/subshells/:id/restart onto an offline node (spec §5.6)", ()
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: profile.id,
+      presetId: preset.id,
       harnessId: "claude-code",
       name: "conode-row",
       workingDir: "/tmp",

@@ -7,6 +7,7 @@ import * as notifyMigration from "@/db/migrations/0014-session-notifications.js"
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository, summarizeSubshells } from "@/db/repositories/subshells.repository.js";
@@ -38,6 +39,7 @@ async function freshDb(): Promise<Kysely<Database>> {
   await sharingMigration.up(db as Kysely<any>);
   await nodesMigration.up(db as Kysely<any>);
   await subshellRenameMigration.up(db as Kysely<any>); // renamed schema the code sees
+  await presetsMigration.up(db as Kysely<any>); // profiles → presets (spec 2026-09-13 §6)
   return db;
 }
 
@@ -53,7 +55,7 @@ async function seed(
     .values({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "h",
       name: id,
       workingDir: "/tmp",

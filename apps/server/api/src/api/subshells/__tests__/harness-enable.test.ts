@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { sql } from "kysely";
 import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
-import { profileRoutes } from "@/api/profiles.route.js";
+import { presetRoutes } from "@/api/presets.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
@@ -12,8 +12,8 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
 
 /**
  * The install/uninstall loop on the control-plane host: a plugin this host
- * does not have hides its profiles from the list and rejects new
- * profiles/subshells, and installing it restores everything — profile rows
+ * does not have hides its presets from the list and rejects new
+ * presets/subshells, and installing it restores everything — preset rows
  * are never deleted.
  *
  * **This replaced an enable/disable loop (spec 2026-09-09 §12), and one rule
@@ -62,7 +62,7 @@ describe("harness install/uninstall", () => {
     await setPlugin("pi", true);
     delete process.env.PI_PATH;
     delete process.env.CLAUDE_PATH;
-    await db.deleteFrom("profiles").execute();
+    await db.deleteFrom("presets").execute();
     await deleteUserByEmailOrId(email);
   });
 
@@ -82,14 +82,14 @@ describe("harness install/uninstall", () => {
     return { status: res.status, body: (await res.json().catch(() => null)) as { enabled?: boolean } | null };
   }
 
-  async function listProfiles() {
-    const res = await profileRoutes.fetch(authedRequest("/api/profiles", token));
-    return (await res.json()) as { id: string; harnessId: string; name: string; isDefault: number }[];
+  async function listPresets() {
+    const res = await presetRoutes.fetch(authedRequest("/api/presets", token));
+    return (await res.json()) as { id: string; harnessId: string; name: string }[];
   }
 
-  async function createProfile(harnessId: string) {
-    const res = await profileRoutes.fetch(
-      authedRequest("/api/profiles", token, {
+  async function createPreset(harnessId: string) {
+    const res = await presetRoutes.fetch(
+      authedRequest("/api/presets", token, {
         method: "POST",
         body: JSON.stringify({ harnessId, name: `p-${harnessId}` }),
       }),
@@ -114,20 +114,18 @@ describe("harness install/uninstall", () => {
     expect((await setPlugin("claude-code", true)).status).toBe(200);
   });
 
-  it("installing seeds this user their missing claude-code Default (route seam)", async () => {
-    // This suite's user was minted through UsersRepository (no registration
-    // hook), so they hold no auto-Defaults until an install passes through
-    // setup.route — the seam's only end-to-end proof, and the behaviour the
-    // enable toggle used to carry.
+  it("installing through setup.route seeds NO preset rows (spec 2026-09-13)", async () => {
+    // The inversion of the old route-seam proof: a user minted through
+    // UsersRepository (no registration hook) holds no presets, and an install
+    // through setup.route no longer hands them one. A presetless launch of
+    // the reinstalled plugin is the launch path now.
     await db
-      .deleteFrom("profiles")
+      .deleteFrom("presets")
       .where("userId", "=", await userIdFor(email))
       .execute();
     expect((await setPlugin("claude-code", false)).status).toBe(200);
     expect((await setPlugin("claude-code", true)).status).toBe(200);
-    const rows = (await listProfiles()).filter((p) => p.harnessId === "claude-code");
-    expect(rows.length).toBe(1);
-    expect(rows[0]).toMatchObject({ name: "Default", isDefault: 1 });
+    expect((await listPresets()).filter((p) => p.harnessId === "claude-code")).toEqual([]);
   });
 
   async function userIdFor(addr: string): Promise<string> {
@@ -170,24 +168,24 @@ describe("harness install/uninstall", () => {
     expect(JSON.stringify(res.body)).toContain("nope");
   });
 
-  it("removing hides its profiles; installing brings them back; creation is blocked meanwhile", async () => {
-    await db.deleteFrom("profiles").execute();
-    const created = await createProfile("claude-code");
+  it("removing hides its presets; installing brings them back; creation is blocked meanwhile", async () => {
+    await db.deleteFrom("presets").execute();
+    const created = await createPreset("claude-code");
     expect(created.status).toBe(200);
-    const profileId = created.body?.id;
-    if (!profileId) throw new Error("expected a created profile");
-    expect((await listProfiles()).map((p) => p.id)).toContain(profileId);
+    const presetId = created.body?.id;
+    if (!presetId) throw new Error("expected a created preset");
+    expect((await listPresets()).map((p) => p.id)).toContain(presetId);
 
     await setPlugin("claude-code", false);
-    expect(await listProfiles()).toEqual([]);
+    expect(await listPresets()).toEqual([]);
 
-    const blocked = await createProfile("claude-code");
+    const blocked = await createPreset("claude-code");
     expect(blocked.status).toBe(409);
 
     const subshell = await subshellRoutes.fetch(
       authedRequest("/api/subshells", token, {
         method: "POST",
-        body: JSON.stringify({ profileId, workingDir: "/tmp" }),
+        body: JSON.stringify({ presetId, workingDir: "/tmp" }),
       }),
     );
     expect(subshell.status).toBe(409);
@@ -199,6 +197,6 @@ describe("harness install/uninstall", () => {
     }
 
     await setPlugin("claude-code", true);
-    expect((await listProfiles()).map((p) => p.id)).toContain(profileId);
+    expect((await listPresets()).map((p) => p.id)).toContain(presetId);
   });
 });

@@ -93,7 +93,7 @@ test("the built-in set is complete: nothing failed to construct", () => {
 });
 
 /** One stored preset flag pair: multi-word tokens included, as the row editor stores them. */
-const PROFILE_FLAGS = ["--dangerously-skip-permissions", "--model sonnet"];
+const PRESET_FLAGS = ["--dangerously-skip-permissions", "--model sonnet"];
 
 /** One matrix row: everything except `binary`, which the two calls differ on. */
 interface MatrixRow {
@@ -117,7 +117,7 @@ function matrixRows(settingsFixture: Record<string, unknown>): MatrixRow[] {
   ];
   const flagVariants = [
     { label: "no flags", value: [] as string[] },
-    { label: "flags present", value: PROFILE_FLAGS },
+    { label: "flags present", value: PRESET_FLAGS },
   ];
   const sessionVariants: { label: string; value: MatrixRow["harnessSession"] }[] = [
     { label: "no harnessSession", value: undefined },

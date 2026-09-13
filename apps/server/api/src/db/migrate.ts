@@ -26,6 +26,7 @@ import * as nodePluginsMigration from "@/db/migrations/0023-node-plugins.js";
 import * as dropNodeHarnessesMigration from "@/db/migrations/0024-drop-node-harnesses.js";
 import * as dropHarnessPluginsMigration from "@/db/migrations/0025-drop-harness-plugins.js";
 import * as dropNodePluginsMigration from "@/db/migrations/0026-drop-node-plugins.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -65,6 +66,9 @@ export async function runMigrations(): Promise<void> {
           // The plugin ownership move, one file: instance `plugin_state` in,
           // per-node mirror columns out (spec 2026-09-10 §6.1).
           "0026-drop-node-plugins": dropNodePluginsMigration,
+          // Profiles become presets: pin and Default flag out, nullable
+          // `subshells.preset_id` in (spec 2026-09-13 §6).
+          "0027-presets": presetsMigration,
         };
       },
     },

@@ -213,32 +213,11 @@ describe("NodesRepository", () => {
     expect((await repo.findById(stalledLive.id))?.status).toBe("offline");
   });
 
-  it("deleteById unpins profiles and removes the node; countPinnedProfiles pre-counts", async () => {
+  it("deleteById removes the node", async () => {
+    // The preset un-pin step is gone with the pin itself (spec 2026-09-13
+    // §2.3): deleting a node now deletes the row and nothing else.
     const n = await mkNode(repo, unique("u"));
-    const userId = unique("u");
-    const now = new Date().toISOString();
-    await db
-      .insertInto("profiles")
-      .values({
-        id: unique("p"),
-        userId,
-        harnessId: "pi",
-        name: unique("p"),
-        description: "",
-        envJson: "{}",
-        flagsJson: "[]",
-        settingsJson: null,
-        configIsolation: 0,
-        restartOnExit: 0,
-        isDefault: 0,
-        nodeId: n.id,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .execute();
-    expect(await repo.countPinnedProfiles(n.id)).toBe(1);
     await repo.deleteById(n.id);
     expect(await repo.findById(n.id)).toBeUndefined();
-    expect(await repo.countPinnedProfiles(n.id)).toBe(0); // profile survived, unpinned
   });
 });

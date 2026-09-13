@@ -37,7 +37,7 @@ describe("GET /api/subshells/:id/log", () => {
     await new SubshellsRepository(db).create({
       id,
       userId,
-      profileId: "p",
+      presetId: "p",
       harnessId: "claude-code",
       name: "log-test",
       workingDir: "/tmp",

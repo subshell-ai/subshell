@@ -180,7 +180,7 @@ describe("/api/setup/harnesses conditional auth", () => {
       await new SubshellsRepository(db).create({
         id: subshellId,
         userId,
-        profileId: "p",
+        presetId: "p",
         harnessId: "claude-code",
         name: "setup-test",
         workingDir: "/tmp",
@@ -239,7 +239,7 @@ describe("/api/setup/harnesses conditional auth", () => {
       // now, which is what `POST /api/nodes/local/plugins` restricts to
       // admins. Leaving it open would have made this the weaker of two doors
       // onto one operation: any user could remove claude-code and hide every
-      // user's claude-code profiles instance-wide.
+      // user's claude-code presets instance-wide.
       expect((await app.fetch(authedRequest(`/api/setup/plugins`, cookie, installBody()))).status).toBe(403);
     });
 

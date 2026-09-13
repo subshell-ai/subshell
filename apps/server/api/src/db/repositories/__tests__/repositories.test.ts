@@ -11,8 +11,9 @@ import * as sessionNotificationsMigration from "@/db/migrations/0014-session-not
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -25,7 +26,7 @@ const db = new Kysely<Database>({
 });
 
 const repos = {
-  profiles: new ProfilesRepository(db),
+  presets: new PresetsRepository(db),
   subshells: new SubshellsRepository(db),
   recentPaths: new RecentPathsRepository(db),
   settings: new SettingsRepository(db),
@@ -38,59 +39,28 @@ beforeAll(async () => {
   await initMigration.up(db);
   await operatorUxMigration.up(db);
   await remoteOpsMigration.up(db);
-  await profileDefaultFlagMigration.up(db); // ProfilesRepository.create writes is_default
+  await profileDefaultFlagMigration.up(db); // 0010's is_default flag (dropped again by 0027)
   await sessionNameLockedMigration.up(db); // SubshellsRepository defaults name_locked
   await sessionHarnessIdMigration.up(db); // subshells.harness_session_id
   await sessionNotificationsMigration.up(db); // subshells.notify / waiting_since + subscriptions
   await nodesMigration.up(db); // recent_paths.node_id + the (user, node, path) unique index
   await sharingMigration.up(db); // 0019 renames session_shares
   await subshellRenameMigration.up(db); // renamed schema the code sees
+  await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
 });
 
 beforeEach(async () => {
   // fresh data per test
   await db.deleteFrom("recentPaths").execute();
   await db.deleteFrom("subshells").execute();
-  await db.deleteFrom("profiles").execute();
+  await db.deleteFrom("presets").execute();
   await db.deleteFrom("userMeta").execute();
   await db.deleteFrom("settings").execute();
 });
 
-describe("profiles repository", () => {
-  it("insertIfNoneForPair lands once per (user, harness) pair", async () => {
-    // The seeder's race guard: one statement, so overlapping seams cannot
-    // both insert — a duplicate Default would be permanently undeletable.
-    const mk = () => ({
-      id: crypto.randomUUID(),
-      userId: "race-user",
-      harnessId: "claude-code",
-      name: "Default",
-      description: null,
-      envJson: null,
-      flagsJson: null,
-      settingsJson: null,
-      configIsolation: 0,
-      isDefault: 1,
-    });
-    expect(await repos.profiles.insertIfNoneForPair(mk())).toBe(true);
-    expect(await repos.profiles.insertIfNoneForPair(mk())).toBe(false);
-    // The race shape: with the pair empty again, two overlapping inserts must
-    // land exactly one row (the WHERE NOT EXISTS is re-evaluated per
-    // statement, and SQLite serialises the writers).
-    await db.deleteFrom("profiles").where("userId", "=", "race-user").execute();
-    const both = await Promise.all([
-      repos.profiles.insertIfNoneForPair(mk()),
-      repos.profiles.insertIfNoneForPair(mk()),
-    ]);
-    expect(both.filter(Boolean)).toHaveLength(1);
-    const rows = await repos.profiles.listByUser("race-user");
-    expect(rows.length).toBe(1);
-    expect(rows[0]?.isDefault).toBe(1);
-    await db.deleteFrom("profiles").where("userId", "=", "race-user").execute();
-  });
-
-  it("creates and lists profiles for a user, filtered by harness", async () => {
-    const created = await repos.profiles.create({
+describe("presets repository", () => {
+  it("creates and lists presets for a user, filtered by harness", async () => {
+    const created = await repos.presets.create({
       id: crypto.randomUUID(),
       userId: "u1",
       harnessId: "claude-code",
@@ -103,16 +73,16 @@ describe("profiles repository", () => {
     });
     expect(created.id).toBeTruthy();
 
-    const all = await repos.profiles.listByUser("u1");
+    const all = await repos.presets.listByUser("u1");
     expect(all).toHaveLength(1);
     expect(all[0].name).toBe("Default");
 
-    const filtered = await repos.profiles.listByUser("u1", "hermes");
+    const filtered = await repos.presets.listByUser("u1", "hermes");
     expect(filtered).toHaveLength(0);
   });
 
-  it("updates and deletes profiles", async () => {
-    const created = await repos.profiles.create({
+  it("updates and deletes presets", async () => {
+    const created = await repos.presets.create({
       id: crypto.randomUUID(),
       userId: "u1",
       harnessId: "claude-code",
@@ -124,12 +94,12 @@ describe("profiles repository", () => {
       configIsolation: 0,
     });
 
-    const updated = await repos.profiles.update(created.id, { name: "B", configIsolation: 1 });
+    const updated = await repos.presets.update(created.id, { name: "B", configIsolation: 1 });
     expect(updated?.name).toBe("B");
     expect(updated?.configIsolation).toBe(1);
 
-    await repos.profiles.delete(created.id);
-    const gone = await repos.profiles.findById(created.id);
+    await repos.presets.delete(created.id);
+    const gone = await repos.presets.findById(created.id);
     expect(gone).toBeUndefined();
   });
 });
@@ -139,7 +109,7 @@ describe("subshells repository", () => {
     const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u1",
-      profileId: "p1",
+      presetId: "p1",
       harnessId: "claude-code",
       name: "My Subshell",
       workingDir: "/tmp/work",
@@ -158,7 +128,7 @@ describe("subshells repository", () => {
     const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u1",
-      profileId: "p1",
+      presetId: "p1",
       harnessId: "claude-code",
       name: "S",
       workingDir: "/tmp",
@@ -186,7 +156,7 @@ describe("subshells repository", () => {
     const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u-guard",
-      profileId: "p1",
+      presetId: "p1",
       harnessId: "claude-code",
       name: "Guarded",
       workingDir: "/tmp",
@@ -211,7 +181,7 @@ describe("subshells repository", () => {
     const created = await repos.subshells.create({
       id: crypto.randomUUID(),
       userId: "u-park",
-      profileId: "p1",
+      presetId: "p1",
       harnessId: "claude-code",
       name: "Parked",
       workingDir: "/tmp",

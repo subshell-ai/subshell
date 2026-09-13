@@ -138,7 +138,7 @@ export function makeTgz(entries: Array<{ path: string; content: string | Uint8Ar
  */
 export function makePluginTgz(opts: { name: string; version: string; id?: string }): Uint8Array<ArrayBuffer> {
   const subshell = {
-    apiVersion: 1,
+    apiVersion: 2, // speaks the v2 member names below (PLUGIN_API_VERSION)
     id: opts.id ?? opts.name.replace(/^(@[^/]+\/)?plugin-/, ""),
     type: "agent-harness",
     name: "fixture",

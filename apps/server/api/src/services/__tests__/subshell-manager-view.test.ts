@@ -11,7 +11,7 @@ function row(overrides: Partial<Parameters<typeof toSubshellView>[0]> = {}) {
   return {
     id: "s1",
     userId: "u1",
-    profileId: "p1",
+    presetId: "p1",
     harnessId: "claude",
     nodeId: "local",
     name: "subshell",

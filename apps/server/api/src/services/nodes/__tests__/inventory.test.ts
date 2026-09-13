@@ -292,7 +292,7 @@ describe("services/nodes/inventory", () => {
       expect(report.stale).toBe(true);
     });
 
-    it("a disabled instance plugin is unusable EVERYWHERE, and re-enabling restores it with nothing per-profile stored", async () => {
+    it("a disabled instance plugin is unusable EVERYWHERE, and re-enabling restores it with nothing per-preset stored", async () => {
       const state = new PluginStateRepository(db);
       const agent = await mkNode("agent", { json: [entry(H0, true)], at: freshAt() });
       try {

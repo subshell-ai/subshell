@@ -11,7 +11,7 @@ import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { NotificationSubscriptionTable } from "@/db/types/notification-subscriptions.db-types.js";
 import type { PluginStateTable } from "@/db/types/plugin-state.db-types.js";
-import type { ProfileTable } from "@/db/types/profiles.db-types.js";
+import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
 import type { SubshellShareTable } from "@/db/types/subshell-shares.db-types.js";
@@ -28,7 +28,7 @@ import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
 export interface Database {
   authAttempts: AuthAttemptsTable;
   auditEvents: AuditEventsTable;
-  profiles: ProfileTable;
+  presets: PresetTable;
   pluginState: PluginStateTable;
   subshells: SubshellTable;
   subshellShares: SubshellShareTable;

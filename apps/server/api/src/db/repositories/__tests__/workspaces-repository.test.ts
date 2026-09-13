@@ -12,8 +12,9 @@ import * as sessionNotificationsMigration from "@/db/migrations/0014-session-not
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
+import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
 import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
@@ -26,12 +27,12 @@ const db = new Kysely<Database>({
 
 const workspaces = new WorkspacesRepository(db);
 const panes = new WorkspacePanesRepository(db);
-const profiles = new ProfilesRepository(db);
+const presets = new PresetsRepository(db);
 const subshells = new SubshellsRepository(db);
 
-/** Creates a profile + subshell owned by `userId`, returning the subshell id. */
+/** Creates a preset + subshell owned by `userId`, returning the subshell id. */
 async function makeSubshell(userId: string): Promise<string> {
-  const profile = await profiles.create({
+  const preset = await presets.create({
     id: crypto.randomUUID(),
     userId,
     harnessId: "claude-code",
@@ -46,7 +47,7 @@ async function makeSubshell(userId: string): Promise<string> {
   await subshells.create({
     id,
     userId,
-    profileId: profile.id,
+    presetId: preset.id,
     harnessId: "claude-code",
     name: "s",
     workingDir: "/tmp",
@@ -60,13 +61,14 @@ beforeAll(async () => {
   await operatorUxMigration.up(db);
   await remoteOpsMigration.up(db);
   await workspacesMigration.up(db);
-  await profileDefaultFlagMigration.up(db); // ProfilesRepository.create writes is_default
+  await profileDefaultFlagMigration.up(db); // 0010's is_default flag (dropped again by 0027)
   await sessionNameLockedMigration.up(db); // SubshellsRepository defaults name_locked
   await sessionHarnessIdMigration.up(db); // subshells.harness_session_id
   await sessionNotificationsMigration.up(db); // subshells.notify / waiting_since + subscriptions
   await nodesMigration.up(db); // subshells.node_id (SubshellsRepository.create writes it)
   await sharingMigration.up(db); // 0019 renames session_shares
   await subshellRenameMigration.up(db); // renamed schema the code sees
+  await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
 });
 
 beforeEach(async () => {

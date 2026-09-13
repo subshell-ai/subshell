@@ -23,10 +23,9 @@ import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { startServer } from "@/server.js";
-import { ensureDefaultProfilesEverywhere } from "@/services/default-profiles.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
@@ -121,44 +120,18 @@ async function bootServer(): Promise<void> {
   // share (spec 2026-08-31 §2). Idempotent; needs the system user seeded above.
   await ensureLocalNode(db);
   // This host's own plugins directory, prepared exactly like an agent's and
-  // mirrored into the `local` row it just ensured. Best-effort for the same
-  // reason the profile backfill below is: a plugin directory that cannot be
-  // prepared must not be why a serviceable instance refuses to boot.
+  // mirrored into the `local` row it just ensured. Best-effort: a plugin
+  // directory that cannot be prepared must not be why a serviceable instance
+  // refuses to boot — the next start retries.
   //
-  // BEFORE ensureDefaultProfilesEverywhere below, and that order is
-  // load-bearing: seeding can add a built-in this instance has never had
-  // (the plugins-seed record), and the backfill is what gives every existing
-  // user a Default profile for it. Reversed, an upgraded instance would show
-  // a harness nobody can launch until the next restart.
+  // Seeding can add a built-in this instance has never had (the plugins-seed
+  // record), so this runs before anything reads what the host offers.
   try {
     await prepareLocalPlugins();
   } catch (err) {
     getLogger().withError(err).warn("could not prepare this host's plugins at boot; will retry next start");
   }
 
-  // Upgrade backfill: existing installs get a blank "Default" profile for any
-  // (user, offered-harness) pair that has none, so no one has to create a
-  // profile before their first subshell. Idempotent; new users get the same
-  // seeding at registration. See services/default-profiles.ts.
-  //
-  // AFTER prepareLocalPlugins above — see the note there; the built-in set
-  // grows (the seed record), and this sweep is what arms each new offering
-  // for every existing user. What this host offers is read from
-  // the instance's plugin DIRECTORY (`instanceHarnessIds` walks it), so
-  // running it first meant reading the directory before boot had seeded the
-  // built-ins into it — and seeding nothing at all, on exactly the first boot
-  // the backfill exists for. (It used to read `local`'s mirrored node-row
-  // report; that mirror left the schema with migration 0026, and the
-  // ordering reason moved with it: the directory is now the record.)
-  // Wrapped: this is a convenience sweep over healthy schema+data, and an
-  // optional insert failing (SQLITE_BUSY behind a stale lock holder) must
-  // never be the reason a serviceable instance refuses to boot — the next
-  // boot retries, registration covers new users meanwhile.
-  try {
-    await ensureDefaultProfilesEverywhere(db);
-  } catch (err) {
-    getLogger().withError(err).warn("default-profile backfill failed at boot; will retry next start");
-  }
   await startServer({ port: SERVER_PORT, host: HOST });
 
   // Background housekeeping: expire WS attach tokens, reconcile tmux state.
@@ -166,7 +139,7 @@ async function bootServer(): Promise<void> {
   const nodes = new NodesRepository(db);
   const manager = new SubshellManagerService({
     subshells,
-    profiles: new ProfilesRepository(db),
+    presets: new PresetsRepository(db),
   });
   // Node lifecycle events (spec §3.3/§6.3): the sweep's manager instance is
   // the hook host, so `exit` events and the reconnect `subshells_report`

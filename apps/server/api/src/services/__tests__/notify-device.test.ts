@@ -25,7 +25,7 @@ async function seedSubshell(id: string, opts: { notify?: boolean; waitingSince?:
   await new SubshellsRepository(db).create({
     id,
     userId,
-    profileId: "p",
+    presetId: "p",
     harnessId: "h",
     name: "resume-verify",
     workingDir: "/tmp/private/work",

@@ -1,16 +1,16 @@
-import type { ProfilesRepository } from "@/db/repositories/profiles.repository.js";
+import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 
 /**
- * Inserts a profile row with the repo's full required shape filled with
+ * Inserts a preset row with the repo's full required shape filled with
  * service-test defaults (user "u1", claude-code, name "P"); override any field.
  * One spelling so a new required column is a one-file change, not a hunt
  * through every service suite.
  */
-export async function seedProfile(
-  repo: ProfilesRepository,
-  overrides: Partial<Parameters<ProfilesRepository["create"]>[0]> = {},
+export async function seedPreset(
+  repo: PresetsRepository,
+  overrides: Partial<Parameters<PresetsRepository["create"]>[0]> = {},
 ): Promise<string> {
-  const profile = await repo.create({
+  const preset = await repo.create({
     id: crypto.randomUUID(),
     userId: "u1",
     harnessId: "claude-code",
@@ -22,5 +22,5 @@ export async function seedProfile(
     configIsolation: 0,
     ...overrides,
   });
-  return profile.id;
+  return preset.id;
 }
