@@ -54,7 +54,7 @@ imports break `bun build --compile`. File name and map key must match.
 ## Architecture
 
 Routes are flat resource modules in `src/api/` (`files.route.ts`,
-`profiles.route.ts`, …), aggregated in `src/api/routes.ts` (the off-the-tree
+`presets.route.ts`, …), aggregated in `src/api/routes.ts` (the off-the-tree
 precedents are `auth-rate-limit.route.ts`, for route precedence, and the
 root-mounted `install-script.ts`, because `/install.sh` is a dotted top-level
 path the static SPA plugin would 404 — both mount directly in `server.ts`).
@@ -139,7 +139,7 @@ enabled) × (that node's detection found the binary), computed once in
 `services/nodes/local-plugins.ts` points the pane-runtime registry overlay at
 this store at boot and after every install and uninstall
 (`refreshInstalledPlugins`), so `getHarness` answers for a registry-installed
-plugin the moment the install returns (detect specs, profile validation, argv
+plugin the moment the install returns (detect specs, preset validation, argv
 — the whole launch path). Built-in ids always resolve to the compiled copy:
 the seeded directories refresh silently, and a registry package claiming a
 built-in id is warned about once and never loaded. That is also why
@@ -157,7 +157,7 @@ dialect (claude: `--mcp-config` file; opencode: merged config layer +
 `OPENCODE_CONFIG`; codex: per-invocation `-c mcp_servers.subshell.*` overrides —
 no per-subshell file), while harnesses without a per-subshell format (hermes, pi)
 write nothing and expose one-time registration steps via `GET
-/api/profiles/harnesses/:id/schema` (rendered by the profile editor). See
+/api/presets/harnesses/:id/schema` (rendered by the preset editor). See
 `docs/architecture.md` §4.
 
 Repositories (`src/db/repositories/`) are the primary Kysely writers; each
