@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/v1-skew", "version": "1.0.0", "private": true,
+  "subshell": { "apiVersion": 1, "id": "v1-skew", "type": "agent-harness",
+    "name": "V1 Skew", "description": "a v1 plugin still exporting `validateProfile`", "entry": "index.js" }
+}

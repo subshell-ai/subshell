@@ -75,6 +75,24 @@ describe("PluginRuntime", () => {
     expect(result.error).toContain("validatePreset");
   });
 
+  it("refuses a v1 plugin as the README promises: missing `validatePreset`, never silently working", async () => {
+    // The headline skew of the profile→preset rename (plugin-api README,
+    // "Versioning"): `missing-validate` proves the shape generically; this
+    // fixture is an actual v1 plugin — it declares `apiVersion: 1` (which
+    // parses, since the manifest guard only refuses versions ABOVE the
+    // host's) and exports the v1 member `validateProfile`. The required-
+    // member check IS the v1 gate, so the refusal must name the v2 member
+    // that is absent, which is the sentence the README sells.
+    const result = await runtime().load(join(FIXTURES, "v1-skew"));
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toContain("validatePreset");
+    // Names what is ABSENT, not the v1 member that is present.
+    expect(result.error).not.toContain("validateProfile");
+    // Broken but NAMED — the manifest parsed before the module ran.
+    expect(result.manifest?.id).toBe("v1-skew");
+  });
+
   it("refuses an entry that resolves outside the package directory", async () => {
     // The manifest check catches the literal `..`; this re-checks the value
     // actually imported. It does NOT defeat a symlink: `resolve` is textual,
