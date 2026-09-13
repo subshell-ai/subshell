@@ -1,5 +1,110 @@
 # @internal/node
 
+## 0.4.0
+
+### Minor Changes
+
+- [`0898438`](https://github.com/subshell-ai/subshell/commit/0898438649cb9b08e8caf8dc4abc114bebc96c5c) Thanks [@theogravity](https://github.com/theogravity)! - The agent reports how it runs when it connects — process start time, whether a service manager supervises it, the service state, its config and log paths, the agent binary, and whether tmux is on its PATH — so a headless node's owner can see all of it from the control plane. It also accepts a `restart` command from its control plane, exiting for the service manager to respawn it; a restart is refused unless the manager started this very process, and refused when the service definition would take the node's running panes down with it unless the caller forces it.
+
+- [`d10ec2d`](https://github.com/subshell-ai/subshell/commit/d10ec2d9993833b5e2437ec81d9a30d07d43b6c0) Thanks [@theogravity](https://github.com/theogravity)! - Harness hooks no longer require `bun` on the pane's machine.
+  
+  Claude Code's attention and conversation-identity hooks ran `bun -e '<inlined
+  JS>'`, which assumed a bun on the pane PATH — true of the container image the
+  assumption was written for, false of every desktop install. There, every
+  session opened with `/bin/sh: bun: command not found`, notifications never
+  fired, and the server never learned the in-pane conversation id after `/clear`,
+  `/resume` or `/fork`, so a restart could resurrect a stale conversation.
+  
+  The reporting moved into the binary itself: both `subshell-server` and
+  `subshell` now serve `report attention <kind>` and `report session`, and the
+  control plane resolves which of them the PANE's machine has — its own for
+  `local`, the node's reported self-invocation for an agent — and hands the
+  plugin that command. A plugin given no reporter omits its hooks rather than
+  baking a command the pane cannot run. Nothing on a pane's machine needs a
+  runtime it did not already have.
+  
+  The node protocol is bumped to 4: `ready.selfInvoke` replaces
+  `ready.mcpLaunch`, carrying the self-invocation WITHOUT its subcommand so the
+  plane appends `mcp` or `report` to one reported fact. Server and agent ship
+  together, as the protocol's exact-match rule already requires.
+
+### Patch Changes
+
+- [`5fe5a7b`](https://github.com/subshell-ai/subshell/commit/5fe5a7b2730428332b281a820353fa20a25510cc) Thanks [@theogravity](https://github.com/theogravity)! - Setting up again after a reset no longer fails with "launchctl bootstrap failed (exit 5): Input/output error" on macOS. Removing a service does not take it out of launchd's hands immediately, and the install was reading the plist file on disk to decide whether the previous one needed removing — a file a reset had already deleted while the job was still leaving. The install now always clears the old registration and waits for the domain, retrying only while launchd says it is busy; a genuinely bad service definition still fails with launchd's own words (launchd answers the same code for some malformed plists, so those now wait out the retry before reporting).
+  
+  Resetting the Subshell Server app also restarts the app, which is what takes you back to first-run setup instead of leaving a dashboard open on an instance that no longer exists — including when the dashboard is set to close to the tray, where it was previously hidden rather than closed and could be brought back pointing at a server that was gone.
+  
+  In Subshell Client, opening About twice in quick succession no longer loses the second request.
+
+- [`a93ba71`](https://github.com/subshell-ai/subshell/commit/a93ba711fed459654b2ddf0c964bda1d4e994135) Thanks [@theogravity](https://github.com/theogravity)! - A node gets the management surface the control plane already has for itself. Its page is now sectioned — Overview, Service, Configuration, Logs — and from any browser you can start, stop, restart, install or uninstall the agent's service, read what that machine logged, and point it at a different control plane. Most nodes are headless, so this is the only place those questions can be asked at all.
+  
+  Stopping and uninstalling are the node owner's alone, and say so before they run: every command reaches a node over the agent's own connection, so nothing here can start an agent that is not running — reversing either needs a shell on that machine. Repointing is the owner's too; it hands the machine a new address to dial and takes it off this instance.
+  
+  The agent now writes its own log file, capped and replaced when full, because its console output goes to a journal on Linux and a file on macOS and neither can be read from a browser.
+  
+  Subshell Client's setup assistant no longer carries a colophon under every screen. What the app is, which versions are running and under what terms is a screen you ask for — from the tray, or from the About panel in the macOS menu bar.
+  
+  Node agents need updating alongside the server: the node protocol changed, and the two ship together.
+  
+  The Service buttons now refresh the page they act on. Installing a service left the card still saying "not installed" — the node page does not poll, and the mutation wrote nothing back — so every verb but Restart looked like it had done nothing until you navigated away and came back. Restart, which has to wait for the agent's own socket to return, shows a spinner while it waits.
+  
+  On macOS, whether the agent starts at login is read from `RunAtLoad` OR `KeepAlive`, not `RunAtLoad` alone. `KeepAlive=true` starts the job either way (measured), so a plist with `RunAtLoad=false` was reported as "does not start at login" about an agent that does.
+  
+  The node's Log card follows at one second — the server's own cadence — instead of offering a Refresh button beside a line saying it already refreshes every five seconds. It asks nothing while its tab is hidden. Pausing stops the asking, so you can read something without the next poll moving it. Both log scrollers — this one and the server's — can now be reached and scrolled from the keyboard.
+  
+  Where a node runs under systemd, "starts at login" now says what it does not cover: a user service stops when its owner logs out, and `loginctl enable-linger` is what keeps it up. The agent's installer already said so, to a terminal on a machine most people never open one on.
+  
+  A node's agent has a debug-logging switch, matching the server's: off by default, applied live, persisted on that machine so a restart does not end a debug session, and read-only while `SUBSHELL_DEBUG_LOGGING` is set in the agent's own environment. It reveals nothing yet — the agent writes no debug-level lines, and the card says so rather than leaving you to discover it by flipping the switch — but the control is now where the log is, which on a headless node is the only place either can be reached.
+  
+  Reading a node's log no longer fills the server's own. Request lines are written at debug into one 200 KB file that is replaced when full, and the node log poll was not exempt — so with debug logging on, a single open node page would have destroyed the history it was turned on to read.
+  
+  A node's page keeps itself current. It never polled, so a node that went offline kept a full runtime card — pid, uptime, every Service verb enabled — until you navigated away and came back.
+
+- [`9720d07`](https://github.com/subshell-ai/subshell/commit/9720d079ecbb7e1d2540b68f335b96e03280586a) Thanks [@theogravity](https://github.com/theogravity)! - Pane output reaches the terminal in milliseconds instead of a second.
+  
+  The tail that carries a pane's output to an attached browser used `fs.watch`
+  for immediacy, with a 1000ms interval behind it described as a "safety net for
+  missed watch events". On macOS that safety net was the whole transport:
+  measured on bun 1.4.2, a watch on a file appended by ANOTHER process — which is
+  exactly what tmux `pipe-pane` is, `sh -c 'cat >> log'` — fired 0/10 in one run
+  and 1/3 in another, while reporting in-process writes reliably. So every
+  keystroke's echo waited for the next tick: 698ms on average, with every sample
+  within 2ms of the rest, the signature of a fixed timer rather than an event.
+  
+  That is why typing and resizing felt seconds behind: a keystroke reaches tmux
+  in ~5ms, but nothing carried its echo back until the poll came round.
+  
+  The poll is now named for what it is and runs at 50ms, measured end to end at
+  6ms median / 50ms worst case through the real launcher against a real pane. It
+  costs one `stat` per tick per ATTACHED pane (9.4µs, so ~0.19ms of work per
+  second per pane) and the pump only exists while somebody is watching. The watch
+  stays as the optimization it always was, on the platforms that honour it.
+  
+  All three copies of the mechanism are fixed — the WS attach source, the local
+  launcher's tail, and the node agent's, so panes on a macOS node gain the same.
+  
+  The existing tests could not have caught this: they append in-process, the one
+  case `fs.watch` reports reliably. The new ones append from another process, as
+  pipe-pane does.
+  
+  Opening or reattaching to a subshell is also several times faster. The fit-
+  then-repaint step before the replay was sized for a TUI that repaints once
+  and goes quiet: a pane animating a spinner (an agent thinking) never gave it
+  150ms of quiet, so it ran to its 1500ms deadline on every attach, and a pane
+  that never repaints at all (a plain shell) burned every no-growth grace in
+  sequence. Measured with the real functions against real panes: 1.55s and
+  1.18s. Two changes, both keeping the mechanism and its purpose ("improves the
+  first paint only; correctness lives in the gap-free join"): a same-size reopen
+  no longer resizes at all — tmux makes that a no-op, no SIGWINCH fires, and
+  the 450ms wait for a repaint that could not come is gone; and the wait after a
+  real resize now caps at 300ms with a 60ms quiet window that falls between an
+  animation's frames instead of waiting for it to stop. Same measurement after:
+  193ms animating, 363ms idle. Both attach paths share one helper now, so they
+  cannot drift.
+- Updated dependencies [[`8c7fc57`](https://github.com/subshell-ai/subshell/commit/8c7fc578c1c06185ef2c9538c521ca96b8711946)]:
+  - @subshell-ai/plugin-api@1.0.1
+  - @internal/pane-runtime@1.0.0
+
 ## 0.2.0
 
 ### Minor Changes

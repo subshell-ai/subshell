@@ -1,5 +1,178 @@
 # @internal/server
 
+## 0.3.0
+
+### Minor Changes
+
+- [`90972be`](https://github.com/subshell-ai/subshell/commit/90972bef8023c7a5896f1578169673934702bd0e) Thanks [@theogravity](https://github.com/theogravity)! - Agent CLIs are installed by the control plane on an admin's request (`POST /api/setup/agents/:id/install`, built-in ids only, audited), from the setup assistant's Add an Agent screen. Subshell Server no longer carries its own installer table or the `desktop_install_agent` command; its status page points at the dashboard instead.
+
+- [`3bcbf6a`](https://github.com/subshell-ai/subshell/commit/3bcbf6ae3e668ca37431ace52624aaea4ddc29ab) Thanks [@theogravity](https://github.com/theogravity)! - A sidebar item can be a group now — a label with a chevron that opens to pages — and both navigations use one.
+  
+  In the web UI the admin pages are one **Server Settings** group: General, Users, API keys, Plugins, Status, Audit log. The old Instance page was a scroll of unrelated cards, so it split: system API keys and the audit trail are pages of their own, the local-launch switch moved to the control-plane host's own node page beside its allowed directories, and Plugins is in the rail instead of behind a header button. Users joined the group, and a member's rail no longer lists it — the roster stays readable by URL and in the sharing picker. No route moved.
+  
+  In Subshell Server's console, Addresses is a setting, so it sits under a **Settings** group with the tray and reset section, which is now called **Application**. Overview, Logs and About are unchanged.
+  
+  A group follows where you are: it opens when you are on one of its pages and shuts when you leave, and the chevron overrides that until you navigate again.
+
+- [`0898438`](https://github.com/subshell-ai/subshell/commit/0898438649cb9b08e8caf8dc4abc114bebc96c5c) Thanks [@theogravity](https://github.com/theogravity)! - Server Settings → Service: a new admin page for how this server is deployed. Addresses (port, bind address, public base URL, trusted origins) are edited in the dashboard and written through the CLI's own validator, so a browser and `subshell-server configure` produce the same file. The page shows what config.env saves against what the running process booted with, so an edit made over ssh is visible without the dashboard having written anything. The server can restart itself, but only where its service manager reports this very process, so a hand-run server is never exited into nothing. Data locations and the service definition are listed for copying.
+  
+  The server now keeps its own log file at `<data dir>/logs/server.log`: one file, JSON lines, 0600, capped at 200 KB and replaced when full, the same on every platform and never copied into memory. An admin can read its tail from any browser. A debug-logging switch, off by default, is an instance setting applied live with no restart; while on, the file carries debug lines and one line per HTTP request. `SUBSHELL_DEBUG_LOGGING` forces it on and makes the switch read-only.
+  
+  Node detail shows how an enrolled node's agent runs — supervision, service state, config and log paths, whether tmux was found — and can restart it. An About dialog, for every user rather than admins only.
+  
+  New admin routes: `GET /api/admin/server`, `PATCH /api/admin/server/config`, `POST /api/admin/server/restart`, `GET /api/admin/server/logs`, `PUT /api/admin/server/logging`. New node route: `POST /api/nodes/:id/restart`. `BACKEND_LOG_LEVEL`, which nothing read, is removed.
+
+- [`ee87b8d`](https://github.com/subshell-ai/subshell/commit/ee87b8dcf16fe80ecd3bf3e9ea1cb2dde69824ac) Thanks [@theogravity](https://github.com/theogravity)! - The new-subshell form stops asking where to run when there is only one answer: on an instance with no nodes of its own, the Machine field is gone. A second machine brings it back, even if only one of them can take a subshell today.
+  
+  Switching off launching on the server now applies to admins as well. It always read as a setting about the instance, but an admin's instance-wide access quietly exempted them from it — so the one person who could turn it off was the one person it did nothing to. The server's node page stays visible and manageable to them, which is the way back.
+  
+  With nowhere left to launch, the form says so and offers the two ways out: switch the server back on, or add a node. Anyone can add a node; the first button appears only for someone who can actually take it, and everyone else is told who can.
+
+- [`a93ba71`](https://github.com/subshell-ai/subshell/commit/a93ba711fed459654b2ddf0c964bda1d4e994135) Thanks [@theogravity](https://github.com/theogravity)! - A node gets the management surface the control plane already has for itself. Its page is now sectioned — Overview, Service, Configuration, Logs — and from any browser you can start, stop, restart, install or uninstall the agent's service, read what that machine logged, and point it at a different control plane. Most nodes are headless, so this is the only place those questions can be asked at all.
+  
+  Stopping and uninstalling are the node owner's alone, and say so before they run: every command reaches a node over the agent's own connection, so nothing here can start an agent that is not running — reversing either needs a shell on that machine. Repointing is the owner's too; it hands the machine a new address to dial and takes it off this instance.
+  
+  The agent now writes its own log file, capped and replaced when full, because its console output goes to a journal on Linux and a file on macOS and neither can be read from a browser.
+  
+  Subshell Client's setup assistant no longer carries a colophon under every screen. What the app is, which versions are running and under what terms is a screen you ask for — from the tray, or from the About panel in the macOS menu bar.
+  
+  Node agents need updating alongside the server: the node protocol changed, and the two ship together.
+  
+  The Service buttons now refresh the page they act on. Installing a service left the card still saying "not installed" — the node page does not poll, and the mutation wrote nothing back — so every verb but Restart looked like it had done nothing until you navigated away and came back. Restart, which has to wait for the agent's own socket to return, shows a spinner while it waits.
+  
+  On macOS, whether the agent starts at login is read from `RunAtLoad` OR `KeepAlive`, not `RunAtLoad` alone. `KeepAlive=true` starts the job either way (measured), so a plist with `RunAtLoad=false` was reported as "does not start at login" about an agent that does.
+  
+  The node's Log card follows at one second — the server's own cadence — instead of offering a Refresh button beside a line saying it already refreshes every five seconds. It asks nothing while its tab is hidden. Pausing stops the asking, so you can read something without the next poll moving it. Both log scrollers — this one and the server's — can now be reached and scrolled from the keyboard.
+  
+  Where a node runs under systemd, "starts at login" now says what it does not cover: a user service stops when its owner logs out, and `loginctl enable-linger` is what keeps it up. The agent's installer already said so, to a terminal on a machine most people never open one on.
+  
+  A node's agent has a debug-logging switch, matching the server's: off by default, applied live, persisted on that machine so a restart does not end a debug session, and read-only while `SUBSHELL_DEBUG_LOGGING` is set in the agent's own environment. It reveals nothing yet — the agent writes no debug-level lines, and the card says so rather than leaving you to discover it by flipping the switch — but the control is now where the log is, which on a headless node is the only place either can be reached.
+  
+  Reading a node's log no longer fills the server's own. Request lines are written at debug into one 200 KB file that is replaced when full, and the node log poll was not exempt — so with debug logging on, a single open node page would have destroyed the history it was turned on to read.
+  
+  A node's page keeps itself current. It never polled, so a node that went offline kept a full runtime card — pid, uptime, every Service verb enabled — until you navigated away and came back.
+
+- [`d10ec2d`](https://github.com/subshell-ai/subshell/commit/d10ec2d9993833b5e2437ec81d9a30d07d43b6c0) Thanks [@theogravity](https://github.com/theogravity)! - Harness hooks no longer require `bun` on the pane's machine.
+  
+  Claude Code's attention and conversation-identity hooks ran `bun -e '<inlined
+  JS>'`, which assumed a bun on the pane PATH — true of the container image the
+  assumption was written for, false of every desktop install. There, every
+  session opened with `/bin/sh: bun: command not found`, notifications never
+  fired, and the server never learned the in-pane conversation id after `/clear`,
+  `/resume` or `/fork`, so a restart could resurrect a stale conversation.
+  
+  The reporting moved into the binary itself: both `subshell-server` and
+  `subshell` now serve `report attention <kind>` and `report session`, and the
+  control plane resolves which of them the PANE's machine has — its own for
+  `local`, the node's reported self-invocation for an agent — and hands the
+  plugin that command. A plugin given no reporter omits its hooks rather than
+  baking a command the pane cannot run. Nothing on a pane's machine needs a
+  runtime it did not already have.
+  
+  The node protocol is bumped to 4: `ready.selfInvoke` replaces
+  `ready.mcpLaunch`, carrying the self-invocation WITHOUT its subcommand so the
+  plane appends `mcp` or `report` to one reported fact. Server and agent ship
+  together, as the protocol's exact-match rule already requires.
+
+- [`eabe4b0`](https://github.com/subshell-ai/subshell/commit/eabe4b0b9c108e92fa6438e64fe2bd56d79bc068) Thanks [@theogravity](https://github.com/theogravity)! - Whether the server runs in the background, and whether it starts at every login, are two questions you can answer instead of two things the setup screen assumed.
+  
+  `subshell-server service enable` and `service disable` arm and disarm start-at-login without touching the running process, and `service install --no-autostart` installs a service that runs now but does not come back. The dashboard's Service page carries the same switch (`POST /api/admin/server/autostart`), which is the one service control a served page gets — it changes nothing about the running process, so the page asking for it cannot take itself down. It is disabled with the reason where the question has no answer: nothing installed, the desktop app running this server, or a manager that would not say.
+  
+  The Subshell Server setup screen's "Start it in the background, and at every login" is now two checkboxes, both checked by default. Unchecking the first runs the server as the app's own child — alive while the app is open, stopped when you quit, with running subshells kept — and the dashboard reports that honestly, so Restart server keeps working there.
+  
+  Switching between the two later is a "How this server runs" card on the Service page, with both modes always shown and the machine's own marked. Picking the other one IS the choice: it confirms in a dialog on that page, which lists what the switch will do and warns when this machine's service definition is old enough that removing it would close every running subshell. A browser on the LAN sees the card read-only, with a line saying where it can be changed. A server nobody supervises — started by hand, in a container — now shows neither mode rather than claiming the background one. The switch is recorded in the audit trail as `server.supervision.request`.
+  
+  On macOS, "starts at login" is now which directory the launchd plist lives in rather than a key inside it. `RunAtLoad=false` does not stop a `KeepAlive=true` job (measured), and `launchctl disable` makes "running now but not at login" inexpressible while leaving a mark that survives uninstall.
+  
+  Two supervisor faults behind "the app runs the server" are fixed. Stopping a server while it was waiting to respawn after a crash could wedge the supervisor for the life of the app — every later Start did nothing, silently — and a Start that arrived while the previous loop was still winding down told that loop a server was wanted and then put it back to sleep for the rest of its respawn delay.
+
+- [`2d9ca95`](https://github.com/subshell-ai/subshell/commit/2d9ca95be904d938efd5cd47430aeb12ce531108) Thanks [@theogravity](https://github.com/theogravity)! - The setup wizard is a setup assistant: full-window screens with one decision each, dots instead of a step rail (continuing the desktop app's three when opened from it), and an Add an Agent screen that leads with what is detected, with install help collapsed until asked for and no plugin switches. Harness rows carry their plugin `type`.
+
+- [`d789c45`](https://github.com/subshell-ai/subshell/commit/d789c45d64c9f77fb8af043f397e9f87f31a188b) Thanks [@theogravity](https://github.com/theogravity)! - Fetch a missing node agent binary instead of 404ing.
+  
+  A server installed from a release tarball has an empty node-artifacts
+  directory, so the "Add a node" install command failed on every machine until
+  someone ran `bun run release:node` from a checkout or copied files in by hand.
+  The repository is public now, so the server reads the same release it was
+  telling you to copy from.
+  
+  It is lazy on purpose. Nothing is downloaded until a machine actually asks for
+  that platform, so a fleet that is all Linux never spends anything on the macOS
+  builds, and an instance nobody enrols against never touches the network. The
+  first install on each platform takes a little longer while the download
+  happens; later ones are served from disk.
+  
+  The bytes are checked against the digest the release publishes as they stream
+  past, and a mismatch fails the download rather than caching bad bytes. When a
+  newer release appears, binaries this server downloaded from an older one are
+  removed; anything you published yourself is left alone.
+  
+  Set `SUBSHELL_NODE_RELEASE_URL` to point somewhere else, or to empty to turn
+  downloading off entirely — an air-gapped instance behaves exactly as before,
+  warning included.
+
+### Patch Changes
+
+- [`335ab2e`](https://github.com/subshell-ai/subshell/commit/335ab2e542d29a6c7da0a6017a497a3249175a86) Thanks [@theogravity](https://github.com/theogravity)! - The launch form no longer asks for a subshell name: the server names one after its start time, the pane's own title takes over, and renaming is a deliberate act on a subshell that exists ("Edit title" in its actions menu). The setup assistant's first-launch screen also leads with plain words — **Machine** and **Agent** — and teaches "node" and "profile" in a line underneath, rather than opening with two nouns a ninety-second-old account has never met. Every other launch surface keeps the bare nouns, and the clone dialog keeps its name box, where naming the copy is the whole decision. The phone's new-subshell tab drops its name field to match.
+
+- [`5fe5a7b`](https://github.com/subshell-ai/subshell/commit/5fe5a7b2730428332b281a820353fa20a25510cc) Thanks [@theogravity](https://github.com/theogravity)! - Setting up again after a reset no longer fails with "launchctl bootstrap failed (exit 5): Input/output error" on macOS. Removing a service does not take it out of launchd's hands immediately, and the install was reading the plist file on disk to decide whether the previous one needed removing — a file a reset had already deleted while the job was still leaving. The install now always clears the old registration and waits for the domain, retrying only while launchd says it is busy; a genuinely bad service definition still fails with launchd's own words (launchd answers the same code for some malformed plists, so those now wait out the retry before reporting).
+  
+  Resetting the Subshell Server app also restarts the app, which is what takes you back to first-run setup instead of leaving a dashboard open on an instance that no longer exists — including when the dashboard is set to close to the tray, where it was previously hidden rather than closed and could be brought back pointing at a server that was gone.
+  
+  In Subshell Client, opening About twice in quick succession no longer loses the second request.
+
+- [`2fb6f62`](https://github.com/subshell-ai/subshell/commit/2fb6f6223c2c1d0c27a59e18d0081540f7054bf7) Thanks [@theogravity](https://github.com/theogravity)! - Starting a subshell and creating a profile are dialogs now, not pages. `/new` used to render a second copy of the launch form as a full-page card — same title, same fields, same buttons as the dialog the rail already owned — and the Profiles page pushed its list down to make room for a create card. Both raise a dialog over the page they belong to. `/new` still works as a deep link; it opens the dialog and hands the page under it to the subshells list.
+
+- [`b09dae4`](https://github.com/subshell-ai/subshell/commit/b09dae4bffb2a3d26911d952299956b50186ad51) Thanks [@theogravity](https://github.com/theogravity)! - The setup assistant's Welcome screen shows the full Subshell wordmark instead of the `/s` app icon, and both frames — the native page and the server's own `/setup` screens, which are one specification — center their column in the window rather than pinning it below a fixed top margin.
+
+- [`9720d07`](https://github.com/subshell-ai/subshell/commit/9720d079ecbb7e1d2540b68f335b96e03280586a) Thanks [@theogravity](https://github.com/theogravity)! - Pane output reaches the terminal in milliseconds instead of a second.
+  
+  The tail that carries a pane's output to an attached browser used `fs.watch`
+  for immediacy, with a 1000ms interval behind it described as a "safety net for
+  missed watch events". On macOS that safety net was the whole transport:
+  measured on bun 1.4.2, a watch on a file appended by ANOTHER process — which is
+  exactly what tmux `pipe-pane` is, `sh -c 'cat >> log'` — fired 0/10 in one run
+  and 1/3 in another, while reporting in-process writes reliably. So every
+  keystroke's echo waited for the next tick: 698ms on average, with every sample
+  within 2ms of the rest, the signature of a fixed timer rather than an event.
+  
+  That is why typing and resizing felt seconds behind: a keystroke reaches tmux
+  in ~5ms, but nothing carried its echo back until the poll came round.
+  
+  The poll is now named for what it is and runs at 50ms, measured end to end at
+  6ms median / 50ms worst case through the real launcher against a real pane. It
+  costs one `stat` per tick per ATTACHED pane (9.4µs, so ~0.19ms of work per
+  second per pane) and the pump only exists while somebody is watching. The watch
+  stays as the optimization it always was, on the platforms that honour it.
+  
+  All three copies of the mechanism are fixed — the WS attach source, the local
+  launcher's tail, and the node agent's, so panes on a macOS node gain the same.
+  
+  The existing tests could not have caught this: they append in-process, the one
+  case `fs.watch` reports reliably. The new ones append from another process, as
+  pipe-pane does.
+  
+  Opening or reattaching to a subshell is also several times faster. The fit-
+  then-repaint step before the replay was sized for a TUI that repaints once
+  and goes quiet: a pane animating a spinner (an agent thinking) never gave it
+  150ms of quiet, so it ran to its 1500ms deadline on every attach, and a pane
+  that never repaints at all (a plain shell) burned every no-growth grace in
+  sequence. Measured with the real functions against real panes: 1.55s and
+  1.18s. Two changes, both keeping the mechanism and its purpose ("improves the
+  first paint only; correctness lives in the gap-free join"): a same-size reopen
+  no longer resizes at all — tmux makes that a no-op, no SIGWINCH fires, and
+  the 450ms wait for a repaint that could not come is gone; and the wait after a
+  real resize now caps at 300ms with a 60ms quiet window that falls between an
+  animation's frames instead of waiting for it to stop. Same measurement after:
+  193ms animating, 363ms idle. Both attach paths share one helper now, so they
+  cannot drift.
+
+- [`faba929`](https://github.com/subshell-ai/subshell/commit/faba9293787aec8c56f1fcef228e90b928ce85f2) Thanks [@theogravity](https://github.com/theogravity)! - The profile dialog's Harness picker lists what is installed first, matching the launch pickers — on a fresh machine the one selectable row used to sit under four "(not installed)" ones. The ordering rule is now one shared, tested function rather than a copy per picker. The directory picker's panel also flows inline instead of floating: inside a dialog it is a child of a scroll container, which clipped it, so browsing for a working directory showed a panel cut off at the dialog's edge.
+
+- [`d372792`](https://github.com/subshell-ai/subshell/commit/d372792a276c3761030378dd0df2acb21455bd9d) Thanks [@theogravity](https://github.com/theogravity)! - The launch pickers list what you can actually launch first. A fresh machine has one agent installed and a Default profile for every other one, so the only usable row could render sixth, under five greyed "not installed on this node" rows. Greying rather than hiding is unchanged — the reasons are still there to read — but they now sit below the rows a hand can land on. The node picker follows the same rule, and within each group the existing order is untouched.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 0.2.0
 
 ### Minor Changes
