@@ -1348,14 +1348,24 @@ export class SubshellManagerService {
   }
 }
 
-/** The launch definition of a subshell created without a preset: adds nothing, isolates nothing. */
-export const EMPTY_PRESET: PresetDefinition = Object.freeze({
+/**
+ * The launch definition of a subshell created without a preset: adds nothing,
+ * isolates nothing. Frozen DEEP — a shallow freeze would leave
+ * `EMPTY_PRESET.env.X = …` writable on the one object every presetless launch
+ * shares (consumers verified read-only; this is belt-and-braces). The exported
+ * type stays the published mutable `PresetDefinition`: this is a runtime
+ * guard, not a contract change.
+ */
+const emptyPreset: PresetDefinition = {
   name: "",
   env: {},
   flags: [],
   settings: null,
   configIsolation: false,
-});
+};
+Object.freeze(emptyPreset.env);
+Object.freeze(emptyPreset.flags);
+export const EMPTY_PRESET: PresetDefinition = Object.freeze(emptyPreset);
 
 /** Parses a preset row's JSON blobs into the plugin-facing shape. */ export function parsePreset(row: {
   envJson: string | null;

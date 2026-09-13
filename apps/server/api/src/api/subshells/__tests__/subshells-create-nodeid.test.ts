@@ -485,6 +485,23 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     expect(body.message).toContain("claude-code");
   });
 
+  it("the mismatch gate outranks node resolution: mismatched preset + bogus nodeId → the mismatch 400, not the node 404", async () => {
+    // The discriminator the test above could not make: it omitted nodeId, so
+    // resolution silently succeeded to `local` and proved nothing about
+    // order. With a bogus node too, the answer is still the preset 400 —
+    // subshells.service gates the preset before resolveLaunchNode runs.
+    const res = await post({
+      harnessId: "claude-code",
+      presetId: bogusPresetId,
+      workingDir: "/tmp",
+      nodeId: crypto.randomUUID(),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("no-such-harness");
+    expect(body.message).not.toMatch(/node not found/i);
+  });
+
   it("missing harnessId → 400 validation (the preset no longer carries it)", async () => {
     const res = await post({ presetId: claudePresetId, workingDir: "/tmp" });
     expect(res.status).toBe(400);
