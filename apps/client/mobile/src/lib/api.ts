@@ -1,7 +1,9 @@
 import { ApiError, parseErrorBody } from "@/lib/api-error";
 import { cookieHeader, tokenFromSetCookie } from "@/lib/cookie";
+import type { ExploreResult } from "@/types/files";
 import type { Node } from "@/types/node";
-import type { ExploreResult, ProfileView } from "@/types/profile";
+import type { PluginView } from "@/types/plugin";
+import type { PresetView } from "@/types/preset";
 import type { SignInResponse, SubshellLogTail, SubshellSummary, SubshellView, WsTokenResponse } from "@/types/subshell";
 
 /**
@@ -220,11 +222,23 @@ export class SubshellClient {
   }
 
   /**
-   * The signed-in user's usable profiles (new-subshell picker; disabled
-   * harnesses are already filtered out server-side).
+   * The signed-in user's presets (spec 2026-09-13: what profiles became —
+   * the New screen's OPTIONAL preset chips; the launch itself keys on the
+   * harness, not on these).
    */
-  profiles(): Promise<ProfileView[]> {
-    return this.request<ProfileView[]>("/api/profiles");
+  presets(): Promise<PresetView[]> {
+    return this.request<PresetView[]>("/api/presets");
+  }
+
+  /**
+   * The instance plugin catalog — the New screen's Agent chips and the
+   * default-agent rule (spec 2026-09-10: the instance store is the single
+   * catalog). The `{ plugins }` envelope is unwrapped here so callers speak
+   * `PluginView[]`. Any signed-in actor may read.
+   */
+  async plugins(): Promise<PluginView[]> {
+    const res = await this.request<{ plugins: PluginView[] }>("/api/plugins");
+    return res.plugins;
   }
 
   /**
@@ -249,20 +263,29 @@ export class SubshellClient {
   }
 
   /**
-   * Creates and launches a subshell (spec §Screens New subshell).
-   * @param input - profileId + workingDir, optional name, first prompt, and
-   *   launch node (omit for `local` — the server default; a pick of an
-   *   invisible node 404s, an offline agent 409s NODE_OFFLINE)
+   * Creates and launches a subshell (spec 2026-09-13 §4: harness-first,
+   * preset optional).
+   * @param input - harnessId (+ workingDir), optional presetId, name, first
+   *   prompt, and launch node (omit the node for `local` — the server
+   *   default; a pick of an invisible node 404s, an offline agent 409s
+   *   NODE_OFFLINE). A null/absent `presetId` stays OFF the wire: the frozen
+   *   body type is `presetId?: string`, so "presetless launch" is absence,
+   *   not null.
    * @returns The new subshell id (the pane may still be settling)
    */
   createSubshell(input: {
-    profileId: string;
+    harnessId: string;
+    presetId?: string | null;
     workingDir: string;
     name?: string;
     prompt?: string;
     nodeId?: string;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
-    return this.request("/api/subshells", { method: "POST", body: JSON.stringify(input) });
+    const { presetId, ...rest } = input;
+    return this.request("/api/subshells", {
+      method: "POST",
+      body: JSON.stringify(presetId ? { ...rest, presetId } : rest),
+    });
   }
 
   /**

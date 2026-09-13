@@ -1,22 +1,8 @@
-/** One harness profile as `GET /api/profiles` returns it (mirror of ProfileSchema; only the fields this app renders). */
-export interface ProfileView {
-  /** Profile id (uuid) — the create-subshell body keys on it */
-  id: string;
-  /** Owning user id */
-  userId: string;
-  /** Harness plugin id, e.g. `claude-code` */
-  harnessId: string;
-  /** Display name */
-  name: string;
-  /** Longer description (nullable) */
-  description: string | null;
-  /** 1 = auto-seeded default profile (cannot be deleted) */
-  isDefault: number;
-  /** 1 = new subshells auto-restart on exit */
-  restartOnExit: number;
-  /** Pinned launch node id; null/absent = any node (mirror only — no UI yet). */
-  nodeId?: string | null;
-}
+/**
+ * Hand-written mirrors of `GET /api/files/explore` — moved out of
+ * `types/profile.ts` when presets replaced profiles (spec 2026-09-13); the
+ * folder picker has never had anything to do with either.
+ */
 
 /** One entry from `GET /api/files/explore` — one level per request by design. */
 export interface ExploreEntry {

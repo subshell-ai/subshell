@@ -46,4 +46,22 @@ export interface Node {
   agentVersion: string | null;
   /** Node protocol version from `ready`, null until first ready */
   protocolVersion: number | null;
+  /**
+   * One row per plugin the instance has installed and enabled, crossed with
+   * this node's binary detection (spec 2026-09-10) — what the New screen's
+   * Agent chips grey by and the default-agent rule reads. Optional like
+   * `canLaunch`: a node row from an older server carries no inventory, and
+   * "unknown" must read as "block nothing".
+   */
+  harnesses?: NodeHarness[];
+}
+
+/** One harness row of a node view — the fields the launch picker reads. */
+export interface NodeHarness {
+  /** Harness plugin id */
+  harnessId: string;
+  /** Plugin display name from the instance store's manifest */
+  name: string;
+  /** Whether this machine can actually run it (local: live probe; agent: cached detect) */
+  installed: boolean;
 }

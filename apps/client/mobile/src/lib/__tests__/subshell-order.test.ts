@@ -6,7 +6,7 @@ import type { SubshellView } from "@/types/subshell";
 function make(over: Partial<SubshellView> = {}): SubshellView {
   return {
     id: crypto.randomUUID(),
-    profileId: "p",
+    presetId: null,
     harnessId: "h",
     name: "s",
     workingDir: "/tmp",

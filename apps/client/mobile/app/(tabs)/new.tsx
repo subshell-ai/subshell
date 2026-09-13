@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,15 +16,21 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Field } from "@/components/field";
 import { PrimaryButton } from "@/components/primary-button";
 import { useNodes } from "@/hooks/use-nodes";
-import { useProfiles } from "@/hooks/use-profiles";
+import { usePlugins } from "@/hooks/use-plugins";
+import { usePresets } from "@/hooks/use-presets";
+import { useSubshells } from "@/hooks/use-subshells";
+import { defaultAgentId, mostRecentHarnessId } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
-import { anchorDecision, isSelectable, pickNodeDefault } from "@/lib/node-anchor";
+import { isSelectable, pickNodeDefault } from "@/lib/node-pick";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
-import type { ExploreResult } from "@/types/profile";
+import type { ExploreResult } from "@/types/files";
+import type { PluginView } from "@/types/plugin";
 
 /**
- * New-subshell tab (spec §Screens): profile picker, native folder sheet over
+ * New-subshell tab (spec 2026-09-13 §5): agent chips (the instance plugin
+ * catalog, greyed-never-hidden), the chosen agent's presets as OPTIONAL chips
+ * with "None" first, the launch-node picker, a native folder sheet over
  * /api/files/explore (one level per request, recents+favourites ride along),
  * and an optional first prompt. The cookie actor unlocks the folder route —
  * exactly why the app authenticates as one (spec §Auth).
@@ -33,14 +39,23 @@ import type { ExploreResult } from "@/types/profile";
  * names a subshell after its start time and the pane's own title takes over,
  * so naming one before it exists is a decision about something the user has
  * not seen. Renaming is its own act on the subshell itself.
+ *
+ * The mirror convention: this screen, `src/lib/node-pick.ts` and
+ * `src/lib/agent-default.ts` mirror the web
+ * `apps/server/web/src/components/subshell-picker/new-subshell-form.tsx` of
+ * the same shape — change one, change both.
  */
 export default function NewSubshell() {
   const insets = useSafeAreaInsets();
   const { client } = useSubshell();
   const qc = useQueryClient();
-  const profiles = useProfiles();
+  const plugins = usePlugins();
+  const presets = usePresets();
   const nodes = useNodes();
-  const [profileId, setProfileId] = useState<string | null>(null);
+  const subshells = useSubshells();
+  // The launch is harness-first; the preset is optional and null means "None".
+  const [harnessId, setHarnessId] = useState<string | null>(null);
+  const [presetId, setPresetId] = useState<string | null>(null);
   const [nodeId, setNodeId] = useState("local");
   const [workingDir, setWorkingDir] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -50,49 +65,58 @@ export default function NewSubshell() {
   const [dirError, setDirError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!profileId && profiles.data?.length) setProfileId(profiles.data[0].id);
-  }, [profiles.data, profileId]);
+  /**
+   * Whether the SELECTED node reports a harness's binary installed. The
+   * node's per-harness inventory is the crossing of the instance catalog and
+   * that machine's detect (spec 2026-09-10). A node row carrying no
+   * `harnesses` (older server) reads as unknown — unknown blocks nothing, the
+   * same `!== false` posture as `canLaunch`, and the 409 at submit covers the
+   * real gap.
+   */
+  const installedOnNode = useCallback(
+    (id: string): boolean => {
+      const harnesses = (nodes.data ?? []).find((n) => n.id === nodeId)?.harnesses;
+      if (!harnesses) return true;
+      return harnesses.some((h) => h.harnessId === id && h.installed);
+    },
+    [nodes.data, nodeId],
+  );
 
-  // Pinned-profile re-anchor — mobile DELIBERATELY retains the old
-  // keep-offline-pin anchor semantics (a spec 2026-09-02 pairing non-goal;
-  // a mobile pass is follow-up): the selected profile's pin holds the node
-  // pick until the user overrides it via the chip row, offline row included,
-  // so a pinned-offline launch 409s exactly where the picker points. The web
-  // has moved on: its `anchorDecision` is now `suggestDecision` and only
-  // owns the pick when EARNED (pinned row visible, online, AND compatible) —
-  // the divergence is intentional, do not blind-sync. A pin to `local` is
-  // the default anyway — treated as no pin. Then the `pickNodeDefault`
-  // re-home (still the same shape on both sides): a pick whose node vanished
-  // (e.g. an admin turned off Local launching) or went unselectable is moved
-  // — auto-picked when exactly one selectable option remains, else cleared
-  // to "" (Start blocks until the user picks). One effect composes both,
-  // anchor first.
-  const pinnedNodeId = (profiles.data ?? []).find((p) => p.id === profileId)?.nodeId ?? null;
-  const pinRow =
-    pinnedNodeId && pinnedNodeId !== "local" ? ((nodes.data ?? []).find((n) => n.id === pinnedNodeId) ?? null) : null;
-  const nodeExplicitRef = useRef(false);
-  const anchoredRef = useRef<string | null>(null);
+  /** Chip greying + the default rule's conjunction, defined exactly once (spec §5). */
+  const agentUsable = (p: PluginView): boolean => p.installed && p.enabled && !p.broken && installedOnNode(p.id);
+
+  // Default agent (spec §5): once, while nothing is picked — the user's
+  // choice always outranks the rule, including a pick that later goes
+  // uninstalled on a node switch (the server 409 stays the backstop).
+  // `nodes.isFetched` gates the node-blocked term: a pre-nodes instance 404s
+  // the route, `data` stays undefined, and the rule then runs with an
+  // all-unknown inventory exactly as it did before nodes existed.
   useEffect(() => {
-    const d = anchorDecision({
-      pinRow,
-      explicit: nodeExplicitRef.current,
-      current: nodeId,
-      anchoredTo: anchoredRef.current,
-    });
-    anchoredRef.current = d.anchoredTo;
-    // Re-home only when the anchor is NOT holding — the exact web guard: a
-    // pinned OFFLINE row fails `isSelectable`, but dropping it would hide the
-    // very target the launch will 409 on, so the held pin is the deliberate
-    // exception. Runs only once the list actually loaded: a 404s (pre-nodes)
-    // instance leaves `data` undefined and the default "local" simply stands
-    // (web's `if (nodes)`).
-    let next = d.nodeId;
-    if (!(pinRow && !nodeExplicitRef.current) && nodes.data) {
-      next = pickNodeDefault(nodes.data, next);
-    }
+    if (harnessId !== null || !plugins.data || !nodes.isFetched) return;
+    const pick = defaultAgentId(plugins.data, installedOnNode, mostRecentHarnessId(subshells.data ?? []));
+    if (pick) setHarnessId(pick);
+  }, [harnessId, plugins.data, nodes.isFetched, subshells.data, installedOnNode]);
+
+  // The chosen agent's presets — the row exists only when there is at least
+  // one (spec §5: "a new account has zero presets and the row would offer
+  // only None"). Changing the agent resets the preset to None.
+  const agentPresets = useMemo(
+    () => (presets.data ?? []).filter((p) => p.harnessId === harnessId),
+    [presets.data, harnessId],
+  );
+
+  // Node re-home (web parity): a pick whose node vanished (e.g. an admin
+  // turned off Local launching) or went unselectable is moved — auto-picked
+  // when exactly one selectable option remains, else cleared to "" (Start
+  // blocks until the user picks). Runs only once the list actually loaded: a
+  // 404s (pre-nodes) instance leaves `data` undefined and the default "local"
+  // simply stands (web's `if (nodes)`). The pin step is gone (spec
+  // 2026-09-13) — nothing outranks the user's pick any more.
+  useEffect(() => {
+    if (!nodes.data) return;
+    const next = pickNodeDefault(nodes.data, nodeId);
     if (next !== nodeId) setNodeId(next);
-  }, [pinRow, nodeId, nodes.data]);
+  }, [nodeId, nodes.data]);
 
   async function openDir(path?: string) {
     if (!client || dirBusy) return;
@@ -108,11 +132,13 @@ export default function NewSubshell() {
   }
 
   async function start() {
-    if (!client || !profileId || !workingDir || !nodeId || busy) return;
+    // Same shape as the web form's canSubmit: agent + working dir + a node.
+    if (!client || !harnessId || !workingDir || !nodeId || busy) return;
     setBusy(true);
     try {
       const res = await client.createSubshell({
-        profileId,
+        harnessId,
+        presetId,
         workingDir,
         prompt: prompt.trim() || undefined,
         // "local" stays off the wire — omitting nodeId is the server default
@@ -159,45 +185,87 @@ export default function NewSubshell() {
         <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>New subshell</Text>
 
         <View style={{ gap: 6 }}>
-          <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Profile</Text>
-          {profiles.isLoading ? (
+          <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Agent</Text>
+          {plugins.isLoading ? (
             <ActivityIndicator />
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 8 }}>
-                {(profiles.data ?? []).map((p) => (
-                  <Pressable
-                    key={p.id}
-                    onPress={() => {
-                      // Re-tapping the already-selected profile is a no-op:
-                      // clearing the explicit-pick flag without a profile
-                      // CHANGE would drop the user's override and let the
-                      // anchor silently re-assert on the next nodes refetch
-                      // (no state change fires the anchor effect).
-                      if (p.id === profileId) return;
-                      // A profile change restarts the anchor game: the new
-                      // profile's pin (if any) anchors until a fresh pick.
-                      nodeExplicitRef.current = false;
-                      setProfileId(p.id);
-                    }}
-                    style={{
-                      padding: 10,
-                      borderRadius: radius,
-                      borderWidth: 1,
-                      borderColor: profileId === p.id ? colors.primary : colors.border,
-                      backgroundColor: colors.card,
-                    }}
-                  >
-                    <Text style={{ color: profileId === p.id ? colors.primary : colors.fg, fontWeight: "600" }}>
-                      {p.name}
-                    </Text>
-                    <Text style={{ color: colors.mutedFg, fontSize: 11 }}>{p.harnessId}</Text>
-                  </Pressable>
-                ))}
+                {(plugins.data ?? []).map((p) => {
+                  const usable = agentUsable(p);
+                  const sel = harnessId === p.id;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => {
+                        // A fresh agent resets the preset (spec §5) — the old
+                        // one belongs to a different harness. Re-tapping the
+                        // selected chip stays a no-op.
+                        if (p.id === harnessId) return;
+                        setHarnessId(p.id);
+                        setPresetId(null);
+                      }}
+                      disabled={!usable}
+                      style={{
+                        padding: 10,
+                        borderRadius: radius,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.primary : colors.border,
+                        backgroundColor: colors.card,
+                        opacity: usable ? 1 : 0.5,
+                      }}
+                    >
+                      <Text style={{ color: sel ? colors.primary : colors.fg, fontWeight: "600" }}>
+                        {p.icon ? `${p.icon} ` : ""}
+                        {p.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
             </ScrollView>
           )}
         </View>
+
+        {harnessId && agentPresets.length > 0 ? (
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Preset</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  onPress={() => setPresetId(null)}
+                  style={{
+                    padding: 10,
+                    borderRadius: radius,
+                    borderWidth: 1,
+                    borderColor: presetId === null ? colors.primary : colors.border,
+                    backgroundColor: colors.card,
+                  }}
+                >
+                  <Text style={{ color: presetId === null ? colors.primary : colors.fg, fontWeight: "600" }}>None</Text>
+                </Pressable>
+                {agentPresets.map((pr) => {
+                  const sel = presetId === pr.id;
+                  return (
+                    <Pressable
+                      key={pr.id}
+                      onPress={() => setPresetId(pr.id)}
+                      style={{
+                        padding: 10,
+                        borderRadius: radius,
+                        borderWidth: 1,
+                        borderColor: sel ? colors.primary : colors.border,
+                        backgroundColor: colors.card,
+                      }}
+                    >
+                      <Text style={{ color: sel ? colors.primary : colors.fg, fontWeight: "600" }}>{pr.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        ) : null}
 
         {nodeOptions.length > 1 ? (
           <View style={{ gap: 6 }}>
@@ -210,12 +278,7 @@ export default function NewSubshell() {
                   return (
                     <Pressable
                       key={n.id}
-                      onPress={() => {
-                        // The user's own pick outranks the profile pin's
-                        // anchor until the next profile change.
-                        nodeExplicitRef.current = true;
-                        setNodeId(n.id);
-                      }}
+                      onPress={() => setNodeId(n.id)}
                       disabled={!pickable}
                       style={{
                         padding: 10,
@@ -243,16 +306,6 @@ export default function NewSubshell() {
             row (which can be hidden while ≤1 node is listed), because Start
             is blocked until a pick happens. */}
         {nodeId === "" ? <Text style={{ color: colors.mutedFg, fontSize: 12 }}>Choose a node</Text> : null}
-
-        {/* The pin is invisible only while it is not the pick: Local on a
-            pinned profile means the server re-applies the pin — say so
-            instead of letting the picker lie by omission (web mirror). The
-            pinned row may be gone from the list; fall back to prose. */}
-        {pinnedNodeId && pinnedNodeId !== "local" && nodeId === "local" ? (
-          <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
-            {`This profile runs on ${pinRow?.name ?? "another node"} — it overrides Local.`}
-          </Text>
-        ) : null}
 
         <View style={{ gap: 6 }}>
           <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Working directory</Text>
@@ -293,7 +346,7 @@ export default function NewSubshell() {
           onPress={() => void start()}
           label="Start subshell"
           bold
-          disabled={!profileId || !workingDir || !nodeId}
+          disabled={!harnessId || !workingDir || !nodeId}
           busy={busy}
         />
       </ScrollView>

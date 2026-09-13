@@ -3,6 +3,7 @@ import { SubshellClient, type TokenStore } from "@/lib/api";
 import { ApiError } from "@/lib/api-error";
 import { SECURE_SESSION_COOKIE, SESSION_COOKIE } from "@/lib/cookie";
 import type { Node } from "@/types/node";
+import type { PluginView } from "@/types/plugin";
 
 /** In-memory TokenStore stand-in. */
 function memoryStore(initial: string | null = null) {
@@ -243,12 +244,37 @@ describe("SubshellClient subshell verbs", () => {
 });
 
 describe("SubshellClient new-subshell surface", () => {
-  it("profiles() GETs /api/profiles", async () => {
+  it("presets() GETs /api/presets", async () => {
     const { store } = memoryStore("tok");
-    const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify([])));
+    const row = {
+      id: "pr1",
+      userId: "u1",
+      harnessId: "claude-code",
+      name: "Default",
+      description: null,
+      restartOnExit: 0,
+    };
+    const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify([row])));
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
-    await client.profiles();
-    expect(calls[0]?.url).toBe(`${BASE}/api/profiles`);
+    await expect(client.presets()).resolves.toEqual([row]);
+    expect(calls[0]?.url).toBe(`${BASE}/api/presets`);
+    expect(calls[0]?.init.method).toBeUndefined();
+  });
+
+  it("plugins() GETs /api/plugins and unwraps the { plugins } envelope", async () => {
+    const { store } = memoryStore("tok");
+    const row: PluginView = {
+      id: "claude-code",
+      name: "Claude Code",
+      type: "agent-harness",
+      description: "",
+      installed: true,
+      enabled: true,
+    };
+    const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify({ plugins: [row] })));
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
+    await expect(client.plugins()).resolves.toEqual([row]);
+    expect(calls[0]?.url).toBe(`${BASE}/api/plugins`);
     expect(calls[0]?.init.method).toBeUndefined();
   });
 
@@ -263,31 +289,53 @@ describe("SubshellClient new-subshell surface", () => {
     expect(res.path).toBe("/a b");
   });
 
-  it("createSubshell POSTs the exact body and returns the new id", async () => {
+  it("createSubshell POSTs the exact harness-first body and returns the new id", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: true })),
     );
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
-    const res = await client.createSubshell({ profileId: "p1", workingDir: "/w", prompt: "hi" });
+    const res = await client.createSubshell({ harnessId: "h1", workingDir: "/w", prompt: "hi" });
     expect(calls[0]?.url).toBe(`${BASE}/api/subshells`);
     expect(calls[0]?.init.method).toBe("POST");
-    expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", prompt: "hi" }));
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ harnessId: "h1", workingDir: "/w", prompt: "hi" }));
     expect(res.id).toBe("new-1");
   });
 
-  it("createSubshell forwards nodeId when set; omitted stays omitted", async () => {
+  it("createSubshell carries presetId when set; null/absent stays off the wire", async () => {
     const { store } = memoryStore("tok");
     const { fn, calls } = recordingFetch(() =>
       fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: false })),
     );
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
 
-    await client.createSubshell({ profileId: "p1", workingDir: "/w", nodeId: "n1" });
-    expect(calls[0]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w", nodeId: "n1" }));
+    await client.createSubshell({ harnessId: "h1", presetId: "pr1", workingDir: "/w" });
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ harnessId: "h1", workingDir: "/w", presetId: "pr1" }));
 
-    await client.createSubshell({ profileId: "p1", workingDir: "/w" });
-    expect(calls[1]?.init.body).toBe(JSON.stringify({ profileId: "p1", workingDir: "/w" }));
+    // Presetless launch is ABSENCE on the wire (`presetId?: string`), never
+    // null — the caller's chip state is null, the body must not say so.
+    await client.createSubshell({ harnessId: "h1", presetId: null, workingDir: "/w" });
+    expect(calls[1]?.init.body).toBe(JSON.stringify({ harnessId: "h1", workingDir: "/w" }));
+
+    await client.createSubshell({ harnessId: "h1", workingDir: "/w" });
+    expect(calls[2]?.init.body).toBe(JSON.stringify({ harnessId: "h1", workingDir: "/w" }));
+  });
+
+  it("createSubshell forwards nodeId when set; omitted stays omitted (local never rides)", async () => {
+    const { store } = memoryStore("tok");
+    const { fn, calls } = recordingFetch(() =>
+      fakeResponse(JSON.stringify({ id: "new-1", tmuxSocket: "s", promptDelivered: false })),
+    );
+    const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
+
+    await client.createSubshell({ harnessId: "h1", workingDir: "/w", nodeId: "n1" });
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ harnessId: "h1", workingDir: "/w", nodeId: "n1" }));
+
+    // The screen maps a `local` pick to undefined before calling; whatever
+    // reaches here unset must stay unset — single-machine payloads stay
+    // byte-identical to pre-nodes ones.
+    await client.createSubshell({ harnessId: "h1", workingDir: "/w" });
+    expect(calls[1]?.init.body).toBe(JSON.stringify({ harnessId: "h1", workingDir: "/w" }));
   });
 });
 

@@ -156,11 +156,15 @@ Same rule as the frontend: route files stay thin, data logic goes in `hooks/`,
 shared helpers in `lib/`, tests co-located in `__tests__/`. No dynamic imports
 anywhere in this repo.
 
-The launch-node picker (`(tabs)/new.tsx` + `src/hooks/use-nodes.ts`, with the
-pinned-profile re-anchor decision in `src/lib/node-anchor.ts`) is the mobile
-mirror of the web `new-subshell-form.tsx` of the same shape — change one, change
-both. On the wire `local` is OMITTED from the create body (the server default),
-keeping single-machine payloads byte-identical to pre-nodes ones.
+The launch picker (`(tabs)/new.tsx` + `src/hooks/use-nodes.ts`, with the node
+re-home in `src/lib/node-pick.ts` and the default-agent rule in
+`src/lib/agent-default.ts`) is the mobile mirror of the web
+`apps/server/web/src/components/subshell-picker/new-subshell-form.tsx` of the
+same shape (spec 2026-09-13: agent chips, optional preset chips, the pin is
+gone) — change one, change both. On the wire `local` is OMITTED from the
+create body (the server default), keeping single-machine payloads
+byte-identical to pre-nodes ones; a presetless launch omits `presetId` the
+same way — absence, never null.
 
 ## Verifying on Android
 

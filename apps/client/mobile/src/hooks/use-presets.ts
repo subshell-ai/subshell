@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSubshell } from "@/providers/subshell-provider";
 
-/** Profiles for the picker — static enough that 60 s freshness is fine. */
-export function useProfiles() {
+/** Presets for the optional chip row — static enough that 60 s freshness is fine. */
+export function usePresets() {
   const { client } = useSubshell();
   return useQuery({
     enabled: Boolean(client),
-    queryKey: ["profiles"],
-    queryFn: () => client?.profiles(),
+    queryKey: ["presets"],
+    queryFn: () => client?.presets(),
     staleTime: 60_000,
   });
 }

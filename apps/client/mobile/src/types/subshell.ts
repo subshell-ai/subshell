@@ -31,8 +31,8 @@ export type SubshellAccess = "owner" | "edit" | "view";
 export interface SubshellView {
   /** Subshell id (uuid). Restart revives the row in place: the id survives. */
   id: string;
-  /** Profile the subshell was launched from. */
-  profileId: string;
+  /** Preset the subshell was launched from; null = presetless launch (spec 2026-09-13). */
+  presetId: string | null;
   /** Harness plugin id, e.g. `claude-code`. */
   harnessId: string;
   /**
