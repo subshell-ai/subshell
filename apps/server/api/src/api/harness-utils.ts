@@ -117,8 +117,11 @@ async function usableHarnessIdSet(nodeId: string, onlyId?: string): Promise<Set<
 
 /**
  * The subset of ids currently usable on `nodeId` (default: this machine — one
- * probe pass for the whole set, what the preset-list filter consumes). Every
- * node runs the same rule; see {@link usableHarnessIdSet}.
+ * probe pass for the whole set): instance catalog ∧ that node's fresh
+ * detection. The batch sibling of {@link harnessUsable}. (It is NOT what the
+ * preset list filters by — availability became store-scoped, see
+ * {@link getAllHarnessIds}.) Every node runs the same rule; see
+ * {@link usableHarnessIdSet}.
  */
 export async function usableHarnessIds(nodeId: string = LOCAL_NODE_ID): Promise<Set<string>> {
   return await usableHarnessIdSet(nodeId);

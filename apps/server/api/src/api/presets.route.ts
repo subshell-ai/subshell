@@ -99,8 +99,10 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       // machine — the agent may live on any node the user later launches on
       // (spec 2026-09-13 follow-up). The gate is the instance's store state
       // (installed ∧ enabled ∧ ¬broken — the exact set
-      // `GET /api/presets/harness-ids` answers); per-node binary detection
-      // stays where it belongs, at the launch gate's per-node 409.
+      // `GET /api/presets/harness-ids` answers; a BROKEN plugin never reaches
+      // this line — it resolves to nothing, so the 400 above catches it
+      // first). Per-node binary detection stays where it belongs, at the
+      // launch gate's per-node 409.
       if (!(await getAllHarnessIds()).includes(body.harnessId)) {
         throw new PresetError(
           "harness_unavailable",

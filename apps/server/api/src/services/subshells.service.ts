@@ -273,10 +273,12 @@ export class SubshellsService extends BaseService {
       { userId, machineActor, requestedNodeId: nodeId },
       { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
     );
-    // A typo'd id names NO plugin — say so (400, the same wording
-    // `POST /api/presets` uses) before the availability gate can call it
-    // "disabled" (TODO 11: the two surfaces used to disagree about this
-    // exact input). Disabled-but-known still 409s below.
+    // An id that resolves to NO plugin names nothing — a typo, or a plugin
+    // that failed to load (broken plugins enter neither the registry nor the
+    // overlay). Say so (400, the same wording `POST /api/presets` uses)
+    // before the availability gate can call it "disabled" (TODO 11: the two
+    // surfaces used to disagree about the typo case). Disabled-but-known
+    // still 409s below.
     if (!getHarness(harnessId)) {
       throw new SubshellCreateError("bad_request", `Unknown harness: ${harnessId}`, 400);
     }
