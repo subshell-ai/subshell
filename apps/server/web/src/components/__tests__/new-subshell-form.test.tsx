@@ -7,29 +7,30 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import {
   canSubmit,
   emptyNewSubshellForm,
-  fieldCopy,
   hideMachineField,
   launchableNodes,
   NewSubshellForm,
   type NewSubshellFormValue,
   pickNodeDefault,
-  suggestDecision,
 } from "@/components/subshell-picker/new-subshell-form";
+import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
+import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
 import type { Node } from "@/types/node";
 
 /**
- * The paired node×profile launch form (spec 2026-09-02 §1): searchable
- * pickers, incompatible options greyed with a reason (the grey grid itself
- * is pinned in lib/__tests__/subshell-compat.test.ts), pin-as-suggestion,
- * and the honest empty-state hints. Assertions run on form state and the
- * DOM around the inputs — the closed state is now an <input> whose value is
- * not a text node; the picker's real behavior is e2e-pinned (12-nodes).
+ * The Agent-first launch form (spec 2026-09-13 §5): searchable Agent picker
+ * (the grey grid itself is pinned in lib/__tests__/subshell-compat.test.ts),
+ * the optional Preset row with its inline create, the honest empty-state
+ * hints, and the defaults the densest effect in the SPA composes. Assertions
+ * run on form state and the DOM around the inputs — the closed combobox is a
+ * real <input>, so its value is not a text node; the picker's real behavior
+ * is e2e-pinned (12-nodes).
  */
 function node(overrides: Partial<Node>): Node {
   return {
@@ -52,31 +53,52 @@ function node(overrides: Partial<Node>): Node {
   };
 }
 
-const CLAUDE = { harnessId: "claude-code", name: "Claude Code", enabled: true, installed: true };
-const LOCAL = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [CLAUDE] });
-const AGENT_ONLINE = node({ id: "a1", name: "mac mini", status: "online", harnesses: [CLAUDE] });
-const AGENT_INCOMPAT = node({ id: "a3", name: "studio", harnesses: [] });
-const AGENT_OFFLINE = node({ id: "a2", name: "old laptop", status: "offline", harnesses: [CLAUDE] });
-
-/** One profile row; only the fields the form reads. */
-function profile(p: { nodeId?: string | null; name?: string; id?: string; harnessId?: string }) {
+function plugin(p: {
+  id: string;
+  name?: string;
+  type?: "agent-harness" | "terminal";
+  installed?: boolean;
+  enabled?: boolean;
+}): InstancePluginRow {
   return {
-    id: p.id ?? "p1",
-    harnessId: p.harnessId ?? "claude-code",
-    name: p.name ?? "prof",
+    id: p.id,
+    name: p.name ?? p.id,
+    description: "",
+    installed: p.installed ?? true,
+    enabled: p.enabled ?? true,
+    builtIn: true,
+    ...(p.type !== undefined ? { type: p.type } : {}),
+  };
+}
+
+function preset(p: { id: string; harnessId: string; name?: string }) {
+  return {
+    id: p.id,
+    harnessId: p.harnessId,
+    name: p.name ?? "preset",
     description: null,
     envJson: null,
     flagsJson: null,
     settingsJson: null,
     configIsolation: 0,
     restartOnExit: 0,
-    isDefault: 0,
-    nodeId: p.nodeId ?? null,
+    createdAt: "2026-09-13T00:00:00.000Z",
+    updatedAt: "2026-09-13T00:00:00.000Z",
   };
 }
 
-/** Pathname+search of the most recent /api/profiles request — the wire pin. */
-let lastProfilesUrl: string | null = null;
+const CLAUDE_ON = { harnessId: "claude-code", name: "Claude Code", installed: true };
+const TERM_ON = { harnessId: "terminal", name: "Terminal", installed: true };
+const CLAUDE = plugin({ id: "claude-code", name: "Claude Code" });
+const TERM = plugin({ id: "terminal", name: "Terminal", type: "terminal" });
+
+const LOCAL = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [CLAUDE_ON] });
+const AGENT_ONLINE = node({ id: "a1", name: "mac mini", status: "online", harnesses: [CLAUDE_ON] });
+const AGENT_INCOMPAT = node({ id: "a3", name: "studio", harnesses: [] });
+const AGENT_OFFLINE = node({ id: "a2", name: "old laptop", status: "offline", harnesses: [CLAUDE_ON] });
+
+/** Pathname+search of the most recent /api/presets request — the wire pin. */
+let lastPresetsUrl: string | null = null;
 
 /** The `/api/files/recent` answer, or a function of the requested node scope. */
 type RecentStub = { paths: { path: string; label: string | null }[]; home: string | null };
@@ -85,29 +107,47 @@ interface MockOpts {
   /** Answer GET /api/nodes this many ms late — the ordering where recents
    *  resolve while the node pick is still unsettled (review round 2). */
   nodesDelayMs?: number;
+  /** Answer POST /api/presets with this row (the inline-create case). */
+  createdPreset?: ReturnType<typeof preset>;
 }
 
 function mockFetch(
   nodes: Node[],
-  profiles: unknown[] = [],
+  plugins: InstancePluginRow[] = [],
+  presets: unknown[] = [],
+  subshells: unknown[] = [],
   recent: RecentStub | ((node: string | null) => RecentStub) = { paths: [], home: null },
   opts: MockOpts = {},
 ) {
-  lastProfilesUrl = null;
+  lastPresetsUrl = null;
+  // A MUTABLE list: a POST appends, so the invalidation refetch after an
+  // inline create answers like a server that kept the row (a static stub
+  // would erase the created preset from the cache a beat after selecting it).
+  const presetStore = [...presets];
   const original = globalThis.fetch;
-  globalThis.fetch = ((input: unknown) => {
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const path = url.pathname;
+    const method = init?.method ?? "GET";
     if (path === "/api/nodes") {
       const body = () => new Response(JSON.stringify({ nodes }));
       return opts.nodesDelayMs
         ? new Promise<Response>((r) => setTimeout(() => r(body()), opts.nodesDelayMs))
         : Promise.resolve(body());
     }
-    if (path === "/api/profiles") {
-      lastProfilesUrl = path + url.search;
-      return Promise.resolve(new Response(JSON.stringify(profiles)));
+    if (path === "/api/plugins") {
+      return Promise.resolve(new Response(JSON.stringify({ plugins })));
     }
+    if (path === "/api/presets" && method === "GET") {
+      lastPresetsUrl = path + url.search;
+      return Promise.resolve(new Response(JSON.stringify(presetStore)));
+    }
+    if (path === "/api/presets" && method === "POST") {
+      const created = opts.createdPreset ?? preset({ id: "new-p", harnessId: "claude-code" });
+      presetStore.push(created);
+      return Promise.resolve(new Response(JSON.stringify(created)));
+    }
+    if (path === "/api/subshells") return Promise.resolve(new Response(JSON.stringify(subshells)));
     if (path === "/api/files/recent") {
       const scope = url.searchParams.get("node");
       const body = typeof recent === "function" ? recent(scope) : recent;
@@ -157,11 +197,11 @@ async function renderForm(initial: NewSubshellFormValue = emptyNewSubshellForm()
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  // Let the initial queries (nodes, profiles) land inside act(): their
-  // results rebuild the combobox items and fire Base UI internal state syncs
-  // that would otherwise apply outside act and flood the log with warnings.
+  // Let the initial queries (nodes, plugins, presets, subshells) land inside
+  // act(): their results rebuild the picker items and fire Base UI internal
+  // state syncs that would otherwise apply outside act and flood the log.
   await settle();
-  return { latest: () => latest };
+  return { latest: () => latest, client };
 }
 
 afterEach(cleanup);
@@ -180,135 +220,265 @@ describe("pickNodeDefault", () => {
   });
 });
 
-/**
- * Pin-as-suggestion (spec 2026-09-02 §1): the caller only hands in an EARNED
- * suggestion (row visible, selectable, compatible) — the decision function
- * keeps the old anchor's bookkeeping: explicit picks outrank, release falls
- * back only while the suggestion still owns the pick.
- */
-describe("suggestDecision", () => {
-  it("holds the suggested node while the user stays silent", () => {
-    expect(suggestDecision({ suggestion: AGENT_ONLINE, explicit: false, current: "local", anchoredTo: null })).toEqual({
-      nodeId: "a1",
-      anchoredTo: "a1",
-    });
-  });
-  it("an explicit pick — the suggested node included — outranks the suggestion", () => {
-    const d = suggestDecision({ suggestion: AGENT_ONLINE, explicit: true, current: "local", anchoredTo: "a1" });
-    expect(d.nodeId).toBe("local");
-  });
-  it("releases an unearned suggestion back to local (only while it still owns the pick)", () => {
-    expect(suggestDecision({ suggestion: null, explicit: false, current: "a1", anchoredTo: "a1" }).nodeId).toBe(
-      "local",
-    );
-    expect(suggestDecision({ suggestion: null, explicit: true, current: "a1", anchoredTo: "a1" }).nodeId).toBe("a1");
-    expect(suggestDecision({ suggestion: null, explicit: false, current: "local", anchoredTo: "a1" }).nodeId).toBe(
-      "local",
-    );
-  });
-});
-
-describe("NewSubshellForm pairing + defaults", () => {
-  it("defaults to Local, is submittable, and the Node field comes first", async () => {
-    const restore = mockFetch([LOCAL, AGENT_ONLINE, AGENT_OFFLINE], [profile({})]);
+describe("NewSubshellForm agent/preset defaults", () => {
+  it("defaults to Local, picks an agent, is submittable, and asks Agent before Preset before Node", async () => {
+    const restore = mockFetch([LOCAL, AGENT_ONLINE, AGENT_OFFLINE], [CLAUDE]);
     try {
       const { latest } = await renderForm();
       expect(screen.getByPlaceholderText("Choose a node")).toBeDefined();
+      expect(screen.getByPlaceholderText("Choose an agent")).toBeDefined();
       await waitFor(() => expect(latest().nodeId).toBe("local"));
+      await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
-      expect(labels.indexOf("Node")).toBeLessThan(labels.indexOf("Profile"));
-      expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" })).toBe(true);
-      // Wire pin: the form lists profiles across nodes — profiles that only
-      // run on another node must still be selectable here (spec §4a).
-      expect(lastProfilesUrl).toBe("/api/profiles?node=any");
+      expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
+      expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
+      expect(canSubmit({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "local" })).toBe(
+        true,
+      );
+      // Wire pin: the preset list carries NO query — `?node=any` went with
+      // the pin (spec 2026-09-13 §5), the server's local-usability filter now
+      // agrees with the Agent picker's own server-side greys.
+      expect(lastPresetsUrl).toBe("/api/presets");
     } finally {
       restore();
     }
   });
 
-  it("drops to an empty pick (no submit) when local is gone and a choice is due", async () => {
-    const restore = mockFetch([AGENT_ONLINE, AGENT_INCOMPAT], [profile({})]);
+  it("defaults to the most recent subshell's agent when it is still usable", async () => {
+    // Both agents usable against the host, pi the more recent subshell's
+    // agent — the recents rule outranks catalog order.
+    const host = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
+    });
+    const restore = mockFetch(
+      [host],
+      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [],
+      [
+        { id: "s1", harnessId: "claude-code", createdAt: "2026-09-01T00:00:00.000Z" },
+        { id: "s2", harnessId: "pi", createdAt: "2026-09-12T00:00:00.000Z" },
+      ],
+    );
     try {
       const { latest } = await renderForm();
-      // BOTH nodes are selectable (studio is online — `isSelectable` never
-      // consults harnesses), so the unchanged rule yields "an explicit
-      // choice is due": the pick empties and submit stays blocked.
-      await waitFor(() => expect(latest().nodeId).toBe(""));
-      expect(canSubmit({ profileId: "p1", workingDir: "/tmp/x", nodeId: "" })).toBe(false);
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
     } finally {
       restore();
     }
   });
 
-  it("auto-picks the sole selectable node when local is gone (unchanged rule)", async () => {
-    const restore = mockFetch([AGENT_ONLINE, AGENT_OFFLINE], [profile({})]);
+  it("an unusable recent agent falls through to what CAN run", async () => {
+    // Pi was the recent agent but the host's inventory does not carry it:
+    // the recents rule releases rather than parking the form on a refusal.
+    const restore = mockFetch(
+      [LOCAL],
+      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [],
+      [{ id: "s2", harnessId: "pi", createdAt: "2026-09-12T00:00:00.000Z" }],
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls to the first usable agent with Terminal last", async () => {
+    // Both usable against the host; Terminal first in catalog order. The
+    // default skips it (spec §5) — a plain shell is a fallback, not the
+    // headline.
+    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [CLAUDE_ON, TERM_ON] });
+    const restore = mockFetch([host], [TERM, CLAUDE]);
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("Terminal is the default when it is ALL that can run", async () => {
+    // The clean-machine case spec 2026-09-10 §6 built the terminal plugin
+    // for: no agent CLI anywhere, one launchable option, and "Terminal last"
+    // yields to nothing.
+    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM_ON] });
+    const restore = mockFetch([host], [CLAUDE, TERM]);
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().harnessId).toBe("terminal"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("an agent the picked node cannot run is never the default", async () => {
+    // The re-home case: local vanished at mount; the sole node runs Terminal
+    // only. Reading the disabled set against the left-behind row parked the
+    // old form on an unusable pairing — the agent default must read the node
+    // the pick ENDS UP on.
+    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
+    const restore = mockFetch([AGENT_ONLY], [CLAUDE, TERM]);
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().nodeId).toBe("a1"));
+      await waitFor(() => expect(latest().harnessId).toBe("terminal"));
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NewSubshellForm preset row", () => {
+  it("lists None first and keeps a foreign preset from surviving the guard", async () => {
+    const restore = mockFetch([LOCAL, AGENT_ONLINE], [CLAUDE, plugin({ id: "pi", name: "Pi" })], [
+      preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
+      preset({ id: "p-pi", harnessId: "pi", name: "Pi one" }),
+    ]);
+    try {
+      // The held pair is inconsistent: a Pi preset under the Claude agent.
+      const { latest } = await renderForm({ harnessId: "claude-code", presetId: "p-pi", workingDir: "/x", nodeId: "local" });
+      await waitFor(() => expect(latest().presetId).toBeNull());
+      // And the picker stands at None (Base UI prints the mapped label).
+      await waitFor(() => expect(screen.getByText("None")).toBeDefined());
     } finally {
       restore();
     }
   });
 
-  it("a pinned profile suggests its node and forwards it on the wire", async () => {
-    const restore = mockFetch([LOCAL, AGENT_ONLINE], [profile({ nodeId: "a1" })]);
+  it("a chosen agent's own preset survives the guard and reads on the trigger", async () => {
+    const restore = mockFetch([LOCAL], [CLAUDE], [
+      preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
+    ]);
     try {
-      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" });
-      await waitFor(() => expect(latest().nodeId).toBe("a1"));
-      expect(toSubshellCreateBody(latest()).nodeId).toBe("a1");
+      const { latest } = await renderForm({ harnessId: "claude-code", presetId: "p-claude", workingDir: "/x", nodeId: "local" });
+      await settle();
+      expect(latest().presetId).toBe("p-claude");
+      expect(screen.getByText("Fast")).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("a suggestion is never earned by an offline node — Local stands", async () => {
-    const restore = mockFetch([LOCAL, AGENT_OFFLINE], [profile({ nodeId: "a2" })]);
+  it("changing the agent through the picker resets the preset", async () => {
+    // The host runs BOTH agents here — a greyed row is inert by contract, and
+    // the pick must be a real one.
+    const host = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
+    });
+    const restore = mockFetch([host, AGENT_ONLINE], [CLAUDE, plugin({ id: "pi", name: "Pi" })], [
+      preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
+    ]);
     try {
-      // renderForm already settles queries/effects inside act(); the
-      // assertion below is that the suggestion was NOT applied by them.
-      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" });
-      expect(latest().nodeId).toBe("local");
-      expect(toSubshellCreateBody(latest()).nodeId).toBe("local");
+      const { latest } = await renderForm({ harnessId: "claude-code", presetId: "p-claude", workingDir: "/x", nodeId: "local" });
+      const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
+      // Keyboard-open the picker (happy-dom cannot emulate the pointer path
+      // Base UI arms on); a held selection does not filter the freshly
+      // opened list.
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
+      expect(latest().presetId).toBeNull();
     } finally {
       restore();
     }
   });
 
-  it("a suggestion is never earned by an incompatible node — Local stands", async () => {
-    const restore = mockFetch([LOCAL, AGENT_INCOMPAT], [profile({ nodeId: "a3" })]);
+  it("shows the hint for the agent, appending the zero-presets sentence", async () => {
+    const restore = mockFetch([LOCAL], [CLAUDE], []);
     try {
-      // renderForm settles for us — see the offline-suggestion test above.
-      const { latest } = await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "local" });
-      expect(latest().nodeId).toBe("local");
+      await renderForm();
+      await waitFor(() => expect(screen.getByText("Saved flags, env vars and restart policy for Claude Code.")).toBeDefined());
+      expect(screen.getByText("No presets for Claude Code yet.")).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("no compatible profile on the picked node → the honest hint, with a link", async () => {
-    const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], [profile({})]);
+  it("+ opens the nested create dialog, and a created preset becomes the selection", async () => {
+    const created = preset({ id: "p-new", harnessId: "claude-code", name: "Brand new" });
+    const restore = mockFetch([LOCAL], [CLAUDE], [], [], undefined, { createdPreset: created });
     try {
-      await renderForm({ profileId: "", workingDir: "/tmp/x", nodeId: "a1" });
+      const { latest, client } = await renderForm({
+        harnessId: "claude-code",
+        presetId: null,
+        workingDir: "/x",
+        nodeId: "local",
+      });
+      fireEvent.click(screen.getByRole("button", { name: "New preset" }));
+      const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
+      // Locked posture: the agent is static text, never a second select.
+      expect(dialog.textContent).toContain("Claude Code");
+      expect(dialog.querySelector("#preset-harness")).toBeNull();
+      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Brand new" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
+      await waitFor(() =>
+        expect(
+          (client.getQueryData<{ id: string }[]>(PRESETS_QUERY_KEY) ?? []).some((r) => r.id === "p-new"),
+        ).toBe(true),
+      );
+      await waitFor(() => expect(latest().presetId).toBe("p-new"));
+      // The trigger reads the new row's name; the dialog is gone.
+      expect(screen.getByText("Brand new")).toBeDefined();
+      expect(screen.queryByRole("dialog", { name: "New preset for Claude Code" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("first run hides the Preset row entirely", async () => {
+    // A second machine so the Machine field is on screen at all.
+    const restore = mockFetch([LOCAL, AGENT_ONLINE], [CLAUDE]);
+    try {
+      await renderForm(emptyNewSubshellForm(), false, true);
+      const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
+      expect(labels).toContain("Agent");
+      expect(labels).toContain("Machine");
+      expect(labels).not.toContain("Preset");
+      expect(labels).not.toContain("Node");
+      expect(screen.queryByRole("button", { name: "New preset" })).toBeNull();
+      // The two first-run sentences the setup screen teaches with.
+      expect(screen.getByText("The agent CLI this subshell runs. Terminal needs nothing installed.")).toBeDefined();
+      expect(screen.getByText("Where this subshell runs. You can add other machines as nodes later.")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NewSubshellForm honest hints", () => {
+  it("nothing on the picked node can run an agent → the hint, with a node link", async () => {
+    const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], [CLAUDE]);
+    try {
+      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a1" });
       // The node name sits inside the hint's <Link>, so the sentence spans
       // multiple nodes — match the paragraph on its full textContent.
       const hint = await screen.findByText(
-        (_text, el) => el?.tagName === "P" && /No profiles run on bare/.test(el.textContent ?? ""),
+        (_text, el) => el?.tagName === "P" && /Nothing installed on bare can run an agent/.test(el.textContent ?? ""),
       );
+      expect(hint.textContent).toContain("ask an admin to install a plugin");
       expect(hint.querySelector("a[href*='/nodes/']")).not.toBeNull();
     } finally {
       restore();
     }
   });
 
-  it("loaded-zero profiles on the picked node → the hint still shows (empty ≠ loading)", async () => {
+  it("loaded-zero plugins on the picked node → the hint still shows (empty ≠ loading)", async () => {
     const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], []);
     try {
-      await renderForm({ profileId: "", workingDir: "/tmp/x", nodeId: "a1" });
-      // Profiles LOADED with zero rows is exactly the dead-end the hint
-      // names; only the undefined (still-loading) signal stays quiet.
+      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a1" });
       expect(
         await screen.findByText(
-          (_text, el) => el?.tagName === "P" && /No profiles run on bare/.test(el.textContent ?? ""),
+          (_text, el) => el?.tagName === "P" && /Nothing installed on bare can run an agent/.test(el.textContent ?? ""),
         ),
       ).toBeDefined();
     } finally {
@@ -316,33 +486,37 @@ describe("NewSubshellForm pairing + defaults", () => {
     }
   });
 
-  it("an offline chosen node never gets the 'no profiles run here' misdiagnosis", async () => {
-    const restore = mockFetch([LOCAL, AGENT_OFFLINE], [profile({})]);
+  it("an offline chosen node never gets the 'nothing installed there' misdiagnosis", async () => {
+    const restore = mockFetch([LOCAL, AGENT_OFFLINE], [CLAUDE]);
     try {
       // holdValue pins the pick on the offline node — the live form re-homes
       // it — so this probes the gate itself: the row reasons already say
-      // "node offline"; the hint must not claim the node runs no profiles.
-      await renderForm({ profileId: "", workingDir: "/tmp/x", nodeId: "a2" }, true);
+      // "node offline"; the hint must not claim the node holds no plugins.
+      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2" }, true);
       expect(
-        screen.queryByText((_text, el) => el?.tagName === "P" && /No profiles run on/.test(el.textContent ?? "")),
+        screen.queryByText(
+          (_text, el) => el?.tagName === "P" && /Nothing installed on/.test(el.textContent ?? ""),
+        ),
       ).toBeNull();
     } finally {
       restore();
     }
   });
 
-  it("profile usable on no visible node → the mirror hint", async () => {
-    const restore = mockFetch([AGENT_INCOMPAT], [profile({ id: "p1", name: "orphan" })]);
+  it("chosen agent runnable on no visible node → the mirror hint", async () => {
+    const restore = mockFetch([AGENT_INCOMPAT], [CLAUDE]);
     try {
-      await renderForm({ profileId: "p1", workingDir: "/tmp/x", nodeId: "a3" });
-      expect(await screen.findByText(/No available node runs claude-code/)).toBeDefined();
+      await renderForm({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "a3" });
+      expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
     } finally {
       restore();
     }
   });
+});
 
+describe("NewSubshellForm working-dir defaults", () => {
   it("falls back to the node's home directory when there are no recent paths", async () => {
-    const restore = mockFetch([LOCAL], [], { paths: [], home: "/home/ada" });
+    const restore = mockFetch([LOCAL], [], [], [], { paths: [], home: "/home/ada" });
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().workingDir).toBe("/home/ada"));
@@ -352,7 +526,7 @@ describe("NewSubshellForm pairing + defaults", () => {
   });
 
   it("prefers a recent path over home", async () => {
-    const restore = mockFetch([LOCAL], [], { paths: [{ path: "/srv/app", label: null }], home: "/home/ada" });
+    const restore = mockFetch([LOCAL], [], [], [], { paths: [{ path: "/srv/app", label: null }], home: "/home/ada" });
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().workingDir).toBe("/srv/app"));
@@ -362,7 +536,7 @@ describe("NewSubshellForm pairing + defaults", () => {
   });
 
   it("never overwrites a directory the caller already holds", async () => {
-    const restore = mockFetch([LOCAL], [], { paths: [], home: "/home/ada" });
+    const restore = mockFetch([LOCAL], [], [], [], { paths: [], home: "/home/ada" });
     try {
       const { latest } = await renderForm({ ...emptyNewSubshellForm(), workingDir: "/typed/by/hand" });
       await settle();
@@ -372,63 +546,9 @@ describe("NewSubshellForm pairing + defaults", () => {
     }
   });
 
-  it("selects the first launchable profile when none is chosen", async () => {
-    // p-term is grey (this host's inventory carries no terminal), so the
-    // first LAUNCHABLE option is p-claude — the default reads the same
-    // disabled set the dropdown renders, not list order alone.
-    const restore = mockFetch([LOCAL], [profile({ id: "p-claude" }), profile({ id: "p-term", harnessId: "terminal" })]);
-    try {
-      const { latest } = await renderForm();
-      await waitFor(() => expect(latest().profileId).toBe("p-claude"));
-    } finally {
-      restore();
-    }
-  });
-
-  it("never selects a profile that cannot run on the chosen node", async () => {
-    // buildProfileOptions disables what the node cannot run; the auto-select
-    // must read that, or it parks the form on a launch the server will refuse.
-    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
-    const restore = mockFetch(
-      [node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM] })],
-      [profile({ id: "p-claude" }), profile({ id: "p-term", harnessId: "terminal" })],
-    );
-    try {
-      const { latest } = await renderForm();
-      await waitFor(() => expect(latest().profileId).toBe("p-term"));
-    } finally {
-      restore();
-    }
-  });
-
-  // The review findings this trio pins: `selectedNode` derives from `value`,
-  // but pickNodeDefault can move the pick WITHIN the same effect pass (local
-  // vanished at mount → sole agent becomes the pick). Reading the disabled
-  // set off the stale row left the form parked on a profile the NEW node
-  // cannot run — the exact 409 the auto-select promises to avoid — and
-  // prefilled the directory from the node being left. The third test pins
-  // the ORDERING variant: the recents query answering before the node list
-  // exists, where the same-pass guard has nothing to see.
-  it("re-homes the pick at mount before deciding the profile default", async () => {
-    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
-    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM] });
-    const restore = mockFetch(
-      [AGENT_ONLY],
-      [profile({ id: "p-claude" }), profile({ id: "p-term", harnessId: "terminal" })],
-    );
-    try {
-      const { latest } = await renderForm();
-      await waitFor(() => expect(latest().nodeId).toBe("a1"));
-      await waitFor(() => expect(latest().profileId).toBe("p-term"));
-    } finally {
-      restore();
-    }
-  });
-
   it("takes the directory default from the node the pick ends up on", async () => {
-    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
-    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM] });
-    const restore = mockFetch([AGENT_ONLY], [], (n) => ({
+    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
+    const restore = mockFetch([AGENT_ONLY], [], [], [], (n) => ({
       paths: [],
       home: n === "a1" ? "/home/on-a1" : "/home/left-behind",
     }));
@@ -448,14 +568,10 @@ describe("NewSubshellForm pairing + defaults", () => {
     // directory that exists only on the abandoned node. The same-pass
     // `reHomed` guard cannot see this ordering; only waiting for the node
     // list can.
-    const TERM = { harnessId: "terminal", name: "Terminal", enabled: true, installed: true };
-    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM] });
-    const restore = mockFetch(
-      [AGENT_ONLY],
-      [],
-      (n) => ({ paths: [], home: n === "a1" ? "/home/on-a1" : "/home/left-behind" }),
-      { nodesDelayMs: 30 },
-    );
+    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
+    const restore = mockFetch([AGENT_ONLY], [], [], [], (n) => ({ paths: [], home: n === "a1" ? "/home/on-a1" : "/home/left-behind" }), {
+      nodesDelayMs: 30,
+    });
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().nodeId).toBe("a1"));
@@ -466,29 +582,9 @@ describe("NewSubshellForm pairing + defaults", () => {
   });
 });
 
-describe("fieldCopy", () => {
-  it("uses the product's own nouns everywhere but first run, with nothing to explain", () => {
-    const copy = fieldCopy(false);
-    expect(copy.node.label).toBe("Node");
-    expect(copy.profile.label).toBe("Profile");
-    expect(copy.node.hint).toBeNull();
-    expect(copy.profile.hint).toBeNull();
-  });
-
-  it("leads with the plain word on first run and teaches the noun in the hint", () => {
-    const copy = fieldCopy(true);
-    expect(copy.node.label).toBe("Machine");
-    expect(copy.profile.label).toBe("Agent");
-    // Taught, not hidden: someone who meets "Node" on the Nodes page later
-    // must have been told the word once.
-    expect(copy.node.hint).toContain("nodes");
-    expect(copy.profile.hint).toContain("profile");
-  });
-});
-
 describe("NewSubshellForm copy", () => {
   it("never asks for a name — the server names it and renaming is its own act", async () => {
-    const restore = mockFetch([LOCAL], [profile({})]);
+    const restore = mockFetch([LOCAL], [CLAUDE]);
     try {
       await renderForm();
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
@@ -499,19 +595,14 @@ describe("NewSubshellForm copy", () => {
     }
   });
 
-  it("renders the first-run labels and hints when asked", async () => {
-    // A second machine, so the Machine field is on screen to be labelled at
-    // all: with the host alone it is hidden (see the hide rule's own tests).
-    const restore = mockFetch([LOCAL, AGENT_ONLINE], [profile({})]);
+  it("the visible pick rides the wire, with a presetless launch sending no presetId", async () => {
+    const restore = mockFetch([LOCAL], [CLAUDE]);
     try {
-      await renderForm(emptyNewSubshellForm(), false, true);
-      const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
-      expect(labels).toContain("Machine");
-      expect(labels).toContain("Agent");
-      expect(labels).not.toContain("Node");
-      expect(labels).not.toContain("Profile");
-      expect(screen.getByText(fieldCopy(true).node.hint as string)).toBeDefined();
-      expect(screen.getByText(fieldCopy(true).profile.hint as string)).toBeDefined();
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
+      const body = toSubshellCreateBody(latest());
+      expect(body.harnessId).toBe("claude-code");
+      expect("presetId" in body && body.presetId !== undefined).toBe(false);
     } finally {
       restore();
     }
@@ -569,7 +660,7 @@ describe("launchableNodes", () => {
 describe("nowhere to launch", () => {
   it("replaces the form with the two ways out, and offers the host switch to whoever manages it", async () => {
     const off = node({ id: "local", name: "Server", kind: "local", canManage: true, canLaunch: false });
-    const restore = mockFetch([off], [profile({})]);
+    const restore = mockFetch([off], [CLAUDE]);
     try {
       await renderForm();
       await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());
@@ -584,7 +675,7 @@ describe("nowhere to launch", () => {
 
   it("offers a non-manager only the route they can take, and names who can take the other", async () => {
     const off = node({ id: "local", name: "Server", kind: "local", canManage: false, canLaunch: false });
-    const restore = mockFetch([off], [profile({})]);
+    const restore = mockFetch([off], [CLAUDE]);
     try {
       await renderForm();
       await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());

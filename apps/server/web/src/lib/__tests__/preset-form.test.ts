@@ -1,19 +1,19 @@
 import { describe, expect, it } from "bun:test";
-import type { ProfileRow } from "@/types/profile";
+import type { PresetRow } from "@/types/preset";
 import { filterSuggestions } from "../autocomplete";
 import {
-  emptyProfileForm,
+  emptyPresetForm,
   flagTokensToRows,
   formToEnv,
   formToFlagTokens,
   parseEnvPaste,
   parseFlagsPaste,
-  profileFormFromRow,
-  toProfilePayload,
-  toProfileUpdatePayload,
-} from "../profile-form";
+  presetFormFromRow,
+  toPresetPayload,
+  toPresetUpdatePayload,
+} from "../preset-form";
 
-const baseRow: ProfileRow = {
+const baseRow: PresetRow = {
   id: "p1",
   harnessId: "claude-code",
   name: "Default",
@@ -21,27 +21,27 @@ const baseRow: ProfileRow = {
   envJson: null,
   flagsJson: null,
   settingsJson: null,
-  isDefault: 1,
   configIsolation: 0,
   restartOnExit: 0,
+  createdAt: "2026-09-13T00:00:00.000Z",
+  updatedAt: "2026-09-13T00:00:00.000Z",
 };
 
-describe("emptyProfileForm", () => {
+describe("emptyPresetForm", () => {
   it("returns one blank row per section", () => {
-    expect(emptyProfileForm()).toEqual({
+    expect(emptyPresetForm()).toEqual({
       harnessId: "",
       name: "",
       envRows: [{ key: "", value: "" }],
       flagRows: [{ flag: "", value: "" }],
       restartOnExit: false,
-      nodeId: "",
     });
   });
 });
 
-describe("profileFormFromRow", () => {
+describe("presetFormFromRow", () => {
   it("maps env entries to rows and pairs flag tokens into rows", () => {
-    const form = profileFormFromRow({
+    const form = presetFormFromRow({
       ...baseRow,
       name: "Ops",
       envJson: '{"A":"1","B":"two words"}',
@@ -59,20 +59,19 @@ describe("profileFormFromRow", () => {
         { flag: "--model", value: "sonnet" },
         { flag: "--verbose", value: "" },
       ],
-      nodeId: "",
       restartOnExit: true,
     });
   });
 
   it("treats null blobs as one blank row each and toggles off", () => {
-    const form = profileFormFromRow(baseRow);
+    const form = presetFormFromRow(baseRow);
     expect(form.envRows).toEqual([{ key: "", value: "" }]);
     expect(form.flagRows).toEqual([{ flag: "", value: "" }]);
     expect(form.restartOnExit).toBe(false);
   });
 
   it("falls back to blank rows when stored JSON is unparseable", () => {
-    const form = profileFormFromRow({ ...baseRow, envJson: '{"broken', flagsJson: "[broken" });
+    const form = presetFormFromRow({ ...baseRow, envJson: '{"broken', flagsJson: "[broken" });
     expect(form.envRows).toEqual([{ key: "", value: "" }]);
     expect(form.flagRows).toEqual([{ flag: "", value: "" }]);
   });
@@ -209,9 +208,9 @@ describe("filterSuggestions", () => {
   });
 });
 
-describe("toProfilePayload / toProfileUpdatePayload", () => {
+describe("toPresetPayload / toPresetUpdatePayload", () => {
   const form = {
-    ...emptyProfileForm(),
+    ...emptyPresetForm(),
     harnessId: "pi",
     name: "  Work  ",
     envRows: [
@@ -223,7 +222,7 @@ describe("toProfilePayload / toProfileUpdatePayload", () => {
   };
 
   it("builds the POST body: trimmed name, parsed rows, reserved constants", () => {
-    expect(toProfilePayload(form)).toEqual({
+    expect(toPresetPayload(form)).toEqual({
       harnessId: "pi",
       name: "Work",
       env: { A: "1" },
@@ -231,36 +230,25 @@ describe("toProfilePayload / toProfileUpdatePayload", () => {
       settings: {},
       configIsolation: false,
       restartOnExit: true,
-      nodeId: null,
     });
   });
 
-  it('carries the node pin through the round-trip (form "" = wire null = any node)', () => {
-    const pinned = profileFormFromRow({ ...baseRow, nodeId: "n1" });
-    expect(pinned.nodeId).toBe("n1");
-    expect(toProfilePayload(pinned).nodeId).toBe("n1");
-    expect(toProfileUpdatePayload(pinned).nodeId).toBe("n1");
-    expect(toProfilePayload({ ...pinned, nodeId: "" }).nodeId).toBeNull();
-    expect(profileFormFromRow({ ...baseRow, nodeId: null }).nodeId).toBe("");
-  });
-
   it("blank name falls back to Untitled in both builders", () => {
-    expect(toProfilePayload({ ...form, name: "   " }).name).toBe("Untitled");
-    expect(toProfileUpdatePayload({ ...form, name: "" }).name).toBe("Untitled");
+    expect(toPresetPayload({ ...form, name: "   " }).name).toBe("Untitled");
+    expect(toPresetUpdatePayload({ ...form, name: "" }).name).toBe("Untitled");
   });
 
   it("the PUT body is the POST body minus harnessId and settings", () => {
-    const update = toProfileUpdatePayload(form);
+    const update = toPresetUpdatePayload(form);
     expect(update).toEqual({
       name: "Work",
       env: { A: "1" },
       flags: ["--model", "sonnet"],
       configIsolation: false,
       restartOnExit: true,
-      nodeId: null,
     });
     expect(Object.keys(update).sort()).toEqual(
-      Object.keys(toProfilePayload(form))
+      Object.keys(toPresetPayload(form))
         .filter((k) => k !== "harnessId" && k !== "settings")
         .sort(),
     );

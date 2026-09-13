@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { profileLaunchCommand, quotePosix } from "../launch-command";
+import { presetLaunchCommand, quotePosix } from "../launch-command";
 
 describe("quotePosix", () => {
   it("single-quotes a plain value", () => {
@@ -14,9 +14,9 @@ describe("quotePosix", () => {
   });
 });
 
-describe("profileLaunchCommand", () => {
+describe("presetLaunchCommand", () => {
   it("renders env prefix then binary then quoted flag tokens", () => {
-    const cmd = profileLaunchCommand(
+    const cmd = presetLaunchCommand(
       JSON.stringify({ ANTHROPIC_MODEL: "sonnet", ANTHROPIC_BASE_URL: "http://x:4000/a b" }),
       JSON.stringify(["-m", "anthropic/claude-sonnet-4-5", "--auto"]),
       "claude",
@@ -26,18 +26,18 @@ describe("profileLaunchCommand", () => {
     );
   });
   it("returns the bare binary when nothing is configured", () => {
-    expect(profileLaunchCommand(null, null, "claude")).toEqual("claude");
-    expect(profileLaunchCommand("{}", "[]", "claude")).toEqual("claude");
+    expect(presetLaunchCommand(null, null, "claude")).toEqual("claude");
+    expect(presetLaunchCommand("{}", "[]", "claude")).toEqual("claude");
   });
   it("renders env-only and flags-only shapes", () => {
-    expect(profileLaunchCommand('{"A":"1"}', null, "pi")).toEqual("A='1' pi");
-    expect(profileLaunchCommand(null, '["--auto"]', "pi")).toEqual("pi '--auto'");
+    expect(presetLaunchCommand('{"A":"1"}', null, "pi")).toEqual("A='1' pi");
+    expect(presetLaunchCommand(null, '["--auto"]', "pi")).toEqual("pi '--auto'");
   });
   it("coerces non-string env values", () => {
-    expect(profileLaunchCommand('{"N":5}', null, "claude")).toEqual("N='5' claude");
+    expect(presetLaunchCommand('{"N":5}', null, "claude")).toEqual("N='5' claude");
   });
   it("keeps corrupt blobs from throwing — falls back to what parses", () => {
-    expect(profileLaunchCommand("not json", '["--x"]', "claude")).toEqual("claude '--x'");
-    expect(profileLaunchCommand('{"A":"1"}', "]]", "claude")).toEqual("A='1' claude");
+    expect(presetLaunchCommand("not json", '["--x"]', "claude")).toEqual("claude '--x'");
+    expect(presetLaunchCommand('{"A":"1"}', "]]", "claude")).toEqual("A='1' claude");
   });
 });

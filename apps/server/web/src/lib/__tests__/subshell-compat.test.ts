@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { buildNodeOptions, buildProfileOptions, harnessFitsNode } from "@/lib/subshell-compat";
+import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
+import { buildAgentOptions, buildNodeOptions, defaultAgentId, harnessFitsNode, type LaunchAgent } from "@/lib/subshell-compat";
 import type { Node } from "@/types/node";
 
 function node(overrides: Partial<Node>): Node {
@@ -26,7 +27,33 @@ const CLAUDE_ON = { harnessId: "claude-code", name: "Claude Code", installed: tr
 // A plugin the node declared whose PROGRAM was not found. There is no third
 // state any more: "disabled" went with the enable flag (spec 2026-09-09 §12).
 const CLAUDE_NO_BINARY = { harnessId: "claude-code", name: "Claude Code", installed: false };
-const PROF = { id: "p1", name: "Default", harnessId: "claude-code", nodeId: null };
+
+/** One plugin row; only the fields the compat matrix reads. */
+function plugin(p: {
+  id: string;
+  name?: string;
+  installed?: boolean;
+  enabled?: boolean;
+  broken?: string;
+  type?: "agent-harness" | "terminal";
+  icon?: string;
+}): LaunchAgent {
+  const row: InstancePluginRow = {
+    id: p.id,
+    name: p.name ?? p.id,
+    description: "",
+    installed: p.installed ?? true,
+    enabled: p.enabled ?? true,
+    builtIn: true,
+    ...(p.broken !== undefined ? { broken: p.broken } : {}),
+    ...(p.type !== undefined ? { type: p.type } : {}),
+    ...(p.icon !== undefined ? { icon: p.icon } : {}),
+  };
+  return row;
+}
+const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", icon: "🤖" });
+const PI = plugin({ id: "pi", name: "Pi" });
+const TERM = plugin({ id: "terminal", name: "Terminal", type: "terminal" });
 
 describe("harnessFitsNode", () => {
   it("fits when the node declared the plugin and its program was found", () => {
@@ -51,58 +78,119 @@ describe("harnessFitsNode", () => {
   });
 });
 
-describe("buildProfileOptions", () => {
-  it("without a node, everything is selectable and labels keep the e2e-pinned format", () => {
-    const [opt] = buildProfileOptions([PROF], null);
-    expect(opt).toEqual({ value: "p1", label: "Default (claude-code)", disabled: false });
+describe("buildAgentOptions", () => {
+  const HERE = node({ id: "local", kind: "local", harnesses: [CLAUDE_ON] });
+
+  it("without a node, a healthy plugin is selectable; label is the name, icon carried", () => {
+    const [opt] = buildAgentOptions([CLAUDE], null);
+    expect(opt).toEqual({ value: "claude-code", label: "Claude Code", disabled: false, icon: "🤖" });
+  });
+  it("a plugin with no icon carries no icon key at all", () => {
+    const opt = buildAgentOptions([PI], null)[0];
+    expect(opt && "icon" in opt).toBe(false);
   });
   it("an enabled option omits the 'reason' key entirely", () => {
-    // bun's toEqual treats undefined-valued keys as absent, so only an `in`
-    // check can pin key-absence on enabled options.
-    const opt = buildProfileOptions([PROF], null)[0];
+    const opt = buildAgentOptions([PI], null)[0];
     expect(opt && "reason" in opt).toBe(false);
   });
-  it("greys an incompatible profile with the node-appropriate reason", () => {
-    const n = node({ id: "mac", name: "mac", harnesses: [CLAUDE_NO_BINARY] });
-    expect(buildProfileOptions([PROF], n)[0]).toEqual({
-      value: "p1",
-      label: "Default (claude-code)",
+
+  it("reason precedence: not-installed beats every later refusal", () => {
+    // Broken AND disabled AND on an offline node — the reader's first fact is
+    // that the instance does not even hold the plugin.
+    const p = plugin({ id: "x", name: "X", installed: false, enabled: false, broken: "bad entry" });
+    const offline = node({ id: "a2", status: "offline" });
+    expect(buildAgentOptions([p], offline)[0]?.reason).toBe("not installed on this server");
+  });
+  it("reason precedence: failed-to-load beats disabled and node reasons", () => {
+    const p = plugin({ id: "x", name: "X", broken: "missing entry file", enabled: false });
+    const offline = node({ id: "a2", status: "offline" });
+    expect(buildAgentOptions([p], offline)[0]?.reason).toBe("failed to load");
+  });
+  it("reason precedence: disabled beats the node reasons", () => {
+    const p = plugin({ id: "x", name: "X", enabled: false });
+    const offline = node({ id: "a2", status: "offline" });
+    expect(buildAgentOptions([p], offline)[0]?.reason).toBe("disabled on this server");
+  });
+
+  it("an offline node reasons 'node offline'", () => {
+    const offline = node({ id: "a2", status: "offline" });
+    expect(buildAgentOptions([PI], offline)[0]?.reason).toBe("node offline");
+  });
+  it("a node without the plugin reasons 'not installed on this node'", () => {
+    const bare = node({ id: "a1", name: "bare", harnesses: [] });
+    expect(buildAgentOptions([PI], bare)[0]).toEqual({
+      value: "pi",
+      label: "Pi",
       disabled: true,
       reason: "not installed on this node",
     });
   });
-  it("a stale inventory makes 'not installed' honest as last-known", () => {
-    const n = node({ harnesses: [], inventoryStale: true });
-    expect(buildProfileOptions([PROF], n)[0]?.reason).toBe("not installed here (inventory may be outdated)");
+  it("a stale inventory makes 'not installed on this node' honest as last-known", () => {
+    const stale = node({ harnesses: [], inventoryStale: true });
+    expect(buildAgentOptions([PI], stale)[0]?.reason).toBe("not installed on this node (inventory may be outdated)");
   });
-  it("an offline node reasons 'node offline'", () => {
-    const n = node({ status: "offline", harnesses: [CLAUDE_ON] });
-    expect(buildProfileOptions([PROF], n)[0]?.reason).toBe("node offline");
+  it("the server-side checks hold with NO node picked", () => {
+    const absent = buildAgentOptions([plugin({ id: "u", name: "U", installed: false })], null)[0];
+    expect(absent?.disabled).toBe(true);
+    expect(absent?.reason).toBe("not installed on this server");
   });
 
   it("puts what can be launched first, keeping the caller's order within each group", () => {
-    // The report this came from (2026-09-11): on a fresh machine the Agent
-    // picker put Terminal — selectable — sixth, under five greyed "not
-    // installed on this node" rows. The reasons still show; they sit under
-    // the rows a hand can land on.
-    const here = node({ harnesses: [CLAUDE_ON] });
-    const profiles = [
-      { id: "codex", name: "Default", harnessId: "codex", nodeId: null },
-      { id: "claude", name: "Default", harnessId: "claude-code", nodeId: null },
-      { id: "pi", name: "Default", harnessId: "pi", nodeId: null },
+    // The report this came from (2026-09-11): on a fresh machine the picker
+    // put the one selectable row sixth, under a wall of greyed rows. The
+    // reasons still show; they sit under the rows a hand can land on.
+    const plugins = [
+      plugin({ id: "codex", name: "Codex" }),
+      plugin({ id: "claude-code", name: "Claude Code" }),
+      PI,
+      TERM,
     ];
-    expect(buildProfileOptions(profiles, here).map((o) => [o.value, o.disabled])).toEqual([
-      ["claude", false],
+    expect(buildAgentOptions(plugins, HERE).map((o) => [o.value, o.disabled])).toEqual([
+      ["claude-code", false],
       ["codex", true],
       ["pi", true],
+      ["terminal", true],
     ]);
   });
 });
 
+describe("defaultAgentId", () => {
+  const HERE = node({ id: "local", kind: "local", harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }] });
+
+  it("takes the most recent subshell's agent when it is still usable", () => {
+    const plugins = [CLAUDE, PI];
+    const options = buildAgentOptions(plugins, HERE);
+    expect(defaultAgentId(options, plugins, "pi")).toBe("pi");
+  });
+  it("an unusable recent agent does not hold the default", () => {
+    const plugins = [CLAUDE, plugin({ id: "gone", name: "Gone", installed: false })];
+    const options = buildAgentOptions(plugins, HERE);
+    expect(defaultAgentId(options, plugins, "gone")).toBe("claude-code");
+  });
+  it("falls to the first usable NON-terminal agent even when Terminal ranks first", () => {
+    // The default rule of spec 2026-09-13 §5: a plain shell is a fallback,
+    // not the headline, whatever order the catalog happens to arrive in.
+    // (Both usable here: no node, so nothing greys.)
+    const plugins = [TERM, CLAUDE];
+    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("claude-code");
+  });
+  it("a plugin with no type reads as an agent, not a terminal", () => {
+    // Older payload without the field: nothing is deprioritized.
+    const plugins = [plugin({ id: "mystery", name: "Mystery" })];
+    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("mystery");
+  });
+  it("when only Terminal is usable, Terminal is the default", () => {
+    const plugins = [plugin({ id: "claude-code", name: "Claude Code", installed: false }), TERM];
+    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("terminal");
+  });
+  it("null when nothing is usable — and on an empty catalog", () => {
+    const plugins = [plugin({ id: "x", name: "X", installed: false })];
+    expect(defaultAgentId(buildAgentOptions(plugins, HERE), plugins, null)).toBeNull();
+    expect(defaultAgentId([], [], null)).toBeNull();
+  });
+});
+
 describe("buildNodeOptions", () => {
-  // The label now comes from the ROW's own name — it used to come from a
-  // hardcoded caller argument, which is why this fixture could be called
-  // "host" while the option read "Local".
   const LOCAL = node({
     id: "local",
     name: "Server",
@@ -113,46 +201,33 @@ describe("buildNodeOptions", () => {
     arch: "x64",
   });
   const AGENT = node({ id: "a1", name: "mac-mini", harnesses: [] });
-  it("without a profile, only offline agents are disabled and labels carry the platform", () => {
-    const opts = buildNodeOptions([LOCAL, AGENT], null, null);
+
+  it("without an agent, only offline agents are disabled and labels carry the platform", () => {
+    const opts = buildNodeOptions([LOCAL, AGENT], null);
     expect(opts[0]).toEqual({ value: "local", label: "Server · linux/x64", disabled: false });
     expect(opts[1]).toEqual({ value: "a1", label: "mac-mini", disabled: false });
   });
-  it("a selected profile greys nodes lacking its harness", () => {
-    const [localOpt, agentOpt] = buildNodeOptions([LOCAL, AGENT], PROF, null);
+  it("a chosen agent greys nodes lacking it, named by DISPLAY name", () => {
+    const [localOpt, agentOpt] = buildNodeOptions([LOCAL, AGENT], CLAUDE);
     expect(localOpt?.disabled).toBe(false);
-    expect(agentOpt).toEqual({ value: "a1", label: "mac-mini", disabled: true, reason: "no claude-code here" });
+    expect(agentOpt).toEqual({ value: "a1", label: "mac-mini", disabled: true, reason: "no Claude Code here" });
   });
-  it("the suggestion suffix keys off suggestionId alone — the caller passes only validated suggestions", () => {
-    const opts = buildNodeOptions([LOCAL, AGENT], PROF, "local");
-    expect(opts[0]?.label).toBe("Server · linux/x64 · default for this profile");
-  });
-  it("a stale inventory hedges the node-side missing-harness reason (mirror of the profile side)", () => {
+  it("a stale inventory hedges the node-side missing-agent reason", () => {
     const stale = node({ id: "a9", name: "ghost", harnesses: [], inventoryStale: true });
-    expect(buildNodeOptions([stale], PROF, null)[0]?.reason).toBe("no claude-code here (inventory may be outdated)");
+    expect(buildNodeOptions([stale], CLAUDE)[0]?.reason).toBe("no Claude Code here (inventory may be outdated)");
   });
-  // The case that used to sit here asserted that a stale inventory does NOT
-  // hedge a "disabled" verdict, because enablement was server-side config
-  // rather than something the inventory reported. There is no enable flag any
-  // more, so every not-usable verdict now rests on the inventory and every one
-  // of them hedges. The row above is that assertion.
-  it("selectable nodes come first, in the caller's order — same rule as the profile list", () => {
+  it("selectable nodes come first, in the caller's order", () => {
     const offline = node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] });
-    const opts = buildNodeOptions([offline, LOCAL, AGENT], PROF, null);
-    // LOCAL runs claude-code; AGENT declares nothing and `old` is offline.
+    const opts = buildNodeOptions([offline, LOCAL, AGENT], CLAUDE);
+    // LOCAL runs Claude Code; AGENT declares nothing and `old` is offline.
     expect(opts.map((o) => [o.value, o.disabled])).toEqual([
       ["local", false],
       ["a2", true],
       ["a1", true],
     ]);
   });
-
   it("an offline agent stays disabled with the offline label and no reason text", () => {
-    const opts = buildNodeOptions(
-      [node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] })],
-      PROF,
-      null,
-    );
+    const opts = buildNodeOptions([node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] })], CLAUDE);
     expect(opts[0]).toEqual({ value: "a2", label: "old (offline)", disabled: true });
   });
 });

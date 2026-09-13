@@ -34,15 +34,21 @@ export function useInvalidatePresets(): () => Promise<void> {
 
 /**
  * Creates a preset (`POST /api/presets`, which returns the created row).
- * Invalidates the list on success; the caller decides what to do with the
- * row — the launch dialog's inline create selects it, the /presets page
- * just lets the invalidation render it.
+ * The caller decides what to do with the row — the launch dialog's inline
+ * create selects it, the /presets page just lets the list render it.
+ *
+ * The row is WRITTEN INTO the list cache before the invalidation, not merely
+ * invalidated behind it: the launch form selects the new row from this
+ * response while its "preset must belong to the held agent" guard reads the
+ * SAME cache, and an invalidation-only refetch would leave the row absent
+ * long enough for the guard to null the selection back to "None".
  */
 export function useCreatePreset() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: PresetPayload) => apiPost<PresetRow>("/api/presets", payload),
-    onSuccess: () => {
+    onSuccess: (row) => {
+      queryClient.setQueryData<PresetRow[]>(PRESETS_QUERY_KEY, (old) => (old ? [...old, row] : [row]));
       void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
     },
   });

@@ -17,16 +17,16 @@ import {
 
 /**
  * The pre-fill and scoping contract of the shared launch form. The
- * pairing/suggestion grid lives in the sibling suite under
+ * agent/preset grid and the form's defaults live in the sibling suite under
  * components/__tests__ — this file owns the working-directory defaults.
  *
- * `mockEndpoints` serves the THREE endpoints the form reads; recentPaths is
- * what varies. The node list answers with a healthy `local` row on purpose:
- * the directory pre-fill deliberately will not ARM until the node query has
+ * `mockEndpoints` serves every endpoint the form reads; recentPaths is what
+ * varies. The node list answers with a healthy `local` row on purpose: the
+ * directory pre-fill deliberately will not ARM until the node query has
  * settled (review round 2 — arming on the mount default's scope while the
  * list is in flight could strand a directory from a node the pick later
  * leaves, with a one-way flag and no way to re-arm). The real node list also
- * means a loaded-zero profile list fires the form's honest-hint branch,
+ * means a loaded-zero agent list fires the form's honest-hint branch,
  * which renders a `<Link>` — hence the memory-router wrapper on every
  * render here.
  */
@@ -59,7 +59,10 @@ function mockEndpoints(paths: { path: string; label: string | null }[]) {
       };
       return Promise.resolve(new Response(JSON.stringify({ nodes: [local] })));
     }
-    return Promise.resolve(new Response(JSON.stringify([]))); // /api/profiles
+    if (url.includes("/api/plugins")) {
+      return Promise.resolve(new Response(JSON.stringify({ plugins: [] })));
+    }
+    return Promise.resolve(new Response(JSON.stringify([]))); // /api/presets, /api/subshells
   }) as typeof fetch;
   const restore = (() => {
     globalThis.fetch = original;
