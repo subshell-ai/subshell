@@ -313,15 +313,24 @@ impl Supervisor {
             let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.desired_running = true;
             st.stopping = false;
-            // A `restart` that found nothing to stop leaves this set; clearing
-            // it here stops that borrowed urgency being spent on the NEXT
-            // crash, which would silently skip one backoff.
-            st.immediate = false;
             // ONE critical section decides both, so a loop on its way out
             // cannot swallow a start and leave nothing running.
             let start_one = !st.loop_running;
             if start_one {
                 st.loop_running = true;
+                // A fresh loop spawns immediately anyway, so leftover urgency
+                // here would only be spent skipping the NEXT crash's backoff.
+                st.immediate = false;
+            } else {
+                // **A loop already exists, and it may be sitting out a respawn
+                // delay** — up to five seconds of nothing while somebody waits
+                // for the server they just asked for. Worse, `stop` returns as
+                // soon as the CHILD is gone, before that loop has woken to end
+                // itself, so a `start` racing it lands exactly here and used to
+                // clear the one flag that would have hurried it: the loop then
+                // went back to sleep for the rest of its delay, having been
+                // told a server was wanted. That is what `immediate` is for.
+                st.immediate = true;
             }
             start_one
         };
@@ -374,6 +383,9 @@ impl Supervisor {
         // restart work when there is NO loop — after a stop, or after one
         // gave up. Without it `restart` set two flags, woke nobody, and
         // reported success having started nothing.
+        // `start` decides the urgency: a fresh loop spawns at once, and a loop
+        // that already exists is told to skip the rest of its delay. Both are
+        // this method's promise, so neither is restated here.
         self.start(spawner);
         gone
     }
@@ -570,6 +582,21 @@ fn wait_to_respawn(shared: &Arc<Shared>, delay: Duration) -> bool {
         let (next, _) = shared.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner());
         st = next;
         if !st.desired_running {
+            // **Clear `loop_running` here too.** This exit leaked it: a `stop`
+            // arriving DURING the respawn delay woke this wait, the loop
+            // returned and ended — and left the flag saying a loop was still
+            // running. After that every `start` saw `loop_running == true`,
+            // declined to spawn a loop, and nothing ever started the server
+            // again. The supervisor was wedged for the life of the process,
+            // with no error anywhere: stop a crash-looping server, press
+            // start, and the app just says nothing happened.
+            //
+            // The branch fifteen lines up always did this; this one is the
+            // same decision reached by a different route, so it owes the same
+            // store.
+            st.loop_running = false;
+            drop(st);
+            shared.changed.notify_all();
             return false;
         }
         // A restart arriving mid-delay is the interruption this wait exists
@@ -809,6 +836,78 @@ mod tests {
 
     /// A restart after a stop must actually start something. The previous
     /// revision set two flags, woke nobody, and reported success.
+    /// A loop that ENDS inside the respawn delay must release its own flag.
+    ///
+    /// Distinct from the test below, which catches the same wedge by a
+    /// different route: there the `start` races the dying loop and wins, so
+    /// the loop never takes its exit path at all. Here the loop is given time
+    /// to actually end first, which is the only way to reach the second of
+    /// `wait_to_respawn`'s two "a stop arrived" exits — the one that used to
+    /// return without clearing `loop_running`. Afterwards every `start` saw a
+    /// loop that did not exist, declined to spawn one, and did nothing at all.
+    #[test]
+    fn a_loop_that_ends_in_the_respawn_delay_releases_its_flag() {
+        let (spawner, rx) = harness();
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        let pid = next_spawn(&rx);
+
+        spawner.crash(pid);
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(sup.stop(spawner.as_ref()));
+
+        // Wait for the loop to genuinely finish, rather than racing it — this
+        // is the interleaving the other test cannot produce.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if !sup.inner.state.lock().unwrap_or_else(|e| e.into_inner()).loop_running {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !sup.inner.state.lock().unwrap_or_else(|e| e.into_inner()).loop_running,
+            "a loop that ended still claimed to be running, so nothing can start one again"
+        );
+
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        next_spawn(&rx);
+        assert!(sup.pid().is_some());
+        assert!(sup.stop(spawner.as_ref()));
+    }
+
+    /// A stop DURING the respawn delay must leave the supervisor startable.
+    ///
+    /// `wait_to_respawn` had two exits for "a stop arrived" and only the first
+    /// cleared `loop_running`. Reaching the second — which needs the stop to
+    /// land while the loop is sitting out its delay after a crash — ended the
+    /// loop with the flag still set, and from then on every `start` saw a loop
+    /// that was not there, declined to spawn one, and did nothing. Silently:
+    /// the app reported no error, it simply never came back.
+    #[test]
+    fn a_stop_during_the_respawn_delay_does_not_wedge_the_supervisor() {
+        let (spawner, rx) = harness();
+        // A delay long enough that the stop below lands INSIDE it.
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        let pid = next_spawn(&rx);
+
+        // Crash, so the loop enters the respawn wait rather than exiting.
+        spawner.crash(pid);
+        // Give it a moment to get into that wait, then stop it there.
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(sup.stop(spawner.as_ref()));
+
+        // Asserted as BEHAVIOUR, not by reading `loop_running` here: `stop`
+        // returns as soon as the child is gone, which can be before the loop
+        // thread has woken to clear its own flag, so an immediate read of it
+        // races. What must be true is the thing a person would notice.
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        next_spawn(&rx);
+        assert!(sup.pid().is_some(), "start after that stop brought a server back");
+        assert!(sup.stop(spawner.as_ref()));
+    }
+
     #[test]
     fn restart_works_when_no_loop_is_left() {
         let (spawner, rx) = harness();
