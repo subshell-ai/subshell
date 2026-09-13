@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { deploymentView, stubAutostart } from "@/components/__tests__/helpers/deployment-view";
+import { deploymentView, stubAutostart, stubSupervision } from "@/components/__tests__/helpers/deployment-view";
 import { currentMode, loginDisabledReason, SupervisionCard } from "@/components/service/supervision-card";
 import { resetDesktopShellForTests } from "@/lib/desktop";
 
@@ -64,7 +64,9 @@ describe("loginDisabledReason", () => {
   it("mirrors the route's three refusals, so the UI never offers what the server refuses", () => {
     const app = deploymentView();
     app.service.manager = "app";
-    expect(loginDisabledReason(app)).toContain("app itself");
+    // Not a refusal — the question is real in app mode too, and the reason
+    // names the thing that WOULD answer it, which the person can go and do.
+    expect(loginDisabledReason(app)).toContain("open Subshell Server at login");
 
     const bare = deploymentView();
     bare.service.installed = false;
@@ -81,7 +83,7 @@ describe("loginDisabledReason", () => {
 describe("SupervisionCard", () => {
   it("shows BOTH modes with the machine's own marked", () => {
     asShell(DESKTOP);
-    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} />);
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
     const [background, app] = modes();
     expect(background?.checked).toBe(true);
     expect(app?.checked).toBe(false);
@@ -94,31 +96,53 @@ describe("SupervisionCard", () => {
     asShell(DESKTOP);
     const view = deploymentView();
     view.service.manager = "app";
-    render(<SupervisionCard view={view} autostart={stubAutostart()} />);
+    render(<SupervisionCard view={view} autostart={stubAutostart()} supervision={stubSupervision()} />);
     expect(modes()[1]?.checked).toBe(true);
   });
 
-  it("offers no door until a different mode is picked", () => {
+  it("opens the confirmation dialog on THIS page, and invokes nothing until it is confirmed", () => {
     asShell(DESKTOP);
-    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} />);
-    // A standing verb is what made the old button read as an afterthought.
-    expect(door()).toBeNull();
+    const supervision = stubSupervision();
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={supervision} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
     act(() => modes()[1]?.click());
-    expect(door()?.textContent).toContain("Switch to the app");
+    // A dialog here, not a window from the desktop app: the window read as a
+    // bug rather than a safeguard, and the consent is the person's, not the
+    // page's (docs/security.md).
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText(/Run the server with the app\?/)).toBeTruthy();
+    expect(supervision.calls).toEqual([]);
+    act(() => screen.getByRole("button", { name: "Run with the app" }).click());
+    expect(supervision.calls).toEqual([{ mode: "app", autostart: true }]);
   });
 
-  it("names the other direction from app mode", () => {
+  it("keeps the dialog open with the reason when the switch is refused", () => {
     asShell(DESKTOP);
-    const view = deploymentView();
-    view.service.manager = "app";
-    render(<SupervisionCard view={view} autostart={stubAutostart()} />);
-    act(() => modes()[0]?.click());
-    expect(door()?.textContent).toContain("background service");
+    const supervision = stubSupervision({ result: false, error: "no subshell-server found" });
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={supervision} />);
+    act(() => modes()[1]?.click());
+    act(() => screen.getByRole("button", { name: "Run with the app" }).click());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("no subshell-server found")).toBeTruthy();
+  });
+
+  it("keeps showing the MACHINE's mode when you pick the other one", () => {
+    asShell(DESKTOP);
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
+    act(() => modes()[1]?.click());
+    // The selection follows the machine, not the press — so dismissing the
+    // dialog cannot leave this card claiming a mode that never took effect.
+    // It moves when the next poll reports the change. `hidden: true` because
+    // the dialog is modal and Base UI marks the card behind it aria-hidden;
+    // the state under test IS the hidden one.
+    const behind = screen.getAllByRole("radio", { hidden: true }) as HTMLInputElement[];
+    expect(behind[0]?.checked).toBe(true);
+    expect(behind[1]?.checked).toBe(false);
   });
 
   it("is read-only in a browser, and says where to change it", () => {
     asShell(BROWSER);
-    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} />);
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
     // Every viewer learns the mode — that is the point of showing both — but
     // only the machine's own app can change it, and a control that moves and
     // can never be applied is a worse lie than one that does not move.
@@ -127,31 +151,51 @@ describe("SupervisionCard", () => {
     expect(screen.getByText(/Subshell Server app on that machine/)).toBeTruthy();
   });
 
-  it("nests the login switch under the background option and honours its reasons", () => {
+  it("puts the login switch BELOW both modes, not between them", () => {
+    asShell(DESKTOP);
+    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
+    // Nesting it under the first radio wedged a control between the two
+    // choices, so they stopped reading as a pair. The dependency on the mode
+    // is expressed by the disabled reason below, not by indentation — so in
+    // document order both radios come first and the switch comes last.
+    const radios = modes();
+    const switchEl = loginSwitch();
+    for (const radio of radios) {
+      expect(radio.compareDocumentPosition(switchEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("reflects the service's login answer and presses through to the caller", () => {
     asShell(DESKTOP);
     const view = deploymentView();
     view.service.enabled = true;
     const autostart = stubAutostart();
-    render(<SupervisionCard view={view} autostart={autostart} />);
+    render(<SupervisionCard view={view} autostart={autostart} supervision={stubSupervision()} />);
     expect(loginSwitch().getAttribute("aria-checked")).toBe("true");
     expect(switchDisabled()).toBe(false);
     loginSwitch().click();
     expect(autostart.pressed).toEqual([false]);
   });
 
-  it("disables the login switch under the app, naming what would have to start at login", () => {
+  it("disables the login switch in app mode, naming what would answer instead", () => {
     asShell(DESKTOP);
     const view = deploymentView();
     view.service.manager = "app";
     view.service.installed = false;
-    render(<SupervisionCard view={view} autostart={stubAutostart()} />);
+    render(<SupervisionCard view={view} autostart={stubAutostart()} supervision={stubSupervision()} />);
     expect(switchDisabled()).toBe(true);
-    expect(screen.getByText(/app itself would need to start at login/)).toBeTruthy();
+    expect(screen.getByText(/open Subshell Server at login/)).toBeTruthy();
   });
 
   it("surfaces a failed login change", () => {
     asShell(DESKTOP);
-    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart({ error: "unit is masked" })} />);
+    render(
+      <SupervisionCard
+        view={deploymentView()}
+        autostart={stubAutostart({ error: "unit is masked" })}
+        supervision={stubSupervision()}
+      />,
+    );
     expect(screen.getByText("unit is masked")).toBeTruthy();
   });
 });

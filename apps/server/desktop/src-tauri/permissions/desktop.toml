@@ -108,5 +108,5 @@ commands.allow = ["desktop_open_web"]
 
 [[permission]]
 identifier = "allow-desktop-set-supervision"
-description = "Switch who runs the server — a launchd/systemd service, or this app as its own child — and set whether that service starts at login. Both directions leave the server unreachable for a moment (an uninstall stops it; a switch restarts it), which is exactly why it is assistant-only: the page the server serves may name this SCREEN, never run it."
+description = "Switch who runs the server — a launchd/systemd service, or this app as its own child — and set whether that service starts at login. Both directions leave the server unreachable for a moment (an uninstall stops it; a switch restarts it), so it cannot be an HTTP route; it is granted to the assistant AND, as the one deliberate exception among CLI-touching commands, to the loopback SPA window — see docs/security.md for the accounting."
 commands.allow = ["desktop_set_supervision"]

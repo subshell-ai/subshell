@@ -142,26 +142,7 @@ export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "super
  * handles it specially because it has a plan to arm first.
  */
 export function screenForRequest(payload: string): ScreenId | null {
-  if (supervisionModeRequested(payload) !== null) return "supervision";
   return (REQUESTED_SCREENS as readonly string[]).includes(payload) ? (payload as ScreenId) : null;
-}
-
-/**
- * Which mode a supervision request already CHOSE, or `null` when it is asking.
- *
- * The dashboard shows both modes and knows which one was picked, so sending
- * the person to a screen that asks again would put one question to them
- * twice. Recovery has no dashboard, so it sends the asking word and the
- * screen shows its radios.
- *
- * The mode rides IN the screen word rather than beside it because that is
- * this boundary's rule: a served page names a member of a closed set, and
- * `reset::Screen` is where that set lives.
- */
-export function supervisionModeRequested(payload: string): "app" | "service" | null {
-  if (payload === "supervision-app") return "app";
-  if (payload === "supervision-service") return "service";
-  return null;
 }
 
 export function isRequestedScreen(screen: ScreenId | null): boolean {

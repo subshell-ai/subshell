@@ -166,6 +166,14 @@ pub fn run() {
             control::desktop_shell_ready,
         ])
         .on_window_event(|window, event| {
+            // The assistant's page can no longer hear an event once its window
+            // is destroyed, and the flag that says it can must not outlive it —
+            // a stale true here is how the dashboard's next raise emitted into
+            // a window that had not booted, and the assistant flashed and
+            // closed (2026-09-12).
+            if window.label() == "wizard" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().state::<reset::Stash>().page_gone();
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Close-to-tray is opt-in, and the check RE-PROBES the desktop
                 // here rather than trusting the stored preference: where no

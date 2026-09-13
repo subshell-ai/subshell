@@ -52,18 +52,10 @@ pub enum Screen {
     Reset,
     /// The bundled server is newer than the installed one (spec § 5.3).
     Update,
-    /// Who runs the server here, and whether it starts at login — ASKED.
-    /// Reached from recovery, where there is no dashboard to have chosen in.
+    /// Who runs the server here, and whether it starts at login. Reached
+    /// from recovery, where there is no dashboard; the dashboard has its own
+    /// dialog and calls `desktop_set_supervision` directly.
     Supervision,
-    /// The same screen, CONFIRMING a mode the dashboard already picked.
-    ///
-    /// Two more members rather than an argument, because the rule for this
-    /// boundary is that a served page names a member of a closed set and
-    /// nothing else. A mode is part of what is being named, not a parameter
-    /// smuggled beside it — and the alternative, asking again in the
-    /// assistant, puts the same question to a person twice.
-    SupervisionApp,
-    SupervisionService,
 }
 
 impl Screen {
@@ -73,21 +65,17 @@ impl Screen {
             Screen::Reset => "reset",
             Screen::Update => "update",
             Screen::Supervision => "supervision",
-            Screen::SupervisionApp => "supervision-app",
-            Screen::SupervisionService => "supervision-service",
         }
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Five accepted words;
+/// Parse the (untrusted, optional) `screen` argument. Three accepted words;
 /// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
         Some("reset") => Screen::Reset,
         Some("update") => Screen::Update,
         Some("supervision") => Screen::Supervision,
-        Some("supervision-app") => Screen::SupervisionApp,
-        Some("supervision-service") => Screen::SupervisionService,
         _ => Screen::Home,
     }
 }
@@ -140,6 +128,19 @@ pub struct Stash {
     pub plan: Mutex<Option<DeletePlan>>,
 }
 
+impl Stash {
+    /// The assistant window is gone, so no page is listening.
+    ///
+    /// Called from the window's `Destroyed` event. Without it the flag
+    /// outlives the page that set it, and the next raise emits into a window
+    /// that is still loading (see `arm_and_raise`). Reading the flag after the
+    /// open already defends against that; this makes the flag TRUE only while
+    /// it is true, rather than relying on every reader to know the ordering.
+    pub fn page_gone(&self) {
+        self.page_listening.store(false, Ordering::SeqCst);
+    }
+}
+
 /// The reset entry's whole Rust side at press time: parse the (untrusted,
 /// optional) screen argument, and for `reset` read the machine NOW and stash
 /// both the screen request and the validated delete plan (R18). If the read
@@ -170,8 +171,18 @@ pub fn arm_and_raise(app: &AppHandle, screen: Option<String>) -> Result<(), Stri
     //
     // The flag is set by the pull itself, which is the only event that proves
     // a page got far enough to ask, and cleared when a window is built.
-    let listening = stash.page_listening.load(Ordering::SeqCst);
     crate::windows::open_assistant(app)?;
+    // Read AFTER the open, never before. `open_assistant` clears the flag when
+    // it BUILDS a window, and the flag is never cleared by a window closing —
+    // so a read taken before the open sees the value the PREVIOUS page left
+    // behind. Measured on 2026-09-12 from the dashboard's supervision card: the
+    // assistant had opened earlier, pulled (flag true), handed off and closed
+    // itself; the next raise read that stale true, built a fresh window, took
+    // the stash, and emitted into a page that had not booted. The new page
+    // then pulled an empty stash, saw Home on a ready machine, and handed off
+    // to the dashboard — the window flashed and closed. Reading here sees the
+    // fresh build's clear, so a new window pulls and a live one is emitted to.
+    let listening = stash.page_listening.load(Ordering::SeqCst);
     if listening {
         // A live window has no page load left to pull on; deliver now.
         if let Some(s) = stash.screen.lock().unwrap().take() {
@@ -789,6 +800,14 @@ mod tests {
         stash.page_listening.store(true, Ordering::SeqCst);
         assert!(stash.page_listening.load(Ordering::SeqCst));
         assert_eq!(stash.screen.lock().unwrap().take(), Some(Screen::Reset));
+
+        // And once its window is destroyed, nobody is listening — the flag
+        // must not outlive the page that set it. It did (2026-09-12): the
+        // assistant handed off and closed, the flag stayed true, and the next
+        // raise emitted into a window still loading, so the new page pulled an
+        // empty stash and the assistant flashed and closed.
+        stash.page_gone();
+        assert!(!stash.page_listening.load(Ordering::SeqCst));
     }
 
     #[test]

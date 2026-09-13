@@ -177,11 +177,15 @@ describe("the assistant's IPC contract", () => {
     for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
   });
 
-  it("keeps `main` to exactly its three harmless commands", () => {
-    // Raise a window, drop this app's own title bar, and display one
-    // fixed-shape notification. Nothing that touches the CLI, the config, the
-    // service or the filesystem may appear here; adding a fourth is the change
-    // this line exists to make loud.
+  it("keeps `main` to exactly its four commands — three harmless, one deliberate exception", () => {
+    // Raise a window, drop this app's own title bar, display one fixed-shape
+    // notification — and switch who runs the server. That last one is the
+    // ONE command here that touches the service, and it is here on purpose
+    // (operator's call, 2026-09-12): the assistant window that carried it read
+    // as a bug, and a page that already holds the admin restart route can do
+    // worse than move the server between two supervisors. The accounting is
+    // in docs/security.md. Adding a FIFTH is the change this line exists to
+    // make loud; so is quietly widening this one.
     //
     // `desktop_open_assistant` is the deep link the SPA sends from three
     // places — the Settings danger card (`{ screen: "reset" }`), the Service
@@ -193,7 +197,12 @@ describe("the assistant's IPC contract", () => {
     const appCommands = capabilityPermissions("main.json")
       .filter((id) => !id.includes(":"))
       .flatMap((id) => manifest.get(id) ?? []);
-    expect(appCommands.sort()).toEqual(["desktop_notify", "desktop_open_assistant", "desktop_shell_ready"]);
+    expect(appCommands.sort()).toEqual([
+      "desktop_notify",
+      "desktop_open_assistant",
+      "desktop_set_supervision",
+      "desktop_shell_ready",
+    ]);
     // And no plugin permission of consequence: the loopback page gets dialog-
     // free, opener-free, fs-free handling by construction.
     const pluginPermissions = capabilityPermissions("main.json").filter((id) => id.includes(":"));

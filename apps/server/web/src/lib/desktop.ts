@@ -180,6 +180,23 @@ export async function desktopInvoke(command: string, args?: Record<string, unkno
 }
 
 /**
+ * `desktopInvoke` that THROWS instead of answering null.
+ *
+ * The forgiving one is right for fire-and-forget deep links, where an older
+ * shell that knows no such command should simply do nothing. It is wrong for
+ * a command whose refusal the person needs to read: `desktop_set_supervision`
+ * answers `Err(String)` before it touches anything, and swallowing that into
+ * null would turn "no subshell-server found" into a button that does nothing.
+ * Outside the desktop shell it throws too, naming the reason, so a caller
+ * never has to guess which of the two it was.
+ */
+export async function desktopInvokeStrict<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const invoke = tauri()?.core?.invoke;
+  if (!invoke) throw new Error("This page is not running inside Subshell Server.");
+  return (await invoke(command, args)) as T;
+}
+
+/**
  * Start an OS window drag from a pointer event.
  *
  * The desktop sidebar's top strip sits under the macOS traffic lights and IS

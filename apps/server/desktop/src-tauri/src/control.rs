@@ -2165,8 +2165,16 @@ mod tests {
     /// exactly rather than by absence of specific entries, because the failure
     /// to catch is a command added to it by habit — a test that only forbade
     /// today's names would not see tomorrow's.
+    ///
+    /// Four of the five cannot touch the CLI. The fifth,
+    /// `desktop_set_supervision`, can — it is the ONE deliberate exception
+    /// (operator's call, 2026-09-12): the dashboard confirms in its own dialog
+    /// rather than raising the assistant, on the argument that a page already
+    /// holding the admin restart route can do worse than choose the server's
+    /// respawner. `docs/security.md` carries the accounting. A SIXTH entry, or
+    /// a wider fifth, is what this pin exists to make loud.
     #[test]
-    fn the_remote_window_is_granted_only_what_cannot_touch_the_cli() {
+    fn the_remote_window_is_granted_four_harmless_commands_and_one_deliberate_exception() {
         assert_eq!(
             grants("main"),
             vec![
@@ -2174,6 +2182,7 @@ mod tests {
                 "allow-desktop-open-assistant",
                 "allow-desktop-shell-ready",
                 "allow-desktop-notify",
+                "allow-desktop-set-supervision",
             ]
         );
     }

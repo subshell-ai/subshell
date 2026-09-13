@@ -1277,6 +1277,34 @@ running this server, or a manager that would not say. Switching who runs the
 server at all still has no route, for the original reason — the dashboard
 offers a door into the desktop assistant instead.
 
+### One CLI-touching command reaches the loopback SPA window
+
+The Subshell Server app's `main` window is served content pinned to loopback,
+and its standing grant is commands that cannot touch the CLI, the config, the
+service or the filesystem. **`desktop_set_supervision` is now the one
+deliberate exception** (operator's call, 2026-09-12): the dashboard's
+supervision card confirms in its own dialog and invokes the switch directly.
+
+Why it cannot be a route is unchanged — both directions leave the server
+unreachable, so nothing the server serves can perform the act; only the app
+outlives the server. What changed is where the CONSENT lives. It used to be a
+screen in the assistant window, which put the confirm button outside the
+page's reach: an XSS in the served SPA could raise the window but not press
+it. That window read to the operator as a bug rather than a safeguard, and
+the exposure it defended against is smaller than one the same page already
+carries: an admin session on `main` already holds
+`POST /api/admin/server/restart`. Moving the server between two supervisors
+is a restart with a different respawner — reversible, no data touched, panes
+kept — so a page that can already restart the server gains little by also
+being able to say who restarts it.
+
+What an XSS in the SPA can now do that it could not before: flip the machine
+to app mode, so the server dies when the app quits, or back. It cannot reach
+`desktop_reset`, `desktop_setup`, `desktop_service` or any other CLI verb;
+those stay assistant-only, and `ipc-acl.test.ts` (TS) and `control.rs` (Rust)
+both pin `main` at exactly these five entries. The dialog on the page is a
+confirmation for the PERSON, and is not counted as a defence against the page.
+
 ### The desktop app as supervisor
 
 Subshell Server can run the control plane as its own child instead of

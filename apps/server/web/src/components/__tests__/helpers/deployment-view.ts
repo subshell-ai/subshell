@@ -1,4 +1,5 @@
 import type { ServerAutostart } from "@/hooks/use-server-deployment";
+import type { SetSupervision } from "@/hooks/use-set-supervision";
 import type { ServerDeployment, ServerSetting, SettingSource } from "@/types/server-deployment";
 
 /**
@@ -78,5 +79,21 @@ export function stubAutostart(over: Partial<ServerAutostart> = {}): ServerAutost
     pending: false,
     error: null,
     ...over,
+  };
+}
+
+/** A mode-switch handle that records calls and answers as told. */
+export function stubSupervision(
+  over: { result?: boolean; error?: string | null; pending?: boolean } = {},
+): SetSupervision & { calls: { mode: string; autostart: boolean }[] } {
+  const calls: { mode: string; autostart: boolean }[] = [];
+  return {
+    calls,
+    set: async (mode, autostart) => {
+      calls.push({ mode, autostart });
+      return over.result ?? true;
+    },
+    pending: over.pending ?? false,
+    error: over.error ?? null,
   };
 }

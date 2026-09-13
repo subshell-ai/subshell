@@ -131,8 +131,7 @@ that list; there is no third place to forget.
 
 **Update Server**, **Reset** and **How Your Server Runs** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update` | `supervision` |
-`supervision-app` | `supervision-service`) — which is what lets either
+`reset::Screen` enum (`home` | `reset` | `update` | `supervision`) — which is what lets either
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
@@ -714,18 +713,21 @@ With it, the split is enforced, and the split is window KIND:
 | Window | Gets |
 | --- | --- |
 | `wizard` | the sixteen its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
-| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, and window dragging — over loopback only |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
-`main`'s three are chosen for what they cannot do: raise a window, drop this
-app's own title bar, and display one notification with a fixed shape. Nothing
-that touches the CLI, the config, the service or the filesystem is reachable
-from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
+`main`'s first three are chosen for what they cannot do: raise a window, drop
+this app's own title bar, and display one notification with a fixed shape.
+The fourth, `desktop_set_supervision`, is granted by operator decision
+(2026-09-12) so the dashboard's supervision card can confirm in its own dialog
+rather than raising the assistant; `docs/security.md` carries the accounting,
+and `ipc-acl.test.ts` pins `main` at exactly these four so a fifth is loud.
+Nothing else that touches the CLI, the config, the service or the filesystem
+is reachable from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
 `screen` argument, and the SPA sends it from exactly four places: the
 Settings danger card (`{ screen: "reset" }`), the Service page's Update card
-(`{ screen: "update" }`), the supervision card's door
-(`{ screen: "supervision-app" }` or `{ screen: "supervision-service" }`, the
-MODE inside the word so the assistant confirms rather than asking again) and
-the sidebar pill (no argument). It names a SCREEN
+(`{ screen: "update" }`) and the sidebar pill (no argument). The supervision
+card sends none: it confirms in its own dialog and calls
+`desktop_set_supervision` itself. It names a SCREEN
 and never a command — raising `update` performs one read-only probe, arming
 `reset` performs one `status --json` the watch already runs on its own timer,
 and every verb behind either needs a press inside the bundled page.

@@ -12,6 +12,7 @@ import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useServerDeployment, useSetServerAutostart } from "@/hooks/use-server-deployment";
 import { useServerRestart } from "@/hooks/use-server-restart";
+import { useSetSupervision } from "@/hooks/use-set-supervision";
 
 export const Route = createFileRoute("/settings_/service")({ component: ServicePage });
 
@@ -25,8 +26,16 @@ export const Route = createFileRoute("/settings_/service")({ component: ServiceP
  *
  * The admin gate is the one `/settings/status` established: `viewerIsAdmin`
  * comes from the server and `undefined` counts as NOT admin, so a non-admin
- * mount fires no doomed 403 — and Refresh lives inside the admin branch,
- * because `refetch()` ignores the `enabled` flag and would fire exactly that.
+ * mount fires no doomed 403 — and the error banner's Retry lives inside the
+ * admin branch, because `refetch()` ignores the `enabled` flag and would fire
+ * exactly that.
+ *
+ * **There is no Refresh button and no snapshot stamp**, matching
+ * `/settings/status`. The page polls, so a control offering to do what it
+ * already does every few seconds reads as a page that does not — and a
+ * timestamp exists only to prove a poll is alive, which is a promise worth
+ * not making. Retry stays, because it answers the one case the interval
+ * cannot: the fetch failed.
  *
  * `useAdminStatus` is mounted here for two reasons at once: the Service card
  * names the boot time, and the restart waiter compares against the
@@ -41,19 +50,13 @@ function ServicePage() {
   const { data: status } = useAdminStatus(isAdmin);
   const restart = useServerRestart();
   const autostart = useSetServerAutostart();
+  const supervision = useSetSupervision();
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader
         title="Service"
         subtitle="Where this server listens, who supervises it, where it writes, and what it logged."
-        action={
-          isAdmin ? (
-            <Button variant="outline" size="sm" onClick={() => void refetch()}>
-              Refresh
-            </Button>
-          ) : null
-        }
       />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
@@ -81,16 +84,10 @@ function ServicePage() {
           {view && (
             <>
               <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />
-              <SupervisionCard view={view} autostart={autostart} />
+              <SupervisionCard view={view} autostart={autostart} supervision={supervision} />
               <AddressesCard view={view} restart={restart} />
               <LocationsCard view={view} />
               <ServerLogCard view={view} enabled={isAdmin} />
-              {/* Stamped because the page polls: a figure that stopped
-                  updating otherwise looks exactly like one that is simply not
-                  changing. */}
-              <p className="text-muted-foreground text-xs">
-                Snapshot taken {new Date(view.generatedAt).toLocaleTimeString()} · refreshes every 15s
-              </p>
             </>
           )}
         </>

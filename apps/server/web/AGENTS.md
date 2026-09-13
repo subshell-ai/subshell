@@ -80,8 +80,12 @@ server says this viewer manages it. Both rules are pure exports
 
 **Two cards, because they are two kinds of thing.** `ServiceCard` is about the
 running PROCESS — who supervises it, since when, and Restart. `SupervisionCard`
-is about the MACHINE: which of the two modes it is in, and the start-at-login
-box nested under the one that owns it. They were one card, and it read wrong —
+is about the MACHINE: which of the two modes it is in, and — below both, a
+settings pane's own shape — whether it starts at login. That switch is genuinely
+dependent on the background mode (the route 409s under the app, and there is no
+definition to arm), but the dependency is carried by a disabled reason naming
+the other mechanism, not by nesting: indenting it under the first radio wedged a
+control between the two choices so they stopped reading as a pair. They were one card, and it read wrong —
 "Restart server" and "change what supervises this machine from now on" sat as
 sibling buttons, the second a bare "Run with the app instead…" that named no
 alternative and explained nothing.
@@ -89,19 +93,22 @@ alternative and explained nothing.
 `SupervisionCard` shows **both modes in every client**, current one marked. A
 browser on the LAN and a phone cannot change it — the radios render disabled
 with a line naming where it is changed — but they now learn what the machine
-is doing, which the old card never told anyone. The door appears only once a
-DIFFERENT mode is picked, so it names what it will do rather than standing
-there as a verb.
+is doing, which the old card never told anyone. **The radio IS the choice, and the confirmation is a dialog on this page.**
+Clicking the unselected mode opens `SupervisionDialog`, which lists what the
+switch does and calls `desktop_set_supervision` through the desktop bridge
+(`useSetSupervision`) — no assistant window (operator's call, 2026-09-12;
+`docs/security.md` carries the accounting for granting that command to the
+SPA window). The radio shows the MACHINE, not the pick — it does not move until
+the next poll reports the change — so dismissing the dialog cannot leave the
+card claiming a mode that never took effect.
 
 **The act cannot be a route, and the reason is specific rather than the usual
 one.** Switching needs an actor that outlives the server: going to app mode
 uninstalls the service (stopping the server) and the desktop app is what must
 then start it; going back means installing a service while the process holding
-the port IS this page's server. So the card carries the choice and
-`desktop_open_assistant({ screen: "supervision-app" | "supervision-service" })`
-carries the act — a closed word, the way the reset card names one, with the
-MODE inside the word so the assistant confirms rather than asking the same
-question twice.
+the port IS this page's server. So the card carries the choice and the
+desktop app carries the act, reached over the webview's IPC — which survives
+the server going away, unlike anything the server serves.
 
 Start-at-login itself IS a route (`POST /api/admin/server/autostart`) because
 it changes nothing about the running process. `loginDisabledReason` mirrors
