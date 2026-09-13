@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, newSubshellName, pickProfile, subshellIds } from "./helpers";
+import { ADMIN_STATE, newSubshellName, pickAgent, subshellIds } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -29,11 +29,11 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   await page.getByRole("button", { name: "New subshell" }).click();
   // Stable id from NewSubshellForm; the only other control group in the dialog
   // (direction) is buttons, not comboboxes, but the id survives either way.
-  // Profile options render as "{name} ({harnessId})". Registration seeded a
-  // "Default" for every harness this host declares, and GET /api/profiles keeps the ones
-  // whose CLI is installed — a host with several CLIs shows several Defaults,
-  // so pick pi's exactly (the stub pi is the only binary the e2e stack owns).
-  await pickProfile(page.locator("#picker-profile"), "Default (pi)");
+  // Agent options render as the plugin display name, greyed never hidden;
+  // pick pi exactly (the stub pi is the only agent binary the e2e stack
+  // owns). The Preset row is left at "None" — a preset is optional since
+  // spec 2026-09-13.
+  await pickAgent(page.locator("#picker-agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel pushes "Start subshell" down the dialog's scroller; it dismisses only on an

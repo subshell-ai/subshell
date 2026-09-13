@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickProfile, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -72,7 +72,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   const p1 = await wide.newPage();
   await armWsRecorder(p1);
   await p1.goto("/new");
-  await pickProfile(p1.getByPlaceholder("Choose a profile"), "Default (pi)");
+  await pickAgent(p1.getByPlaceholder("Choose an agent"), "pi");
   await p1.fill("#picker-working-dir", "/tmp");
   await dismissDirectoryPanel(p1);
   await p1.getByRole("button", { name: "Start subshell" }).click();

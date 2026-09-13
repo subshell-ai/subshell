@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { type RunningAgent, startAgent } from "../stub/client";
-import { ADMIN_STATE, dismissDirectoryPanel, openProfilePicker, pickProfile, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, openAgentPicker, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -259,28 +259,33 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await expect(nodeRowUi.getByText("online", { exact: true })).toBeVisible();
     await expect(nodeRowUi.getByText("pi", { exact: true })).toBeVisible();
 
-    // ── 6. Remote launch through the browser: /new, pi's Default profile,
-    // the e2e node, a temp cwd. Terminal truth stays server-side (AGENTS.md):
+    // ── 6. Remote launch through the browser: /new, the pi AGENT (no preset
+    // — presets are optional since spec 2026-09-13), the e2e node, a temp
+    // cwd. Terminal truth stays server-side (AGENTS.md):
     // ws-token + /ws upgrade + no reconnecting pill — never canvas text.
     const workingDir = mkdtempSync(path.join(home, "cwd"));
 
     // The pairing gate, instance-level form (spec 2026-09-10 §6.1): DISABLING
     // pi at the instance drops its row off EVERY node at once — the store is
-    // one, so the old per-node removal no longer exists. The launch flow must
-    // grey the profile with its reason instead of hiding it (the node-option
-    // "no pi here" grey for a single missing detection lives on in
+    // one, so the old per-node removal no longer exists. The AGENT picker
+    // must grey pi with its reason instead of hiding it (the 2026-09-02 rule,
+    // now on the agent field — an instance-wide disable carries the
+    // server-level reason; the node-option "no pi here" grey for a single
+    // missing detection lives on in
     // `lib/subshell-compat`'s unit matrix — an instance disable cannot
     // reproduce it because it takes every node down together), and
     // re-enabling must restore everything with no state rebuilt.
     const disabled = await page.request.patch("/api/plugins/pi", { data: { enabled: false } });
     expect(disabled.ok(), await disabled.text()).toBe(true);
 
-    await page.goto("/new"); // fresh load — the client refetches the node views
-    await openProfilePicker(page.getByPlaceholder("Choose a profile"));
-    const piOption = page.getByRole("option", { name: /Default \(pi\)/ });
+    await page.goto("/new"); // fresh load — the client refetches the plugin views
+    await openAgentPicker(page.getByPlaceholder("Choose an agent"));
+    // No `exact` name: a greyed option's accessible name carries its reason
+    // ("pi disabled on this server"). Only pi's name contains "pi".
+    const piOption = page.getByRole("option", { name: "pi" });
     await expect(piOption).toHaveCount(1); // greyed ≠ gone
     await expect(piOption).toBeDisabled(); // aria-disabled row (Base UI item)
-    await expect(piOption.getByText("not installed on this node")).toBeVisible(); // reason, default node = Server
+    await expect(piOption.getByText("disabled on this server")).toBeVisible(); // server-level reason
     await page.keyboard.press("Escape");
 
     const enabled = await page.request.patch("/api/plugins/pi", { data: { enabled: true } });
@@ -292,7 +297,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // swallow the real pick).
     const nodeOption = page.getByRole("option", { name: nodeName }); // substring: survives the " · linux/x64" suffix
     await page.goto("/new");
-    await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
+    await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
     await page.getByPlaceholder("Choose a node").click();
     await nodeOption.click();
     await page.fill("#picker-working-dir", workingDir);

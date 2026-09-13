@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, openProfilePicker, pickProfile } from "./helpers";
+import { ADMIN_STATE, openAgentPicker, pickAgent } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -19,7 +19,7 @@ test.use({ storageState: ADMIN_STATE });
  * (stack.ts `PI_PATH`), so its rows are deterministic here. The spec always
  * restores it in `finally`: the suite shares one backend and one instance
  * store across specs (`workers: 1`), and a pi left uninstalled would cascade
- * into every later profile and launch assertion.
+ * into every later agent and launch assertion.
  */
 test.describe("instance plugins", () => {
   /** The Installed card on /settings/plugins. */
@@ -51,14 +51,16 @@ test.describe("instance plugins", () => {
 
       // ── 2. Uninstall through the §6.1 dialog. It states the instance-wide
       // consequence, names what uses the harness (fetched, not assumed), and
-      // defaults to keep. Confirming the default keeps profiles: the row
-      // leaves the store, the profiles are untouched (step 4 proves it by
-      // finding the picker row again, greyed rather than gone).
+      // defaults to keep. What "keep" costs the preset store (`presetsRemoved`
+      // on the DELETE) is API/unit turf — what the browser owes this file is
+      // the store↔picker contract: the row leaves the store, the agent row
+      // greys rather than vanishes (step 3), and reinstall makes it
+      // selectable again (step 4).
       await piRow(page).getByRole("button", { name: "Uninstall pi" }).click();
       const dialog = page.getByRole("dialog");
       await expect(dialog.getByRole("heading", { name: "Uninstall pi?" })).toBeVisible();
       await expect(dialog.getByText("stops offering it on every node")).toBeVisible();
-      await expect(dialog.getByLabel("Keep the profiles, unavailable until reinstalled")).toBeChecked();
+      await expect(dialog.getByLabel("Keep the presets, unavailable until reinstalled")).toBeChecked();
       await dialog.getByRole("button", { name: "Uninstall" }).click();
       removed = true;
       await expect.poll(() => storeHoldsPi(page), { timeout: 10_000 }).toBe(false);
@@ -69,20 +71,23 @@ test.describe("instance plugins", () => {
       const catalog = page.locator("div.rounded-lg", { has: page.getByText("Add from this build", { exact: true }) });
       await expect(catalog.getByRole("button", { name: "Install pi" })).toBeVisible();
 
-      // ── 3. The picker follows, on the DEFAULT node (the form pre-picks
-      // "local"): pi's Default is grey with the reason right on it, because
-      // the node views are the store crossed with detection and the store
-      // just said no. (The node-option grey for a node MISSING a detected
-      // binary is `lib/subshell-compat`'s unit-tested matrix; an instance
-      // uninstall cannot reproduce it — it drops every node at once.)
+      // ── 3. The AGENT picker follows, and its reason is a SERVER fact:
+      // the plugin left the instance store, so pi greys with "not installed
+      // on this server" (spec 2026-09-13 §5 — the reason precedence reads the
+      // control plane first; the node views being the store crossed with
+      // detection is why the node row dropped too, but the agent option
+      // names the store). (The node-option grey for a node MISSING a
+      // detected binary is `lib/subshell-compat`'s unit-tested matrix; an
+      // instance uninstall cannot reproduce it — it drops every node at
+      // once.)
       await page.goto("/new");
-      await openProfilePicker(page.getByPlaceholder("Choose a profile"));
-      const piOption = page.getByRole("option", { name: /Default \(pi\)/ });
-      await expect(piOption).toHaveCount(1);
+      await openAgentPicker(page.getByPlaceholder("Choose an agent"));
+      const piOption = page.getByRole("option", { name: "pi" });
+      await expect(piOption).toHaveCount(1); // greyed ≠ gone
       // No `exact` name: a greyed option's accessible name carries its
-      // reason ("Default (pi) not installed on this node").
+      // reason ("pi not installed on this server"). Only pi's name has "pi".
       await expect(piOption).toBeDisabled();
-      await expect(piOption.getByText("not installed on this node")).toBeVisible();
+      await expect(piOption.getByText("not installed on this server")).toBeVisible();
       await page.keyboard.press("Escape");
 
       // ── 4. Reinstall through the catalog: the built-in path, bytes from
@@ -96,20 +101,22 @@ test.describe("instance plugins", () => {
       await expect.poll(() => storeHoldsPi(page), { timeout: 10_000 }).toBe(true);
       removed = false;
       await expect(piRow(page).getByRole("button", { name: "Uninstall pi" })).toBeVisible();
-      // "Keep" really meant keep: the Default profile is selectable again with
-      // no re-seeding, and this host is a clean target for it.
+      // Reinstall round-trips the grey: the agent is selectable again, and
+      // this host is a clean target for it.
       await page.goto("/new");
       // The node picker is GONE on this instance (2026-09-12): the host is the
-      // only place a subshell could run, so the field hides. That moves where
-      // "the host has pi again" is observable — a profile the selected node
-      // cannot run renders DISABLED, so `pickProfile` committing this one is
-      // the same fact the old option-row assertion made.
+      // only place a subshell could run, so the field hides. That leaves the
+      // AGENT select as where "the host has pi again" is observable — a
+      // plugin the store lacks renders DISABLED, so `pickAgent` committing
+      // this one is the same fact the old option-row assertion made.
       await expect(page.getByLabel("Node")).toHaveCount(0);
-      await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
-      await expect(page.getByPlaceholder("Choose a profile")).toHaveValue(/pi/);
+      await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
+      await expect(page.locator("#picker-agent")).toHaveValue("pi");
       // And the form is launchable, which is the other half of "clean": the
-      // empty state that replaces it when nothing can run is not on screen.
-      await expect(page.getByText("No machine can run a subshell")).toHaveCount(0);
+      // dead-end hints that replace it when nothing can run are not on
+      // screen (frozen copy, spec 2026-09-13: node-side and agent-side
+      // variants).
+      await expect(page.getByText(/Nothing installed on .* can run an agent|No available node can run/)).toHaveCount(0);
     } finally {
       if (removed) {
         const res = await page.request.post("/api/plugins", { data: { pluginId: "pi" } });

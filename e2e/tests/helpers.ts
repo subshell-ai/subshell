@@ -93,30 +93,48 @@ export async function renameSubshell(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Opens the launch form's profile picker, after waiting for the form to finish
+ * Opens the launch form's AGENT picker, after waiting for the form to finish
  * filling ITSELF in.
  *
- * The form auto-selects the first launchable profile and pre-fills the working
+ * The form auto-defaults the agent (most recent subshell's harness when
+ * usable, else the first usable non-Terminal one) and pre-fills the working
  * directory from the node's recents, each when its own query lands. Opening
  * the picker before that arrives means the selection changes while the popup
  * is open: Base UI syncs the input's text to the new selection, that text is
  * also the filter query, and every other option detaches from the DOM — so a
  * click retries against an element that never comes back, until the test times
  * out. It fires exactly when the machine is FAST, which is why CI liked it and
- * a laptop did not.
+ * a laptop did not. (The profile picker had the same race for the same reason;
+ * the auto-default just moved from the profile field to the agent field when
+ * presets replaced profiles, 2026-09-13.)
  *
  * Waiting for the auto-selected value settles it: with the form at rest, the
  * open list is the full one and stays that way.
  */
-export async function openProfilePicker(input: Locator): Promise<void> {
+export async function openAgentPicker(input: Locator): Promise<void> {
   await expect(input).not.toHaveValue("");
   await input.click();
 }
 
-/** {@link openProfilePicker}, then choose one by its exact label. */
-export async function pickProfile(input: Locator, label: string): Promise<void> {
-  await openProfilePicker(input);
+/** {@link openAgentPicker}, then choose one by its exact label (plugin name). */
+export async function pickAgent(input: Locator, label: string): Promise<void> {
+  await openAgentPicker(input);
   await input.page().getByRole("option", { name: label, exact: true }).click();
+}
+
+/**
+ * Choose a preset from the launch form's Preset select by its exact label
+ * ("None" is always its first item).
+ *
+ * No settle wait here, unlike {@link openAgentPicker}: this is a Base UI
+ * Select, not a type-to-filter combobox. Its trigger is a button, its options
+ * do not filter against the trigger's text, and its value ("None" at rest) is
+ * never empty — so the auto-selection race the agent picker guards has no
+ * counterpart. Click the trigger, click the option.
+ */
+export async function pickPreset(page: Page, label: string, trigger = "#picker-preset"): Promise<void> {
+  await page.locator(trigger).click();
+  await page.getByRole("option", { name: label, exact: true }).click();
 }
 
 /**
@@ -128,7 +146,7 @@ export async function pickProfile(input: Locator, label: string): Promise<void> 
  *
  * | overlay | Escape | click the dialog heading |
  * |---|---|---|
- * | combobox popup (profile, node) | closes the popup, dialog survives | never lands — the popup's dismiss layer covers the heading, so the click retries until the test times out |
+ * | combobox popup (agent, node) | closes the popup, dialog survives | never lands — the popup's dismiss layer covers the heading, so the click retries until the test times out |
  * | directory panel | closes the POPUP AND THE DIALOG — the panel's own key handler does not stop propagation | lands, dialog survives, typed path intact |
  *
  * So: Escape for a combobox, this for the directory panel. Getting it backwards

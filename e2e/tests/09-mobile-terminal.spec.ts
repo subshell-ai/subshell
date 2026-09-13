@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickProfile } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -15,7 +15,7 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   test.setTimeout(120_000);
 
   await page.goto("/new");
-  await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
+  await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel drops over the fields/button below it, dismissing only on an outside

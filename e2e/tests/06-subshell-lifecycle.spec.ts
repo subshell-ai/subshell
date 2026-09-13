@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickProfile, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -7,8 +7,9 @@ test.use({ storageState: ADMIN_STATE });
 const SPAWN_TIMEOUT = 30_000;
 
 /**
- * The flagship path: create a real tmux session (stub `pi` binary, spec 01's
- * Default profile), watch the terminal attach, then terminate and delete.
+ * The flagship path: create a real tmux session (stub `pi` binary, no
+ * preset — the launch is harness-first since spec 2026-09-13), watch the
+ * terminal attach, then terminate and delete.
  * xterm paints to a WebGL canvas, so "the terminal is live" is asserted
  * through server-side truth: the ws-token mint + /ws upgrade + the absence of
  * the reconnecting pill — never canvas pixels. Independent of spec 05's
@@ -27,10 +28,9 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
 
   // Create from `/new`, which opens the launch DIALOG over the list. The
   // searchable picker's closed state is an <input>, so it is found by its
-  // placeholder attribute.
-  // Options render as "{name} ({harnessId})".
+  // placeholder attribute. Options render as the plugin display name.
   await page.goto("/new");
-  await pickProfile(page.getByPlaceholder("Choose a profile"), "Default (pi)");
+  await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height
   // panel pushes the buttons below it down the dialog's scroller; neither blur
