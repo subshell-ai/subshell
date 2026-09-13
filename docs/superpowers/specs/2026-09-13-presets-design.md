@@ -32,7 +32,8 @@ Renaming without making the row optional would keep every piece of machinery and
 
 ## 4. Contract (the frozen surface every client codes against)
 
-- `GET/POST/PUT/DELETE /api/presets` — same shape as `/api/profiles` minus `nodeId`/`isDefault`; response `PresetRow { id, harnessId, name, description, envJson, flagsJson, settingsJson, configIsolation, restartOnExit, createdAt, updatedAt }`. `POST` returns the created row. Cookie-only writes, bearer `envJson` redaction, `?harnessId=` and `?node=any` filters, `/api/presets/harness-ids`, `/api/presets/harnesses/:id/schema` — all carry over unchanged.
+- `GET/POST/PUT/DELETE /api/presets` — same shape as `/api/profiles` minus `nodeId`/`isDefault`; response `PresetRow { id, harnessId, name, description, envJson, flagsJson, settingsJson, configIsolation, restartOnExit, createdAt, updatedAt }`. `POST` returns the created row. Cookie-only writes, bearer `envJson` redaction, `?harnessId=` filter, `/api/presets/harness-ids`, `/api/presets/harnesses/:id/schema` — all carry over unchanged.
+  - **Amended (2026-09-13 follow-up): preset availability is the instance store.** The list filters and `POST` gates on INSTANCE store state — installed ∧ enabled ∧ ¬broken (`getAllHarnessIds()`) — never on a binary probe of any particular machine: a preset is instance-scoped, only LAUNCHES are node-scoped, and node compatibility applies at launch only (the picker's grey matrix client-side, the 409 `harness_disabled` server-side). `?node=any`, which existed to escape the old LOCAL filter, is retired — the store-scoped default IS the unfiltered list.
 - `POST /api/subshells` body: `{ harnessId: string (required), presetId?: string, workingDir, name?, prompt?, nodeId? }`. A `presetId` that is absent/foreign 404s; one whose `harnessId` disagrees with the body 400s (the wire `code` is status-derived, as everywhere on this surface — `preset_harness_mismatch` names the internal carrier class only). Launch-node precedence loses the pin step: body → `local` → single-online-agent auto-pick.
 - `GET /api/plugins` rows gain `type: "agent-harness" | "terminal"` (manifest data; the client default rule puts Terminal last). Plugin impact: `{ presets, distinctUsers, runningSubshells }` (no `defaults`); uninstall returns `presetsRemoved`.
 - Admin status inventory field `profiles` → `presets`. Subshell views carry `presetId: string | null`.
@@ -57,7 +58,7 @@ One new migration (`0027-presets`): rename `profiles` → `presets` (no FK refer
 - `harnessUsable`'s rule (instance installed∧enabled∧not-broken × node detection) — the Agent select greys with it, the server 409 stays the backstop.
 - Cookie-only preset writes (preset env outranks the credential layer), env-key validation, `restartOnExit` inheritance, the "Edit preset → start again" dead-subshell recovery loop (shown only when the subshell has a preset), owner-only clone.
 - Terminal staying a plugin option: it needed no profile before and needs no preset now.
-- The `?node=any` list filter's purpose (pairing against a selected node's inventory) — it was never about the pin.
+- ~~The `?node=any` list filter's purpose (pairing against a selected node's inventory)~~ — retired 2026-09-13 follow-up: preset availability is store-scoped, so the pairing-matrix escape hatch has nothing to escape (see the §4 amendment).
 
 ## 9. Testing
 
