@@ -107,6 +107,10 @@ interface MockOpts {
   /** Answer GET /api/nodes this many ms late — the ordering where recents
    *  resolve while the node pick is still unsettled (review round 2). */
   nodesDelayMs?: number;
+  /** Hold GET /api/subshells until this promise resolves — the UNANSWERED
+   *  list the agent-default gate exists for (cross-client review,
+   *  2026-09-13). Deterministic; no wall-clock race. */
+  subshellsGate?: Promise<unknown>;
   /** Answer POST /api/presets with this row (the inline-create case). */
   createdPreset?: ReturnType<typeof preset>;
 }
@@ -147,7 +151,13 @@ function mockFetch(
       presetStore.push(created);
       return Promise.resolve(new Response(JSON.stringify(created)));
     }
-    if (path === "/api/subshells") return Promise.resolve(new Response(JSON.stringify(subshells)));
+    if (path === "/api/subshells") {
+      const body = () => new Response(JSON.stringify(subshells));
+      // The gate holds the response UNANSWERED until released: an in-flight
+      // query is not an error and not a value — the exact state the agent
+      // default must wait on.
+      return opts.subshellsGate ? opts.subshellsGate.then(() => body()) : Promise.resolve(body());
+    }
     if (path === "/api/files/recent") {
       const scope = url.searchParams.get("node");
       const body = typeof recent === "function" ? recent(scope) : recent;
@@ -281,6 +291,45 @@ describe("NewSubshellForm agent/preset defaults", () => {
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("waits for the subshells list to ANSWER before the default fires", async () => {
+    // The host runs both agents; pi is the most recent subshell's agent. If
+    // the blank-only fill fired while the list was still in flight it would
+    // land on the first-usable tier (claude-code, catalog order) and the
+    // recent-wins tier would be silently lost for the whole dialog session
+    // — the same gate-the-answered-not-the-value rule as the dir pre-fill.
+    const host = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const restore = mockFetch(
+      [host],
+      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [],
+      [{ id: "s2", harnessId: "pi", createdAt: "2026-09-12T00:00:00.000Z" }],
+      undefined,
+      { subshellsGate: gate },
+    );
+    try {
+      // Nodes, plugins and presets have all answered by now; the list has
+      // not — and the fill must NOT fire anyway.
+      const { latest } = await renderForm();
+      expect(latest().harnessId).toBe("");
+      // Release it: the fill lands on PI — the recent tier — proving it
+      // stayed armed rather than silently settling for first-usable.
+      release();
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
     } finally {
       restore();
     }

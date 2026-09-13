@@ -188,7 +188,7 @@ export function NewSubshellForm({
 
   // The default agent reads the user's most recent subshell — data the ONE
   // SSE-fed list already holds, so no new request (spec §5).
-  const { data: subshells } = useSubshellsList();
+  const { data: subshells, isPending: subshellsPending } = useSubshellsList();
   const recentHarnessId = useMemo(() => {
     const list = Array.isArray(subshells) ? sortByCreation(subshells) : [];
     return list[0]?.harnessId ?? null;
@@ -263,7 +263,21 @@ export function NewSubshellForm({
     // set the dropdown renders — computed against the row this pass holds, so
     // even a same-pass re-home cannot select an agent the server would refuse.
     // Only ever fills a blank; the "None" preset state needs no default.
-    if (next.harnessId === "" && plugins !== undefined && nodes !== null) {
+    //
+    // The subshells list must have ANSWERED before the fill fires: the fill
+    // happens once (blank-only), so filling while the list is in flight
+    // silently loses the recent-wins tier for the whole dialog session
+    // (cross-client review, 2026-09-13). Answered-with-empty is fine —
+    // recent = null and the first-usable tier stands; an ERRORED query has
+    // not answered, and the fill stays armed for a later success, the same
+    // gate-the-answered-not-the-value rule as the pre-fill above.
+    if (
+      next.harnessId === "" &&
+      plugins !== undefined &&
+      nodes !== null &&
+      !subshellsPending &&
+      subshells !== undefined
+    ) {
       const heldNode = nodes.find((n) => n.id === next.nodeId) ?? null;
       const dflt = defaultAgentId(buildAgentOptions(plugins, heldNode), plugins, recentHarnessId);
       if (dflt !== null) next = { ...next, harnessId: dflt };
@@ -279,7 +293,10 @@ export function NewSubshellForm({
     // nodesPending is a dep in its own right: a pending→ERROR transition
     // changes no data value, and without the flag the settling would never
     // re-run the effect that waits on it.
-  }, [recent, nodes, nodesPending, plugins, presetRows, recentHarnessId, value, onChange]);
+    // subshellsPending joins the deps the way nodesPending does: the
+    // pending→ERROR transition changes no data value, and without the flag
+    // this effect would never re-run to see that the gate stayed shut.
+  }, [recent, nodes, nodesPending, plugins, presetRows, subshells, subshellsPending, recentHarnessId, value, onChange]);
 
   const targets = launchableNodes(nodes ?? []);
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
