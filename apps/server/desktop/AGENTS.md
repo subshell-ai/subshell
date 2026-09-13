@@ -723,7 +723,7 @@ rather than raising the assistant; `docs/security.md` carries the accounting,
 and `ipc-acl.test.ts` pins `main` at exactly these four so a fifth is loud.
 Nothing else that touches the CLI, the config, the service or the filesystem
 is reachable from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
-`screen` argument, and the SPA sends it from exactly four places: the
+`screen` argument, and the SPA sends it from exactly three places: the
 Settings danger card (`{ screen: "reset" }`), the Service page's Update card
 (`{ screen: "update" }`) and the sidebar pill (no argument). The supervision
 card sends none: it confirms in its own dialog and calls

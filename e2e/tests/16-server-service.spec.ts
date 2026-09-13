@@ -93,7 +93,16 @@ test.describe("server service page", () => {
       return;
     }
     await expect(login).toHaveAttribute("data-disabled", "");
-    await expect(page.getByText(/No service is installed|start the app at login|did not say whether/)).toBeVisible();
+    // These three alternatives are `loginDisabledReason`'s three refusals,
+    // VERBATIM. Two of them had already rotted — the copy became "open
+    // Subshell Server at login" and "The service manager did not say." while
+    // this still looked for "start the app at login" and "did not say
+    // whether" — and the test kept passing because CI lands on the first
+    // alternative. e2e is outside `bun run test` and the pre-push hook, so
+    // nothing else was going to say so. If the copy moves again, move it here.
+    await expect(
+      page.getByText(/No service is installed|open Subshell Server at login|The service manager did not say/),
+    ).toBeVisible();
     // And the SERVER refuses too, not only the UI — the same shape as the
     // restart guard above, and for the same reason: a disabled control is not
     // a security boundary.

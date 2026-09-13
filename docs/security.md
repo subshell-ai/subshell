@@ -1302,8 +1302,42 @@ What an XSS in the SPA can now do that it could not before: flip the machine
 to app mode, so the server dies when the app quits, or back. It cannot reach
 `desktop_reset`, `desktop_setup`, `desktop_service` or any other CLI verb;
 those stay assistant-only, and `ipc-acl.test.ts` (TS) and `control.rs` (Rust)
-both pin `main` at exactly these five entries. The dialog on the page is a
-confirmation for the PERSON, and is not counted as a defence against the page.
+both pin `main` at exactly four app commands plus
+`core:window:allow-start-dragging`. The dialog on the page is a confirmation
+for the PERSON, and is not counted as a defence against the page.
+
+**Three things about that comparison are narrower than they sound, and each is
+stated here rather than left to be discovered.**
+
+- **The grant is not scoped to an admin session — it is scoped to the
+  WINDOW.** "A page that already holds `POST /api/admin/server/restart`" is
+  true of an admin session; the Tauri grant is not conditional on one. A
+  `main` window sitting on the SIGN-IN page, with no session at all, can
+  invoke `desktop_set_supervision`. Rust has no way to check a cookie it
+  never sees, so this is a real difference from the route, not parity. What
+  bounds it is who can reach that window at all: it is a local desktop window
+  pinned to loopback, so the actor is someone at the keyboard — who could
+  quit the app and run the CLI — or an XSS in the served SPA.
+- **Uninstalling a service can kill live panes, and that is where the "no more
+  permissive than restart" claim was actually false.** `service uninstall`
+  gates on nothing by design, so a stranded unit can always come down; on a
+  definition predating `KillMode=process` / `AbandonProcessGroup`, removing it
+  takes every live subshell's tmux server with it. `POST /api/admin/server/restart`
+  answers exactly that case with a 409 unless the caller passes `force`. The
+  command therefore applies the same refusal (`pane_safety_refusal`), failing
+  CLOSED when the definition cannot be read — absence of evidence is not
+  evidence of safety. Without it the page could do silently what the route
+  refuses, and this section's argument would have been wrong on the one axis
+  it needed to be right.
+- **The audit row is best-effort and written by the CALLER.** The act happens
+  in the desktop app, which holds no session and cannot write the trail, so
+  the SPA posts `POST /api/admin/server/supervision` (cookie-admin, records
+  `server.supervision.request`, changes nothing) just before invoking. That
+  closes a real asymmetry — `server.autostart.update` audited the SMALLER
+  change while removing a service definition audited nothing — but anything
+  invoking the command directly, an XSS included, simply skips it. It makes
+  honest use legible; it is not a control, and it is not evidence of what
+  actually happened afterwards.
 
 **The command refuses to interleave with itself**, and that is part of what
 makes the accounting above true. One call flips a supervisor; a hundred

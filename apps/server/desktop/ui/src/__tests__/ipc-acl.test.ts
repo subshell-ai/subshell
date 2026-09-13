@@ -15,8 +15,13 @@
  * - `main` shows the SERVER's own SPA. Unlike Subshell Client's remote window
  *   (which is granted NOTHING, because a control plane can live anywhere),
  *   this one shows the server THIS APP manages over loopback, so its origin is
- *   enumerable in `main.json` and it holds exactly three commands. Three is a
- *   number worth a test: "a few harmless ones" is how a boundary erodes.
+ *   enumerable in `main.json`. It holds exactly FOUR commands, and the count
+ *   is worth a test because "a few harmless ones" is how a boundary erodes —
+ *   which is precisely what the fourth proves can happen: three of them
+ *   cannot reach the CLI at all, and `desktop_set_supervision` can. That one is an
+ *   argued exception (operator's call 2026-09-12, accounted in
+ *   `docs/security.md`), not a precedent. A fifth needs the same argument
+ *   made again, in writing, before this number moves.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -207,6 +212,52 @@ describe("the assistant's IPC contract", () => {
     // free, opener-free, fs-free handling by construction.
     const pluginPermissions = capabilityPermissions("main.json").filter((id) => id.includes(":"));
     expect(pluginPermissions.sort()).toEqual(["core:window:allow-start-dragging"]);
+  });
+
+  it("keeps `main`'s SCOPE pinned, not just its permission list", () => {
+    // The list above says WHICH commands. This says WHO gets them, and until
+    // now nothing held it: widening `remote.urls` to `http://*`, flipping
+    // `local` to true, or adding a window id would hand this grant — the one
+    // that includes `desktop_set_supervision` — to a page on any host, with
+    // every command-name assertion in this file still passing.
+    const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities", "main.json"), "utf8")) as {
+      local?: boolean;
+      remote?: { urls?: string[] };
+      windows?: string[];
+    };
+    // Loopback, both spellings, any port — the server this app itself manages.
+    // A wildcard host here is the failure this pins.
+    expect(capability.remote?.urls?.slice().sort()).toEqual(["http://127.0.0.1:*", "http://localhost:*"]);
+    for (const url of capability.remote?.urls ?? []) {
+      expect(url.startsWith("http://localhost:") || url.startsWith("http://127.0.0.1:")).toBe(true);
+    }
+    // `local: false` is what makes this a REMOTE capability. True would apply
+    // the same grant to bundled `tauri://` pages as well.
+    expect(capability.local).toBe(false);
+    // One window, by name. A second id added here inherits the whole grant.
+    expect(capability.windows).toEqual(["main"]);
+  });
+
+  it("keeps the served page's one CLI-driving command to its known signature", () => {
+    // `desktop_set_supervision` is the exception, and an exception is only as
+    // narrow as its arguments. Every one of these is a CLOSED value Rust
+    // validates — two booleans and a word checked against a two-item set —
+    // so the page names no path, no command line and no host. A parameter
+    // added later (a binary path, a service name, extra flags) would widen
+    // what an XSS in the served SPA can ask for without touching the ACL,
+    // which is the only thing this file otherwise watches.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn desktop_set_supervision("));
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    const names = params
+      .split(",")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(":")[0]?.trim());
+    expect(names).toEqual(["app", "mode", "autostart", "force"]);
+    expect(params).toContain("mode: String");
+    expect(params).toContain("autostart: bool");
+    expect(params).toContain("force: bool");
   });
 
   it("keeps the assistant's dialog surface to open alone", () => {

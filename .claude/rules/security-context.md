@@ -486,20 +486,41 @@ grant equal to what the page actually invokes. The `csp` in each
 `tauri.conf.json` governs the bundled pages only — the remote window carries
 whatever CSP the plane sends.
 
-- **The server app's remote window is PINNED TO LOOPBACK and holds five
-  commands — four harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
+- **The server app's remote window is PINNED TO LOOPBACK and holds four
+  commands — three harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
   the server this app itself manages — so `capabilities/main.json` scopes it
   with `remote.urls` to loopback and grants only commands that cannot touch the
-  CLI, the config, the service or the filesystem (show an existing window, drop
-  this app's own title bar, display one fixed-shape notification, and raise the
-  assistant at a named screen) — plus `desktop_set_supervision`, the ONE
+  CLI, the config, the service or the filesystem (drop this app's own title
+  bar, display one fixed-shape notification, and raise the assistant at a named
+  screen) — plus `desktop_set_supervision`, the ONE
   CLI-touching command granted there (2026-09-12): switching who runs the
   server is a restart with a different respawner, and an admin page already
   holds the restart route, so the assistant window that carried the consent
   defended less than it cost. `docs/security.md` carries the accounting.
   `open_main` independently refuses a non-loopback origin, and `on_navigation`
   pins the window to the origin it opened with. An XSS in the SPA reaches
-  those five commands and nothing else.
+  those four commands and nothing else.
+
+  Three caveats on that trade, all in `docs/security.md` and none of them
+  decoration: the grant is scoped to the WINDOW, not to an admin session, so a
+  `main` window on the sign-in page can invoke it and this is NOT parity with
+  the route; the command applies the restart route's own **pane-safety
+  refusal** (`pane_safety_refusal`, failing closed on an unreadable
+  definition) because `service uninstall` gates on nothing and on an old
+  definition takes every live subshell with it — without that the page could
+  do silently what the route 409s on, and the whole argument would be false;
+  and the **audit row is best-effort and posted by the CALLER**
+  (`POST /api/admin/server/supervision`, which records and changes nothing),
+  so it makes honest use legible and is not a control. The command also
+  refuses to interleave with itself (`ActionGuard::try_new`, a
+  compare-and-exchange), because a hundred concurrent chains can leave a
+  machine with no definition and no server.
+
+  `capabilities/main.json`'s SCOPE is pinned too, not just its permission
+  list: `remote.urls` (both loopback spellings), `local: false` and
+  `windows: ["main"]`, plus the granted command's argument list — widening any
+  of those would hand this grant to a page on any host with every
+  command-name assertion still green.
 - **The server app's reset is assistant-only, and the deep link reaches one
   read-only spawn.** The dashboard's danger card calls
   `desktop_open_assistant({ screen: "reset" })`; the remote window's worst case

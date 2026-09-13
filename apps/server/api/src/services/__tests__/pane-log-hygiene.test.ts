@@ -116,8 +116,14 @@ describe("sweepExpiredPaneLogs", () => {
 
   it("measures age against the injected clock, exactly at the boundary", () => {
     const dir = freshDir();
-    writeLog(dir, "edge", { ageDays: 0 });
-    const nowMs = Date.now();
+    const edge = writeLog(dir, "edge", { ageDays: 0 });
+    // The file's OWN mtime, not a second `Date.now()`. `writeLog` stamps the
+    // file from one reading and this line used to take another; when the two
+    // differed by a millisecond — which they do, often — the "exactly at the
+    // window" case was actually one past it, and the strict comparison this
+    // test exists to pin swept the file and failed. It only showed up in a
+    // full run, where the machine is busy enough for the gap to open.
+    const nowMs = statSync(edge).mtimeMs;
 
     // Exactly at the window: not yet expired (the comparison is strict).
     expect(

@@ -10,9 +10,21 @@
 # The split that matters is window KIND, and there are two windows now (spec
 # 2026-09-12 § 5.1): `wizard` is the ASSISTANT, a bundled page this repo
 # ships, and it holds every command that drives the CLI — first run, recovery,
-# update and reset all live there. `main` shows the SERVER's own SPA and gets
-# only the three that cannot touch the CLI, the config, the service or the
-# filesystem, and only over loopback. See `capabilities/main.json`.
+# update and reset all live there. `main` shows the SERVER's own SPA, over
+# loopback only.
+#
+# `main` holds FOUR commands, and the fourth is an exception with a name:
+# `desktop_set_supervision` DOES drive the CLI. Everything else granted there
+# cannot touch the CLI, the config, the service or the filesystem — show an
+# existing window, drop this app's title bar, show one fixed-shape
+# notification, raise the assistant at a named screen. The exception was the
+# operator's call on 2026-09-12: the act needs something that outlives the
+# server, so it cannot be an HTTP route, and routing it through a window that
+# popped up to ask one question read as a bug rather than as a safeguard. The
+# accounting — what an XSS in the served SPA gains, and what it still cannot
+# reach — is in `docs/security.md`; the concurrency refusal that keeps a
+# hundred concurrent calls from interleaving a half-uninstall is
+# `ActionGuard::try_new`. See `capabilities/main.json`.
 
 "$schema" = "schemas/schema.json"
 
