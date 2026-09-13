@@ -216,11 +216,16 @@ export function createInProcessRuntime(): PluginRuntime {
           return broken(manifest, "the plugin module has no default export, so there is no factory to call", stale);
         }
         const plugin = (factory as (host: unknown) => SubshellPlugin)(createPluginHost({ pluginId: manifest.id }));
-        // Every REQUIRED member, not a sample of them. The adapter calls
-        // `validatePreset` unconditionally, so a plugin missing it used to
-        // load as healthy and then throw from inside a closure the loader's
-        // try/catch no longer covers, surfacing as a 500 rather than as
-        // "this plugin is broken".
+        // Every REQUIRED member, not a sample of them. Nothing calls
+        // `validatePreset` today: the adapter passes it through
+        // (`plugin-adapter.ts`), but no route or service in the control
+        // plane invokes it — `presets.route.ts` validates env keys itself.
+        // The member is still required by the published contract, and
+        // checking it BY NAME at load is what makes the refusal the
+        // plugin-api README sells true: a v1 plugin (whose member was
+        // `validateProfile`) comes back as missing `validatePreset`, never
+        // as silently working. Contract gate, not crash guard — do not trim
+        // this list to current call sites.
         const required = ["buildCommand", "validatePreset", "capabilities"] as const;
         const absent = required.filter((m) => typeof plugin?.[m] !== "function");
         if (absent.length > 0) {

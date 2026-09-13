@@ -66,9 +66,9 @@ describe("PluginRuntime", () => {
   });
 
   it("refuses a plugin missing a REQUIRED member, not just the two it used to check", async () => {
-    // `validatePreset` is required and the adapter calls it unconditionally,
-    // so this used to load as healthy and throw later from inside a closure
-    // outside any fault boundary.
+    // `validatePreset` is required by the published contract and checked by
+    // name here — a contract gate, not a crash guard: nothing in the control
+    // plane calls the member today (see the comment in plugin-runtime.ts).
     const result = await runtime().load(join(FIXTURES, "missing-validate"));
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
