@@ -265,7 +265,7 @@ export class RemoteLauncher implements NodeLauncher {
     const argv = plan.harness.buildCommand({
       binary: HARNESS_BINARY_PLACEHOLDER,
       cwd: plan.cwd,
-      profile: plan.profile,
+      preset: plan.preset,
       subshellName: plan.subshellName,
       mcp: plan.mcp,
       harnessSession: plan.harnessSession,
@@ -277,7 +277,7 @@ export class RemoteLauncher implements NodeLauncher {
       socket: plan.socket,
       cwd: plan.cwd,
       harnessId: plan.harness.id,
-      profile: plan.profile,
+      preset: plan.preset,
       subshellEnv: plan.subshellEnv,
       mcp: plan.mcp
         ? {

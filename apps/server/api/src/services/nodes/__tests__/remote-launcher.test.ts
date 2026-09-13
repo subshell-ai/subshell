@@ -4,7 +4,7 @@ import {
   getHarness,
   type HarnessPlugin,
   type McpRegistration,
-  type ProfileDefinition,
+  type PresetDefinition,
 } from "@internal/pane-runtime";
 import {
   HARNESS_BINARY_PLACEHOLDER,
@@ -125,10 +125,10 @@ const testFacts: NodeAgentFacts = {
 const harness = {
   id: "claude-code",
   detectSpec: { binaryName: "claude", envOverride: "CLAUDE_PATH", knownPaths: [".claude/local/claude"] },
-  buildCommand: (input: BuildCommandInput) => [input.binary, "--profile", input.profile.name],
+  buildCommand: (input: BuildCommandInput) => [input.binary, "--preset", input.preset.name],
 } as unknown as HarnessPlugin;
 
-const testProfile: ProfileDefinition = {
+const testPreset: PresetDefinition = {
   name: "p",
   env: {},
   flags: [],
@@ -279,7 +279,7 @@ describe("launch", () => {
     harness,
     binary: "/usr/bin/claude",
     cwd: "/work",
-    profile: testProfile,
+    preset: testPreset,
     subshellName: "s1",
     subshellEnv: { SUBSHELL_ID: "s1" },
   });
@@ -295,7 +295,7 @@ describe("launch", () => {
           socket: "subshell-abc",
           cwd: "/work",
           harnessId: "claude-code",
-          profile: testProfile,
+          preset: testPreset,
           subshellEnv: { SUBSHELL_ID: "s1" },
           mcp: undefined,
           harnessSession: undefined,
@@ -304,7 +304,7 @@ describe("launch", () => {
           // Inversion spec §5: the argv and the resolve rule ride with every
           // launch. The binary slot is the placeholder, never the plan's
           // resolved path — the node re-resolves at the moment of spawn.
-          argv: [HARNESS_BINARY_PLACEHOLDER, "--profile", "p"],
+          argv: [HARNESS_BINARY_PLACEHOLDER, "--preset", "p"],
           resolve: { binaryName: "claude", envOverride: "CLAUDE_PATH", knownPaths: [".claude/local/claude"] },
         },
         timeoutMs: 60_000,
@@ -966,7 +966,7 @@ describe("offline short-circuit (no facts ⇒ no send)", () => {
         harness,
         binary: "/b",
         cwd: "/w",
-        profile: testProfile,
+        preset: testPreset,
         subshellName: "s1",
         subshellEnv: {},
       }),
@@ -1050,7 +1050,7 @@ describe("launch-driven detection kick — default wiring (spec §4/§6.2)", () 
           harness,
           binary: "/usr/bin/claude",
           cwd: "/work",
-          profile: testProfile,
+          preset: testPreset,
           subshellName: "s1",
           subshellEnv: { SUBSHELL_ID: "s1" },
         }),

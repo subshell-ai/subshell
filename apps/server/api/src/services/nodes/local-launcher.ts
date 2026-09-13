@@ -48,7 +48,7 @@ export class LocalLauncher implements NodeLauncher {
       plan.harness,
       plan.binary,
       plan.cwd,
-      plan.profile,
+      plan.preset,
       plan.subshellName,
       plan.subshellEnv,
       plan.mcp,

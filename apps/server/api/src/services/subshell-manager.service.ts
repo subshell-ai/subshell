@@ -6,7 +6,7 @@ import {
   getHarness,
   type HarnessPlugin,
   type McpRegistration,
-  type ProfileDefinition,
+  type PresetDefinition,
   type ReporterSpec,
   type TmuxRunner,
   tmuxSocketFor,
@@ -316,7 +316,7 @@ export class SubshellManagerService {
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
     await assertDirAllowed(targetNode, realPath);
-    const profile = parseProfile(profileRow);
+    const preset = parsePreset(profileRow);
     const binary = await launcher.resolveBinary(harness);
     if (!binary) {
       throw new Error(`Harness "${harness.name}" is not installed on this machine.`);
@@ -390,7 +390,7 @@ export class SubshellManagerService {
         harness,
         binary,
         cwd: realPath,
-        profile,
+        preset,
         subshellName: userNamed,
         subshellEnv,
         mcp,
@@ -895,7 +895,7 @@ export class SubshellManagerService {
     await assertDirAllowed(row.nodeId, realPath);
     const binary = await launcher.resolveBinary(harness);
     if (!binary) throw new Error("harness binary missing");
-    const profile = parseProfile(profileRow);
+    const preset = parsePreset(profileRow);
     // Rotate the MCP token: the old process is gone and its baked key must
     // die with it; the new pane bakes the freshly issued one. A failed
     // revoke must NOT abort the restart — `issue` below rewrites the row's
@@ -933,7 +933,7 @@ export class SubshellManagerService {
       harness,
       binary,
       cwd: realPath,
-      profile,
+      preset,
       // Locked names are human-owned and travel back as `--name`; anything
       // else (placeholder or sweep-adopted) passes "" so the fresh pane is
       // titled by the harness again, not pinned to yesterday's task title
@@ -1328,7 +1328,7 @@ export class SubshellManagerService {
   }
 }
 
-/** Parses a profile row's JSON blobs into the plugin-facing shape. */ export function parseProfile(row: {
+/** Parses a profile row's JSON blobs into the plugin-facing shape. */ export function parsePreset(row: {
   envJson: string | null;
   flagsJson: string | null;
   settingsJson: string | null;
@@ -1336,7 +1336,7 @@ export class SubshellManagerService {
   restartOnExit?: number;
   name: string;
   description?: string | null;
-}): ProfileDefinition {
+}): PresetDefinition {
   return {
     name: row.name,
     description: row.description ?? null,

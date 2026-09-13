@@ -29,7 +29,7 @@ import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import { defaultSubshellName, parseProfile, SubshellManagerService } from "@/services/subshell-manager.service.js";
+import { defaultSubshellName, parsePreset, SubshellManagerService } from "@/services/subshell-manager.service.js";
 
 let dbCleanup: (() => void) | undefined;
 let subshellManager: SubshellManagerService;
@@ -536,7 +536,7 @@ describe("reconcile notifications", () => {
 });
 
 describe("buildHarnessCommand", () => {
-  /** Builds a claude command with the given profile env (injection tests). */
+  /** Builds a claude command with the given preset env (injection tests). */
   const cmdWithEnv = (env: Record<string, string>) =>
     buildHarnessCommand(
       getHarness("claude-code")!,
@@ -579,7 +579,7 @@ describe("buildHarnessCommand", () => {
     expect(cmd).toContain('TERM="$TERM"');
   });
 
-  it("honors a profile-set TERM instead of the pane default", () => {
+  it("honors a preset-set TERM instead of the pane default", () => {
     const cmd = cmdWithEnv({ TERM: "xterm-256color" });
     expect(cmd).toContain("TERM='xterm-256color'");
     expect(cmd).not.toContain('TERM="$TERM"');
@@ -618,8 +618,8 @@ describe("buildHarnessCommand", () => {
     expect(name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
-  it("parses profile JSON blobs", () => {
-    const p = parseProfile({
+  it("parses a profile row's JSON blobs into a preset", () => {
+    const p = parsePreset({
       name: "n",
       envJson: '{"A":"1"}',
       flagsJson: '["--flag"]',

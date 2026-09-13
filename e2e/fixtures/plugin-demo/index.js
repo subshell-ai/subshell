@@ -5,7 +5,7 @@
  * build step: the fake registry (stack.ts) packs THIS directory with
  * `bun pm pack` and serves the tgz, so these bytes must survive
  * pane-runtime's load-check as they are — the loader calls the factory and
- * requires `buildCommand`, `validateProfile` and `capabilities` on the
+ * requires `buildCommand`, `validatePreset` and `capabilities` on the
  * result (plugin-runtime.ts). It IS launched now (spec 14, the control-plane
  * plugins chain): the argv it builds is just the resolved binary, and its
  * manifest's detect block points at the stub `pi` the e2e agent has on PATH
@@ -25,10 +25,10 @@ const createPlugin = (_host) => ({
 
   buildCommand: (input) => [input.binary],
 
-  validateProfile: (profile) => {
+  validatePreset: (preset) => {
     const issues = [];
-    if (!profile?.name || String(profile.name).trim().length === 0) {
-      issues.push({ field: "name", message: "Profile name is required." });
+    if (!preset?.name || String(preset.name).trim().length === 0) {
+      issues.push({ field: "name", message: "Preset name is required." });
     }
     return { valid: issues.length === 0, issues };
   },

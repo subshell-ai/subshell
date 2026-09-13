@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Fixture plugin served by the e2e fake registry (stack.ts) and installed by spec 14",
   "subshell": {
-    "apiVersion": 1,
+    "apiVersion": 2,
     "id": "e2e-demo",
     "type": "agent-harness",
     "name": "E2E demo",

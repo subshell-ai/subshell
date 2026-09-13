@@ -270,9 +270,9 @@ describe("createSubshell MCP registration per harness dialect", () => {
     await manager.deleteSubshell("u1", created.id);
   });
 
-  it("opencode: the wiring env beats a profile that sets OPENCODE_CONFIG itself", async () => {
-    // Regression: OPENCODE_CONFIG carried only one path, and profile env used
-    // to spread last — a profile setting it (the CLI documents the var!)
+  it("opencode: the wiring env beats a preset that sets OPENCODE_CONFIG itself", async () => {
+    // Regression: OPENCODE_CONFIG carried only one path, and preset env used
+    // to spread last — a preset setting it (the CLI documents the var!)
     // silently dropped the subshell's subshell tools while the UI promised auto.
     const pid = await harnessProfile("opencode", "OPENCODE_PATH", { OPENCODE_CONFIG: "/home/user/my.json" });
     const created = await manager.createSubshell({ userId: "u1", profileId: pid, workingDir: testDir });

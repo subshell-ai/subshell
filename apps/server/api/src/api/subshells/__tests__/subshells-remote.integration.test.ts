@@ -165,7 +165,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       expect(launch.cwd).toBe("/srv/work/remote"); // stat_dir's echoed realpath
       expect(launch.harnessId).toBe("claude-code");
       expect(launch.subshellName).toBe("it-remote");
-      expect(launch.profile.name).toBe("it-profile");
+      expect(launch.preset.name).toBe("it-profile");
       // Pure remote MCP plan (spec §6.4): the path composes under the FAKE
       // dataDir the scripted `ready` advertised, content ships inline.
       expect(launch.mcp?.path).toBe(`${SCRIPTED_DATA_DIR}/mcp/${id}.json`);

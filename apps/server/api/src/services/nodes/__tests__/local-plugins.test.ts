@@ -122,7 +122,7 @@ describe("the control-plane host's plugins", () => {
     );
     writeFileSync(
       join(dir, "index.js"),
-      "export default () => ({ capabilities: () => [], buildCommand: (i) => [i.binary], validateProfile: () => ({ valid: true }) });\n",
+      "export default () => ({ capabilities: () => [], buildCommand: (i) => [i.binary], validatePreset: () => ({ valid: true }) });\n",
       "utf8",
     );
     expect(getHarness("acme-boot")).toBeUndefined(); // unique id: nothing resolved it yet

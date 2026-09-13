@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { brokenBuiltIns, builtInHarnesses, getHarness, type ProfileDefinition } from "@internal/pane-runtime";
+import { brokenBuiltIns, builtInHarnesses, getHarness, type PresetDefinition } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
 import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
 
@@ -10,7 +10,7 @@ import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
  * {@link HARNESS_BINARY_PLACEHOLDER} in the binary slot, and the node
  * reproduces EXACTLY the argv it builds today by substituting its freshly
  * resolved binary path into that slot. Both production callers feed
- * `buildCommand` the same input set — `{ binary, cwd, profile, subshellName,
+ * `buildCommand` the same input set — `{ binary, cwd, preset, subshellName,
  * mcp, harnessSession }` (here: `remote-launcher.ts`; on the node:
  * `pane-runtime`'s `buildHarnessCommand`, reached by the agent's `launch`
  * command) — so "what the node builds today" is precisely the same
@@ -26,12 +26,12 @@ import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
  *    it — and this count is the check that catches it.
  *
  * The input matrix is per-plugin × (settings: unset/null/empty/set) ×
- * (profile flags: absent/present) × (harnessSession: absent / "start" =
+ * (preset flags: absent/present) × (harnessSession: absent / "start" =
  * session-id pin / "resume") × (mcp: absent/present), plus one adversarial
  * row. Dimensions a plugin ignores still run through the matrix: parity must
  * hold for inputs the plugin ignores, because the SERVER sends them whether
  * or not the plugin reads them. The settings fixture is each plugin's own
- * settings keys (what its `profileSettings()` editor stores), so the
+ * settings keys (what its `presetSettings()` editor stores), so the
  * "settings set" row exercises the real interpolation paths, not opaque keys.
  *
  * The mcp registration is the REAL one for the remote path:
@@ -60,14 +60,14 @@ const NODE_FACTS = {
 /** The subshell id the MCP config path is composed from (both sides, same input). */
 const SUBSHELL_ID = "sshp_parity0001";
 
-/** Each built-in's own settings keys — what its profile editor can store. */
+/** Each built-in's own settings keys — what its preset editor can store. */
 const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   "claude-code": { permissionMode: "acceptEdits", model: "sonnet", maxTokens: 8192 },
   codex: { model: "gpt-5-codex", sandbox: "workspace-write", askForApproval: "on-request" },
   opencode: { model: "anthropic/claude-sonnet-4-5", agent: "plan", auto: true },
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
-  // Terminal has no settings keys its profile editor can store, so its
+  // Terminal has no settings keys its preset editor can store, so its
   // "settings set" row is the empty object on purpose — the parity claim is
   // that the matrix holds for inputs the plugin ignores, and a shell ignores
   // all of them.
@@ -92,7 +92,7 @@ test("the built-in set is complete: nothing failed to construct", () => {
   expect(BUILTIN_IDS.length).toBeGreaterThanOrEqual(5);
 });
 
-/** One stored profile flag pair: multi-word tokens included, as the row editor stores them. */
+/** One stored preset flag pair: multi-word tokens included, as the row editor stores them. */
 const PROFILE_FLAGS = ["--dangerously-skip-permissions", "--model sonnet"];
 
 /** One matrix row: everything except `binary`, which the two calls differ on. */
@@ -165,10 +165,10 @@ function matrixRows(settingsFixture: Record<string, unknown>): MatrixRow[] {
   return rows;
 }
 
-/** Build the profile the row names — identical object content on both sides. */
-function profileFor(row: MatrixRow): ProfileDefinition {
+/** Build the preset the row names — identical object content on both sides. */
+function presetFor(row: MatrixRow): PresetDefinition {
   return {
-    name: "parity-profile",
+    name: "parity-preset",
     env: {},
     flags: row.flags,
     settings: row.settings,
@@ -207,11 +207,11 @@ for (const id of BUILTIN_IDS) {
 
     for (const row of matrixRows(settingsFixture)) {
       test(`${id}: ${row.label}`, () => {
-        const profile = profileFor(row);
+        const preset = presetFor(row);
         const mcp = row.mcp ? realMcp : undefined;
         const inputs = {
           cwd: "/home/node-user/projects/my app",
-          profile,
+          preset,
           subshellName: row.subshellName,
           mcp,
           harnessSession: row.harnessSession,

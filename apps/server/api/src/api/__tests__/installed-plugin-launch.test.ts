@@ -30,7 +30,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * The hole this pins: after Task 9, a registry-installed plugin listed,
  * toggled and uninstalled through the instance door, but every launch-path
  * lookup keyed off the compiled-in built-ins, so it could never DETECT,
- * never validate a profile, and never build an argv. A scripted "acme" plugin
+ * never validate a preset, and never build an argv. A scripted "acme" plugin
  * written into the server's own plugin dir must therefore flow through the
  * whole plane side of a launch: the detect spec the plane ships to nodes,
  * the profile-create validation, and the argv assembly — which is exactly
@@ -76,7 +76,7 @@ async function installAcme(): Promise<void> {
     "export default () => ({\n" +
       "  capabilities: () => [],\n" +
       "  buildCommand: (input) => [input.binary, '--acme-harness', ...input.profile.flags],\n" +
-      "  validateProfile: () => ({ valid: true, issues: [] }),\n" +
+      "  validatePreset: () => ({ valid: true, issues: [] }),\n" +
       "});\n",
     "utf8",
   );
@@ -185,13 +185,13 @@ describe("an installed plugin resolves on the plane's side of a launch", () => {
     // The pane command, assembled exactly as `LocalLauncher.launch` assembles
     // it from the recorded plan. Every marker below can only be there if the
     // OVERLAY's plugin answered: `--acme-harness` is its argv, `--acme-flag`
-    // the profile's flags spliced by it, `subshell_stub` the minted token
+    // the preset's flags spliced by it, `subshell_stub` the minted token
     // baked into the env layer.
     const cmd = buildHarnessCommand(
       plan.harness,
       plan.binary,
       plan.cwd,
-      plan.profile,
+      plan.preset,
       plan.subshellName,
       plan.subshellEnv,
       plan.mcp,

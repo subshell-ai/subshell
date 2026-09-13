@@ -1,4 +1,4 @@
-import type { HarnessPlugin, McpRegistration, ProfileDefinition, ReporterSpec } from "@internal/pane-runtime";
+import type { HarnessPlugin, McpRegistration, PresetDefinition, ReporterSpec } from "@internal/pane-runtime";
 
 /** One harness start, structured (spec 2026-08-31 §6.3). */
 export interface LaunchPlan {
@@ -12,8 +12,8 @@ export interface LaunchPlan {
   binary: string;
   /** Working dir on the TARGET machine (validateWorkingDir output) */
   cwd: string;
-  /** Decoded profile */
-  profile: ProfileDefinition;
+  /** Decoded preset */
+  preset: PresetDefinition;
   /** Display/subshell name handed to the plugin */
   subshellName: string;
   /** SUBSHELL_* credential env */

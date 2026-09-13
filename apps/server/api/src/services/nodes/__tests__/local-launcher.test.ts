@@ -211,7 +211,7 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
     harness: pi,
     binary: TRUE_BINARY,
     cwd: tmpdir(),
-    profile: {
+    preset: {
       name: "p",
       description: null,
       env: {},
