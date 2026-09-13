@@ -202,12 +202,18 @@ test.describe("server service page", () => {
     const version = await page.request
       .get("/api/settings/public")
       .then(async (r) => ((await r.json()) as { serverVersion: string }).serverVersion);
-    await expect(page.getByText(`Server ${version}`)).toBeVisible();
+    // The About box labels the two version lines "Desktop app" and "CLI"
+    // (web b859bee — "Server"/"Subshell Server" were two strings one word
+    // apart for two programs), and the CLI line is the server binary's
+    // version this test reads from public settings.
+    await expect(page.getByText(`CLI ${version}`)).toBeVisible();
 
     // A browser is not a desktop shell, so the shell's own version line must
     // be absent — it is drawn from the user-agent marker, which only the
-    // Subshell Server window carries.
-    await expect(page.getByText(/Subshell Server \d/)).toHaveCount(0);
+    // Subshell Server window carries. Matched on the CURRENT label: pinning
+    // the retired "Subshell Server {n}" here would pass vacuously the day
+    // the marker is present (the line moved to "Desktop app {n}").
+    await expect(page.getByText(/Desktop app \d/)).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Licence" })).toBeVisible();
   });
 });
