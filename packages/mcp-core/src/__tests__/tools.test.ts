@@ -248,10 +248,10 @@ describe("mcp tools (handler-level, real crypto)", () => {
   });
 
   it("create_subshell refuses an AMBIGUOUS preset name instead of picking a winner", async () => {
-    // PresetTable.name is documented unique per user+harness but no index
-    // enforces it; with the name as the agent's addressing key, a tie must
-    // never be won by whichever row sorts first — a wrong-preset launch
-    // writes the wrong credential layer.
+    // Preset names are not unique per user+harness — no index constrains them
+    // and create does not check — so with the name as the agent's addressing
+    // key, a tie must never be won by whichever row sorts first: a
+    // wrong-preset launch writes the wrong credential layer.
     const own = await generateKeypair();
     const { api, calls } = fakeApi((req) => {
       if (req.path === "/api/presets")

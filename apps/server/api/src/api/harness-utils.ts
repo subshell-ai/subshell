@@ -8,8 +8,10 @@ import { type AgentInventory, probeInstalledOnly, readAgentInventory } from "@/s
 import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
 
 /**
- * Every harness plugin id the instance offers — installed and not explicitly
- * disabled. This is a picker/list question ("what harnesses exist here"), so
+ * Every harness plugin id the instance offers — installed, not explicitly
+ * disabled, and loadable: a plugin that will not load in this process is
+ * offered nowhere, which is the `¬broken` arm the spec amendment names as
+ * where the preset list filter bites. This is a picker/list question ("what harnesses exist here"), so
  * it reads the INSTANCE store, not the compiled-in registry: an installed
  * third-party plugin appears here and an uninstalled built-in does not.
  *

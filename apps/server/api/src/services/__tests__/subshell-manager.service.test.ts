@@ -30,12 +30,8 @@ import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import {
-  defaultSubshellName,
-  EMPTY_PRESET,
-  parsePreset,
-  SubshellManagerService,
-} from "@/services/subshell-manager.service.js";
+import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
+import { defaultSubshellName, SubshellManagerService } from "@/services/subshell-manager.service.js";
 
 let dbCleanup: (() => void) | undefined;
 let subshellManager: SubshellManagerService;

@@ -267,21 +267,23 @@ export class SubshellsService extends BaseService {
         );
       }
     }
-    // §6.6 precedence BEFORE the harness gate: "where" must be settled first,
-    // since "usable" is per-node now (spec §6.2).
+    // An id that resolves to NO plugin names nothing — a typo, or a plugin
+    // that failed to load (broken plugins enter neither the registry nor the
+    // overlay). Say so (400, the same wording `POST /api/presets` uses)
+    // before anything node-shaped can answer instead: this check depends on
+    // nothing node resolution produces, so running it after would let a typo
+    // on an instance with no launch-eligible node come back as NODE_REQUIRED
+    // ("pick one") rather than "Unknown harness". Only the USABILITY gate
+    // below is per-node; disabled-but-known still 409s there.
+    if (!getHarness(harnessId)) {
+      throw new SubshellCreateError("bad_request", `Unknown harness: ${harnessId}`, 400);
+    }
+    // §6.6 precedence BEFORE the per-node harness gate: "where" must be
+    // settled first, since "usable" is per-node now (spec §6.2).
     const { nodeId: resolvedNodeId } = await resolveLaunchNode(
       { userId, machineActor, requestedNodeId: nodeId },
       { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
     );
-    // An id that resolves to NO plugin names nothing — a typo, or a plugin
-    // that failed to load (broken plugins enter neither the registry nor the
-    // overlay). Say so (400, the same wording `POST /api/presets` uses)
-    // before the availability gate can call it "disabled" (TODO 11: the two
-    // surfaces used to disagree about the typo case). Disabled-but-known
-    // still 409s below.
-    if (!getHarness(harnessId)) {
-      throw new SubshellCreateError("bad_request", `Unknown harness: ${harnessId}`, 400);
-    }
     if (!(await harnessUsable(harnessId, resolvedNodeId))) {
       // Copy honesty: on an AGENT node "this machine" is a lie — the harness
       // may simply not be installed there (spec §6.2 per-node inventory). The

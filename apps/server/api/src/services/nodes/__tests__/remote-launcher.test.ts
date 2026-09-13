@@ -28,7 +28,7 @@ import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-e
 import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { NoLiveConnectionError, RemoteLauncher } from "@/services/nodes/remote-launcher.js";
-import { EMPTY_PRESET } from "@/services/subshell-manager.service.js";
+import { EMPTY_PRESET } from "@/services/preset-definition.js";
 
 /**
  * RemoteLauncher — the command-mapping table of spec §6.3 pinned call by

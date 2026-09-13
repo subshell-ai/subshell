@@ -139,7 +139,12 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     );
   }
 
-  /** Body helper: `harnessId` is the required half now (spec 2026-09-13 §4). */
+  /**
+   * Body helper: `harnessId` is the required half now (spec 2026-09-13 §4).
+   * The default names NOTHING on purpose, and it is not a don't-care value:
+   * an unknown id is refused BEFORE node resolution, so a test that means to
+   * pin a node outcome passes a known-but-unusable harness (`"pi"`) instead.
+   */
   const base = (presetId: string, harnessId = "no-such-harness") => ({ harnessId, presetId, workingDir: "/tmp" });
 
   it("bogus preset + omitted nodeId → unchanged behavior (404 Preset not found)", async () => {
@@ -169,6 +174,28 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     expect(body.message).toBe("Unknown harness: no-such-harness");
   });
 
+  it("an unknown harness beats node resolution: a bearer actor with no eligible node still hears 'Unknown harness'", async () => {
+    // The existence check depends on nothing node resolution produces, so it
+    // runs first. Behind it, this exact call answers 400 NODE_REQUIRED (the
+    // strict bearer rule, pinned below) — and a typo reported as "pick a
+    // node" names the wrong thing entirely.
+    const sid = `s_cnode_ord_${crypto.randomUUID().slice(0, 8)}`;
+    await new SubshellsRepository(db).create({
+      id: sid,
+      userId,
+      presetId: null,
+      harnessId: "claude-code",
+      name: "order-source",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    createdSubshellIds.push(sid);
+    const key = await issueSubshellToken(sid, userId);
+    const res = await post({ harnessId: "no-such-harness", workingDir: "/tmp" }, key);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toBe("Unknown harness: no-such-harness");
+  });
+
   it('nodeId "local" → same resolution as omitted', async () => {
     const res = await post({ ...base(unusablePresetId, "pi"), nodeId: LOCAL_NODE_ID });
     expect(res.status).toBe(409);
@@ -176,7 +203,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
   });
 
   it("unknown nodeId → 404 naming the node (not the preset)", async () => {
-    const res = await post({ ...base(bogusPresetId), nodeId: crypto.randomUUID() });
+    const res = await post({ ...base(unusablePresetId, "pi"), nodeId: crypto.randomUUID() });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { code: string; message: string };
     expect(body.code).toBe("NOT_FOUND_ERROR");
@@ -185,14 +212,14 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
 
   it("foreign private node → 404 (invisible, never 403 — spec §2: no node-id existence oracle)", async () => {
     const node = await mkAgent(otherId);
-    const res = await post({ ...base(bogusPresetId), nodeId: node });
+    const res = await post({ ...base(unusablePresetId, "pi"), nodeId: node });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { message: string }).message).toMatch(/node/i);
   });
 
   it("own agent with no live connection → 409 NODE_OFFLINE", async () => {
     const node = await mkAgent(userId);
-    const res = await post({ ...base(bogusPresetId), nodeId: node });
+    const res = await post({ ...base(unusablePresetId, "pi"), nodeId: node });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; statusCode: number };
     expect(body.code).toBe("NODE_OFFLINE");
@@ -341,7 +368,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     });
     createdSubshellIds.push(sid);
     const key = await issueSubshellToken(sid, userId);
-    const res = await post(base(bogusPresetId), key);
+    const res = await post(base(unusablePresetId, "pi"), key);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { code: string };
     expect(body.code).toBe("NODE_REQUIRED");

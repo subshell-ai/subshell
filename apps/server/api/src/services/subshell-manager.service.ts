@@ -6,7 +6,6 @@ import {
   getHarness,
   type HarnessPlugin,
   type McpRegistration,
-  type PresetDefinition,
   type ReporterSpec,
   type TmuxRunner,
   tmuxSocketFor,
@@ -37,6 +36,7 @@ import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/n
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
+import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
@@ -1346,45 +1346,6 @@ export class SubshellManagerService {
     const h = getHarness(harnessId);
     return h ? h.isInstalled() : false;
   }
-}
-
-/**
- * The launch definition of a subshell created without a preset: adds nothing,
- * isolates nothing. Frozen DEEP — a shallow freeze would leave
- * `EMPTY_PRESET.env.X = …` writable on the one object every presetless launch
- * shares (consumers verified read-only; this is belt-and-braces). The exported
- * type stays the published mutable `PresetDefinition`: this is a runtime
- * guard, not a contract change.
- */
-const emptyPreset: PresetDefinition = {
-  name: "",
-  env: {},
-  flags: [],
-  settings: null,
-  configIsolation: false,
-};
-Object.freeze(emptyPreset.env);
-Object.freeze(emptyPreset.flags);
-export const EMPTY_PRESET: PresetDefinition = Object.freeze(emptyPreset);
-
-/** Parses a preset row's JSON blobs into the plugin-facing shape. */ export function parsePreset(row: {
-  envJson: string | null;
-  flagsJson: string | null;
-  settingsJson: string | null;
-  configIsolation: number;
-  restartOnExit?: number;
-  name: string;
-  description?: string | null;
-}): PresetDefinition {
-  return {
-    name: row.name,
-    description: row.description ?? null,
-    env: row.envJson ? (JSON.parse(row.envJson) as Record<string, string>) : {},
-    flags: row.flagsJson ? (JSON.parse(row.flagsJson) as string[]) : [],
-    settings: row.settingsJson ? (JSON.parse(row.settingsJson) as Record<string, unknown>) : null,
-    configIsolation: row.configIsolation === 1,
-    restartOnExit: row.restartOnExit === 1,
-  };
 }
 
 /** Default subshell name: the current date/time, e.g. "2026-08-18 14:30". */

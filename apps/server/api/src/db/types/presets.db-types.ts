@@ -15,7 +15,14 @@ export interface PresetTable {
   userId: string;
   /** Harness plugin id this preset applies to, e.g. "claude-code" */
   harnessId: string;
-  /** Human-friendly preset name (unique per user + harness) */
+  /**
+   * Human-friendly preset name. NOT unique: `idx_presets_user_harness` is a
+   * lookup index, not a constraint, and create performs no duplicate check, so
+   * one user can hold two presets with the same name for one harness. Anything
+   * that ADDRESSES a preset by name (the MCP tools) must therefore refuse a
+   * tie rather than take the first row — launching the wrong preset writes the
+   * wrong credential layer.
+   */
   name: string;
   /** Optional longer description */
   description: string | null;

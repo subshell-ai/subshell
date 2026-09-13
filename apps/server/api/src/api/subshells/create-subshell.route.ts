@@ -41,9 +41,10 @@ export const createSubshellRoute = new Elysia()
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       // Phase 2 (spec §6.6): `nodeId` resolves for real — the service gates
       // the requested node (404/403/409), falls back to `local` (its Everyone
-      // share is the switch), and auto-picks a lone online agent. Bearer actors get the STRICT owner-only rule everywhere
-      // on this path (no admin boost, no shares — a leaked harness key must
-      // not spawn a control-plane subshell), hence `machineActor` below.
+      // share is the switch), and auto-picks a lone online agent. Bearer
+      // actors get the STRICT owner-only rule everywhere on this path (no
+      // admin boost, no shares — a leaked harness key must not spawn a
+      // control-plane subshell), hence `machineActor` below.
       return await ctx.services.subshells.createSubshell({
         userId: user.id,
         harnessId: body.harnessId,

@@ -91,6 +91,13 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       if (badEnv !== undefined) {
         throw new PresetError("bad_request", `invalid env var name: ${badEnv}`, 400);
       }
+      // 400 vs the 409 below tracks PROVENANCE, and the difference is
+      // honesty rather than an accident: a built-in is compiled in, so an
+      // uninstalled one still resolves here and we can say "unavailable"
+      // (409). A third-party plugin that was uninstalled leaves nothing
+      // behind — the id names nothing this process has ever seen — so it is
+      // indistinguishable from a typo and answers 400. `POST /api/subshells`
+      // splits the same way, from the same two checks.
       if (!getHarness(body.harnessId)) {
         throw new PresetError("bad_request", `Unknown harness: ${body.harnessId}`, 400);
       }
@@ -187,13 +194,20 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         operationId: "listHarnessIds",
         tags: ["presets"],
         description:
-          "The harness plugin ids this instance offers (installed and enabled — not the compiled-in catalog)",
+          "The harness plugin ids this instance offers (installed, enabled and loadable — not the compiled-in catalog)",
       },
     },
   )
   .get(
     "/harnesses/:id/schema",
     async ({ params }) => {
+      // Deliberately NOT store-gated, unlike the three reads that agree on
+      // `getAllHarnessIds()`. This is static catalog metadata for an
+      // AUTHENTICATED caller, and the editor needs it for a preset that
+      // already exists: gating it would blank the fields of a saved preset
+      // whose harness was later disabled, so the row could no longer be read
+      // or corrected — a worse answer than serving a schema for something
+      // that cannot currently launch.
       const harness = getHarness(params.id);
       if (!harness) throw new PresetError("not_found", "Unknown harness");
       return {
@@ -282,7 +296,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       return { ok: true };
     },
     {
-      response: t.Object({ ok: t.Boolean() }),
+      response: t.Object({ ok: t.Boolean({ description: "True when the preset was deleted" }) }),
       detail: {
         operationId: "deletePreset",
         tags: ["presets"],

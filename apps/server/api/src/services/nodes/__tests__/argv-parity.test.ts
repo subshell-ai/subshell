@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { brokenBuiltIns, builtInHarnesses, getHarness, type PresetDefinition } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
 import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
-import { EMPTY_PRESET } from "@/services/subshell-manager.service.js";
+import { EMPTY_PRESET } from "@/services/preset-definition.js";
 
 /**
  * THE GATE of the plugins-on-the-control-plane inversion (spec 2026-09-10 §5).

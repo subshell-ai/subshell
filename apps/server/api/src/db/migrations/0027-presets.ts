@@ -52,10 +52,14 @@ async function dropColumnIfPresent(db: Kysely<any>, table: string, column: strin
  *   called "Default" has `is_default = 0` and SURVIVES, because the flag
  *   named the seeder, not the string.
  * - On `subshells`: ADD `preset_id` → copy `profile_id` → DROP `profile_id`.
- *   The copy is `NULLIF(profile_id, '')`: the old column's NOT NULL DEFAULT
- *   '' spelled "no profile" the way the nullable one spells it NULL, and a
- *   downgrade round-trip (down writes `''` back for a NULL) must land on
- *   NULL again, not on a value the schema documents as impossible.
+ *   The copy is `NULLIF(profile_id, '')`. NOT because 0001 defaulted the
+ *   column — it declares `profile_id text NOT NULL` with no default — but
+ *   because `''` is the only value a NOT NULL text column can carry that
+ *   names no profile, and `down` below re-adds the column NOT NULL DEFAULT
+ *   '' and writes `''` for every NULL. So the `down`→`up` round-trip has to
+ *   map that `''` back to NULL, or a presetless subshell would come back
+ *   carrying a preset id of `''` — a value the nullable column documents as
+ *   impossible.
  *   NEVER a table rebuild — `workspace_panes.subshell_id` and
  *   `subshell_shares.subshell_id` cascade on `subshells.id`, and
  *   `PRAGMA foreign_keys` cannot be disabled inside the migrator's
