@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import type { ServerDeployment } from "@/types/server-deployment";
@@ -22,6 +22,23 @@ function stubLogs(body: unknown) {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as typeof globalThis.fetch;
+}
+
+/** Serves empty tails and counts how many times the log route was asked. */
+function stubCountedLogs(): () => number {
+  const original = globalThis.fetch;
+  let calls = 0;
+  restore.push(() => {
+    globalThis.fetch = original;
+  });
+  globalThis.fetch = (async (input: unknown) => {
+    if (String(input).includes("/api/admin/server/logs")) calls += 1;
+    return new Response(JSON.stringify({ lines: [], file: "/c/logs/server.log", bytes: 0, capBytes: 204_800 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof globalThis.fetch;
+  return () => calls;
 }
 
 function renderCard(view: ServerDeployment) {
@@ -60,4 +77,36 @@ describe("ServerLogCard", () => {
     await waitFor(() => expect(screen.getByText(/Set by the environment \(SUBSHELL_DEBUG_LOGGING\)/)).toBeTruthy());
     expect(screen.queryByLabelText("Debug logging")).toBeNull();
   });
+
+  /**
+   * The log follows on its own, and Pause is what makes it hold still.
+   *
+   * Both halves are asserted against the REQUESTS rather than the label,
+   * because the label is the easy half: a toggle wired to nothing but its own
+   * `useState` would render "paused" perfectly while the tail kept moving
+   * under the reader, which is the whole failure this control exists to
+   * prevent.
+   */
+  it("follows on its own, and pausing stops the asking", async () => {
+    const calls = stubCountedLogs();
+    renderCard(deploymentView());
+
+    // It polls: a second ask arrives with nobody pressing anything.
+    await waitFor(() => expect(calls()).toBeGreaterThan(1), { timeout: 4_000 });
+
+    const pause = screen.getByRole("button", { name: /Pause/ });
+    expect(pause.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText(/following/)).toBeTruthy();
+    fireEvent.click(pause);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Resume/ }).getAttribute("aria-pressed")).toBe("true"),
+    );
+    expect(screen.getByText(/paused/)).toBeTruthy();
+
+    // Frozen: more than two intervals' worth of grace, and not one more ask.
+    const atPause = calls();
+    await new Promise((settle) => setTimeout(settle, 2_500));
+    expect(calls()).toBe(atPause);
+  }, 12_000);
 });

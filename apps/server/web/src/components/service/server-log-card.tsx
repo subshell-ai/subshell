@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { Pause, Play } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { CopyableValue } from "@/components/service/copyable-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,10 +34,18 @@ const STICK_SLACK_PX = 24;
  *
  * It sticks to the bottom **only if it was already there** — the console's
  * rule, and the one that lets a person scroll up to read something without
- * the next five-second refresh yanking them away from it.
+ * the next refresh yanking them away from it.
+ *
+ * The tail follows at one second, and Pause stops it. That pairing replaces a
+ * Refresh button, which was the wrong control for a log twice over: it
+ * offered to do the thing the poll already does, and it offered nothing for
+ * the thing a person actually wants from a moving log, which is to make it
+ * hold still. Scroll-stick alone does not cover that — it keeps the viewport
+ * put, while the lines under it keep changing.
  */
 export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabled: boolean }) {
-  const logs = useServerLogs(enabled);
+  const [paused, setPaused] = useState(false);
+  const logs = useServerLogs(enabled, { paused });
   const setDebug = useSetDebugLogging();
   const scroller = useRef<HTMLPreElement | null>(null);
   const stuck = useRef(true);
@@ -64,12 +73,19 @@ export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabl
           <CardTitle>Server log</CardTitle>
           <p className="mt-1.5 text-muted-foreground text-xs">
             last {SERVER_LOG_DEFAULT_LINES} lines · {Math.round(view.logging.capBytes / 1024)} KB cap, replaced when
-            full · refreshes every 5 s
+            full · {paused ? "paused" : "following"}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => void logs.refetch()}>
-            Refresh
+          {/* A toggle, so it reports state as well as offering the act: the
+              label names what pressing DOES, and `aria-pressed` names what
+              the log is doing now — which the line above also says, for
+              anyone reading the card rather than the control. */}
+          <Button variant="outline" size="sm" aria-pressed={paused} onClick={() => setPaused((was) => !was)}>
+            {/* Sizing is the Button's own (`[&_svg]:size-4`), which beats a
+                class here on specificity — so it is not set twice. */}
+            {paused ? <Play aria-hidden /> : <Pause aria-hidden />}
+            {paused ? "Resume" : "Pause"}
           </Button>
           {fromEnv ? (
             <span className="text-muted-foreground text-xs">Set by the environment (SUBSHELL_DEBUG_LOGGING).</span>

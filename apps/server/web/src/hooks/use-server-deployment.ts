@@ -10,10 +10,21 @@ import type { ServerConfigPatch, ServerConfigUpdate, ServerDeployment } from "@/
  * route 403s everyone else, so an unknown flag must read as not-admin or every
  * mount fires a doomed request — the same gate `/settings/status` applies.
  *
- * It polls because the view is partly about a live process: the service
- * manager's state and pid, and `restartRequired`, which flips the moment
- * someone edits config.env over ssh. Fifteen seconds is the cadence
- * `admin/status` already runs at, so the Service page costs no new rhythm.
+ * It polls because part of this view moves without the page touching it:
+ * `restartRequired` and `settings.saved` flip the moment someone edits
+ * config.env over ssh, `installed`/`enabled` flip when someone runs
+ * `systemctl --user disable` at a terminal, and `logging.debug` flips when
+ * another admin does. Everything ELSE is either fixed for the life of the
+ * process (paths, platform, and `pid`/`state`/`supervised`, which can only
+ * change by this process dying) or written straight into this cache by the
+ * mutation that changed it — so the poll is for out-of-band edits alone.
+ *
+ * Five seconds because this is the page an operator watches WHILE changing
+ * the machine from somewhere else, and a slower cadence reads as a page that
+ * is not updating at all. The Refresh button that used to paper over that is
+ * gone. It is not free — each poll is a `collectDeployment()`, which probes
+ * the port and spawns the service manager — so it stays `enabled`-gated to
+ * admins and this is the only consumer.
  *
  * @param enabled - true only once the server has confirmed this viewer is an admin
  */
@@ -22,8 +33,10 @@ export function useServerDeployment(enabled: boolean) {
     queryKey: SERVER_DEPLOYMENT_QUERY_KEY,
     queryFn: () => apiFetch<ServerDeployment>("/api/admin/server"),
     enabled,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
+    refetchInterval: 5_000,
+    // Matched to the interval: above it, a remount would render a view older
+    // than the cadence the page promises.
+    staleTime: 5_000,
   });
 }
 

@@ -11,19 +11,36 @@ export const SERVER_LOG_DEFAULT_LINES = 200;
  *
  * The file is capped at 200 KB and replaced when full, so this is never a
  * history — it is the recent past, which is what a person looking at a server
- * that just misbehaved needs. Five seconds is fast enough to watch a restart
- * land and slow enough that the route is in the plugin's own ignore list.
+ * that just misbehaved needs.
+ *
+ * **One second, and pausable.** A log is the one thing on this page a person
+ * WATCHES rather than checks, and at five seconds a line you just caused
+ * arrived long enough after the cause to break the connection between them.
+ * The route affords the rate: it reads the tail of a capped file and spawns
+ * nothing — unlike `/api/admin/server`, which probes the port and the service
+ * manager — and it is in the request logger's own `ignore` list
+ * (`api/src/plugins/context.plugin.ts`), so a debug session cannot fill the
+ * cap with the log card asking after the log. Keep it on that list.
+ *
+ * Pausing stops the POLLING rather than freezing a still-running one. The
+ * point of pausing is to hold a line still while you read it, and a query
+ * that kept fetching would keep re-pinning the scroll underneath you.
  *
  * @param enabled - true only once the server has confirmed this viewer is an admin
- * @param lines - how many lines to ask for (the route clamps to 1..1000)
+ * @param opts - `paused` stops the poll; `lines` is how many to ask for (the route clamps to 1..1000)
  */
-export function useServerLogs(enabled: boolean, lines = SERVER_LOG_DEFAULT_LINES) {
+export function useServerLogs(
+  enabled: boolean,
+  { paused = false, lines = SERVER_LOG_DEFAULT_LINES }: { paused?: boolean; lines?: number } = {},
+) {
   return useQuery({
     queryKey: [...SERVER_LOGS_QUERY_KEY, lines],
     queryFn: () => apiFetch<ServerLogs>(`/api/admin/server/logs?lines=${lines}`),
     enabled,
-    refetchInterval: 5_000,
-    staleTime: 2_000,
+    refetchInterval: paused ? false : 1_000,
+    // Matched to the interval: above it, a remount would render a tail older
+    // than the cadence the card promises.
+    staleTime: 1_000,
   });
 }
 

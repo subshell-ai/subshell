@@ -33,6 +33,45 @@ describe("ServiceCard", () => {
     expect(screen.getByText(/close every running subshell/)).toBeTruthy();
   });
 
+  /**
+   * A restart speaks through the supervision line, not beside it.
+   *
+   * The two sentences cannot both be true: "Running under launchd as pid 1"
+   * while the process it names is being taken down is the page failing to
+   * notice its own button. And there is no "Back." banner, because the line
+   * reverting — to a NEW pid and start time — is the confirmation.
+   */
+  it("replaces the supervision line while restarting, and says nothing extra", () => {
+    render(<ServiceCard view={deploymentView()} restart={{ ...idleRestart, outcome: "waiting" }} />);
+    expect(screen.getByText(/Restarting… waiting for the server to come back/)).toBeTruthy();
+    // The claim it contradicts is GONE, not merely styled differently.
+    expect(screen.queryByText(/Running under launchd/)).toBeNull();
+    expect(restartButton().disabled).toBe(true);
+  });
+
+  it("confirms a finished restart with the line itself, not a banner", () => {
+    const view = deploymentView();
+    view.service.pid = 4242;
+    render(
+      <ServiceCard view={view} restart={{ ...idleRestart, outcome: "back" }} bootedAt="2026-09-12T10:42:00.000Z" />,
+    );
+    // The new pid and start time ARE the news; nothing to read or dismiss.
+    expect(screen.getByText(/Running under launchd as pid 4242/)).toBeTruthy();
+    expect(screen.queryByText("Back.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(restartButton().disabled).toBe(false);
+  });
+
+  it("still says so when the restart failed or never landed", () => {
+    const { unmount } = render(
+      <ServiceCard view={deploymentView()} restart={{ ...idleRestart, error: "The restart could not be requested" }} />,
+    );
+    expect(screen.getByText(/could not be requested/)).toBeTruthy();
+    unmount();
+    render(<ServiceCard view={deploymentView()} restart={{ ...idleRestart, outcome: "timeout" }} />);
+    expect(screen.getByText(/has not come back/)).toBeTruthy();
+  });
+
   it("names the boot time only when the caller has one", () => {
     const { unmount } = render(<ServiceCard view={deploymentView()} restart={idleRestart} />);
     expect(screen.queryByText(/ since /)).toBeNull();

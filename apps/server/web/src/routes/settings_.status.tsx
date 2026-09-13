@@ -22,6 +22,15 @@ export const Route = createFileRoute("/settings_/status")({ component: ServerSta
  * The admin gate is the same one /settings uses and for the same reason:
  * `viewerIsAdmin` comes from the server, and `undefined` (still loading) is
  * treated as NOT admin, so a non-admin never fires a doomed 403.
+ *
+ * **No Refresh button and no snapshot stamp**, matching `/settings/service`:
+ * the page polls, so a control offering to do what it already does reads as a
+ * page that does not — and a timestamp exists only to prove the poll is
+ * alive, which is a promise worth not making. Retry stays and stays INSIDE
+ * the admin branch, because `refetch()` ignores `enabled` (TanStack Query
+ * calls straight through to the fetcher) and a refetching control rendered
+ * for a non-admin would fire exactly the doomed 403 the gate exists to
+ * prevent — and render nothing, the error banner being inside that branch too.
  */
 function ServerStatusPage() {
   const { data: publicSettings } = usePublicSettings();
@@ -30,22 +39,7 @@ function ServerStatusPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader
-        title="Server status"
-        subtitle="What this instance is running right now (admins)"
-        // Refresh lives INSIDE the admin branch, not here. `refetch()` ignores
-        // `enabled` (TanStack Query calls straight through to the fetcher), so
-        // a Refresh button rendered for a non-admin would fire exactly the
-        // doomed 403 the `enabled` gate exists to prevent — and render nothing,
-        // because the error banner is inside that branch too.
-        action={
-          viewerIsAdmin === true ? (
-            <Button variant="outline" size="sm" onClick={() => void refetch()}>
-              Refresh
-            </Button>
-          ) : null
-        }
-      />
+      <PageHeader title="Server status" subtitle="What this instance is running right now (admins)" />
       {viewerIsAdmin === undefined ? null : viewerIsAdmin ? (
         <>
           {error && (
@@ -71,12 +65,6 @@ function ServerStatusPage() {
               <RuntimeCard status={status} />
               <InventoryCard status={status} />
               <SecurityCard status={status} />
-              {/* Stamped because the page polls: without it, a figure that
-                  stopped updating looks exactly like one that is simply not
-                  changing. */}
-              <p className="text-muted-foreground text-xs">
-                Snapshot taken {new Date(status.generatedAt).toLocaleTimeString()} · refreshes every 15s
-              </p>
             </>
           )}
         </>

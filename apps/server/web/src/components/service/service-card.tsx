@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FactCard } from "@/components/admin-status/fact-list";
-import { RestartDialog } from "@/components/service/restart-dialog";
-import { RestartStrip } from "@/components/service/restart-strip";
+import { RestartDialog, resumeElsewhere } from "@/components/service/restart-dialog";
+import { ElsewhereLink, RestartStrip } from "@/components/service/restart-strip";
 import { Button } from "@/components/ui/button";
 import type { ServerRestart } from "@/hooks/use-server-restart";
 import type { ServerDeployment } from "@/types/server-deployment";
@@ -11,7 +11,14 @@ function managerName(manager: ServerDeployment["service"]["manager"]): string {
   return manager === "app" ? "Subshell Server" : (manager ?? "a service manager");
 }
 
-/** One line describing who is running this process and since when. */
+/**
+ * One line describing who is running this process and since when.
+ *
+ * This line is also what a RESTART speaks through (see the card below): while
+ * one is in flight it is REPLACED rather than joined by a second sentence,
+ * and when the server returns it re-renders with the new pid and start time —
+ * which is the whole confirmation that the restart landed.
+ */
 function supervisionLine(view: ServerDeployment, bootedAt: string | undefined): string {
   const service = view.service;
   if (!service.supervised) return "Running, not supervised";
@@ -48,11 +55,27 @@ export function ServiceCard({
 }) {
   const [confirming, setConfirming] = useState(false);
   const service = view.service;
+  // The restart speaks through the supervision line rather than beside it:
+  // "Running under launchd as pid 4242" and "Restarting…" cannot both be true,
+  // and shown together they made the page look like it had not noticed its own
+  // button. When the wait ends this reverts to the sentence — by then naming
+  // the NEW pid and start time, which is the confirmation that it worked.
+  const restarting = restart.outcome === "waiting";
+  const elsewhere = restarting ? resumeElsewhere(view) : null;
 
   return (
     <FactCard title="Service">
-      <p className="col-span-full text-sm">{supervisionLine(view, bootedAt)}</p>
-      {!service.supervised && view.restart.reason && (
+      <p className={restarting ? "col-span-full text-sm text-warning" : "col-span-full text-sm"}>
+        {restarting ? (
+          <>
+            Restarting… waiting for the server to come back.
+            {elsewhere && <ElsewhereLink href={elsewhere} />}
+          </>
+        ) : (
+          supervisionLine(view, bootedAt)
+        )}
+      </p>
+      {!restarting && !service.supervised && view.restart.reason && (
         <p className="col-span-full text-muted-foreground text-sm">{view.restart.reason}</p>
       )}
       {service.paneSafety !== "keeps" && (
@@ -63,7 +86,7 @@ export function ServiceCard({
       <div className="col-span-full flex items-center gap-3">
         <Button
           variant="outline"
-          disabled={!view.restart.available || restart.outcome === "waiting"}
+          disabled={!view.restart.available || restarting}
           title={view.restart.available ? undefined : (view.restart.reason ?? undefined)}
           onClick={() => setConfirming(true)}
         >

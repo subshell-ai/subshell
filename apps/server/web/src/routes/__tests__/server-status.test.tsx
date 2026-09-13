@@ -119,15 +119,20 @@ describe("Server status page", () => {
     }
   });
 
-  it("gives a non-admin no Refresh button — refetch() ignores the `enabled` gate", async () => {
+  it("gives a non-admin NO control that refetches — refetch() ignores the `enabled` gate", async () => {
     // The gate only covers the AUTOMATIC fetch. `refetch()` calls straight
-    // through to the fetcher regardless of `enabled`, so a Refresh button
-    // rendered outside the admin branch would hand a non-admin a one-click
-    // 403 that renders nothing (the error banner is inside that branch).
+    // through to the fetcher regardless of `enabled`, so any refetching
+    // control rendered outside the admin branch would hand a non-admin a
+    // one-click 403 that renders nothing (the error banner is inside that
+    // branch). Retry is the only such control left — the header Refresh was
+    // removed as redundant with the poll — so it is what this pins; the
+    // button name is checked too, so reintroducing one outside the branch
+    // fails here rather than silently passing.
     const { calls, restore } = mockFetch(null, false);
     try {
       renderPage();
       await waitFor(() => expect(screen.getByText(/for instance admins/)).toBeDefined());
+      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
       expect(calls.some((c) => c.url === "/api/admin/status")).toBe(false);
     } finally {
