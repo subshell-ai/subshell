@@ -113,6 +113,11 @@ interface MockOpts {
   subshellsGate?: Promise<unknown>;
   /** Answer POST /api/presets with this row (the inline-create case). */
   createdPreset?: ReturnType<typeof preset>;
+  /** Harness ids the CONTROL PLANE can run. When set, a GET /api/presets
+   *  without `?node=any` answers the LOCAL-filtered list exactly as the
+   *  route does, so a test can pin that the form reads the unfiltered
+   *  variant. Absent: every GET answers the full store. */
+  localUsableHarnesses?: string[];
 }
 
 function mockFetch(
@@ -144,7 +149,15 @@ function mockFetch(
     }
     if (path === "/api/presets" && method === "GET") {
       lastPresetsUrl = path + url.search;
-      return Promise.resolve(new Response(JSON.stringify(presetStore)));
+      // Mirror the route's rule: `?node=any` skips the control plane's
+      // harness-usability filter; without it, rows for agents this host
+      // cannot run are hidden.
+      let rows: unknown[] = presetStore;
+      if (opts.localUsableHarnesses !== undefined && url.searchParams.get("node") !== "any") {
+        const usable = new Set(opts.localUsableHarnesses);
+        rows = rows.filter((p) => usable.has((p as { harnessId: string }).harnessId));
+      }
+      return Promise.resolve(new Response(JSON.stringify(rows)));
     }
     if (path === "/api/presets" && method === "POST") {
       const created = opts.createdPreset ?? preset({ id: "new-p", harnessId: "claude-code" });
@@ -243,10 +256,12 @@ describe("NewSubshellForm agent/preset defaults", () => {
       expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
       expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
       expect(canSubmit({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "local" })).toBe(true);
-      // Wire pin: the preset list carries NO query — `?node=any` went with
-      // the pin (spec 2026-09-13 §5), the server's local-usability filter now
-      // agrees with the Agent picker's own server-side greys.
-      expect(lastPresetsUrl).toBe("/api/presets");
+      // Wire pin: the form reads the UNFILTERED list. The default list is
+      // filtered by the control plane's probe while the picker's greys come
+      // from the SELECTED node — the two agree only when that node is the
+      // host itself, so the form must not read it (regression, final review
+      // 2026-09-13: presets vanished for a node-only agent).
+      expect(lastPresetsUrl).toBe("/api/presets?node=any");
     } finally {
       restore();
     }
@@ -407,6 +422,44 @@ describe("NewSubshellForm preset row", () => {
       await waitFor(() => expect(latest().presetId).toBeNull());
       // And the picker stands at None (Base UI prints the mapped label).
       await waitFor(() => expect(screen.getByText("None")).toBeDefined());
+    } finally {
+      restore();
+    }
+  });
+
+  it("offers a preset for an agent only the SELECTED node runs", async () => {
+    // The pairing the filtered list hid (final review, 2026-09-13): the
+    // control-plane host has no claude, "mac mini" does, and the form reads
+    // `node=any` — so with the node picked and its agent chosen, the preset
+    // is offered and survives the guard. On the default list the mock would
+    // answer [] (host cannot run claude), the guard would null the pick, and
+    // the row would never surface.
+    const NO_CLAUDE_LOCAL = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [TERM_ON],
+    });
+    const restore = mockFetch(
+      [NO_CLAUDE_LOCAL, AGENT_ONLINE],
+      [CLAUDE, TERM],
+      [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
+      [],
+      undefined,
+      { localUsableHarnesses: ["terminal"] },
+    );
+    try {
+      const { latest } = await renderForm({
+        harnessId: "claude-code",
+        presetId: "p-claude",
+        workingDir: "/x",
+        nodeId: "a1",
+      });
+      await settle();
+      expect(latest().nodeId).toBe("a1");
+      expect(latest().presetId).toBe("p-claude");
+      expect(screen.getByText("Fast")).toBeDefined();
     } finally {
       restore();
     }

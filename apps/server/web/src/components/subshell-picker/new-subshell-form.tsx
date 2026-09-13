@@ -183,7 +183,13 @@ export function NewSubshellForm({
   // A well-formed catalog response is `{ plugins: [...] }`; anything else
   // (an error body, an older stub) leaves the picker empty, never broken.
   const plugins: InstancePluginRow[] | undefined = Array.isArray(pluginData?.plugins) ? pluginData.plugins : undefined;
-  const { data: presetRows } = usePresets();
+  // `node=any`: a preset whose agent is installed only on ANOTHER machine
+  // must be listable here while that machine is picked — the default list is
+  // filtered by the control plane's own probe, while the Agent picker enables
+  // agents from the SELECTED node's inventory. Agent-scoping stays
+  // client-side (`p.harnessId === value.harnessId`); the server never pairs
+  // rows per node.
+  const { data: presetRows } = usePresets({ node: "any" });
   const presets = presetRows ?? [];
 
   // The default agent reads the user's most recent subshell — data the ONE
