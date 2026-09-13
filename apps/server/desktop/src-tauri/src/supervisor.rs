@@ -750,13 +750,30 @@ mod tests {
     }
 
     /// Wait for the loop to reach its next spawn, or fail rather than hang.
+    ///
+    /// **Generous on purpose.** This is an anti-hang guard, not a statement
+    /// about how fast a spawn should be — no assertion here is weaker for the
+    /// number being large, and a passing run never waits. It was five seconds,
+    /// which is the same order as the whole suite's runtime on a small CI
+    /// container, so a contended runner failed this as if the supervisor were
+    /// broken. It is not the place to discover a performance regression.
     fn next_spawn(rx: &mpsc::Receiver<u32>) -> u32 {
-        rx.recv_timeout(Duration::from_secs(5)).expect("a spawn")
+        rx.recv_timeout(Duration::from_secs(30)).expect("a spawn")
     }
 
     /// Timings a test can afford, with the same SHAPE as the real ones.
+    ///
+    /// The stop bound is the one to be careful with. Every test but
+    /// {@link a_wedged_server_is_killed_and_every_signal_names_the_pid_alone}
+    /// has a fake child that HONOURS `-TERM`, so the bound is dead time they
+    /// never spend — until the box is slow enough that the child does not
+    /// finish inside it, at which point `stop` escalates to `-KILL` and the
+    /// tests asserting "one signal, and it was TERM" fail for a reason that
+    /// has nothing to do with what they check. Two seconds costs those tests
+    /// nothing and takes the whole class of failure away; the one test that
+    /// WANTS the bound to expire names its own, short.
     fn quick() -> Supervisor {
-        Supervisor::with_timings(Duration::from_millis(40), Duration::from_millis(120))
+        Supervisor::with_timings(Duration::from_millis(40), Duration::from_secs(2))
     }
 
     #[test]
@@ -811,7 +828,9 @@ mod tests {
     fn a_wedged_server_is_killed_and_every_signal_names_the_pid_alone() {
         let (spawner, rx) = harness();
         spawner.honours_term.store(false, Ordering::SeqCst);
-        let sup = quick();
+        // The ONE test that needs the stop bound to expire, so it names a
+        // short one rather than sitting out `quick()`'s deliberate slack.
+        let sup = Supervisor::with_timings(Duration::from_millis(40), Duration::from_millis(120));
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         let pid = next_spawn(&rx);
 
@@ -848,7 +867,7 @@ mod tests {
     #[test]
     fn a_loop_that_ends_in_the_respawn_delay_releases_its_flag() {
         let (spawner, rx) = harness();
-        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_secs(2));
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         let pid = next_spawn(&rx);
 
@@ -888,7 +907,7 @@ mod tests {
     fn a_stop_during_the_respawn_delay_does_not_wedge_the_supervisor() {
         let (spawner, rx) = harness();
         // A delay long enough that the stop below lands INSIDE it.
-        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_secs(2));
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         let pid = next_spawn(&rx);
 
@@ -931,15 +950,17 @@ mod tests {
     fn restart_comes_back_without_waiting_out_the_delay() {
         let (spawner, rx) = harness();
         // A delay long enough that waiting it out would be unmistakable.
-        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_secs(2));
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         next_spawn(&rx);
 
         let started = Instant::now();
         assert!(sup.restart(Arc::clone(&spawner) as Arc<dyn Spawner>));
         next_spawn(&rx);
-        // Five seconds of nothing is right for a crash and wrong for a button.
-        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        // Well under the 30 s delay, which is the claim; not a stopwatch on a
+        // CI container, which is how a budget near the suite's own runtime
+        // turns into a failure that says nothing about the behaviour.
+        assert!(started.elapsed() < Duration::from_secs(15), "{:?}", started.elapsed());
         assert_eq!(spawner.spawn_count(), 2);
         assert!(sup.stop(spawner.as_ref()));
     }
@@ -949,7 +970,7 @@ mod tests {
     #[test]
     fn a_stop_interrupts_the_respawn_delay() {
         let (spawner, rx) = harness();
-        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_millis(120));
+        let sup = Supervisor::with_timings(Duration::from_secs(30), Duration::from_secs(2));
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         let pid = next_spawn(&rx);
         spawner.crash(pid);
