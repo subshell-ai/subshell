@@ -154,6 +154,12 @@ describe("first-admin promotion is atomic (F6b)", () => {
     // the second end-to-end sign-up must be 'user' — the `ELSE 'user'` half
     // of the statement.
     await signUpEmail(newEmail());
+    // **Registration is opened EXPLICITLY for the second one.** With no row,
+    // an instance that already has a user is now closed — that is the whole
+    // point of the new default, and it refuses this sign-up outright. This
+    // test is about PROMOTION, not about the gate, so it states the condition
+    // it needs rather than relying on a default that no longer holds.
+    await setRegistrationSetting("true");
     const r = await signUpEmail(newEmail());
     expect(await roleFor(r.user.id)).toBe("user");
   });
@@ -169,6 +175,17 @@ describe("registration gate fails closed (F6a)", () => {
 
   it('explicit "false" blocks registration', async () => {
     await setRegistrationSetting("false");
+    const e = newEmail();
+    await expect(signUpEmail(e)).rejects.toThrow();
+    expect(await userExists(e)).toBe(false);
+  });
+
+  it("with NO row, an instance that already has a user refuses sign-up", async () => {
+    // The default flipped (2026-09-13). Before, an absent row meant open
+    // unconditionally, so every instance shipped accepting sign-ups from
+    // anyone who could reach it until an admin noticed. By this point in the
+    // suite users exist, which is the condition that now closes it.
+    await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
     const e = newEmail();
     await expect(signUpEmail(e)).rejects.toThrow();
     expect(await userExists(e)).toBe(false);

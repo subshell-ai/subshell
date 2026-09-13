@@ -5,6 +5,7 @@ import { sql } from "kysely";
 import { authDatabase } from "@/auth/database.js";
 import { APP_BASE_URL, AUTH_SECRET, TRUSTED_ORIGINS } from "@/constants.js";
 import { ensureDefaultProfilesForUser } from "@/services/default-profiles.js";
+import { registrationOpen } from "@/services/registration-gate.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -149,29 +150,20 @@ export function setAuthPolicyDb(db: import("kysely").Kysely<import("@/db/types/i
 }
 
 /**
- * Reads the registration gate setting.
+ * Reads the registration gate.
  *
- * Semantics (security audit 2026-08, F6a) — the gate FAILS CLOSED:
- * - missing row → open (the pre-setup default: the boot wizard must work);
- * - parseable JSON `true` → open;
- * - anything else (explicit `false`, an unparseable/corrupted value, a
- *   non-boolean document) → closed. The old code treated unparseable as
- *   open, which turned a settings-row corruption into silently re-opened
- *   registration on a locked-down instance.
+ * Delegates to `services/registration-gate.ts`, which the settings routes
+ * read through as well — three surfaces decide things from this answer (this
+ * hook refuses the POST, the admin switch draws itself, the sign-in page
+ * offers or hides "create an account"), and a second reading of the row is
+ * how they come to disagree.
+ *
+ * `!appDb` is before the database is wired, which is only ever during boot;
+ * open there matches the pre-setup window the shared function describes.
  */
 async function registrationAllowed(): Promise<boolean> {
   if (!appDb) return true;
-  const row = await appDb
-    .selectFrom("settings")
-    .select("value")
-    .where("key", "=", "allow_registrations")
-    .executeTakeFirst();
-  if (!row) return true;
-  try {
-    return (JSON.parse(row.value) as unknown) === true;
-  } catch {
-    return false;
-  }
+  return await registrationOpen(appDb);
 }
 
 /**
