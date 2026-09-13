@@ -1,22 +1,14 @@
-import { useEffect, useState } from "react";
+import { useMinWidth } from "@/hooks/use-min-width";
 import { WORKSPACE_TILING_MIN_WIDTH } from "@/lib/breakpoints";
 
 /**
  * True when the viewport is wide enough to tile (see
- * {@link WORKSPACE_TILING_MIN_WIDTH}). Updates on resize and orientation
- * change, so rotating a tablet switches presentation.
+ * {@link WORKSPACE_TILING_MIN_WIDTH}).
+ *
+ * This is the TILING question only. Whether the shell shows its sidebar is
+ * `useHasSidebar`, which crosses a much lower breakpoint — the two were one
+ * hook, and that is what tied the navigation to a workspace's column budget.
  */
 export function useIsWide(): boolean {
-  const query = `(min-width: ${WORKSPACE_TILING_MIN_WIDTH}px)`;
-  const [wide, setWide] = useState(() => (typeof window === "undefined" ? true : window.matchMedia(query).matches));
-
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const onChange = (e: MediaQueryListEvent) => setWide(e.matches);
-    mql.addEventListener("change", onChange);
-    setWide(mql.matches);
-    return () => mql.removeEventListener("change", onChange);
-  }, [query]);
-
-  return wide;
+  return useMinWidth(WORKSPACE_TILING_MIN_WIDTH);
 }

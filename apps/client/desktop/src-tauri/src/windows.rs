@@ -70,37 +70,40 @@ impl PlanePin {
     }
 }
 
-/// Below this the SPA renders its PHONE drawer — `useIsWide()` is
-/// `matchMedia("(min-width: 1024px)")` and `WORKSPACE_TILING_MIN_WIDTH` is
-/// 1024. Tauri's own 800x600 default would ship a desktop app in the exact
-/// chrome a desktop app exists to replace, so this is a floor, not a hint.
-const PLANE_MIN_WIDTH: f64 = 1024.0;
-const PLANE_MIN_HEIGHT: f64 = 640.0;
+/// The narrowest the plane window may be dragged.
+///
+/// This was 1024x640 — the SPA's `useIsWide()` breakpoint
+/// (`matchMedia("(min-width: 1024px)")`, the same number as
+/// `WORKSPACE_TILING_MIN_WIDTH`) — so that the desktop app could never render
+/// the phone drawer it exists to replace. That bought one thing and cost
+/// another: a window that could not be tucked into a corner beside an editor,
+/// which is a thing people actually do with a terminal. A third of it is the
+/// floor now. The breakpoint has not moved and the narrow chrome below it is a
+/// designed layout rather than a degraded one; the app simply no longer
+/// refuses to cross it.
+const PLANE_MIN_WIDTH: f64 = 360.0;
+const PLANE_MIN_HEIGHT: f64 = 240.0;
 
 /// The plane window's floor at a given text size.
 ///
-/// The breakpoint the floor exists to clear is a CSS one, and zoom is what
-/// divides physical pixels into CSS pixels — so at 150% a 1024px window is a
-/// 683px viewport and the SPA drops to its phone drawer inside a window that
-/// is, by the numbers, plenty wide. Scaling the floor is what keeps
-/// `PLANE_MIN_WIDTH`'s promise true at every size.
+/// The floor is a promise about the VIEWPORT, and zoom is what divides
+/// physical pixels into CSS pixels — so at 150% an unscaled 360px window is a
+/// 240px viewport, narrower than anything the SPA lays out for. Scaling the
+/// floor is what keeps `PLANE_MIN_WIDTH`'s promise true at every size.
 fn floor_at(level: f64) -> LogicalSize<f64> {
     LogicalSize::new(PLANE_MIN_WIDTH * level, PLANE_MIN_HEIGHT * level)
 }
 
 /// The floor, never larger than the display can show.
 ///
-/// The scaled floor is what keeps the CSS-pixel breakpoint true, but it is
-/// also a size `refit` SETS — so on a 1366x768 panel at 200% the unclamped
-/// version would grow the window to 2048x1280 from its existing top-left and
-/// pin `min_inner_size` there, leaving a window bigger than the screen and no
-/// way back but dragging. The assistant frame has always clamped to the work
-/// area; this is the same clamp for the same reason.
-///
-/// Clamping means the phone drawer can appear at a large text size on a small
-/// display. That is the honest outcome: there genuinely is no 1024-CSS-pixel
-/// viewport available there, and a window off the edge of the screen is the
-/// worse of the two.
+/// The scaled floor is what keeps the CSS-pixel promise true, but it is also a
+/// size `refit` SETS — so an unclamped floor taller than the display would grow
+/// the window from its existing top-left and pin `min_inner_size` there,
+/// leaving a window bigger than the screen and no way back but dragging. The
+/// assistant frame has always clamped to the work area; this is the same clamp
+/// for the same reason. A 360x240 floor at the top zoom rung is 720x480, so
+/// this has room to spare on any display the app runs on — which is the point:
+/// nothing here should ever be the reason a window cannot fit.
 fn clamped_floor(level: f64, work_area: Option<(f64, f64)>) -> LogicalSize<f64> {
     let floor = floor_at(level);
     match work_area {
@@ -499,24 +502,33 @@ mod tests {
         assert_ne!(data.origin().ascii_serialization(), held);
     }
 
+    // The floor is deliberately WELL BELOW the SPA's tiling breakpoint
+    // (WORKSPACE_TILING_MIN_WIDTH in apps/server/web/src/lib/breakpoints.ts):
+    // the plane window may be shrunk into its narrow chrome, which is what lets
+    // it be parked in a corner. Pinned so that a later "fix" does not quietly
+    // restore the 1024 floor it replaced.
     #[test]
-    fn plane_min_width_matches_the_spa_tiling_breakpoint() {
-        // WORKSPACE_TILING_MIN_WIDTH in apps/server/web/src/lib/breakpoints.ts.
-        assert_eq!(PLANE_MIN_WIDTH as u32, 1024);
+    fn the_floor_is_a_third_of_the_spa_tiling_breakpoint() {
+        let floor = floor_at(1.0);
+        assert_eq!(floor.width as u32, 360);
+        assert_eq!(floor.height as u32, 240);
     }
 
-    // The floor exists to clear a CSS-pixel breakpoint, and zoom is what turns
-    // physical pixels into CSS pixels: an unscaled floor would let a 1024px
-    // window at 150% render the SPA's PHONE drawer.
+    // The floor is a promise about the viewport, and zoom is what turns
+    // physical pixels into CSS pixels: an unscaled floor would leave a 360px
+    // window at 150% laying out in 240 CSS pixels.
     /// The floor is a size `refit` SETS, so an unclamped one at a large text
     /// size grows the window past the edges of a small display and pins
     /// `min_inner_size` there — recoverable only by dragging. The assistant
     /// frame has always clamped; this is the same clamp.
     #[test]
     fn the_floor_never_outgrows_the_display() {
-        // 1366x768 at 200%: the unclamped floor would be 2048x1280.
-        let clamped = super::clamped_floor(2.0, Some((1366.0, 768.0)));
-        assert_eq!((clamped.width, clamped.height), (1366.0, 768.0));
+        // A 640x400 work area at 200%: the unclamped floor would be 720x480.
+        let clamped = super::clamped_floor(2.0, Some((640.0, 400.0)));
+        assert_eq!((clamped.width, clamped.height), (640.0, 400.0));
+        // The display a laptop actually has leaves even the top rung alone.
+        let laptop = super::clamped_floor(2.0, Some((1366.0, 768.0)));
+        assert_eq!((laptop.width, laptop.height), (FLOOR_W * 2.0, PLANE_MIN_HEIGHT * 2.0));
         // A roomy display leaves the scaled floor exactly as it was.
         let roomy = super::clamped_floor(1.5, Some((3000.0, 2000.0)));
         assert_eq!(roomy.width, FLOOR_W * 1.5);

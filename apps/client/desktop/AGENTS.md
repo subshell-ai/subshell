@@ -44,8 +44,9 @@ time gets no commands at all. Two consequences follow and are deliberate:
   `shell_ready` handshake and no `bridge.rs` CustomEvent bus here either.
 - **What IS kept:** an `on_navigation` origin pin, `disable_drag_drop_handler`
   (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
-  drag-a-subshell-into-a-workspace and the terminal's uploads), and the 1024px
-  minimum width that keeps the SPA off its phone drawer.
+  drag-a-subshell-into-a-workspace and the terminal's uploads), and a 360x240
+  minimum size — a third of the SPA's 1024px tiling breakpoint, so the window
+  can be parked in a corner and renders the SPA's narrow chrome when it is.
 
 **The node window is a FIXED 1024x720 assistant frame** (spec 2026-09-12 § 6.4),
 non-resizable and centred, and the window-state plugin is DENYLISTED for it.
@@ -415,10 +416,10 @@ diff:
   `settings.json` is a file a person can edit, and a `0` in it is a window
   nobody can read well enough to fix from inside the app. Clamping SNAPS onto
   the ladder, which is what lets a step always land on a rung.
-- **The SPA's floor scales with the level.** `WORKSPACE_TILING_MIN_WIDTH` is a
-  CSS-pixel breakpoint and zoom is what divides physical pixels into CSS
-  pixels, so at 150% a 1024px window is a 683px viewport and the SPA renders
-  its PHONE drawer inside a window that is, by the numbers, plenty wide.
+- **The SPA's floor scales with the level.** The floor is a promise about the
+  VIEWPORT and zoom is what divides physical pixels into CSS pixels, so at 150%
+  an unscaled 360px window would lay out in 240 CSS pixels — narrower than
+  anything the SPA is drawn for. Scaling it keeps the promise at every rung.
 - **The assistant frame scales too, clamped to the work area.** It is fixed and
   non-resizable, so bigger text in an unchanged frame is just less room to say
   the same thing. The clamp is the same one `wizard_height` always was — a

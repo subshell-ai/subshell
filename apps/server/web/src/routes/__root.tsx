@@ -12,7 +12,7 @@ import { QuickAddProvider } from "@/components/quick-add";
 import { RouteError } from "@/components/route-error";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useDesktopShellReady } from "@/hooks/use-desktop-shell-ready";
-import { useIsWide } from "@/hooks/use-is-wide";
+import { useHasSidebar } from "@/hooks/use-has-sidebar";
 import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
 import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
@@ -73,7 +73,7 @@ const NAVIGATE_TO_SETUP = <Navigate to="/setup" />;
  * renders as before (the old behavior) — a later navigation retries the query.
  */
 function Shell() {
-  const wide = useIsWide();
+  const hasSidebar = useHasSidebar();
   // Read from the User-Agent, so it is settled before first paint — no IPC
   // handshake to race, and it survives the hard navigations at sign-out and
   // after sign-in.
@@ -152,7 +152,7 @@ function Shell() {
         {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
           the top bar so the warning spans the full width (spec §6 banner). */}
         {user && <EmergencyLoginBanner />}
-        {!wide && !bare && <MobileTopBar />}
+        {!hasSidebar && !bare && <MobileTopBar />}
         {/* The live feed covers everything below it — sidebar dots, home cards,
           pickers — for the whole signed-in session (spec 2026-09-03 §6). The
           enabled gate keeps its token POST away from /login and /setup. */}
@@ -165,10 +165,11 @@ function Shell() {
             {/* One branch, deliberately: everything else in this frame —
               the banners, the feed provider, the viewport pinning, the outlet
               — is identical in both shells, and the rail differs only in
-              chrome (see components/desktop/desktop-sidebar.tsx). The desktop
-              window's min width is 1024, so `wide` is always true there and
-              MobileTopBar never mounts. */}
-            {wide && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
+              chrome (see components/desktop/desktop-sidebar.tsx). A desktop
+              window can be dragged below SIDEBAR_MIN_WIDTH (its floor is 360),
+              so MobileTopBar does mount there — the drawer is the right chrome
+              once the rail would cost a third of the window. */}
+            {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
             <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
               <Outlet />
             </div>

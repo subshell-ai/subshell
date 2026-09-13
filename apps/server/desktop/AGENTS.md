@@ -566,7 +566,7 @@ Three things about that table are load-bearing:
 ```
 src-tauri/src/
 ├── lib.rs         # plugins, command registration, setup (boot PROBEs, opens `main` or `wizard`, spawns the watch)
-├── windows.rs     # the two windows, the 1024px floor, the UA marker with its `b=` group
+├── windows.rs     # the two windows, the 360x240 floor, the UA marker with its `b=` group
 ├── watch.rs       # the 5s poll: the tray's state, and re-pointing `main` when the origin moves
 ├── control.rs     # the tauri commands — argument-poor wrappers over the CLI; open_home; ACTION_IN_FLIGHT
 ├── reset.rs       # the reset screen's Rust side: the closed Screen enum, the stashed plan, the two guards, the chain
@@ -983,8 +983,8 @@ definition.
 restored size is wrong TWICE for a frame like this: the layout is drawn to
 that arithmetic, and `open_main` INHERITS the assistant's position and size so
 the dashboard appears in its place — which would carry a stale size straight
-into a window whose floor is `MIN_WIDTH` (1024), the width below which the SPA
-renders its phone drawer. Denylisting the label is the fix rather than
+into a window sized for a screen that is no longer there. Denylisting the
+label is the fix rather than
 dropping `StateFlags::SIZE`, because the dashboard's size IS worth
 remembering and the assistant's is not a user choice at all: it is
 non-resizable and centred.
@@ -1035,10 +1035,10 @@ diff:
   `settings.json` is a file a person can edit, and a `0` in it is a window
   nobody can read well enough to fix from inside the app. Clamping SNAPS onto
   the ladder, which is what lets a step always land on a rung.
-- **The SPA's floor scales with the level.** `WORKSPACE_TILING_MIN_WIDTH` is a
-  CSS-pixel breakpoint and zoom is what divides physical pixels into CSS
-  pixels, so at 150% a 1024px window is a 683px viewport and the SPA renders
-  its PHONE drawer inside a window that is, by the numbers, plenty wide.
+- **The SPA's floor scales with the level.** The floor is a promise about the
+  VIEWPORT and zoom is what divides physical pixels into CSS pixels, so at 150%
+  an unscaled 360px window would lay out in 240 CSS pixels — narrower than
+  anything the SPA is drawn for. Scaling it keeps the promise at every rung.
 - **The assistant frame scales too, clamped to the work area.** It is fixed and
   non-resizable, so bigger text in an unchanged frame is just less room to say
   the same thing. The clamp is the same one `wizard_height` always was — a
@@ -1155,9 +1155,12 @@ it cannot see; asking the page is a fact. An old SPA simply never answers.
   file-drop handler otherwise swallows HTML5 drag events, which silently breaks
   both drag-a-subshell-into-a-workspace (the `application/x-subshell-id`
   payload) and the terminal's own file-drop uploads.
-- **`min_inner_size` is 1024×640, not a preference.** `useIsWide()` is
-  `matchMedia("(min-width: 1024px)")`; below it the SPA renders its PHONE
-  drawer — the exact chrome this app exists to replace.
+- **`min_inner_size` is 360×240, a third of what it was.** It used to be
+  1024×640, pinned to `useIsWide()` — `matchMedia("(min-width: 1024px)")` —
+  so the app could never render the SPA's phone drawer. That floor is gone on
+  purpose: it made a window nobody could park beside an editor, and the narrow
+  chrome below the breakpoint is a designed layout, not a broken one. The
+  breakpoint itself has not moved.
 - **Never downgrade the installed server.** Boot runs
   `migrator.migrateToLatest()`, which is forward-only. `decide_server` offers a
   newer bundled server and ADOPTS a newer installed one; the reverse is data

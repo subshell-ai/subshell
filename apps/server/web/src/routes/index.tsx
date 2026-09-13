@@ -151,10 +151,21 @@ function TileSection({ title, subshells }: { title: string; subshells: SubshellV
   return (
     <section>
       <h2 className="mb-3 font-semibold text-muted-foreground text-sm uppercase">{title}</h2>
-      {/* Track count follows the container, but each card keeps a sane width:
-          a fixed column count stretches one lone card across the screen on a
-          wide window and starves it on a narrow one. */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-3">
+      {/* Track count follows the container; the card width does not. 240px is
+          the floor AND the ceiling, so a tile is the same size on every page
+          at every window width and only the number of them per row changes.
+
+          A stretching track is what made a wider window shrink a card: the
+          columns divide the row, so crossing into a second column halved the
+          single card that was there. Nothing stretches now, so nothing can.
+          `min(100%, …)` is the one concession — a container narrower than a
+          card gets a narrower card rather than a horizontal scrollbar.
+
+          The cost is up to one card's width of empty space at the right edge,
+          which is the honest trade for a grid that never resizes its
+          contents. `auto-fit` keeps that space at the end of the row instead
+          of holding it in phantom columns between the cards. */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),240px))] gap-3">
         {subshells.map((s) => (
           <SubshellCard key={s.id} subshell={s} />
         ))}

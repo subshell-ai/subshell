@@ -3,19 +3,20 @@ import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { useIsWide } from "@/hooks/use-is-wide";
+import { useHasSidebar } from "@/hooks/use-has-sidebar";
 
 /**
  * The nav drawer (hamburger trigger + side sheet), self-contained so it can
  * ride in ANY top row: the shell's fallback bar on plain pages, or a page's
  * own header (subshell and workspace detail) where a separate chrome row
- * would cost a row of terminal. Renders nothing at/above the tiling
- * breakpoint, where the persistent sidebar already IS the navigation. Any
+ * would cost a row of terminal. Renders nothing wherever the shell shows its
+ * persistent sidebar, which already IS the navigation — one predicate
+ * (`useHasSidebar`) decides both, so the two can never both appear. Any
  * route change closes the drawer (a tap that navigates also dismisses the
  * menu, like a native drawer).
  */
 export function MobileNav() {
-  const wide = useIsWide();
+  const hasSidebar = useHasSidebar();
   const [open, setOpen] = useState(false);
   const location = useLocation();
   // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect — pathname is deliberately the trigger, not a read
@@ -23,7 +24,7 @@ export function MobileNav() {
     setOpen(false);
   }, [location.pathname]);
 
-  if (wide) return null;
+  if (hasSidebar) return null;
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
