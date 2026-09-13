@@ -11,8 +11,21 @@ import type { NodeDetail } from "@/types/node";
 /** How near the bottom still counts as being at the bottom, in pixels. */
 const STICK_SLACK_PX = 24;
 
-/** How often to ask for whatever arrived since the last read. */
-const POLL_MS = 5000;
+/**
+ * How often to ask for whatever arrived since the last read.
+ *
+ * One second, matching the server's own log card, so a node's log reads like
+ * a tail rather than a page that updates when it feels like it. Each ask is a
+ * byte RANGE — "what arrived after the offset I hold" — so a quiet log costs
+ * an empty answer rather than the file.
+ *
+ * It is still a round trip the server's is not: this crosses the plane's
+ * WebSocket to the agent, where the server card reads a capped local file. The
+ * two are the same number for the same reason and pay differently for it,
+ * which is why this one stops in a hidden tab (see the poll effect) and the
+ * server's gets that for free from TanStack.
+ */
+const POLL_MS = 1000;
 
 /** One JSON line of the agent's log, rendered as `HH:MM:SS level message`. */
 function renderLine(line: string): { text: string; level: string } {
@@ -93,9 +106,31 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
     // that is still moving — which is the failure the server log card's own
     // test asserts against by counting fetches rather than reading the button.
     if (paused) return;
-    void pull();
-    const timer = setInterval(() => void pull(), POLL_MS);
-    return () => clearInterval(timer);
+
+    // **Nothing is asked while the tab is hidden.** This is a bare
+    // `setInterval`, so unlike the server card — a TanStack query, where
+    // `refetchIntervalInBackground` defaults false — it would otherwise keep
+    // waking a remote agent once a second behind a tab nobody is looking at,
+    // for a log nobody is reading. Matching the server's cadence is only
+    // defensible alongside matching the rule that comes with it.
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const start = () => {
+      if (timer !== undefined) return;
+      void pull();
+      timer = setInterval(() => void pull(), POLL_MS);
+    };
+    const stop = () => {
+      if (timer !== undefined) clearInterval(timer);
+      timer = undefined;
+    };
+    const onVisibility = () => (document.hidden ? stop() : start());
+
+    onVisibility();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [pull, paused]);
 
   // Re-pin after every poll. `text` IS the dependency, and it is READ in the
@@ -122,7 +157,7 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
         <CardTitle>Log</CardTitle>
         <CardDescription>
           What the agent on this machine logged. One file, capped and replaced when full, so this is recent history
-          rather than everything that ever happened. · {paused ? "paused" : `following, every ${POLL_MS / 1000}s`}
+          rather than everything that ever happened. · {paused ? "paused" : "following"}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
