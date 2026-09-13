@@ -4,6 +4,6 @@
 import { TmuxRunner } from "@internal/pane-runtime";
 export default () => ({
   buildCommand: () => [String(TmuxRunner)],
-  validateProfile: () => ({ valid: true, issues: [] }),
+  validatePreset: () => ({ valid: true, issues: [] }),
   capabilities: () => [],
 });

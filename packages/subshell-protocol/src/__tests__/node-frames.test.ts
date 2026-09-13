@@ -18,7 +18,7 @@ const launchCmd = {
   socket: "subshell-abc",
   cwd: "/home/u/repo",
   harnessId: "claude-code",
-  profile: { name: "P", env: { A: "b" }, flags: [], settings: null, configIsolation: false },
+  preset: { name: "P", env: { A: "b" }, flags: [], settings: null, configIsolation: false },
   subshellEnv: { SUBSHELL_API_KEY: "subshell_x" },
   subshellName: "s1",
   harnessSession: { id: "h1", mode: "start" as const },
@@ -37,7 +37,7 @@ describe("parseNodeCommandBody", () => {
     if (cmd?.type === "launch") {
       expect(cmd.cwd).toBe("/home/u/repo");
       expect(cmd.socket).toBe("subshell-abc");
-      expect(cmd.profile.name).toBe("P");
+      expect(cmd.preset.name).toBe("P");
     }
   });
 
@@ -55,9 +55,9 @@ describe("parseNodeCommandBody", () => {
     ).not.toBeNull();
   });
 
-  it("accepts an explicit undefined profile description (absent-like)", () => {
+  it("accepts an explicit undefined preset description (absent-like)", () => {
     const cmd = structuredClone(launchCmd) as Record<string, unknown>;
-    (cmd.profile as Record<string, unknown>).description = undefined;
+    (cmd.preset as Record<string, unknown>).description = undefined;
     expect(parseNodeCommandBody(cmd)).not.toBeNull();
   });
 
@@ -81,10 +81,17 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "ping" })).toEqual({ type: "ping" });
   });
 
-  it("rejects launch with a malformed profile (env value not a string)", () => {
+  it("rejects launch with a malformed preset (env value not a string)", () => {
     const bad = structuredClone(launchCmd) as Record<string, unknown>;
-    (bad.profile as Record<string, unknown>).env = { A: 1 };
+    (bad.preset as Record<string, unknown>).env = { A: 1 };
     expect(parseNodeCommandBody(bad)).toBeNull();
+  });
+
+  it("rejects a launch frame still carrying the OLD `profile` key (protocol 7)", () => {
+    const stale = structuredClone(launchCmd) as Record<string, unknown>;
+    stale.profile = stale.preset;
+    delete stale.preset;
+    expect(parseNodeCommandBody(stale)).toBeNull();
   });
 
   it("rejects unknown command types, non-objects, and JSON garbage", () => {
@@ -146,7 +153,7 @@ describe("parseNodeCommandBody", () => {
     // server's has had, and this is the command that flips it. It reveals
     // nothing today — the agent writes no debug-level lines — which is the
     // point of putting the mechanism in ahead of them.)
-    expect(NODE_PROTOCOL_VERSION).toBe(6);
+    expect(NODE_PROTOCOL_VERSION).toBe(7);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

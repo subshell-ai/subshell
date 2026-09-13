@@ -113,7 +113,7 @@ describe("launch refusal", () => {
       socket: "subshell-x",
       cwd: outside,
       harnessId: "claude-code",
-      profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
+      preset: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
       subshellEnv: {},
       subshellName: "s",
       // Well-formed v3 launch fields; the allowlist gate fires before either
@@ -141,7 +141,7 @@ describe("launch refusal", () => {
       socket: "subshell-x",
       cwd: join(work, "escape"),
       harnessId: "claude-code",
-      profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
+      preset: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
       subshellEnv: {},
       subshellName: "s",
       // Well-formed v3 launch fields; the allowlist gate fires before either

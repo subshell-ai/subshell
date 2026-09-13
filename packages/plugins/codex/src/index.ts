@@ -7,11 +7,11 @@ import {
   type PluginCapability,
   type PluginFactory,
   type PluginHost,
-  type ProfileDefinition,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationResult,
   type SettingsField,
   type SubshellPlugin,
-  validateGenericProfile,
+  validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
 /** Known Codex settings, applied as per-invocation CLI flags. */
@@ -74,7 +74,7 @@ function tomlStringArray(values: string[]): string {
  *
  * Launch shape:
  *   codex [-m <model>] [-s <sandbox>] [-a <approval>] [mcp -c pairs]
- *         [profile flags] [extra flags]
+ *         [preset flags] [extra flags]
  * A bare launch (no subcommand, no prompt) opens the interactive TUI. Codex
  * has no create-time flag for naming its own session and no way to pin a
  * conversation id, so neither the subshell name nor a resume capability is
@@ -82,7 +82,7 @@ function tomlStringArray(values: string[]): string {
  * The pane's
  * cwd is already the working directory, so `-C/--cd` is never passed, and
  * `--dangerously-bypass-approvals-and-sandbox` is NEVER baked into a launch
- * (a user may put it in their own profile flags — that is their call).
+ * (a user may put it in their own preset flags — that is their call).
  *
  * subshell MCP is wired automatically WITHOUT touching user state: every
  * launch carries `-c mcp_servers.subshell.command=… -c mcp_servers.subshell.args=…`
@@ -104,10 +104,10 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => ["mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, extraFlags, mcp } = input;
+    const { binary, preset, extraFlags, mcp } = input;
     const args: string[] = [binary];
 
-    const s = profile.settings ?? {};
+    const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("-m", s.model);
     if (typeof s.sandbox === "string" && s.sandbox) args.push("-s", s.sandbox);
     if (typeof s.askForApproval === "string" && s.askForApproval) args.push("-a", s.askForApproval);
@@ -118,7 +118,7 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
 
     // Each stored flag is one complete argv token (row editor guarantees it);
     // never re-split on whitespace or multi-word values break.
-    for (const flag of profile.flags) args.push(flag);
+    for (const flag of preset.flags) args.push(flag);
 
     if (extraFlags) args.push(...extraFlags);
     return args;
@@ -170,11 +170,11 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     };
   },
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   },
 
-  profileSettings(): SettingsField[] {
+  presetSettings(): SettingsField[] {
     return CODEX_SETTINGS_FIELDS;
   },
 

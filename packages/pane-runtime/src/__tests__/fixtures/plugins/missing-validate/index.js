@@ -1,2 +1,2 @@
-// Omits `validateProfile`, which the adapter calls unconditionally.
+// Omits `validatePreset`, which the adapter calls unconditionally.
 export default () => ({ buildCommand: () => [], capabilities: () => [] });

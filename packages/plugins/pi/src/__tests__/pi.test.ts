@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { ProfileDefinition } from "@subshell-ai/plugin-api";
+import type { PresetDefinition } from "@subshell-ai/plugin-api";
 import { createTestHost } from "@subshell-ai/plugin-api/testing";
 import createPlugin, { manifest } from "../index.js";
 
 const plugin = createPlugin(createTestHost());
 
-function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition {
+function preset(overrides: Partial<PresetDefinition> = {}): PresetDefinition {
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };
 }
 
@@ -25,7 +25,7 @@ describe("PiPlugin", () => {
       binary: "/usr/bin/pi",
       cwd: "/tmp/ws",
       subshellName: "Refactor auth",
-      profile: profile({
+      preset: preset({
         settings: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
         flags: ["--offline"],
       }),
@@ -47,7 +47,7 @@ describe("PiPlugin", () => {
   });
 
   it("buildCommand: no name flag when the subshell name is empty", () => {
-    const cmd = plugin.buildCommand({ binary: "/usr/bin/pi", cwd: "/tmp/ws", subshellName: "", profile: profile() });
+    const cmd = plugin.buildCommand({ binary: "/usr/bin/pi", cwd: "/tmp/ws", subshellName: "", preset: preset() });
     expect(cmd).toEqual(["/usr/bin/pi"]);
   });
 
@@ -56,13 +56,13 @@ describe("PiPlugin", () => {
       binary: "/usr/bin/pi",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: profile({ flags: ["--append-system-prompt", "be nice"] }),
+      preset: preset({ flags: ["--append-system-prompt", "be nice"] }),
     });
     expect(cmd).toEqual(["/usr/bin/pi", "--append-system-prompt", "be nice"]);
   });
 
-  it("validateProfile: delegates to the generic checks", () => {
-    expect(plugin.validateProfile(profile({ env: { X: 1 as unknown as string } })).valid).toBe(false);
-    expect(plugin.validateProfile(profile()).valid).toBe(true);
+  it("validatePreset: delegates to the generic checks", () => {
+    expect(plugin.validatePreset(preset({ env: { X: 1 as unknown as string } })).valid).toBe(false);
+    expect(plugin.validatePreset(preset()).valid).toBe(true);
   });
 });

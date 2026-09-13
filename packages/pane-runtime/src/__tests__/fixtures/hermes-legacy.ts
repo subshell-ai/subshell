@@ -6,15 +6,15 @@
  * extraction has been reviewed and shipped; nothing else may import it.
  * @internal
  */
-import { validateGenericProfile } from "@subshell-ai/plugin-api";
+import { validateGenericPreset } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import { shellQuote } from "../../shell.js";
 import type {
   BuildCommandInput,
   McpLaunchSpec,
   McpSetupInfo,
-  ProfileDefinition,
-  ProfileValidationResult,
+  PresetDefinition,
+  PresetValidationResult,
   SettingsField,
 } from "../../types.js";
 import { MCP_SERVER_NAME } from "../../types.js";
@@ -67,7 +67,7 @@ const PLUGIN_KNOWN_PATHS = [".local/bin/hermes"];
  * Built-in harness: Hermes Agent (Nous Research).
  *
  * Launch shape:
- *   hermes [-m <model>] [--provider <p>] [-t <toolsets>] [profile flags] [extra flags]
+ *   hermes [-m <model>] [--provider <p>] [-t <toolsets>] [preset flags] [extra flags]
  * A bare launch starts interactive chat; which interface (classic REPL vs
  * --tui) is left to the user's own display.interface config. Hermes has no
  * create-time flag for naming its own session, so the subshell's display name
@@ -147,16 +147,16 @@ export class HermesPlugin {
   }
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, extraFlags } = input;
+    const { binary, preset, extraFlags } = input;
     const args: string[] = [binary];
 
-    const s = profile.settings ?? {};
+    const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("-m", s.model);
     if (typeof s.provider === "string" && s.provider) args.push("--provider", s.provider);
     if (typeof s.toolsets === "string" && s.toolsets) args.push("-t", s.toolsets);
 
     // Each stored flag is one complete argv token (see opencode.ts note).
-    for (const flag of profile.flags) args.push(flag);
+    for (const flag of preset.flags) args.push(flag);
 
     if (extraFlags) args.push(...extraFlags);
     return args;
@@ -184,8 +184,8 @@ export class HermesPlugin {
     };
   }
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   }
 
   settingsFields(): SettingsField[] {

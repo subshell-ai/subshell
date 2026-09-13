@@ -17,9 +17,9 @@ describe("buildHarnessCommand", () => {
     expect(cmd.startsWith("env -i ")).toBe(true);
     expect(cmd).toContain(`FOO=${"'ba r'\\''z'"}`); // POSIX quoting of an inner quote
     expect(cmd).toContain(`SUBSHELL_API_KEY='subshell_x'`);
-    expect(cmd).toContain(`TERM="$TERM"`); // appended when the profile doesn't set TERM
+    expect(cmd).toContain(`TERM="$TERM"`); // appended when the preset doesn't set TERM
   });
-  it("lets an explicit profile TERM win over the literal", () => {
+  it("lets an explicit preset TERM win over the literal", () => {
     if (!pi) throw new Error("pi plugin missing");
     const cmd = buildHarnessCommand(
       pi,

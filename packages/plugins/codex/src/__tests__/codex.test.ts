@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { McpLaunchSpec, ProfileDefinition } from "@subshell-ai/plugin-api";
+import type { McpLaunchSpec, PresetDefinition } from "@subshell-ai/plugin-api";
 import { createTestHost } from "@subshell-ai/plugin-api/testing";
 import createPlugin, { manifest } from "../index.js";
 
 const plugin = createPlugin(createTestHost());
 
-function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition {
+function preset(overrides: Partial<PresetDefinition> = {}): PresetDefinition {
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };
 }
 
@@ -23,18 +23,18 @@ describe("CodexPlugin", () => {
     expect(manifest.detect?.envOverride).toBe("CODEX_PATH");
   });
 
-  it("buildCommand: bare launch with no profile extra", () => {
+  it("buildCommand: bare launch with no preset extra", () => {
     expect(
-      plugin.buildCommand({ binary: "/usr/bin/codex", cwd: "/tmp/ws", subshellName: "", profile: profile() }),
+      plugin.buildCommand({ binary: "/usr/bin/codex", cwd: "/tmp/ws", subshellName: "", preset: preset() }),
     ).toEqual(["/usr/bin/codex"]);
   });
 
-  it("buildCommand: maps settings to flags, then profile and extra flags", () => {
+  it("buildCommand: maps settings to flags, then preset and extra flags", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
       subshellName: "ignored",
-      profile: profile({
+      preset: preset({
         settings: { model: "gpt-5-codex", sandbox: "workspace-write", askForApproval: "never" },
         flags: ["--search"],
       }),
@@ -59,7 +59,7 @@ describe("CodexPlugin", () => {
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: profile({ settings: { sandbox: "read-only", askForApproval: "on-request" } }),
+      preset: preset({ settings: { sandbox: "read-only", askForApproval: "on-request" } }),
     });
     expect(cmd).toEqual(["/usr/bin/codex", "-s", "read-only", "-a", "on-request"]);
   });
@@ -69,7 +69,7 @@ describe("CodexPlugin", () => {
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: profile({ flags: ['-c mcp_servers.foo.args=["a b"]'] }),
+      preset: preset({ flags: ['-c mcp_servers.foo.args=["a b"]'] }),
     });
     expect(cmd).toEqual(["/usr/bin/codex", '-c mcp_servers.foo.args=["a b"]']);
   });
@@ -79,17 +79,17 @@ describe("CodexPlugin", () => {
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: profile({ settings: { model: 42, sandbox: "", askForApproval: false } }),
+      preset: preset({ settings: { model: 42, sandbox: "", askForApproval: false } }),
     });
     expect(cmd).toEqual(["/usr/bin/codex"]);
   });
 
-  it("buildCommand: order is settings → mcp args → profile flags → extraFlags", () => {
+  it("buildCommand: order is settings → mcp args → preset flags → extraFlags", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: profile({ settings: { model: "gpt-5" }, flags: ["--search"] }),
+      preset: preset({ settings: { model: "gpt-5" }, flags: ["--search"] }),
       mcp: {
         fileContent: "",
         args: ["-c", 'mcp_servers.subshell.command="/opt/subshell/subshell-mcp"'],
@@ -114,7 +114,7 @@ describe("CodexPlugin", () => {
       binary: "/usr/bin/codex",
       cwd: "/tmp/ws",
       subshellName: "s",
-      profile: profile(),
+      preset: preset(),
       harnessSession: { id: "00000000-0000-0000-0000-000000000000", mode: "resume" },
     });
     expect(cmd).toEqual(["/usr/bin/codex"]);
@@ -156,9 +156,9 @@ describe("CodexPlugin", () => {
     expect(plugin.mcpSetup?.(launch).mode).toBe("auto");
   });
 
-  it("validateProfile: delegates to the generic checks", () => {
-    expect(plugin.validateProfile(profile({ name: " " })).valid).toBe(false);
-    expect(plugin.validateProfile(profile({ flags: ["pure"] })).valid).toBe(false);
-    expect(plugin.validateProfile(profile()).valid).toBe(true);
+  it("validatePreset: delegates to the generic checks", () => {
+    expect(plugin.validatePreset(preset({ name: " " })).valid).toBe(false);
+    expect(plugin.validatePreset(preset({ flags: ["pure"] })).valid).toBe(false);
+    expect(plugin.validatePreset(preset()).valid).toBe(true);
   });
 });

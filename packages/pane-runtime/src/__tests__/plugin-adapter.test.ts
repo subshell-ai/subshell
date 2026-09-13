@@ -31,7 +31,7 @@ const MANIFEST: SubshellManifest = {
 function minimal(over: Partial<SubshellPlugin> = {}): SubshellPlugin {
   return {
     buildCommand: (input) => [input.binary],
-    validateProfile: () => ({ valid: true, issues: [] }),
+    validatePreset: () => ({ valid: true, issues: [] }),
     capabilities: () => [],
     ...over,
   };
@@ -112,7 +112,7 @@ describe("adaptPlugin: optional members are present only when implemented", () =
   });
 
   it("a plugin with no MCP setup shows no steps, never a false 'automatic'", () => {
-    // `{mode:"auto"}` would tell the profile editor registration is handled.
+    // `{mode:"auto"}` would tell the preset editor registration is handled.
     expect(adaptPlugin(MANIFEST, minimal()).mcpSetup({ command: "c", args: [] })).toEqual({
       mode: "manual",
       steps: [],

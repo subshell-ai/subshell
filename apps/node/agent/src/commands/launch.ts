@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { assembleHarnessCommand, enforceMode, findBinary, type ProfileDefinition } from "@internal/pane-runtime";
+import { assembleHarnessCommand, enforceMode, findBinary, type PresetDefinition } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { log } from "../log.js";
@@ -116,12 +116,12 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // `assembleHarnessCommand` the local build finished in, so the env assembly
   // is literally ONE function (§6.4 byte-identity, extended to a command line
   // this machine never built).
-  // The wire profile is the structural mirror (`ProfileDefinitionWire`) —
+  // The wire preset is the structural mirror (`PresetDefinitionWire`) —
   // same field names, the frame validator already ran — so the cast is the
   // intended decode, exactly where the brief pins it.
-  const profile = cmd.profile as unknown as ProfileDefinition;
+  const preset = cmd.preset as unknown as PresetDefinition;
   try {
-    const paneCmd = assembleHarnessCommand(argv, profile, cmd.subshellEnv, mcpPaneEnv);
+    const paneCmd = assembleHarnessCommand(argv, preset, cmd.subshellEnv, mcpPaneEnv);
     ctx.tmux.newSubshell(cmd.socket, cmd.subshellId, cmd.cwd, paneCmd);
   } catch (err) {
     await ctx.meta.forget(cmd.subshellId); // nothing spawned — no orphan root for the policy

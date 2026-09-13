@@ -58,7 +58,7 @@ export {
   type NodeRuntimeReport,
   type NodeServiceVerb,
   type PluginReportWire,
-  type ProfileDefinitionWire,
+  type PresetDefinitionWire,
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeRuntimeReport,

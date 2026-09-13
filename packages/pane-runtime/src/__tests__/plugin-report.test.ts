@@ -14,7 +14,7 @@ import { buildPluginReports, installEmbedded, pluginsDir } from "../index.js";
  * plugin concept (inversion spec §6), so these pins moved with the only
  * remaining consumer rather than being deleted with the agent-side copy.
  * They pin that the data is actually there, because a missing field surfaces
- * as an empty profile editor rather than as an error.
+ * as an empty preset editor rather than as an error.
  */
 function tempDataDir(): string {
   return mkdtempSync(join(tmpdir(), "plugin-report-"));
@@ -25,7 +25,7 @@ describe("buildPluginReports", () => {
     expect(await buildPluginReports(tempDataDir())).toEqual([]);
   });
 
-  it("reports what the profile editor and the launch gate need", async () => {
+  it("reports what the preset editor and the launch gate need", async () => {
     const dir = tempDataDir();
     await installEmbedded(dir, "claude-code");
     const [report] = await buildPluginReports(dir);
@@ -35,9 +35,9 @@ describe("buildPluginReports", () => {
     expect(report?.type).toBe("agent-harness");
     expect(report?.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(report?.capabilities.sort()).toEqual(["attention", "mcp", "resume", "settings"]);
-    // Non-empty, because an empty settings list renders as a profile editor
+    // Non-empty, because an empty settings list renders as a preset editor
     // with nothing in it and looks like a working screen.
-    expect((report?.profileSettings ?? []).length).toBeGreaterThan(0);
+    expect((report?.presetSettings ?? []).length).toBeGreaterThan(0);
     expect((report?.suggestedFlags ?? []).length).toBeGreaterThan(0);
     expect(report?.mcpSetup).toBeTruthy();
     expect(report?.exitStatuses).toBeTruthy();

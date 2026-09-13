@@ -217,11 +217,11 @@ export function createInProcessRuntime(): PluginRuntime {
         }
         const plugin = (factory as (host: unknown) => SubshellPlugin)(createPluginHost({ pluginId: manifest.id }));
         // Every REQUIRED member, not a sample of them. The adapter calls
-        // `validateProfile` unconditionally, so a plugin missing it used to
+        // `validatePreset` unconditionally, so a plugin missing it used to
         // load as healthy and then throw from inside a closure the loader's
         // try/catch no longer covers, surfacing as a 500 rather than as
         // "this plugin is broken".
-        const required = ["buildCommand", "validateProfile", "capabilities"] as const;
+        const required = ["buildCommand", "validatePreset", "capabilities"] as const;
         const absent = required.filter((m) => typeof plugin?.[m] !== "function");
         if (absent.length > 0) {
           return broken(manifest, `the factory returned an object missing: ${absent.join(", ")}`, stale);

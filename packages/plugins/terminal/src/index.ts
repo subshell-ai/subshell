@@ -3,10 +3,10 @@ import {
   type PluginCapability,
   type PluginFactory,
   type PluginHost,
-  type ProfileDefinition,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationResult,
   type SubshellPlugin,
-  validateGenericProfile,
+  validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
 const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
@@ -44,7 +44,7 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => [],
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, extraFlags } = input;
+    const { binary, preset, extraFlags } = input;
     // No `--name` equivalent: the launch never TELLS the shell its display
     // name, because a shell has no session-title notion. The pane's title is
     // whatever the shell itself sets (a default `.bashrc` sets `user@host:
@@ -52,7 +52,7 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     // harness's — so an unnamed terminal subshell renames with the prompt
     // until the user names it, which locks it.
     // Each stored flag is one complete argv token, as in every other plugin.
-    return [binary, ...profile.flags, ...(extraFlags ?? [])];
+    return [binary, ...preset.flags, ...(extraFlags ?? [])];
   },
 
   /**
@@ -76,8 +76,8 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     return match ? match[0] : firstLine;
   },
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   },
 
   suggestedFlags(): { flag: string; description: string }[] {

@@ -9,12 +9,12 @@ import {
   type PluginCapability,
   type PluginFactory,
   type PluginHost,
-  type ProfileDefinition,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationResult,
   type ReporterSpec,
   type SettingsField,
   type SubshellPlugin,
-  validateGenericProfile,
+  validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
 /** Known claude-code settings editor fields (top-level `--settings` keys). */
@@ -150,9 +150,9 @@ function projectSlug(cwd: string): string {
  * Built-in harness: Claude Code.
  *
  * Launch shape:
- *   claude --settings <json> --name <subshell> [profile flags] [extra flags]
+ *   claude --settings <json> --name <subshell> [preset flags] [extra flags]
  * Settings are passed as a JSON string via `--settings` (per-invocation, so
- * profile config never needs to write into the user's real ~/.claude).
+ * preset config never needs to write into the user's real ~/.claude).
  *
  * Identity, detection and install guidance live in this package's
  * package.json `subshell` block, NOT here: the host reads them without
@@ -194,7 +194,7 @@ const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
   } satisfies HarnessResume,
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, subshellName, extraFlags, mcp, harnessSession, reporter } = input;
+    const { binary, preset, subshellName, extraFlags, mcp, harnessSession, reporter } = input;
 
     const args: string[] = [binary];
 
@@ -207,18 +207,18 @@ const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
       args.push(harnessSession.mode === "resume" ? "--resume" : "--session-id", harnessSession.id);
     }
 
-    // Settings JSON is passed via --settings so profiles never touch the
+    // Settings JSON is passed via --settings so presets never touch the
     // user's real ~/.claude files. The attention hooks ride along on every
     // launch the host resolved a reporter for (subshell's signal wins if a
-    // profile set its own `hooks` key, a documented limitation whose
+    // preset set its own `hooks` key, a documented limitation whose
     // alternative is no notifications).
     //
     // No reporter means no hooks AT ALL, rather than hooks naming something
     // this machine may not have: an unrunnable command reports exactly as
     // little as an absent one and puts an error in front of the user on every
-    // turn. `--settings` is then omitted entirely unless the profile brought
+    // turn. `--settings` is then omitted entirely unless the preset brought
     // settings of its own.
-    const settings: Record<string, unknown> = { ...(profile.settings ?? {}) };
+    const settings: Record<string, unknown> = { ...(preset.settings ?? {}) };
     if (reporter) {
       settings.hooks = attentionHooks(host, reporter);
     } else {
@@ -233,7 +233,7 @@ const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
     }
 
     // Each stored flag is one complete argv token (see opencode's note).
-    for (const flag of profile.flags) args.push(flag);
+    for (const flag of preset.flags) args.push(flag);
 
     if (extraFlags) {
       args.push(...extraFlags);
@@ -258,11 +258,11 @@ const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
     };
   },
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   },
 
-  profileSettings(): SettingsField[] {
+  presetSettings(): SettingsField[] {
     return CLAUDE_SETTINGS_FIELDS;
   },
 

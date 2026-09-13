@@ -2,6 +2,6 @@
 // that silently begins a fresh conversation while looking like it continued.
 export default () => ({
   buildCommand: () => [],
-  validateProfile: () => ({ valid: true, issues: [] }),
+  validatePreset: () => ({ valid: true, issues: [] }),
   capabilities: () => ["resume"],
 });

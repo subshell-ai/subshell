@@ -13,7 +13,7 @@ import {
   refreshInstalledPlugins,
   resetRegistryForTests,
 } from "../registry.js";
-import type { ProfileDefinition } from "../types.js";
+import type { PresetDefinition } from "../types.js";
 
 /**
  * The installed overlay: what makes a registry-installed plugin RESOLVE, not
@@ -22,7 +22,7 @@ import type { ProfileDefinition } from "../types.js";
  * Task 9 moved plugin hosting onto the control plane, but every launch-path
  * lookup keyed off the compiled-in `BUILT_INS` while `plugin-report.ts`
  * loaded installed plugins and discarded them, so a third-party plugin could
- * never be detected, validated on a profile, or launched. The overlay is the
+ * never be detected, validated on a preset, or launched. The overlay is the
  * registration path those lookups now consult: a module-level
  * built-ins + installed merge, populated only by `refreshInstalledPlugins`
  * (which the control plane calls; the agent never does, so its view stays
@@ -31,8 +31,8 @@ import type { ProfileDefinition } from "../types.js";
 
 const BUILT_IN_IDS = ["claude-code", "codex", "hermes", "opencode", "pi", "terminal"];
 
-/** Minimal complete profile for `buildCommand` calls in these tests. */
-const PROFILE: ProfileDefinition = { name: "p", env: {}, flags: [], settings: null, configIsolation: false };
+/** Minimal complete preset for `buildCommand` calls in these tests. */
+const PRESET: PresetDefinition = { name: "p", env: {}, flags: [], settings: null, configIsolation: false };
 
 /** A temp agent-shaped data dir (nothing under `plugins/` yet). */
 function tempDataDir(): string {
@@ -79,7 +79,7 @@ async function writePlugin(
       "export default () => ({\n" +
         "  capabilities: () => [],\n" +
         `  buildCommand: (input) => [input.binary, ${JSON.stringify(`--from-${id}`)}],\n` +
-        "  validateProfile: () => ({ valid: true, issues: [] }),\n" +
+        "  validatePreset: () => ({ valid: true, issues: [] }),\n" +
         "});\n",
     "utf8",
   );
@@ -122,9 +122,10 @@ describe("the installed overlay", () => {
     expect(acme?.detectSpec).toEqual({ binaryName: "acme-cli", envOverride: "ACME_PATH", knownPaths: [] });
     // Behaviour comes from the loaded module — the half the report used to
     // discard, and the half every launch needs.
-    expect(
-      acme?.buildCommand({ binary: "/usr/bin/acme-cli", cwd: "/tmp", profile: PROFILE, subshellName: "" }),
-    ).toEqual(["/usr/bin/acme-cli", "--from-acme"]);
+    expect(acme?.buildCommand({ binary: "/usr/bin/acme-cli", cwd: "/tmp", preset: PRESET, subshellName: "" })).toEqual([
+      "/usr/bin/acme-cli",
+      "--from-acme",
+    ]);
 
     expect(
       allHarnesses()

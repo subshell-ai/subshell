@@ -24,12 +24,12 @@ export {
   type PluginFactory,
   type PluginHost,
   type PluginType,
-  type ProfileDefinition,
-  type ProfileValidationIssue,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationIssue,
+  type PresetValidationResult,
   type ReporterSpec,
   type SettingsField,
   type SubshellPlugin,
   shellQuote,
 } from "./types.js";
-export { validateGenericProfile } from "./validate.js";
+export { validateGenericPreset } from "./validate.js";

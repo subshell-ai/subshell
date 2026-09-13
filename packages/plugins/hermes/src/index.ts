@@ -6,11 +6,11 @@ import {
   type PluginCapability,
   type PluginFactory,
   type PluginHost,
-  type ProfileDefinition,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationResult,
   type SettingsField,
   type SubshellPlugin,
-  validateGenericProfile,
+  validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
 /** Hermes per-invocation overrides, applied as CLI flags (no config file writes). */
@@ -58,7 +58,7 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  * Built-in harness: Hermes Agent (Nous Research).
  *
  * Launch shape:
- *   hermes [-m <model>] [--provider <p>] [-t <toolsets>] [profile flags] [extra flags]
+ *   hermes [-m <model>] [--provider <p>] [-t <toolsets>] [preset flags] [extra flags]
  * A bare launch starts interactive chat; which interface (classic REPL vs
  * --tui) is left to the user's own display.interface config. Hermes has no
  * create-time flag for naming its own session, so the subshell's display name
@@ -103,16 +103,16 @@ const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
   },
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, extraFlags } = input;
+    const { binary, preset, extraFlags } = input;
     const args: string[] = [binary];
 
-    const s = profile.settings ?? {};
+    const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("-m", s.model);
     if (typeof s.provider === "string" && s.provider) args.push("--provider", s.provider);
     if (typeof s.toolsets === "string" && s.toolsets) args.push("-t", s.toolsets);
 
     // Each stored flag is one complete argv token (see opencode.ts note).
-    for (const flag of profile.flags) args.push(flag);
+    for (const flag of preset.flags) args.push(flag);
 
     if (extraFlags) args.push(...extraFlags);
     return args;
@@ -140,11 +140,11 @@ const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
     };
   },
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   },
 
-  profileSettings(): SettingsField[] {
+  presetSettings(): SettingsField[] {
     return HERMES_SETTINGS_FIELDS;
   },
 

@@ -10,7 +10,7 @@ import { capabilityMismatches, type PluginCapability, type SubshellPlugin } from
 function plugin(caps: PluginCapability[], over: Partial<SubshellPlugin> = {}): SubshellPlugin {
   return {
     buildCommand: () => [],
-    validateProfile: () => ({ valid: true, issues: [] }),
+    validatePreset: () => ({ valid: true, issues: [] }),
     capabilities: () => caps,
     ...over,
   };
@@ -51,7 +51,7 @@ describe("capabilityMismatches", () => {
       mcpSetup: () => ({ mode: "auto", summary: "" }),
       resume: { allocateHarnessSessionId: () => "x", resumePath: () => "/p" },
       supportsAttentionHooks: true,
-      profileSettings: () => [],
+      presetSettings: () => [],
     });
     expect(capabilityMismatches(p)).toEqual([]);
   });

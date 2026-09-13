@@ -34,9 +34,9 @@ export type PluginCapability = "mcp" | "resume" | "attention" | "settings";
 /** Every {@link PluginCapability}, for validation. */
 export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = ["mcp", "resume", "attention", "settings"];
 
-/** A harness profile as defined by the user (decoded JSON blobs). */
-export interface ProfileDefinition {
-  /** Human-friendly profile name */
+/** A harness preset as defined by the user (decoded JSON blobs). */
+export interface PresetDefinition {
+  /** Human-friendly preset name */
   name: string;
   /** Optional longer description */
   description?: string | null;
@@ -46,23 +46,23 @@ export interface ProfileDefinition {
   flags: string[];
   /** Settings blob passed to the harness (e.g. claude --settings JSON) */
   settings: Record<string, unknown> | null;
-  /** If true, only this profile's config sources apply (isolation) */
+  /** If true, only this preset's config sources apply (isolation) */
   configIsolation: boolean;
-  /** If true, new subshells from this profile auto-restart on exit */
+  /** If true, new subshells from this preset auto-restart on exit */
   restartOnExit?: boolean;
 }
 
-/** Snapshot of a single field-level validation error on a profile. */
-export interface ProfileValidationIssue {
+/** Snapshot of a single field-level validation error on a preset. */
+export interface PresetValidationIssue {
   /** Field name (e.g. "name", "env", "settings") */
   field: string;
   /** Human-readable problem description */
   message: string;
 }
 
-export interface ProfileValidationResult {
+export interface PresetValidationResult {
   valid: boolean;
-  issues: ProfileValidationIssue[];
+  issues: PresetValidationIssue[];
 }
 
 /** Everything a plugin needs to build a launch command. */
@@ -71,8 +71,8 @@ export interface BuildCommandInput {
   binary: string;
   /** Working directory the harness runs in */
   cwd: string;
-  /** The validated profile being used */
-  profile: ProfileDefinition;
+  /** The validated preset being used */
+  preset: PresetDefinition;
   /** Subshell display name ("" = let the harness pick a default) */
   subshellName: string;
   /** Any additional CLI flags from route/request context */
@@ -181,13 +181,13 @@ export interface McpRegistration {
   args?: string[];
   /**
    * Extra pane env the harness needs to discover the file (e.g. OPENCODE_CONFIG).
-   * Consumed by the HOST, which bakes it into the pane env ahead of profile env;
+   * Consumed by the HOST, which bakes it into the pane env ahead of preset env;
    * plugins never read it back.
    */
   env?: Record<string, string>;
 }
 
-/** One copy-paste line shown in the profile editor for manual-setup harnesses. */
+/** One copy-paste line shown in the preset editor for manual-setup harnesses. */
 export interface McpSetupStep {
   /** What the user should do, and where the text goes */
   label: string;
@@ -263,8 +263,8 @@ export interface PluginHost {
 export interface SubshellPlugin {
   /** Builds the argv (no shell) used to launch a subshell. */
   buildCommand(input: BuildCommandInput): string[];
-  /** Validates a profile definition before saving. */
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult;
+  /** Validates a preset definition before saving. */
+  validatePreset(preset: PresetDefinition): PresetValidationResult;
   /** Which optional members below are meaningful on this plugin. */
   capabilities(): PluginCapability[];
 
@@ -297,11 +297,11 @@ export interface SubshellPlugin {
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
   /** How users obtain the subshell MCP tools here. Declare the `mcp` capability with it. */
   mcpSetup?(launch: McpLaunchSpec): McpSetupInfo;
-  /** Settings rendered in the PROFILE editor and stored on the profile. */
-  profileSettings?(): SettingsField[];
-  /** Known extra env var suggestions for the profile editor. */
+  /** Settings rendered in the PRESET editor and stored on the preset. */
+  presetSettings?(): SettingsField[];
+  /** Known extra env var suggestions for the preset editor. */
   suggestedEnv?(): { key: string; description: string }[];
-  /** Known CLI flag suggestions for the profile editor. */
+  /** Known CLI flag suggestions for the preset editor. */
   suggestedFlags?(): { flag: string; description: string }[];
 }
 
@@ -349,7 +349,7 @@ export function capabilityMismatches(plugin: SubshellPlugin): string[] {
     mcp: Boolean(plugin.mcpRegistration ?? plugin.mcpSetup),
     resume: Boolean(plugin.resume),
     attention: plugin.supportsAttentionHooks === true,
-    settings: Boolean(plugin.profileSettings),
+    settings: Boolean(plugin.presetSettings),
   };
 
   for (const capability of PLUGIN_CAPABILITIES) {

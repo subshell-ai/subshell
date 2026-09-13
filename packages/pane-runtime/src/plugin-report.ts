@@ -8,7 +8,7 @@ import { listInstalled, pluginsDir } from "./plugins-dir.js";
  *
  * The server holds no plugin code for a machine it does not run on, so
  * everything it needs about a plugin travels as DATA: enough to list it,
- * render its profile editor, label its exit codes and explain its MCP setup.
+ * render its preset editor, label its exit codes and explain its MCP setup.
  *
  * A plugin that will not load still gets a row, carrying `broken`. Dropping it
  * would make a misconfigured plugin indistinguishable from one nobody
@@ -86,7 +86,7 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         ...(manifest.icon ? { icon: manifest.icon } : {}),
         description: manifest.description,
         capabilities: plugin.capabilities(),
-        profileSettings: plugin.profileSettings?.() ?? [],
+        presetSettings: plugin.presetSettings?.() ?? [],
         suggestedEnv: plugin.suggestedEnv?.() ?? [],
         suggestedFlags: plugin.suggestedFlags?.() ?? [],
         // The launch spec is the SERVER's to resolve, so the setup text here

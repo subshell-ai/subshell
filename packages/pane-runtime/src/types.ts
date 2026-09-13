@@ -23,9 +23,9 @@ export {
   type McpRegistration,
   type McpSetupInfo,
   type McpSetupStep,
-  type ProfileDefinition,
-  type ProfileValidationIssue,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationIssue,
+  type PresetValidationResult,
   type ReporterSpec,
   type SettingsField,
 } from "@subshell-ai/plugin-api";
@@ -39,8 +39,8 @@ import type {
   McpRegistration,
   McpSetupInfo,
   PluginType,
-  ProfileDefinition,
-  ProfileValidationResult,
+  PresetDefinition,
+  PresetValidationResult,
   SettingsField,
 } from "@subshell-ai/plugin-api";
 
@@ -162,15 +162,15 @@ export interface HarnessPlugin {
    * surfaces one-time manual setup via mcpSetup() instead.
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
-  /** How users obtain the subshell MCP tools in this harness (drives the profile UI). */
+  /** How users obtain the subshell MCP tools in this harness (drives the preset UI). */
   mcpSetup(launch: McpLaunchSpec): McpSetupInfo;
-  /** Validates a profile definition before saving. */
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult;
+  /** Validates a preset definition before saving. */
+  validatePreset(preset: PresetDefinition): PresetValidationResult;
   /** Settings editor schema (or null if the harness has no settings). */
   settingsFields(): SettingsField[];
-  /** Known extra env var suggestions for the profile editor. */
+  /** Known extra env var suggestions for the preset editor. */
   suggestedEnv(): { key: string; description: string }[];
-  /** Known CLI flag suggestions for the profile editor. */
+  /** Known CLI flag suggestions for the preset editor. */
   suggestedFlags(): { flag: string; description: string }[];
   /** Maps a harness exit code to a human label (null = unknown). */
   exitStatus?(code: number): string | null;

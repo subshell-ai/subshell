@@ -7,11 +7,11 @@ import {
   type PluginCapability,
   type PluginFactory,
   type PluginHost,
-  type ProfileDefinition,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationResult,
   type SettingsField,
   type SubshellPlugin,
-  validateGenericProfile,
+  validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
 /** Known opencode settings, applied as per-invocation CLI flags. */
@@ -39,7 +39,7 @@ const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
 const SUGGESTED_ENV: { key: string; description: string }[] = [
   // OPENCODE_CONFIG is deliberately NOT suggested: subshell owns it — it points
   // at each subshell's generated MCP config layer (mcpRegistration), and a
-  // profile that set it would shadow its own cross-subshell comms. Users who
+  // preset that set it would shadow its own cross-subshell comms. Users who
   // want their own extra layer use OPENCODE_CONFIG_CONTENT (independent merge
   // source) or OPENCODE_CONFIG_DIR.
   { key: "OPENCODE_CONFIG_CONTENT", description: "Inline JSON config merged at runtime" },
@@ -62,7 +62,7 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  * Built-in harness: OpenCode (opencode.ai).
  *
  * Launch shape:
- *   opencode [-m <model>] [--agent <a>] [--auto] [profile flags] [extra flags]
+ *   opencode [-m <model>] [--agent <a>] [--auto] [preset flags] [extra flags]
  * A bare launch opens the TUI. opencode has no create-time flag for naming its
  * own session, so the subshell's display name is deliberately not forwarded.
  * Settings arrive as
@@ -86,17 +86,17 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => ["mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, extraFlags } = input;
+    const { binary, preset, extraFlags } = input;
     const args: string[] = [binary];
 
-    const s = profile.settings ?? {};
+    const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("-m", s.model);
     if (typeof s.agent === "string" && s.agent) args.push("--agent", s.agent);
     if (s.auto === true) args.push("--auto");
 
     // Each stored flag is one complete argv token (row editor guarantees it);
     // never re-split on whitespace or multi-word values break.
-    for (const flag of profile.flags) args.push(flag);
+    for (const flag of preset.flags) args.push(flag);
 
     if (extraFlags) args.push(...extraFlags);
     return args;
@@ -126,11 +126,11 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     };
   },
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   },
 
-  profileSettings(): SettingsField[] {
+  presetSettings(): SettingsField[] {
     return OPENCODE_SETTINGS_FIELDS;
   },
 

@@ -56,8 +56,12 @@ export function semverLt(a: string, b: string): boolean {
  * history was cleared and the whole fleet re-cut from 0.1.0. The old 0.4.0
  * floor described versions that no longer exist; the wire contract that
  * actually gates nodes is still NODE_PROTOCOL_VERSION.
+ *
+ * Raised to 0.5.0 with protocol 7 (the preset rename, spec 2026-09-13), the
+ * same commit hand-raising `apps/node/agent/package.json` to 0.5.0 — the
+ * rule above, followed.
  */
-export const MIN_AGENT_VERSION = "0.3.0";
+export const MIN_AGENT_VERSION = "0.5.0";
 
 /**
  * Whether an agent reporting `version` may connect.

@@ -46,7 +46,7 @@
     "access": "public"
   },
   "subshell": {
-    "apiVersion": 1,
+    "apiVersion": 2,
     "id": "hermes",
     "type": "agent-harness",
     "name": "Hermes Agent",

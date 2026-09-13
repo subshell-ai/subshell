@@ -8,7 +8,7 @@ import type {
   McpRegistration,
   McpSetupInfo,
   PluginCapability,
-  ProfileDefinition,
+  PresetDefinition,
   SettingsField,
   SubshellPlugin,
 } from "@subshell-ai/plugin-api";
@@ -28,8 +28,8 @@ import { PiPlugin } from "./fixtures/pi-legacy.js";
  * change: understand it, never absorb it by editing the expectation.
  */
 
-/** A profile with nothing set, so a case's own field is the only variable. */
-const BLANK: ProfileDefinition = {
+/** A preset with nothing set, so a case's own field is the only variable. */
+const BLANK: PresetDefinition = {
   name: "Default",
   description: null,
   env: {},
@@ -51,7 +51,7 @@ function input(over: Partial<BuildCommandInput>): BuildCommandInput {
   return {
     binary: "/bin/claude",
     cwd: "/tmp/work",
-    profile: BLANK,
+    preset: BLANK,
     subshellName: "",
     reporter: REPORTER,
     ...over,
@@ -67,7 +67,7 @@ function input(over: Partial<BuildCommandInput>): BuildCommandInput {
  * pane's PATH; the extracted plugin re-enters the subshell binary instead,
  * because most machines have no bun and every session opened on
  * `bun: command not found`. Everything else about the hooks — which events
- * carry one, their shape, that profile settings merge underneath — still
+ * carry one, their shape, that preset settings merge underneath — still
  * compares exactly, and so does every other argv element.
  */
 function normalizeHookCommands(argv: string[]): string[] {
@@ -94,16 +94,16 @@ const CASES: { name: string; input: BuildCommandInput }[] = [
   { name: "a new conversation pins its id", input: input({ harnessSession: { id: SESSION, mode: "start" } }) },
   { name: "an existing conversation resumes", input: input({ harnessSession: { id: SESSION, mode: "resume" } }) },
   {
-    name: "profile settings merge under the attention hooks",
-    input: input({ profile: { ...BLANK, settings: { permissionMode: "plan", model: "sonnet" } } }),
+    name: "preset settings merge under the attention hooks",
+    input: input({ preset: { ...BLANK, settings: { permissionMode: "plan", model: "sonnet" } } }),
   },
   {
-    name: "a profile that sets its own hooks still gets ours",
-    input: input({ profile: { ...BLANK, settings: { hooks: { Stop: [] } } } }),
+    name: "a preset that sets its own hooks still gets ours",
+    input: input({ preset: { ...BLANK, settings: { hooks: { Stop: [] } } } }),
   },
   {
-    name: "profile flags are passed as whole argv tokens",
-    input: input({ profile: { ...BLANK, flags: ["--append-system-prompt", "be brief"] } }),
+    name: "preset flags are passed as whole argv tokens",
+    input: input({ preset: { ...BLANK, flags: ["--append-system-prompt", "be brief"] } }),
   },
   { name: "extra flags come last", input: input({ extraFlags: ["--verbose"] }) },
   {
@@ -112,7 +112,7 @@ const CASES: { name: string; input: BuildCommandInput }[] = [
       subshellName: "all",
       mcp: { fileContent: "{}", args: ["--mcp-config", "/tmp/x.json"] },
       harnessSession: { id: SESSION, mode: "resume" },
-      profile: { ...BLANK, flags: ["--model", "opus"], settings: { permissionMode: "acceptEdits" } },
+      preset: { ...BLANK, flags: ["--model", "opus"], settings: { permissionMode: "acceptEdits" } },
       extraFlags: ["--verbose"],
     }),
   },
@@ -156,10 +156,10 @@ describe("claude-code parity", () => {
     }
   });
 
-  it("offers the same profile-editor reference data", async () => {
+  it("offers the same preset-editor reference data", async () => {
     const legacy = new ClaudeCodePlugin();
     const loaded = await loadExtracted();
-    expect(loaded.profileSettings?.()).toEqual(legacy.settingsFields());
+    expect(loaded.presetSettings?.()).toEqual(legacy.settingsFields());
     expect(loaded.suggestedEnv?.()).toEqual(legacy.suggestedEnv());
     expect(loaded.suggestedFlags?.()).toEqual(legacy.suggestedFlags());
   });
@@ -230,7 +230,7 @@ const SHARED_CASES: { name: string; input: BuildCommandInput }[] = [
     name: "settings drive flags",
     input: input({
       binary: "/bin/tool",
-      profile: {
+      preset: {
         ...BLANK,
         settings: {
           model: "m",
@@ -246,8 +246,8 @@ const SHARED_CASES: { name: string; input: BuildCommandInput }[] = [
     }),
   },
   {
-    name: "profile flags are whole tokens",
-    input: input({ binary: "/bin/tool", profile: { ...BLANK, flags: ["--append", "two words"] } }),
+    name: "preset flags are whole tokens",
+    input: input({ binary: "/bin/tool", preset: { ...BLANK, flags: ["--append", "two words"] } }),
   },
   { name: "extra flags come last", input: input({ binary: "/bin/tool", extraFlags: ["--verbose"] }) },
 ];
@@ -299,10 +299,10 @@ for (const { id, legacy, caps } of OTHERS) {
       expect(loaded.mcpSetup?.(launch)).toEqual(old.mcpSetup(launch));
     });
 
-    it("offers the same profile-editor reference data", async () => {
+    it("offers the same preset-editor reference data", async () => {
       const loaded = await load();
       const old = legacy();
-      expect(loaded.profileSettings?.()).toEqual(old.settingsFields());
+      expect(loaded.presetSettings?.()).toEqual(old.settingsFields());
       expect(loaded.suggestedEnv?.()).toEqual(old.suggestedEnv());
       expect(loaded.suggestedFlags?.()).toEqual(old.suggestedFlags());
     });

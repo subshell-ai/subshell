@@ -10,15 +10,15 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { validateGenericProfile } from "@subshell-ai/plugin-api";
+import { validateGenericPreset } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "../../binary-lookup.js";
 import type {
   BuildCommandInput,
   McpLaunchSpec,
   McpRegistration,
   McpSetupInfo,
-  ProfileDefinition,
-  ProfileValidationResult,
+  PresetDefinition,
+  PresetValidationResult,
   SettingsField,
 } from "../../types.js";
 import { MCP_SERVER_NAME } from "../../types.js";
@@ -193,9 +193,9 @@ function projectSlug(cwd: string): string {
  * Built-in harness: Claude Code.
  *
  * Launch shape:
- *   claude --settings <json> --name <subshell> [profile flags] [extra flags]
+ *   claude --settings <json> --name <subshell> [preset flags] [extra flags]
  * Settings are passed as a JSON string via `--settings` (per-invocation, so
- * profile config never needs to write into the user's real ~/.claude).
+ * preset config never needs to write into the user's real ~/.claude).
  */
 export class ClaudeCodePlugin {
   readonly id = "claude-code";
@@ -257,7 +257,7 @@ export class ClaudeCodePlugin {
   };
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, subshellName, extraFlags, mcp, harnessSession } = input;
+    const { binary, preset, subshellName, extraFlags, mcp, harnessSession } = input;
 
     const args: string[] = [binary];
 
@@ -270,11 +270,11 @@ export class ClaudeCodePlugin {
       args.push(harnessSession.mode === "resume" ? "--resume" : "--session-id", harnessSession.id);
     }
 
-    // Settings JSON is passed via --settings so profiles never touch the
+    // Settings JSON is passed via --settings so presets never touch the
     // user's real ~/.claude files. The attention hooks ride along on EVERY
-    // launch (subshell's signal wins if a profile set its own `hooks` key —
+    // launch (subshell's signal wins if a preset set its own `hooks` key —
     // documented limitation, the alternative is no notifications).
-    const settings = { ...(profile.settings ?? {}), hooks: ATTENTION_HOOKS };
+    const settings = { ...(preset.settings ?? {}), hooks: ATTENTION_HOOKS };
     args.push("--settings", JSON.stringify(settings));
 
     if (subshellName) {
@@ -282,7 +282,7 @@ export class ClaudeCodePlugin {
     }
 
     // Each stored flag is one complete argv token (see opencode.ts note).
-    for (const flag of profile.flags) args.push(flag);
+    for (const flag of preset.flags) args.push(flag);
 
     if (extraFlags) {
       args.push(...extraFlags);
@@ -307,8 +307,8 @@ export class ClaudeCodePlugin {
     };
   }
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   }
 
   settingsFields(): SettingsField[] {

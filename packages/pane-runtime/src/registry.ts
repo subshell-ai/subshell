@@ -104,7 +104,7 @@ function registry(): Registry {
  * The gap this closes: since Task 9 the control plane is the one plugin host,
  * `plugins.route.ts` sells installs, and `plugin-report.ts` loads each
  * installed package to describe it and then DISCARDS the result. Every
- * launch-path lookup (`detectSpecs`, profile validation, argv building)
+ * launch-path lookup (`detectSpecs`, preset validation, argv building)
  * keyed off `BUILT_INS`, which has no registration path — so a third-party
  * plugin listed, toggled and uninstalled but could never resolve, detect or
  * launch. The overlay is that registration path: `refreshInstalledPlugins`

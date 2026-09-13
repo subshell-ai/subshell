@@ -11,7 +11,7 @@ import { PLUGIN_TYPES, type PluginType } from "./types.js";
  */
 
 /** The contract version this package describes. Bumped only for a breaking change to `SubshellPlugin`. */
-export const PLUGIN_API_VERSION = 1;
+export const PLUGIN_API_VERSION = 2;
 
 /**
  * Ids become directory names under `<dataDir>/plugins/`, so they are path

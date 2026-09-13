@@ -416,7 +416,7 @@ test("launch (valid wire, hostile subshell id) → result ok:false invalid subsh
     socket: "subshell-s1",
     cwd: "/tmp",
     harnessId: "claude-code",
-    profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
+    preset: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
     subshellEnv: {},
     subshellName: "s1",
     // Required on the frame since protocol 3; the id gate fires first, so

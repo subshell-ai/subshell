@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { shellQuote } from "./shell.js";
-import type { HarnessPlugin, McpRegistration, ProfileDefinition, ReporterSpec } from "./types.js";
+import type { HarnessPlugin, McpRegistration, PresetDefinition, ReporterSpec } from "./types.js";
 
 /**
  * POSIX shell variable names: a leading letter/underscore then word chars.
@@ -13,7 +13,7 @@ export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
  * Builds the shell command tmux runs for a harness subshell. Env precedence,
  * lowest to highest: curated host env (`curatedEnv()`) < SUBSHELL_* credentials <
- * profile env < the MCP registration's wiring env (see the inline note — the
+ * preset env < the MCP registration's wiring env (see the inline note — the
  * wiring layer wins on purpose). The harness argv itself is built by the
  * plugin, but the final assembly IS a shell string (tmux runs it through
  * `sh -c`), so every env KEY is validated against {@link ENV_KEY_RE} and
@@ -31,15 +31,15 @@ export function buildHarnessCommand(
   harness: HarnessPlugin,
   binary: string,
   cwd: string,
-  profile: ProfileDefinition,
+  preset: PresetDefinition,
   subshellName: string,
   subshellEnv: Record<string, string> = {},
   mcp?: McpRegistration,
   harnessSession?: { id: string; mode: "start" | "resume" },
   reporter?: ReporterSpec,
 ): string {
-  const argv = harness.buildCommand({ binary, cwd, profile, subshellName, mcp, harnessSession, reporter });
-  return assembleHarnessCommand(argv, profile, subshellEnv, mcp?.env);
+  const argv = harness.buildCommand({ binary, cwd, preset, subshellName, mcp, harnessSession, reporter });
+  return assembleHarnessCommand(argv, preset, subshellEnv, mcp?.env);
 }
 
 /**
@@ -50,27 +50,27 @@ export function buildHarnessCommand(
  * this IS the byte-identity, for a command line this machine never built.
  *
  * @param argv the complete, already-resolved command line (no placeholder left)
- * @param profile the wire profile (its `env` layer rides above `subshellEnv`)
+ * @param preset the wire preset (its `env` layer rides above `subshellEnv`)
  * @param subshellEnv SUBSHELL_* credentials from the control plane
  * @param mcpEnv the MCP registration's wiring env (highest layer; see below)
  * @throws Error when a merged env key is not a valid shell variable name
  */
 export function assembleHarnessCommand(
   argv: string[],
-  profile: ProfileDefinition,
+  preset: PresetDefinition,
   subshellEnv: Record<string, string> = {},
   mcpEnv?: Record<string, string>,
 ): string {
   // Precedence, lowest to highest: curated host env < SUBSHELL_* credentials
-  // (a profile may deliberately override SUBSHELL_BASE_URL) < the profile's own
+  // (a preset may deliberately override SUBSHELL_BASE_URL) < the preset's own
   // env < the registration's wiring env. Wiring env goes LAST on purpose:
   // a key like OPENCODE_CONFIG is transport plumbing, not a user knob — a
-  // profile setting it would otherwise silently drop the subshell's subshell
+  // preset setting it would otherwise silently drop the subshell's subshell
   // tools while the UI still promised automatic registration.
-  const env = { ...curatedEnv(), ...subshellEnv, ...profile.env, ...(mcpEnv ?? {}) };
+  const env = { ...curatedEnv(), ...subshellEnv, ...preset.env, ...(mcpEnv ?? {}) };
   // Defense-in-depth at the last chokepoint before the shell string exists:
   // this catches legacy DB rows and any other env source merged above,
-  // regardless of what the entry-point (profile-save) validation allowed.
+  // regardless of what the entry-point (preset-save) validation allowed.
   for (const key of Object.keys(env)) {
     if (!ENV_KEY_RE.test(key)) {
       throw new Error(`Invalid harness env var name ${JSON.stringify(key)}: keys must match [A-Za-z_][A-Za-z0-9_]*`);
@@ -82,7 +82,7 @@ export function assembleHarnessCommand(
   // terminal type would describe the wrong terminal even when set). The
   // value that describes THIS terminal is the one tmux gave the pane, so
   // emit a literal "$TERM": the `sh -c` wrapper expands it at launch time,
-  // inside the pane. A profile that sets TERM explicitly wins instead.
+  // inside the pane. A preset that sets TERM explicitly wins instead.
   if (!("TERM" in env)) envArgs.push('TERM="$TERM"');
   return `env -i ${envArgs.join(" ")} ${argv.map(shellQuote).join(" ")}`;
 }

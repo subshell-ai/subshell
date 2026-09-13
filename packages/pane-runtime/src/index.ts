@@ -1,4 +1,4 @@
-export { validateGenericProfile } from "@subshell-ai/plugin-api";
+export { validateGenericPreset } from "@subshell-ai/plugin-api";
 export {
   type DetectionReason,
   type DetectionResult,
@@ -81,9 +81,9 @@ export type {
   McpRegistration,
   McpSetupInfo,
   McpSetupStep,
-  ProfileDefinition,
-  ProfileValidationIssue,
-  ProfileValidationResult,
+  PresetDefinition,
+  PresetValidationIssue,
+  PresetValidationResult,
   ReporterSpec,
   SettingsField,
 } from "./types.js";

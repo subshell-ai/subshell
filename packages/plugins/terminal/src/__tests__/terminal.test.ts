@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import type { BuildCommandInput, ProfileDefinition } from "@subshell-ai/plugin-api";
+import type { BuildCommandInput, PresetDefinition } from "@subshell-ai/plugin-api";
 import createPlugin, { manifest } from "../index.js";
 
-const BLANK: ProfileDefinition = {
+const BLANK: PresetDefinition = {
   name: "Default",
   description: null,
   env: {},
@@ -12,7 +12,7 @@ const BLANK: ProfileDefinition = {
 };
 
 function input(over: Partial<BuildCommandInput> = {}): BuildCommandInput {
-  return { binary: "/bin/zsh", cwd: "/tmp/work", profile: BLANK, subshellName: "", ...over };
+  return { binary: "/bin/zsh", cwd: "/tmp/work", preset: BLANK, subshellName: "", ...over };
 }
 
 const plugin = () => createPlugin({} as never);
@@ -51,8 +51,8 @@ describe("terminal plugin", () => {
     expect(plugin().buildCommand(input())).toEqual(["/bin/zsh"]);
   });
 
-  it("appends profile flags, then extra flags, in that order", () => {
-    const cmd = plugin().buildCommand(input({ profile: { ...BLANK, flags: ["-l"] }, extraFlags: ["-c", "echo hi"] }));
+  it("appends preset flags, then extra flags, in that order", () => {
+    const cmd = plugin().buildCommand(input({ preset: { ...BLANK, flags: ["-l"] }, extraFlags: ["-c", "echo hi"] }));
     expect(cmd).toEqual(["/bin/zsh", "-l", "-c", "echo hi"]);
   });
 
@@ -60,8 +60,8 @@ describe("terminal plugin", () => {
     expect(plugin().buildCommand(input({ subshellName: "review" }))).toEqual(["/bin/zsh"]);
   });
 
-  it("accepts a blank profile", () => {
-    expect(plugin().validateProfile(BLANK).valid).toBe(true);
+  it("accepts a blank preset", () => {
+    expect(plugin().validatePreset(BLANK).valid).toBe(true);
   });
 });
 

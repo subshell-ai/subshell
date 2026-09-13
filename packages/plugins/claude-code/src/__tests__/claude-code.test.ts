@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { ProfileDefinition } from "@subshell-ai/plugin-api";
+import type { PresetDefinition } from "@subshell-ai/plugin-api";
 import { createTestHost } from "@subshell-ai/plugin-api/testing";
 import createPlugin, { manifest } from "../index.js";
 
@@ -42,12 +42,12 @@ describe("ClaudeCodePlugin", () => {
     expect(plugin.capabilities().sort()).toEqual(["attention", "mcp", "resume", "settings"]);
   });
 
-  it("buildCommand: bare launch with no profile extra", () => {
+  it("buildCommand: bare launch with no preset extra", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: emptyProfile(),
+      preset: emptyPreset(),
       reporter,
     });
     expect(cmd).toEqual(["/usr/bin/claude", "--settings", expect.any(String)]);
@@ -59,7 +59,7 @@ describe("ClaudeCodePlugin", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       subshellName: "My Subshell",
-      profile: {
+      preset: {
         name: "p",
         env: {},
         flags: ["--permission-mode", "plan", "--model", "sonnet"],
@@ -71,7 +71,7 @@ describe("ClaudeCodePlugin", () => {
     expect(cmd[0]).toBe("/usr/bin/claude");
     expect(cmd).toContain("--settings");
     const settingsIdx = cmd.indexOf("--settings");
-    // The merged JSON must carry the profile's keys verbatim; `hooks` is
+    // The merged JSON must carry the preset's keys verbatim; `hooks` is
     // subshell's addition and rides alongside (see the attention-hooks describe).
     expect(JSON.parse(cmd[settingsIdx + 1])).toMatchObject({ permissionMode: "plan", model: "sonnet" });
     expect(JSON.parse(cmd[settingsIdx + 1]).hooks).toBeDefined();
@@ -88,7 +88,7 @@ describe("ClaudeCodePlugin", () => {
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: {
+      preset: {
         name: "p",
         env: {},
         flags: ["--append-system-prompt", "be nice"],
@@ -100,11 +100,11 @@ describe("ClaudeCodePlugin", () => {
     expect(cmd).toEqual(["/usr/bin/claude", "--settings", expect.any(String), "--append-system-prompt", "be nice"]);
   });
 
-  it("validateProfile: rejects missing name and bad flags", () => {
-    expect(plugin.validateProfile({ name: "", env: {}, flags: [], settings: null, configIsolation: false }).valid).toBe(
+  it("validatePreset: rejects missing name and bad flags", () => {
+    expect(plugin.validatePreset({ name: "", env: {}, flags: [], settings: null, configIsolation: false }).valid).toBe(
       false,
     );
-    const bad = plugin.validateProfile({
+    const bad = plugin.validatePreset({
       name: "x",
       env: { FOO: "bar", NOPE: "ok" },
       flags: ["nopeflag"],
@@ -123,7 +123,7 @@ describe("ClaudeCodePlugin", () => {
   });
 });
 
-function emptyProfile(): ProfileDefinition {
+function emptyPreset(): PresetDefinition {
   return { name: "default", env: {}, flags: [], settings: null, configIsolation: false };
 }
 
@@ -132,7 +132,7 @@ describe("ClaudeCodePlugin MCP config injection", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
+      preset: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
       subshellName: "",
       mcp: {
         fileContent: "{}",
@@ -146,7 +146,7 @@ describe("ClaudeCodePlugin MCP config injection", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
+      preset: { name: "P", env: {}, flags: [], settings: null, configIsolation: false },
       subshellName: "",
     });
     expect(cmd).not.toContain("--mcp-config");
@@ -158,7 +158,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: emptyProfile(),
+      preset: emptyPreset(),
       subshellName: "",
       harnessSession: { id: "11111111-1111-4111-8111-111111111111", mode: "start" },
       reporter,
@@ -176,7 +176,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: emptyProfile(),
+      preset: emptyPreset(),
       subshellName: "x",
       harnessSession: { id: "11111111-1111-4111-8111-111111111111", mode: "resume" },
       reporter,
@@ -196,7 +196,7 @@ describe("ClaudeCodePlugin restart-resume", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: emptyProfile(),
+      preset: emptyPreset(),
       subshellName: "",
     });
     expect(cmd).not.toContain("--resume");
@@ -277,7 +277,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
       plugin.buildCommand({
         binary: "/usr/bin/claude",
         cwd: "/tmp/ws",
-        profile: emptyProfile(),
+        preset: emptyPreset(),
         subshellName: "",
         reporter,
       }),
@@ -303,7 +303,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
       plugin.buildCommand({
         binary: "/usr/bin/claude",
         cwd: "/tmp/ws",
-        profile: emptyProfile(),
+        preset: emptyPreset(),
         subshellName: "",
         reporter,
       }),
@@ -322,7 +322,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
       plugin.buildCommand({
         binary: "/usr/bin/claude",
         cwd: "/tmp/ws",
-        profile: emptyProfile(),
+        preset: emptyPreset(),
         subshellName: "",
         reporter: { command: "/usr/local/bin/bun", args: ["/opt/my subshell/index.ts", "report"] },
       }),
@@ -337,18 +337,18 @@ describe("ClaudeCodePlugin attention hooks", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: emptyProfile(),
+      preset: emptyPreset(),
       subshellName: "",
     });
 
     expect(cmd).not.toContain("--settings");
   });
 
-  it("profile settings survive the merge (hooks added alongside, not replacing)", () => {
+  it("preset settings survive the merge (hooks added alongside, not replacing)", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: { name: "p", env: {}, flags: [], settings: { model: "sonnet" }, configIsolation: false },
+      preset: { name: "p", env: {}, flags: [], settings: { model: "sonnet" }, configIsolation: false },
       subshellName: "",
       reporter,
     });
@@ -357,11 +357,11 @@ describe("ClaudeCodePlugin attention hooks", () => {
     expect(settings.hooks).toBeDefined();
   });
 
-  it("keeps a profile's own settings when no reporter resolved, minus the hooks", () => {
+  it("keeps a preset's own settings when no reporter resolved, minus the hooks", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",
       cwd: "/tmp/ws",
-      profile: { name: "p", env: {}, flags: [], settings: { model: "sonnet" }, configIsolation: false },
+      preset: { name: "p", env: {}, flags: [], settings: { model: "sonnet" }, configIsolation: false },
       subshellName: "",
     });
     const settings = JSON.parse(cmd[cmd.indexOf("--settings") + 1]) as Record<string, unknown>;
@@ -374,7 +374,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
       plugin.buildCommand({
         binary: "/usr/bin/claude",
         cwd: "/tmp/ws",
-        profile: emptyProfile(),
+        preset: emptyPreset(),
         subshellName: "",
         reporter,
       }),

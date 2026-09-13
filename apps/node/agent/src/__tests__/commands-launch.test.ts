@@ -187,7 +187,7 @@ function launchCmd(over: Partial<LaunchCmd> = {}): LaunchCmd {
     socket: "subshell-launch-test",
     cwd: base,
     harnessId: "claude-code",
-    profile: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
+    preset: { name: "p", env: {}, flags: [], settings: null, configIsolation: false },
     subshellEnv: { SUBSHELL_API_KEY: "k" },
     subshellName: "s1",
     cols: 120,

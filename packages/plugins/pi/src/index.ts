@@ -6,11 +6,11 @@ import {
   type PluginCapability,
   type PluginFactory,
   type PluginHost,
-  type ProfileDefinition,
-  type ProfileValidationResult,
+  type PresetDefinition,
+  type PresetValidationResult,
   type SettingsField,
   type SubshellPlugin,
-  validateGenericProfile,
+  validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
 /** pi per-invocation overrides, applied as CLI flags. */
@@ -61,7 +61,7 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  *
  * Launch shape:
  *   pi [--model <m>] [--provider <p>] [--thinking <l>] --name <subshell> \
- *      [profile flags] [extra flags]
+ *      [preset flags] [extra flags]
  * A bare launch opens the TUI. Unlike the other harnesses, pi supports a
  * create-time name for its OWN session (`--name`), so the subshell's display
  * name is forwarded to it.
@@ -82,10 +82,10 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => ["mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
-    const { binary, profile, subshellName, extraFlags } = input;
+    const { binary, preset, subshellName, extraFlags } = input;
     const args: string[] = [binary];
 
-    const s = profile.settings ?? {};
+    const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("--model", s.model);
     if (typeof s.provider === "string" && s.provider) args.push("--provider", s.provider);
     if (typeof s.thinking === "string" && s.thinking) args.push("--thinking", s.thinking);
@@ -93,7 +93,7 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     if (subshellName) args.push("--name", subshellName);
 
     // Each stored flag is one complete argv token (see opencode.ts note).
-    for (const flag of profile.flags) args.push(flag);
+    for (const flag of preset.flags) args.push(flag);
 
     if (extraFlags) args.push(...extraFlags);
     return args;
@@ -123,11 +123,11 @@ const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
     };
   },
 
-  validateProfile(profile: ProfileDefinition): ProfileValidationResult {
-    return validateGenericProfile(profile);
+  validatePreset(preset: PresetDefinition): PresetValidationResult {
+    return validateGenericPreset(preset);
   },
 
-  profileSettings(): SettingsField[] {
+  presetSettings(): SettingsField[] {
     return PI_SETTINGS_FIELDS;
   },
 

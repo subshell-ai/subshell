@@ -101,8 +101,8 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     versionAt: (binaryPath: string) => versionOf(plugin, binaryPath),
 
     buildCommand: (input) => plugin.buildCommand(input),
-    validateProfile: (profile) => plugin.validateProfile(profile),
-    settingsFields: () => plugin.profileSettings?.() ?? [],
+    validatePreset: (preset) => plugin.validatePreset(preset),
+    settingsFields: () => plugin.presetSettings?.() ?? [],
     suggestedEnv: () => plugin.suggestedEnv?.() ?? [],
     suggestedFlags: () => plugin.suggestedFlags?.() ?? [],
     // A plugin with no MCP capability has no steps to show, which renders as

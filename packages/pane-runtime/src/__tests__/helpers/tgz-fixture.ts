@@ -151,7 +151,7 @@ export function makePluginTgz(opts: {
   const manifest = { name: opts.name, version: opts.version, type: "module", subshell };
   const entry =
     opts.entryBody ??
-    "export default function fixture() { return { capabilities: () => [], buildCommand: (input) => [input.binary], validateProfile: () => ({ valid: true }) }; }\n";
+    "export default function fixture() { return { capabilities: () => [], buildCommand: (input) => [input.binary], validatePreset: () => ({ valid: true }) }; }\n";
   return makeTgz([
     { path: "package/package.json", content: JSON.stringify(manifest) },
     { path: "package/index.js", content: entry },

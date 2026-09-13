@@ -61,8 +61,13 @@ import type { JsonValue } from "./json.js";
  * lines (operator's call), so that the first debug line anyone writes is
  * already controllable from the browser that is the only way to read a
  * headless node's log.
+ * **6 → 7 is the preset rename (spec 2026-09-13).** The `launch` frame's
+ * `profile` field becomes `preset` (`ProfileDefinitionWire` →
+ * `PresetDefinitionWire`), and the plugin-report settings field becomes
+ * `presetSettings`. Wire-shaped, not semantic: the same JSON under new names,
+ * breaking because the gate is exact-match and the pair ships together.
  */
-export const NODE_PROTOCOL_VERSION = 6;
+export const NODE_PROTOCOL_VERSION = 7;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -298,14 +303,14 @@ export function isNodeSubshellId(id: string): boolean {
 }
 
 /**
- * Structural JSON mirror of `@internal/pane-runtime`' `ProfileDefinition`.
+ * Structural JSON mirror of `@internal/pane-runtime`' `PresetDefinition`.
  *
  * Deliberately a copy: subshell-protocol is bundled by the frontend and must
  * not pull harnesses (which imports node:fs) at runtime (spec §3.2). The
- * agent decodes the blob against the real `ProfileDefinition` at launch.
+ * agent decodes the blob against the real `PresetDefinition` at launch.
  */
-export interface ProfileDefinitionWire {
-  /** Human-friendly profile name */
+export interface PresetDefinitionWire {
+  /** Human-friendly preset name */
   name: string;
   /** Optional longer description */
   description?: string | null;
@@ -315,9 +320,9 @@ export interface ProfileDefinitionWire {
   flags: string[];
   /** Settings blob passed to the harness (opaque JSON) */
   settings: Record<string, unknown> | null;
-  /** If true, only this profile's config sources apply (isolation) */
+  /** If true, only this preset's config sources apply (isolation) */
   configIsolation: boolean;
-  /** If true, new subshells from this profile auto-restart on exit */
+  /** If true, new subshells from this preset auto-restart on exit */
   restartOnExit?: boolean;
 }
 
@@ -392,8 +397,8 @@ export type NodeCommandBody =
       cwd: string;
       /** Harness plugin id */
       harnessId: string;
-      /** Launch config (mirror of harnesses ProfileDefinition) */
-      profile: ProfileDefinitionWire;
+      /** Launch config (mirror of harnesses PresetDefinition) */
+      preset: PresetDefinitionWire;
       /** SUBSHELL_* credential env, supplied by the control plane */
       subshellEnv: Record<string, string>;
       /**
@@ -622,14 +627,14 @@ export type NodeCommandBody =
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
 /**
- * One field of a plugin's profile-editor schema, as it travels.
+ * One field of a plugin's preset-editor schema, as it travels.
  *
  * A `type` alias rather than an `interface`, and the same for the two below:
  * an interface has no implicit index signature, so it is not assignable to
  * `JsonValue`, and these ride inside a command RESULT which is typed as one.
  */
 export type SettingsFieldWire = {
-  /** Key into the profile's settings object */
+  /** Key into the preset's settings object */
   key: string;
   /** Property label */
   label: string;
@@ -663,7 +668,7 @@ export type McpSetupWire = { mode: "auto"; summary: string } | { mode: "manual";
  * One installed plugin, as the node describes it.
  *
  * Everything the control plane needs about a plugin it cannot import: enough
- * to list it, render its profile editor, label its exit codes and explain its
+ * to list it, render its preset editor, label its exit codes and explain its
  * MCP setup. A plugin that failed to load still appears, carrying `broken`,
  * so a node page can say why rather than dropping the row.
  */
@@ -682,8 +687,8 @@ export type PluginReportWire = {
   description: string;
   /** Which optional members it implements */
   capabilities: string[];
-  /** Settings rendered in the profile editor */
-  profileSettings?: SettingsFieldWire[];
+  /** Settings rendered in the preset editor */
+  presetSettings?: SettingsFieldWire[];
   /** Known env var suggestions */
   suggestedEnv?: { key: string; description: string }[];
   /** Known CLI flag suggestions */
@@ -809,7 +814,7 @@ function isJsonValue(value: unknown): value is JsonValue {
   }
 }
 
-function validProfileWire(p: unknown): p is ProfileDefinitionWire {
+function validPresetWire(p: unknown): p is PresetDefinitionWire {
   if (!isRecord(p) || !isStr(p.name)) return false;
   if (!isStringMap(p.env)) return false;
   if (!isStrArray(p.flags)) return false;
@@ -841,7 +846,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
   switch (value.type) {
     case "launch": {
       if (!isStr(value.subshellId) || !isStr(value.socket) || !isStr(value.cwd) || !isStr(value.harnessId)) return null;
-      if (!validProfileWire(value.profile) || !isStringMap(value.subshellEnv)) return null;
+      if (!validPresetWire(value.preset) || !isStringMap(value.subshellEnv)) return null;
       if (!isStr(value.subshellName)) return null;
       if ("mcp" in value) {
         const m = value.mcp;

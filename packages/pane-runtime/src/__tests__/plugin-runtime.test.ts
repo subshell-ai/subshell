@@ -66,13 +66,13 @@ describe("PluginRuntime", () => {
   });
 
   it("refuses a plugin missing a REQUIRED member, not just the two it used to check", async () => {
-    // `validateProfile` is required and the adapter calls it unconditionally,
+    // `validatePreset` is required and the adapter calls it unconditionally,
     // so this used to load as healthy and throw later from inside a closure
     // outside any fault boundary.
     const result = await runtime().load(join(FIXTURES, "missing-validate"));
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
-    expect(result.error).toContain("validateProfile");
+    expect(result.error).toContain("validatePreset");
   });
 
   it("refuses an entry that resolves outside the package directory", async () => {
@@ -123,7 +123,7 @@ describe("re-loading a plugin whose files changed", () => {
         },
       });
     const plugin = (marker: string) =>
-      `export default () => ({ buildCommand: () => ["${marker}"], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
+      `export default () => ({ buildCommand: () => ["${marker}"], validatePreset: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
 
     await Bun.write(join(dir, "package.json"), pkg("1.0.0"));
     const entry = join(dir, "index.js");
@@ -167,7 +167,7 @@ describe("re-loading a plugin whose files changed", () => {
     );
     await Bun.write(
       join(dir, "index.js"),
-      `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`,
+      `export default () => ({ buildCommand: () => [], validatePreset: () => ({ valid: true, issues: [] }), capabilities: () => [] });`,
     );
 
     const first = await createInProcessRuntime().load(dir);
@@ -195,7 +195,7 @@ describe("upgrading a plugin that was BROKEN", () => {
     await Bun.write(join(dir, "index.js"), body);
   }
 
-  const HEALTHY = `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
+  const HEALTHY = `export default () => ({ buildCommand: () => [], validatePreset: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
 
   it("reports the cached failure as stale once a fixed copy is on disk", async () => {
     // THE case an upgrade exists for. A module whose body throws is cached BY
@@ -225,7 +225,7 @@ describe("upgrading a plugin that was BROKEN", () => {
     // before it would have been useful.
     resetImportedForTests();
     const dir = join(tmpdir(), `plugin-mismatch-${crypto.randomUUID()}`);
-    const declaresResume = `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => ["resume"] });`;
+    const declaresResume = `export default () => ({ buildCommand: () => [], validatePreset: () => ({ valid: true, issues: [] }), capabilities: () => ["resume"] });`;
     await writePlugin(dir, "mismatch", declaresResume);
 
     const first = await createInProcessRuntime().load(dir);
@@ -252,7 +252,7 @@ describe("re-installing the same version", () => {
       private: true,
       subshell: { apiVersion: 1, id: "same", type: "agent-harness", name: "Same", description: "", entry: "index.js" },
     });
-    const body = `export default () => ({ buildCommand: () => [], validateProfile: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
+    const body = `export default () => ({ buildCommand: () => [], validatePreset: () => ({ valid: true, issues: [] }), capabilities: () => [] });`;
     await Bun.write(join(dir, "package.json"), pkg);
     await Bun.write(join(dir, "index.js"), body);
     await createInProcessRuntime().load(dir);

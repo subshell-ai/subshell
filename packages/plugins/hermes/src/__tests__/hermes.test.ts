@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { ProfileDefinition } from "@subshell-ai/plugin-api";
+import type { PresetDefinition } from "@subshell-ai/plugin-api";
 import { createTestHost } from "@subshell-ai/plugin-api/testing";
 import createPlugin, { manifest } from "../index.js";
 
 const plugin = createPlugin(createTestHost());
 
-function profile(overrides: Partial<ProfileDefinition> = {}): ProfileDefinition {
+function preset(overrides: Partial<PresetDefinition> = {}): PresetDefinition {
   return { name: "p", env: {}, flags: [], settings: null, configIsolation: false, ...overrides };
 }
 
@@ -20,12 +20,12 @@ describe("HermesPlugin", () => {
     expect(manifest.detect?.envOverride).toBe("HERMES_PATH");
   });
 
-  it("buildCommand: maps settings to flags, then profile and extra flags", () => {
+  it("buildCommand: maps settings to flags, then preset and extra flags", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/hermes",
       cwd: "/tmp/ws",
       subshellName: "ignored",
-      profile: profile({
+      preset: preset({
         settings: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
         flags: ["--yolo"],
       }),
@@ -49,14 +49,14 @@ describe("HermesPlugin", () => {
       binary: "/usr/bin/hermes",
       cwd: "/tmp/ws",
       subshellName: "",
-      profile: profile({ flags: ["--skills", "my skill"] }),
+      preset: preset({ flags: ["--skills", "my skill"] }),
     });
     expect(cmd).toEqual(["/usr/bin/hermes", "--skills", "my skill"]);
   });
 
-  it("validateProfile: delegates to the generic checks", () => {
-    expect(plugin.validateProfile(profile({ name: "" })).valid).toBe(false);
-    expect(plugin.validateProfile(profile()).valid).toBe(true);
+  it("validatePreset: delegates to the generic checks", () => {
+    expect(plugin.validatePreset(preset({ name: "" })).valid).toBe(false);
+    expect(plugin.validatePreset(preset()).valid).toBe(true);
   });
 
   it("parseVersion: extracts the semver from the real multi-line block", () => {
