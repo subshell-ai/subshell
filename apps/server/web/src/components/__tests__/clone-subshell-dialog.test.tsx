@@ -61,9 +61,8 @@ describe("CloneSubshellDialog", () => {
 
   /** Records fetch calls (JSON bodies parsed, so comparisons are
    *  key-order independent); presets/plugins/node lists answer with one row
-   *  each; the create POST answers with a new id. `presetRow: false` serves a
-   *  caller whose source preset no longer resolves (deleted / hidden). */
-  function mockFetch(createBody?: unknown, opts: { presetRow?: boolean } = {}) {
+   *  each; the create POST answers with a new id. */
+  function mockFetch(createBody?: unknown) {
     const calls: { method: string; url: string; body: unknown }[] = [];
     const original = globalThis.fetch;
     globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -77,25 +76,21 @@ describe("CloneSubshellDialog", () => {
       if (url.pathname === "/api/presets")
         return Promise.resolve(
           new Response(
-            JSON.stringify(
-              opts.presetRow === false
-                ? []
-                : [
-                    {
-                      id: "preset-1",
-                      harnessId: "claude",
-                      name: "Work",
-                      description: null,
-                      envJson: null,
-                      flagsJson: null,
-                      settingsJson: null,
-                      configIsolation: 0,
-                      restartOnExit: 0,
-                      createdAt: "2026-09-13T00:00:00.000Z",
-                      updatedAt: "2026-09-13T00:00:00.000Z",
-                    },
-                  ],
-            ),
+            JSON.stringify([
+              {
+                id: "preset-1",
+                harnessId: "claude",
+                name: "Work",
+                description: null,
+                envJson: null,
+                flagsJson: null,
+                settingsJson: null,
+                configIsolation: 0,
+                restartOnExit: 0,
+                createdAt: "2026-09-13T00:00:00.000Z",
+                updatedAt: "2026-09-13T00:00:00.000Z",
+              },
+            ]),
           ),
         );
       if (url.pathname === "/api/plugins")

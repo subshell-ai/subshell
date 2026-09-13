@@ -56,6 +56,9 @@ function mockFetch() {
       );
     }
     if (url.pathname === "/api/presets" && method === "POST") return Promise.resolve(new Response(JSON.stringify(ROW)));
+    // The list a page with a live usePresets() would read — an ARRAY, like
+    // the real endpoint; the {} fallthrough below is for the schema route.
+    if (url.pathname === "/api/presets" && method === "GET") return Promise.resolve(new Response(JSON.stringify([])));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return { calls, restore: () => (globalThis.fetch = original) };

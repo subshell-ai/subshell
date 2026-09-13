@@ -140,11 +140,15 @@ function PresetsPage() {
             const plugin = plugins.find((p) => p.id === harnessId);
             return (
               <div key={harnessId} className="space-y-2">
+                {/* A real heading, not styled text: the e2e group-header probe
+                    queries by role because a presetless row's launch-command
+                    preview renders the bare harness id — text matching would
+                    collide. PageHeader carries the h1; these are the h2s. */}
                 <div className="flex items-center gap-2">
                   <span aria-hidden className="text-base">
                     {plugin?.icon ?? "🤖"}
                   </span>
-                  <span className="font-medium text-sm">{plugin?.name ?? harnessId}</span>
+                  <h2 className="font-medium text-sm">{plugin?.name ?? harnessId}</h2>
                 </div>
                 {rows.map((p) => (
                   <PresetListRow

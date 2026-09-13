@@ -112,8 +112,11 @@ describe("/presets page", () => {
     try {
       const { container } = renderPage();
       expect(await screen.findByText("Fast")).toBeDefined();
-      expect(screen.getByText("Claude Code")).toBeDefined();
-      expect(screen.getByText("Pi")).toBeDefined();
+      // Group headers are real HEADINGS, not styled spans: e2e names them by
+      // role because a presetless row's command preview renders the bare
+      // harness id, which plain text matching would collide with.
+      expect(screen.getByRole("heading", { name: "Claude Code" })).toBeDefined();
+      expect(screen.getByRole("heading", { name: "Pi" })).toBeDefined();
       // A harness the catalog cannot name still leads its own group, keyed by
       // id — twice on screen, honestly: the header AND the launch-command
       // preview, whose binary falls back to the id too.
