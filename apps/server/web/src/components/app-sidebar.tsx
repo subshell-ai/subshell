@@ -76,7 +76,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: "/", label: "Subshells", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
-  { to: "/profiles", label: "Profiles", icon: SlidersHorizontal, short: "Prof" },
+  { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
   // On the label (spec 2026-09-11 §2.1). The single entry here used to read
   // "Instance", not "Server", because the control-plane host's own NODE is
   // named Server by default and on /nodes an admin saw that word twice, on two

@@ -34,7 +34,7 @@ export function NodeKeyRotate({
   // Navigating to another node must retire the previous node's plaintext —
   // it is a secret, and the reveal card would otherwise ride along. The
   // `nodeId` dependency is load-bearing: TanStack reuses route components
-  // across param changes (see the same hazard noted in routes/profiles_.$id),
+  // across param changes (see the same hazard noted in routes/presets_.$id),
   // so without it this effect runs once per mount and the old key survives
   // the switch.
   // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect — nodeId is deliberately the trigger, not a read

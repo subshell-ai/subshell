@@ -1,10 +1,10 @@
 /**
  * A harness plugin as reported by `GET /api/setup/harnesses` — the shape the
- * setup wizard and the profile forms read (harness enablement itself lives
+ * setup wizard and the preset forms read (harness enablement itself lives
  * per node, `/nodes/:id`).
  */
 export interface HarnessInfo {
-  /** Plugin id, e.g. "claude-code" — stored on profiles as `harnessId` */
+  /** Plugin id, e.g. "claude-code" — stored on presets as `harnessId` */
   id: string;
   /** Human-readable name, e.g. "Claude Code" */
   name: string;
@@ -34,8 +34,8 @@ export interface HarnessInfo {
 
 /**
  * One option in a harness's settings schema, as served by
- * `GET /api/profiles/harnesses/:id/schema`. No editor renders these yet —
- * flags cover the same ground from the profile UI.
+ * `GET /api/presets/harnesses/:id/schema`. No editor renders these yet —
+ * flags cover the same ground from the preset UI.
  */
 export interface SettingsFieldInfo {
   /** Key into the settings object, e.g. "permissionMode" */
@@ -66,7 +66,7 @@ export interface McpSetupStepInfo {
  */
 export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepInfo[] };
 
-/** Reference data for one harness, backing the profile editor's suggestions. */
+/** Reference data for one harness, backing the preset editor's suggestions. */
 export interface HarnessSchema {
   /** Settings editor schema (empty when the harness has none) */
   settingsFields: SettingsFieldInfo[];

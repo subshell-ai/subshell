@@ -4,8 +4,13 @@ import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /** The fields the shared new-subshell form collects. */
 export interface CreateSubshellInput {
-  /** Profile the subshell launches from */
-  profileId: string;
+  /** Agent (plugin) the subshell launches — the one required choice */
+  harnessId: string;
+  /**
+   * Optional preset the subshell launches from; null/absent is a real
+   * presetless launch (spec 2026-09-13 §2.2), not a mapping onto a seeded row.
+   */
+  presetId?: string | null;
   /** Absolute working directory the harness starts in */
   workingDir: string;
   /**
@@ -17,7 +22,6 @@ export interface CreateSubshellInput {
   name?: string;
   /**
    * Node picked in the form; "" = no valid choice yet (blocks submit upstream).
-   * Optional so legacy callers keep compiling.
    */
   nodeId?: string;
 }
@@ -25,23 +29,32 @@ export interface CreateSubshellInput {
 /**
  * The POST body for a fresh subshell — built in one place because `/new` and
  * the workspace dialog used to duplicate it byte for byte. A blank or absent
- * name is sent as `undefined` so the backend applies its date/time default.
- * Remote launch is real (spec 2026-08-31 §6.6): the picked node id is posted
- * as-is — INCLUDING "local" (spec 2026-09-02 §3: the visible pick always
- * wins over a profile pin; the server precedence puts body nodeId first).
- * An absent/"" pick still sends no nodeId — legacy and mobile callers keep
- * the server's resolve ladder (pin → local → lone-online auto-pick).
+ * name is sent as `undefined` so the backend applies its date/time default,
+ * and a null/absent preset is sent as no `presetId` at all — the presetless
+ * launch. Remote launch is real (spec 2026-08-31 §6.6): the picked node id is
+ * posted as-is — INCLUDING "local" (spec 2026-09-02 §3: the visible pick
+ * always wins; the server precedence is body → local → lone-online
+ * auto-pick). An absent/"" pick still sends no nodeId — legacy and mobile
+ * callers keep the server's resolve ladder.
  * @param input - The collected form values
  * @returns The JSON body for `POST /api/subshells`
  */
-export function toSubshellCreateBody({ profileId, workingDir, name, nodeId }: CreateSubshellInput): {
-  profileId: string;
+export function toSubshellCreateBody({
+  harnessId,
+  presetId,
+  workingDir,
+  name,
+  nodeId,
+}: CreateSubshellInput): {
+  harnessId: string;
+  presetId?: string;
   workingDir: string;
   name?: string;
   nodeId?: string;
 } {
   return {
-    profileId,
+    harnessId,
+    presetId: presetId ?? undefined,
     workingDir,
     name: name?.trim() || undefined,
     nodeId: nodeId ? nodeId : undefined,

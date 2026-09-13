@@ -5,7 +5,7 @@
  * invalidate/loop sites, so a rename could only ever be found by reading
  * every file. Keys live here; the READ definitions live in the hooks that
  * own them (e.g. `useSubshellsList` in `hooks/use-subshells.ts`), mirroring
- * how `use-profiles`/`use-workspaces` keep their own keys next to their
+ * how `use-presets`/`use-workspaces` keep their own keys next to their
  * query. Prefix keys (a detail query is `[...PREFIX, id]`) double as
  * invalidation prefixes — `invalidateQueries` matches on array prefix.
  */

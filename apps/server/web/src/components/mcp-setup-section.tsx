@@ -2,14 +2,14 @@ import { CopyCommandRow } from "@/components/copy-command-row";
 import type { McpSetupInfo } from "@/types/harness";
 
 /**
- * The "Cross-subshell comms" block in the profile form: how subshells from this
+ * The "Cross-subshell comms" block in the preset form: how subshells from this
  * harness reach the subshell MCP tools (channels + subshell orchestration). Auto
  * harnesses (claude-code, opencode) need nothing — one quiet line says so.
  * Harnesses with no per-subshell config (hermes, pi) get their one-time
  * registration steps with copy buttons: after that single registration the
  * subshell-spawned child inherits each subshell's credentials and works
  * per-subshell. The registration belongs on the NODE that runs the harness,
- * which a profile may not pin — so the copy names the node rather than saying
+ * which a preset may not name — so the copy names the node rather than saying
  * "this machine", which is a browser.
  */
 export function McpSetupSection({ mcp }: { mcp: McpSetupInfo }) {

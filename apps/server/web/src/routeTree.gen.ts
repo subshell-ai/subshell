@@ -15,13 +15,13 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as NodesRouteImport } from './routes/nodes'
 import { Route as PreferencesRouteImport } from './routes/preferences'
-import { Route as ProfilesRouteImport } from './routes/profiles'
+import { Route as PresetsRouteImport } from './routes/presets'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
-import { Route as ProfilesIdRouteImport } from './routes/profiles_.$id'
+import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
 import { Route as SettingsAuditRouteImport } from './routes/settings_.audit'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
@@ -63,9 +63,9 @@ const PreferencesRoute = PreferencesRouteImport.update({
   path: '/preferences',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProfilesRoute = ProfilesRouteImport.update({
-  id: '/profiles',
-  path: '/profiles',
+const PresetsRoute = PresetsRouteImport.update({
+  id: '/presets',
+  path: '/presets',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -93,9 +93,9 @@ const NodesIdRoute = NodesIdRouteImport.update({
   path: '/nodes/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProfilesIdRoute = ProfilesIdRouteImport.update({
-  id: '/profiles_/$id',
-  path: '/profiles/$id',
+const PresetsIdRoute = PresetsIdRouteImport.update({
+  id: '/presets_/$id',
+  path: '/presets/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
@@ -156,13 +156,13 @@ export interface FileRoutesByFullPath {
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/preferences': typeof PreferencesRoute
-  '/profiles': typeof ProfilesRoute
+  '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRouteWithChildren
-  '/profiles/$id': typeof ProfilesIdRoute
+  '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -181,13 +181,13 @@ export interface FileRoutesByTo {
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/preferences': typeof PreferencesRoute
-  '/profiles': typeof ProfilesRoute
+  '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRouteWithChildren
-  '/profiles/$id': typeof ProfilesIdRoute
+  '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -207,13 +207,13 @@ export interface FileRoutesById {
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/preferences': typeof PreferencesRoute
-  '/profiles': typeof ProfilesRoute
+  '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes_/$id': typeof NodesIdRouteWithChildren
-  '/profiles_/$id': typeof ProfilesIdRoute
+  '/presets_/$id': typeof PresetsIdRoute
   '/settings_/api-keys': typeof SettingsApiKeysRoute
   '/settings_/audit': typeof SettingsAuditRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
@@ -234,13 +234,13 @@ export interface FileRouteTypes {
     | '/new'
     | '/nodes'
     | '/preferences'
-    | '/profiles'
+    | '/presets'
     | '/settings'
     | '/setup'
     | '/users'
     | '/workspaces'
     | '/nodes/$id'
-    | '/profiles/$id'
+    | '/presets/$id'
     | '/settings/api-keys'
     | '/settings/audit'
     | '/settings/plugins'
@@ -259,13 +259,13 @@ export interface FileRouteTypes {
     | '/new'
     | '/nodes'
     | '/preferences'
-    | '/profiles'
+    | '/presets'
     | '/settings'
     | '/setup'
     | '/users'
     | '/workspaces'
     | '/nodes/$id'
-    | '/profiles/$id'
+    | '/presets/$id'
     | '/settings/api-keys'
     | '/settings/audit'
     | '/settings/plugins'
@@ -284,13 +284,13 @@ export interface FileRouteTypes {
     | '/new'
     | '/nodes'
     | '/preferences'
-    | '/profiles'
+    | '/presets'
     | '/settings'
     | '/setup'
     | '/users'
     | '/workspaces'
     | '/nodes_/$id'
-    | '/profiles_/$id'
+    | '/presets_/$id'
     | '/settings_/api-keys'
     | '/settings_/audit'
     | '/settings_/plugins'
@@ -310,13 +310,13 @@ export interface RootRouteChildren {
   NewRoute: typeof NewRoute
   NodesRoute: typeof NodesRoute
   PreferencesRoute: typeof PreferencesRoute
-  ProfilesRoute: typeof ProfilesRoute
+  PresetsRoute: typeof PresetsRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   UsersRoute: typeof UsersRoute
   WorkspacesRoute: typeof WorkspacesRoute
   NodesIdRoute: typeof NodesIdRouteWithChildren
-  ProfilesIdRoute: typeof ProfilesIdRoute
+  PresetsIdRoute: typeof PresetsIdRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
   SettingsAuditRoute: typeof SettingsAuditRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
@@ -370,11 +370,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreferencesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/profiles': {
-      id: '/profiles'
-      path: '/profiles'
-      fullPath: '/profiles'
-      preLoaderRoute: typeof ProfilesRouteImport
+    '/presets': {
+      id: '/presets'
+      path: '/presets'
+      fullPath: '/presets'
+      preLoaderRoute: typeof PresetsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -412,11 +412,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NodesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/profiles_/$id': {
-      id: '/profiles_/$id'
-      path: '/profiles/$id'
-      fullPath: '/profiles/$id'
-      preLoaderRoute: typeof ProfilesIdRouteImport
+    '/presets_/$id': {
+      id: '/presets_/$id'
+      path: '/presets/$id'
+      fullPath: '/presets/$id'
+      preLoaderRoute: typeof PresetsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings_/api-keys': {
@@ -514,13 +514,13 @@ const rootRouteChildren: RootRouteChildren = {
   NewRoute: NewRoute,
   NodesRoute: NodesRoute,
   PreferencesRoute: PreferencesRoute,
-  ProfilesRoute: ProfilesRoute,
+  PresetsRoute: PresetsRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   UsersRoute: UsersRoute,
   WorkspacesRoute: WorkspacesRoute,
   NodesIdRoute: NodesIdRouteWithChildren,
-  ProfilesIdRoute: ProfilesIdRoute,
+  PresetsIdRoute: PresetsIdRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
   SettingsAuditRoute: SettingsAuditRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,

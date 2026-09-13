@@ -10,7 +10,7 @@ export interface EmptyStateProps {
   /** One or two sentences explaining what fills this space */
   description: string;
   /**
-   * CTA label, e.g. "Create your first profile".
+   * CTA label, e.g. "Create your first preset".
    *
    * Optional together with {@link onAction}: an empty state a viewer cannot
    * act on is a real shape, not a missing prop. `/nodes` reaches it when an

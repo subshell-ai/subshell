@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * IMPORTANT vs the Radix era: Base UI's `Value` renders the RAW value
  * string, not the selected item's label — roots whose labels differ from
  * values must pass `items={[{ value, label }]}` to the Root. Call sites
- * (profile editor, subshell pickers) do; plain value-equals-label selects
+ * (preset editor, subshell pickers) do; plain value-equals-label selects
  * don't need it.
  */
 export const Select = SelectPrimitive.Root;

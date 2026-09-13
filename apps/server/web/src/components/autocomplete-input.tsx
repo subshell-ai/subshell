@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * A text input with a filtered suggestion dropdown, used for env-var names
- * and flag tokens in the profile editor. Suggestions are exactly that —
+ * and flag tokens in the preset editor. Suggestions are exactly that —
  * anything typed is accepted, the list only helps.
  *
  * Note on ARIA: this repo's biome config strips listbox/option roles from

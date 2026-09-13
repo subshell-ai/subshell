@@ -22,8 +22,8 @@ export type SubshellAccess = "owner" | "edit" | "view";
 export interface SubshellView {
   /** Unique identifier (UUID) */
   id: string;
-  /** Profile the subshell was started from */
-  profileId: string;
+  /** Preset the subshell launched from; null = a presetless launch */
+  presetId: string | null;
   /** Harness the subshell runs on (e.g. claude/agent) */
   harnessId: string;
   /**

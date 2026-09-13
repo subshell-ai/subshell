@@ -50,7 +50,7 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
         </DialogHeader>
 
         {impact === undefined && error === null && (
-          <p className="text-muted-foreground text-sm">Checking which profiles use it…</p>
+          <p className="text-muted-foreground text-sm">Checking which presets use it…</p>
         )}
         {error !== null && (
           <div className="flex items-center justify-between gap-3">
@@ -74,7 +74,7 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
                   onChange={() => setMode("keep")}
                   className="mt-0.5"
                 />
-                <span>Keep the profiles, unavailable until reinstalled</span>
+                <span>Keep the presets, unavailable until reinstalled</span>
               </label>
               <label className="flex items-start gap-2 text-sm">
                 <input
@@ -85,15 +85,15 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
                   className="mt-0.5"
                 />
                 <span>
-                  {impact.profiles > 0 ? `Delete the ${impact.profiles} profiles` : "Delete the profiles"} permanently
+                  {impact.presets > 0 ? `Delete the ${impact.presets} presets` : "Delete the presets"} permanently
                 </span>
               </label>
             </fieldset>
             {/* Both halves of the surprise, stated where the decision is made:
                 uninstalling has never stopped a running subshell, and deleting
-                a profile breaks the restart that needs it. */}
+                a preset breaks the restart that needs it. */}
             <p className="text-muted-foreground text-xs">
-              Running subshells are unaffected. A restart of one whose profile was deleted will fail.
+              Running subshells are unaffected. A restart of one whose preset was deleted will fail.
             </p>
           </>
         )}
@@ -125,23 +125,19 @@ function count(n: number, singular: string, plural = `${singular}s`): string {
 }
 
 /**
- * The §6.1 blast-radius sentence, one string: "4 profiles use it, across 3
- * users: 2 Defaults, 1 running subshell." The zero case says so plainly,
- * which collapses the radios' stakes without hiding the default.
+ * The §6.1 blast-radius sentence, one string: "4 presets use it, across 3
+ * users." The zero case says so plainly, which collapses the radios' stakes
+ * without hiding the default. The Defaults clause went with the seeded
+ * Default (spec 2026-09-13 §2.2); running subshells got their own sentence
+ * under the radios instead of a tail on this one.
  */
 export function blastRadius(impact: {
-  profiles: number;
+  presets: number;
   distinctUsers: number;
-  defaults: number;
   runningSubshells: number;
 }): string {
-  if (impact.profiles === 0) return "No profiles use it.";
-  const verb = impact.profiles === 1 ? "uses" : "use";
-  const profileWord = impact.profiles === 1 ? "profile" : "profiles";
-  const head = `${impact.profiles} ${profileWord} ${verb} it, across ${count(impact.distinctUsers, "user")}`;
-  const tail = [
-    impact.defaults > 0 ? count(impact.defaults, "Default", "Defaults") : "",
-    impact.runningSubshells > 0 ? count(impact.runningSubshells, "running subshell") : "",
-  ].filter((s) => s !== "");
-  return `${head}${tail.length > 0 ? `: ${tail.join(", ")}` : ""}.`;
+  if (impact.presets === 0) return "No presets use it.";
+  const verb = impact.presets === 1 ? "uses" : "use";
+  const presetWord = impact.presets === 1 ? "preset" : "presets";
+  return `${impact.presets} ${presetWord} ${verb} it, across ${count(impact.distinctUsers, "user")}.`;
 }

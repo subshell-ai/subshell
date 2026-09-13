@@ -52,7 +52,7 @@ function nodePill(subshell: SubshellView, known: Node | undefined, pending: bool
 /**
  * Card for a subshell: name, harness, activity chip, a live view of the
  * subshell's screen, and an actions menu — all on the shared `EntityCard`
- * shell the workspace/profile grids use. The menu is passed through the
+ * shell the workspace grid uses. The menu is passed through the
  * `menu` slot because `SubshellActionsMenu` carries its own state (title
  * dialog, lifecycle mutations) rather than a plain `items` list.
  *

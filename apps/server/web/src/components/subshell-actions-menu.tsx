@@ -5,7 +5,7 @@ import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { TitleDialog } from "@/components/ui/title-dialog";
-import { useProfiles } from "@/hooks/use-profiles";
+import { usePresets } from "@/hooks/use-presets";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import type { SubshellView } from "@/types/subshell";
 
@@ -39,7 +39,7 @@ export function SubshellActionsMenu({
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const navigate = useNavigate();
-  const { data: profiles } = useProfiles();
+  const { data: presets } = usePresets();
   const { restart, remove, toggleNotify, busy } = useSubshellMutations(subshell.id, subshell, {
     onDeleted,
   });
@@ -51,12 +51,13 @@ export function SubshellActionsMenu({
   // (Close subsumes it) and no title-pin toggle (a rename IS the pin).
   const canEdit = subshell.access !== "view";
   const isOwner = subshell.access === "owner";
-  // A subshell's profile is fixed at creation, so editing it + starting again
+  // A subshell's preset is fixed at creation, so editing it + starting again
   // is THE recovery loop for a failed launch (bad key, bad flag…). Only
   // offered on dead subshells — a running one is past the point where the
-  // profile matters until it starts again. Hidden until the name resolves,
-  // since a bare id would only confuse.
-  const profile = !subshell.alive ? profiles?.find((p) => p.id === subshell.profileId) : undefined;
+  // preset matters until it starts again — and only when it launched from
+  // one at all: a presetless launch has nothing to edit (spec 2026-09-13 §8).
+  // Hidden until the name resolves, since a bare id would only confuse.
+  const preset = !subshell.alive ? presets?.find((p) => p.id === subshell.presetId) : undefined;
 
   const items: ActionItem[] = [
     ...(canEdit
@@ -94,7 +95,7 @@ export function SubshellActionsMenu({
           {
             icon: RotateCcw,
             // A tracked-but-dead subshell resumes in place; a terminated one
-            // can only be started afresh from the same profile and directory,
+            // can only be started afresh from the same harness and directory,
             // which is a different enough thing to say so.
             label: subshell.status === "running" ? "Restart" : "Start again",
             sidebar: true,
@@ -104,8 +105,8 @@ export function SubshellActionsMenu({
       : []),
     // Owner-only, adjacent to the launch actions. Spec §2.1 said `canEdit`,
     // but a clone is guaranteed to 404 for a non-owner: the POST re-resolves
-    // the SOURCE's profile under the CALLER's account and profiles are
-    // strictly per-user (subshells.service rejects any non-owner's profileId),
+    // the SOURCE's preset under the CALLER's account and presets are
+    // strictly per-user (subshells.service rejects any non-owner's presetId),
     // so an `edit` grantee can never succeed. A clone is a FRESH launch under
     // the caller's account — unlike "Start again", which revives this row.
     ...(isOwner
@@ -118,12 +119,12 @@ export function SubshellActionsMenu({
           },
         ]
       : []),
-    ...(profile
+    ...(preset
       ? [
           {
             icon: SlidersHorizontal,
-            label: `Edit profile "${profile.name}"`,
-            onSelect: () => void navigate({ to: "/profiles/$id", params: { id: profile.id } }),
+            label: `Edit preset "${preset.name}"`,
+            onSelect: () => void navigate({ to: "/presets/$id", params: { id: preset.id } }),
           },
         ]
       : []),

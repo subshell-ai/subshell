@@ -10,13 +10,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { type CreateSubshellInput, useCreateSubshell } from "@/hooks/use-create-subshell";
+import { useCreateSubshell, type CreateSubshellInput } from "@/hooks/use-create-subshell";
+import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
-import { useProfiles } from "@/hooks/use-profiles";
+import { usePresets } from "@/hooks/use-presets";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { nodeOptionLabel } from "@/lib/node-label";
-import { profileOptionLabel } from "@/lib/subshell-compat";
 import type { SubshellView } from "@/types/subshell";
 
 /** The source's node with the legacy fallback: an absent nodeId on an older
@@ -26,15 +26,16 @@ function cloneNodeId(source: SubshellView): string {
 }
 
 /**
- * The launch input a clone copies from its source: same profile, same
- * directory, same node; only the (optional) name is the operator's. An
+ * The launch input a clone copies from its source: same agent, same preset,
+ * same directory, same node; only the (optional) name is the operator's. An
  * absent nodeId on an older cached view means "local" (the server default)
  * and the name is trimmed (blank stays blank — the server defaults it).
  * Pure so the mapping is testable without a dialog.
  */
 export function cloneInputFromSource(source: SubshellView, name: string): CreateSubshellInput {
   return {
-    profileId: source.profileId,
+    harnessId: source.harnessId,
+    presetId: source.presetId,
     workingDir: source.workingDir,
     name: name.trim(),
     nodeId: cloneNodeId(source),
@@ -42,11 +43,12 @@ export function cloneInputFromSource(source: SubshellView, name: string): Create
 }
 
 /**
- * Clone = launch a fresh copy of THIS subshell's launch (spec 2026-09-02 §2):
- * node, profile and working directory are copied read-only, the name is the
- * only input, and the POST runs under the CALLER's credentials — the clone
- * is owned by whoever launches it, and shares are never copied. Copy is
- * entity-neutral so the vocabulary rename (spec §1) does not rewrite the UI.
+ * Clone = launch a fresh copy of THIS subshell's launch (spec 2026-09-02 §2,
+ * rows re-cut by spec 2026-09-13 §5): agent, preset, node and working
+ * directory are copied read-only, the name is the only input, and the POST
+ * runs under the CALLER's credentials — the clone is owned by whoever
+ * launches it, and shares are never copied. Copy is entity-neutral so the
+ * vocabulary rename does not rewrite the UI.
  */
 export function CloneSubshellDialog({
   source,
@@ -62,13 +64,18 @@ export function CloneSubshellDialog({
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const create = useCreateSubshell();
-  // "any": the source's profile may live on another node than the default list filters.
-  const { data: profiles } = useProfiles({ node: "any" });
+  const { data: presets } = usePresets();
   const { data: nodeData } = useNodes();
-  const profile = (profiles ?? []).find((p) => p.id === source.profileId);
+  const { data: pluginData } = useInstancePlugins();
+  // Both lookups name what the POST already carries by id (`harnessId`,
+  // `presetId`); a row the caller cannot see — deleted since, or owned by
+  // nobody now — degrades to the id, never to a blank.
+  const agentName = (pluginData?.plugins ?? []).find((p) => p.id === source.harnessId)?.name ?? source.harnessId;
+  const presetName =
+    source.presetId === null
+      ? "None"
+      : ((presets ?? []).find((p) => p.id === source.presetId)?.name ?? source.presetId);
   const node = (nodeData?.nodes ?? []).find((n) => n.id === cloneNodeId(source));
-  // Same display grammar as the launch pickers, so the rows read identical.
-  const profileLabel = profile ? profileOptionLabel(profile) : source.harnessId;
   // `cloneNodeId` still feeds the create request, where `local` is the correct
   // IDENTIFIER — but it is never rendered: an id is not a label.
   const nodeLabel = node ? nodeOptionLabel(node) : "its original node";
@@ -89,14 +96,17 @@ export function CloneSubshellDialog({
         <DialogHeader>
           <DialogTitle>Clone</DialogTitle>
           <DialogDescription>
-            Launches a fresh copy with the same node, profile and working directory. Blank name defaults to date/time.
+            Launches a fresh copy with the same agent, preset, node and working directory. Blank name defaults to
+            date/time.
           </DialogDescription>
         </DialogHeader>
         <dl className="text-sm">
+          <dt className="text-muted-foreground">Agent</dt>
+          <dd className="mb-2 truncate">{agentName}</dd>
+          <dt className="text-muted-foreground">Preset</dt>
+          <dd className="mb-2 truncate">{presetName}</dd>
           <dt className="text-muted-foreground">Node</dt>
           <dd className="mb-2 truncate">{nodeLabel}</dd>
-          <dt className="text-muted-foreground">Profile</dt>
-          <dd className="mb-2 truncate">{profileLabel}</dd>
           <dt className="text-muted-foreground">Working directory</dt>
           <dd className="mb-3 truncate font-mono text-xs">{source.workingDir}</dd>
         </dl>

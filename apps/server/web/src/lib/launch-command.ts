@@ -1,5 +1,5 @@
 /**
- * Rendering of a profile as the shell command fragment it contributes when a
+ * Rendering of a preset as the shell command fragment it contributes when a
  * subshell launches.
  */
 
@@ -13,10 +13,10 @@ export function quotePosix(value: string): string {
 }
 
 /**
- * The profile's share of a subshell's launch command:
+ * The preset's share of a subshell's launch command:
  * `KEY='value' … <binary> 'flag' 'value' …`.
  *
- * Deliberately only what a *profile* contributes. The real launch additionally
+ * Deliberately only what a *preset* contributes. The real launch additionally
  * wraps this in `env -i` with a curated host environment, mints per-subshell
  * `SUBSHELL_*` credentials (including the subshell API key), and lets the harness
  * plugin inject subshell-runtime args (`--mcp-config`, `--settings`, `--name`)
@@ -25,7 +25,7 @@ export function quotePosix(value: string): string {
  * Corrupt stored blobs degrade to empty rather than throwing; this is a
  * display surface.
  */
-export function profileLaunchCommand(envJson: string | null, flagsJson: string | null, binary: string): string {
+export function presetLaunchCommand(envJson: string | null, flagsJson: string | null, binary: string): string {
   const parts: string[] = [];
   try {
     const env = JSON.parse(envJson ?? "{}") as Record<string, unknown>;

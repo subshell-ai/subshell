@@ -47,7 +47,7 @@ function NodesPage() {
     setActionError(null);
     const ok = await confirmAction({
       title: `Delete node "${node.name}"?`,
-      description: "Its enrollment key is revoked and profiles pinned to it are unpinned.",
+      description: "Its enrollment key is revoked.",
       confirmLabel: "Delete",
       danger: true,
     });

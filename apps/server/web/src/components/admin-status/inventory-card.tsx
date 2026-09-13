@@ -26,7 +26,7 @@ export function InventoryCard({ status }: { status: AdminStatus }) {
         <span className="text-muted-foreground"> · {inventory.nodes.total} enrolled</span>
       </Fact>
       <Fact label="Workspaces">{inventory.workspaces}</Fact>
-      <Fact label="Profiles">{inventory.profiles}</Fact>
+      <Fact label="Presets">{inventory.presets}</Fact>
       <Fact label="Channels">{inventory.channels}</Fact>
     </FactCard>
   );

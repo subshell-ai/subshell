@@ -11,6 +11,8 @@ export interface ComboboxOption {
   disabled?: boolean;
   /** Muted trailing copy on a disabled row */
   reason?: string;
+  /** Glyph shown before the label (aria-hidden — the accessible name stays the label) */
+  icon?: string;
 }
 
 export interface SearchableSelectProps {
@@ -102,6 +104,11 @@ export function SearchableSelect({
                   disabled={option.disabled ?? false}
                   className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pr-2 pl-2 text-sm outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
                 >
+                  {option.icon !== undefined && (
+                    <span aria-hidden className="mr-1.5 shrink-0">
+                      {option.icon}
+                    </span>
+                  )}
                   <span className="truncate">{option.label}</span>
                   {option.reason ? (
                     <span className="ml-auto max-w-[45%] truncate pl-3 text-muted-foreground text-xs">

@@ -70,7 +70,7 @@ export interface AdminStatus {
     nodes: { total: number; online: number; needingUpdate: OutdatedAgent[] };
     workspaces: number;
     channels: number;
-    profiles: number;
+    presets: number;
   };
   security: {
     /** Whether new users can register */

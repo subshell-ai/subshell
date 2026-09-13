@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
-import { useProfiles } from "@/hooks/use-profiles";
+import { usePresets } from "@/hooks/use-presets";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
@@ -84,8 +84,11 @@ function SubshellPage() {
   // fetched only for the dead panel (crashed or terminated), never while the
   // terminal is attached.
   const { data: logTail } = useSubshellLog(id, dead);
-  const { data: profiles } = useProfiles();
-  const profile = profiles?.find((p) => p.id === subshell?.profileId);
+  const { data: presets } = usePresets();
+  // The "Edit preset" button only exists for a subshell that launched from a
+  // preset: `presetId` is null for a presetless launch, and no row answers to
+  // it (spec 2026-09-13 §8 keeps the dead-subshell recovery loop only there).
+  const preset = presets?.find((p) => p.id === subshell?.presetId);
   // Touch UX (spec §5): the accessory key bar appears on coarse pointers.
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
@@ -295,13 +298,13 @@ function SubshellPage() {
             deleting={deleting}
             diagnostics={logTail ?? null}
             extraActions={
-              profile && (
+              preset && (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => void navigate({ to: "/profiles/$id", params: { id: profile.id } })}
+                  onClick={() => void navigate({ to: "/presets/$id", params: { id: preset.id } })}
                 >
-                  <SlidersHorizontal className="h-3 w-3" /> Edit profile
+                  <SlidersHorizontal className="h-3 w-3" /> Edit preset
                 </Button>
               )
             }

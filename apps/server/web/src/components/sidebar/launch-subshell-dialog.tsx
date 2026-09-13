@@ -67,7 +67,7 @@ export function LaunchSubshellDialog({
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>New subshell</DialogTitle>
-          <DialogDescription>Launch an agent harness in a working directory.</DialogDescription>
+          <DialogDescription>Launch an agent in a working directory.</DialogDescription>
         </DialogHeader>
         <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
         {error && <p className="text-destructive text-sm">{error}</p>}

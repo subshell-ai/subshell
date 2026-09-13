@@ -16,7 +16,7 @@ export interface PairRow {
 }
 
 /**
- * Key/value row editor shared by the profile form's env and flag sections:
+ * Key/value row editor shared by the preset form's env and flag sections:
  * one autocomplete-backed row per entry, add/remove buttons, and a
  * "Paste many" area that bulk-parses text into rows. Parsing is delegated to
  * `parsePaste` (which may throw — the message is surfaced inline) and always

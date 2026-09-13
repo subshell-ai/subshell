@@ -7,7 +7,7 @@ import { ApiError, errMessage } from "@/lib/api";
  *
  * Node-aware copy only for the codes whose server text the operator can
  * act on better than the generic body: a remote pick that raced the picker
- * (or a pinned profile whose agent is down) answers 409 `NODE_OFFLINE`, and
+ * answers 409 `NODE_OFFLINE`, and
  * the `NODE_UNREACHABLE` sibling (the node answered nothing) gets its own
  * line. Invisible/absent nodes 404 and harness-unusable-on-that-node 409s —
  * both already carry honest server messages, so they fall through to

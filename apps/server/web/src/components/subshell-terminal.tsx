@@ -154,7 +154,7 @@ export interface SubshellTerminalProps {
    * "produced no output" instead of a blank box.
    */
   diagnostics?: { lines: string[]; truncated: boolean } | null;
-  /** Extra buttons for the exited panel's action row (e.g. Edit profile). */
+  /** Extra buttons for the exited panel's action row (e.g. Edit preset). */
   extraActions?: ReactNode;
 }
 

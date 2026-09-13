@@ -1,4 +1,4 @@
-import type { ProfileRow } from "@/types/profile";
+import type { PresetRow } from "@/types/preset";
 
 /** One env var as edited: name and value in separate fields. */
 export interface EnvRow {
@@ -20,42 +20,36 @@ export interface FlagRow {
 }
 
 /**
- * Live form state shared by the profile create form and edit page. Rows are
+ * Live form state shared by the preset create dialog and edit page. Rows are
  * the source of truth; conversion to the API's env object / flag token array
  * happens only on submit.
  */
-export interface ProfileFormValue {
-  /** Harness this profile configures; fixed once the profile exists */
+export interface PresetFormValue {
+  /** Harness this preset configures; fixed once the preset exists */
   harnessId: string;
   name: string;
   envRows: EnvRow[];
   flagRows: FlagRow[];
   restartOnExit: boolean;
-  /**
-   * Node pin: node id, or "" = "Any node (default)" — which serialises to
-   * `nodeId: null` on the wire (spec 2026-08-31 §6.2).
-   */
-  nodeId: string;
 }
 
 /** Empty form state — one blank row per section so typing can start immediately. */
-export function emptyProfileForm(): ProfileFormValue {
+export function emptyPresetForm(): PresetFormValue {
   return {
     harnessId: "",
     name: "",
     envRows: [{ key: "", value: "" }],
     flagRows: [{ flag: "", value: "" }],
     restartOnExit: false,
-    nodeId: "",
   };
 }
 
 /**
- * Seeds a form from a profile row: env object entries become rows, and the
+ * Seeds a form from a preset row: env object entries become rows, and the
  * flat flag token array is paired back into rows (each `-`-prefixed token
  * starts a row; the tokens until the next flag form its value).
  */
-export function profileFormFromRow(row: ProfileRow): ProfileFormValue {
+export function presetFormFromRow(row: PresetRow): PresetFormValue {
   let env: Record<string, string> = {};
   if (row.envJson) {
     try {
@@ -81,7 +75,6 @@ export function profileFormFromRow(row: ProfileRow): ProfileFormValue {
     envRows: envRows.length > 0 ? envRows : [{ key: "", value: "" }],
     flagRows: flagTokensToRows(tokens),
     restartOnExit: row.restartOnExit === 1,
-    nodeId: row.nodeId ?? "",
   };
 }
 
@@ -127,85 +120,78 @@ export function formToFlagTokens(rows: FlagRow[]): string[] {
   return out;
 }
 
-/** API body for `POST /api/profiles` — see {@link toProfilePayload}. */
-export interface ProfilePayload {
-  /** Harness the profile configures (the form's pre-check makes empty impossible) */
+/** API body for `POST /api/presets` — see {@link toPresetPayload}. */
+export interface PresetPayload {
+  /** Harness the preset configures (the form's pre-check makes empty impossible) */
   harnessId: string;
-  /** Profile name; blank input falls back to "Untitled" */
+  /** Preset name; blank input falls back to "Untitled" */
   name: string;
   /** Env vars, empty-key rows dropped */
   env: Record<string, string>;
   /** Flat argv tokens built from the flag rows */
   flags: string[];
-  /** Reserved for future per-profile settings; no consumer reads it yet */
+  /** Reserved for future per-preset settings; no consumer reads it yet */
   settings: Record<string, never>;
-  /** Always false: no harness consumes config isolation yet — see profile-fields.tsx. */
+  /** Always false: no harness consumes config isolation yet — see preset-fields.tsx. */
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
-  /** Pinned launch node id; null = any node (the form's "" sentinel) */
-  nodeId: string | null;
 }
 
 /**
- * Builds the exact `POST /api/profiles` body from live form state —
- * extracted verbatim from the create form so the wizard and any future
- * creator can't fork the payload (the repeated "no config isolation yet"
- * constant and the `"Untitled"` fallback included).
- * @param form - The live profile form state
+ * Builds the exact `POST /api/presets` body from live form state —
+ * extracted verbatim from the create dialog so no second creator can fork
+ * the payload (the repeated "no config isolation yet" constant and the
+ * `"Untitled"` fallback included).
+ * @param form - The live preset form state
  * @returns The request body, ready to `JSON.stringify`
  */
-export function toProfilePayload(form: ProfileFormValue): ProfilePayload {
+export function toPresetPayload(form: PresetFormValue): PresetPayload {
   return {
     harnessId: form.harnessId,
     name: form.name.trim() || "Untitled",
     env: formToEnv(form.envRows),
     flags: formToFlagTokens(form.flagRows),
     settings: {},
-    // No harness consumes config isolation yet — see profile-fields.tsx.
+    // No harness consumes config isolation yet — see preset-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
-    nodeId: form.nodeId || null,
   };
 }
 
-/** API body for `PUT /api/profiles/:id` — see {@link toProfileUpdatePayload}. */
-export interface ProfileUpdatePayload {
-  /** Profile name; blank input falls back to "Untitled" */
+/** API body for `PUT /api/presets/:id` — see {@link toPresetUpdatePayload}. */
+export interface PresetUpdatePayload {
+  /** Preset name; blank input falls back to "Untitled" */
   name: string;
   /** Env vars, empty-key rows dropped */
   env: Record<string, string>;
   /** Flat argv tokens built from the flag rows */
   flags: string[];
-  /** Always false: no harness consumes config isolation yet — see profile-fields.tsx. */
+  /** Always false: no harness consumes config isolation yet — see preset-fields.tsx. */
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
-  /** Pinned launch node id; null unpins (any node) — the form's "" sentinel */
-  nodeId: string | null;
 }
 
 /**
- * Builds the exact `PUT /api/profiles/:id` body from live form state —
- * {@link toProfilePayload} MINUS `harnessId` (a profile's harness is fixed at
+ * Builds the exact `PUT /api/presets/:id` body from live form state —
+ * {@link toPresetPayload} MINUS `harnessId` (a preset's harness is fixed at
  * creation and the API never reassigns it) and `settings` (the update contract
  * has no such field; nothing reads it yet anyway). A separate builder rather
  * than an option flag on the POST one: the two bodies differ in shape, and a
  * union-typed return would force every caller to delete keys it must not
- * send. Extracted verbatim from the edit page so a future update surface
- * can't fork the body.
- * @param form - The live profile form state
+ * send.
+ * @param form - The live preset form state
  * @returns The request body, ready to `JSON.stringify`
  */
-export function toProfileUpdatePayload(form: ProfileFormValue): ProfileUpdatePayload {
+export function toPresetUpdatePayload(form: PresetFormValue): PresetUpdatePayload {
   return {
     name: form.name.trim() || "Untitled",
     env: formToEnv(form.envRows),
     flags: formToFlagTokens(form.flagRows),
-    // No harness consumes config isolation yet — see profile-fields.tsx.
+    // No harness consumes config isolation yet — see preset-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
-    nodeId: form.nodeId || null,
   };
 }
 

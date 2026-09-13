@@ -1,43 +1,46 @@
 import { Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import type { JSX } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
 import { SearchableSelect } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkingDirField } from "@/components/working-dir-field";
+import { useInstancePlugins, type InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
-import { useProfiles } from "@/hooks/use-profiles";
+import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
+import { useSubshellsList } from "@/hooks/use-subshells";
 import { isOfflineAgent } from "@/lib/node-label";
-import { buildNodeOptions, buildProfileOptions, harnessFitsNode, type LaunchProfile } from "@/lib/subshell-compat";
+import { buildAgentOptions, buildNodeOptions, defaultAgentId } from "@/lib/subshell-compat";
+import { sortByCreation } from "@/lib/subshell-order";
 import type { Node } from "@/types/node";
 
-/** The fields needed to launch a new subshell. */
+/** The fields needed to launch a new subshell (spec 2026-09-13 §5). */
 export interface NewSubshellFormValue {
-  profileId: string;
-  workingDir: string;
+  /** Agent (plugin) to launch — the one required choice */
+  harnessId: string;
+  /** Preset to launch from; null = "None", a real presetless launch */
+  presetId: string | null;
   /**
    * Launch node — defaults to "local" (the control-plane host). "" means no
    * valid choice is made yet (local vanished from the list with several other
-   * nodes around), which blocks submit until the user picks one. A pinned
-   * profile SUGGESTS its node (see `suggestDecision`) — a suggestion the
-   * user can always override, and whose id now rides the wire when held.
+   * nodes around), which blocks submit until the user picks one.
    */
   nodeId: string;
-  /**
-   * True once the user picks a node through the picker; cleared on every
-   * profile change. Distinguishes a user's own pick from a suggestion.
-   */
-  nodeExplicit?: boolean;
+  workingDir: string;
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
-  return { profileId: "", workingDir: "", nodeId: "local" };
+  return { harnessId: "", presetId: null, workingDir: "", nodeId: "local" };
 }
 
 /** True once the form has everything the create call requires. */
 export function canSubmit(value: NewSubshellFormValue): boolean {
-  return Boolean(value.profileId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId);
+  return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId);
 }
 
 /**
@@ -102,59 +105,6 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
 }
 
 /**
- * Pin-as-suggestion (spec 2026-09-02 §1, replacing the anchor-with-override
- * semantics): while the user has NOT picked a node since the last profile
- * change, an EARNED suggestion owns the pick. The caller earns it — the row
- * is visible, selectable, and actually compatible — so a suggestion never
- * parks the form on an offline or incompatible node (the old anchor kept an
- * offline pin selected; the override era ended with the hint that carried
- * it). An unearned suggestion releases back to "local" only while it still
- * owns the pick; anything the user touched stays touched. Pure, like
- * `pickNodeDefault`. NOT mirrored 1:1 on mobile: `src/lib/node-anchor.ts`
- * keeps the pre-rename `anchorDecision` semantics deliberately (spec §6
- * non-goal) — do not blind-sync.
- */
-export function suggestDecision(p: {
-  /** The earned suggestion row (pinned node, visible, selectable, compatible); null otherwise */
-  suggestion: Node | null;
-  /** The user picked a node through the picker since the last profile change */
-  explicit: boolean;
-  /** The pick currently held by the form */
-  current: string;
-  /** What the suggestion auto-selected last, if it still owns the pick */
-  anchoredTo: string | null;
-}): { nodeId: string; anchoredTo: string | null } {
-  if (p.suggestion && !p.explicit) return { nodeId: p.suggestion.id, anchoredTo: p.suggestion.id };
-  if (!p.suggestion && !p.explicit && p.anchoredTo !== null && p.current === p.anchoredTo) {
-    return { nodeId: "local", anchoredTo: null };
-  }
-  return { nodeId: p.current, anchoredTo: p.anchoredTo };
-}
-
-/**
- * What the two picker fields are CALLED, and whether they explain themselves.
- *
- * Everywhere but first run, the reader already has an account, a dashboard and
- * a mental model, so the product's own nouns are the right labels. The setup
- * assistant's reader has none of that: "Node" and "Profile" are the first two
- * words of jargon Subshell ever says to them, and one of them is answered by a
- * row reading "Server", which makes the word look like a synonym for something
- * it is deliberately not (AGENTS.md, "The vocabulary"). So that one screen
- * leads with the plain word and teaches the product's noun in the hint —
- * taught once, in passing, rather than assumed or hidden.
- */
-export function fieldCopy(firstRun: boolean): {
-  node: { label: string; hint: string | null };
-  profile: { label: string; hint: string | null };
-} {
-  if (!firstRun) return { node: { label: "Node", hint: null }, profile: { label: "Profile", hint: null } };
-  return {
-    node: { label: "Machine", hint: "Where this subshell runs. You can add other machines as nodes later." },
-    profile: { label: "Agent", hint: "The agent CLI it launches, with its saved settings — a profile." },
-  };
-}
-
-/**
  * Element ids of the form fields, for `htmlFor`/`id` association; they anchor
  * the searchable inputs. Two sets exist and both are e2e-pinned: the default
  * `picker-*` (every launch dialog, including the one `/new` now raises) and
@@ -162,8 +112,10 @@ export function fieldCopy(firstRun: boolean): {
  * different moment rather than a second spelling of this one.
  */
 export interface NewSubshellFormIds {
-  /** Profile combobox input */
-  profile: string;
+  /** Agent combobox input */
+  agent: string;
+  /** Preset select trigger */
+  preset: string;
   /** Working-directory input */
   workingDir: string;
   /** Node combobox input */
@@ -171,22 +123,29 @@ export interface NewSubshellFormIds {
 }
 
 const DIALOG_IDS: NewSubshellFormIds = {
-  profile: "picker-profile",
+  agent: "picker-agent",
+  preset: "picker-preset",
   workingDir: "picker-working-dir",
   node: "picker-node",
 };
 
 /**
- * Node + profile + working directory — the form every launch path renders:
- * `/new`, the workspace dialog, and the setup assistant's last screen. State lives in the caller
- * (so each can gate and reset its own submit), this file owns the layout and
- * the pairing. Node sits first — the original ask (spec 2026-09-02) — but
- * either picker may be touched first: each selection re-filters the other
- * list LIVE (incompatible options grey out with a reason, never vanish —
- * `lib/subshell-compat`), and the server's 409 `harness_disabled` stays the
- * authoritative backstop for anything the cached views got wrong. A pinned
- * profile only SUGGESTS its node (earned: visible, online, compatible) and
- * the visible pick always rides the wire (`toSubshellCreateBody`).
+ * Agent + Preset + Node + Working directory — the form every launch path
+ * renders: `/new`, the workspace dialogs, and the setup assistant's last
+ * screen. State lives in the caller (so each can gate and reset its own
+ * submit), this file owns the layout and the pairing (spec 2026-09-13 §5).
+ *
+ * The AGENT is asked first, directly — the pickers before this design were
+ * harness pickers wearing a saved-configuration costume, and making the
+ * preset optional deleted the seeded Default that made the row required.
+ * Agent options are the whole plugin set, greyed
+ * never hidden (the 2026-09-02 rule, unchanged; the reasons live in
+ * `lib/subshell-compat`), and the server's 409 stays the authoritative
+ * backstop for anything the cached views got wrong. Preset lists only the
+ * chosen agent's presets with "None" first; its `+` opens a nested create
+ * dialog with the agent locked, and a created preset becomes the selection.
+ * Changing the agent resets the preset. First run hides the Preset row — a
+ * new account has zero presets and the row would offer only "None".
  *
  * **It does not ask for a name.** The server names a new subshell after its
  * start time, and the pane's own title takes over from there; naming one
@@ -205,7 +164,11 @@ export function NewSubshellForm({
   onChange: (value: NewSubshellFormValue) => void;
   /** Field element ids; defaults to the dialog's (e2e-pinned) set. */
   ids?: NewSubshellFormIds;
-  /** Label the pickers for someone who has never seen this product (see {@link fieldCopy}). */
+  /**
+   * The setup assistant's first launch: the Agent gets the one hint that
+   * teaches the word, and the Preset row is hidden (there are no presets yet
+   * to choose between).
+   */
   firstRun?: boolean;
   /**
    * Called before the nothing-to-launch state navigates away.
@@ -216,9 +179,22 @@ export function NewSubshellForm({
    */
   onLeave?: () => void;
 }): JSX.Element {
-  const copy = fieldCopy(firstRun);
-  // `node=any`: profiles that only run on OTHER nodes must be listable here.
-  const { data: profiles } = useProfiles({ node: "any" });
+  const { data: pluginData } = useInstancePlugins();
+  // A well-formed catalog response is `{ plugins: [...] }`; anything else
+  // (an error body, an older stub) leaves the picker empty, never broken.
+  const plugins: InstancePluginRow[] | undefined = Array.isArray(pluginData?.plugins)
+    ? pluginData.plugins
+    : undefined;
+  const { data: presetRows } = usePresets();
+  const presets = presetRows ?? [];
+
+  // The default agent reads the user's most recent subshell — data the ONE
+  // SSE-fed list already holds, so no new request (spec §5).
+  const { data: subshells } = useSubshellsList();
+  const recentHarnessId = useMemo(() => {
+    const list = Array.isArray(subshells) ? sortByCreation(subshells) : [];
+    return list[0]?.harnessId ?? null;
+  }, [subshells]);
 
   // Working-dir pre-fill (most recent path for the selected node) — applied
   // once per mount and only while the field is empty, so it never fights the
@@ -232,53 +208,29 @@ export function NewSubshellForm({
   // (an error body, an older stub) leaves the current pick untouched.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
 
-  const selectedProfile: LaunchProfile | undefined = (profiles ?? []).find((p) => p.id === value.profileId);
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
+  const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
+  const agentName = selectedAgent?.name ?? value.harnessId;
+  const agentPresets = presets.filter((p) => p.harnessId === value.harnessId);
 
-  // The pinned node's row — earned as a SUGGESTION only when it is also
-  // selectable and compatible. A pin to `local` is the default anyway —
-  // treated as no pin everywhere.
-  const pinnedId = selectedProfile?.nodeId ?? null;
-  const pinnedRow = pinnedId && pinnedId !== "local" ? ((nodes ?? []).find((n) => n.id === pinnedId) ?? null) : null;
-  const suggestion: Node | null =
-    pinnedRow !== null &&
-    selectedProfile !== undefined &&
-    isSelectable(pinnedRow) &&
-    harnessFitsNode(pinnedRow, selectedProfile.harnessId) === null
-      ? pinnedRow
-      : null;
+  const [createPresetOpen, setCreatePresetOpen] = useState(false);
 
-  // What the suggestion auto-selected last; owned by the component, cleared
-  // by `suggestDecision` when the suggestion stops being earned.
-  const anchoredRef = useRef<string | null>(null);
-
-  // ONE effect for all automatic corrections (node pick + pre-fill + profile
-  // default): composing the final value once makes the old cross-effect
-  // clobbering impossible. Runs only after the node list actually loads;
-  // while it loads the default "local" stands (the server accepts it).
+  // ONE effect for all automatic corrections (node re-home → working-dir
+  // pre-fill → agent default): composing the final value once makes the old
+  // cross-effect clobbering impossible. Runs only after the node list actually
+  // loads; while it loads the default "local" stands (the server accepts it).
   //
   // The node pick resolves FIRST and the node-scoped defaults read the node
   // this pass HOLDS, never the render's `selectedNode` — which derives from
   // `value` and can be one pass stale: at mount for a viewer whose `local`
   // vanished, this same effect moves the pick to an agent, and defaults read
   // against the left-behind row (or null, which greys nothing) would park the
-  // form on a profile that node cannot run and a directory it does not have.
+  // form on an agent that node cannot run and a directory it does not have.
   useEffect(() => {
     let next = value;
     if (nodes) {
-      const d = suggestDecision({
-        suggestion,
-        explicit: Boolean(value.nodeExplicit),
-        current: next.nodeId,
-        anchoredTo: anchoredRef.current,
-      });
-      anchoredRef.current = d.anchoredTo;
-      if (d.nodeId !== next.nodeId) next = { ...next, nodeId: d.nodeId };
       // Re-home the pick when what it pointed at vanished (e.g. an admin
-      // turned off local launching). Unconditional since the earned-gate:
-      // a suggestion owning the pick is by construction selectable and in
-      // `nodes`, so `pickNodeDefault` keeps it (the anchor era needed a
-      // suppression here because an offline pin could hold the pick).
+      // turned off local launching).
       const pick = pickNodeDefault(nodes, next.nodeId);
       if (pick !== next.nodeId) next = { ...next, nodeId: pick };
     }
@@ -309,27 +261,33 @@ export function NewSubshellForm({
         if (fallback && next.workingDir === "") next = { ...next, workingDir: fallback };
       }
     }
-    // First launchable profile, when the user has not chosen one. Reads the
-    // same disabled set the dropdown renders — computed against the row this
-    // pass holds, so even a same-pass re-home cannot select a pairing the
-    // server would refuse. Only ever fills a blank: a cleared profile is not
-    // a state this form offers, so there is nothing to fight.
-    if (next.profileId === "" && profiles !== undefined && nodes !== null) {
+    // Default agent, when the user has not chosen one. Reads the same disabled
+    // set the dropdown renders — computed against the row this pass holds, so
+    // even a same-pass re-home cannot select an agent the server would refuse.
+    // Only ever fills a blank; the "None" preset state needs no default.
+    if (next.harnessId === "" && plugins !== undefined && nodes !== null) {
       const heldNode = nodes.find((n) => n.id === next.nodeId) ?? null;
-      const firstUsable = buildProfileOptions(profiles, heldNode).find((o) => !o.disabled);
-      if (firstUsable) next = { ...next, profileId: firstUsable.value };
+      const dflt = defaultAgentId(buildAgentOptions(plugins, heldNode), plugins, recentHarnessId);
+      if (dflt !== null) next = { ...next, harnessId: dflt };
+    }
+    // The one guard: a preset belongs to exactly one agent. (Agent changes
+    // reset the preset at the control; this catches a row that vanished from
+    // under a held pick.)
+    if (next.presetId !== null && presetRows !== undefined) {
+      const held = presetRows.find((p) => p.id === next.presetId);
+      if (held === undefined || held.harnessId !== next.harnessId) next = { ...next, presetId: null };
     }
     if (next !== value) onChange(next);
     // nodesPending is a dep in its own right: a pending→ERROR transition
     // changes no data value, and without the flag the settling would never
     // re-run the effect that waits on it.
-  }, [recent, nodes, nodesPending, profiles, suggestion, value, onChange]);
+  }, [recent, nodes, nodesPending, plugins, presetRows, recentHarnessId, value, onChange]);
 
   const targets = launchableNodes(nodes ?? []);
-  const nodeOptions = buildNodeOptions(targets, selectedProfile ?? null, suggestion?.id ?? null);
+  const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
   // An unmade pick ("" ) never matches a row id, so selectedNode is already
   // null there — nothing extra to guard.
-  const profileOptions = buildProfileOptions(profiles ?? [], selectedNode);
+  const nodeOptions = buildNodeOptions(targets, selectedAgent ?? null);
 
   // Honest dead-ends (spec §1): the pick stands, the pair cannot — say what
   // to fix and link there. Gate on LOADED, not non-empty: a loaded-zero list
@@ -337,15 +295,15 @@ export function NewSubshellForm({
   // (undefined/null) stays quiet — `every` on empty options is vacuously
   // true, so the loaded checks are load-bearing. Never while a side is
   // unchosen, and never for an offline agent: the row reasons already say
-  // "node offline", so "no profiles run here" would misdiagnose a down host
-  // as an empty one.
-  const noProfilesHere =
+  // "node offline", so "nothing installed there" would misdiagnose a down
+  // host as an empty one.
+  const noAgentHere =
     nodes !== null &&
     selectedNode !== null &&
-    profiles !== undefined &&
+    plugins !== undefined &&
     !isOfflineAgent(selectedNode) &&
-    profileOptions.every((o) => o.disabled);
-  const noNodeHere = nodes !== null && selectedProfile !== undefined && nodeOptions.every((o) => o.disabled);
+    agentOptions.every((o) => o.disabled);
+  const noNodeHere = nodes !== null && selectedAgent !== undefined && nodeOptions.every((o) => o.disabled);
 
   // Nowhere to launch: the form has no question to ask, so it asks none and
   // says what to do instead. The caller's submit is already dead — `canSubmit`
@@ -357,48 +315,31 @@ export function NewSubshellForm({
 
   return (
     <div className="space-y-4">
-      {/* Hidden when the host is the only place it could run: a picker with
-          one option is a control that cannot be used, and on a fresh install
-          it is also the first jargon this product says to anyone. */}
-      {!hideMachineField(nodes ?? []) && (
-        <div className="space-y-2">
-          <Label htmlFor={ids.node}>{copy.node.label}</Label>
-          {copy.node.hint && <p className="text-muted-foreground text-xs">{copy.node.hint}</p>}
-          <SearchableSelect
-            id={ids.node}
-            value={value.nodeId}
-            placeholder="Choose a node"
-            options={nodeOptions}
-            // A pick through this control is the user's own — it outranks the
-            // profile pin's suggestion until the next profile change.
-            onValueChange={(nodeId) => nodeId !== "" && onChange({ ...value, nodeId, nodeExplicit: true })}
-          />
-        </div>
-      )}
-
       <div className="space-y-2">
-        <Label htmlFor={ids.profile}>{copy.profile.label}</Label>
-        {copy.profile.hint && <p className="text-muted-foreground text-xs">{copy.profile.hint}</p>}
+        <Label htmlFor={ids.agent}>Agent</Label>
+        {firstRun && (
+          <p className="text-muted-foreground text-xs">The agent CLI this subshell runs. Terminal needs nothing installed.</p>
+        )}
         <SearchableSelect
-          id={ids.profile}
-          value={value.profileId}
-          placeholder="Choose a profile"
-          options={profileOptions}
-          // A profile change re-opens the suggestion window (§ suggestDecision).
-          onValueChange={(profileId) => profileId !== "" && onChange({ ...value, profileId, nodeExplicit: false })}
+          id={ids.agent}
+          value={value.harnessId}
+          placeholder="Choose an agent"
+          options={agentOptions}
+          // The preset belongs to the agent, so a new agent starts at None.
+          onValueChange={(harnessId) => harnessId !== "" && onChange({ ...value, harnessId, presetId: null })}
         />
-        {noProfilesHere && selectedNode ? (
+        {noAgentHere && selectedNode ? (
           <p className="text-muted-foreground text-xs">
-            {"No profiles run on "}
+            {"Nothing installed on "}
             <Link to="/nodes/$id" params={{ id: selectedNode.id }} className="underline">
               {selectedNode.name}
             </Link>
-            {". Enable a harness there or create a profile."}
+            {" can run an agent. Check the node, or ask an admin to install a plugin."}
           </p>
         ) : null}
-        {noNodeHere && selectedProfile ? (
+        {noNodeHere && selectedAgent ? (
           <p className="text-muted-foreground text-xs">
-            {`No available node runs ${selectedProfile.harnessId}. `}
+            {`No available node can run ${agentName}. `}
             <Link to="/nodes" className="underline">
               Check your nodes
             </Link>
@@ -406,6 +347,88 @@ export function NewSubshellForm({
           </p>
         ) : null}
       </div>
+
+      {/* First run hides the row entirely: a new account has zero presets, and
+          a picker whose only option is "None" is a control with no choice. */}
+      {!firstRun && (
+        <div className="space-y-2">
+          <Label htmlFor={ids.preset}>Preset</Label>
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <Select
+                // "none" is the picker sentinel for "no preset" — the form
+                // state keeps null and the wire omits presetId (see toSubshellCreateBody).
+                value={value.presetId ?? "none"}
+                onValueChange={(v) => v !== null && onChange({ ...value, presetId: v === "none" ? null : v })}
+                // Base UI's Value prints the raw value without this map;
+                // labels must match the item texts below exactly.
+                items={[{ value: "none", label: "None" }, ...agentPresets.map((p) => ({ value: p.id, label: p.name }))]}
+              >
+                <SelectTrigger id={ids.preset}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {agentPresets.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label="New preset"
+              disabled={value.harnessId === ""}
+              onClick={() => setCreatePresetOpen(true)}
+            >
+              <Plus />
+            </Button>
+          </div>
+          {value.harnessId !== "" && (
+            <>
+              <p className="text-muted-foreground text-xs">Saved flags, env vars and restart policy for {agentName}.</p>
+              {agentPresets.length === 0 && (
+                <p className="text-muted-foreground text-xs">No presets for {agentName} yet.</p>
+              )}
+            </>
+          )}
+          {/* Mounted only while open, so every open starts from a blank form
+              (clone-dialog posture). Base UI nests the dialogs natively:
+              Escape closes this one and the launch dialog stays up. */}
+          {createPresetOpen && value.harnessId !== "" && (
+            <CreatePresetDialog
+              open
+              lockedHarness={value.harnessId}
+              onOpenChange={(next) => !next && setCreatePresetOpen(false)}
+              onCreated={(row) => onChange({ ...value, presetId: row.id })}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Hidden when the host is the only place it could run: a picker with
+          one option is a control that cannot be used, and on a fresh install
+          it is also the first jargon this product says to anyone. */}
+      {!hideMachineField(nodes ?? []) && (
+        <div className="space-y-2">
+          <Label htmlFor={ids.node}>{firstRun ? "Machine" : "Node"}</Label>
+          {firstRun && (
+            <p className="text-muted-foreground text-xs">
+              Where this subshell runs. You can add other machines as nodes later.
+            </p>
+          )}
+          <SearchableSelect
+            id={ids.node}
+            value={value.nodeId}
+            placeholder="Choose a node"
+            options={nodeOptions}
+            onValueChange={(nodeId) => nodeId !== "" && onChange({ ...value, nodeId })}
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor={ids.workingDir}>Working directory</Label>

@@ -23,7 +23,7 @@ export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
  * It reads `name` for every kind on purpose. This used to take the local
  * label from its CALLER, and four callers each passed their own hardcoded
  * string — so renaming the control-plane host's node reached the Nodes page
- * and silently missed the launch picker, the profile pin, the clone dialog and
+ * and silently missed the launch picker, the clone dialog and
  * the compat matrix. Kept as one function so the disabled-state wording (spec
  * §5.6) cannot drift between the pickers; the e2e-pinned item text and the
  * Base UI `items` map must render the SAME string, so both call this.

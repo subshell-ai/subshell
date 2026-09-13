@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** The shared frame for both not-found states: the same centered card the
- * workspace/profile detail routes use (routes/workspaces_.$id.tsx). */
+ * workspace/preset detail routes use (routes/workspaces_.$id.tsx). */
 function NotFoundCard({ title, body, action }: { title: string; body: string; action: ReactNode }) {
   return (
     <main className="mx-auto w-full max-w-2xl p-6">

@@ -4,7 +4,7 @@ import { apiFetch } from "@/lib/api";
 import type { HarnessInfo } from "@/types/harness";
 import type { NodeHarness } from "@/types/node";
 
-/** Shared key: the wizard, the profile editor and the per-node card agree. */
+/** Shared key: the wizard, the preset editor and the per-node card agree. */
 export const HARNESS_QUERY_KEY = ["harnesses"];
 
 /**

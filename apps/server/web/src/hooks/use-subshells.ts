@@ -17,7 +17,7 @@ export function useSubshellsList() {
 
 /**
  * Invalidates the subshell list. Keeps the key in one place the way
- * `useInvalidateProfiles` does, for every place subshells are created or
+ * `useInvalidatePresets` does, for every place subshells are created or
  * bulk-acted on.
  */
 export function useInvalidateSubshells(): () => Promise<void> {

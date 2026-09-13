@@ -2,7 +2,7 @@ import type { SubshellView } from "@/types/subshell";
 
 /** Explains the auto-restart column wherever it appears. */
 export const AUTO_RESTART_HELP =
-  "When a subshell's profile opts in, Subshell restarts the harness if its process exits, " +
+  "When a subshell's preset opts in, Subshell restarts the harness if its process exits, " +
   "waiting longer after each consecutive failure (30s, then 1m, 2m, 4m, 8m) and giving " +
   "up after 5 tries. The count resets once the subshell stays up.";
 

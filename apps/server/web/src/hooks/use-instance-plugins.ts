@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PROFILES_QUERY_KEY } from "@/hooks/use-profiles";
+import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { apiFetch } from "@/lib/api";
 
 /** Query key of the instance plugin catalog (`GET /api/plugins`). */
@@ -27,21 +27,25 @@ export interface InstancePluginRow {
   builtIn: boolean;
   /** Why the plugin will not load in the control-plane process; present means every launch of it fails */
   broken?: string;
+  /**
+   * Manifest plugin type: an agent CLI, or a plain shell. The Agent picker's
+   * default rule puts terminal last. Optional for an older server's payload;
+   * absent reads as agent.
+   */
+  type?: "agent-harness" | "terminal";
 }
 
 /** What an uninstall would touch — mirrors the server's ImpactResponseSchema. */
 export interface PluginImpact {
-  /** Profiles using this harness, across every user */
-  profiles: number;
-  /** Every user who owns one of those profiles, the caller included — the "across N users" count */
+  /** Presets using this harness, across every user */
+  presets: number;
+  /** Every user who owns one of those presets, the caller included — the "across N users" count */
   distinctUsers: number;
-  /** How many are auto-seeded Defaults (`mode=delete` removes these too) */
-  defaults: number;
   /** RUNNING subshells on this harness; uninstalling touches none of them */
   runningSubshells: number;
 }
 
-/** What an uninstall does to profiles (spec §6.1); keep is the server's default too. */
+/** What an uninstall does to presets (spec §6.1); keep is the server's default too. */
 export type UninstallMode = "keep" | "delete";
 
 /**
@@ -75,7 +79,7 @@ export function useInstallInstancePlugin() {
 
 /**
  * Offers a plugin (true) or holds its bytes without offering them (false).
- * Profiles are never touched in either direction — disabling is the
+ * Presets are never touched in either direction — disabling is the
  * operation uninstall cannot express, which is why it exists.
  */
 export function useSetPluginEnabled() {
@@ -104,23 +108,23 @@ export function usePluginImpact(pluginId: string | null) {
 
 /**
  * Uninstalls from the instance store (cookie admin). `keep` never touches
- * profiles; `delete` sweeps them across every user, Defaults included
- * (spec §6.1). Running subshells are unaffected either way.
+ * presets; `delete` sweeps them across every user (spec §6.1). Running
+ * subshells are unaffected either way.
  */
 export function useUninstallInstancePlugin() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, mode }: { id: string; mode: UninstallMode }) =>
-      apiFetch<{ ok: boolean; mode: UninstallMode; profilesRemoved: number }>(`/api/plugins/${id}?mode=${mode}`, {
+      apiFetch<{ ok: boolean; mode: UninstallMode; presetsRemoved: number }>(`/api/plugins/${id}?mode=${mode}`, {
         method: "DELETE",
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: INSTANCE_PLUGINS_QUERY_KEY });
-      // `mode=delete` swept profiles across EVERY user (spec §6.1), so the
-      // profiles list a viewer has open is stale the moment this returns;
+      // `mode=delete` swept presets across EVERY user (spec §6.1), so the
+      // preset list a viewer has open is stale the moment this returns;
       // `keep` touched none and the extra refetch is the cheap, honest
       // default for both modes rather than branching on the flag's meaning.
-      void queryClient.invalidateQueries({ queryKey: PROFILES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
     },
   });
 }

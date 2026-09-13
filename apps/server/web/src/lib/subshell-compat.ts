@@ -1,22 +1,26 @@
 import type { ComboboxOption } from "@/components/ui/combobox";
+import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { isOfflineAgent, nodeOptionLabel } from "@/lib/node-label";
 import { usableFirst } from "@/lib/option-order";
 import type { Node } from "@/types/node";
-import type { ProfileRow } from "@/types/profile";
 
 /**
- * The launch picker's compatibility matrix (spec 2026-09-02 §2), pure so the
- * grey-with-reason grid is testable without opening a Base UI dropdown.
- * This is the INFORMATIONAL mirror of the server's `harnessUsable` — the
- * launch gate stays authoritative server-side (409 harness_disabled covers
- * every race, including a stale agent inventory).
+ * The launch picker's compatibility matrix (spec 2026-09-02 §2, re-cut
+ * agent-first by spec 2026-09-13 §5), pure so the grey-with-reason grid is
+ * testable without opening a Base UI dropdown. This is the INFORMATIONAL
+ * mirror of the server's `harnessUsable` — the launch gate stays authoritative
+ * server-side (409 harness_disabled covers every race, including a stale
+ * agent inventory).
  */
 
-/** The profile fields the launch pickers read. */
-export type LaunchProfile = Pick<ProfileRow, "id" | "name" | "harnessId" | "nodeId">;
+/** The plugin fields the Agent pickers read. */
+export type LaunchAgent = Pick<
+  InstancePluginRow,
+  "id" | "name" | "icon" | "installed" | "enabled" | "broken" | "type"
+>;
 
 /**
- * Why a profile cannot launch on a node.
+ * Why a harness cannot launch on a node.
  *
  * "disabled" is gone (spec 2026-09-09 §12): a node offers what it has
  * INSTALLED, so there is no enable flag left to be off. What used to be a
@@ -44,31 +48,38 @@ export function harnessFitsNode(node: Node, harnessId: string): IncompatReason |
  */
 const STALE_HEDGE = " (inventory may be outdated)";
 
-/** The muted reason text on a greyed profile row (node must be non-null). */
-function profileReasonText(node: Node, reason: IncompatReason): string {
-  if (reason === "offline") return "node offline";
-  return node.inventoryStale ? `not installed here${STALE_HEDGE}` : "not installed on this node";
-}
-
 /**
- * The one profile-label grammar for every picker/reader: `name (harnessId)`
- * (e2e-pinned format). Shared by {@link buildProfileOptions} and the clone
- * dialog so the rows cannot drift.
+ * Agent options paired against the chosen node (null = no pick yet: only the
+ * server-side flags grey), greyed never hidden (the 2026-09-02 rule,
+ * unchanged): reasons in precedence "not installed on this server" →
+ * "failed to load" → "disabled on this server" → node reasons ("node
+ * offline", "not installed on this node" + the stale hedge).
+ * `usableFirst` puts what can be picked on top; each group keeps plugin order.
  */
-export function profileOptionLabel(p: LaunchProfile): string {
-  return `${p.name} (${p.harnessId})`;
-}
-
-/**
- * Profile options paired against the chosen node (null = no pick yet:
- * nothing greys). Labels keep the e2e-pinned `name (harnessId)` format.
- */
-export function buildProfileOptions(profiles: readonly LaunchProfile[], node: Node | null): ComboboxOption[] {
+export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | null): ComboboxOption[] {
   return usableFirst(
-    profiles.map((p) => {
-      const fit = node === null ? null : harnessFitsNode(node, p.harnessId);
-      const opt: ComboboxOption = { value: p.id, label: profileOptionLabel(p), disabled: fit !== null };
-      if (fit !== null && node !== null) opt.reason = profileReasonText(node, fit);
+    plugins.map((p) => {
+      const opt: ComboboxOption = { value: p.id, label: p.name, disabled: false };
+      if (p.icon !== undefined) opt.icon = p.icon;
+      // Server-side refusals first (they hold no matter what the node says),
+      // then the node's own verdict — the precedence is the frozen table's.
+      if (!p.installed) {
+        opt.disabled = true;
+        opt.reason = "not installed on this server";
+      } else if (p.broken !== undefined) {
+        opt.disabled = true;
+        opt.reason = "failed to load";
+      } else if (!p.enabled) {
+        opt.disabled = true;
+        opt.reason = "disabled on this server";
+      } else if (node !== null) {
+        const fit = harnessFitsNode(node, p.id);
+        if (fit !== null) {
+          opt.disabled = true;
+          opt.reason =
+            fit === "offline" ? "node offline" : `not installed on this node${node.inventoryStale ? STALE_HEDGE : ""}`;
+        }
+      }
       return opt;
     }),
     (o) => !o.disabled,
@@ -76,25 +87,44 @@ export function buildProfileOptions(profiles: readonly LaunchProfile[], node: No
 }
 
 /**
- * Node options paired against the chosen profile (null = no pick yet:
- * only offline agents grey). `suggestionId` — the pinned node AFTER the
- * caller has validated the suggestion (selectable + compatible, §1) — gets
- * the " · default for this profile" suffix.
+ * The agent the picker should hold when the user has not chosen one: the most
+ * recent subshell's agent when it is still usable, else the first usable
+ * NON-terminal agent (a shell is a fallback, not the headline), else anything
+ * usable, else null (nothing to fill — the picklist greys everything and the
+ * dead-end hints carry the story).
+ *
+ * @param options - output of {@link buildAgentOptions} for the current pair
+ * @param plugins - the plugin rows, for the terminal lookup by id
+ * @param recentHarnessId - harnessId of the user's most recent subshell, null when none
  */
-export function buildNodeOptions(
-  nodes: readonly Node[],
-  profile: LaunchProfile | null,
-  suggestionId: string | null,
-): ComboboxOption[] {
+export function defaultAgentId(
+  options: readonly ComboboxOption[],
+  plugins: readonly LaunchAgent[],
+  recentHarnessId: string | null,
+): string | null {
+  const usable = options.filter((o) => !o.disabled);
+  if (recentHarnessId !== null && usable.some((o) => o.value === recentHarnessId)) return recentHarnessId;
+  const typeById = new Map(plugins.map((p) => [p.id, p.type]));
+  // An absent `type` reads as an agent, not a terminal — the client-side
+  // default rule for a payload older than the field (frozen contract).
+  return (usable.find((o) => typeById.get(o.value) !== "terminal") ?? usable[0])?.value ?? null;
+}
+
+/**
+ * Node options paired against the chosen agent (null = no pick yet: only
+ * offline agents grey). The suggested-node suffix is gone with the pin
+ * itself (spec 2026-09-13 §2.3) — the default pick is `pickNodeDefault`'s,
+ * unchanged.
+ */
+export function buildNodeOptions(nodes: readonly Node[], agent: LaunchAgent | null): ComboboxOption[] {
   return usableFirst(
     nodes.map((n) => {
       const offline = isOfflineAgent(n);
-      const fit = !offline && profile !== null ? harnessFitsNode(n, profile.harnessId) : null;
-      const label = nodeOptionLabel(n) + (n.id === suggestionId ? " · default for this profile" : "");
-      const opt: ComboboxOption = { value: n.id, label, disabled: offline || fit !== null };
-      if (fit !== null && profile !== null) {
+      const fit = !offline && agent !== null ? harnessFitsNode(n, agent.id) : null;
+      const opt: ComboboxOption = { value: n.id, label: nodeOptionLabel(n), disabled: offline || fit !== null };
+      if (fit !== null && agent !== null) {
         const stale = fit === "not-installed" && n.inventoryStale;
-        opt.reason = `no ${profile.harnessId} here${stale ? STALE_HEDGE : ""}`;
+        opt.reason = `no ${agent.name} here${stale ? STALE_HEDGE : ""}`;
       }
       return opt;
     }),

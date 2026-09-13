@@ -24,7 +24,7 @@ export function useQuickAdd(): QuickAddApi {
  * hands out triggers. They used to live inside `AppSidebar` itself — which
  * means on phones they were mounted INSIDE the nav drawer's modal dialog. Two
  * stacked modal dialogs each install Base UI's touch scroll-lock, and the
- * launch dialog's profile dropdown tripped the pair: the dialog's own
+ * launch dialog's Agent dropdown tripped the pair: the dialog's own
  * scroller was flung to its bottom and the header vanished off-screen
  * (iPhone report, 2026-09-04, pinned by the e2e repro). Opening a quick-add
  * now also closes the drawer (`AppSidebar.onQuickAdd`), so exactly one modal

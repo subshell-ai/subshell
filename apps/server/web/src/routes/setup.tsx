@@ -61,9 +61,9 @@ function SetupPage() {
   } = useHarnesses({ refetchInterval: step === 1 && !install.isPending ? 4000 : undefined });
   const agents = (harnesses ?? []).filter((h) => h.type === "agent-harness");
 
-  // Launch step. The form defaults itself (node `local`, the first launchable
-  // profile, the node's home directory), so this is one click unless the user
-  // wants it to be more.
+  // Launch step. The form defaults itself (node `local`, a usable agent, the
+  // node's home directory), so this is one click unless the user wants it to
+  // be more.
   const [launchForm, setLaunchForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm);
   const create = useCreateSubshell();
   // Set by `launch` BEFORE the cache retirement. Retiring setup-status is what
@@ -299,7 +299,8 @@ function SetupPage() {
         onChange={setLaunchForm}
         firstRun
         ids={{
-          profile: "setup-profile",
+          agent: "setup-agent",
+          preset: "setup-preset",
           workingDir: "setup-working-dir",
           node: "setup-node",
         }}
