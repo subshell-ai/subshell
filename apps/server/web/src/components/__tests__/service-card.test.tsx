@@ -7,6 +7,41 @@ afterEach(cleanup);
 
 const restartButton = () => screen.getByRole("button", { name: "Restart server" }) as HTMLButtonElement;
 
+describe("the pane-safety warning", () => {
+  it("says nothing when there is no definition to be unsafe", () => {
+    const view = deploymentView();
+    // `paneSafety` is "unknown" with nothing installed — there is no file to
+    // read — and "unknown" is not "keeps", so this warned on every machine
+    // with no service at all, telling someone to reinstall something that
+    // does not exist, under a Restart button disabled for another reason.
+    view.service.installed = false;
+    view.service.paneSafety = "unknown";
+    render(<ServiceCard view={view} restart={idleRestart} />);
+    expect(screen.queryByText(/close every running subshell/)).toBeNull();
+    expect(screen.queryByText(/service install/)).toBeNull();
+  });
+
+  it("names the command that actually rewrites the definition", () => {
+    const view = deploymentView();
+    view.service.installed = true;
+    view.service.paneSafety = "kills";
+    render(<ServiceCard view={view} restart={idleRestart} />);
+    expect(screen.getByText(/close every running subshell/)).toBeTruthy();
+    // "Reinstall the service definition" is not something a person can do.
+    // This is — and `service install` rewrites in place, so it IS the
+    // reinstall; there is no separate verb and no route that can do it.
+    expect(screen.getByText("subshell-server service install")).toBeTruthy();
+  });
+
+  it("distinguishes an unreadable definition from a lethal one", () => {
+    const view = deploymentView();
+    view.service.installed = true;
+    view.service.paneSafety = "unknown";
+    render(<ServiceCard view={view} restart={idleRestart} />);
+    expect(screen.getByText(/could not be read/)).toBeTruthy();
+  });
+});
+
 describe("ServiceCard", () => {
   it("says who supervises the process and offers Restart", () => {
     render(<ServiceCard view={deploymentView()} restart={idleRestart} />);

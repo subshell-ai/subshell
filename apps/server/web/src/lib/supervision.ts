@@ -22,11 +22,18 @@ export type SupervisionMode = "service" | "app";
 export function currentMode(view: ServerDeployment): SupervisionMode | null {
   const service = view.service;
   if (service.manager === "app") return "app";
-  // A definition on disk is what "in the background" MEANS here, and it stays
-  // the answer while the service is merely stopped. `manager` alone is not
-  // enough: it reports what is running now, and an installed-but-stopped
-  // service has no running supervisor to name.
-  if (service.installed || service.manager === "launchd" || service.manager === "systemd") return "service";
+  // **`installed` alone.** A definition on disk is what "in the background"
+  // MEANS here, and it stays the answer while the service is merely stopped.
+  //
+  // NOT `manager`, which this first read and which is not what it looks like:
+  // the server derives it from the PLATFORM — `darwin ? "launchd" : linux ?
+  // "systemd" : null` — so it names the manager this machine WOULD use, never
+  // one that is managing anything. Reading it here made every macOS and Linux
+  // host report "In the background" whatever was true, which put "A launchd
+  // agent runs it" on screen directly above "No service is installed on this
+  // machine", and made the null answer below unreachable on the platforms
+  // that have a manager name at all.
+  if (service.installed) return "service";
   return null;
 }
 

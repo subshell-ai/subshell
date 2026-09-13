@@ -139,7 +139,7 @@ export function SupervisionDialog({
         {lethal && (
           <p className="text-sm text-warning">
             {view.service.paneSafety === "kills"
-              ? "This machine's service definition predates the setting that spares live panes. Reinstalling the service definition fixes it."
+              ? "This machine's service definition predates the setting that spares live panes. Running `subshell-server service install` on that machine rewrites it."
               : "This machine's service definition could not be read, so this is the safe assumption."}
           </p>
         )}

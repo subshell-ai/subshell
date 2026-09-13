@@ -1,11 +1,22 @@
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { FactCard } from "@/components/admin-status/fact-list";
+import { CopyableValue } from "@/components/service/copyable-value";
 import { RestartDialog, resumeElsewhere } from "@/components/service/restart-dialog";
 import { ElsewhereLink, RestartStrip } from "@/components/service/restart-strip";
 import { Button } from "@/components/ui/button";
 import type { ServerRestart } from "@/hooks/use-server-restart";
 import type { ServerDeployment } from "@/types/server-deployment";
+
+/**
+ * The command that rewrites this machine's service definition.
+ *
+ * `service install` writes the unit/plist unconditionally rather than
+ * refusing when one is already there, so it is the reinstall — there is no
+ * separate verb, and nothing in the dashboard can do it: installing is one of
+ * the acts with no HTTP route, because it leaves the server unreachable.
+ */
+const REINSTALL_COMMAND = "subshell-server service install";
 
 /** What the supervisor is CALLED in a sentence; the id `app` is not a name. */
 function managerName(manager: ServerDeployment["service"]["manager"]): string {
@@ -87,10 +98,26 @@ export function ServiceCard({
       {!restarting && !service.supervised && view.restart.reason && (
         <p className="col-span-full text-muted-foreground text-sm">{view.restart.reason}</p>
       )}
-      {service.paneSafety !== "keeps" && (
-        <p className="col-span-full text-sm text-warning">
-          Restarting will close every running subshell; reinstall the service definition to fix this.
-        </p>
+      {/* **Gated on `installed`.** `paneSafety` is `"unknown"` when there is no
+          definition to read, and `"unknown" !== "keeps"`, so this fired on
+          every machine with no service at all — telling someone to reinstall a
+          definition that does not exist, under a Restart button that is
+          disabled anyway because nothing supervises the process. */}
+      {service.installed && service.paneSafety !== "keeps" && (
+        <div className="col-span-full space-y-1.5 text-sm text-warning">
+          <p>
+            {service.paneSafety === "kills"
+              ? "Restarting will close every running subshell: this machine's service definition predates the setting that spares live panes."
+              : "This machine's service definition could not be read, so whether a restart keeps running subshells is unknown."}
+          </p>
+          {/* The actual act, named. "Reinstall the service definition" is not
+              something a person can do — this is. `install` rewrites the
+              definition in place, so it IS the reinstall. */}
+          <p className="text-muted-foreground text-xs">
+            Rewrite it by running <CopyableValue value={REINSTALL_COMMAND} label="Reinstall command" /> on that machine,
+            then restart the server.
+          </p>
+        </div>
       )}
       <div className="col-span-full flex items-center gap-3">
         <Button

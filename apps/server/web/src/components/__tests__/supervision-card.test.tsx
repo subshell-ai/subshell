@@ -56,14 +56,21 @@ describe("currentMode", () => {
       view.service.manager = manager;
       // `installed` is true in the fixture, and that is what "in the
       // background" means — it stays the answer while the service is merely
-      // stopped, when no running supervisor exists to name.
+      // stopped, when no running supervisor exists to name. The manager name
+      // does not enter into it, in EITHER direction.
       expect(currentMode(view)).toBe("service");
+      view.service.installed = false;
+      expect(currentMode(view)).toBe(null);
     }
   });
 
   it("answers NEITHER for a server started by hand", () => {
     const bare = deploymentView();
-    bare.service.manager = null;
+    // `manager` deliberately LEFT as the platform's name, which is what the
+    // server always sends: it says which manager this host would use, never
+    // that one is managing anything. Reading it here reported "In the
+    // background" on every macOS and Linux machine, installed or not.
+    bare.service.manager = "launchd";
     bare.service.installed = false;
     bare.service.supervised = false;
     // This used to answer "service", so the radio read "A launchd agent keeps
