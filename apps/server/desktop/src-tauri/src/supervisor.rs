@@ -232,6 +232,16 @@ struct State {
     /// that sets `desired_running`, so the two cannot disagree.
     loop_running: bool,
     pid: Option<u32>,
+    /// True from just before `Spawner::spawn` is called until its pid is
+    /// recorded — the window in which a live child exists that this struct
+    /// cannot yet name.
+    ///
+    /// `stop` answered "gone" for that window, because it reads `pid` and
+    /// `pid` was still `None`. A server was running and holding the port, and
+    /// the caller was told it had exited: `RunEvent::Exit` quit the app over
+    /// it, and `reset` — which refuses to delete the database when a stop
+    /// gives up — deleted it, under a process still writing.
+    spawning: bool,
     last_exit: Option<LastExit>,
     /// Set while a `restart` is in flight, so the loop skips the delay once.
     immediate: bool,
@@ -400,6 +410,12 @@ impl Supervisor {
     }
 
     /// The live child's pid.
+    ///
+    /// Test-only since `wait_until_gone` stopped using it. Production reads
+    /// the pid through `snapshot`, and this one is deliberately NOT restored
+    /// to that path: reading `pid` alone is what made a stop answer "gone"
+    /// about a child whose spawn had not finished being recorded.
+    #[cfg(test)]
     pub fn pid(&self) -> Option<u32> {
         self.inner.state.lock().unwrap_or_else(|e| e.into_inner()).pid
     }
@@ -410,7 +426,31 @@ impl Supervisor {
     /// handle it does not own — which is what the previous revision got
     /// wrong, silently.
     fn wait_until_gone(&self, spawner: &dyn Spawner) -> bool {
-        let Some(pid) = self.pid() else { return true };
+        // **Resolve a spawn in flight before answering.** `pid` is recorded
+        // after `Spawner::spawn` returns, so between those two moments a real
+        // process exists that this supervisor cannot name — and reading `pid`
+        // alone reported it as gone. Callers act on that: the app quits, and
+        // the reset chain deletes a database the process is still writing to.
+        // Bounded by the same stop bound as the signal wait, so a spawn that
+        // never completes cannot block a quit forever.
+        let pid = {
+            let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            let deadline = Instant::now() + self.stop_bound;
+            while st.pid.is_none() && st.spawning {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                let (next, _) = self
+                    .inner
+                    .changed
+                    .wait_timeout(st, left)
+                    .unwrap_or_else(|e| e.into_inner());
+                st = next;
+            }
+            st.pid
+        };
+        let Some(pid) = pid else { return true };
         spawner.terminate(pid);
         let deadline = Instant::now() + self.stop_bound;
         let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -481,9 +521,21 @@ impl Supervisor {
                         .unwrap_or_else(|e| e.into_inner())
                         .clone()
                         .unwrap_or_else(|| Arc::clone(&spawner));
+                    // Raised BEFORE the spawn and lowered only with the pid, so
+                    // `wait_until_gone` can tell "nothing is running" from
+                    // "something is starting and cannot be named yet".
+                    {
+                        let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+                        st.spawning = true;
+                    }
                     let mut child = match spawner.spawn() {
                         Ok(c) => c,
                         Err(err) => {
+                            {
+                                let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+                                st.spawning = false;
+                            }
+                            shared.changed.notify_all();
                             eprintln!("subshell: could not start the server: {err}");
                             // A failed spawn is an exit: the same rhythm, so a
                             // transient cause (a binary mid-install, a log
@@ -499,6 +551,8 @@ impl Supervisor {
                     {
                         let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
                         st.pid = Some(child.id());
+                        // One critical section, so no observer sees neither.
+                        st.spawning = false;
                     }
                     shared.changed.notify_all();
                     // OWNED here for the whole wait. Nothing else holds a handle,
@@ -690,6 +744,8 @@ mod tests {
         signals: Mutex<Vec<(String, u32)>>,
         /// When false, SIGTERM is ignored: a wedged server.
         honours_term: AtomicBool,
+        /// While true, `spawn` blocks before publishing its child.
+        hold_spawn: AtomicBool,
         next: AtomicU32,
         tx: mpsc::Sender<u32>,
     }
@@ -697,6 +753,12 @@ mod tests {
     impl Spawner for FakeSpawner {
         fn spawn(&self) -> io::Result<Box<dyn ChildHandle>> {
             let id = self.next.fetch_add(1, Ordering::SeqCst);
+            // Held open by `hold_spawn`, so a test can sit INSIDE the window
+            // between a child existing and its pid being recorded — which is
+            // the whole race, and is otherwise microseconds wide.
+            while self.hold_spawn.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
             let exited = Arc::new(AtomicBool::new(false));
             self.spawns.lock().unwrap().push(id);
             self.live.lock().unwrap().insert(id, Arc::clone(&exited));
@@ -742,6 +804,7 @@ mod tests {
                 live: Mutex::new(HashMap::new()),
                 signals: Mutex::new(Vec::new()),
                 honours_term: AtomicBool::new(true),
+                hold_spawn: AtomicBool::new(false),
                 next: AtomicU32::new(100),
                 tx,
             }),
@@ -855,6 +918,62 @@ mod tests {
 
     /// A restart after a stop must actually start something. The previous
     /// revision set two flags, woke nobody, and reported success.
+    /// A stop racing a spawn must not answer "gone" about a live server.
+    ///
+    /// `pid` is recorded AFTER `Spawner::spawn` returns, so between those two
+    /// moments a real process exists that the supervisor cannot name. `stop`
+    /// read `pid`, saw `None`, sent no signal and returned TRUE. Callers act
+    /// on that answer: `RunEvent::Exit` quits the app over it, and `reset` —
+    /// which is careful to refuse when a stop gives up — deletes the database
+    /// under a process still writing to it.
+    ///
+    /// Microseconds wide in production and wide enough to fail three tests on
+    /// a contended CI container, which is how it was found.
+    #[test]
+    fn a_stop_racing_a_spawn_does_not_report_a_live_server_as_gone() {
+        let (spawner, rx) = harness();
+        let sup = quick();
+
+        // Hold the next spawn open, then start: the loop is now INSIDE
+        // `spawn`, with a child about to exist and no pid recorded.
+        spawner.hold_spawn.store(true, Ordering::SeqCst);
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        std::thread::sleep(Duration::from_millis(60));
+        assert_eq!(sup.pid(), None, "the pid is genuinely not recorded yet");
+
+        // Stop from another thread — it must WAIT for the spawn to resolve
+        // rather than answering about a process it cannot see.
+        let s2 = Arc::clone(&spawner);
+        let stopper = std::thread::spawn({
+            let inner = Arc::clone(&sup.inner);
+            let stop_bound = sup.stop_bound;
+            let respawn = sup.respawn_delay;
+            move || {
+                let sup = Supervisor {
+                    inner,
+                    respawn_delay: respawn,
+                    stop_bound,
+                };
+                sup.stop(s2.as_ref())
+            }
+        });
+        std::thread::sleep(Duration::from_millis(30));
+        // Let the spawn complete; the stop should now find the child and end it.
+        spawner.hold_spawn.store(false, Ordering::SeqCst);
+        next_spawn(&rx);
+
+        assert!(stopper.join().unwrap(), "the child really is gone");
+        // The proof it did not answer about thin air: it signalled the child
+        // it had to wait for. Before the fix this list was EMPTY and `stop`
+        // still returned true.
+        assert_eq!(
+            spawner.signalled().first().map(|(sig, _)| sig.clone()),
+            Some("-TERM".to_string()),
+            "a stop that returns true must have actually stopped something"
+        );
+        assert_eq!(sup.pid(), None);
+    }
+
     /// A loop that ENDS inside the respawn delay must release its own flag.
     ///
     /// Distinct from the test below, which catches the same wedge by a
