@@ -189,7 +189,10 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   // also be the first jargon the product says. The rule is the host being the
   // SOLE target, not first run: spec 12 picks a node on this same form once a
   // second machine is enrolled.
-  await expect(page.getByLabel("Node")).toHaveCount(0);
+  // The label this form would actually render (`firstRun ? "Machine" :
+  // "Node"` in new-subshell-form.tsx) — asserting "Node" here could never
+  // fail, hiding the field or not.
+  await expect(page.getByLabel("Machine")).toHaveCount(0);
   // And it asks for no name: the server names it, renaming is its own act.
   await expect(page.getByLabel(/name/i)).toHaveCount(0);
   const start = page.getByRole("button", { name: "Start" });
