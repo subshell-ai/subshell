@@ -154,6 +154,26 @@ COPY of the server's `utils/log-file.ts` rather than an import — that file is
 AGPL and this app is Apache-2.0, so importing the value would entangle the two
 licences for sixty lines.
 
+**Debug level is a switch, and it currently reveals nothing.** The file
+transport carries a `level` (`info` by default) and `debug-logging.ts` flips it
+live — off by default, persisted in `config.json` so a `service restart` does
+not silently end a debug session, forced on and made read-only by
+`SUBSHELL_DEBUG_LOGGING` in this agent's environment (only `1`/`true` force;
+`=0` is a variable somebody left behind, not the environment saying off). The
+plane drives it with `set_log_level` and shows it on the node's Log card.
+
+Two things to know before reaching for it. The agent has **no `logger.debug`
+call sites**, so turning it on changes what would be recorded rather than what
+is — the mechanism went in ahead of the lines by decision, and the card says so
+on screen. And the server's equivalent switch is not the same feature: that one
+exists for `@loglayer/elysia`'s per-request lines, which is why it carries
+security accounting about paths that can hold a setup key. An agent serves no
+HTTP and has no equivalent stream — so whoever writes the first debug line here
+owns redoing that accounting for whatever it carries.
+
+The console transport is never touched by any of this: what journald or launchd
+collects stays at `info`.
+
 Three more things about it are deliberate:
 
 - **The line format is unchanged** from the hand-rolled `console.log` it
