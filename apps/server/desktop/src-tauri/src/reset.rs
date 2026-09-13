@@ -346,13 +346,33 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
         Some(crate::control::service_installed_json(&settings)),
     ) == Supervision::App;
     let stop = if app_mode {
-        match crate::control::server_spawner(&app) {
+        // The supervisor's own spawner first, falling back to rebuilding one:
+        // a reset must not abort because the binary moved, and must not
+        // PROCEED because it could not ask.
+        let sup = app.state::<crate::supervisor::Supervisor>();
+        match sup
+            .spawner()
+            .map(Ok)
+            .unwrap_or_else(|| crate::control::server_spawner(&app))
+        {
             Ok(spawner) => {
-                app.state::<crate::supervisor::Supervisor>().stop(spawner.as_ref());
-                ActionResult {
-                    ok: true,
-                    stdout: "subshell-server stopped.\n".into(),
-                    stderr: String::new(),
+                // The answer is load-bearing: step 5 deletes the database this
+                // process writes to. A stop that gave up — both signals
+                // ignored, both bounds spent — must stop the chain here rather
+                // than be taken as permission to delete under a live server.
+                if sup.stop(spawner.as_ref()) {
+                    ActionResult {
+                        ok: true,
+                        stdout: "subshell-server stopped.\n".into(),
+                        stderr: String::new(),
+                    }
+                } else {
+                    ActionResult {
+                        ok: false,
+                        stdout: String::new(),
+                        stderr: "the server did not stop, so nothing was deleted; quit Subshell Server and try again"
+                            .into(),
+                    }
                 }
             }
             Err(err) => ActionResult {

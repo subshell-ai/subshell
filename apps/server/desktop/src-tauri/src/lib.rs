@@ -293,9 +293,18 @@ pub fn run() {
             // user, including every user who never chose app mode.
             tauri::RunEvent::Exit => {
                 let supervisor = app.state::<supervisor::Supervisor>();
-                if supervisor.pid().is_some() {
-                    if let Some(spawner) = supervisor.spawner() {
-                        supervisor.stop(spawner.as_ref());
+                // Gated on the SPAWNER, not on a live pid: between a crash
+                // and the respawn the pid is None while the loop is still
+                // alive and still wants a server, so a pid-gated check would
+                // skip the stop and let that loop spawn a fresh server into
+                // an app that is already leaving — an orphan holding the port
+                // against the next launch.
+                if let Some(spawner) = supervisor.spawner() {
+                    if !supervisor.stop(spawner.as_ref()) {
+                        // Nothing left to do on the way out, but a server we
+                        // could not stop is worth a line in the log a crash
+                        // reporter would collect.
+                        eprintln!("subshell: quit with the server still running");
                     }
                 }
             }

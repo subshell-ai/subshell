@@ -59,13 +59,20 @@ pub const STOP_BOUND: Duration = Duration::from_secs(10);
 const KILL_BOUND: Duration = Duration::from_secs(2);
 
 /// How the last child ended, for the recovery screen's own sentence.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct LastExit {
     /// Exit code, `None` when a signal ended it.
     pub code: Option<i32>,
     pub at: SystemTime,
     /// Whether the app ASKED for this exit. A stop is not a crash.
     pub requested: bool,
+    /// Set when the child never STARTED, carrying the reason.
+    ///
+    /// Distinct from an exit because the commonest cause — a binary that is
+    /// missing or not executable — is a different problem from a server that
+    /// ran and died, and reporting it as "stopped unexpectedly" sends the
+    /// reader to diagnose the wrong thing.
+    pub spawn_error: Option<String>,
 }
 
 /// What the supervisor is doing right now.
@@ -171,6 +178,9 @@ impl Spawner for ServerSpawner {
         // output, which is the thing worth reading after a crash, and it is
         // bounded by construction. The server's own structured log is the
         // capped one and is a different file.
+        // Opened (and truncated) only once the program resolves: a spawn that
+        // fails would otherwise throw away the previous run's output, which
+        // on a crash loop is the only record of why the last one died.
         let out = self.open_console_log()?;
         let err = out.try_clone()?;
         let child = Command::new(program)
@@ -303,6 +313,10 @@ impl Supervisor {
             let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.desired_running = true;
             st.stopping = false;
+            // A `restart` that found nothing to stop leaves this set; clearing
+            // it here stops that borrowed urgency being spent on the NEXT
+            // crash, which would silently skip one backoff.
+            st.immediate = false;
             // ONE critical section decides both, so a loop on its way out
             // cannot swallow a start and leave nothing running.
             let start_one = !st.loop_running;
@@ -323,7 +337,11 @@ impl Supervisor {
     /// SIGKILL once on the way. Callers depend on exactly that: `RunEvent::Exit`
     /// must not leave a server holding the port, and the reset chain must not
     /// begin deleting a database a live process is still writing to.
-    pub fn stop(&self, spawner: &dyn Spawner) {
+    /// Returns whether the child is actually GONE. `false` means it outlived
+    /// both signals and both bounds — and a caller about to delete the data
+    /// that process writes to must treat that as a refusal, not a shrug.
+    #[must_use]
+    pub fn stop(&self, spawner: &dyn Spawner) -> bool {
         {
             let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.desired_running = false;
@@ -332,7 +350,7 @@ impl Supervisor {
         // Wakes a loop sitting out its respawn delay, so a stop during that
         // window takes effect now rather than up to five seconds later.
         self.inner.changed.notify_all();
-        self.wait_until_gone(spawner);
+        self.wait_until_gone(spawner)
     }
 
     /// Stop and start again, without the respawn delay.
@@ -340,7 +358,10 @@ impl Supervisor {
     /// The delay is right for a crash — the server may be crash-looping on a
     /// busy port — and wrong for a restart a person asked for, where it is
     /// five seconds of nothing happening.
-    pub fn restart(&self, spawner: Arc<dyn Spawner>) {
+    /// Returns whether the old child was gone before the new one was asked
+    /// for. `false` means two servers may briefly contend for the port.
+    #[must_use]
+    pub fn restart(&self, spawner: Arc<dyn Spawner>) -> bool {
         {
             let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.immediate = true;
@@ -348,12 +369,13 @@ impl Supervisor {
             st.stopping = true;
         }
         self.inner.changed.notify_all();
-        self.wait_until_gone(spawner.as_ref());
+        let gone = self.wait_until_gone(spawner.as_ref());
         // `start` is idempotent against a live loop, and it is what makes a
         // restart work when there is NO loop — after a stop, or after one
         // gave up. Without it `restart` set two flags, woke nobody, and
         // reported success having started nothing.
         self.start(spawner);
+        gone
     }
 
     /// What is running, for the probe.
@@ -361,7 +383,7 @@ impl Supervisor {
         let st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         Snapshot {
             pid: st.pid,
-            last_exit: st.last_exit,
+            last_exit: st.last_exit.clone(),
         }
     }
 
@@ -375,8 +397,8 @@ impl Supervisor {
     /// It waits on a FACT the reaping thread publishes rather than polling a
     /// handle it does not own — which is what the previous revision got
     /// wrong, silently.
-    fn wait_until_gone(&self, spawner: &dyn Spawner) {
-        let Some(pid) = self.pid() else { return };
+    fn wait_until_gone(&self, spawner: &dyn Spawner) -> bool {
+        let Some(pid) = self.pid() else { return true };
         spawner.terminate(pid);
         let deadline = Instant::now() + self.stop_bound;
         let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -393,7 +415,7 @@ impl Supervisor {
             st = next;
         }
         if st.pid != Some(pid) {
-            return;
+            return true;
         }
         // A server that ignored SIGTERM for the whole bound is wedged, and
         // leaving it holding the port would make every later start fail on
@@ -407,8 +429,9 @@ impl Supervisor {
             if left.is_zero() {
                 // Unkillable from here — uninterruptible sleep, or no longer
                 // ours. Returning beats blocking a quit forever.
+                // NOT a success. Callers delete databases on this answer.
                 eprintln!("subshell: server pid {pid} did not exit; no longer waiting for it");
-                return;
+                return false;
             }
             let (next, _) = self
                 .inner
@@ -417,69 +440,102 @@ impl Supervisor {
                 .unwrap_or_else(|e| e.into_inner());
             st = next;
         }
+        true
     }
 
     fn spawn_loop(&self, spawner: Arc<dyn Spawner>) {
         let shared = Arc::clone(&self.inner);
         let delay = self.respawn_delay;
-        std::thread::spawn(move || {
-            loop {
-                if !shared.state.lock().unwrap_or_else(|e| e.into_inner()).desired_running {
-                    break;
-                }
-                // Re-read every iteration: the binary this should run can
-                // change under a live loop (see `Shared::spawner`).
-                let spawner = shared
-                    .spawner
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone()
-                    .unwrap_or_else(|| Arc::clone(&spawner));
-                let mut child = match spawner.spawn() {
-                    Ok(c) => c,
-                    Err(err) => {
-                        eprintln!("subshell: could not start the server: {err}");
-                        // A failed spawn is an exit: the same rhythm, so a
-                        // transient cause (a binary mid-install, a log
-                        // directory that just became writable) recovers with
-                        // nobody pressing anything.
-                        record_exit(&shared, None);
-                        if !wait_to_respawn(&shared, delay) {
-                            break;
-                        }
-                        continue;
+        let failed = Arc::clone(&self.inner);
+        if std::thread::Builder::new()
+            .name("subshell-supervisor".into())
+            .spawn(move || {
+                loop {
+                    // Deciding to leave and RECORDING that we left happen together
+                    // — see `leave_if_done`. Split across two critical sections
+                    // (which is what this was), a `start()` landing between them
+                    // sets `desired_running`, sees `loop_running` still true, and
+                    // declines to spawn; the loop then clears the flag and exits,
+                    // leaving a machine that wants a server, has no loop, and was
+                    // told it started one.
+                    if leave_if_done(&shared) {
+                        return;
                     }
-                };
-                {
-                    let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
-                    st.pid = Some(child.id());
+                    // Re-read every iteration: the binary this should run can
+                    // change under a live loop (see `Shared::spawner`).
+                    let spawner = shared
+                        .spawner
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone()
+                        .unwrap_or_else(|| Arc::clone(&spawner));
+                    let mut child = match spawner.spawn() {
+                        Ok(c) => c,
+                        Err(err) => {
+                            eprintln!("subshell: could not start the server: {err}");
+                            // A failed spawn is an exit: the same rhythm, so a
+                            // transient cause (a binary mid-install, a log
+                            // directory that just became writable) recovers with
+                            // nobody pressing anything.
+                            record_exit(&shared, None, Some(err.to_string()));
+                            if !wait_to_respawn(&shared, delay) {
+                                return;
+                            }
+                            continue;
+                        }
+                    };
+                    {
+                        let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+                        st.pid = Some(child.id());
+                    }
+                    shared.changed.notify_all();
+                    // OWNED here for the whole wait. Nothing else holds a handle,
+                    // so nothing else can be blocked by this — and `stop` waits on
+                    // the state this thread publishes instead.
+                    let status = child.wait();
+                    record_exit(&shared, status.as_ref().ok().and_then(|s| s.code()), None);
+                    if !wait_to_respawn(&shared, delay) {
+                        return;
+                    }
                 }
-                shared.changed.notify_all();
-                // OWNED here for the whole wait. Nothing else holds a handle,
-                // so nothing else can be blocked by this — and `stop` waits on
-                // the state this thread publishes instead.
-                let status = child.wait();
-                record_exit(&shared, status.as_ref().ok().and_then(|s| s.code()));
-                if !wait_to_respawn(&shared, delay) {
-                    break;
-                }
-            }
-            {
-                let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
-                st.loop_running = false;
-            }
-            shared.changed.notify_all();
-        });
+            })
+            .is_err()
+        {
+            // Without this the flag stays true with no thread behind it, and
+            // every later `start()` is a silent no-op for the life of the
+            // process.
+            eprintln!("subshell: could not start the supervisor thread");
+            let mut st = failed.state.lock().unwrap_or_else(|e| e.into_inner());
+            st.loop_running = false;
+        }
     }
 }
 
+/// Leave the loop if nothing wants it any more, clearing `loop_running` in
+/// the SAME critical section as the decision.
+///
+/// That togetherness is the whole point: a `start()` that lands between a
+/// separate decision and a separate store is swallowed, and the machine ends
+/// up wanting a server with no loop to spawn one.
+fn leave_if_done(shared: &Arc<Shared>) -> bool {
+    let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+    if st.desired_running {
+        return false;
+    }
+    st.loop_running = false;
+    drop(st);
+    shared.changed.notify_all();
+    true
+}
+
 /// Record how a child ended and publish that it is gone.
-fn record_exit(shared: &Arc<Shared>, code: Option<i32>) {
+fn record_exit(shared: &Arc<Shared>, code: Option<i32>, spawn_error: Option<String>) {
     {
         let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
         st.pid = None;
         st.last_exit = Some(LastExit {
             code,
+            spawn_error,
             at: SystemTime::now(),
             // An exit the app asked for is not a crash, and the recovery
             // screen must not call it one.
@@ -497,6 +553,9 @@ fn record_exit(shared: &Arc<Shared>, code: Option<i32>) {
 fn wait_to_respawn(shared: &Arc<Shared>, delay: Duration) -> bool {
     let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     if !st.desired_running {
+        st.loop_running = false;
+        drop(st);
+        shared.changed.notify_all();
         return false;
     }
     if std::mem::replace(&mut st.immediate, false) {
@@ -543,6 +602,9 @@ pub fn last_exit_sentence(last: Option<LastExit>, now: SystemTime, within: Durat
     } else {
         format!("{ago} seconds ago")
     };
+    if let Some(why) = last.spawn_error {
+        return Some(format!("subshell-server could not start {when}: {why}"));
+    }
     Some(match last.code {
         // Exit 0 that nobody asked for is still unexpected — the server chose
         // to leave — but it is not a crash, and "code 0" would read as one.
@@ -680,7 +742,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
         // One server, not two racing for the port.
         assert_eq!(spawner.spawn_count(), 1);
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
     }
 
     /// The unit's `Restart=always`, as behaviour.
@@ -695,7 +757,7 @@ mod tests {
         assert_eq!(spawner.spawn_count(), 2);
         // Nothing was signalled: it died on its own.
         assert_eq!(spawner.signalled(), vec![]);
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
     }
 
     /// **The contract this module exists to keep**, and the one the previous
@@ -706,7 +768,7 @@ mod tests {
         let sup = quick();
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         let pid = next_spawn(&rx);
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
         // Not "a signal was sent" — GONE. `RunEvent::Exit` and the reset
         // chain both proceed on this being true.
         assert_eq!(sup.pid(), None);
@@ -727,7 +789,7 @@ mod tests {
         let pid = next_spawn(&rx);
 
         let started = Instant::now();
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
         // It waited out the bound before escalating, rather than killing at once.
         assert!(
             started.elapsed() >= Duration::from_millis(120),
@@ -753,14 +815,17 @@ mod tests {
         let sup = quick();
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         next_spawn(&rx);
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
         assert_eq!(spawner.spawn_count(), 1);
 
-        sup.restart(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        assert!(
+            sup.restart(Arc::clone(&spawner) as Arc<dyn Spawner>),
+            "restart reported it got the old one down"
+        );
         next_spawn(&rx);
         assert_eq!(spawner.spawn_count(), 2, "restart started a server again");
         assert!(sup.pid().is_some());
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
     }
 
     #[test]
@@ -772,12 +837,12 @@ mod tests {
         next_spawn(&rx);
 
         let started = Instant::now();
-        sup.restart(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        assert!(sup.restart(Arc::clone(&spawner) as Arc<dyn Spawner>));
         next_spawn(&rx);
         // Five seconds of nothing is right for a crash and wrong for a button.
         assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
         assert_eq!(spawner.spawn_count(), 2);
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
     }
 
     /// A stop during the respawn window must take effect now, not at the end
@@ -793,7 +858,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
 
         let started = Instant::now();
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
         assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(spawner.spawn_count(), 1, "and it did not come back");
@@ -808,14 +873,11 @@ mod tests {
         assert_eq!(sup.pid(), Some(pid));
         spawner.crash(pid);
         next_spawn(&rx);
-        let snap = sup.snapshot();
-        assert_eq!(snap.last_exit.map(|e| e.code), Some(Some(1)));
-        assert_eq!(
-            snap.last_exit.map(|e| e.requested),
-            Some(false),
-            "a crash is not asked-for"
-        );
-        sup.stop(spawner.as_ref());
+        let last = sup.snapshot().last_exit.expect("an exit was recorded");
+        assert_eq!(last.code, Some(1));
+        assert!(!last.requested, "a crash is not asked-for");
+        assert_eq!(last.spawn_error, None, "it started fine; it died after");
+        assert!(sup.stop(spawner.as_ref()));
     }
 
     #[test]
@@ -824,7 +886,7 @@ mod tests {
         let sup = quick();
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         next_spawn(&rx);
-        sup.stop(spawner.as_ref());
+        assert!(sup.stop(spawner.as_ref()));
         let last = sup.snapshot().last_exit.expect("an exit");
         assert!(last.requested);
         // ...which is what keeps the recovery screen from calling the app's
@@ -839,8 +901,9 @@ mod tests {
             code: Some(1),
             at: now - Duration::from_secs(3),
             requested: false,
+            spawn_error: None,
         };
-        let line = last_exit_sentence(Some(recent), now, RESPAWN_DELAY).unwrap();
+        let line = last_exit_sentence(Some(recent.clone()), now, RESPAWN_DELAY).unwrap();
         assert!(line.contains("code 1"), "{line}");
         assert!(line.contains("3 seconds ago"), "{line}");
 
@@ -848,19 +911,22 @@ mod tests {
         // reporting it would make the crash-loop signal noise.
         let old = LastExit {
             at: now - Duration::from_secs(3600),
-            ..recent
+            ..recent.clone()
         };
         assert_eq!(last_exit_sentence(Some(old), now, RESPAWN_DELAY), None);
 
         // Asked for: never an error, however recent.
         let asked = LastExit {
             requested: true,
-            ..recent
+            ..recent.clone()
         };
         assert_eq!(last_exit_sentence(Some(asked), now, RESPAWN_DELAY), None);
 
         // A signal death has no code and must not print one.
-        let signalled = LastExit { code: None, ..recent };
+        let signalled = LastExit {
+            code: None,
+            ..recent.clone()
+        };
         assert!(last_exit_sentence(Some(signalled), now, RESPAWN_DELAY)
             .unwrap()
             .contains("stopped unexpectedly"));

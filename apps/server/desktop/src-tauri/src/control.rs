@@ -333,10 +333,17 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
         // `service_now(Stop)` branch and begin deleting the database out from
         // under a live process.
         if corrected == Supervision::Service {
+            // The spawner, not the pid: during the respawn window the pid is
+            // None while the loop still wants a server, and skipping the stop
+            // there leaves a child racing the service for the port.
             let sup = app.state::<supervisor::Supervisor>();
-            if sup.pid().is_some() {
-                if let Some(spawner) = sup.spawner() {
-                    sup.stop(spawner.as_ref());
+            if let Some(spawner) = sup.spawner() {
+                if !sup.stop(spawner.as_ref()) {
+                    p.error = Some(
+                        "A service is installed here, but the server this app started would not stop. \
+                         Two servers may be contending for the port."
+                            .into(),
+                    );
                 }
             }
         }
@@ -560,12 +567,26 @@ pub static ACTION_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 /// has early returns and `?`s in it, and a flag left set by an early exit
 /// stops the watch thread for the rest of the session — silently, since
 /// nothing about the app would look wrong.
-pub struct ActionGuard;
+pub struct ActionGuard {
+    /// Whether THIS guard is the one that took the flag from false.
+    ///
+    /// `Drop` used to clear unconditionally, which quietly undid `try_new`'s
+    /// whole point: the assistant's [`ActionGuard::new`] takes the flag even
+    /// when one is already held, and dropping that second guard released a
+    /// flag the FIRST holder was still relying on — after which a fresh
+    /// `try_new` succeeded beside a chain that was still uninstalling a
+    /// service. A guard that did not acquire does not release.
+    owned: bool,
+}
 
 impl ActionGuard {
     pub fn new() -> Self {
-        ACTION_IN_FLIGHT.store(true, Ordering::SeqCst);
-        ActionGuard
+        // Still unconditional as a SET — the assistant may always proceed —
+        // but it records whether it was the one that flipped it.
+        let owned = ACTION_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok();
+        ActionGuard { owned }
     }
 
     /// Take the flag only if no action is already running.
@@ -598,7 +619,7 @@ impl ActionGuard {
         ACTION_IN_FLIGHT
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
-            .then_some(ActionGuard)
+            .then_some(ActionGuard { owned: true })
     }
 }
 
@@ -610,7 +631,10 @@ impl Default for ActionGuard {
 
 impl Drop for ActionGuard {
     fn drop(&mut self) {
-        ACTION_IN_FLIGHT.store(false, Ordering::SeqCst);
+        // Only the acquirer releases — see `owned`.
+        if self.owned {
+            ACTION_IN_FLIGHT.store(false, Ordering::SeqCst);
+        }
     }
 }
 
@@ -621,6 +645,28 @@ pub struct ActionResult {
     pub ok: bool,
     pub stdout: String,
     pub stderr: String,
+}
+
+/// What [`desktop_set_supervision`] answers: the chain's words, plus what the
+/// machine turned out to be in when it finished.
+///
+/// A type of its own rather than two more fields on `ActionResult`, which
+/// eight other commands share and for which "which supervision mode" means
+/// nothing. Flattened on the wire, so a caller that only wants the words
+/// still reads an `ActionResult`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupervisionResult {
+    /// The chain's own report
+    #[serde(flatten)]
+    pub result: ActionResult,
+    /// The mode this machine is in NOW — `"service"` or `"app"`, re-read
+    /// after the chain rather than echoed back from the request.
+    pub mode: &'static str,
+    /// True when the machine was already in the requested state, so nothing
+    /// ran. Distinct from failure, and distinct from success: the page has to
+    /// say "nothing to change" rather than close on a switch that never moved.
+    pub noop: bool,
 }
 
 impl From<Run> for ActionResult {
@@ -1066,12 +1112,28 @@ fn supervise_now(app: &AppHandle, verb: ServiceCommand) -> ActionResult {
             done("subshell-server started.")
         }
         ServiceCommand::Stop => {
-            sup.stop(spawner.as_ref());
-            done("subshell-server stopped.")
+            if sup.stop(spawner.as_ref()) {
+                done("subshell-server stopped.")
+            } else {
+                ActionResult {
+                    ok: false,
+                    stdout: String::new(),
+                    stderr: "the server did not stop: it ignored both signals".into(),
+                }
+            }
         }
         ServiceCommand::Restart => {
-            sup.restart(spawner);
-            done("subshell-server restarted.")
+            // A restart whose OLD child outlived both signals is reported —
+            // two servers briefly contending for the port is not a success.
+            if sup.restart(spawner) {
+                done("subshell-server restarted.")
+            } else {
+                ActionResult {
+                    ok: false,
+                    stdout: String::new(),
+                    stderr: "the previous server did not stop; a new one may not be able to bind".into(),
+                }
+            }
         }
         ServiceCommand::Install | ServiceCommand::Uninstall => ActionResult {
             ok: false,
@@ -1181,19 +1243,36 @@ pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force:
 /// Move this machine between "a background service runs the server" and "this
 /// app runs it", and set whether that service starts at login.
 ///
-/// **Assistant-only, and it must be**: both directions leave the server
-/// unreachable for a moment — an uninstall stops it, a mode switch restarts
-/// it — which is the standing rule for what a page the server serves may not
-/// drive. The SPA's Service page names this SCREEN and the person presses
-/// Apply here.
+/// **Reachable from the served page, and it is the only command in this file
+/// that is.** Both directions leave the server unreachable for a moment — an
+/// uninstall stops it, a mode switch restarts it — which is exactly why it
+/// cannot be an HTTP route: the actor has to outlive the server. It used to
+/// be assistant-only for that reason, and the SPA merely named the screen;
+/// the operator's call on 2026-09-12 was that a window opening to ask one
+/// question reads as a bug rather than as a safeguard. `capabilities/main.json`
+/// grants it and `docs/security.md` carries the accounting.
 ///
 /// Channel discipline is `desktop_setup`'s: every step's words accumulate in
 /// `stdout`, a failure stops the chain and answers `ok: false` with the CLI's
 /// own stderr, and the setting is written only AFTER the step that makes it
 /// true has succeeded — so a half-run leaves a machine whose stored mode
 /// still matches what is on disk.
+///
+/// **It answers with the mode the machine ENDED in, re-read rather than
+/// assumed.** The page derives "current" from the server's own view of its
+/// parentage and this command derives it from the settings file corrected by
+/// an installed-definition probe, so the two can disagree — a stale plist
+/// under an app-run server is enough. When they do, the request lands on a
+/// same-mode branch, nothing runs, and a bare `ok: true` would close the
+/// dialog on a machine that did not move. `mode` and `noop` are what let the
+/// page say so.
 #[tauri::command(async)]
-pub fn desktop_set_supervision(app: AppHandle, mode: String, autostart: bool) -> Result<ActionResult, String> {
+pub fn desktop_set_supervision(
+    app: AppHandle,
+    mode: String,
+    autostart: bool,
+    force: bool,
+) -> Result<SupervisionResult, String> {
     // Refused rather than queued while anything else is running — see
     // `ActionGuard::try_new`. This is the one command in this file a page we
     // did not write can invoke.
@@ -1208,7 +1287,33 @@ pub fn desktop_set_supervision(app: AppHandle, mode: String, autostart: bool) ->
         other => return Err(format!("unknown supervision mode '{other}'")),
     };
     let settings = app.state::<SettingsState>();
-    let installed = installed_now(&settings) == Some(true);
+    let (result, noop) = set_supervision_now(&app, &settings, want, autostart, force);
+    // Re-read, never assume: on a failure the machine is wherever the chain
+    // stopped, which is not what was asked for.
+    let ended = effective_supervision(settings.get().supervision, Some(installed_now(&settings) == Some(true)));
+    Ok(SupervisionResult {
+        result,
+        mode: match ended {
+            Supervision::App => "app",
+            Supervision::Service => "service",
+        },
+        noop,
+    })
+}
+
+/// The chain itself, answering `(what happened, nothing needed to)`.
+///
+/// Split from the command so the command can re-read the machine after it —
+/// every early return in here is a different half-state, and one place that
+/// asks the machine what it ended in beats sixteen that each guess.
+fn set_supervision_now(
+    app: &AppHandle,
+    settings: &SettingsState,
+    want: Supervision,
+    autostart: bool,
+    force: bool,
+) -> (ActionResult, bool) {
+    let installed = installed_now(settings) == Some(true);
     let current = effective_supervision(settings.get().supervision, Some(installed));
     let mut log = String::new();
     /// The CLI's own words, accumulated — a free function rather than a
@@ -1223,82 +1328,222 @@ pub fn desktop_set_supervision(app: AppHandle, mode: String, autostart: bool) ->
 
     match (current, want) {
         (Supervision::Service, Supervision::App) => {
-            let un = service_now(&settings, ServiceCommand::Uninstall, false);
+            // **The pane-safety refusal, and it is what makes this command no
+            // more permissive than the restart route it is justified by.**
+            //
+            // Leaving app mode means `service uninstall`, which by deliberate
+            // design gates on NOTHING (`apps/server/api/src/service.ts`) so a
+            // stranded unit can always come down. On a definition that
+            // predates `KillMode=process` / `AbandonProcessGroup`, that
+            // teardown takes every live subshell's tmux server with it — the
+            // exact case `POST /api/admin/server/restart` answers with a 409
+            // unless the caller passes `force`.
+            //
+            // Without this, the page could do silently what the route refuses,
+            // and the argument in `docs/security.md` — "a page that already
+            // holds the restart route can do worse" — was false on the one
+            // axis it needed to be true. It fails CLOSED on `unknown`, like
+            // every other consumer of this fact: an unreadable definition is
+            // not evidence of safety.
+            if !force {
+                if let Some(refusal) = pane_safety_refusal(settings) {
+                    return (
+                        ActionResult {
+                            ok: false,
+                            stdout: log,
+                            stderr: refusal,
+                        },
+                        false,
+                    );
+                }
+            }
+            let un = service_now(settings, ServiceCommand::Uninstall, false);
             push(&mut log, &un);
             if !un.ok {
-                return Ok(ActionResult {
-                    ok: false,
-                    stdout: log,
-                    stderr: un.stderr,
-                });
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: un.stderr,
+                    },
+                    false,
+                );
             }
-            settings.update(|s| s.supervision = Supervision::App)?;
-            let spawner = server_spawner(&app)?;
-            app.state::<supervisor::Supervisor>().start(spawner);
+            // NOT `?`. The chain's contract is that a failure answers
+            // `ok: false` carrying every word so far — and by this point the
+            // service is already UNINSTALLED, so a bare `Err` would tell the
+            // operator "no subshell-server found" while hiding that their
+            // server is now gone and nothing is supervising it.
+            if let Err(e) = settings.update(|s| s.supervision = Supervision::App) {
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: e,
+                    },
+                    false,
+                );
+            }
+            match server_spawner(app) {
+                Ok(spawner) => app.state::<supervisor::Supervisor>().start(spawner),
+                Err(e) => {
+                    return (
+                        ActionResult {
+                            ok: false,
+                            stdout: log,
+                            stderr: e,
+                        },
+                        false,
+                    )
+                }
+            }
             log.push_str("subshell-server is running with this app.\n");
         }
         (Supervision::App, Supervision::Service) => {
-            if let Ok(spawner) = server_spawner(&app) {
-                app.state::<supervisor::Supervisor>().stop(spawner.as_ref());
+            // The supervisor's OWN spawner first: `server_spawner` rebuilds one
+            // from the binary ladder and can fail (a moved binary, a stale
+            // `binary_path`), and the previous version swallowed that and then
+            // claimed the stop had happened — after which the install below
+            // would race a still-live child for the port, with nothing in the
+            // UI able to reach that child again.
+            let sup = app.state::<supervisor::Supervisor>();
+            let Some(spawner) = sup.spawner().or_else(|| server_spawner(app).ok()) else {
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: "could not find the server this app is running, so it was not stopped".into(),
+                    },
+                    false,
+                );
+            };
+            if !sup.stop(spawner.as_ref()) {
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: "the server this app was running did not stop; a service would not be able to bind"
+                            .into(),
+                    },
+                    false,
+                );
             }
             log.push_str("Stopped the server this app was running.\n");
             // BEFORE the install, so a failure leaves a machine in service
             // mode with nothing running — which the recovery screen can fix —
             // rather than in app mode with a service half-installed.
-            settings.update(|s| s.supervision = Supervision::Service)?;
-            let install = install_service_now(&settings, autostart);
+            if let Err(e) = settings.update(|s| s.supervision = Supervision::Service) {
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: e,
+                    },
+                    false,
+                );
+            }
+            let install = install_service_now(settings, autostart);
             push(&mut log, &install);
             if !install.ok {
-                return Ok(ActionResult {
-                    ok: false,
-                    stdout: log,
-                    stderr: install.stderr,
-                });
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: install.stderr,
+                    },
+                    false,
+                );
             }
-            let start = service_now(&settings, ServiceCommand::Start, false);
+            let start = service_now(settings, ServiceCommand::Start, false);
             push(&mut log, &start);
             if !start.ok {
-                return Ok(ActionResult {
-                    ok: false,
-                    stdout: log,
-                    stderr: start.stderr,
-                });
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: start.stderr,
+                    },
+                    false,
+                );
             }
         }
         (Supervision::Service, Supervision::Service) => {
             // Same mode: the only thing that can differ is the login arming,
             // and that is the one change here that touches no process.
-            let armed = installed && service_enabled(&settings) == Some(true);
+            let armed = installed && service_enabled(settings) == Some(true);
             if armed == autostart {
-                return Ok(ActionResult {
-                    ok: true,
-                    stdout: "Nothing to change.\n".into(),
-                    stderr: String::new(),
-                });
+                return (
+                    ActionResult {
+                        ok: true,
+                        stdout: "Nothing to change.\n".into(),
+                        stderr: String::new(),
+                    },
+                    true,
+                );
             }
-            let res = autostart_now(&settings, autostart);
+            let res = autostart_now(settings, autostart);
             push(&mut log, &res);
             if !res.ok {
-                return Ok(ActionResult {
-                    ok: false,
-                    stdout: log,
-                    stderr: res.stderr,
-                });
+                return (
+                    ActionResult {
+                        ok: false,
+                        stdout: log,
+                        stderr: res.stderr,
+                    },
+                    false,
+                );
             }
         }
         (Supervision::App, Supervision::App) => {
-            return Ok(ActionResult {
-                ok: true,
-                stdout: "Nothing to change.\n".into(),
-                stderr: String::new(),
-            });
+            return (
+                ActionResult {
+                    ok: true,
+                    stdout: "Nothing to change.\n".into(),
+                    stderr: String::new(),
+                },
+                true,
+            );
         }
     }
-    Ok(ActionResult {
-        ok: true,
-        stdout: log,
-        stderr: String::new(),
-    })
+    (
+        ActionResult {
+            ok: true,
+            stdout: log,
+            stderr: String::new(),
+        },
+        false,
+    )
+}
+
+/// Whether removing this machine's service definition would take live panes
+/// with it, as a refusal sentence — `None` when it is safe or there is
+/// nothing installed.
+///
+/// Fails CLOSED: `unknown` (an unreadable definition, a manager that would
+/// not answer) refuses, because absence of evidence is not evidence of
+/// safety. The wording distinguishes the two, since telling someone their
+/// panes will die when the truth is "nobody could read the definition" is
+/// the kind of certainty that teaches people to ignore warnings.
+fn pane_safety_refusal(settings: &SettingsState) -> Option<String> {
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
+    let cmd = server_cmd(&server, &["service", "status", "--json"])?;
+    let state = json_of(&run(&cmd, QUERY_TIMEOUT));
+    if !is_true(&state, "installed") {
+        return None;
+    }
+    match field(&state, "paneSafety").and_then(|p| p.as_str()) {
+        Some("keeps") => None,
+        Some("kills") => Some(
+            "This machine's service definition would close every running subshell when it is removed. \
+             Reinstall the service definition first, or switch anyway."
+                .into(),
+        ),
+        _ => Some(
+            "This machine's service definition could not be read, so whether removing it closes running \
+             subshells is unknown. Switch anyway to proceed."
+                .into(),
+        ),
+    }
 }
 
 /// `service enable|disable` — the login arming, which touches no process.
@@ -2221,6 +2466,29 @@ mod tests {
         let second = ActionGuard::try_new().expect("released");
         assert!(ActionGuard::try_new().is_none());
         drop(second);
+        assert!(!ACTION_IN_FLIGHT.load(Ordering::SeqCst));
+    }
+
+    /// An assistant guard dropping must not release a served-page guard's hold.
+    ///
+    /// `new()` is unconditional as a SET, by design — the assistant repairs
+    /// broken machines and a refusal there would be a new way to be stuck.
+    /// But `Drop` was unconditional too, so the assistant's guard going out of
+    /// scope cleared a flag the SPA's chain was still relying on, and the next
+    /// `try_new` was admitted beside a live uninstall. That is precisely the
+    /// interleave `try_new` exists to prevent, reachable without any race.
+    #[test]
+    fn a_non_owning_guard_does_not_release_the_owner_s_flag() {
+        ACTION_IN_FLIGHT.store(false, Ordering::SeqCst);
+        let owner = ActionGuard::try_new().expect("an idle machine admits one");
+        // The assistant proceeds anyway — that part is unchanged.
+        let passenger = ActionGuard::new();
+        assert!(!passenger.owned, "it did not take the flag from false");
+        drop(passenger);
+        // The gate is STILL shut, because the owner has not finished.
+        assert!(ACTION_IN_FLIGHT.load(Ordering::SeqCst));
+        assert!(ActionGuard::try_new().is_none());
+        drop(owner);
         assert!(!ACTION_IN_FLIGHT.load(Ordering::SeqCst));
     }
 

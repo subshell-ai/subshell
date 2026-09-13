@@ -276,6 +276,14 @@ export const about = (): Promise<About> => invoke<About>("desktop_about");
 /** Open one of three fixed pages in the SYSTEM browser. A member, never a URL. */
 export const openWeb = (target: WebTarget): Promise<void> => invoke<void>("desktop_open_web", { target });
 
+/** `desktop_set_supervision`'s answer: the chain's words, plus where it ended. */
+export interface SupervisionResult extends ActionResult {
+  /** The mode this machine is in NOW, re-read after the chain */
+  mode: "service" | "app";
+  /** True when the machine was already there, so nothing ran */
+  noop: boolean;
+}
+
 /**
  * Move this machine between a background service and this app running the
  * server, and set whether that service starts at login.
@@ -283,6 +291,15 @@ export const openWeb = (target: WebTarget): Promise<void> => invoke<void>("deskt
  * `mode` is a closed word — `"service"` or `"app"` — and Rust refuses
  * anything else before touching the machine. `autostart` is read only in
  * service mode; there is nothing to arm in the other.
+ *
+ * `force` overrides the refusal that fires when removing this machine's
+ * service definition would take every live subshell's tmux server with it.
+ * It is NOT optional on the wire — Tauri deserializes a command's arguments
+ * as a whole, so an omitted `bool` fails the invoke with "invalid args"
+ * rather than defaulting — which is why it is defaulted HERE instead.
  */
-export const setSupervision = (mode: "service" | "app", autostart: boolean): Promise<ActionResult> =>
-  invoke<ActionResult>("desktop_set_supervision", { mode, autostart });
+export const setSupervision = (
+  mode: "service" | "app",
+  autostart: boolean,
+  force = false,
+): Promise<SupervisionResult> => invoke<SupervisionResult>("desktop_set_supervision", { mode, autostart, force });
