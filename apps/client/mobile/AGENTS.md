@@ -166,6 +166,19 @@ create body (the server default), keeping single-machine payloads
 byte-identical to pre-nodes ones; a presetless launch omits `presetId` the
 same way — absence, never null.
 
+Two divergences from web are ACCEPTED here — decisions, not omissions,
+recorded so the next reader does not "fix" them by accident:
+
+- **A greyed agent chip carries no reason text.** `new.tsx` only dims the chip
+  (`opacity: 0.5`); web's picker states spec 2026-09-13 §5's reason beside the
+  disabled row. A phone chip row has no room for a sentence — the dimming is
+  the whole message.
+- **The Preset row hides entirely when the chosen agent has zero presets**
+  (`new.tsx` gates the row on `agentPresets.length > 0`). Web shows the row
+  with "No presets for {agent} yet." outside first run; mobile has no inline
+  `+` to create one, so an empty row would offer only "None". (First run
+  hiding the row is the rule the two surfaces share.)
+
 ## Verifying on Android
 
 **Use the `*_34` AVDs: `subshell_tablet34` (1280×800dp — the only place the wide
