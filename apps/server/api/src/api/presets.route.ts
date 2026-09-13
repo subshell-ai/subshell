@@ -32,6 +32,46 @@ const CreatePresetBodySchema = t.Object({
 });
 
 /**
+ * `PUT /:id` body — deliberately NOT `t.Partial(CreatePresetBodySchema)`:
+ * a preset's harness is fixed at create (the handler never reads one, so a
+ * `harnessId` in a PUT body used to answer 200 with nothing changed, exactly
+ * when "move this preset to another agent" became a plausible request), and
+ * the honest answer to any field the update cannot apply is a 400 about the
+ * unknown property. POST stays lenient: a stray `nodeId` there is stripped,
+ * pinned by the no-node-dimension suite.
+ *
+ * `additionalProperties: false` here is what OpenAPI DOCUMENTS, not what
+ * refuses: measured on elysia 1.4.29, an unknown body key is stripped and
+ * validated clean, so the 400 is enforced by the route's transform against
+ * {@link UPDATE_PRESET_KEYS} — the same key set, kept adjacent to stay one
+ * fact. (Schema-validation strictness is NOT the refusal on this Elysia;
+ * do not "simplify" the transform away on the schema's word.)
+ */
+const UpdatePresetBodySchema = t.Object(
+  {
+    name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Preset name" })),
+    description: t.Optional(t.String({ maxLength: 500, description: "Longer description" })),
+    env: t.Optional(t.Record(t.String(), t.String(), { description: "Extra env vars" })),
+    flags: t.Optional(t.Array(t.String(), { description: "Extra CLI flags" })),
+    settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
+    configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
+    restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
+  },
+  { additionalProperties: false },
+);
+
+/** The keys `PUT /:id` applies — mirrors {@link UpdatePresetBodySchema}. */
+const UPDATE_PRESET_KEYS = new Set([
+  "name",
+  "description",
+  "env",
+  "flags",
+  "settings",
+  "configIsolation",
+  "restartOnExit",
+]);
+
+/**
  * Preset endpoints. Reads (list, harness ids, harness schema) stay open to
  * every authenticated actor — the agent toolset needs `GET /api/presets`
  * (list_presets). Writes are cookie-only: preset.env OUTRANKS the
@@ -201,12 +241,24 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       return updated;
     },
     {
-      body: t.Partial(CreatePresetBodySchema),
+      // Runs BEFORE validation, on the parsed (unstripped) body — the only
+      // place a stripped-by-default Elysia can still see the keys it would
+      // eat. Reject every key the update cannot apply, naming the first.
+      transform({ body }) {
+        if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+          const stray = Object.keys(body).find((key) => !UPDATE_PRESET_KEYS.has(key));
+          if (stray !== undefined) {
+            throw new PresetError("bad_request", `Unknown property in preset update body: ${stray}`, 400);
+          }
+        }
+      },
+      body: UpdatePresetBodySchema,
       response: PresetSchema,
       detail: {
         operationId: "updatePreset",
         tags: ["presets"],
-        description: "Updates a preset owned by the authenticated user (cookie session only)",
+        description:
+          "Updates a preset owned by the authenticated user (cookie session only); the harness is fixed at create and any field a PUT cannot apply is refused",
       },
     },
   )

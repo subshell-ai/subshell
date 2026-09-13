@@ -317,9 +317,10 @@ describe("preset write routes (cookie only) + env name validation", () => {
 /**
  * The pin died with spec 2026-09-13 §2.3: the routes neither read nor store a
  * node. What replaces the pinning suite is the pair of facts the deletion
- * leaves on the wire — a stray `nodeId` in a write body changes nothing, and
- * DELETE NULLS the referencing subshells (their restart falls back to the
- * empty preset instead of erroring).
+ * leaves on the wire — a stray `nodeId` in a POST body is stripped and
+ * changes nothing (PUT rejects it instead: its body schema is strict, see
+ * below), and DELETE NULLS the referencing subshells (their restart falls
+ * back to the empty preset instead of erroring).
  */
 describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
   const pw = "nopin-pass-1234";
@@ -379,13 +380,14 @@ describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
     expect(await repo.findById(body.id as string)).toBeDefined();
   });
 
-  it("PUT body carrying nodeId has no persisted effect either", async () => {
+  /** Seeds an updatable claude-code preset owned by this suite's user. */
+  async function seedUpdatable(name: string): Promise<string> {
     const id = (
       await repo.create({
         id: crypto.randomUUID(),
         userId: ownerId,
         harnessId: "claude-code",
-        name: "put-stray",
+        name,
         description: null,
         envJson: null,
         flagsJson: null,
@@ -395,15 +397,51 @@ describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
       })
     ).id;
     createdPresetIds.push(id);
+    return id;
+  }
+
+  // PUT's body schema is its OWN and strict (TODO 8): every field the update
+  // cannot apply is refused as an unknown property, never 200'd into silence.
+  // POST keeps its lenient strip (the nodeId test above).
+  it("PUT body carrying nodeId is refused 400, not silently stripped", async () => {
+    const id = await seedUpdatable("put-stray");
     const res = await app.fetch(
       authedRequest(`/api/presets/${id}`, ownerCookie, {
         method: "PUT",
         body: JSON.stringify({ name: "put-stray-2", nodeId: crypto.randomUUID() }),
       }),
     );
+    expect(res.status).toBe(400);
+    // Nothing landed — the whole request died at validation.
+    expect((await repo.findById(id))?.name).toBe("put-stray");
+  });
+
+  it("PUT body carrying harnessId is refused 400 — a preset's harness is fixed at create", async () => {
+    // "Move this preset to another agent" used to answer 200 with NOTHING
+    // changed (the handler never read harnessId from the partial-create
+    // schema). The honest answer is a 400 naming the unknown property.
+    const id = await seedUpdatable("put-harness");
+    const res = await app.fetch(
+      authedRequest(`/api/presets/${id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ harnessId: "codex" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect((await repo.findById(id))?.harnessId).toBe("claude-code");
+  });
+
+  it("PUT with only its own fields still updates", async () => {
+    const id = await seedUpdatable("put-clean");
+    const res = await app.fetch(
+      authedRequest(`/api/presets/${id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ name: "put-clean-2", restartOnExit: true }),
+      }),
+    );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { name: string }).name).toBe("put-stray-2");
-    expect((await repo.findById(id))?.name).toBe("put-stray-2");
+    expect(((await res.json()) as { name: string }).name).toBe("put-clean-2");
+    expect((await repo.findById(id))?.restartOnExit).toBe(1);
   });
 
   it("DELETE nulls subshells.preset_id on the rows that used it", async () => {
