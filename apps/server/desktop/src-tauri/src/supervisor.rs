@@ -824,6 +824,29 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(30)).expect("a spawn")
     }
 
+    /// Wait until the supervisor has RECORDED a running pid, and return it.
+    ///
+    /// `next_spawn` returns when the fake ANNOUNCES a child, and it announces
+    /// from inside `spawn` — which is ahead of the loop's `st.pid = ...` store
+    /// by exactly the window `State::spawning` describes. A test that reads
+    /// `pid()` straight after a spawn is therefore racing that store, and on a
+    /// contended container it loses. This waits for the fact instead of
+    /// assuming the announcement implied it.
+    ///
+    /// Note what this does NOT paper over: the same window in `stop` was a
+    /// real defect, because `stop` answered "gone" for it rather than waiting.
+    /// Here the state is simply not published yet, and waiting is correct.
+    fn settled_pid(sup: &Supervisor) -> u32 {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            if let Some(pid) = sup.pid() {
+                return pid;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("the supervisor never recorded a pid");
+    }
+
     /// Timings a test can afford, with the same SHAPE as the real ones.
     ///
     /// The stop bound is the one to be careful with. Every test but
@@ -1010,7 +1033,7 @@ mod tests {
 
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         next_spawn(&rx);
-        assert!(sup.pid().is_some());
+        settled_pid(&sup);
         assert!(sup.stop(spawner.as_ref()));
     }
 
@@ -1042,7 +1065,7 @@ mod tests {
         // races. What must be true is the thing a person would notice.
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         next_spawn(&rx);
-        assert!(sup.pid().is_some(), "start after that stop brought a server back");
+        settled_pid(&sup); // start after that stop brought a server back
         assert!(sup.stop(spawner.as_ref()));
     }
 
@@ -1061,7 +1084,7 @@ mod tests {
         );
         next_spawn(&rx);
         assert_eq!(spawner.spawn_count(), 2, "restart started a server again");
-        assert!(sup.pid().is_some());
+        settled_pid(&sup);
         assert!(sup.stop(spawner.as_ref()));
     }
 
@@ -1109,7 +1132,7 @@ mod tests {
         let sup = quick();
         sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
         let pid = next_spawn(&rx);
-        assert_eq!(sup.pid(), Some(pid));
+        assert_eq!(settled_pid(&sup), pid);
         spawner.crash(pid);
         next_spawn(&rx);
         let last = sup.snapshot().last_exit.expect("an exit was recorded");
