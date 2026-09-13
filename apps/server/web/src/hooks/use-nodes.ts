@@ -210,6 +210,29 @@ export function useNodeService(id: string) {
 }
 
 /**
+ * The debug-logging switch for one node's agent.
+ *
+ * Writes the fresh flag straight into the node cache on success rather than
+ * refetching: the answer IS the new state, and the node detail query does not
+ * poll, so an invalidation would be a round trip for something already known.
+ */
+export function useSetNodeLogging(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (debug: boolean) =>
+      apiFetch<{ debug: boolean }>(`/api/nodes/${id}/logging`, {
+        method: "PUT",
+        body: JSON.stringify({ debug }),
+      }),
+    onSuccess: ({ debug }) => {
+      queryClient.setQueryData<NodeDetail>([...NODE_QUERY_KEY, id], (prev) =>
+        prev?.runtime ? { ...prev, runtime: { ...prev.runtime, logging: { debug, source: "setting" } } } : prev,
+      );
+    },
+  });
+}
+
+/**
  * Read a slice of a node's own agent log.
  *
  * A byte RANGE rather than a tail, because the view polls: it holds an offset

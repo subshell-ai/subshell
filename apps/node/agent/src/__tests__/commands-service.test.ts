@@ -79,6 +79,7 @@ const supervised: NodeRuntimeReport = {
   logHint: "j",
   tmuxPath: null,
   binaryPath: "/b",
+  logging: { debug: false, source: "default" as const },
 };
 
 describe("service: restart", () => {

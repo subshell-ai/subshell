@@ -59,6 +59,7 @@ const runtime: NodeRuntimeReport = {
   logHint: "journalctl --user -u subshell.service -f",
   tmuxPath: "/usr/bin/tmux",
   binaryPath: "/b/subshell",
+  logging: { debug: false, source: "default" as const },
 };
 
 describe("/api/nodes service + runtime", () => {

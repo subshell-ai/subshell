@@ -203,6 +203,16 @@ export const NodeRuntimeSchema = t.Object({
   }),
   logPath: t.Nullable(t.String(), { description: "The launchd log file; null under systemd" }),
   logHint: t.Nullable(t.String(), { description: "The journal command when logPath is null" }),
+  logging: t.Object(
+    {
+      debug: t.Boolean({ description: "Whether debug-level lines reach the agent's own log file" }),
+      source: t.Union([t.Literal("process env"), t.Literal("setting"), t.Literal("default")], {
+        description:
+          "Which layer decided; `process env` means SUBSHELL_DEBUG_LOGGING forces it and the switch is read-only",
+      }),
+    },
+    { description: "The agent's debug-logging switch, the node half of the server's own" },
+  ),
   tmuxPath: t.Nullable(t.String(), {
     description: "tmux on the daemon's PATH, or null (the node accepts no launches)",
   }),

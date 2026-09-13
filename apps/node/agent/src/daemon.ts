@@ -19,6 +19,7 @@ import { buildSubshellsReport } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
+import { loadAndApplyDebugLogging } from "./debug-logging.js";
 import { mapOs } from "./enroll.js";
 import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
@@ -304,6 +305,9 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
   const inventoryMs = deps.inventoryMs ?? INVENTORY_PERIOD_MS;
   const nowMs = deps.now ?? ((): number => Date.now());
   const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
+  // The persisted debug flag, applied before the first frame is handled. The
+  // environment still wins, and a machine with nothing stored stays at `info`.
+  await loadAndApplyDebugLogging();
 
   // No plugin seeding, recovery, or refresh: the node holds no plugin concept
   // (inversion spec 2026-09-10 §6). A `<dataDir>/plugins/` directory left by a

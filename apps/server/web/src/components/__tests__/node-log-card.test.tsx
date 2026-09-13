@@ -30,14 +30,25 @@ afterEach(() => {
   Object.defineProperty(document, "hidden", { value: false, configurable: true });
 });
 
-const node = { id: "n1", name: "builder", runtime: { agentLogPath: "/c/agent.log" } } as NodeDetail;
+const node = {
+  id: "n1",
+  name: "builder",
+  runtime: { agentLogPath: "/c/agent.log", logging: { debug: false, source: "setting" } },
+} as NodeDetail;
 
-function renderCard() {
+/** The same node, but with the switch taken away by that machine's environment. */
+const forced = {
+  id: "n1",
+  name: "builder",
+  runtime: { agentLogPath: "/c/agent.log", logging: { debug: true, source: "process env" } },
+} as NodeDetail;
+
+function renderCard(which: NodeDetail = node) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
-  return render(<NodeLogCard node={node} />, { wrapper: Wrapper });
+  return render(<NodeLogCard node={which} />, { wrapper: Wrapper });
 }
 
 describe("NodeLogCard", () => {
@@ -75,4 +86,17 @@ describe("NodeLogCard", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     await waitFor(() => expect(reads).toBeGreaterThan(atHide), { timeout: 4_000 });
   }, 15_000);
+
+  it("offers the debug switch, and says it is read-only when the environment forces it", () => {
+    renderCard();
+    expect(screen.getByRole("switch", { name: "Debug logging" })).toBeTruthy();
+
+    cleanup();
+    renderCard(forced);
+    // The environment wins everywhere else on this config ladder; a switch
+    // that wrote a value the next read would mask reports a change that never
+    // happens. The server's own card says the same thing the same way.
+    expect(screen.queryByRole("switch", { name: "Debug logging" })).toBeNull();
+    expect(screen.getByText(/SUBSHELL_DEBUG_LOGGING/)).toBeTruthy();
+  });
 });

@@ -156,6 +156,19 @@ export interface NodeRuntime {
     /** Whether restarting through the definition keeps live panes alive */
     paneSafety: "keeps" | "kills" | "unknown";
   };
+  /**
+   * The agent's debug-logging switch — the node half of the server's own.
+   *
+   * `source: "process env"` means `SUBSHELL_DEBUG_LOGGING` forces it on that
+   * machine, and the switch renders read-only for the same reason the
+   * server's does.
+   */
+  logging: {
+    /** Whether debug-level lines reach the agent's log file */
+    debug: boolean;
+    /** Which layer decided */
+    source: "process env" | "setting" | "default";
+  };
   /** The agent's own config file, resolved */
   configPath: string;
   /**

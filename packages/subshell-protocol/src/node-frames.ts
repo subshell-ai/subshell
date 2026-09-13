@@ -51,8 +51,18 @@ import type { JsonValue } from "./json.js";
  * `set_server_url` arrived beside it, so a headless node can be supervised,
  * read and repointed from a browser — the only place those questions can be
  * asked at all on a machine nobody opens a window on.
+ *
+ * **5 → 6 is `set_log_level`.** The agent's own log file gained the level gate
+ * the server's has had (`CappedFileTransport`'s `level`), and this is the
+ * command that flips it. Breaking, like every bump here, because the version
+ * gate is exact-match — which is the point: the pair ships together. Note what
+ * it does NOT do today: the agent has no `logger.debug` call sites, so turning
+ * it on reveals nothing. The mechanism is deliberately in place ahead of the
+ * lines (operator's call), so that the first debug line anyone writes is
+ * already controllable from the browser that is the only way to read a
+ * headless node's log.
  */
-export const NODE_PROTOCOL_VERSION = 5;
+export const NODE_PROTOCOL_VERSION = 6;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -181,10 +191,33 @@ export interface NodeRuntimeReport {
    * makes reading a node's log in a browser a single behaviour rather than two.
    */
   agentLogPath: string;
+  /**
+   * The agent's debug-logging switch, as the plane's UI renders it.
+   *
+   * `source: "process env"` means `SUBSHELL_DEBUG_LOGGING` forces it on that
+   * machine and the switch is read-only — the same shape, and the same
+   * read-only rule, as the server's own `logging` block.
+   */
+  logging: {
+    /** Whether debug-level lines reach the agent's log file. */
+    debug: boolean;
+    /** Which layer decided: the environment, the stored flag, or the default. */
+    source: "process env" | "setting" | "default";
+  };
   /** tmux on the daemon's PATH, or null. */
   tmuxPath: string | null;
   /** The agent binary this process re-enters (`selfInvoke.command`). */
   binaryPath: string;
+}
+
+/** The agent's debug state, or the default when it did not say it properly. */
+function parseLogging(value: unknown): NodeRuntimeReport["logging"] {
+  if (!isRecord(value) || !isBool(value.debug)) return { debug: false, source: "default" };
+  const source =
+    value.source === "process env" || value.source === "setting" || value.source === "default"
+      ? value.source
+      : "default";
+  return { debug: value.debug, source };
 }
 
 /**
@@ -222,6 +255,13 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
   return {
     startedAt: value.startedAt,
     supervised: value.supervised,
+    // **Lenient, where every field above is strict**, and deliberately so.
+    // This one is cosmetic — the current position of a switch — while the
+    // rest of the report is what the card is FOR: supervision, service state,
+    // paths, the verbs. Losing all of that because a sub-object was malformed
+    // is the wrong trade, so a bad or absent `logging` reads as "off, by
+    // default" rather than rejecting the report.
+    logging: parseLogging(value.logging),
     service: {
       manager,
       installed: s.installed,
@@ -559,6 +599,25 @@ export type NodeCommandBody =
       type: "set_server_url";
       /** Absolute http(s) origin of the control plane this node should dial. */
       url: string;
+    }
+  | {
+      /**
+       * Turn debug-level lines in the agent's OWN log file on or off, live.
+       *
+       * Flips that file transport's level and persists the answer in the
+       * agent's `config.json`; the console transport is never touched, so what
+       * journald or launchd collects stays at `info` either way. Refused while
+       * `SUBSHELL_DEBUG_LOGGING` forces it in that machine's environment —
+       * writing a value the next read would mask is a success report for a
+       * change that never happens.
+       *
+       * Gated on the `edit` grant like the rest of the service surface, not on
+       * ownership: it changes what a machine writes to its own disk, not who
+       * owns it.
+       */
+      type: "set_log_level";
+      /** True = debug-level lines reach the file; false = `info` and above. */
+      debug: boolean;
     };
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
@@ -929,6 +988,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       // agent's own re-check — a parser that also judged the host would be a
       // third place to keep that rule.
       return isStr(value.url) && value.url.length > 0 ? { type: "set_server_url", url: value.url } : null;
+    case "set_log_level":
+      return isBool(value.debug) ? { type: "set_log_level", debug: value.debug } : null;
     default:
       return null;
   }

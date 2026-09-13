@@ -53,6 +53,7 @@ function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {
     },
     configPath: "/u/.config/subshell/config.json",
     agentLogPath: "/u/.config/subshell/logs/agent.log",
+    logging: { debug: false, source: "default" },
     logPath: null,
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: null,

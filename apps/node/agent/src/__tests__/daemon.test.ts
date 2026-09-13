@@ -1161,6 +1161,7 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: "/usr/bin/tmux",
     binaryPath: "/b",
+    logging: { debug: false, source: "default" as const },
   };
 
   test("carries the runtime report in ready, and the real parseNodeEvent keeps it", async () => {

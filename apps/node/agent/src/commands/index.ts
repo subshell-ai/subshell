@@ -20,6 +20,7 @@ import { execFsLs } from "./fs-ls.js";
 import { execLaunch } from "./launch.js";
 import { execPromptDeliver } from "./prompt.js";
 import { execService } from "./service.js";
+import { execSetLogLevel } from "./set-log-level.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execWriteFile } from "./write-file.js";
@@ -32,7 +33,7 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * `stat_dir`, `probe`, `path_exists` (the generalised `probe_resume`,
  * inversion spec §5), `remove_paths`, `launch`,
  * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`,
- * `set_allowed_dirs`, `service`, `agent_log_read`, `set_server_url`
+ * `set_allowed_dirs`, `service`, `agent_log_read`, `set_server_url`, `set_log_level`
  * (Task 6), `fs_ls` (remote folder picker), and `detect` (detection-on-demand,
  * inversion spec §4). Any
  * unknown type still answers `unsupported` — the integration
@@ -103,6 +104,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execService(ctx, cmd);
       case "agent_log_read":
         return await execAgentLogRead(ctx, cmd);
+      case "set_log_level":
+        return execSetLogLevel(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       default:

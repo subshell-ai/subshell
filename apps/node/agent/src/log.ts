@@ -43,13 +43,21 @@ export function createLogTransport(sink: typeof console = console): ConsoleTrans
  * serialization, `withMetadata()`, and a transport that can be swapped without
  * touching a call site — which is exactly what the test helper does.
  */
+/**
+ * The FILE writer this app logs through, held by name so the debug switch can
+ * flip its level (`debug-logging.ts`). The console transport beside it is
+ * deliberately not reachable that way: what the service manager collects stays
+ * at `info` whatever the switch says.
+ */
+export const agentLogFile: CappedFileTransport = new CappedFileTransport(agentLogPath(), AGENT_LOG_CAP_BYTES);
+
 export const logger: ILogLayer = new LogLayer({
   // TWO transports, and both are load-bearing. The console is what a person
   // running `subshell run` reads and what journald/launchd capture; the file
   // is the only one that exists identically on every platform, which is what
   // lets the control plane show a HEADLESS node's log in a browser. See
   // `log-file.ts` for why the manager's own log could not be that.
-  transport: [createLogTransport(), new CappedFileTransport(agentLogPath(), AGENT_LOG_CAP_BYTES)],
+  transport: [createLogTransport(), agentLogFile],
   // Serialize errors to PLAIN STRINGS ourselves. Handing the console a raw
   // Error makes Bun's inspector render source context, which inside a
   // `--compile --bytecode` binary is the whole minified bundle — measured: one

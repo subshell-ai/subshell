@@ -1,7 +1,7 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, statSync, truncateSync } from "node:fs";
 import { open, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { BlankTransport, type LogLayerTransportParams } from "loglayer";
+import { BlankTransport, type LogLayerTransportParams, type LogLevelType } from "loglayer";
 import { clientHome } from "./config.js";
 
 /**
@@ -98,11 +98,20 @@ function appendCapped(path: string, line: string, capBytes: number): void {
  * supplied `shipToLogger` — so the level gate and the transport contract are
  * the library's. No new dependency: `loglayer` is already here, which matters
  * in an artifact operators download for four triples.
+ *
+ * **`level` is the one thing the debug switch touches**, exactly as on the
+ * server (`apps/server/api/src/utils/log-file.ts`). It was omitted here, and
+ * the omission was invisible: with no level passed, LoggerlessTransport treats
+ * an absent level as `trace`, so this wrote whatever it was handed — which is
+ * only ever `info` today, because the agent has no debug-level call sites.
+ * The console transport beside it is never touched, so what journald or
+ * launchd collect stays at `info` whatever this says.
  */
-export class CappedFileTransport extends BlankTransport {
-  constructor(path: string, capBytes: number) {
+export class CappedFileTransport extends BlankTransport implements LevelledTransport {
+  constructor(path: string, capBytes: number, level: LogLevelType = "info") {
     super({
       id: "agent-log-file",
+      level,
       shipToLogger: (params) => {
         try {
           appendCapped(path, renderLine(params), capBytes);
@@ -115,6 +124,19 @@ export class CappedFileTransport extends BlankTransport {
       },
     });
   }
+}
+
+/**
+ * What the debug toggle touches on the writer, and the only thing it touches.
+ *
+ * Optional because that is how LogLayer's own `LoggerlessTransport` declares
+ * it (an absent level means "trace"); the toggle always writes a concrete one.
+ * The server declares the same interface for the same reason — see the licence
+ * note at the top of this file for why this is a copy rather than an import.
+ */
+export interface LevelledTransport {
+  /** Minimum level this transport writes. */
+  level?: LogLevelType;
 }
 
 /** What {@link readAgentLogSlice} answers. */

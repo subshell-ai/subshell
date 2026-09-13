@@ -307,6 +307,20 @@ shares and subshell shares are two independent axes:
     every address is validated by component and stored canonicalized, and the
     audit row names the new value (the plane never knew the old one: which
     address a node dials lives in that machine's own config).
+  - **Debug logging on a node is an `edit` act** (`PUT /api/nodes/:id/logging`,
+    cookie only, `local` refused, audited `node.logging.update`). It flips the
+    agent's own file-transport level live and persists the answer in that
+    machine's `config.json`; `SUBSHELL_DEBUG_LOGGING` in the agent's
+    environment forces it on and the agent REFUSES the command while it does,
+    the same "environment wins, and a write the next read would mask is not a
+    success" rule the rest of the config ladder follows. Not owner-only,
+    unlike `stop`/`uninstall`/repointing: it changes what a machine writes to
+    its own bounded, self-replacing 200 KB file and reverses with the same
+    call, so nothing here can strand a node. **It currently reveals nothing** —
+    the agent has no `logger.debug` call sites, and the server's equivalent
+    switch exists for its HTTP request lines, which an agent has none of. The
+    mechanism is in place ahead of the lines by decision, so the accounting to
+    redo is the one for whatever the first debug line carries.
   - **The agent's log became readable over HTTP.** The agent now writes its own
     bounded file (0600, 200 KB, replaced when full) because its console output
     goes to a journal on Linux and a file on macOS, and neither is readable

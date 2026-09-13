@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CopyableValue } from "@/components/service/copyable-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useNodeLogSlice } from "@/hooks/use-nodes";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useNodeLogSlice, useSetNodeLogging } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import type { NodeDetail } from "@/types/node";
 
@@ -72,6 +74,8 @@ function levelClass(level: string): string {
  */
 export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
   const read = useNodeLogSlice(node.id);
+  const setDebug = useSetNodeLogging(node.id);
+  const logging = node.runtime?.logging;
   const [text, setText] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
@@ -205,7 +209,40 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
             {paused ? <Play aria-hidden /> : <Pause aria-hidden />}
             {paused ? "Resume" : "Pause"}
           </Button>
+          {logging &&
+            (logging.source === "process env" ? (
+              <span className="text-muted-foreground text-xs">
+                Debug logging is set by that machine's environment (SUBSHELL_DEBUG_LOGGING).
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                {/* Named by the Label alone, no `aria-label` — Base UI puts the
+                    caller's id on the hidden input and reflects the associated
+                    label back as `aria-labelledby`. Same as the server's. */}
+                <Label htmlFor="node-debug-logging">Debug logging</Label>
+                <Switch
+                  id="node-debug-logging"
+                  checked={logging.debug}
+                  disabled={setDebug.isPending}
+                  onCheckedChange={(checked: boolean) => setDebug.mutate(checked)}
+                />
+              </span>
+            ))}
         </div>
+        {/* Said plainly rather than discovered by flipping it. The agent has no
+            debug-level call sites today — the server's switch exists for its
+            HTTP request lines, and an agent serves no HTTP — so this is the
+            control in place ahead of the lines, not a promise of output. */}
+        {logging && !logging.debug && (
+          <p className="text-muted-foreground text-xs">
+            The agent writes no debug-level lines yet, so this changes what it would record rather than what it does.
+          </p>
+        )}
+        {setDebug.error && (
+          <p role="alert" className="text-destructive text-sm">
+            {errMessage(setDebug.error, "Could not change debug logging on this node")}
+          </p>
+        )}
         {failure && (
           <p role="alert" className="text-destructive text-sm">
             {failure}

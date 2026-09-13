@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
-import { NodeRuntimeCard } from "@/components/nodes/node-runtime-card";
+import { lingerNote, NodeRuntimeCard } from "@/components/nodes/node-runtime-card";
 import type { NodeDetail, NodeRuntime } from "@/types/node";
 
 const restore: (() => void)[] = [];
@@ -46,6 +46,7 @@ function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {
     },
     configPath: "/u/.config/subshell/config.json",
     agentLogPath: "/u/.config/subshell/logs/agent.log",
+    logging: { debug: false, source: "default" },
     logPath: null,
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: null,
@@ -123,3 +124,23 @@ function _killing(): NodeRuntime["service"] {
     paneSafety: "kills",
   };
 }
+
+describe("lingerNote", () => {
+  it("says that starting at login is not staying up after logout, on systemd", () => {
+    // The two axes, one layer down from the server's own card: a `--user` unit
+    // runs inside its owner's login session, so it comes up at login and goes
+    // down at LOGOUT. On a headless box nobody logs into, that is the
+    // difference between the agent being there and not. The agent's installer
+    // already says so — to a terminal, on a machine with no terminal open.
+    expect(lingerNote(runtime())).toContain("enable-linger");
+  });
+
+  it("says nothing where the caveat does not apply", () => {
+    // launchd has no equivalent knob: a LaunchAgent's lifetime IS the GUI
+    // session by design, and a machine with nobody logged in runs neither.
+    expect(lingerNote(runtime({ service: { ...runtime().service, manager: "launchd" } }))).toBe(null);
+    // Nothing arms it, so there is nothing to qualify.
+    expect(lingerNote(runtime({ service: { ...runtime().service, enabled: false } }))).toBe(null);
+    expect(lingerNote(runtime({ supervised: false }))).toBe(null);
+  });
+});

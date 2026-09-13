@@ -141,8 +141,12 @@ describe("parseNodeCommandBody", () => {
     // for harness hooks as well as `mcp` for a pane's registration.
     // 5 is the node Service surface: `restart` folded into `service` as one
     // of five verbs, and `agent_log_read` + `set_server_url` arrived, so a
-    // headless node can be supervised, read and repointed from a browser.)
-    expect(NODE_PROTOCOL_VERSION).toBe(5);
+    // headless node can be supervised, read and repointed from a browser.
+    // 6 is `set_log_level`: the agent's own log file gained the level gate the
+    // server's has had, and this is the command that flips it. It reveals
+    // nothing today — the agent writes no debug-level lines — which is the
+    // point of putting the mechanism in ahead of them.)
+    expect(NODE_PROTOCOL_VERSION).toBe(6);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -456,6 +460,7 @@ describe("ready.runtime (additive)", () => {
     },
     configPath: "/u/.config/subshell/config.json",
     agentLogPath: "/u/.config/subshell/logs/agent.log",
+    logging: { debug: false, source: "default" },
     logPath: null,
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: "/usr/bin/tmux",
@@ -481,6 +486,26 @@ describe("ready.runtime (additive)", () => {
     expect(parseNodeRuntimeReport({ ...runtime, binaryPath: 7 })).toBeNull();
     expect(parseNodeRuntimeReport({ ...runtime, logPath: null, logHint: null })).not.toBeNull();
     expect(parseNodeRuntimeReport(null)).toBeNull();
+  });
+
+  it("defaults a missing or malformed `logging` instead of rejecting the report", () => {
+    const off = { debug: false, source: "default" as const };
+    // Lenient where every other field is strict, on purpose: this one is
+    // cosmetic — the current position of a switch — and the rest of the report
+    // is what the card is FOR. Losing supervision, service state, paths and
+    // every verb because a sub-object was malformed is the wrong trade.
+    const { logging: _dropped, ...without } = runtime;
+    expect(parseNodeRuntimeReport(without)?.logging).toEqual(off);
+    expect(parseNodeRuntimeReport({ ...runtime, logging: "yes" })?.logging).toEqual(off);
+    expect(parseNodeRuntimeReport({ ...runtime, logging: { debug: true, source: "nonsense" } })?.logging).toEqual({
+      debug: true,
+      source: "default",
+    });
+    // A well-formed one still comes through verbatim.
+    expect(parseNodeRuntimeReport({ ...runtime, logging: { debug: true, source: "process env" } })?.logging).toEqual({
+      debug: true,
+      source: "process env",
+    });
   });
 });
 
