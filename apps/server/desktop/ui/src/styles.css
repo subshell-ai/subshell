@@ -108,7 +108,10 @@
     line-height: var(--text-label--line-height);
     font-weight: var(--font-weight-strong);
     color: var(--foreground);
-    margin-bottom: 5px;
+    /* 8, not the 5 this carried: the label→control gap is a spacing decision
+       and belongs on the grid like every other one. Matches what the web
+       surfaces get from their own label role plus a `space-y-2`. */
+    margin-bottom: 8px;
   }
 }
 

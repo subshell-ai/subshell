@@ -8,6 +8,12 @@ import { cn } from "@/lib/cn";
  * Form label. Base UI ships no standalone Label primitive (labeling lives in
  * its Field parts), so this is a plain native `<label>` carrying the same
  * styling — the documented Radix-Label replacement.
+ *
+ * `text-label`, not `text-sm`: a form label IS the design system's `label`
+ * role, and the pair it carried — 14px at weight 600 — is not on the scale.
+ * No `leading-none` either; the role's 1.5 line-height is what puts air
+ * between a label and the control under it. Same change, same reason, as the
+ * SPA's copy of this file.
  */
 export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
   return (
@@ -16,10 +22,7 @@ export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElem
     // biome-ignore lint/a11y/noLabelWithoutControl: htmlFor is in {...props}
     <label
       data-slot="label"
-      className={cn(
-        "font-strong text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
-        className,
-      )}
+      className={cn("font-strong text-label peer-disabled:cursor-not-allowed peer-disabled:opacity-70", className)}
       {...props}
     />
   );
