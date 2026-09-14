@@ -20,6 +20,7 @@ import {
   screenForRequest,
   screensFor,
   setupRows,
+  supervisionLoginReason,
 } from "../lib/wizard-state";
 
 function virgin(over: Partial<Probe> = {}): Probe {
@@ -44,9 +45,21 @@ const NO_EDITS = { port: "", host: "" };
 const WITH_TMUX = { tmux: "/opt/homebrew/bin/tmux" };
 
 describe("screensFor", () => {
-  it("shows the tmux screen only while tmux is missing", () => {
+  it("shows the tmux screen on every first run, installed or not", () => {
+    // It used to be filtered out when tmux was present, and the skip was
+    // invisible in the worst way: `dots` positions by `FIRST_RUN.indexOf`, so
+    // the flow jumped from dot 1 to dot 3 and a prerequisite the product
+    // depends on was satisfied without ever being named.
     expect(screensFor(virgin(), false)).toEqual(["welcome", "tmux", "setup"]);
-    expect(screensFor(virgin(WITH_TMUX), false)).toEqual(["welcome", "setup"]);
+    expect(screensFor(virgin(WITH_TMUX), false)).toEqual(["welcome", "tmux", "setup"]);
+  });
+
+  it("keeps the dots continuous on a machine that already has tmux", () => {
+    // The property the skip broke: every screen of the run has the dot its
+    // position implies, with no gap for the reader to explain to themselves.
+    const withTmux = virgin(WITH_TMUX);
+    const list = screensFor(withTmux, false);
+    expect(list.map((s) => dots(withTmux, s).current)).toEqual([0, 1, 2]);
   });
 });
 
@@ -291,6 +304,35 @@ describe("the supervision choice", () => {
     // Treating the forced `false` as a preference would silently opt someone
     // out of start-at-login on a press they never made.
     expect(applySupervisionChoice(off, { background: true })).toEqual({ background: true, autostart: true });
+  });
+
+  it("names the app-mode answer rather than the control above it", () => {
+    // "Needs the box above" pointed at a widget. The question is real in app
+    // mode too — it just has an answer the person performs themselves — and
+    // this is the dashboard's sentence for it, word for word
+    // (`apps/server/web/src/lib/supervision.ts`). The two screens asking the
+    // same question about the same machine must not define it differently.
+    const reason = supervisionLoginReason(virgin(), { background: false, autostart: false });
+    expect(reason).toBe(
+      "The server starts when the app does. To have it back at login, open Subshell Server at login.",
+    );
+  });
+
+  it("is usable in background mode on a server new enough to have the verbs", () => {
+    expect(supervisionLoginReason(virgin(), DEFAULT_SUPERVISION)).toBeNull();
+  });
+
+  it("an old server outranks the mode — it cannot honour either answer", () => {
+    // The version gate is checked FIRST: on a server with no `service
+    // enable`, telling someone to pick background mode instead would send
+    // them to a control that still will not work.
+    const old = virgin({ server: { version: "0.2.0" } } as Partial<Probe>);
+    expect(supervisionLoginReason(old, DEFAULT_SUPERVISION)).toBe(
+      `Needs subshell-server ${MIN_AUTOSTART_SERVER_VERSION}.`,
+    );
+    expect(supervisionLoginReason(old, { background: false, autostart: false })).toBe(
+      `Needs subshell-server ${MIN_AUTOSTART_SERVER_VERSION}.`,
+    );
   });
 
   it("keeps a deliberate login choice while the service stays on", () => {

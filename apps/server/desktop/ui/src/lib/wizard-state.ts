@@ -151,7 +151,15 @@ export function isRequestedScreen(screen: ScreenId | null): boolean {
 
 export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
   if (probe.next === "ready") return [];
-  if (!onboarded) return FIRST_RUN.filter((s) => s !== "tmux" || probe.tmux === null);
+  // The tmux screen is shown on EVERY first run, including machines that
+  // already have it. It used to be filtered out when `probe.tmux` was set,
+  // and the skip was invisible in the worst way: `dots` positions by
+  // `FIRST_RUN.indexOf`, so the flow went from dot 1 to dot 3 with nothing
+  // saying why, and a prerequisite the product depends on was satisfied
+  // without ever being named. It costs a machine that has tmux one press of
+  // Continue, and buys a flow that is the same length everywhere and a
+  // dependency the person has actually been told about.
+  if (!onboarded) return [...FIRST_RUN];
   return ["recovery"];
 }
 
@@ -359,6 +367,28 @@ function isOlder(a: string, b: string): boolean {
  * disabled, not chosen, and treating a forced-off state as a preference would
  * silently opt someone out of login on a press they never made.
  */
+/**
+ * Why the start-at-login control is unavailable, or `null` when it is usable.
+ *
+ * The mirror of the dashboard's `lib/supervision.ts` `loginDisabledReason`,
+ * and deliberately its twin rather than its own idea: Settings → Service asks
+ * this same question about the same machine, and the two screens disagreeing
+ * about what start-at-login MEANS is worse than either wording alone. The
+ * reasons are that file's, word for word.
+ *
+ * The app-mode reason is the one that matters. "Needs the box above" named a
+ * control instead of a fact, and the fact is that the question is still real
+ * in app mode — it just has a different answer, and one the person can act on
+ * themselves.
+ */
+export function supervisionLoginReason(probe: Probe, choice: SupervisionChoice): string | null {
+  if (!autostartSupported(probe)) return `Needs subshell-server ${MIN_AUTOSTART_SERVER_VERSION}.`;
+  if (!choice.background) {
+    return "The server starts when the app does. To have it back at login, open Subshell Server at login.";
+  }
+  return null;
+}
+
 export function applySupervisionChoice(
   current: SupervisionChoice,
   change: Partial<SupervisionChoice>,

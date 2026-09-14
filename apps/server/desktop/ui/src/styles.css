@@ -69,11 +69,18 @@
     background: var(--color-bg);
     color: var(--color-fg);
   }
+  /* A form field's label is a line item: the short string you scan for, with
+     the explanation under or beside it. It sat at 14px muted while the
+     checklist and the supervision rows used 15px semibold foreground — three
+     sizes and two weights for one kind of thing. This is that one kind of
+     thing, and `.label` below says the same for elements that cannot be a
+     `<label>`. */
   label {
     display: block;
-    font-size: 14px;
-    color: var(--color-muted);
-    margin-bottom: 4px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-fg);
+    margin-bottom: 5px;
   }
 }
 
@@ -139,6 +146,17 @@
    * Pinned by `__tests__/config-form.test.ts`, since no test can read a
    * computed colour here.
    */
+  /*
+   * Same single-class, same-layer rule as `.warn-text` above: written AFTER
+   * `.hint` so an element carrying both wins on source order.
+   *
+   * Scoped rather than centring `.hint` outright — of its six uses, the
+   * address form's field hints sit under left-aligned inputs, where centred
+   * text would float away from the field it explains.
+   */
+  .hint.centered {
+    text-align: center;
+  }
   .warn-text {
     color: var(--color-warn);
   }
@@ -572,7 +590,7 @@
     overflow: auto;
   }
   /* The art box is a FLOOR, not a square: the wordmark is ~4.6:1, so a fixed
-     96px width would squash it. Height is what the two art kinds share. */
+     96px width would squash it. */
   .assistant-art {
     min-height: 96px;
     margin-bottom: 28px;
@@ -580,13 +598,16 @@
     place-items: center;
     color: color-mix(in oklch, var(--color-primary) 55%, transparent);
   }
+  /* Only Welcome has art now. Every other screen leaves #art empty, and an
+     empty box must take NO room — the floor and its margin are 124px, which
+     is a fifth of the frame's height spent on nothing. `:empty` rather than a
+     class, so the rule follows what wizard.ts actually put there. */
+  .assistant-art:empty {
+    display: none;
+  }
   .assistant-art img {
     height: 64px;
     width: auto;
-  }
-  .assistant-art svg {
-    width: 72px;
-    height: 72px;
   }
   .assistant-title {
     margin: 0;
@@ -665,6 +686,13 @@
     color: var(--color-muted);
     padding: 4px 0;
     font-size: 14px;
+  }
+  /* The setup screen's own link, level with the rows above it: same size,
+     same colour. `.linkish` stays muted and 14px everywhere else, where a
+     secondary action should recede. */
+  .linkish.plain {
+    color: var(--color-fg);
+    font-size: 15px;
   }
   .linkish:hover:not(:disabled) {
     color: var(--color-fg);
@@ -774,13 +802,11 @@
     white-space: nowrap;
   }
   /* What-will-happen rows (Set Up) and the checklist (Setting Up). */
-  .plan-rows,
   .checklist {
     list-style: none;
     margin: 0;
     padding: 0;
   }
-  .plan-rows li,
   .checklist li {
     display: grid;
     grid-template-columns: 28px 1fr auto;
@@ -788,22 +814,143 @@
     gap: 0 14px;
     min-height: 48px;
   }
-  .plan-rows li + li,
   .checklist li + li {
     border-top: 1px solid color-mix(in oklch, var(--color-line) 60%, transparent);
   }
-  .plan-rows .label,
-  .checklist .label {
+  /* The tmux install's progress: a spinner and clock on one line, the package
+     manager's own last line under it. */
+  .install-progress {
+    display: grid;
+    gap: 6px;
+    justify-items: center;
+    text-align: center;
+  }
+  .install-head {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     font-size: 15px;
   }
-  .plan-rows .detail,
+  .install-head .detail {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .install-spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    border: 2px solid color-mix(in oklch, var(--color-primary) 30%, transparent);
+    border-top-color: var(--color-primary);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .install-spinner {
+      animation: spin 0.9s linear infinite;
+    }
+  }
+  /* The manager's words, verbatim: monospace because they are program output,
+     and clipped to one line so a long path cannot reflow the screen on every
+     new line that arrives. */
+  .install-line {
+    margin: 0;
+    max-width: 100%;
+    color: var(--color-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The supervision question, mirroring Settings → Service's card: the modes
+     as a radio group, then a rule, then the setting FOR the chosen mode. The
+     login row is never indented under a mode — the dashboard learned that
+     nesting wedges a control between the two options and stops them reading
+     as a pair (`apps/server/web/src/lib/supervision.ts`). */
+  /* No top rule: this is the screen's only content now, so a divider would
+     be separating it from nothing. The rule inside it — between the modes and
+     the login setting — is the one that still divides two things. */
+  .supervision {
+    margin-top: 4px;
+  }
+  /* Both are `<label>` ELEMENTS wrapping a control and its copy, so they
+     inherit the base rule meant for a field's caption. Their spacing is their
+     own padding — the inherited bottom margin was quietly adding to it. */
+  .supervision-mode,
+  .supervision-login {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    align-items: start;
+    gap: 0 14px;
+    padding: 8px 0;
+    margin-bottom: 0;
+    font-weight: 400;
+  }
+  .supervision-mode {
+    cursor: pointer;
+  }
+  .supervision-mode input,
+  .supervision-login input {
+    margin: 2px 0 0;
+    justify-self: center;
+  }
+  .supervision-copy {
+    display: block;
+  }
+  /* Stated rather than inherited: these are the screen's line items and they
+     share one size and colour with the link below them, which is the thing
+     that made the block read as a list rather than as prose. */
+  /* The same, for a line item that is not a `<label>` element: a checklist
+     row, a radio's title, the head of the install progress block. Weight is
+     the load-bearing part — at 15px regular over 13px muted, a label and its
+     detail separate by a tone step alone and read as one paragraph, with the
+     scannable half being the one that recedes. */
+  .label {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-fg);
+    /* A `<label>` element carrying this class must not keep the base rule's
+       gap: here the detail is a sibling with its own spacing. */
+    margin-bottom: 0;
+  }
+  /* Left-aligned under the label it belongs to — the plan rows' right-aligned
+     detail column is for a value (a path, a URL), and a sentence is not one. */
+  .supervision-copy .detail {
+    display: block;
+    margin-top: 2px;
+    color: var(--color-muted);
+    font-size: 13px;
+    text-align: left;
+    text-wrap: pretty;
+  }
+  .supervision-login {
+    margin-top: 10px;
+    border-top: 1px solid color-mix(in oklch, var(--color-line) 60%, transparent);
+    padding-top: 14px;
+  }
+  .supervision-login input:disabled + .supervision-copy {
+    opacity: 0.55;
+  }
+
   .checklist .detail {
     color: var(--color-muted);
     font-size: 13px;
     text-align: right;
     overflow-wrap: anywhere;
   }
-  .checklist .glyph {
+  /* The tmux screen's installed row: centred like the title above it, and
+     wearing the checklist's done-mark rather than a second visual language
+     for the same idea. */
+  .tmux-ready {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 15px;
+  }
+  .checklist .glyph,
+  .tmux-ready .glyph {
     width: 20px;
     height: 20px;
     display: inline-flex;
@@ -815,7 +962,8 @@
   .checklist li[data-state="pending"] .glyph {
     border: 1.5px solid var(--color-line);
   }
-  .checklist li[data-state="done"] .glyph {
+  .checklist li[data-state="done"] .glyph,
+  .tmux-ready .glyph {
     background: var(--color-ok);
     color: var(--color-primary-fg);
   }
@@ -873,9 +1021,13 @@
     .checklist li[data-state="active"] .glyph {
       animation: spin 0.9s linear infinite;
     }
-    .checklist li[data-state="done"] .glyph {
-      animation: tick 160ms ease-out;
-    }
+    /* NO animation on a done mark. `tick` was a 160ms pop meant to fire once,
+       as a row completed — but `render()` rebuilds the checklist on every
+       1500ms poll, and a freshly created element replays its animation. So
+       every finished row popped again, forever, and a list of completed steps
+       pulsed at the reader for as long as the screen was up. The spin above
+       is safe from this by being infinite already: replaying it is
+       indistinguishable from continuing it. */
   }
   @keyframes screen-in {
     from {
@@ -890,14 +1042,6 @@
   @keyframes spin {
     to {
       transform: rotate(360deg);
-    }
-  }
-  @keyframes tick {
-    from {
-      transform: scale(0.6);
-    }
-    to {
-      transform: scale(1);
     }
   }
   /* An empty pane shows nothing, box and all — the old page's `pre:empty`.

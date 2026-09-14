@@ -57,6 +57,7 @@ import {
   screenForRequest,
   screensFor,
   setupRows,
+  supervisionLoginReason,
 } from "./lib/wizard-state";
 import "./styles.css";
 
@@ -88,6 +89,18 @@ let problem = "";
 let customizeOpen = false;
 /** The last action's own words, for the recovery screen's Show Details. */
 let lastResult: ActionResult | null = null;
+/**
+ * The tmux install's own progress: the manager's last output line, and when
+ * the install began.
+ *
+ * `brew install` on a cold cache runs for minutes under a 10-minute deadline,
+ * and the command used to report nothing until it returned — a screen that
+ * cannot say anything for that long is indistinguishable from a hung one.
+ * The manager's output is the only honest progress signal here; there is no
+ * percentage to invent, so the last line and a clock are what there is.
+ */
+let installLine = "";
+let installStartedAt = 0;
 /** The last log tail, refreshed on the poll only while the disclosure is open. */
 let lastTail: LogTail | null = null;
 /**
@@ -126,21 +139,24 @@ let seeded = false;
 // Frame helpers
 // ---------------------------------------------------------------------------
 /**
- * Inline SVGs (lucide outlines, 24-grid) plus the product wordmark. Fixed
- * strings, this file's own; the ONLY innerHTML on the page.
+ * The product wordmark, and nothing else.
  *
- * `icon` is the FULL wordmark, not the `/s` mark: the Welcome screen is where
- * the product names itself, and the mark alone says nothing to someone opening
- * this app for the first time. Both PNGs are generated into `ui/public` by
- * `bun run brand:generate` — this page is its own Vite build and cannot reach
- * the SPA's `public/icons`.
+ * **The per-screen glyphs are gone (2026-09-14).** Every screen used to open
+ * with a 72px lucide outline — a terminal, a server, a cross — above its
+ * title, and the box they sat in cost 124px of a frame that is now 620px
+ * tall. They were decorative by construction (`aria-hidden`, and the title
+ * under each said the same thing in words), so they were 124px spent on
+ * repeating the heading. The wordmark stays: Welcome is where the product
+ * names itself, and it is the one screen whose art is doing work.
+ *
+ * Fixed set, inline, because the CSP allows no remote images.
  */
 const ART = {
   icon: `<img src="./wordmark-96.png" srcset="./wordmark-96.png 1x, ./wordmark-192.png 2x" alt="" />`,
-  terminal: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 17 6-6-6-6M12 19h8"/></svg>`,
-  server: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>`,
-  fail: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>`,
-};
+  /** Every other screen: the box collapses (`.assistant-art:empty`). */
+  none: "",
+} as const;
+
 function setFrame(art: keyof typeof ART, title: string, subtitle: string): void {
   el("art").innerHTML = ART[art];
   // `title` and `subtitle` are `aria-live="polite"` regions, and `tick()`
@@ -246,20 +262,112 @@ function renderWelcome(): void {
   el("bar-right").append(button("Continue", () => go(next()), "primary"));
 }
 
+/**
+ * Redraws the install screen once a second while it runs.
+ *
+ * Its own timer because the ordinary poll (`tick`) returns early while `busy`,
+ * deliberately — a refresh under a running action is what it exists to avoid.
+ * So during the one action whose screen has to keep moving, nothing was
+ * repainting it at all.
+ */
+let installClock: ReturnType<typeof setInterval> | null = null;
+
+function startInstallClock(): void {
+  if (installClock !== null) return;
+  installClock = setInterval(() => {
+    if (installStartedAt === 0) {
+      stopInstallClock();
+      return;
+    }
+    render();
+  }, 1000);
+}
+
+function stopInstallClock(): void {
+  if (installClock === null) return;
+  clearInterval(installClock);
+  installClock = null;
+}
+
+/** `m:ss` since the install began. */
+function elapsed(sinceMs: number): string {
+  const total = Math.max(0, Math.round((Date.now() - sinceMs) / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * What the install shows while it runs: a spinner, a clock, and the package
+ * manager's own last line.
+ *
+ * The line is the only real progress there is — `brew` reports Fetching, then
+ * Pouring, then Summary, and no percentage can be derived from that — so it
+ * is shown verbatim rather than translated into a fake stage. The clock earns
+ * its place separately: a stalled download leaves the LINE unchanged, and
+ * without a second thing moving the screen would look frozen again.
+ */
+function installProgress(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "install-progress";
+  const head = document.createElement("p");
+  head.className = "install-head";
+  const spinner = document.createElement("span");
+  spinner.className = "install-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  // `aria-live="polite"`, so a screen reader hears the manager's own words as
+  // they change rather than nothing at all for ten minutes.
+  head.append(spinner, text("span", "Installing tmux…", "label"), text("span", elapsed(installStartedAt), "detail"));
+  box.append(head);
+  const line = text("p", installLine || "Starting the package manager…", "install-line");
+  line.setAttribute("aria-live", "polite");
+  box.append(line);
+  return box;
+}
+
 function renderTmux(p: Probe): void {
-  setFrame(
-    "terminal",
-    "Install tmux",
-    "Every subshell runs in a tmux pane, so the server needs it before it can start.",
-  );
+  const found = prereqState(p) === "found";
+  // ONE title in both states. It was "tmux Is Ready" when tmux was already
+  // there, which answered a question nobody asked and raised the one they
+  // did — a panel announcing something is ready reads as a result, leaving
+  // "so why am I being shown this?". The title names the STEP, which is the
+  // same step on every machine; whether there is anything to do is what the
+  // content below says.
+  setFrame("none", "Install tmux", "Every subshell runs in a tmux pane, so the server needs it before it can start.");
   const content = el("content");
   const plan = tmuxInstallPlan(p.platform, p.hasBrew);
-  if (prereqState(p) === "install" && plan.kind === "run") {
+  const installing = busy && prereqState(p) === "install" && plan.kind === "run";
+  // The screen a machine that ALREADY has tmux now sees. It used to be
+  // skipped outright, which satisfied the dependency invisibly and left a
+  // gap in the dots; saying so costs one Continue and is the only place the
+  // person is told what tmux is for.
+  if (found) {
+    // The checklist's own done-mark, so "installed" looks the same wherever
+    // this app says it. No path: which file answered is a fact for Settings,
+    // not an answer to "do I need to do anything here" — and a monospace
+    // path was the widest thing on a screen whose message is one word.
+    const row = document.createElement("p");
+    row.className = "tmux-ready";
+    row.append(text("span", "✓", "glyph"), text("span", "Already installed on this machine", "label"));
+    content.append(row);
+  } else if (prereqState(p) === "install" && plan.kind === "run") {
     if (busy) {
-      content.append(text("p", "Installing tmux…", "assistant-subtitle"));
+      content.append(installProgress());
     } else {
-      content.append(button(plan.label, () => void act(() => ipc.installTmux()), "primary big"));
-      content.append(text("p", "Your package manager may ask for your password.", "hint"));
+      content.append(
+        button(
+          plan.label,
+          () =>
+            void act(() => {
+              installLine = "";
+              installStartedAt = Date.now();
+              startInstallClock();
+              return ipc.installTmux();
+            }),
+          "primary big",
+        ),
+      );
+      // Centred under a full-width button: left-aligned, it read as a caption
+      // for the screen's left edge rather than for the button it belongs to.
+      content.append(text("p", "Your package manager may ask for your password.", "hint centered"));
     }
   } else {
     content.append(text("p", "This machine has no package manager this app can drive. In a terminal:", "hint"));
@@ -267,11 +375,15 @@ function renderTmux(p: Probe): void {
     if (plan.docsUrl !== "")
       content.append(button("Read the tmux docs", () => void ipc.openTmuxDocs().catch(setProblem), "ghost"));
   }
-  el("bar-left").append(button("Back", () => go("welcome"), "ghost"));
-  el("bar-right").append(
-    text("span", "Waiting for tmux", "reason"),
-    button("Continue", () => {}, "primary", true),
-  );
+  el("bar-left").append(button("Back", () => go("welcome"), "ghost", installing));
+  // NO reason text beside Continue. This screen carries a hardcoded "Waiting
+  // for tmux", which read the same during the install it had itself started —
+  // a sentence about the PERSON at the one moment the app was the one
+  // working. Making it say "Installing…" instead only moved the problem: the
+  // pane above already says that, with a spinner, a clock and the package
+  // manager's own words. A disabled button next to a label repeating the
+  // screen is the screen saying it twice.
+  el("bar-right").append(button("Continue", () => found && go(next()), "primary", !found));
 }
 
 function renderSetup(p: Probe): void {
@@ -283,9 +395,9 @@ function renderSetup(p: Probe): void {
     renderFailure(p);
     return;
   }
-  setFrame("server", SETUP_TITLE, `Here's what will happen on ${here()}.`);
+  setFrame("none", SETUP_TITLE, `Choose how the server runs on ${here()}.`);
   const content = el("content");
-  content.append(planRows(p));
+  content.append(supervisionGroup(p));
   const links = document.createElement("div");
   links.className = "mt-4 flex gap-4";
   links.append(
@@ -296,7 +408,11 @@ function renderSetup(p: Probe): void {
         if (!customizeOpen) resetForm();
         render();
       },
-      "linkish",
+      // `linkish plain`: this one sits directly under the supervision rows and
+      // reads as one of them, so it takes their size and their colour rather
+      // than the muted, slightly smaller treatment a link gets elsewhere in
+      // the assistant.
+      "linkish plain",
     ),
   );
   if (p.serverChoice === "no-bundled")
@@ -312,107 +428,116 @@ function renderSetup(p: Probe): void {
 }
 
 /**
- * What the press will do — two statements and two QUESTIONS.
+ * The supervision question — the whole content of the Set Up screen.
  *
- * The middle row used to read "Start it in the background, and at every
- * login": one sentence asserting two separate things, neither of which the
- * person could decline. They are two facts in the code (`installed` and
- * `enabled` in the CLI's own service state) and they are two boxes here.
+ * **It used to sit under a plan**: two rows promising "Install the server →
+ * ~/.local/bin/subshell-server" and "Open your dashboard → http://…". Both
+ * are gone, and nothing replaced them, because they were already said twice.
+ * `setupRows` feeds the progress checklist on the VERY NEXT screen, which
+ * names each act with the same detail as it happens; Settings → Service holds
+ * the same facts permanently afterwards. Promising them beforehand made a
+ * screen whose one real question — who runs this server — read as a footnote
+ * under a list of things the reader could not act on.
  *
- * Re-rendered by the address form's input handler, never by the inputs.
+ * `apps/server/web`'s supervision card is the shape this follows; see the
+ * radio/login split there and in `lib/supervision.ts`.
  */
-function planRows(p: Probe): HTMLUListElement {
-  const rows = setupRows(p, { port: form.port, host: form.host }, supervision);
-  const base = form.baseUrl || derivedBaseUrl(form.port || "3080");
-  const ul = document.createElement("ul");
-  ul.className = "plan-rows";
-  ul.id = "plan-rows";
+function supervisionGroup(p: Probe): HTMLElement {
+  const locked = busy || running;
+  const section = document.createElement("section");
+  section.className = "supervision";
 
-  const statement = (label: string, detail: string): HTMLLIElement => {
-    const li = document.createElement("li");
-    li.append(document.createElement("span"), text("span", label, "label"), text("span", detail, "detail"));
-    return li;
-  };
-  /** A row the person can decline, with the consequence in the detail column. */
-  const question = (opts: {
-    id: string;
-    label: string;
-    detail: string;
-    checked: boolean;
-    disabled: boolean;
-    onChange: (next: boolean) => void;
-  }): HTMLLIElement => {
-    const li = document.createElement("li");
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.id = opts.id;
-    box.checked = opts.checked;
-    box.disabled = opts.disabled;
-    box.addEventListener("change", () => {
-      opts.onChange(box.checked);
+  const group = document.createElement("div");
+  group.className = "supervision-modes";
+  group.setAttribute("role", "radiogroup");
+  // The `aria-label` is the group's whole name now. A visible caption saying
+  // "How this server runs" sat directly under a subtitle already reading
+  // "Choose how the server runs on <host>" — the same sentence twice, once
+  // the plan rows above it stopped being there to separate from.
+  group.setAttribute("aria-label", "How this server runs");
+
+  const mode = (opts: { id: string; background: boolean; title: string; body: string }): HTMLLabelElement => {
+    const label = document.createElement("label");
+    label.className = "supervision-mode";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "plan-supervision";
+    radio.id = opts.id;
+    radio.checked = supervision.background === opts.background;
+    radio.disabled = locked;
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      supervision = applySupervisionChoice(supervision, { background: opts.background });
+      render();
       refocus(opts.id);
     });
-    const label = document.createElement("label");
-    label.htmlFor = opts.id;
-    label.className = "label";
-    label.textContent = opts.label;
-    li.append(box, label, text("span", opts.detail, "detail"));
-    return li;
+    const copy = document.createElement("span");
+    copy.className = "supervision-copy";
+    copy.append(text("span", opts.title, "label"), text("span", opts.body, "detail"));
+    label.append(radio, copy);
+    return label;
   };
 
-  ul.append(statement("Install the server", rows.find((r) => r.id === "server")?.detail ?? ""));
-  ul.append(
-    question({
-      id: "plan-background",
-      label: "Start it in the background",
-      // The platform's own word for what is being registered, or — when the
-      // box is off — what running it here actually means.
-      detail: supervision.background
-        ? p.platform === "darwin"
-          ? "runs as a launchd agent"
-          : "runs as a systemd user service"
-        : "runs while this app is open",
-      checked: supervision.background,
-      disabled: busy || running,
-      onChange: (next) => {
-        supervision = applySupervisionChoice(supervision, { background: next });
-        render();
-      },
+  // The manager's name goes in the SENTENCE, where it explains something,
+  // rather than in the title as a parenthetical that explains nothing —
+  // `supervision-card.tsx`'s rule, and its exact words.
+  const agent = p.platform === "darwin" ? "A launchd agent" : "A systemd user service";
+  group.append(
+    mode({
+      id: "plan-mode-service",
+      background: true,
+      title: "In the background",
+      body: `${agent} runs it, whether or not Subshell Server is open.`,
     }),
   );
-  ul.append(
-    question({
-      id: "plan-autostart",
-      label: "Start it again at every login",
-      // What this ADDS over the box above, which is the thing people read as
-      // already covered: both managers run the server inside your own login
-      // session, so it stops when you log out either way. This is what starts
-      // it the next time.
-      detail: !autostartSupported(p)
-        ? `needs subshell-server ${MIN_AUTOSTART_SERVER_VERSION}`
-        : supervision.background
-          ? "otherwise it stays stopped after you log out"
-          : "needs the box above",
-      checked: supervision.autostart && autostartSupported(p),
-      // Nothing to start at login without a service to start — and nothing to
-      // ask an older server, which has no verb for it.
-      disabled: !supervision.background || !autostartSupported(p) || busy || running,
-      onChange: (next) => {
-        supervision = applySupervisionChoice(supervision, { autostart: next });
-        render();
-      },
+  group.append(
+    mode({
+      id: "plan-mode-app",
+      background: false,
+      title: "With the Subshell Server app",
+      // The dashboard's sentence, plus the reassurance only this screen is in
+      // a position to give: the panes are not the server, and someone
+      // choosing app mode is being told the app can stop it.
+      body: "Runs while the app is open; quitting the app stops it. Running subshells keep running.",
     }),
   );
-  ul.append(statement("Open your dashboard", base));
-  if (!supervision.background) {
-    const note = text("p", "Quitting Subshell Server stops the server. Running subshells keep running.", "hint");
-    ul.append(note);
-  }
-  return ul;
+  section.append(group);
+
+  const reason = supervisionLoginReason(p, supervision);
+  const login = document.createElement("div");
+  login.className = "supervision-login";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.id = "plan-autostart";
+  box.checked = supervision.autostart && autostartSupported(p);
+  box.disabled = reason !== null || locked;
+  box.addEventListener("change", () => {
+    supervision = applySupervisionChoice(supervision, { autostart: box.checked });
+    render();
+    refocus("plan-autostart");
+  });
+  const copy = document.createElement("span");
+  copy.className = "supervision-copy";
+  const label = document.createElement("label");
+  label.className = "label";
+  label.htmlFor = "plan-autostart";
+  label.textContent = "Start at login";
+  copy.append(
+    label,
+    text(
+      "span",
+      reason ??
+        "Starts the server again the next time you log in to this machine. Without it, the service runs now but nothing brings it back after you log out or restart.",
+      "detail",
+    ),
+  );
+  login.append(box, copy);
+  section.append(login);
+  return section;
 }
 
 function renderProgress(p: Probe): void {
-  setFrame("server", "Setting Up Subshell…", "This takes a moment.");
+  setFrame("none", "Setting Up Subshell…", "This takes a moment.");
   el("content").append(checklist(p, "active"));
 }
 
@@ -426,7 +551,7 @@ function renderProgress(p: Probe): void {
  */
 function renderHandoff(p: Probe): void {
   if (openFailed) {
-    setFrame("server", "Subshell Is Running", "The dashboard did not open by itself.");
+    setFrame("none", "Subshell Is Running", "The dashboard did not open by itself.");
     el("bar-right").append(
       button(
         "Open Dashboard",
@@ -441,7 +566,7 @@ function renderHandoff(p: Probe): void {
     );
     return;
   }
-  setFrame("server", p.onboarded ? "Your Server Is Running" : "Setting Up Subshell…", "Opening your dashboard…");
+  setFrame("none", p.onboarded ? "Your Server Is Running" : "Setting Up Subshell…", "Opening your dashboard…");
   openWhenReady();
 }
 
@@ -460,7 +585,7 @@ function renderRecovery(p: Probe): void {
     renderFailure(p);
     return;
   }
-  setFrame("server", recoveryTitle(p.next), recoverySubtitle(p.next));
+  setFrame("none", recoveryTitle(p.next), recoverySubtitle(p.next));
   const content = el("content");
   const action = recoveryAction(p.next);
   const tmuxMissing = p.tmux === null;
@@ -617,7 +742,7 @@ function detailsDisclosure(): HTMLElement {
  */
 function renderUpdate(p: Probe): void {
   setFrame(
-    "server",
+    "none",
     "Update Your Server",
     `Subshell Server includes ${p.bundledVersion ?? "no server"}; ${here()} is running ${p.server?.version ?? "an unknown version"}.`,
   );
@@ -659,7 +784,7 @@ function renderUpdate(p: Probe): void {
  * dialog and calls `desktop_set_supervision` directly (2026-09-12).
  */
 function renderSupervision(p: Probe): void {
-  setFrame("server", "How Your Server Runs", "Change who starts it, and when.");
+  setFrame("none", "How Your Server Runs", "Change who starts it, and when.");
   const content = el("content");
   const chosen = supervisionForm ?? {
     background: p.supervision !== "app",
@@ -806,7 +931,7 @@ async function openReset(): Promise<void> {
 }
 
 function renderFailure(p: Probe): void {
-  setFrame("fail", "Setup Couldn't Finish", "Nothing else was changed.");
+  setFrame("none", "Setup Couldn't Finish", "Nothing else was changed.");
   const content = el("content");
   content.append(checklist(p, "failed"));
   if (failure) {
@@ -883,8 +1008,9 @@ function addressForm(p: Probe): HTMLElement {
         const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
         if (mirror) mirror.value = form.baseUrl;
       }
-      // The plan rows follow the form; the inputs are left alone so typing is never interrupted.
-      document.getElementById("plan-rows")?.replaceWith(planRows(p));
+      // Nothing outside the form mirrors the port any more: the row that read
+      // "Open your dashboard → http://…" is gone, and the baseUrl field above
+      // is updated in place. Re-rendering here would only interrupt typing.
     });
     cell.append(label, input);
     if (field.hint) cell.append(text("p", field.hint, "hint"));
@@ -972,8 +1098,21 @@ async function act(fn: () => Promise<ActionResult | null>, settle = false): Prom
     await refresh().catch(() => {});
   }
   busy = false;
+  installStartedAt = 0;
+  stopInstallClock();
   render();
 }
+
+/**
+ * How long a successful setup chain waits for the server to answer before it
+ * stops holding the progress screen up.
+ *
+ * Generous on purpose: the cost of being too short is the run visibly going
+ * backwards into a question already answered, and the cost of being too long
+ * is a spinner on a machine that has genuinely failed — which the recovery
+ * family is built to explain anyway, on the next launch.
+ */
+const SETTLE_BUDGET_MS = 30_000;
 
 async function startSetup(): Promise<void> {
   if (busy || running || probe === null) return;
@@ -984,20 +1123,40 @@ async function startSetup(): Promise<void> {
   let result: ActionResult | null = null;
   try {
     result = await ipc.setup({ ...configPayload(form, explicit), supervision });
+    if (result && !result.ok) failure = result;
+    await refresh().catch(() => {});
+    if (result?.ok) {
+      // `service start` returns when the manager has SPAWNED the process, not
+      // when the port is bound — so a successful chain routinely lands here
+      // with the machine not yet ready, and this waits for it.
+      //
+      // It used to be two looks, three seconds. Past that the chain declared
+      // itself over, `running` cleared, and `renderSetup` fell back to the
+      // supervision question the person had just answered — then the next
+      // poll found `ready` and jumped to the account form. Forwards,
+      // backwards, forwards, on every machine slower than three seconds.
+      //
+      // A deadline instead of a count, and long enough to cover a cold start
+      // rather than a warm one. It is still BOUNDED: a server that never
+      // answers has to leave the person somewhere with a button, and that
+      // somewhere is the setup screen this returns to.
+      const readyBy = Date.now() + SETTLE_BUDGET_MS;
+      while (probe?.next !== "ready" && Date.now() < readyBy) {
+        await new Promise((r) => setTimeout(r, 750));
+        await refresh().catch(() => {});
+      }
+    }
   } catch (err) {
     problem = errText(err);
   } finally {
+    // CLEARED LAST, after the settle loop — not the moment `setup` returns.
+    // `running` is what holds the progress screen up, and `renderSetup` falls
+    // back to the CONFIG screen without it. Clearing it early left up to
+    // three seconds in which the poll (which runs precisely because this flag
+    // is set) re-rendered the question the person had just answered, and the
+    // run visibly went forwards, backwards, then forwards again into the
+    // account form.
     running = false;
-  }
-  if (result && !result.ok) failure = result;
-  await refresh().catch(() => {});
-  if (result?.ok) {
-    // `service start` returns when the manager has spawned the process, not
-    // when the port is bound: two more looks before deciding.
-    for (let i = 0; i < 2 && probe?.next !== "ready"; i += 1) {
-      await new Promise((r) => setTimeout(r, 1500));
-      await refresh().catch(() => {});
-    }
   }
   render();
 }
@@ -1075,12 +1234,14 @@ function render(): void {
     return;
   }
   handedOff = false;
-  // The tmux screen advances itself the moment the fact lands — the second
-  // automatic advance, and the reason `replayEnter` is called here too.
-  if (screen === "tmux" && p.tmux !== null) {
-    screen = "setup";
-    replayEnter();
-  }
+  // NO auto-advance off the tmux screen. It used to jump to `setup` the
+  // moment `p.tmux` was non-null, which was a SECOND skip independent of
+  // `screensFor` — so the step stayed invisible on a machine that already had
+  // tmux even after the list stopped filtering it, and Back from `setup` was
+  // dead: `go("tmux")` set the screen and the next render bounced it straight
+  // back. The screen has a real installed state now (a done-mark and an
+  // enabled Continue), which is also the confirmation a two-minute install
+  // deserves rather than the screen vanishing out from under it.
   // Resolve `null`, and correct a screen the probe no longer offers: a
   // machine that finishes its first run becomes onboarded, and "setup" is not
   // on the recovery family's list.
@@ -1163,6 +1324,19 @@ function applyScreen(payload: string): void {
 }
 
 void listen<string>("desktop-screen", (event) => applyScreen(event.payload));
+// The package manager's own output while tmux installs (`INSTALL_LINE_EVENT`
+// in control.rs). Only the LAST line is kept: the screen shows what is
+// happening now, and the full text still comes back in the ActionResult for
+// the failure case. Rendered on arrival because the ordinary poll is stopped
+// while an action runs.
+void listen<string>("desktop-install-line", (event) => {
+  const line = event.payload.trim();
+  // Blank lines are spacing in the manager's output, not progress; showing
+  // one would blank the only thing on screen that was saying anything.
+  if (line === "" || installStartedAt === 0) return;
+  installLine = line;
+  render();
+});
 // The reset chain's progress: one frame per phase transition, merged into the
 // reset view's page state. A chain that legitimately takes tens of seconds
 // names the phase spending them instead of holding one word on a dead button
