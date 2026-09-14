@@ -239,6 +239,17 @@ describe("findEscapes", () => {
     expect(findEscapes("spa", "styles/dockview-theme.css", `color: #fff;`)).toEqual([]);
   });
 
+  test("terminal trio consumers are exempt by exact path, not by pattern", () => {
+    // These files hold ANSI/xterm palette literals that MUST stay raw to
+    // match what xterm renders (plan Global Constraints). The clause that
+    // exempts them is live code, so each of its three arms is pinned here —
+    // deleting any one must turn this test red. Paths are relative to each
+    // surface's SURFACE_GLOBS root, exactly as allEscapes passes them.
+    expect(findEscapes("spa", "components/subshell-terminal.tsx", `const bg = "#1d182a";`)).toEqual([]);
+    expect(findEscapes("spa", "lib/ansi.ts", `const fg = "#1d182a"; const o = "oklch(0.5 0.1 300)";`)).toEqual([]);
+    expect(findEscapes("mobile", "scripts/sync-terminal-assets.ts", `color: "#7abdff"`)).toEqual([]);
+  });
+
   test("assistant: font-size and font-weight literals outside the token block", () => {
     const css = `:root {\n  --text-label: 15px;\n}\n.x {\n  font-size: 14.5px;\n  font-weight: 600;\n}\n.y { font-size: var(--text-body); }`;
     const found = findEscapes("assistant", "styles.css", css);

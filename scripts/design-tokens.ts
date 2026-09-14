@@ -286,10 +286,22 @@ const HEX_OR_OKLCH = /#[0-9a-fA-F]{3,8}\b|oklch\(/g;
  * Files that DEFINE colours are allowed literals; everything else consumes
  * tokens. The dockview theme and xterm consume the terminal trio raw by
  * design (spec § 3.2) and are not scanned.
+ *
+ * The two exact paths below hold ANSI/xterm palette literals that MUST stay
+ * raw to match what xterm renders (plan Global Constraints: consumers of the
+ * terminal trio, deliberately raw). Exact paths, not patterns, so a new file
+ * naming its own colours stays checked. They are relative to each surface's
+ * SURFACE_GLOBS root, which is `…/src` for spa/client — hence `lib/ansi.ts`.
  */
 function isColourSource(surface: Surface, relPath: string): boolean {
-  if (surface === "mobile") return relPath.endsWith("src/lib/tokens.ts");
-  return relPath.endsWith("styles.css") || relPath.includes("dockview-theme") || relPath.includes("subshell-terminal");
+  if (surface === "mobile")
+    return relPath.endsWith("src/lib/tokens.ts") || relPath.endsWith("scripts/sync-terminal-assets.ts");
+  return (
+    relPath.endsWith("styles.css") ||
+    relPath.endsWith("lib/ansi.ts") ||
+    relPath.includes("dockview-theme") ||
+    relPath.includes("subshell-terminal")
+  );
 }
 
 export function findEscapes(surface: Surface, relPath: string, source: string): Escape[] {
