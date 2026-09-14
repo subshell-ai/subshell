@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { DesktopBridge } from "@/components/desktop/desktop-bridge";
 import { DesktopNotifications } from "@/components/desktop/desktop-notifications";
 import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
+import { DragStrip, needsStandaloneDragStrip } from "@/components/desktop/drag-strip";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
@@ -18,7 +19,7 @@ import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
-import { isDesktop } from "@/lib/desktop";
+import { desktopPlatform, isDesktop } from "@/lib/desktop";
 import { queryClient } from "@/lib/query-client";
 import { shellGate } from "@/lib/shell-gate";
 
@@ -152,6 +153,14 @@ function Shell() {
         {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
           the top bar so the warning spans the full width (spec §6 banner). */}
         {user && <EmergencyLoginBanner />}
+        {/* The window's title bar on the routes the rail does not cover.
+          `shell_ready` takes the native one away on EVERY route — /login and
+          /setup included, which is where a first launch lands — but the strip
+          that replaces it lives in the rail, and those routes render none. So
+          the first window a person ever sees could not be dragged by its top
+          edge. macOS only, matching the rail's own gate: it is the platform
+          whose decorations are dropped for the overlay. */}
+        {desktop && desktopPlatform() === "macos" && needsStandaloneDragStrip(hasSidebar, bare) && <DragStrip fixed />}
         {!hasSidebar && !bare && <MobileTopBar />}
         {/* The live feed covers everything below it — sidebar dots, home cards,
           pickers — for the whole signed-in session (spec 2026-09-03 §6). The
