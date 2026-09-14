@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/api";
-import { isDesktop } from "@/lib/desktop";
+import { isServerDesktop } from "@/lib/desktop";
 import { disablePush, enablePush, getPushState, type PushState } from "@/lib/notifications";
 
 /**
@@ -102,9 +102,9 @@ export function NotificationsCard({
         {/* role=status: the button can DISAPPEAR when a click lands in
             blocked/unconfigured — sighted users see the helper line appear,
             screen readers need it announced. */}
-        {state && (isDesktop() && state === "unsupported" ? DESKTOP_HELP : STATE_HELP[state]) && (
+        {state && (isServerDesktop() && state === "unsupported" ? DESKTOP_HELP : STATE_HELP[state]) && (
           <p role="status" className="text-muted-foreground text-sm">
-            {isDesktop() && state === "unsupported" ? DESKTOP_HELP : STATE_HELP[state]}
+            {isServerDesktop() && state === "unsupported" ? DESKTOP_HELP : STATE_HELP[state]}
           </p>
         )}
         {state === "unsupported" && isIOS() && (

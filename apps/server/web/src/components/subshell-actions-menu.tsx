@@ -1,5 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Bell, BellOff, Copy, RotateCcw, Share2, SlidersHorizontal, TextCursorInput, X } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  Copy,
+  ExternalLink,
+  RotateCcw,
+  Share2,
+  SlidersHorizontal,
+  TextCursorInput,
+  X,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
@@ -7,6 +17,7 @@ import { SharingDialog } from "@/components/sharing-dialog";
 import { TitleDialog } from "@/components/ui/title-dialog";
 import { usePresets } from "@/hooks/use-presets";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
+import { desktopInvoke, isDesktop } from "@/lib/desktop";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -76,6 +87,27 @@ export function SubshellActionsMenu({
           // No title-pin item (spec 2026-09-03): pane-title auto-naming is the
           // default and an explicit "Edit title" IS the pin — the rename locks
           // the name server-side, with no unlock path by design.
+        ]
+      : []),
+    // Desktop only, and `isDesktop()` — the WIDE question, either shell. A
+    // desktop window is a webview with no second tab, so this is how a subshell
+    // gets into the browser the person actually uses; both apps grant the one
+    // command it calls.
+    //
+    // It is not gated beyond the menu's own `canEdit`, and it does not need to
+    // be: it opens the SAME page the menu was opened from, whose own access
+    // check the server does on arrival. A `view` grantee has no menu at all.
+    //
+    // `sidebar: true`, so the rail's right-click menu on a recent row carries
+    // it too — which is where "open this one elsewhere" is most often wanted.
+    ...(isDesktop()
+      ? [
+          {
+            icon: ExternalLink,
+            label: "Open in browser",
+            sidebar: true,
+            onSelect: () => void desktopInvoke("desktop_open_in_browser", { path: `/subshells/${subshell.id}` }),
+          },
         ]
       : []),
     // Owner-only: the bell decides whether THIS subshell pushes to the owner's

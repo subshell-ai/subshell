@@ -19,7 +19,7 @@ import { useServerOffline } from "@/hooks/use-server-offline";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
-import { desktopPlatform, isDesktop } from "@/lib/desktop";
+import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { queryClient } from "@/lib/query-client";
 import { shellGate } from "@/lib/shell-gate";
 
@@ -78,7 +78,15 @@ function Shell() {
   // Read from the User-Agent, so it is settled before first paint — no IPC
   // handshake to race, and it survives the hard navigations at sign-out and
   // after sign-in.
-  const desktop = isDesktop();
+  //
+  // `isServerDesktop`, not `isDesktop`: everything this flag switches on is
+  // Subshell SERVER's chrome. The overlay title bar needs `desktop_shell_ready`
+  // and a window that drops its decorations; the rail's pill raises that app's
+  // assistant; the notifications go through `desktop_notify`. Subshell Client
+  // grants none of the three and keeps a normal title bar, so taking this
+  // branch there would leave a window with no title bar and no drag strip —
+  // i.e. unmovable.
+  const desktop = isServerDesktop();
   // Tells the shell it may drop the title bar and SHOW the window. It has to
   // run before every gate below: `/login` and `/setup` are `bare`, so they
   // render no sidebar at all — and those are exactly the routes a first launch

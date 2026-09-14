@@ -22,8 +22,24 @@
 /** Platforms the desktop shell ships for. */
 export type DesktopPlatform = "macos" | "linux";
 
+/**
+ * WHICH shell this is, and the distinction the rest of the app turns on.
+ *
+ * - `server` — `apps/server/desktop` (Subshell Server). It MANAGES the server
+ *   serving this page: its window is pinned to loopback, it drops its title
+ *   bar for the SPA's overlay chrome, and it holds the commands behind the
+ *   update, reset, supervision and notification surfaces.
+ * - `client` — `apps/client/desktop` (Subshell Client). It is a window onto a
+ *   plane that can live anywhere. It keeps a normal title bar and is granted
+ *   exactly ONE command, so every server-only surface above must stay absent
+ *   there.
+ */
+export type DesktopApp = "server" | "client";
+
 /** What the shell told us about itself. */
 export interface DesktopShell {
+  /** Which of the two apps this is — see {@link DesktopApp}. */
+  app: DesktopApp;
   /** The desktop app's own version, independent of the server's. */
   version: string;
   platform: DesktopPlatform;
@@ -54,11 +70,18 @@ export const DESKTOP_PROTOCOL = 1;
 
 /**
  * `SubshellDesktop/1.2.3 (macos; p=1)`, optionally `; b=0.3.0` — built by
- * `windows.rs::user_agent`. The bundled-server group stays OPTIONAL because
- * every shell released before spec 2026-09-12 omits it, and a required group
- * would read those as browsers.
+ * each app's `windows.rs::user_agent_for`. The bundled-server group stays
+ * OPTIONAL because every shell released before spec 2026-09-12 omits it, and
+ * a required group would read those as browsers.
+ *
+ * **Two product tokens, and the token is what says which app.**
+ * `SubshellClient/…` is new: that window carried no marker at all while it was
+ * granted nothing, and now carries one because "Open in browser" is chrome any
+ * shell can offer. It never carries `b=` — Subshell Client ships no server.
+ * The `\b` is what keeps `NotSubshellDesktop/…` from matching, and the `\/`
+ * immediately after the token is what keeps `SubshellClientX/…` from it.
  */
-const MARKER = /\bSubshellDesktop\/(\S+)\s+\((macos|linux);\s*p=(\d+)(?:;\s*b=([0-9A-Za-z.+-]+))?\)/;
+const MARKER = /\bSubshell(Desktop|Client)\/(\S+)\s+\((macos|linux);\s*p=(\d+)(?:;\s*b=([0-9A-Za-z.+-]+))?\)/;
 
 /**
  * Parse the desktop marker out of a User-Agent string.
@@ -73,13 +96,14 @@ const MARKER = /\bSubshellDesktop\/(\S+)\s+\((macos|linux);\s*p=(\d+)(?:;\s*b=([
 export function parseDesktopUA(userAgent: string): DesktopShell | null {
   const m = MARKER.exec(userAgent);
   if (!m) return null;
-  const protocol = Number.parseInt(m[3] as string, 10);
+  const protocol = Number.parseInt(m[4] as string, 10);
   if (!Number.isInteger(protocol) || protocol > DESKTOP_PROTOCOL) return null;
   return {
-    version: m[1] as string,
-    platform: m[2] as DesktopPlatform,
+    app: m[1] === "Client" ? "client" : "server",
+    version: m[2] as string,
+    platform: m[3] as DesktopPlatform,
     protocol,
-    ...(m[4] ? { bundledServer: m[4] } : {}),
+    ...(m[5] ? { bundledServer: m[5] } : {}),
   };
 }
 
@@ -93,9 +117,31 @@ export function desktopShell(): DesktopShell | null {
   return cached;
 }
 
-/** Whether the app is running inside `apps/server/desktop`. */
+/**
+ * Whether the page is inside EITHER desktop shell.
+ *
+ * The narrow question — "is this the shell that manages my server" — is
+ * {@link isServerDesktop}, and it is the one nearly every caller wants. This
+ * one is for chrome that is true of any shell and of no browser: today that is
+ * "Open in browser", in the rail and in a subshell's actions menu. Reach for
+ * it only when the surface would work in Subshell Client too.
+ */
 export function isDesktop(): boolean {
   return desktopShell() !== null;
+}
+
+/**
+ * Whether the page is inside `apps/server/desktop` specifically.
+ *
+ * This is what the app's desktop chrome means by "desktop": the overlay title
+ * bar and its drag strip, the server pill, native notifications, and the
+ * update, reset and supervision surfaces. Each of them either drives a command
+ * only that app grants or describes a `subshell-server` only that app manages,
+ * so switching any of them on inside Subshell Client renders a control that
+ * cannot work — an unmovable window in the title bar's case.
+ */
+export function isServerDesktop(): boolean {
+  return desktopShell()?.app === "server";
 }
 
 /** The host platform, or `null` in a browser. */

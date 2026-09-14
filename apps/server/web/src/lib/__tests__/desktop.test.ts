@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { DESKTOP_PROTOCOL, type DesktopShell, parseDesktopUA } from "../desktop";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  DESKTOP_PROTOCOL,
+  type DesktopShell,
+  isDesktop,
+  isServerDesktop,
+  parseDesktopUA,
+  resetDesktopShellForTests,
+} from "../desktop";
 
 /**
  * The marker is the only thing standing between "desktop chrome" and "web
@@ -17,11 +24,12 @@ const UA = {
 describe("parseDesktopUA", () => {
   test("reads version, platform and protocol out of the suffix", () => {
     expect(parseDesktopUA(UA.macos)).toEqual({
+      app: "server",
       version: "1.2.3",
       platform: "macos",
       protocol: 1,
     } satisfies DesktopShell);
-    expect(parseDesktopUA(UA.linux)).toEqual({ version: "0.1.0", platform: "linux", protocol: 1 });
+    expect(parseDesktopUA(UA.linux)).toEqual({ app: "server", version: "0.1.0", platform: "linux", protocol: 1 });
   });
 
   test("an ordinary browser is not the desktop shell", () => {
@@ -82,15 +90,112 @@ describe("parseDesktopUA", () => {
 describe("parseDesktopUA: the bundled server version", () => {
   test("reads the optional bundled-server group and tolerates its absence", () => {
     expect(parseDesktopUA("X SubshellDesktop/0.2.0 (macos; p=1; b=0.3.0)")).toEqual({
+      app: "server",
       version: "0.2.0",
       platform: "macos",
       protocol: 1,
       bundledServer: "0.3.0",
     });
     expect(parseDesktopUA("X SubshellDesktop/0.2.0 (linux; p=1)")).toEqual({
+      app: "server",
       version: "0.2.0",
       platform: "linux",
       protocol: 1,
     });
+  });
+});
+
+/**
+ * Two shells speak this marker now, and one of them must NOT switch on the
+ * server-only chrome.
+ *
+ * `apps/client/desktop`'s plane window used to carry no marker at all,
+ * precisely so the SPA would never take a desktop branch there: it is granted
+ * almost nothing, it keeps a normal title bar, and there is no
+ * `subshell-server` behind it to update, reset or supervise. It carries one
+ * now — `SubshellClient/…` — because two pieces of chrome are true of ANY
+ * shell (open this page in a real browser, from the rail and from a
+ * subshell's menu), and the page cannot offer them without knowing it is in
+ * one.
+ *
+ * So "desktop" split into two questions, and these tests are what keeps them
+ * apart: `isDesktop()` is "am I in a shell at all", `isServerDesktop()` is "am
+ * I in the shell that manages the server serving me". Every gate that predates
+ * this means the SECOND.
+ */
+describe("the two shells", () => {
+  test("Subshell Client parses, and names itself the client", () => {
+    expect(parseDesktopUA("Mozilla/5.0 SubshellClient/0.3.0 (macos; p=1)")).toEqual({
+      app: "client",
+      version: "0.3.0",
+      platform: "macos",
+      protocol: 1,
+    } satisfies DesktopShell);
+  });
+
+  test("Subshell Server still names itself the server", () => {
+    expect(parseDesktopUA(UA.macos)?.app).toBe("server");
+    expect(parseDesktopUA(UA.linux)?.app).toBe("server");
+  });
+
+  // The client ships no server, so it can never carry a bundled-server group —
+  // `user_agent_for` there has no parameter for one. Stated here too, because
+  // the Update card's whole gate is that field.
+  test("the client's marker carries no bundled server", () => {
+    expect(parseDesktopUA("SubshellClient/0.3.0 (linux; p=1)")?.bundledServer).toBeUndefined();
+  });
+
+  // Both tokens are matched WHOLE. A client marker read as a server one would
+  // put the update, reset and supervision cards in a window that can drive
+  // none of them.
+  test("neither token matches as a substring of another product", () => {
+    expect(parseDesktopUA("NotSubshellClient/0.3.0 (macos; p=1)")).toBeNull();
+    expect(parseDesktopUA("SubshellClientX/0.3.0 (macos; p=1)")).toBeNull();
+    expect(parseDesktopUA("Subshell/0.3.0 (macos; p=1)")).toBeNull();
+  });
+
+  // An unknown protocol still degrades to the web sidebar, whichever app sent
+  // it — the reason did not change with the second product token.
+  test("an unknown protocol is not a shell, in either app", () => {
+    expect(parseDesktopUA(`SubshellClient/0.3.0 (macos; p=${DESKTOP_PROTOCOL + 1})`)).toBeNull();
+    expect(parseDesktopUA(`SubshellDesktop/0.3.0 (macos; p=${DESKTOP_PROTOCOL + 1})`)).toBeNull();
+  });
+});
+
+describe("isDesktop vs isServerDesktop", () => {
+  const nav = globalThis.navigator as unknown as Record<string, unknown>;
+  let previous: PropertyDescriptor | undefined;
+
+  function withUA(userAgent: string) {
+    previous ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
+    Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true, writable: true });
+    resetDesktopShellForTests();
+  }
+
+  // Bun runs every test FILE in one process, so a UA left overwritten here is
+  // the one the next file's components read.
+  afterEach(() => {
+    if (previous) Object.defineProperty(nav, "userAgent", previous);
+    else delete nav.userAgent;
+    previous = undefined;
+    resetDesktopShellForTests();
+  });
+
+  test("Subshell Client is a desktop shell but not the SERVER's", () => {
+    withUA("Mozilla/5.0 SubshellClient/0.3.0 (macos; p=1)");
+    expect(isDesktop()).toBe(true);
+    expect(isServerDesktop()).toBe(false);
+  });
+
+  test("Subshell Server is both", () => {
+    withUA(UA.macos);
+    expect(isDesktop()).toBe(true);
+    expect(isServerDesktop()).toBe(true);
+  });
+
+  test("a browser is neither", () => {
+    withUA(UA.safari);
+    expect(isDesktop()).toBe(false);
+    expect(isServerDesktop()).toBe(false);
   });
 });

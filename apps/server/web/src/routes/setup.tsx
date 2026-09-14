@@ -19,7 +19,7 @@ import { useInstallAgent } from "@/hooks/use-install-agent";
 import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { isDesktop } from "@/lib/desktop";
+import { isServerDesktop } from "@/lib/desktop";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/setup")({
@@ -173,7 +173,7 @@ function SetupPage() {
   // In the desktop shell the native assistant already showed three screens;
   // the dot row continues from there so the two programs read as one
   // (spec § 4).
-  const NATIVE_STEPS = isDesktop() ? 3 : 0;
+  const NATIVE_STEPS = isServerDesktop() ? 3 : 0;
   const dotsFor = (n: number) => ({
     total: STEPS.length + NATIVE_STEPS,
     done: NATIVE_STEPS + n,
@@ -190,7 +190,7 @@ function SetupPage() {
         key={step}
         title="Create Your Account"
         subtitle={
-          isDesktop()
+          isServerDesktop()
             ? `Subshell Server is running on ${here}. This is its admin account.`
             : "Welcome to Subshell. This is the admin account for your Subshell server."
         }

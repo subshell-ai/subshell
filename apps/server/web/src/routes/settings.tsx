@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { apiFetch, errMessage } from "@/lib/api";
-import { isDesktop } from "@/lib/desktop";
+import { isServerDesktop } from "@/lib/desktop";
 
 /** The two instance switches this page owns. */
 type SettingKey = "allowRegistrations" | "allowNodeEnrollment";
@@ -186,7 +186,7 @@ function SettingsPage() {
           {/* Danger zone, last (spec 2026-09-10 §6): admin AND the SERVER desktop
               shell only. The reset verb lives in that app's console, so an entry
               point anywhere else would be a button that lies. */}
-          {resetCardVisible({ viewerIsAdmin, desktop: isDesktop() }) && <ResetServerCard />}
+          {resetCardVisible({ viewerIsAdmin, desktop: isServerDesktop() }) && <ResetServerCard />}
         </>
       ) : (
         <p className="text-muted-foreground text-sm">

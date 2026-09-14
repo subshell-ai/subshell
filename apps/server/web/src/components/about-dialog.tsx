@@ -62,7 +62,14 @@ export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChang
                 words the released artifacts carry — the Desktop bundles versus
                 `subshell-server-cli-<triple>`. In a browser there is no shell,
                 so only the CLI line renders, which is the whole truth there. */}
-            {shell && <p>Desktop app {shell.version}</p>}
+            {/* Subshell SERVER only. The line is a pair with the one below it —
+                the app and the CLI it bundles — and Subshell Client bundles no
+                `subshell-server` at all, so "Desktop app 0.3.0" over
+                "CLI 0.5.0" there would read as a version skew between two
+                programs that have no relationship. Nothing is lost: that app
+                says what it is on its own About screen (its menu bar, and the
+                tray everywhere else), from `node_about`. */}
+            {shell?.app === "server" && <p>Desktop app {shell.version}</p>}
             <p>CLI {settings?.serverVersion ?? "—"}</p>
           </div>
           <p className="text-detail text-muted-foreground">{LICENSE_SUMMARY}</p>

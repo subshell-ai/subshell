@@ -3,6 +3,7 @@ import {
   Activity,
   ChevronDown,
   ChevronLeft,
+  ExternalLink,
   KeyRound,
   LayoutDashboard,
   type LucideIcon,
@@ -29,7 +30,7 @@ import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
-import { onDesktopAction } from "@/lib/desktop";
+import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { cn } from "@/lib/utils";
@@ -586,6 +587,40 @@ export function AppSidebar({
             </div>
           );
         })}
+        {/* A desktop window is a webview with no address bar, no second tab and
+            no way to hand this page to the browser the person actually keeps
+            their passwords in. So both shells offer the way out, and the page
+            is what knows WHICH page to open.
+
+            `isDesktop()`, not `isServerDesktop()`: this is one of exactly two
+            surfaces that mean "either shell". Subshell Client's plane window is
+            granted this one command precisely so this row can exist there.
+
+            The path is the CURRENT route, search included, and Rust joins it
+            onto the window's own origin — the page names no host. Last in the
+            rail because it leaves the app; the footer below is the account, and
+            this is not an account action. */}
+        {isDesktop() && (
+          <button
+            type="button"
+            title="Open in browser"
+            onClick={() =>
+              void desktopInvoke("desktop_open_in_browser", {
+                path: `${location.pathname}${location.searchStr}`,
+              })
+            }
+            className={cn(
+              // The nav rows' own classes, minus the active gradient: this one
+              // is never "where you are".
+              "flex w-full cursor-pointer items-center rounded-md py-2 text-sm transition-colors",
+              "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+              collapsed ? "justify-center px-2" : "gap-3 px-3",
+            )}
+          >
+            <ExternalLink className="h-4 w-4 shrink-0 -translate-y-px" />
+            {!collapsed && "Open in browser"}
+          </button>
+        )}
       </nav>
 
       <div className="border-border border-t p-2">

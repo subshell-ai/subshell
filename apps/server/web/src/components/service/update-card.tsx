@@ -12,11 +12,19 @@ import { type DesktopShell, desktopInvoke, desktopShell } from "@/lib/desktop";
  * outliving its server) leaves nothing to compare against. Offering an
  * update in either case would present a guess as a fact.
  *
+ * Subshell CLIENT is refused explicitly rather than left to the `b=` group's
+ * absence. It ships no server, so it never sends one and the second condition
+ * already covers it today — but "which app is this" is the question being
+ * asked here, and answering it by the absence of an unrelated field is how a
+ * later change to that field silently offers a button that raises an assistant
+ * window Subshell Client does not have.
+ *
  * @param shell - the desktop shell, or null in a browser
  * @param serverVersion - what this instance reports it is running
  */
 export function updateAvailable(shell: DesktopShell | null, serverVersion: string | undefined): string | null {
-  if (!shell?.bundledServer || !serverVersion) return null;
+  if (shell?.app !== "server") return null;
+  if (!shell.bundledServer || !serverVersion) return null;
   return semverLt(serverVersion, shell.bundledServer) ? shell.bundledServer : null;
 }
 

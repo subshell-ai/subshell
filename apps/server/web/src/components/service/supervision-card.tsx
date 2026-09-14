@@ -5,7 +5,7 @@ import { SupervisionDialog } from "@/components/service/supervision-dialog";
 import { Switch } from "@/components/ui/switch";
 import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { SetSupervision } from "@/hooks/use-set-supervision";
-import { isDesktop } from "@/lib/desktop";
+import { isServerDesktop } from "@/lib/desktop";
 import { currentMode, loginDisabledReason, modeLabel, type SupervisionMode } from "@/lib/supervision";
 import type { ServerDeployment } from "@/types/server-deployment";
 
@@ -53,7 +53,7 @@ export function SupervisionCard({
 }) {
   const current = currentMode(view);
   const loginBlocked = loginDisabledReason(view);
-  const desktop = isDesktop();
+  const desktop = isServerDesktop();
   const [confirming, setConfirming] = useState<SupervisionMode | null>(null);
   // The command has returned and the server is coming back. The card cannot
   // move yet — it shows the machine, and the machine has not answered — so
