@@ -471,9 +471,7 @@ if (import.meta.main) {
   // A bare `--only` (no `=`) is as much a mistake as an unknown value: the
   // slice leaves "", this guard rejects it, and nothing silently scans all
   // four surfaces behind a flag that named none.
-  const onlyRaw = process.argv
-    .find((a) => a === "--only" || a.startsWith("--only="))
-    ?.slice("--only=".length);
+  const onlyRaw = process.argv.find((a) => a === "--only" || a.startsWith("--only="))?.slice("--only=".length);
   const surfaces = Object.keys(SURFACE_GLOBS) as Surface[];
   if (onlyRaw !== undefined && !surfaces.includes(onlyRaw as Surface)) {
     console.error(`✗ unknown --only="${onlyRaw}" — expected one of: ${surfaces.join(", ")}`);
