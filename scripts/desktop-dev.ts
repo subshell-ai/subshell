@@ -76,6 +76,14 @@ interface DesktopApp {
   /** The stem of the staged file — it names the binary the app WRAPS, not the app. */
   sidecar: string;
   /**
+   * The Cargo crate name, which is also the dev binary's file name under
+   * `src-tauri/target/debug/`. Deliberately NOT derived from {@link dir} or
+   * {@link id}: the crate names are `subshell-desktop` and
+   * `subshell-desktop-client`, which AGENTS.md keeps deliberately out of step
+   * with the product names. Used to find a process still running this app.
+   */
+  crate: string;
+  /**
    * The name the managed copy carries in `~/.local/bin` — `installed_name` in
    * each app's `SidecarSpec`, and the rung of the ladder this script refreshes.
    */
@@ -108,6 +116,7 @@ const APPS: readonly DesktopApp[] = [
     id: "server",
     dir: "server/desktop",
     sidecar: SERVER_SIDECAR_NAME,
+    crate: "subshell-desktop",
     installed: "subshell-server",
     cliPackage: "@internal/server",
     extraInputs: ["apps/server/web"],
@@ -119,6 +128,7 @@ const APPS: readonly DesktopApp[] = [
     id: "client",
     dir: "client/desktop",
     sidecar: AGENT_SIDECAR_NAME,
+    crate: "subshell-desktop-client",
     installed: "subshell",
     cliPackage: "@internal/node",
     extraInputs: [],
@@ -376,6 +386,130 @@ async function spaDevServer(): Promise<string | null> {
 }
 
 /**
+ * How this app's dev binary appears in a `ps` line: `target/debug/<crate>`.
+ *
+ * A SUFFIX rather than an absolute path, because the two ways this process can
+ * exist spell it differently and only one of them is absolute. `cargo run`
+ * starts it from `src-tauri/`, so `ps` shows the relative
+ * `target/debug/subshell-desktop`; a replacement the app spawned for itself
+ * shows the full path. Matching the tail catches both. `comm` does not help —
+ * measured on macOS 25, it mirrors argv[0] rather than resolving it, so a
+ * relatively-launched process reports a relative name there too.
+ *
+ * Anchored at the END, which is what keeps the two apps apart:
+ * `…/subshell-desktop-client` does not end with `…/subshell-desktop`.
+ */
+function devBinarySuffix(app: DesktopApp): string {
+  return join("target", "debug", app.crate);
+}
+
+/**
+ * The two commands a run of this script owns, as they appear in `ps`.
+ *
+ * `vite` is the app's OWN UI dev server — `tauri dev` starts it as
+ * `beforeDevCommand`, and it is what every bundled window loads from `devUrl`.
+ * It is matched by a path under this app's directory, never by the bare word:
+ * `apps/server/web` runs a vite of its own that a developer starts
+ * deliberately for SPA hot-reload, and killing that one would be this script
+ * reaching outside its own session.
+ */
+function ownedCommands(app: DesktopApp): OwnedCommands {
+  return { binary: devBinarySuffix(app), vite: join("apps", app.dir, "node_modules", ".bin", "vite") };
+}
+
+/** What {@link parseAppPids} matches on. */
+export interface OwnedCommands {
+  /** Tail of the app binary's path — `target/debug/<crate>`. */
+  binary: string;
+  /** Path fragment identifying this app's own UI dev server. */
+  vite: string;
+}
+
+/**
+ * PIDs from a `ps -eo pid=,command=` dump whose command ends with `suffix`,
+ * minus everything in `ignore`.
+ *
+ * `ignore` is the set that was ALREADY running when this script started —
+ * another developer's session, or a window someone left open on purpose. This
+ * script kills what its own run leaked and nothing else, and a pid it never
+ * saw start is not its business.
+ *
+ * Pure, so the parsing is tested against fixed text rather than against
+ * whatever happens to be running on the machine.
+ */
+export function parseAppPids(psOutput: string, owned: OwnedCommands, ignore: ReadonlySet<number>): number[] {
+  const pids: number[] = [];
+  for (const line of psOutput.split("\n")) {
+    const match = /^\s*(\d+)\s+(.*\S)\s*$/.exec(line);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const command = match[2];
+    // The binary is matched at the END (a relative and an absolute spelling
+    // share that tail, and `…-client` is not `…-desktop`); vite anywhere,
+    // because `node <path>/vite` carries arguments after it.
+    if (ignore.has(pid)) continue;
+    if (command.endsWith(owned.binary) || command.includes(owned.vite)) pids.push(pid);
+  }
+  return pids;
+}
+
+/** Live PIDs running this app's dev binary. */
+async function appPids(app: DesktopApp, ignore: ReadonlySet<number>): Promise<number[]> {
+  const proc = Bun.spawn(["ps", "-eo", "pid=,command="], { stdout: "pipe", stderr: "ignore" });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  return parseAppPids(out, ownedCommands(app), ignore);
+}
+
+/**
+ * Kill any app process this run leaked, once `tauri dev` is gone.
+ *
+ * **The leak is real and has one cause: the app restarts ITSELF.** A desktop
+ * reset ends with `app.restart()`, which spawns a replacement and `exit(0)`s
+ * the current process (tauri 2.11.5 `process.rs`; the macOS bundle branch does
+ * not apply to a bare `target/debug` binary, so it is a plain `Command::spawn`
+ * that inherits our process group). `tauri dev` sees the child it started
+ * exit, concludes the app quit, and tears itself down — taking the UI's Vite
+ * dev server with it. The replacement outlives all of that, reparented to
+ * init, pointed at a `devUrl` that no longer answers.
+ *
+ * What the developer sees is a WHITE WINDOW and a shell back at its prompt,
+ * which is the worst possible pair: Ctrl-C there kills nothing, because the
+ * foreground group is empty — the pipeline exited on its own minutes earlier.
+ * So this is not only a Ctrl-C fix. Nothing is recoverable about that window
+ * either way (its dev server is gone), so closing it and saying why beats
+ * leaving it on screen to be discovered.
+ */
+async function killLeakedApps(app: DesktopApp, ignore: ReadonlySet<number>): Promise<void> {
+  let pids = await appPids(app, ignore);
+  if (pids.length === 0) return;
+  console.log(
+    `==> ${app.id} desktop: ${pids.length} process(es) outlived \`tauri dev\` (${pids.join(", ")}) — killing them.\n` +
+      "    A desktop reset restarts the app, and the restarted process survives the dev server that renders it,\n" +
+      "    so it could only ever show a blank window. Re-run this command to come back up.",
+  );
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Already gone between the listing and here — the outcome we wanted.
+    }
+  }
+  // SIGTERM is enough for a Tauri app; the deadline is for one that is wedged.
+  for (let waited = 0; waited < 3000 && pids.length > 0; waited += 100) {
+    await Bun.sleep(100);
+    pids = await appPids(app, ignore);
+  }
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Same.
+    }
+  }
+}
+
+/**
  * `tauri dev` for one app, inheriting stdio so its output and Ctrl-C behave.
  *
  * **The server app's dashboard window is pointed at the SPA dev server when
@@ -407,12 +541,25 @@ async function runDev(app: DesktopApp): Promise<number> {
       );
     }
   }
+  // Snapshotted BEFORE the spawn: whatever is already running belongs to
+  // somebody else's session and is never this run's to kill.
+  const preexisting = new Set(await appPids(app, new Set()));
+  // Ctrl-C reaches the whole foreground group, this script included, and the
+  // default disposition would end it here — before the sweep below could run.
+  // The handlers make it a no-op for US only: the child is in the same group
+  // and gets its own SIGINT, so it still shuts down exactly as it did before,
+  // and `proc.exited` is what we go on rather than the signal.
+  const stayForCleanup = (): void => {};
+  process.on("SIGINT", stayForCleanup);
+  process.on("SIGTERM", stayForCleanup);
   const proc = Bun.spawn(["bun", "run", "--cwd", `apps/${app.dir}`, "dev:app"], {
     cwd: REPO_ROOT,
     stdio: ["inherit", "inherit", "inherit"],
     env,
   });
-  return await proc.exited;
+  const code = await proc.exited;
+  await killLeakedApps(app, preexisting);
+  return code;
 }
 
 function usage(): never {
@@ -423,47 +570,53 @@ function usage(): never {
   process.exit(2);
 }
 
-const args = process.argv.slice(2);
-const force = args.includes("--force");
-/** Everything except the launch — what is this about to run, without opening a window. */
-const checkOnly = args.includes("--check");
-const requested = args.find((arg) => !arg.startsWith("--"));
-const app = APPS.find((candidate) => candidate.id === requested);
-if (!app) usage();
+// The CLI body runs only when this file IS the program. A test imports it
+// for `parseAppPids`, and without the guard that import parses argv, finds
+// no app id and exits through `usage()` — the same convention
+// `package-releases.ts` uses for the same reason.
+if (import.meta.main) {
+  const args = process.argv.slice(2);
+  const force = args.includes("--force");
+  /** Everything except the launch — what is this about to run, without opening a window. */
+  const checkOnly = args.includes("--check");
+  const requested = args.find((arg) => !arg.startsWith("--"));
+  const app = APPS.find((candidate) => candidate.id === requested);
+  if (!app) usage();
 
-const target = hostTarget();
-if (target === null) {
-  console.error(
-    `The desktop apps are built for ${DESKTOP_TARGETS.join(" and ")} only, and this is ${process.platform}-${process.arch}.`,
-  );
-  process.exit(1);
-}
-
-const staged = join(REPO_ROOT, "apps", app.dir, "src-tauri", "binaries", desktopSidecarFileName(app.sidecar, target));
-
-const stagedAt = isStaged(staged) ? statSync(staged).mtimeMs : null;
-const changed = stagedAt !== null && newestInput(inputDirs(app)) > stagedAt;
-const why =
-  stagedAt === null
-    ? `No sidecar staged for ${target}.`
-    : force
-      ? `Rebuilding the ${target} sidecar (--force).`
-      : changed
-        ? `Sources have changed since the ${target} sidecar was built.`
-        : null;
-
-if (why !== null) {
-  console.log(`${why} Building ${app.builds} — a few minutes.`);
-  console.log("Later runs skip this while nothing under the CLI's workspaces has changed.\n");
-  if (!(await app.stage(target))) {
-    console.error(`\nCould not stage the sidecar for ${target}. The build output above says why.`);
+  const target = hostTarget();
+  if (target === null) {
+    console.error(
+      `The desktop apps are built for ${DESKTOP_TARGETS.join(" and ")} only, and this is ${process.platform}-${process.arch}.`,
+    );
     process.exit(1);
   }
-  console.log(`\nStaged ${desktopSidecarFileName(app.sidecar, target)}.`);
-} else {
-  console.log(`Sidecar for ${target} is newer than every source it is built from; not rebuilding.`);
-}
-await refreshManagedCopy(app, staged);
 
-if (checkOnly) process.exit(0);
-process.exit(await runDev(app));
+  const staged = join(REPO_ROOT, "apps", app.dir, "src-tauri", "binaries", desktopSidecarFileName(app.sidecar, target));
+
+  const stagedAt = isStaged(staged) ? statSync(staged).mtimeMs : null;
+  const changed = stagedAt !== null && newestInput(inputDirs(app)) > stagedAt;
+  const why =
+    stagedAt === null
+      ? `No sidecar staged for ${target}.`
+      : force
+        ? `Rebuilding the ${target} sidecar (--force).`
+        : changed
+          ? `Sources have changed since the ${target} sidecar was built.`
+          : null;
+
+  if (why !== null) {
+    console.log(`${why} Building ${app.builds} — a few minutes.`);
+    console.log("Later runs skip this while nothing under the CLI's workspaces has changed.\n");
+    if (!(await app.stage(target))) {
+      console.error(`\nCould not stage the sidecar for ${target}. The build output above says why.`);
+      process.exit(1);
+    }
+    console.log(`\nStaged ${desktopSidecarFileName(app.sidecar, target)}.`);
+  } else {
+    console.log(`Sidecar for ${target} is newer than every source it is built from; not rebuilding.`);
+  }
+  await refreshManagedCopy(app, staged);
+
+  if (checkOnly) process.exit(0);
+  process.exit(await runDev(app));
+}
