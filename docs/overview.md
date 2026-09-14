@@ -69,8 +69,8 @@ apps/server/desktop        Tauri v2 GUI over apps/server/api (installs/runs/mana
 apps/node/agent            `subshell` — the node daemon: enrolls with the control plane, holds the
                            /ws/node socket, executes signed launch/tmux/fs commands as its OS user
 apps/client/desktop        Tauri v2 GUI — Subshell Client: one window showing a control plane's
-                           own UI (granted no commands), one bundled window that registers this
-                           machine as a node and manages apps/node/agent
+                           own UI (granted one path-only command, "open in browser"), one bundled
+                           window that registers this machine as a node and manages apps/node/agent
 apps/client/mobile         native companion (React Native + Expo SDK 57) — push, badge, lock-screen
                            actions, Keychain credential; NOT a second web app
 e2e                        Playwright suite (own backend on :3199, real tmux) — outside `bun run test`

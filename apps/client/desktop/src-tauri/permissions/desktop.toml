@@ -79,7 +79,7 @@ commands.allow = ["node_settings"]
 
 [[permission]]
 identifier = "allow-node-open-plane"
-description = "Open the window showing a control plane's own UI, and remember its address. Validated http/https only, and that window is granted no commands of its own."
+description = "Open the window showing a control plane's own UI, and remember its address. Validated http/https only. That window holds exactly ONE command of its own, allow-desktop-open-in-browser, which takes a path and can name no host; nothing that drives the CLI is reachable from it."
 commands.allow = ["node_open_plane"]
 
 [[permission]]

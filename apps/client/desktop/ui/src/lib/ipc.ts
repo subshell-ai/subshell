@@ -345,9 +345,10 @@ export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {
  * settled. Rejects with a string for anything that is not an http(s) URL, and
  * for "nothing to open" when no address is known yet.
  *
- * **The window this opens is granted no commands.** A control plane can live on
- * any host, so its origin cannot be enumerated in a capability file, and a
- * window that cannot be pinned gets nothing — see
+ * **The window this opens is granted exactly one command.** A control plane can
+ * live on any host, so its origin cannot be enumerated in a capability file;
+ * what it gets instead is `desktop_open_in_browser`, which takes a path and
+ * joins it onto that window's own pinned origin — see
  * `src-tauri/src/windows.rs`. Everything privileged stays on this page.
  */
 export function nodeOpenPlane(args: { url: string | null }): Promise<string> {

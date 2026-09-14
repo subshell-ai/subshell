@@ -13,9 +13,10 @@
  * - `wizard` is the assistant — a bundled `tauri://` page this repo ships — and
  *   it holds every command that drives the CLI, the destructive ones included.
  * - `main` shows the SERVER's own SPA. Unlike Subshell Client's remote window
- *   (which is granted NOTHING, because a control plane can live anywhere),
- *   this one shows the server THIS APP manages over loopback, so its origin is
- *   enumerable in `main.json`. It holds exactly FIVE commands, and the count
+ *   (which holds ONE path-only command, because a control plane can live
+ *   anywhere and only the argument can be narrow there), this one shows the
+ *   server THIS APP manages over loopback, so its origin is enumerable in
+ *   `main.json`. It holds exactly FIVE commands, and the count
  *   is worth a test because "a few harmless ones" is how a boundary erodes —
  *   which is precisely what `desktop_set_supervision` proves can happen: four
  *   of them cannot reach the CLI at all, and that one can. It is an

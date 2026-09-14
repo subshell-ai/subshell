@@ -11,10 +11,11 @@
 //!
 //! The plane window is the reason this could not have been done the built-in
 //! way. It shows a control plane's OWN page, from an origin this app cannot
-//! enumerate ahead of time, so no capability names it and every `invoke` from
-//! it is refused — including the one Tauri's zoom polyfill makes. Driving
-//! `set_zoom` from Rust is what lets that window follow the setting without
-//! being granted a single command.
+//! enumerate ahead of time, so the one command it is granted
+//! (`desktop_open_in_browser`, a path and nothing else) is the whole of its
+//! surface — the webview-zoom command Tauri's polyfill invokes is not on it,
+//! and never will be. Driving `set_zoom` from Rust is what lets that window
+//! follow the setting without widening that surface by one command.
 
 use subshell_desktop_core::settings::SettingsState;
 use subshell_desktop_core::zoom::{clamp_zoom, zoom_in, zoom_out, ZOOM_DEFAULT};

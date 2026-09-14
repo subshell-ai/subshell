@@ -2,8 +2,9 @@
  * Subshell Client's bundled page — the `node` window, as an assistant.
  *
  * NOT the app's only window. `main` shows a control plane's own UI, loaded
- * from the plane's own origin and granted no commands at all; this page is the
- * other half, and the only surface that drives the `subshell` CLI.
+ * from the plane's own origin and granted exactly one command (open a page of
+ * that plane in the system browser); this page is the other half, and the only
+ * surface that drives the `subshell` CLI.
  *
  * It used to be seven stacked cards that showed everything at once and asked
  * nothing in particular. It is now one screen at a time, each asking exactly

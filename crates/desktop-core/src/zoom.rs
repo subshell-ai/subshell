@@ -4,8 +4,10 @@
 //! than a style choice. Tauri's built-in `zoom_hotkeys_enabled` injects a page
 //! script that invokes `plugin:webview|set_webview_zoom`, so it only works on
 //! a window that has been granted that command — and `apps/client/desktop`'s
-//! `main` window is granted NOTHING on purpose, because it shows a control
-//! plane's own page from an origin this app cannot enumerate ahead of time.
+//! `main` window is granted exactly ONE command on purpose, which opens a page
+//! in the system browser rather than resizing anything, because it shows a
+//! control plane's own page from an origin this app cannot enumerate ahead of
+//! time.
 //! `WebviewWindow::set_zoom()` called from Rust goes nowhere near the IPC ACL,
 //! so the level below reaches that window without widening its surface by one
 //! command. (The polyfill also keeps its level in a page-local variable, which

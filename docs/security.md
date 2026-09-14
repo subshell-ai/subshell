@@ -953,6 +953,27 @@ The accounting, stated plainly:
   the two "Open in browser" surfaces. So the marker switches on the one thing
   this window can actually do.
 
+**Two accepted properties, stated rather than left to be discovered.** Both are
+true of this command in BOTH apps:
+
+- **There is no concurrency guard.** `desktop_set_supervision` takes
+  `ActionGuard::try_new` because a hundred interleaved chains can leave a
+  machine with no service definition and no server; nothing here needs that,
+  because the worst a loop achieves is opening browser tabs. A compromised page
+  can do exactly that — spam the person's browser until they quit the app —
+  which is a nuisance on a machine they are sitting at, not a path to anything.
+  Adding a guard would buy a rate limit on annoyance and cost a lock on a path
+  that otherwise holds none.
+- **Refusals are invisible, by design.** The SPA calls it through the
+  FORGIVING `desktopInvoke`, which resolves `null` rather than throwing (an
+  older shell that knows no such command should do nothing, not error). So a
+  path the Rust side rejects, or a Subshell Client with no plane pinned yet,
+  renders as a button that does nothing at all. That is the right failure
+  direction for chrome — chrome that throws is worse than chrome that is
+  absent — but it means this control cannot report why it did not work, and a
+  bug in the path it sends would look like a dead button rather than an error.
+  The tray and menu routes, which are Rust-side, log their refusal to stderr.
+
 Two consequences a person will notice, neither of which the command tries to
 fix: the browser carries no session cookie from the webview, so they sign in
 again; and the server app opens its LOOPBACK origin, where a passkey works only
@@ -1375,7 +1396,7 @@ What an XSS in the SPA can now do that it could not before: flip the machine
 to app mode, so the server dies when the app quits, or back. It cannot reach
 `desktop_reset`, `desktop_setup`, `desktop_service` or any other CLI verb;
 those stay assistant-only, and `ipc-acl.test.ts` (TS) and `control.rs` (Rust)
-both pin `main` at exactly four app commands plus
+both pin `main` at exactly five app commands plus
 `core:window:allow-start-dragging`. The dialog on the page is a confirmation
 for the PERSON, and is not counted as a defence against the page.
 

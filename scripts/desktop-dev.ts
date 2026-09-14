@@ -520,8 +520,8 @@ async function killLeakedApps(app: DesktopApp, ignore: ReadonlySet<number>): Pro
  * explicitly, which is what makes a non-default port possible.
  *
  * Not for the client app: its remote window is a control plane that can live
- * anywhere, is granted no commands, and ships without the desktop marker, so
- * there is nothing here to hot-reload.
+ * anywhere, and the one command it is granted opens a page in the system
+ * browser rather than loading one here, so there is nothing to hot-reload.
  */
 async function runDev(app: DesktopApp): Promise<number> {
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
