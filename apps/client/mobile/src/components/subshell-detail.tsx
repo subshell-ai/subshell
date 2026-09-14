@@ -70,7 +70,9 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
   if (error && !subshell) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8 }}>
-        <Text style={{ color: colors.destructive }}>{errMessage(error, "Cannot load this subshell")}</Text>
+        <Text style={{ ...font("body"), color: colors.destructive }}>
+          {errMessage(error, "Cannot load this subshell")}
+        </Text>
       </View>
     );
   }
@@ -122,7 +124,11 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
                 borderColor: colors.border,
               }}
             >
-              <Text style={{ color: tab === t ? colors.fg : colors.mutedFg, textTransform: "capitalize" }}>{t}</Text>
+              <Text
+                style={{ ...font("label"), color: tab === t ? colors.fg : colors.mutedFg, textTransform: "capitalize" }}
+              >
+                {t}
+              </Text>
             </Pressable>
           ))}
         </View>
@@ -143,7 +149,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
         )
       ) : log.isLoading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: colors.mutedFg }}>Loading log…</Text>
+          <Text style={{ ...font("detail"), color: colors.mutedFg }}>Loading log…</Text>
         </View>
       ) : (
         <FlatList

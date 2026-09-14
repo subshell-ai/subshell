@@ -59,7 +59,7 @@ export function PromptModal({
           />
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12 }}>
             <Pressable onPress={() => onDone(null)} hitSlop={8} style={{ padding: 10 }}>
-              <Text style={{ color: colors.mutedFg }}>Cancel</Text>
+              <Text style={{ ...font("label"), color: colors.mutedFg }}>Cancel</Text>
             </Pressable>
             <Pressable onPress={() => onDone(value)} hitSlop={8} style={{ padding: 10 }}>
               <Text style={{ ...font("label"), color: colors.primary }}>Save</Text>

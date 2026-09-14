@@ -11,7 +11,7 @@ export function Field({
 }: TextInputProps & { label: string; caption?: string; captionColor?: string }) {
   return (
     <View style={{ gap: 6 }}>
-      <Text style={{ ...font("detail"), color: colors.mutedFg }}>{label}</Text>
+      <Text style={{ ...font("label"), color: colors.mutedFg }}>{label}</Text>
       <TextInput
         placeholderTextColor={colors.mutedFg}
         {...input}

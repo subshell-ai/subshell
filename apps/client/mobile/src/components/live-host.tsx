@@ -131,7 +131,7 @@ export function LiveHost({
       <RejectedBanner status={status} />
       {!unlocked ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 }}>
-          <Text style={{ color: colors.mutedFg }}>The terminal is locked.</Text>
+          <Text style={{ ...font("body"), color: colors.mutedFg }}>The terminal is locked.</Text>
           <Pressable
             onPress={() => void requireBiometric(UNLOCK_LABEL).then(setUnlocked)}
             style={{

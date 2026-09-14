@@ -159,7 +159,7 @@ export default function Settings() {
         }}
       >
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.fg }}>Face ID for terminal &amp; actions</Text>
+          <Text style={{ ...font("label"), color: colors.fg }}>Face ID for terminal &amp; actions</Text>
           <Text style={{ ...font("caption"), color: colors.mutedFg }}>
             Required by default — turning it off lets any unlock of this phone drive every pane.
           </Text>
@@ -193,7 +193,7 @@ export default function Settings() {
           paddingHorizontal: 12,
         }}
       >
-        <Text style={{ color: colors.fg }}>Push notifications — check / request permission</Text>
+        <Text style={{ ...font("label"), color: colors.fg }}>Push notifications — check / request permission</Text>
       </Pressable>
 
       <Pressable
@@ -231,7 +231,9 @@ export default function Settings() {
         >
           <Text style={{ ...font("caption"), color: colors.mutedFg }}>
             Copyright {COPYRIGHT_YEAR}{" "}
-            <Text style={{ color: colors.primary, textDecorationLine: "underline" }}>{COPYRIGHT_HOLDER}</Text>
+            <Text style={{ ...font("caption"), color: colors.primary, textDecorationLine: "underline" }}>
+              {COPYRIGHT_HOLDER}
+            </Text>
           </Text>
         </Pressable>
         <Text style={{ ...font("caption"), color: colors.mutedFg }}>{LICENSE_SUMMARY}</Text>

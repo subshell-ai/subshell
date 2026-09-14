@@ -409,10 +409,12 @@ export default function NewSubshell() {
               {dir?.path ?? "…"}
             </Text>
             <Pressable onPress={() => setSheet(false)} hitSlop={12}>
-              <Text style={{ color: colors.mutedFg }}>Close</Text>
+              <Text style={{ ...font("label"), color: colors.mutedFg }}>Close</Text>
             </Pressable>
           </View>
-          {dirError ? <Text style={{ color: colors.destructive, padding: 16 }}>{dirError}</Text> : null}
+          {dirError ? (
+            <Text style={{ ...font("body"), color: colors.destructive, padding: 16 }}>{dirError}</Text>
+          ) : null}
           {dirBusy && !dir ? (
             <View style={{ padding: 24, alignItems: "center" }}>
               <ActivityIndicator />

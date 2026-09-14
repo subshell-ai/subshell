@@ -32,13 +32,13 @@ export function PrimaryButton({
       }}
     >
       {busy ? (
-        <ActivityIndicator color={colors.bg} />
+        <ActivityIndicator color={colors.primaryFg} />
       ) : (
         // A button label is never regular (wave precedent: ui/button.tsx is
         // font-strong at the base; spec § 3.1 puts buttons inside `label`).
         // The role shape also fixes the latent gap: this Text used to ride
         // RN's platform-dependent default size.
-        <Text style={{ color: colors.bg, ...font("label") }}>{label}</Text>
+        <Text style={{ color: colors.primaryFg, ...font("label") }}>{label}</Text>
       )}
     </Pressable>
   );

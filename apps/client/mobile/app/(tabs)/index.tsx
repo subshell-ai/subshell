@@ -62,7 +62,7 @@ export default function SubshellsList() {
             <SubshellDetail subshellId={sid} onBack={closeDetail} />
           ) : (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: colors.mutedFg }}>Select a subshell</Text>
+              <Text style={{ ...font("body"), color: colors.mutedFg }}>Select a subshell</Text>
             </View>
           )}
         </View>
@@ -79,7 +79,7 @@ export default function SubshellsList() {
         </View>
         {error && !data ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <Text style={{ color: colors.destructive }}>Cannot reach the instance</Text>
+            <Text style={{ ...font("body"), color: colors.destructive }}>Cannot reach the instance</Text>
             <Text style={{ ...font("caption"), color: colors.mutedFg }}>Pull down to retry</Text>
           </View>
         ) : isLoading && !data ? (
@@ -88,7 +88,7 @@ export default function SubshellsList() {
           </View>
         ) : rows.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <Text style={{ color: colors.mutedFg }}>Nothing running. Start one from the New tab.</Text>
+            <Text style={{ ...font("body"), color: colors.mutedFg }}>Nothing running. Start one from the New tab.</Text>
           </View>
         ) : (
           <FlashList
