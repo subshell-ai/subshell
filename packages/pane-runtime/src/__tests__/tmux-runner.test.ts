@@ -68,7 +68,7 @@ describe("TmuxRunner", () => {
 
     // Give the shell a moment to render before capturing
     await Bun.sleep(300);
-    const out = runner.capturePane(socket, "s1");
+    const out = await runner.capturePane(socket, "s1");
     expect(out).toContain("hello-test");
 
     runner.killSubshell(socket, "s1");
@@ -134,10 +134,11 @@ describe("TmuxRunner", () => {
     // Ordering needs no sleep: TmuxRunner.run uses spawnSync, so pipe-pane has
     // fully applied before sendInput is issued, and the pty buffers the input
     // even if `read` has not been reached yet — so no output can escape the
-    // capture window.
+    // capture window. (`pipePane` is still synchronous and the `sendInput`
+    // below is awaited, so the two are ordered either way.)
     runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read l; echo piped-$l; exec sleep 30'");
     runner.pipePane(socket, "s1", outFile);
-    runner.sendInput(socket, "s1", "line\r");
+    await runner.sendInput(socket, "s1", "line\r");
     try {
       // Poll for the content rather than sleeping a guessed interval: this is
       // waiting on pipe-pane's `cat >> file` to flush, which has no bound worth
@@ -170,7 +171,7 @@ describe("TmuxRunner", () => {
     try {
       runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read l; echo piped-$l; exec sleep 30'");
       runner.pipePane(socket, "s1", outFile);
-      runner.sendInput(socket, "s1", "line\r");
+      await runner.sendInput(socket, "s1", "line\r");
       await waitForFileToContain(outFile, "piped-line", 3000);
       expect(statSync(outFile).mode & 0o777).toBe(0o600);
     } finally {
@@ -218,15 +219,15 @@ describe("TmuxRunner", () => {
     await Bun.sleep(300);
     // Typed one keystroke at a time, exactly as xterm's onData delivers it.
     for (const ch of "typed-input") {
-      runner.sendInput(socket, "s1", ch);
+      await runner.sendInput(socket, "s1", ch);
     }
     await Bun.sleep(400);
     // Still being edited: the characters are echoed but the line is not
     // submitted, because no CR has been sent yet.
-    expect(runner.capturePane(socket, "s1")).not.toContain("got-t");
-    runner.sendInput(socket, "s1", "\r");
+    expect(await runner.capturePane(socket, "s1")).not.toContain("got-t");
+    await runner.sendInput(socket, "s1", "\r");
     await Bun.sleep(500);
-    const out = runner.capturePane(socket, "s1");
+    const out = await runner.capturePane(socket, "s1");
     expect(out).toContain("typed-input");
     expect(out).toContain("got-typed-input");
     runner.killSubshell(socket, "s1");
@@ -250,7 +251,7 @@ describe("TmuxRunner", () => {
     // literal, and control/escape bytes must pass through untouched.
     const sent = ["Enter", "C-c", "-x", "a\\nb", "\x1b[A", "\x04", "\r", "h\u00e9llo\u2192"];
     for (const chunk of sent) {
-      runner.sendInput(socket, "s1", chunk);
+      await runner.sendInput(socket, "s1", chunk);
     }
     const expected = new Uint8Array(await new Blob([sent.join("")]).arrayBuffer());
     // Drain to the full byte length before killing the pane. The comparison
@@ -356,7 +357,7 @@ echo "server exited unexpectedly" >&2; exit 1
     const socket = freshSocket("esc");
     runner.newSubshell(socket, "s1", "/tmp", "printf '\\033[31mRED\\033[0m normal\\n'; exec sleep 30");
     await Bun.sleep(300);
-    const out = runner.capturePane(socket, "s1");
+    const out = await runner.capturePane(socket, "s1");
     expect(out).toContain("[31m");
     runner.killSubshell(socket, "s1");
   });
@@ -373,10 +374,10 @@ echo "server exited unexpectedly" >&2; exit 1
       while (!(await Bun.file(pidFile).exists()) && Date.now() < deadline) await Bun.sleep(25);
       const shellPid = Number((await Bun.file(pidFile).text()).trim());
       expect(Number.isInteger(shellPid) && shellPid > 0).toBe(true);
-      expect(runner.panePid(socket, "s1")).toBe(shellPid);
+      expect(await runner.panePid(socket, "s1")).toBe(shellPid);
       // Gone names and gone sockets answer null — never a throw, never a 0.
-      expect(runner.panePid(socket, "no-such-session")).toBeNull();
-      expect(runner.panePid(freshSocket("pid-absent"), "s1")).toBeNull();
+      expect(await runner.panePid(socket, "no-such-session")).toBeNull();
+      expect(await runner.panePid(freshSocket("pid-absent"), "s1")).toBeNull();
       runner.killSubshell(socket, "s1");
     } finally {
       try {
@@ -465,18 +466,18 @@ echo "server exited unexpectedly" >&2; exit 1
     const socket = freshSocket("panesize");
     runner.newSubshell(socket, "s1", "/tmp", "exec sleep 30");
     // Detached tmux windows are born at 80x24.
-    expect(runner.paneSize(socket, "s1")).toEqual({ cols: 80, rows: 24 });
+    expect(await runner.paneSize(socket, "s1")).toEqual({ cols: 80, rows: 24 });
 
-    runner.resizeWindow(socket, "s1", 92, 28);
-    expect(runner.paneSize(socket, "s1")).toEqual({ cols: 92, rows: 28 });
+    await runner.resizeWindow(socket, "s1", 92, 28);
+    expect(await runner.paneSize(socket, "s1")).toEqual({ cols: 92, rows: 28 });
 
     // A second resize must be observable too — this is what proves the
     // last-write-wins claim rather than assuming it.
-    runner.resizeWindow(socket, "s1", 51, 13);
-    expect(runner.paneSize(socket, "s1")).toEqual({ cols: 51, rows: 13 });
+    await runner.resizeWindow(socket, "s1", 51, 13);
+    expect(await runner.paneSize(socket, "s1")).toEqual({ cols: 51, rows: 13 });
 
-    expect(runner.paneSize(socket, "no-such-session")).toBeNull();
-    expect(runner.paneSize(freshSocket("panesize-absent"), "s1")).toBeNull();
+    expect(await runner.paneSize(socket, "no-such-session")).toBeNull();
+    expect(await runner.paneSize(freshSocket("panesize-absent"), "s1")).toBeNull();
     runner.killSubshell(socket, "s1");
   });
 
@@ -501,6 +502,167 @@ echo "server exited unexpectedly" >&2; exit 1
         if (prev === undefined) delete process.env.TMUX_TMPDIR;
         else process.env.TMUX_TMPDIR = prev;
         rmSync(base, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("the pane hot path is async, and ordered anyway", () => {
+    /**
+     * Writes an executable stub in a temp dir and returns both paths. The
+     * caller `rmSync`s the directory; nothing real is spawned.
+     */
+    function writeStub(script: string): { dir: string; path: string } {
+      const dir = mkdtempSync(join(tmpdir(), "subshell-tmux-async-"));
+      const path = join(dir, "tmux-stub");
+      writeFileSync(path, script, { mode: 0o755 });
+      return { dir, path };
+    }
+
+    it("delivers unawaited keystrokes in call order", async () => {
+      // The WS handler fires `void launcher.sendInput(...)` per keystroke, so
+      // nothing awaits between frames. When these commands were `spawnSync`
+      // that ordering was free; with `Bun.spawn` the OS decides, and a typed
+      // "hello" can reach tmux as "hlelo". 50 DISTINCT characters, because a
+      // repeated one cannot tell an ordered delivery from a shuffled one.
+      const socket = freshSocket("order");
+      const outFile = join(tmpdir(), `subshell-order-${process.pid}-${Date.now()}.bin`);
+      const readyFile = `${outFile}.ready`;
+      // Raw + no echo: the file holds exactly what tmux delivered, with no
+      // line discipline reordering or translating anything of its own.
+      runner.newSubshell(socket, "s1", "/tmp", `bash -c 'stty raw -echo; echo ready > ${readyFile}; cat > ${outFile}'`);
+      try {
+        await waitForFileToContain(readyFile, "ready", 4_000);
+        const sent = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMN";
+        expect(new Set(sent).size).toBe(50);
+        // NOT awaited between calls — the point of the test.
+        const pending = [...sent].map((ch) => runner.sendInput(socket, "s1", ch));
+        await Promise.all(pending);
+        const deadline = Date.now() + 5_000;
+        let received = "";
+        while (Date.now() < deadline) {
+          received = (await Bun.file(outFile).exists()) ? await Bun.file(outFile).text() : "";
+          if (received.length >= sent.length) break;
+          await Bun.sleep(25);
+        }
+        expect(received).toBe(sent);
+      } finally {
+        runner.killSubshell(socket, "s1");
+        rmSync(outFile, { force: true });
+        rmSync(readyFile, { force: true });
+      }
+    });
+
+    it("holds Enter behind the text even when the text's spawn is slower", async () => {
+      // The real-tmux twin below is an end-to-end check and cannot force the
+      // race: two send-keys spawns of the same shape usually finish in order
+      // by luck. Here the stub makes the TEXT slow, so an unchained pressEnter
+      // provably wins — an empty line submitted at the prompt while the text
+      // arrives after it, which is a prompt that silently never runs.
+      const seen = join(tmpdir(), `subshell-enter-order-${process.pid}-${Date.now()}.txt`);
+      const { dir, path } = writeStub(
+        "#!/bin/sh\n" +
+          'for a in "$@"; do\n' +
+          '  if [ "$a" = "the-prompt" ]; then sleep 0.3; echo text >> "' +
+          seen +
+          '"; exit 0; fi\n' +
+          '  if [ "$a" = "Enter" ]; then echo enter >> "' +
+          seen +
+          '"; exit 0; fi\n' +
+          "done\nexit 0\n",
+      );
+      try {
+        const tmux = new TmuxRunner(path);
+        // Unawaited between the two, exactly as `deliverPrompt` issues them.
+        const typed = tmux.sendInput("sock", "s1", "the-prompt");
+        const entered = tmux.pressEnter("sock", "s1");
+        await Promise.all([typed, entered]);
+        expect(await Bun.file(seen).text()).toBe("text\nenter\n");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(seen, { force: true });
+      }
+    });
+
+    it("submits the text it was given, not an empty line before it", async () => {
+      // Prompt delivery is sendInput-then-pressEnter. As two independent async
+      // spawns the Enter can win, submitting an empty line while the text
+      // lands at a prompt nobody submits — a prompt that silently never runs.
+      const socket = freshSocket("enter-order");
+      runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read line; echo got-$line; exec sleep 30'");
+      try {
+        await Bun.sleep(300);
+        // Both unawaited, in this order, exactly as `deliverPrompt` issues them.
+        const typed = runner.sendInput(socket, "s1", "ordered-prompt");
+        const entered = runner.pressEnter(socket, "s1");
+        await Promise.all([typed, entered]);
+        const deadline = Date.now() + 5_000;
+        let out = "";
+        while (Date.now() < deadline) {
+          out = await runner.capturePane(socket, "s1");
+          if (out.includes("got-")) break;
+          await Bun.sleep(25);
+        }
+        expect(out).toContain("got-ordered-prompt");
+      } finally {
+        runner.killSubshell(socket, "s1");
+      }
+    });
+
+    it("leaves the event loop free while a slow tmux runs", async () => {
+      // The defect this whole change exists for: one `spawnSync` froze the
+      // WHOLE server for its duration — every attached pane's 50ms tail pump,
+      // every other viewer's frames, and all HTTP. A stub that sleeps stands
+      // in for a tmux on a loaded host.
+      const { dir, path } = writeStub("#!/bin/sh\nsleep 0.5\nprintf 'captured\\n'\n");
+      try {
+        let ticks = 0;
+        const timer = setInterval(() => {
+          ticks += 1;
+        }, 10);
+        try {
+          const out = await new TmuxRunner(path).capturePane("sock", "s1");
+          expect(out).toContain("captured");
+        } finally {
+          clearInterval(timer);
+        }
+        // ~50 ticks fit in 500ms; assert a fraction of that so a loaded
+        // machine cannot flake it. Under `spawnSync` this is exactly 0.
+        expect(ticks).toBeGreaterThanOrEqual(10);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps a pane's queue usable after one input fails", async () => {
+      // The chain kept per pane is the swallowed form on purpose: a rejected
+      // tail would reject every keystroke queued behind it, so one dead frame
+      // would read as a broken keyboard until the socket was reopened.
+      const { dir, path } = writeStub(
+        '#!/bin/sh\nfor a in "$@"; do\n  if [ "$a" = "BOOM" ]; then\n    echo "refused" >&2\n    exit 1\n  fi\ndone\nexit 0\n',
+      );
+      try {
+        const tmux = new TmuxRunner(path);
+        await expect(tmux.sendInput("sock", "s1", "BOOM")).rejects.toThrow("refused");
+        // Same socket + session, i.e. the same chain the failure ran on.
+        await expect(tmux.sendInput("sock", "s1", "after")).resolves.toBeUndefined();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not serialize one pane's input behind another's", async () => {
+      // A single global lock would make the async conversion pointless: the
+      // whole reason for it is that one pane's slow tmux must not hold up
+      // anyone else's keystrokes. Two panes, one stub that sleeps: run
+      // concurrently they take ~one sleep, serialized they take two.
+      const { dir, path } = writeStub("#!/bin/sh\nsleep 0.4\nexit 0\n");
+      try {
+        const tmux = new TmuxRunner(path);
+        const started = Date.now();
+        await Promise.all([tmux.sendInput("sock-a", "s1", "x"), tmux.sendInput("sock-b", "s1", "x")]);
+        expect(Date.now() - started).toBeLessThan(700);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
       }
     });
   });

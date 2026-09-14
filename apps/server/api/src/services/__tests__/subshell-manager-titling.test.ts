@@ -46,12 +46,12 @@ class MockTmux extends TmuxRunner {
   override hasSubshell(): boolean {
     return this.alive;
   }
-  override capturePane(): string {
+  override async capturePane(): Promise<string> {
     return "";
   }
-  override sendInput(): void {}
-  override pressEnter(): void {}
-  override paneExitCode(): number | null {
+  override async sendInput(): Promise<void> {}
+  override async pressEnter(): Promise<void> {}
+  override async paneExitCode(): Promise<number | null> {
     return null;
   }
 }

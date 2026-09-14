@@ -282,7 +282,7 @@ describe("channels route", () => {
   it("nudge types into running recipient subshells only, skipping the author", async () => {
     nudges.length = 0;
     class FakeTmux extends TmuxRunner {
-      override sendInput(socket: string, subshellName: string, input: string): void {
+      override async sendInput(socket: string, subshellName: string, input: string): Promise<void> {
         nudges.push({ socket, name: subshellName, text: input });
       }
     }
@@ -350,10 +350,10 @@ describe("channels route", () => {
   it("nudge WAKES a waiting recipient (actionable line + Enter); a busy one stays inert", async () => {
     nudges.length = 0;
     class FakeTmux extends TmuxRunner {
-      override sendInput(socket: string, subshellName: string, input: string): void {
+      override async sendInput(socket: string, subshellName: string, input: string): Promise<void> {
         nudges.push({ socket, name: subshellName, text: input, entered: false });
       }
-      override pressEnter(_socket: string, subshellName: string): void {
+      override async pressEnter(_socket: string, subshellName: string): Promise<void> {
         const last = nudges.toReversed().find((n) => n.name === subshellName);
         if (last) last.entered = true;
       }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { spawnSync } from "bun";
+import { spawn, spawnSync } from "bun";
 import { shellQuote } from "./shell.js";
 
 /**
@@ -31,11 +31,79 @@ function isServerShutdownRace(err: unknown): boolean {
 export class TmuxRunner {
   readonly #tmuxBinary: string;
 
+  /**
+   * Tail of each pane's in-flight input chain, keyed by socket + session.
+   *
+   * See {@link TmuxRunner.sendInput}: the pane-input commands are async, and
+   * async spawns complete out of order, so "hello" typed as five frames can
+   * reach tmux as "hlelo". One chain PER PANE — never one global lock — so a
+   * pane whose tmux server is wedged cannot stall another's keystrokes, which
+   * is the whole point of the commands being async in the first place.
+   *
+   * The stored promise is the SETTLED chain (never rejecting), so one failed
+   * `send-keys` cannot poison every later keystroke on that pane; the promise
+   * handed back to the caller still rejects. Entries delete themselves once
+   * the pane's queue drains, so a long-lived server does not keep a chain per
+   * pane it has ever touched.
+   */
+  readonly #inputChains = new Map<string, Promise<void>>();
+
   constructor(tmuxBinary = "tmux") {
     this.#tmuxBinary = tmuxBinary;
   }
 
-  /** Runs a tmux command, throwing with stderr on non-zero exit. */
+  /**
+   * Runs a tmux command WITHOUT blocking the event loop, throwing with stderr
+   * on non-zero exit — the async twin of {@link run}.
+   *
+   * Every tmux command used to be `Bun.spawnSync`, and on a loaded host that
+   * is a whole-process stall: measured 2026-09-14 at 60-70 ms per spawn under
+   * load average ~55, during which every attached pane's 50 ms tail pump,
+   * every other viewer's frames and all HTTP were frozen. One person typing
+   * therefore degraded everybody. The pane hot path (input, resize, capture,
+   * grid readback) runs through here instead; the one-shot and boot-time
+   * commands stay on {@link run} (see its doc for why).
+   */
+  async runAsync(
+    args: string[],
+    opts: { cwd?: string; env?: Record<string, string>; input?: string } = {},
+  ): Promise<{ stdout: string; stderr: string }> {
+    const proc = spawn([this.#tmuxBinary, ...args], {
+      cwd: opts.cwd,
+      env: opts.env,
+      stdin: opts.input === undefined ? "ignore" : new TextEncoder().encode(opts.input),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    // Drained CONCURRENTLY with the exit wait: a tmux command that filled a
+    // pipe buffer (a large `capture-pane`) would deadlock against a sequential
+    // `await proc.exited` that never reads.
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (exitCode !== 0) {
+      throw new TmuxError(stderr.trim() || `tmux ${args[0]} failed (exit ${exitCode})`);
+    }
+    return { stdout, stderr };
+  }
+
+  /**
+   * Runs a tmux command, throwing with stderr on non-zero exit.
+   *
+   * SYNCHRONOUS, and deliberately kept so for what is left on it: `launch`,
+   * `kill`, the pipe-pane attach and the `list-sessions` probes each run once
+   * per lifecycle event rather than per keystroke or per poll. `hasSubshell`
+   * is the one PER-SWEEP caller still here, and it is here because
+   * `SubshellManager.isAlive` is a documented synchronous boolean affordance
+   * (`LocalLauncher.hasSubshellSync`) — making it async would ripple through
+   * that signature and its callers for one spawn per running row per minute.
+   * Everything the sweep does on top of that (`paneExitCode`, `paneTitle`)
+   * moved to {@link runAsync}, and so did the whole pane hot path.
+   *
+   * New per-keystroke or per-poll code belongs on {@link runAsync}.
+   */
   run(
     args: string[],
     opts: { cwd?: string; env?: Record<string, string>; input?: string } = {},
@@ -121,11 +189,11 @@ export class TmuxRunner {
    * (with `#{pane_dead}` = 1). Panes that exited fully without remain-on-exit
    * cause the server to exit, so `run` throws and we return null.
    */
-  paneExitCode(socket: string, subshellName: string): number | null {
+  async paneExitCode(socket: string, subshellName: string): Promise<number | null> {
     try {
       // Query the subshell's own pane explicitly (-t) so the read is
       // well-defined even if the socket ever hosts more than one subshell.
-      const out = this.run(
+      const out = await this.runAsync(
         ["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_dead}:#{pane_dead_status}"],
         {},
       );
@@ -153,20 +221,22 @@ export class TmuxRunner {
    * on the host and garbage in the container. Returns null when the pane is
    * gone or tmux errors.
    */
-  paneTitle(socket: string, subshellName: string): { title: string; command: string } | null {
-    const read = (field: string): string | null => {
+  async paneTitle(socket: string, subshellName: string): Promise<{ title: string; command: string } | null> {
+    const read = async (field: string): Promise<string | null> => {
       try {
-        return this.run(["-L", socket, "display-message", "-t", subshellName, "-p", field], {}).stdout.replace(
-          /\n$/,
-          "",
-        );
+        return (
+          await this.runAsync(["-L", socket, "display-message", "-t", subshellName, "-p", field], {})
+        ).stdout.replace(/\n$/, "");
       } catch {
         return null;
       }
     };
-    const title = read("#{pane_title}");
+    const title = await read("#{pane_title}");
     if (title === null) return null;
-    return { title, command: read("#{pane_current_command}") ?? "" };
+    // Sequential, not `Promise.all`: the second read is pointless when the
+    // first proved the pane gone, and these two spawns are the per-row cost
+    // of a sweep over every running subshell.
+    return { title, command: (await read("#{pane_current_command}")) ?? "" };
   }
 
   /**
@@ -179,11 +249,10 @@ export class TmuxRunner {
    * directly (see `NodeLauncher.signalPaneWinch`). `#{pane_pid}` is a bare
    * integer, so unlike {@link paneTitle} a single read needs no separator.
    */
-  panePid(socket: string, subshellName: string): number | null {
+  async panePid(socket: string, subshellName: string): Promise<number | null> {
     try {
-      const out = this.run(
-        ["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_pid}"],
-        {},
+      const out = (
+        await this.runAsync(["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_pid}"], {})
       ).stdout.trim();
       const pid = Number(out);
       return Number.isInteger(pid) && pid > 0 ? pid : null;
@@ -263,8 +332,11 @@ export class TmuxRunner {
    * at 80×24 even when the attached terminal is larger. Called on WS attach
    * and on every client-side resize.
    */
-  resizeWindow(socket: string, subshellName: string, cols: number, rows: number): void {
-    this.run(["-L", socket, "resize-window", "-t", subshellName, "-x", String(cols), "-y", String(rows)], {});
+  async resizeWindow(socket: string, subshellName: string, cols: number, rows: number): Promise<void> {
+    await this.runAsync(
+      ["-L", socket, "resize-window", "-t", subshellName, "-x", String(cols), "-y", String(rows)],
+      {},
+    );
   }
 
   /**
@@ -284,11 +356,13 @@ export class TmuxRunner {
    * @param subshellName - tmux session/window name
    * @returns The pane's grid, or null when the pane or socket is gone
    */
-  paneSize(socket: string, subshellName: string): { cols: number; rows: number } | null {
+  async paneSize(socket: string, subshellName: string): Promise<{ cols: number; rows: number } | null> {
     try {
-      const out = this.run(
-        ["-L", socket, "display-message", "-t", subshellName, "-p", "#{window_width}:#{window_height}"],
-        {},
+      const out = (
+        await this.runAsync(
+          ["-L", socket, "display-message", "-t", subshellName, "-p", "#{window_width}:#{window_height}"],
+          {},
+        )
       ).stdout.trim();
       const [rawCols, rawRows] = out.split(":");
       const cols = Number(rawCols);
@@ -312,15 +386,66 @@ export class TmuxRunner {
    * `-l` disables tmux's key-name lookup, so text that happens to look like
    * a key name ("Enter", "C-c") or an escape ("a\\nb") stays literal, and
    * `--` keeps input beginning with "-" from being read as a flag.
+   *
+   * ORDER IS PART OF THE CONTRACT, and it stopped being free when this became
+   * async. The WS handler fires one of these per keystroke WITHOUT awaiting
+   * (the browser socket must never wait on tmux), and concurrent `Bun.spawn`
+   * calls finish in whatever order the OS schedules them — measured, not
+   * feared. Every call is therefore appended to this pane's input chain
+   * (the per-pane chain below) SYNCHRONOUSLY, so the order tmux sees is
+   * the order the caller invoked in, whether or not anyone awaits the result.
    */
-  sendInput(socket: string, subshellName: string, input: string): void {
-    if (!input) return;
-    this.run(["-L", socket, "send-keys", "-t", subshellName, "-l", "--", input], {});
+  sendInput(socket: string, subshellName: string, input: string): Promise<void> {
+    if (!input) return Promise.resolve();
+    return this.#enqueueInput(socket, subshellName, async () => {
+      await this.runAsync(["-L", socket, "send-keys", "-t", subshellName, "-l", "--", input], {});
+    });
   }
 
-  /** Presses Enter (submits whatever is at the prompt). */
-  pressEnter(socket: string, subshellName: string): void {
-    this.run(["-L", socket, "send-keys", "-t", subshellName, "Enter"], {});
+  /**
+   * Presses Enter (submits whatever is at the prompt).
+   *
+   * Shares {@link sendInput}'s per-pane chain, which is what keeps the
+   * prompt-delivery pair (type the text, then submit it) in that order: two
+   * independent async spawns can otherwise submit an empty prompt and leave
+   * the text sitting unsent.
+   */
+  pressEnter(socket: string, subshellName: string): Promise<void> {
+    return this.#enqueueInput(socket, subshellName, async () => {
+      await this.runAsync(["-L", socket, "send-keys", "-t", subshellName, "Enter"], {});
+    });
+  }
+
+  /**
+   * Appends one input command to `socket`/`subshellName`'s chain and returns
+   * ITS outcome.
+   *
+   * The enqueue is synchronous up to the `then`, which is what makes call
+   * order the delivery order for unawaited callers. The chain kept in the map
+   * is the swallowed form: a rejected tail would reject every keystroke queued
+   * behind it, so one dead pane frame would look like a broken keyboard.
+   *
+   * @param socket - tmux socket name
+   * @param subshellName - tmux session/window name
+   * @param send - the actual spawn, run once its turn comes
+   * @returns Resolves/rejects with this command's own result
+   */
+  #enqueueInput(socket: string, subshellName: string, send: () => Promise<void>): Promise<void> {
+    const key = `${socket} ${subshellName}`;
+    // Never rejects (see below), so no rejection handler is needed here.
+    const previous = this.#inputChains.get(key) ?? Promise.resolve();
+    const result = previous.then(send);
+    const settled = result.then(
+      () => {},
+      () => {},
+    );
+    this.#inputChains.set(key, settled);
+    void settled.then(() => {
+      // Only when nothing queued behind us — a later call has already replaced
+      // the entry, and deleting it would unchain the keystrokes still waiting.
+      if (this.#inputChains.get(key) === settled) this.#inputChains.delete(key);
+    });
+    return result;
   }
 
   /**
@@ -332,10 +457,10 @@ export class TmuxRunner {
    * at ANY geometry. Without it, only the visible grid is captured (preview/
    * settle callers never wanted history bytes).
    */
-  capturePane(socket: string, subshellName: string, scrollbackLines?: number): string {
+  async capturePane(socket: string, subshellName: string, scrollbackLines?: number): Promise<string> {
     const args = ["-L", socket, "capture-pane", "-p", "-e", "-t", subshellName];
     if (scrollbackLines && scrollbackLines > 0) args.push("-S", `-${scrollbackLines}`);
-    const res = this.run(args, {});
+    const res = await this.runAsync(args, {});
     return res.stdout;
   }
 

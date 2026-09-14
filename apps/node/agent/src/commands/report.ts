@@ -188,7 +188,7 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
   // call and a cleared watcher must never swallow the code it was built
   // to report. (On the unreachable path the socket is not answering, so
   // this reads null — the same shape a dead server always produced.)
-  const exitCode = ctx.tmux.paneExitCode(socket, subshellId) ?? null;
+  const exitCode = (await ctx.tmux.paneExitCode(socket, subshellId)) ?? null;
   ctx.watchers.delete(subshellId); // stop-first: at most one event per registration
   ctx.ws.send({ type: "exit", subshellId, exitCode, at: new Date(ctx.nowMs()).toISOString() });
   await ctx.meta.forget(subshellId);
@@ -238,7 +238,7 @@ export async function buildSubshellsReport(
     subshells.push({
       subshellId: m.subshellId,
       alive,
-      exitCode: alive ? null : (ctx.tmux.paneExitCode(m.socket, m.subshellId) ?? null),
+      exitCode: alive ? null : ((await ctx.tmux.paneExitCode(m.socket, m.subshellId)) ?? null),
     });
   }
   return { type: "subshells_report", subshells };

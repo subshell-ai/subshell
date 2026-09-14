@@ -60,21 +60,21 @@ class MockTmux extends TmuxRunner {
   override hasSubshell(): boolean {
     return this.alive;
   }
-  override capturePane(): string {
+  override async capturePane(): Promise<string> {
     const v = this.captureScript[0] ?? "";
     if (this.captureScript.length > 1) this.captureScript.shift();
     return v;
   }
-  override sendInput(_socket: string, _sessionName: string, input: string): void {
+  override async sendInput(_socket: string, _sessionName: string, input: string): Promise<void> {
     this.inputs.push(input);
   }
-  override pressEnter(): void {
+  override async pressEnter(): Promise<void> {
     this.enters++;
   }
   override killSubshell(_socket: string, subshellName: string): void {
     this.kills.push(subshellName);
   }
-  override paneExitCode(): number | null {
+  override async paneExitCode(): Promise<number | null> {
     return null;
   }
 }

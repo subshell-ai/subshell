@@ -78,14 +78,14 @@ export async function execKill(ctx: CommandContext, cmd: Cmd<"kill">): Promise<C
 /** `input` (spec §7): raw keystrokes into the pane, byte-for-byte (`send-keys -l`). */
 export async function execInput(ctx: CommandContext, cmd: Cmd<"input">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.subshellId);
-  ctx.tmux.sendInput(socket, cmd.subshellId, cmd.data);
+  await ctx.tmux.sendInput(socket, cmd.subshellId, cmd.data);
   return { ok: true };
 }
 
 /** `resize` (spec §7): fit the pane to the viewing terminal's geometry. */
 export async function execResize(ctx: CommandContext, cmd: Cmd<"resize">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.subshellId);
-  ctx.tmux.resizeWindow(socket, cmd.subshellId, cmd.cols, cmd.rows);
+  await ctx.tmux.resizeWindow(socket, cmd.subshellId, cmd.cols, cmd.rows);
   return { ok: true };
 }
 
@@ -101,13 +101,13 @@ export async function execResize(ctx: CommandContext, cmd: Cmd<"resize">): Promi
  */
 export async function execPaneSize(ctx: CommandContext, cmd: Cmd<"pane_size">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.subshellId);
-  return { ok: true, data: ctx.tmux.paneSize(socket, cmd.subshellId) };
+  return { ok: true, data: await ctx.tmux.paneSize(socket, cmd.subshellId) };
 }
 
 /** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). Optional `lines` prepends reflowed history rows (attach replay). */
 export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.subshellId);
-  return { ok: true, data: ctx.tmux.capturePane(socket, cmd.subshellId, cmd.lines) };
+  return { ok: true, data: await ctx.tmux.capturePane(socket, cmd.subshellId, cmd.lines) };
 }
 
 /**
@@ -126,17 +126,17 @@ export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise
   for (const subshellId of cmd.subshellIds) {
     const socket = tmuxSocketFor(subshellId); // same derivation the launcher uses — no stored state needed
     if (!ctx.tmux.hasSubshell(socket, subshellId)) {
-      entries.push({ subshellId, alive: false, exitCode: ctx.tmux.paneExitCode(socket, subshellId) });
+      entries.push({ subshellId, alive: false, exitCode: await ctx.tmux.paneExitCode(socket, subshellId) });
       continue;
     }
-    const pane = ctx.tmux.paneTitle(socket, subshellId);
+    const pane = await ctx.tmux.paneTitle(socket, subshellId);
     const entry: NodeProbeEntry = { subshellId, alive: true, exitCode: null };
     if (pane) {
       entry.title = pane.title;
       entry.command = pane.command;
     }
     try {
-      entry.capture = ctx.tmux.capturePane(socket, subshellId);
+      entry.capture = await ctx.tmux.capturePane(socket, subshellId);
     } catch {
       // raced death — the row still reports alive from the has-session above
     }

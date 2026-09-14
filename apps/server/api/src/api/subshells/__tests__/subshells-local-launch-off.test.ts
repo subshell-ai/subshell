@@ -44,7 +44,18 @@ describe("launching on the server, switched off", () => {
     await shares.replaceForNode(LOCAL_NODE_ID, on ? [{ granteeUserId: null, permission: "edit" }] : [], systemId);
   }
 
+  /** Restored in `afterAll` — a developer may legitimately have this set. */
+  let previousClaudePath: string | undefined;
+
   beforeAll(async () => {
+    // Every case here is about the NODE gate, so nothing may ever reach the
+    // launcher. Pointing claude-code's documented binary override at a path
+    // that does not exist makes the harness gate answer 409 on EVERY machine,
+    // the way `subshells-create-nodeid.test.ts` does with `PI_PATH` — instead
+    // of CI taking the 409 branch while a developer's box, where `claude` is
+    // on PATH, took the 200 branch and spawned a real harness.
+    previousClaudePath = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = "/definitely/not/here/claude";
     await setupAuthTables();
     adminId = await new UsersRepository(db).createUser({
       email: adminEmail,
@@ -73,6 +84,8 @@ describe("launching on the server, switched off", () => {
     await setLocalLaunch(true);
     await db.deleteFrom("presets").where("id", "=", presetId).execute();
     await deleteUserByEmailOrId(adminEmail);
+    if (previousClaudePath === undefined) delete process.env.CLAUDE_PATH;
+    else process.env.CLAUDE_PATH = previousClaudePath;
   });
 
   async function post(body: unknown): Promise<Response> {
@@ -124,9 +137,18 @@ describe("launching on the server, switched off", () => {
     await setLocalLaunch(true);
     expect((await localView()).canLaunch).toBe(true);
     const res = await post({ harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
-    // Past the node gate entirely — whatever answers now is about the harness
-    // or the directory, never about the node.
-    expect(res.status).not.toBe(403);
-    expect(res.status).not.toBe(404);
+    // Past the node gate entirely, and stopped by the HARNESS gate — which is
+    // the positive form of "whatever answers now is not about the node".
+    //
+    // It used to assert `not 403 / not 404`, which is true of a 200 as well,
+    // and on a developer's own machine that is exactly what it got: the
+    // `CLAUDE_PATH` pin below did not exist, binary lookup found the real
+    // `claude` on PATH, and the assertion passed by LAUNCHING one — a live
+    // harness under its own tmux server, at ~220 MB, never terminated and
+    // never reaped, one per full test run (measured 2026-09-14: 17 of them
+    // alive, the oldest a day old). CI has no claude, so it always took the
+    // 409 branch and nothing ever said the two machines disagreed.
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
   });
 });

@@ -132,7 +132,7 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   async resize(socket: string, id: string, cols: number, rows: number): Promise<void> {
-    this.#tmux.resizeWindow(socket, id, cols, rows);
+    await this.#tmux.resizeWindow(socket, id, cols, rows);
   }
 
   async paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null> {
@@ -148,7 +148,7 @@ export class LocalLauncher implements NodeLauncher {
    * bare pid is the fallback for a pane that is not its own group leader.
    */
   async signalPaneWinch(socket: string, id: string): Promise<boolean> {
-    const pid = this.#tmux.panePid(socket, id);
+    const pid = await this.#tmux.panePid(socket, id);
     if (!pid) return false;
     for (const target of [-pid, pid]) {
       try {
@@ -162,11 +162,11 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   async sendInput(socket: string, id: string, input: string): Promise<void> {
-    this.#tmux.sendInput(socket, id, input);
+    await this.#tmux.sendInput(socket, id, input);
   }
 
   async pressEnter(socket: string, id: string): Promise<void> {
-    this.#tmux.pressEnter(socket, id);
+    await this.#tmux.pressEnter(socket, id);
   }
 
   /**

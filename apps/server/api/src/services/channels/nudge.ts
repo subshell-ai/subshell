@@ -35,16 +35,22 @@ export function setNudgeTransportForTests(tmux: TmuxRunner | null): void {
  * Best-effort: types the fixed line into the subshell's pane, never throws.
  * `submit` adds the Enter that wakes an idle agent (see the module doc); the
  * line passed MUST be server-generated, never peer content.
+ *
+ * AWAITED, not fired and forgotten, even though the caller does not need the
+ * answer: the two tmux commands are async now, and a rejection nobody handles
+ * is an unhandled rejection rather than the debug line below. The pane chain
+ * in `TmuxRunner` already guarantees the Enter follows the text, so the await
+ * buys error handling rather than ordering.
  */
-export function nudgeSubshell(
+export async function nudgeSubshell(
   socket: string,
   subshellName: string,
   text: string,
   opts: { submit?: boolean } = {},
-): void {
+): Promise<void> {
   try {
-    transport.sendInput(socket, subshellName, text);
-    if (opts.submit) transport.pressEnter(socket, subshellName);
+    await transport.sendInput(socket, subshellName, text);
+    if (opts.submit) await transport.pressEnter(socket, subshellName);
   } catch (err) {
     // A vanished pane between liveness-check and type is a normal race.
     logger.withError(err).debug(`nudge failed for ${subshellName}`);

@@ -157,7 +157,7 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // (8) Initial geometry — cosmetic: a refused resize must not fail a live pane.
   if (cmd.cols !== undefined && cmd.rows !== undefined) {
     try {
-      ctx.tmux.resizeWindow(cmd.socket, cmd.subshellId, cmd.cols, cmd.rows);
+      await ctx.tmux.resizeWindow(cmd.socket, cmd.subshellId, cmd.cols, cmd.rows);
     } catch (err) {
       log(
         `resize ${cmd.cols}x${cmd.rows} failed for ${cmd.subshellId} (cosmetic, continuing): ${err instanceof Error ? err.message : String(err)}`,

@@ -37,8 +37,8 @@ export async function execPromptDeliver(ctx: CommandContext, cmd: Cmd<"prompt_de
   let promptDelivered = false;
   if (settled) {
     try {
-      ctx.tmux.sendInput(socket, cmd.subshellId, cmd.text);
-      ctx.tmux.pressEnter(socket, cmd.subshellId);
+      await ctx.tmux.sendInput(socket, cmd.subshellId, cmd.text);
+      await ctx.tmux.pressEnter(socket, cmd.subshellId);
       promptDelivered = true;
     } catch {
       // an input failure is a false answer, never a throw — the caller decides what to do
@@ -69,7 +69,7 @@ async function waitForSettled(
   const deadline = ctx.nowMs() + settleTimeoutMs;
   while (ctx.nowMs() < deadline) {
     try {
-      if (stripAnsi(ctx.tmux.capturePane(socket, subshellId)).trim()) return true;
+      if (stripAnsi(await ctx.tmux.capturePane(socket, subshellId)).trim()) return true;
     } catch {
       // pane not queryable yet; keep polling
     }

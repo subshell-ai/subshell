@@ -228,7 +228,7 @@ export class ChannelsService extends BaseService {
         const line = waiting
           ? `[#${channel.name}] subshell peer post, read it: call read_channel("${channel.name}")`
           : `[subshell] new post in #${channel.name}`;
-        nudgeSubshell(row.tmuxSocket, row.id, line, { submit: waiting });
+        await nudgeSubshell(row.tmuxSocket, row.id, line, { submit: waiting });
       }
     }
     return { id, seq };
