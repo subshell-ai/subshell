@@ -1,3 +1,4 @@
+import { stripAnsi } from "@internal/backend-errors";
 import { builtInIds, getHarness, loginPathEntries } from "@internal/pane-runtime";
 
 /** What one install run produced. `ok:false` is a result, not an error: the installer ran and said no. */
@@ -243,7 +244,14 @@ async function cap(
         pending += decoder.decode(value, { stream: true });
         const lines = pending.split("\n");
         pending = lines.pop() ?? "";
-        for (const line of lines) onLine(line);
+        // ANSI out, at the source. A vendor's installer writes for a
+        // terminal — `\x1b[0;36m→\x1b[0m Extracting …` — and the page renders
+        // into HTML, where the escapes are literal mojibake rather than
+        // colour. Stripped here so the streamed line and the captured
+        // `output` below agree, rather than in the route (which would leave
+        // the failure disclosure still showing them) or in the page (which
+        // would put a terminal concern in a React component).
+        for (const line of lines) onLine(stripAnsi(line));
       }
     }
   } catch {
@@ -251,7 +259,7 @@ async function cap(
   }
   // A final line with no trailing newline is still a line — an installer that
   // dies mid-sentence has usually said the most useful thing it will say.
-  if (onLine && pending.trim() !== "") onLine(pending);
-  const text = new TextDecoder().decode(Buffer.concat(chunks)).slice(0, OUTPUT_CAP);
+  if (onLine && pending.trim() !== "") onLine(stripAnsi(pending));
+  const text = stripAnsi(new TextDecoder().decode(Buffer.concat(chunks))).slice(0, OUTPUT_CAP);
   return size > OUTPUT_CAP ? `${text}\n[truncated]` : text;
 }

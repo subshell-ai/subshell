@@ -21,6 +21,21 @@ describe("installBuiltInAgent", () => {
     expect(r.output).toContain("two");
   });
 
+  it("strips the colour an installer writes for a terminal", async () => {
+    // Hermes's installer prints `\x1b[0;36m→\x1b[0m Extracting …`. The setup
+    // screen renders lines into HTML, where an escape is not colour but
+    // literal `[0;36m` in front of every step - and the same text is what a
+    // failed install discloses, so both halves have to be clean.
+    const seen: string[] = [];
+    const r = await installBuiltInAgent("claude-code", deps("printf '\\033[0;36m-> \\033[0mExtracting\\n'"), (l) =>
+      seen.push(l),
+    );
+    expect(seen).toEqual(["-> Extracting"]);
+    expect(r.output).toContain("-> Extracting");
+    expect(r.output).not.toContain("\u001b");
+    expect(r.output).not.toContain("[0;36m");
+  });
+
   it("emits a final line that never got its newline", async () => {
     // An installer killed mid-sentence has usually just said the most useful
     // thing it will say; holding that back because no "\n" followed loses it.
