@@ -2120,9 +2120,20 @@ pub enum WebTarget {
     License,
     /// The copyright holder's site.
     Company,
+    /// Homebrew, offered on the tmux screen when this Mac has no package manager.
+    Homebrew,
+    /// MacPorts, the other way out of that same screen.
+    MacPorts,
 }
 
-/// Open one of the three About links in the system browser.
+/// Where the tmux screen sends someone who has no package manager at all.
+/// Constants here rather than arguments from the page, for the same reason
+/// every other member of this set is one.
+const HOMEBREW_URL: &str = "https://brew.sh";
+const MACPORTS_URL: &str = "https://www.macports.org/install.php";
+
+/// Open one of a fixed set of pages in the system browser: the three About
+/// links, and the two package managers the tmux screen names.
 ///
 /// The console's CSP makes an ordinary `<a href>` open inside the webview,
 /// which is the wrong window for a website — the same reason
@@ -2133,6 +2144,8 @@ pub fn desktop_open_web(app: AppHandle, target: WebTarget) -> Result<(), String>
         WebTarget::Website => legal::PRODUCT_URL,
         WebTarget::License => legal::LICENSE_URL,
         WebTarget::Company => legal::COMPANY_URL,
+        WebTarget::Homebrew => HOMEBREW_URL,
+        WebTarget::MacPorts => MACPORTS_URL,
     };
     app.opener()
         .open_url(url, None::<&str>)

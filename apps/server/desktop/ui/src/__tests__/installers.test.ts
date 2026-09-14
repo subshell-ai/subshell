@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { tmuxInstallPlan } from "../lib/installers";
+import { manualTmuxRoutes, tmuxInstallPlan } from "../lib/installers";
 
 describe("tmuxInstallPlan", () => {
   it("uses Homebrew on macOS when it is there", () => {
@@ -30,5 +30,33 @@ describe("tmuxInstallPlan", () => {
     expect(plan.kind).toBe("manual");
     expect(plan.command).toEqual([]);
     expect(plan.docsUrl).toBeTruthy();
+  });
+});
+
+describe("manualTmuxRoutes", () => {
+  it("offers Homebrew first, then MacPorts, on a Mac with no package manager", () => {
+    expect(manualTmuxRoutes("darwin").map((r) => r.name)).toEqual(["Homebrew", "MacPorts"]);
+  });
+
+  it("gives Homebrew both lines: get the manager, then get tmux", () => {
+    const brew = manualTmuxRoutes("darwin")[0];
+    expect(brew?.commands).toHaveLength(2);
+    expect(brew?.commands[0]).toContain("Homebrew/install");
+    expect(brew?.commands[1]).toBe("brew install tmux");
+  });
+
+  // A `port` command on a machine with no MacPorts answers "command not
+  // found", so the route says where MacPorts comes from instead of implying
+  // the line alone is enough.
+  it("says MacPorts comes from its site rather than from a command", () => {
+    const ports = manualTmuxRoutes("darwin")[1];
+    expect(ports?.commands).toEqual(["sudo port install tmux"]);
+    expect(ports?.note).toMatch(/package on its own site/);
+    expect(ports?.docsUrl).toContain("macports.org");
+  });
+
+  it("invents nothing for platforms this app does not ship to", () => {
+    expect(manualTmuxRoutes("linux")).toEqual([]);
+    expect(manualTmuxRoutes("freebsd")).toEqual([]);
   });
 });

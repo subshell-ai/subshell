@@ -965,7 +965,34 @@
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
   }
+  /* One way out of a Mac with no package manager: the manager's name, what to
+     run, and a way to its own site. Two of these stack on the tmux screen. */
+  .manual-route {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  /* The screen keeps probing while someone installs tmux in a terminal, and
+     this is the only thing that says so — without it, coming back to a window
+     that looks frozen invites a restart. */
+  .tmux-checking {
+    margin: 20px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted-foreground);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+  }
+  .tmux-checking .glyph {
+    border: 2px solid var(--primary);
+    border-right-color: transparent;
+  }
   .checklist .glyph,
+  .tmux-checking .glyph,
   .tmux-ready .glyph {
     width: 20px;
     height: 20px;
@@ -1039,7 +1066,8 @@
     .assistant-screen.enter {
       animation: screen-in 220ms ease-out;
     }
-    .checklist li[data-state="active"] .glyph {
+    .checklist li[data-state="active"] .glyph,
+    .tmux-checking .glyph {
       animation: spin 0.9s linear infinite;
     }
     /* NO animation on a done mark. `tick` was a 160ms pop meant to fire once,

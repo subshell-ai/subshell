@@ -33,7 +33,7 @@ import {
   type FormValues,
   fieldProblems,
 } from "./lib/config-form";
-import { tmuxInstallPlan } from "./lib/installers";
+import { manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
 import type { About, ActionResult, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
@@ -380,10 +380,38 @@ function renderTmux(p: Probe): void {
       content.append(text("p", "Your package manager may ask for your password.", "hint centered"));
     }
   } else {
-    content.append(text("p", "This machine has no package manager this app can drive. In a terminal:", "hint"));
-    if (plan.command.length > 0) content.append(text("span", plan.command.join(" "), "code-line"));
-    if (plan.docsUrl !== "")
-      content.append(button("Read the tmux docs", () => void ipc.openTmuxDocs().catch(setProblem), "ghost"));
+    const routes = manualTmuxRoutes(p.platform);
+    if (routes.length === 0) {
+      // A platform this app does not ship to: the reading link is the whole
+      // honest answer. Naming a command here would be a guess in the one
+      // place the reader cannot check it.
+      content.append(text("p", "This machine has no package manager this app can drive. In a terminal:", "hint"));
+      if (plan.command.length > 0) content.append(text("span", plan.command.join(" "), "code-line"));
+      if (plan.docsUrl !== "")
+        content.append(button("Read the tmux docs", () => void ipc.openTmuxDocs().catch(setProblem), "ghost"));
+    } else {
+      content.append(text("p", "This machine has no package manager this app can drive. Use either of these:", "hint"));
+      for (const route of routes) {
+        const block = document.createElement("div");
+        block.className = "manual-route";
+        block.append(text("p", route.name, "label"));
+        if (route.note !== undefined) block.append(text("p", route.note, "hint"));
+        for (const command of route.commands) block.append(text("span", command, "code-line"));
+        // A MEMBER of the closed set, never the URL beside it: Rust owns
+        // every address this app can open (see `WebTarget`). `docsUrl` on the
+        // route is for the reader's eyes.
+        block.append(button(`Open ${route.name}`, () => void ipc.openWeb(route.target).catch(setProblem), "ghost"));
+        content.append(block);
+      }
+    }
+    // The screen is already polling (`tick`), so it WILL notice tmux the
+    // moment it appears — with nothing on screen saying so, a person who has
+    // just installed it in a terminal has no reason to believe coming back
+    // here does anything, and reaches for a restart.
+    const checking = document.createElement("p");
+    checking.className = "tmux-checking";
+    checking.append(text("span", "", "glyph"), text("span", "Checking for tmux…", "label"));
+    content.append(checking);
   }
   el("bar-left").append(button("Back", () => go("welcome"), "ghost", installing));
   // NO reason text beside Continue. This screen carries a hardcoded "Waiting

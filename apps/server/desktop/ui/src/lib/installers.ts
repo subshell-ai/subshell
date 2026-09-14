@@ -39,6 +39,67 @@ export interface InstallPlan {
   docsUrl: string;
 }
 
+/** Where each package manager tells you to get it. */
+const BREW_DOCS = "https://brew.sh";
+const MACPORTS_DOCS = "https://www.macports.org/install.php";
+
+/** One way a person can get tmux themselves, when this app cannot do it for them. */
+export interface ManualRoute {
+  /** The package manager's name, spelled as its own project spells it */
+  name: string;
+  /** Which member of the app's closed URL set opens this manager's site */
+  target: "homebrew" | "macports";
+  /** Lines to run, in order — the manager first where it installs from a shell */
+  commands: string[];
+  /** Where to get the manager itself */
+  docsUrl: string;
+  /** How you get this manager when it does not install from a command */
+  note?: string;
+}
+
+/**
+ * The ways out of a Mac with no package manager, both of them.
+ *
+ * It named MacPorts alone, which is the less likely answer by a wide margin:
+ * someone on macOS without a package manager almost certainly wants Homebrew,
+ * and the screen never mentioned it — so the one route it offered was the one
+ * fewer people would take, and the obvious one looked unsupported (operator's
+ * call, 2026-09-14).
+ *
+ * Homebrew goes first and carries both lines, because it installs from a shell
+ * and then installs tmux. MacPorts cannot: it ships as a package from its own
+ * site, so its route is a link plus the one command that follows, and the note
+ * says so rather than leaving a `port` command that would answer "command not
+ * found".
+ *
+ * Only darwin has these. Linux gets a button (apt-get via pkexec), and an
+ * unknown platform gets the reading link it already had — inventing routes for
+ * a platform this app does not ship to would be guessing in the one place a
+ * person cannot check the guess.
+ * @param platform "darwin", "linux", or anything else
+ */
+export function manualTmuxRoutes(platform: string): ManualRoute[] {
+  if (platform !== "darwin") return [];
+  return [
+    {
+      name: "Homebrew",
+      target: "homebrew",
+      commands: [
+        '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+        "brew install tmux",
+      ],
+      docsUrl: BREW_DOCS,
+    },
+    {
+      name: "MacPorts",
+      target: "macports",
+      commands: ["sudo port install tmux"],
+      docsUrl: MACPORTS_DOCS,
+      note: "MacPorts installs from a package on its own site, not from a command.",
+    },
+  ];
+}
+
 /**
  * How to install tmux here.
  * @param platform "darwin", "linux", or anything else

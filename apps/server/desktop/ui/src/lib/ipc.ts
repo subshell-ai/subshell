@@ -180,8 +180,13 @@ export type ServiceVerb = "install" | "uninstall" | "start" | "stop" | "restart"
 /** The files the console may reveal. `OpenTarget`, kebab-case — a closed set in Rust. */
 export type OpenTarget = "config-env" | "server-dir" | "service-definition" | "logs";
 
-/** The three pages About may open. `WebTarget`, kebab-case — a closed set in Rust. */
-export type WebTarget = "website" | "license" | "company";
+/**
+ * The pages this app may open in the system browser. `WebTarget`, kebab-case —
+ * a closed set in Rust, which owns every URL. The first three are About's; the
+ * last two are the package managers the tmux screen names when a Mac has
+ * neither.
+ */
+export type WebTarget = "website" | "license" | "company" | "homebrew" | "macports";
 
 /**
  * `About`. Who made this, under what terms, and where to read more.
@@ -273,7 +278,7 @@ export const openTmuxDocs = (): Promise<void> => invoke<void>("desktop_open_tmux
 /** Ownership, terms and versions, for the About section. Read-only; no machine state. */
 export const about = (): Promise<About> => invoke<About>("desktop_about");
 
-/** Open one of three fixed pages in the SYSTEM browser. A member, never a URL. */
+/** Open one of a fixed set of pages in the SYSTEM browser. A member, never a URL. */
 export const openWeb = (target: WebTarget): Promise<void> => invoke<void>("desktop_open_web", { target });
 
 /** `desktop_set_supervision`'s answer: the chain's words, plus where it ended. */
