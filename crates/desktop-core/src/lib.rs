@@ -8,6 +8,8 @@
 //! module here was written once, for the server app, and every one of them
 //! encodes a bug that was MEASURED rather than imagined:
 //!
+//! - [`browser`] — the one join a REMOTE page's argument reaches, and the
+//!   three refusals that keep it a path rather than a host.
 //! - [`proc`] — two pipe deadlocks, in opposite directions.
 //! - [`shell_env`] — the PATH a `.app` does not inherit, and the unbounded
 //!   login-shell probe that discovers it.
@@ -59,6 +61,7 @@
 //! shipped app's users have on disk — an app that starts reading a different
 //! settings file has silently forgotten every preference they set.
 
+pub mod browser;
 pub mod legal;
 pub mod proc;
 pub mod reset_guards;
