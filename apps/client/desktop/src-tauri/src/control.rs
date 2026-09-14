@@ -1218,9 +1218,11 @@ pub fn resolve_plane_url(settings: &SettingsState) -> Option<String> {
 /// means "open whatever [`resolve_plane_url`] already knows", which is what the
 /// header button does once an address is settled.
 ///
-/// The window this opens is granted NO commands — see
-/// `windows::open_plane` — so this is the whole of the plane's reach into the
-/// app: it gets a webview, an origin pin, and nothing else.
+/// The window this opens is granted exactly ONE command — see
+/// `windows::open_plane` — so this is nearly the whole of the plane's reach
+/// into the app: a webview, an origin pin, and `desktop_open_in_browser`,
+/// which takes a path and joins it onto that same pin. Nothing that drives the
+/// CLI is reachable from it.
 #[tauri::command(async)]
 pub fn node_open_plane(
     app: AppHandle,
@@ -1265,6 +1267,17 @@ pub fn node_open_plane_url(app: AppHandle, settings: State<'_, SettingsState>) -
 /// menu event is global, so one id handled in both menus fires twice per
 /// click, which for this item is two browser tabs. A constant behind a
 /// `#[cfg]` cannot be named from a test that compiles on Linux.
+///
+/// Which leaves it with NO non-test user on Linux — `menu.rs` is the only one
+/// and that module is macOS-only — and `mod control` is private, so a `pub`
+/// item in it is not externally reachable and `dead-code` fires. Measured on
+/// this crate by rewriting every `target_os = "macos"` predicate to one that
+/// is false here: `cargo clippy --all-targets -- -D warnings` (CI's exact
+/// command) then fails the LIB target with "constant `MENU_BROWSER_ID` is
+/// never used". The `#[cfg(test)]` use in `tray.rs` does not rescue it —
+/// `--all-targets` still builds the lib target without `cfg(test)`. Hence the
+/// allow, scoped to the platforms where the item really is unused.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const MENU_BROWSER_ID: &str = "menu:browser";
 
 /// Open one page of the control plane this window is on, in the system browser.
@@ -1279,9 +1292,20 @@ pub const MENU_BROWSER_ID: &str = "menu:browser";
 /// page can open a page of ITSELF in the person's browser, which they can do by
 /// typing the address.
 ///
-/// The pin rather than `resolve_plane_url`: the two can differ for a moment
-/// after a switch, and the honest answer to "where am I" is the origin this
-/// window is actually pinned to.
+/// The pin rather than `resolve_plane_url`, because the pin is what the
+/// navigation guard enforces and a second ladder could answer differently. But
+/// it names the plane this window is being pointed AT, which during a switch is
+/// the NEW one: `open_plane` sets the pin BEFORE calling `navigate` (it has to
+/// — the pin gates that very navigation), so between those two lines the
+/// still-rendered page of plane A can have a path of its choosing joined onto
+/// plane B's origin.
+///
+/// Accepted, and worth stating rather than implying. The window is one
+/// `navigate` call wide, the person just chose plane B themselves, and the
+/// worst case is a browser GET to a page of B with a path A picked — no
+/// credential of B's is involved, since the browser carries no cookie from this
+/// webview at all. Narrowing it would mean either a second origin ladder to
+/// disagree with the guard, or holding a lock across a webview navigation.
 ///
 /// The person signs in again over there — a browser carries no cookie from
 /// this webview — and that is not a bug this command should paper over.

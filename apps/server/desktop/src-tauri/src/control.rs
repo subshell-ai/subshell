@@ -2229,6 +2229,15 @@ fn current_path(app: &AppHandle) -> String {
 /// event is global, so one id in both menus fires twice per click. A constant
 /// behind a `#[cfg]` cannot be named from a test that compiles on Linux, which
 /// is the cfg-stripping hazard both desktop `AGENTS.md` files warn about.
+///
+/// Which leaves it with NO non-test user on Linux — `menu.rs` is the only one
+/// and that module is macOS-only — and `mod control` is private, so a `pub`
+/// item in it is not externally reachable and `dead-code` fires. Measured:
+/// `cargo clippy --all-targets -- -D warnings` (CI's exact command) fails the
+/// LIB target there; the `#[cfg(test)]` use in `tray.rs` does not rescue it,
+/// because the lib target is built without it. Hence the allow, scoped to the
+/// platforms where the item really is unused.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const MENU_BROWSER_ID: &str = "menu:browser";
 
 /// Open whatever the dashboard is showing in the system browser.
