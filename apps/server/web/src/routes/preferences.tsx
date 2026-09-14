@@ -15,7 +15,7 @@ export const Route = createFileRoute("/preferences")({ component: PreferencesPag
 function Section({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
   return (
     <section aria-labelledby={id} className="space-y-6">
-      <h2 id={id} className="font-strong text-muted-foreground text-xs uppercase tracking-wider">
+      <h2 id={id} className="font-strong text-detail text-muted-foreground uppercase tracking-wider">
         {label}
       </h2>
       {children}

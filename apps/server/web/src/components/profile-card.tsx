@@ -115,7 +115,7 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
               <Button onClick={() => void save()} disabled={busy || nameIsUsable(shown) === null}>
                 {busy ? "Saving…" : "Save"}
               </Button>
-              {saved && <span className="text-success text-xs">saved</span>}
+              {saved && <span className="text-detail text-success">saved</span>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="profile-email">Email</Label>

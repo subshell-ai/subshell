@@ -83,7 +83,7 @@ export function EnrollScreen(props: {
       </div>
       <div className="mt-6">
         {notes.map((note) => (
-          <p key={note} className="mt-2 text-muted-foreground text-xs leading-relaxed">
+          <p key={note} className="mt-2 text-muted-foreground text-detail leading-relaxed">
             {note}
           </p>
         ))}

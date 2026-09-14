@@ -19,7 +19,7 @@ export function Fact({
   return (
     <div className={wide ? "col-span-full" : undefined}>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className={`mt-1 ${mono ? "break-all font-mono text-xs" : ""}`}>{children}</dd>
+      <dd className={`mt-1 ${mono ? "break-all font-mono text-detail" : ""}`}>{children}</dd>
     </div>
   );
 }

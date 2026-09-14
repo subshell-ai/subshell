@@ -306,7 +306,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
           >
             {update.isPending ? "Saving…" : canRestart ? "Save and restart" : "Save"}
           </Button>
-          {update.isSuccess && touched.length === 0 && <span className="text-success text-xs">saved</span>}
+          {update.isSuccess && touched.length === 0 && <span className="text-detail text-success">saved</span>}
         </div>
 
         {update.error && !fieldFailure && (

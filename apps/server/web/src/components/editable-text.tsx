@@ -118,7 +118,7 @@ export function EditableText({
         }}
         className={cn("h-7", className, inputClassName)}
       />
-      {error && <span className="shrink-0 text-destructive text-xs">{error}</span>}
+      {error && <span className="shrink-0 text-destructive text-detail">{error}</span>}
     </span>
   );
 }

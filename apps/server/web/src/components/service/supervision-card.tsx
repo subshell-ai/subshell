@@ -145,13 +145,13 @@ export function SupervisionCard({
         // Neither radio is checked here, and this says why rather than leaving
         // the card looking like it failed to load. Picking either option is
         // still the way OUT of this state, so nothing is disabled.
-        <p className="col-span-full text-muted-foreground text-xs">
+        <p className="col-span-full text-detail text-muted-foreground">
           Neither: this server was started by hand, so nothing brings it back when it stops. Choosing an option above
           changes that.
         </p>
       )}
       {!desktop && (
-        <p className="col-span-full text-muted-foreground text-xs">
+        <p className="col-span-full text-detail text-muted-foreground">
           Changing this is done in the Subshell Server app on that machine.
         </p>
       )}
@@ -196,7 +196,7 @@ export function SupervisionCard({
             {loginBlocked ??
               "Starts the server again the next time you log in to this machine. Without it, the service runs now but nothing brings it back after you log out or restart."}
           </p>
-          {autostart.error && <p className="text-destructive text-xs">{autostart.error}</p>}
+          {autostart.error && <p className="text-destructive text-detail">{autostart.error}</p>}
         </div>
       </div>
     </FactCard>

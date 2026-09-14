@@ -30,14 +30,14 @@ export function ConfirmPanel(props: {
     // ("Enroll this machine"), and both a screen reader and a test need to be
     // able to tell the two apart.
     <section aria-label={pending.title} className="mt-3.5 rounded-lg border border-warning bg-background px-3.5 py-3">
-      <p className="flex items-center gap-2 font-strong text-warning text-xs">
+      <p className="flex items-center gap-2 font-strong text-warning text-detail">
         <TriangleAlert aria-hidden className="shrink-0" />
         {pending.title}
       </p>
       {pending.messages.map((message) => (
         // `whitespace-pre-wrap`: a message may be the CLI's own refusal text
         // quoted into this panel, and it keeps the shape it was printed in.
-        <p key={message} className="mt-2 whitespace-pre-wrap text-muted-foreground text-xs leading-relaxed">
+        <p key={message} className="mt-2 whitespace-pre-wrap text-muted-foreground text-detail leading-relaxed">
           {message}
         </p>
       ))}

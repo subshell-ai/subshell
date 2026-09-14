@@ -25,7 +25,7 @@ export function EnrollFields({ form, busy }: { form: EnrollForm; busy: boolean }
         const note = error || advisory;
         return (
           <div key={field.name}>
-            <Label htmlFor={`field-${field.name}`} className="mb-1 block text-muted-foreground text-xs">
+            <Label htmlFor={`field-${field.name}`} className="mb-1 block text-muted-foreground text-detail">
               {field.label}
             </Label>
             <Input
@@ -47,7 +47,7 @@ export function EnrollFields({ form, busy }: { form: EnrollForm; busy: boolean }
               autoCorrect="off"
             />
             {note && (
-              <p className={cn("mt-1 text-caption leading-normal", error ? "text-destructive" : "text-warning")}>
+              <p className={cn("mt-1 text-detail leading-normal", error ? "text-destructive" : "text-warning")}>
                 {note}
               </p>
             )}

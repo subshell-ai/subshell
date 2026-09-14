@@ -80,7 +80,7 @@ export default function SubshellsList() {
         {error && !data ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8 }}>
             <Text style={{ ...font("body"), color: colors.destructive }}>Cannot reach the instance</Text>
-            <Text style={{ ...font("caption"), color: colors.mutedFg }}>Pull down to retry</Text>
+            <Text style={{ ...font("detail"), color: colors.mutedFg }}>Pull down to retry</Text>
           </View>
         ) : isLoading && !data ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -101,7 +101,7 @@ export default function SubshellsList() {
               item.kind === "header" ? (
                 <Text
                   style={{
-                    ...font("caption"),
+                    ...font("detail"),
                     color: colors.mutedFg,
                     textTransform: "uppercase",
                     marginTop: 14,

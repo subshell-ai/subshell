@@ -63,9 +63,9 @@ export function DeviceNameCard(): JSX.Element {
           <Button variant="outline" size="sm" onClick={save}>
             Save
           </Button>
-          {saved && <span className="text-muted-foreground text-xs">Saved. New attachments use it</span>}
+          {saved && <span className="text-detail text-muted-foreground">Saved. New attachments use it</span>}
         </div>
-        <p className="text-muted-foreground text-xs">
+        <p className="text-detail text-muted-foreground">
           {cleaned ? "Others will see" : "Blank restores the default, which is"} <span>{willBe}</span>
         </p>
       </CardContent>

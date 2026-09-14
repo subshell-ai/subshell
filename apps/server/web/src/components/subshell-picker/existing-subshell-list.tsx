@@ -122,16 +122,18 @@ export function ExistingSubshellList({
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-strong text-sm">{subshell.name}</span>
-                    <span className="block truncate font-mono text-muted-foreground text-xs">
+                    <span className="block truncate font-mono text-detail text-muted-foreground">
                       {subshell.workingDir}
                     </span>
                   </span>
-                  <span className="shrink-0 text-muted-foreground text-xs">{subshell.harnessId}</span>
-                  <span className="shrink-0 text-muted-foreground text-xs">
+                  <span className="shrink-0 text-detail text-muted-foreground">{subshell.harnessId}</span>
+                  <span className="shrink-0 text-detail text-muted-foreground">
                     {subshell.lastOutputAt ? relativeElapsed(subshell.lastOutputAt) : "—"}
                   </span>
                   <RowStatusBadges subshell={subshell} />
-                  {busyId === subshell.id && <span className="shrink-0 text-muted-foreground text-xs">Adding…</span>}
+                  {busyId === subshell.id && (
+                    <span className="shrink-0 text-detail text-muted-foreground">Adding…</span>
+                  )}
                 </button>
               </li>
             ))}

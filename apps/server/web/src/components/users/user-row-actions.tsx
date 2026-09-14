@@ -140,7 +140,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
       )}
 
       {error && (
-        <span role="alert" className="text-destructive text-xs">
+        <span role="alert" className="text-destructive text-detail">
           {error}
         </span>
       )}

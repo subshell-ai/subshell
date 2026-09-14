@@ -46,7 +46,7 @@ export function TerminalDropOverlay({
               <div
                 key={entry.id}
                 role="status"
-                className="rounded-md border bg-background/95 px-2.5 py-1.5 text-xs shadow backdrop-blur"
+                className="rounded-md border bg-background/95 px-2.5 py-1.5 text-detail shadow backdrop-blur"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-muted-foreground">{entry.name}</span>
@@ -73,7 +73,7 @@ export function TerminalDropOverlay({
       {error && (
         <div
           role="alert"
-          className="absolute bottom-3 left-1/2 z-20 flex max-w-[80%] -translate-x-1/2 items-center gap-2 rounded-md border border-destructive/40 bg-background/95 px-3 py-1.5 text-destructive text-xs shadow backdrop-blur"
+          className="absolute bottom-3 left-1/2 z-20 flex max-w-[80%] -translate-x-1/2 items-center gap-2 rounded-md border border-destructive/40 bg-background/95 px-3 py-1.5 text-destructive text-detail shadow backdrop-blur"
         >
           <span className="truncate">{error}</span>
           <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onDismiss} aria-label="Dismiss upload error">

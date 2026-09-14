@@ -25,7 +25,7 @@ export function SubshellRecentRow({ subshell, active }: { subshell: SubshellView
       onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
       title={subshell.workingDir ? `${subshell.name}: ${subshell.workingDir}` : undefined}
       className={cn(
-        "flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-xs transition-colors",
+        "flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
         active
           ? "bg-accent font-strong text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
@@ -35,7 +35,7 @@ export function SubshellRecentRow({ subshell, active }: { subshell: SubshellView
       <span className="min-w-0 flex-1">
         <span className="block truncate">{subshell.name}</span>
         {subshell.workingDir ? (
-          <span className="block truncate text-caption opacity-70">{subshell.workingDir}</span>
+          <span className="block truncate text-detail opacity-70">{subshell.workingDir}</span>
         ) : null}
       </span>
     </Link>

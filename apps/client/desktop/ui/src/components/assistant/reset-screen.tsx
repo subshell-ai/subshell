@@ -118,10 +118,10 @@ export function ResetScreen(props: {
         <>
           {paths.length > 0 && (
             <div>
-              <p className="text-muted-foreground text-xs">This deletes</p>
+              <p className="text-muted-foreground text-detail">This deletes</p>
               <ul className="mt-2 flex flex-col gap-1">
                 {paths.map((p) => (
-                  <li key={p} className="break-all font-mono text-xs">
+                  <li key={p} className="break-all font-mono text-detail">
                     {p}
                   </li>
                 ))}
@@ -131,7 +131,7 @@ export function ResetScreen(props: {
 
           <ul className="mt-6 flex flex-col gap-2">
             {DISCLOSURES.map((line) => (
-              <li key={line} className="flex items-start gap-2 text-muted-foreground text-xs leading-relaxed">
+              <li key={line} className="flex items-start gap-2 text-muted-foreground text-detail leading-relaxed">
                 <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-muted-foreground" />
                 <span>{line}</span>
               </li>
@@ -144,7 +144,7 @@ export function ResetScreen(props: {
               e.preventDefault();
             }}
           >
-            <Label htmlFor="reset-hostname" className="text-muted-foreground text-xs">
+            <Label htmlFor="reset-hostname" className="text-muted-foreground text-detail">
               {host ? (
                 <>
                   Type <span className="font-mono">{host}</span> to confirm
@@ -164,7 +164,7 @@ export function ResetScreen(props: {
               disabled={busy || armed !== true}
             />
             {reportsTo && (
-              <p className="text-muted-foreground text-xs">
+              <p className="text-muted-foreground text-detail">
                 This node reports to <span className="break-all font-mono">{reportsTo}</span>.
               </p>
             )}

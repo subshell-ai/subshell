@@ -83,7 +83,7 @@ export function EntityCard({
             {description !== undefined && <CardDescription className="truncate">{description || "·"}</CardDescription>}
             {headerExtra}
           </CardHeader>
-          {children && <CardContent className="space-y-1 text-muted-foreground text-xs">{children}</CardContent>}
+          {children && <CardContent className="space-y-1 text-detail text-muted-foreground">{children}</CardContent>}
         </Card>
       </Link>
 

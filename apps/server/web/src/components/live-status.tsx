@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 export function LiveStatus({ connected }: { connected: boolean }): JSX.Element {
   return (
     <span
-      className="flex items-center gap-1.5 text-muted-foreground text-xs"
+      className="flex items-center gap-1.5 text-detail text-muted-foreground"
       // aria-live so a screen reader announces a drop, but "polite" so it
       // waits for a pause rather than interrupting.
       aria-live="polite"

@@ -97,7 +97,7 @@ export function AutocompleteInput({
               )}
             >
               <span className="shrink-0 font-mono">{item.value}</span>
-              {item.detail && <span className="truncate text-muted-foreground text-xs">{item.detail}</span>}
+              {item.detail && <span className="truncate text-detail text-muted-foreground">{item.detail}</span>}
             </li>
           ))}
         </ul>

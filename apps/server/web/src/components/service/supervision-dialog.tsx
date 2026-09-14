@@ -143,7 +143,7 @@ export function SupervisionDialog({
               : "This machine's service definition could not be read, so this is the safe assumption."}
           </p>
         )}
-        <p className="text-muted-foreground text-xs">
+        <p className="text-detail text-muted-foreground">
           This page will lose its connection for a few seconds while the server comes back.
         </p>
         {error && (
@@ -155,7 +155,7 @@ export function SupervisionDialog({
                 one-line refusal cannot say that; the log can. Collapsed,
                 because it is a recovery aid rather than the answer. */}
             {details && (
-              <details className="text-xs">
+              <details className="text-detail">
                 <summary className="cursor-pointer text-muted-foreground">What ran before it stopped</summary>
                 <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono">
                   {details}

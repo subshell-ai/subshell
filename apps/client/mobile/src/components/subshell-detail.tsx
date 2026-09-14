@@ -108,7 +108,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
           <Text numberOfLines={1} style={{ ...font("heading"), color: colors.fg, flex: 1 }}>
             {subshell?.name ?? "Subshell"}
           </Text>
-          <Text style={{ ...font("caption"), color: pill.color }}>{pill.text}</Text>
+          <Text style={{ ...font("detail"), color: pill.color }}>{pill.text}</Text>
         </View>
         <View style={{ flexDirection: "row", gap: 6 }}>
           {(["live", "log"] as const).map((t) => (
@@ -140,7 +140,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
           // but not upgrades — every other screen still works.
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 6 }}>
             <Text style={{ ...font("heading"), color: colors.warning }}>Terminal blocked on this instance</Text>
-            <Text style={{ ...font("caption"), color: colors.mutedFg, textAlign: "center" }}>
+            <Text style={{ ...font("detail"), color: colors.mutedFg, textAlign: "center" }}>
               WebSocket upgrades do not tunnel. Re-probe from Settings once the proxy forwards them.
             </Text>
           </View>
@@ -155,7 +155,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
         <FlatList
           data={log.data?.lines ?? []}
           renderItem={({ item }) => (
-            <Text style={{ ...font("caption"), color: colors.fg, fontFamily: "Menlo", paddingHorizontal: 12 }}>
+            <Text style={{ ...font("detail"), color: colors.fg, fontFamily: "Menlo", paddingHorizontal: 12 }}>
               {item.length > 0 ? item : " "}
             </Text>
           )}

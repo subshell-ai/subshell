@@ -339,7 +339,7 @@ export function NewSubshellForm({
       <div className="space-y-2">
         <Label htmlFor={ids.agent}>Agent</Label>
         {firstRun && (
-          <p className="text-muted-foreground text-xs">
+          <p className="text-detail text-muted-foreground">
             The agent CLI this subshell runs. Terminal needs nothing installed.
           </p>
         )}
@@ -363,7 +363,7 @@ export function NewSubshellForm({
           onValueChange={(harnessId) => harnessId !== "" && onChange({ ...value, harnessId, presetId: null })}
         />
         {noAgentHere && selectedNode ? (
-          <p id={`${ids.agent}-no-agent`} className="text-muted-foreground text-xs">
+          <p id={`${ids.agent}-no-agent`} className="text-detail text-muted-foreground">
             {"Nothing installed on "}
             <Link to="/nodes/$id" params={{ id: selectedNode.id }} className="underline">
               {selectedNode.name}
@@ -372,7 +372,7 @@ export function NewSubshellForm({
           </p>
         ) : null}
         {noNodeHere && selectedAgent ? (
-          <p id={`${ids.agent}-no-node`} className="text-muted-foreground text-xs">
+          <p id={`${ids.agent}-no-node`} className="text-detail text-muted-foreground">
             {`No available node can run ${agentName}. `}
             <Link to="/nodes" className="underline">
               Check your nodes
@@ -438,7 +438,7 @@ export function NewSubshellForm({
                 Saved flags, env vars and restart policy for {agentName}.
               </p>
               {agentPresets.length === 0 && (
-                <p id={`${ids.preset}-empty`} className="text-muted-foreground text-xs">
+                <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
                   No presets for {agentName} yet.
                 </p>
               )}
@@ -465,7 +465,7 @@ export function NewSubshellForm({
         <div className="space-y-2">
           <Label htmlFor={ids.node}>{firstRun ? "Machine" : "Node"}</Label>
           {firstRun && (
-            <p className="text-muted-foreground text-xs">
+            <p className="text-detail text-muted-foreground">
               Where this subshell runs. You can add other machines as nodes later.
             </p>
           )}

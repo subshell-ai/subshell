@@ -224,7 +224,7 @@ function SubshellPage() {
                   {subshell?.nodeOffline ? "node unreachable" : exited ? "exited" : (subshell?.status ?? "…")}
                 </Badge>
                 {subshell && subshell.backoffCount > 0 && (
-                  <span className="text-muted-foreground text-xs">restart #{subshell.backoffCount} pending</span>
+                  <span className="text-detail text-muted-foreground">restart #{subshell.backoffCount} pending</span>
                 )}
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see

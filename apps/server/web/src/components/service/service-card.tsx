@@ -113,7 +113,7 @@ export function ServiceCard({
           {/* The actual act, named. "Reinstall the service definition" is not
               something a person can do — this is. `install` rewrites the
               definition in place, so it IS the reinstall. */}
-          <p className="text-muted-foreground text-xs">
+          <p className="text-detail text-muted-foreground">
             Rewrite it by running <CopyableValue value={REINSTALL_COMMAND} label="Reinstall command" /> on that machine,
             then restart the server.
           </p>

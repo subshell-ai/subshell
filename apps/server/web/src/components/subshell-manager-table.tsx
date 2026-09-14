@@ -84,7 +84,7 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
       <div className="overflow-x-auto rounded-lg border bg-card">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b text-muted-foreground text-xs uppercase">
+            <tr className="border-b text-detail text-muted-foreground uppercase">
               <th className="w-9 px-3 py-2.5">
                 <input
                   ref={selectAllRef}

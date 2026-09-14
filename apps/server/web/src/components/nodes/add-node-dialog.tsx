@@ -133,7 +133,7 @@ export function AddNodeDialog({
   // loaded by the time step 1 is on screen; the enroll-command row (which
   // needs the key) stays a step-2 thing.
   const missingNote = missingTargets.length > 0 && (
-    <p className="text-amber-600 text-xs dark:text-amber-400">
+    <p className="text-amber-600 text-detail dark:text-amber-400">
       This server has no agent binary for: {missingTargets.join(", ")}, and it is configured not to download one. The
       install command 404s on those machines. Publish the binaries on the server (run{" "}
       <code className="font-mono">bun run release:node</code> from a checkout, or copy them from a node-vX.Y.Z GitHub
@@ -143,7 +143,7 @@ export function AddNodeDialog({
   // Said once, quietly, and only where it is true: the first machine of a
   // platform waits for a ~80 MB download that later ones do not.
   const firstRunNote = autoFetch && targets && targets.length < NODE_TARGETS.length && (
-    <p className="text-muted-foreground text-xs">
+    <p className="text-detail text-muted-foreground">
       The agent binary for a platform is downloaded from the project's release the first time a machine of that platform
       installs, so the first run on each takes a little longer.
     </p>
@@ -152,7 +152,7 @@ export function AddNodeDialog({
   // of silently showing the 404-bound command (undefined field on a LOADED
   // older server is a different case, and stays silent by design).
   const unknownNote = (isPending || isError) && (
-    <p className="text-muted-foreground text-xs">Could not check whether this server publishes agent binaries.</p>
+    <p className="text-detail text-muted-foreground">Could not check whether this server publishes agent binaries.</p>
   );
 
   return (
@@ -182,12 +182,12 @@ export function AddNodeDialog({
             {firstRunNote}
             {unknownNote}
             {isLoopbackUrl(baseUrl) && (
-              <p className="text-amber-600 text-xs dark:text-amber-400">
+              <p className="text-amber-600 text-detail dark:text-amber-400">
                 APP_BASE_URL points at loopback ({baseUrl}). A remote node cannot dial this machine from itself; replace
                 the host with this machine's VPN/LAN address (or set APP_BASE_URL).
               </p>
             )}
-            <p className="text-destructive text-xs">
+            <p className="text-destructive text-detail">
               Single-use, expires in 24 h. This is the only time the full key is shown.
             </p>
             {enrolled ? (
@@ -215,7 +215,7 @@ export function AddNodeDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
-              {formError && <p className="text-destructive text-xs">{formError}</p>}
+              {formError && <p className="text-destructive text-detail">{formError}</p>}
               {/* The verdict needs no key — do not make the operator mint
                   (and burn) one to discover the one-liner cannot work. */}
               {missingNote}

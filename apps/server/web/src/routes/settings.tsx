@@ -95,7 +95,7 @@ function SettingsPage() {
     if (outcome?.key !== key) return null;
     return (
       <>
-        {outcome.saved && <span className="text-success text-xs">saved</span>}
+        {outcome.saved && <span className="text-detail text-success">saved</span>}
         {outcome.error && <p className="text-destructive text-sm">{outcome.error}</p>}
       </>
     );
@@ -139,7 +139,7 @@ function SettingsPage() {
                     <Button
                       variant="link"
                       size="sm"
-                      className="h-auto p-0 text-inherit text-xs underline"
+                      className="h-auto p-0 text-detail text-inherit underline"
                       onClick={() => void refetchSettings()}
                     >
                       Retry
@@ -176,7 +176,7 @@ function SettingsPage() {
               {/* Said here rather than discovered later: turning this off is
                   "stop handing out new keys", and any key already minted stays
                   usable until it expires or is deleted. */}
-              <p className="text-muted-foreground text-xs">
+              <p className="text-detail text-muted-foreground">
                 Turning this off does not revoke setup keys that already exist — they expire after 24 hours, or can be
                 deleted from the Nodes page.
               </p>

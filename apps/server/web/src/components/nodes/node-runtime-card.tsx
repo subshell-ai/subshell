@@ -63,11 +63,11 @@ export function NodeRuntimeCard({ node }: { node: NodeDetail }): JSX.Element | n
       <Fact label="Up since">{new Date(runtime.startedAt).toLocaleString()}</Fact>
       <Fact label="Supervised by">
         {supervisionLine(runtime)}
-        {linger && <span className="mt-1 block text-muted-foreground text-xs">{linger}</span>}
+        {linger && <span className="mt-1 block text-detail text-muted-foreground">{linger}</span>}
       </Fact>
       <Fact label="tmux">
         {runtime.tmuxPath ? (
-          <span className="break-all font-mono text-xs">{runtime.tmuxPath}</span>
+          <span className="break-all font-mono text-detail">{runtime.tmuxPath}</span>
         ) : (
           // Said here rather than discovered at launch time: without tmux the
           // agent accepts nothing, and nothing else on this page would say so.

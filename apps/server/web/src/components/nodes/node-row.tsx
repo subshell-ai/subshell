@@ -49,7 +49,7 @@ export function NodeRow({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3">
       <div className="min-w-0 flex-1">
         <p className="truncate font-strong">{node.name}</p>
-        <p className="truncate text-muted-foreground text-xs">
+        <p className="truncate text-detail text-muted-foreground">
           {node.hostname ?? node.id}
           {node.lastSeenAt ? ` · seen ${relativeElapsed(node.lastSeenAt)}` : ""}
           {node.agentVersion ? ` · v${node.agentVersion}` : ""}

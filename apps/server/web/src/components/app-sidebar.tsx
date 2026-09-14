@@ -157,7 +157,7 @@ export function groupOpen(override: boolean | undefined, childActive: boolean): 
 /** Classes for a "recent" sub-link: a compact row under its nav item. */
 function recentClass(active: boolean): string {
   return cn(
-    "block truncate rounded-md py-1 pr-3 pl-10 text-xs transition-colors",
+    "block truncate rounded-md py-1 pr-3 pl-10 text-detail transition-colors",
     active
       ? "font-strong text-accent-foreground"
       : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
@@ -432,7 +432,7 @@ export function AppSidebar({
           has no room for text, and the wordmark alone is the brand, not the
           instance. Server-resolved, so it is never blank. */}
       {!collapsed && publicSettings?.instanceName && (
-        <p className="truncate px-3 pb-3 text-muted-foreground text-xs" title={publicSettings.instanceName}>
+        <p className="truncate px-3 pb-3 text-detail text-muted-foreground" title={publicSettings.instanceName}>
           {publicSettings.instanceName}
         </p>
       )}
@@ -545,12 +545,12 @@ export function AppSidebar({
                     onChange={(e) => setSubshellQuery(e.target.value)}
                     placeholder="Filter subshells…"
                     aria-label="Filter subshells"
-                    className="h-7 text-xs"
+                    className="h-7 text-detail"
                   />
                 </div>
               )}
               {!collapsed && item.to === "/" && q !== "" && listedSubshells.length === 0 && (
-                <p className="px-3 py-1 text-caption text-muted-foreground">No matches.</p>
+                <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>
               )}
               {!collapsed &&
                 item.to === "/" &&

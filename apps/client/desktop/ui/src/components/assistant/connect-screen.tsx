@@ -82,7 +82,7 @@ export function ConnectScreen(props: { shell: FrameShell; commands: NodeCommands
           submit();
         }}
       >
-        <Label htmlFor="plane-url" className="text-muted-foreground text-xs">
+        <Label htmlFor="plane-url" className="text-muted-foreground text-detail">
           Server URL
         </Label>
         <Input
@@ -95,7 +95,7 @@ export function ConnectScreen(props: { shell: FrameShell; commands: NodeCommands
           autoCorrect="off"
           disabled={busy}
         />
-        <p className="text-muted-foreground text-xs leading-relaxed">
+        <p className="text-muted-foreground text-detail leading-relaxed">
           Opening a server does not register this machine. Enrolling comes after, and only if you want subshells to run
           here.
         </p>

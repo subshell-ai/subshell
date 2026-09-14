@@ -33,7 +33,7 @@ export function Tooltip({ content, children, className }: TooltipProps): JSX.Ele
           <BaseTooltip.Positioner sideOffset={6}>
             <BaseTooltip.Popup
               className={cn(
-                "z-50 max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-popover-foreground text-xs shadow-md",
+                "z-50 max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-detail text-popover-foreground shadow-md",
                 "origin-[var(--transform-origin)] transition-[transform,opacity] data-[ending-style]:opacity-0",
                 "data-[starting-style]:opacity-0",
               )}

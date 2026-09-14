@@ -36,7 +36,7 @@ export function StatusPill({ tone = "primary", children, className }: StatusPill
   return (
     <div
       className={cn(
-        "pointer-events-none absolute top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-background/90 px-3 py-1 text-muted-foreground text-xs shadow backdrop-blur",
+        "pointer-events-none absolute top-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-background/90 px-3 py-1 text-detail text-muted-foreground shadow backdrop-blur",
         className,
       )}
     >

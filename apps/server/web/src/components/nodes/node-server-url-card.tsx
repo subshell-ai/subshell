@@ -84,7 +84,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
             disabled={!isOwner}
             onChange={(e) => setUrl(e.target.value)}
           />
-          <p className="text-muted-foreground text-xs">
+          <p className="text-detail text-muted-foreground">
             {isOwner
               ? "This server cannot see which address the node currently uses — that lives in its own config file."
               : "Only the node's owner can change this."}

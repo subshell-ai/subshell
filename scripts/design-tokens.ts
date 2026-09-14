@@ -22,7 +22,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-export const TYPE_ROLES = ["display", "heading", "label", "body", "detail", "caption"] as const;
+export const TYPE_ROLES = ["display", "heading", "label", "body", "detail"] as const;
 export type TypeRole = (typeof TYPE_ROLES)[number];
 
 export interface TypeStep {
@@ -40,7 +40,6 @@ export const WEB_SCALE: Record<TypeRole, TypeStep> = {
   label: { size: 15, lineHeight: 1.5, weight: 600 },
   body: { size: 14, lineHeight: 1.5, weight: 400 },
   detail: { size: 13, lineHeight: 1.5, weight: 400 },
-  caption: { size: 12, lineHeight: 1.5, weight: 400 },
 };
 
 /** Spec § 3.1, mobile column: the same roles and weights, platform-native sizes. */
@@ -50,7 +49,6 @@ export const MOBILE_SCALE: Record<TypeRole, TypeStep> = {
   label: { size: 16, lineHeight: 1.5, weight: 600 },
   body: { size: 16, lineHeight: 1.5, weight: 400 },
   detail: { size: 13, lineHeight: 1.5, weight: 400 },
-  caption: { size: 12, lineHeight: 1.5, weight: 400 },
 };
 
 /** Spec § 3.2: the shadcn names, everywhere. */
@@ -306,8 +304,10 @@ function roleForPx(px: number, prefix: string, sep = " or "): string {
   if (px >= 17) return `${prefix}heading${sep}${prefix}label`;
   if (px > 14.5) return `${prefix}label`;
   if (px >= 13.5) return `${prefix}body${sep}${prefix}label`;
-  if (px >= 12.5) return `${prefix}detail`;
-  return `${prefix}caption`;
+  // 12px left the scale (it was too small to read); `detail` is the floor, so
+  // anything at or below it is answered with detail rather than a role that
+  // no longer exists.
+  return `${prefix}detail`;
 }
 
 const HEX_OR_OKLCH = /#[0-9a-fA-F]{3,8}\b|oklch\(/g;
@@ -358,6 +358,16 @@ export function findEscapes(surface: Surface, relPath: string, source: string): 
       for (const m of l.matchAll(/\btext-(base|lg|xl|2xl|3xl)\b/g)) {
         const px = { base: 16, lg: 18, xl: 20, "2xl": 24, "3xl": 30 }[m[1]] ?? 16;
         push(i, m[0], roleForPx(px, "text-"));
+      }
+      // `text-xs` and `text-caption` name a role that no longer exists: 12px
+      // left the scale. Refused HERE rather than left to the stylesheet,
+      // because Tailwind still GENERATES `.text-xs` from its own defaults —
+      // measured on v4 after deleting `--text-xs`, the rule survives as
+      // `font-size: var(--text-xs)` with nothing defining it, so the
+      // declaration is dropped and the element silently inherits some other
+      // size. A missing token is not a missing utility.
+      for (const m of l.matchAll(/\btext-(xs|caption)\b/g)) {
+        push(i, m[0], "text-detail (13px — 12px left the scale; detail is the floor)");
       }
       for (const m of l.matchAll(/\bfont-(medium|bold|extrabold|black)\b/g)) {
         push(i, m[0], m[1] === "medium" ? "font-strong or (regular) nothing" : "font-strong");

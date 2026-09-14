@@ -48,16 +48,16 @@ const SPA_LIKE = `
   --text-body--line-height: 1.5;
   --text-detail: 13px;
   --text-detail--line-height: 1.5;
-  --text-caption: 12px;
-  --text-caption--line-height: 1.5;
   --font-weight-strong: 600;
   --font-weight-regular: 400;
 }
 `;
 
 describe("the scales", () => {
-  test("declare exactly the six roles, in the spec's order", () => {
-    expect([...TYPE_ROLES]).toEqual(["display", "heading", "label", "body", "detail", "caption"]);
+  test("declare exactly the five roles, in the spec's order", () => {
+    // `caption` (12px) was dropped 2026-09-14 as too small to read; `detail`
+    // absorbed it and is the floor.
+    expect([...TYPE_ROLES]).toEqual(["display", "heading", "label", "body", "detail"]);
     for (const role of TYPE_ROLES) {
       expect(WEB_SCALE[role]).toBeDefined();
       expect(MOBILE_SCALE[role]).toBeDefined();
@@ -79,7 +79,9 @@ describe("the scales", () => {
     expect(WEB_SCALE.label.size).toBe(15);
     expect(WEB_SCALE.body.size).toBe(14);
     expect(WEB_SCALE.detail.size).toBe(13);
-    expect(WEB_SCALE.caption.size).toBe(12);
+    // The floor. Nothing on any surface is smaller than this.
+    expect(Math.min(...Object.values(WEB_SCALE).map((s) => s.size))).toBe(13);
+    expect(Math.min(...Object.values(MOBILE_SCALE).map((s) => s.size))).toBe(13);
   });
 
   test("name ten colour roles", () => {
@@ -120,12 +122,12 @@ describe("agreementProblems", () => {
   });
 
   test("names a missing role, a wrong size and a wrong weight, each once", () => {
-    const broken = SPA_LIKE.replace("--text-caption: 12px;", "")
-      .replace("--text-caption--line-height: 1.5;", "")
+    const broken = SPA_LIKE.replace("--text-detail: 13px;", "")
+      .replace("--text-detail--line-height: 1.5;", "")
       .replace("--text-label: 15px;", "--text-label: 14px;")
       .replace("--font-weight-strong: 600;", "--font-weight-strong: 500;");
     const problems = agreementProblems("spa", parseCssTokens(broken), WEB_SCALE);
-    expect(problems).toContainEqual(expect.stringContaining("caption"));
+    expect(problems).toContainEqual(expect.stringContaining("detail"));
     expect(problems).toContainEqual(expect.stringContaining("label"));
     expect(problems).toContainEqual(expect.stringContaining("strong"));
     expect(problems).toHaveLength(3);
@@ -221,7 +223,6 @@ describe("mobileAgreement", () => {
       label: { size: 16, weight: "600" },
       body: { size: 16, weight: "400" },
       detail: { size: 13, weight: "400" },
-      caption: { size: 12, weight: "400" },
     },
   };
 
@@ -247,14 +248,29 @@ describe("mobileAgreement", () => {
 });
 
 describe("findEscapes", () => {
-  test("spa/client: arbitrary px and off-scale Tailwind sizes; sm/xs are aliases", () => {
+  test("spa/client: arbitrary px and off-scale Tailwind sizes; only sm is an alias", () => {
     const src = `<p className="text-[13px] text-sm text-lg font-medium">x</p>\n<span className="text-xs text-[11.5px]">y</span>`;
     const found = findEscapes("spa", "a.tsx", src);
-    expect(found.map((e) => e.found)).toEqual(["text-[13px]", "text-lg", "font-medium", "text-[11.5px]"]);
+    expect(found.map((e) => e.found)).toEqual(["text-[13px]", "text-lg", "font-medium", "text-[11.5px]", "text-xs"]);
     expect(found[0]).toMatchObject({ file: "a.tsx", line: 1, use: "text-detail" });
     expect(found[1].use).toBe("text-heading or text-label");
     expect(found[2].use).toBe("font-strong or (regular) nothing");
-    expect(found[3].use).toBe("text-caption");
+    // 11.5px used to be answered with `text-caption`; the floor is detail now.
+    expect(found[3].use).toBe("text-detail");
+  });
+
+  test("spa/client: text-xs and text-caption are refused, not aliased", () => {
+    // Load-bearing: Tailwind still GENERATES `.text-xs` from its own defaults
+    // even with `--text-xs` deleted, so the utility survives as
+    // `font-size: var(--text-xs)` with nothing defining it — the element
+    // silently inherits. Deleting the token is not enough; the source has to
+    // be refused.
+    for (const cls of ["text-xs", "text-caption"]) {
+      const found = findEscapes("spa", "a.tsx", `<p className="${cls}">x</p>`);
+      expect(found).toHaveLength(1);
+      expect(found[0]?.found).toBe(cls);
+      expect(found[0]?.use).toContain("text-detail");
+    }
   });
 
   test("spa/client: a hex or oklch literal outside styles.css", () => {

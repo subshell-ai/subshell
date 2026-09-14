@@ -213,7 +213,7 @@ function UsersPage() {
                       {viewerIsAdmin && (
                         <td className="py-2">
                           {u.manageable === false ? (
-                            <span className="text-muted-foreground text-xs">Service account</span>
+                            <span className="text-detail text-muted-foreground">Service account</span>
                           ) : (
                             <UserRowActions
                               user={u}

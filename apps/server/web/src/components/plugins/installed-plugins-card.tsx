@@ -46,7 +46,7 @@ export function InstalledPluginsCard({
               <PluginIcon pluginId={p.id} name={p.name} className="size-8" />
               <div className="min-w-0 flex-1">
                 <p className="font-strong">{p.name}</p>
-                <p className="text-muted-foreground text-xs">
+                <p className="text-detail text-muted-foreground">
                   {[p.id, p.version ? `v${p.version}` : undefined, p.binary ? `drives ${p.binary}` : undefined]
                     .filter((s): s is string => s !== undefined)
                     .join(" · ")}
@@ -89,8 +89,8 @@ export function InstalledPluginsCard({
             {p.description && <p className="text-detail text-muted-foreground">{p.description}</p>}
             {/* A broken install keeps its row precisely so it can say this;
                 every launch of it fails, and the operator needs to know why. */}
-            {p.broken && <p className="text-destructive text-xs">Not loaded: {p.broken}</p>}
-            {rowErrors[p.id] && <p className="text-destructive text-xs">{rowErrors[p.id]}</p>}
+            {p.broken && <p className="text-destructive text-detail">Not loaded: {p.broken}</p>}
+            {rowErrors[p.id] && <p className="text-destructive text-detail">{rowErrors[p.id]}</p>}
           </div>
         ))}
       </CardContent>

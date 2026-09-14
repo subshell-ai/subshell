@@ -38,7 +38,7 @@ function Row({ label, value }: { label: string; value: string | undefined }) {
 export function VersionStamp() {
   const { data } = usePublicSettings();
   return (
-    <div className="space-y-3 text-xs">
+    <div className="space-y-3 text-detail">
       <dl className="space-y-1">
         <Row label="Server" value={data?.serverVersion} />
         <Row label="App build" value={__BUILD_ID__} />

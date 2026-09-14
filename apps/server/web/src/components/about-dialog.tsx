@@ -65,13 +65,13 @@ export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChang
             {shell && <p>Desktop app {shell.version}</p>}
             <p>CLI {settings?.serverVersion ?? "—"}</p>
           </div>
-          <p className="text-muted-foreground text-xs">{LICENSE_SUMMARY}</p>
-          <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
+          <p className="text-detail text-muted-foreground">{LICENSE_SUMMARY}</p>
+          <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-detail text-muted-foreground">
             <AboutLink href={PRODUCT_URL}>Website</AboutLink>
             <AboutLink href={LICENSE_URL}>Licence</AboutLink>
             <AboutLink href={COMPANY_URL}>{COPYRIGHT_HOLDER}</AboutLink>
           </p>
-          <p className="text-muted-foreground text-xs">{COPYRIGHT_LINE}</p>
+          <p className="text-detail text-muted-foreground">{COPYRIGHT_LINE}</p>
         </div>
       </DialogContent>
     </Dialog>

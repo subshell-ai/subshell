@@ -77,7 +77,7 @@ export default function Connect() {
         captionColor={note?.color ?? colors.destructive}
       />
       {plainHttp ? (
-        <Text style={{ ...font("caption"), color: colors.warning }}>
+        <Text style={{ ...font("detail"), color: colors.warning }}>
           Plain HTTP: your token will cross the network in the clear.
         </Text>
       ) : null}
@@ -107,12 +107,12 @@ export default function Connect() {
               }}
             >
               <Text style={{ ...font("label"), color: colors.fg }}>{r.label}</Text>
-              <Text style={{ ...font("caption"), color: colors.mutedFg }}>{instanceMeta(r)}</Text>
+              <Text style={{ ...font("detail"), color: colors.mutedFg }}>{instanceMeta(r)}</Text>
             </Pressable>
           ))}
         </View>
       ) : null}
-      <Text style={{ ...font("caption"), color: colors.mutedFg }}>
+      <Text style={{ ...font("detail"), color: colors.mutedFg }}>
         Private hosts (LAN/CGNAT/.local) default to http; everything else upgrades to https.
       </Text>
     </ScrollView>

@@ -354,7 +354,7 @@ export default function NewSubshell() {
             "Choose a node" placeholder — here as a hint line under the chip
             row (which can be hidden while ≤1 node is listed), because Start
             is blocked until a pick happens. */}
-        {nodeId === "" ? <Text style={{ ...font("caption"), color: colors.mutedFg }}>Choose a node</Text> : null}
+        {nodeId === "" ? <Text style={{ ...font("detail"), color: colors.mutedFg }}>Choose a node</Text> : null}
 
         <View style={{ gap: 6 }}>
           <Text style={{ ...font("detail"), color: colors.mutedFg }}>Working directory</Text>

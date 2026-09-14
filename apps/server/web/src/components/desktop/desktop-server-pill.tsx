@@ -43,7 +43,7 @@ export function DesktopServerPill({ collapsed }: { collapsed: boolean }) {
   );
 
   const shared = cn(
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs",
+    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-detail",
     collapsed && "justify-center px-0",
   );
 

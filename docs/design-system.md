@@ -17,7 +17,7 @@ rules ride that exemption). And it cannot see the platform default: every
 `Text` (mobile) / unclassed node (web) must opt into a role — an element with
 no class at all is the one escape.
 
-## Type — six roles, two weights
+## Type — five roles, two weights
 
 | role | web | mobile | for |
 |---|---|---|---|
@@ -25,19 +25,26 @@ no class at all is the one escape.
 | `heading` | 20 / 600 | 20 / 600 | card, section, dialog and sheet titles |
 | `label` | 15 / 600 | 16 / 600 | **line items**: form labels, checklist rows, radio/toggle titles, table headers, buttons — what you scan for |
 | `body` | 14 / 400 | 16 / 400 | running text, subtitles, dialog and card prose |
-| `detail` | 13 / 400 | 13 / 400 | **anything that explains a control**: the line under a `label`, a field's help text, its state note, its error; `muted-foreground` by default |
-| `caption` | 12 / 400 | 12 / 400 | metadata only — chips, timestamps, versions, counts, monospace output. Never explanation |
+| `detail` | 13 / 400 | 13 / 400 | **the floor, and everything quiet**: what explains a control (its help text, state note, error), plus metadata — chips, timestamps, versions, monospace output. `muted-foreground` by default |
 
-Line-height 1.2 for `display`/`heading`, 1.5 otherwise. Code is `caption` in the
-monospace stack. **Weights are `strong` (600) and `regular` (400) — nothing
-else.** A label is strong; prose and values are regular; nothing is louder
-than `display`.
+Line-height 1.2 for `display`/`heading`, 1.5 otherwise. Code is `detail` in the
+monospace stack.
+
+**There is no 12px.** A `caption` role at 12 was dropped (2026-09-14) as too
+small to read; `detail` absorbed it, so quiet text is separated from loud text
+by COLOUR and WEIGHT rather than by a third size. `text-xs` and `text-caption`
+are refused by `lint:design` — and that refusal is load-bearing, because
+Tailwind still generates `.text-xs` from its own defaults even with the token
+deleted, leaving `font-size: var(--text-xs)` with nothing behind it.
+
+**Weights are `strong` (600) and `regular` (400) — nothing else.** A label is
+strong; prose and values are regular; nothing is louder than `display`.
 
 How to say it on each surface:
 
 | surface | size | weight |
 |---|---|---|
-| SPA, client | `text-label` … `text-caption` (`text-sm` = `body`, `text-xs` = `caption` are accepted aliases; other Tailwind sizes are refused) | `font-strong`, or nothing |
+| SPA, client | `text-label` … `text-detail` (`text-sm` = `body` is the one accepted alias; `text-xs`, `text-caption` and every other Tailwind size are refused) | `font-strong`, or nothing |
 | assistant | `font-size: var(--text-label); line-height: var(--text-label--line-height)` | `font-weight: var(--font-weight-strong)` |
 | mobile | `...font("label")` | comes with the role |
 
@@ -74,9 +81,8 @@ admitted here.
   by tone alone. *(15px regular over 13px muted read as one paragraph.)*
 - **Help text** — everything a control says about itself is `detail`, at ONE
   size: its hint, "set by the environment", a saved-vs-running note, a
-  validation error. `caption` is for metadata (a timestamp, a version, a
-  count), never for prose, and `body` is for running text that is not attached
-  to a control. *(One screen explained a toggle at 13 and the field below it at
+  validation error — the same role metadata uses, so a field never mixes sizes.
+  `body` is for running text that is not attached to a control. *(One screen explained a toggle at 13 and the field below it at
   12; a plugin's description was 12 in one card and 14 in the other; the
   assistant's `.hint` was 14. Three sizes for one idea, because the table used
   to file "hints" under `body`.)*

@@ -90,10 +90,10 @@ export function InstanceNameCard(): JSX.Element {
           <Button variant="outline" size="sm" onClick={() => void save()} disabled={busy || value === null}>
             Save
           </Button>
-          {saved && <span className="text-success text-xs">saved</span>}
+          {saved && <span className="text-detail text-success">saved</span>}
         </div>
         {!cleaned && (
-          <p className="text-muted-foreground text-xs">Blank restores the default: this host&apos;s name.</p>
+          <p className="text-detail text-muted-foreground">Blank restores the default: this host&apos;s name.</p>
         )}
         {error && <p className="text-destructive text-sm">{error}</p>}
       </CardContent>

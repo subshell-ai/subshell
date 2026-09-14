@@ -52,16 +52,16 @@ export function LogTail({ lines, truncated = false, exitCode, children }: LogTai
         {lines.length > 0 ? (
           <>
             {truncated && (
-              <p className="mb-2 text-muted-foreground text-xs italic">
+              <p className="mb-2 text-detail text-muted-foreground italic">
                 earlier output omitted, showing the last {lines.length} lines
               </p>
             )}
-            <pre className="whitespace-pre-wrap break-words font-mono text-muted-foreground text-xs leading-relaxed">
+            <pre className="whitespace-pre-wrap break-words font-mono text-detail text-muted-foreground leading-relaxed">
               {lines.join("\n")}
             </pre>
           </>
         ) : (
-          <p className="font-mono text-muted-foreground text-xs">
+          <p className="font-mono text-detail text-muted-foreground">
             Exited before producing any output{exitCodeOnly(exitCode)}.
           </p>
         )}

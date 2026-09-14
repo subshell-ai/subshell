@@ -57,7 +57,7 @@ export const SubshellCard = memo(function SubshellCard({
         {waiting ? (
           <Text
             style={{
-              ...font("caption"),
+              ...font("detail"),
               color: colors.bg,
               backgroundColor: colors.warning,
               borderRadius: 4,
@@ -70,7 +70,7 @@ export const SubshellCard = memo(function SubshellCard({
       </View>
       {/* `node unreachable` outranks `exited` (web subshell-card, spec §5.6):
           with no live agent the exit facts are last-known, not current. */}
-      <Text style={{ ...font("caption"), color: colors.mutedFg }}>
+      <Text style={{ ...font("detail"), color: colors.mutedFg }}>
         {subshell.harnessId}
         {offline
           ? " · node unreachable"
@@ -79,7 +79,7 @@ export const SubshellCard = memo(function SubshellCard({
             : ""}
       </Text>
       {preview ? (
-        <Text numberOfLines={1} style={{ ...font("caption"), color: colors.mutedFg, fontFamily: "Menlo" }}>
+        <Text numberOfLines={1} style={{ ...font("detail"), color: colors.mutedFg, fontFamily: "Menlo" }}>
           {preview}
         </Text>
       ) : null}

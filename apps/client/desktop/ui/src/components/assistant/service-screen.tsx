@@ -113,7 +113,7 @@ export function ServiceScreen(props: {
        */}
       {paneRisk(probe) && (
         <div className="mt-4 rounded-md border border-warning/40 bg-warning/10 p-3">
-          <p className="text-xs leading-relaxed">
+          <p className="text-detail leading-relaxed">
             The installed service definition does not spare live panes, so stopping or restarting the agent kills every
             subshell running on this machine.
           </p>
@@ -128,7 +128,7 @@ export function ServiceScreen(props: {
       <p className="mt-6">
         <button
           type="button"
-          className="rounded-sm text-muted-foreground text-xs underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          className="rounded-sm text-muted-foreground text-detail underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
           onClick={onReset}
           disabled={busy}
         >

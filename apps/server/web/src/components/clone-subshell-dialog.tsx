@@ -124,7 +124,7 @@ export function CloneSubshellDialog({
           <dt className="text-muted-foreground">Node</dt>
           <dd className="mb-2 truncate">{nodeLabel}</dd>
           <dt className="text-muted-foreground">Working directory</dt>
-          <dd className="mb-3 truncate font-mono text-xs">{source.workingDir}</dd>
+          <dd className="mb-3 truncate font-mono text-detail">{source.workingDir}</dd>
         </dl>
         <div className="space-y-2">
           <label className="font-strong text-sm" htmlFor="clone-name">

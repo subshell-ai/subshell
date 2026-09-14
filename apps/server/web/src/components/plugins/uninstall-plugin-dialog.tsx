@@ -55,7 +55,12 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
         {error !== null && (
           <div className="flex items-center justify-between gap-3">
             <p className="text-destructive text-sm">Could not count what uses it. {errMessage(error, "")}</p>
-            <Button variant="link" size="sm" className="h-auto p-0 text-xs underline" onClick={() => void refetch()}>
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-detail underline"
+              onClick={() => void refetch()}
+            >
               Retry
             </Button>
           </div>
@@ -92,7 +97,7 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
             {/* Both halves of the surprise, stated where the decision is made:
                 uninstalling has never stopped a running subshell, and deleting
                 a preset breaks the restart that needs it. */}
-            <p className="text-muted-foreground text-xs">
+            <p className="text-detail text-muted-foreground">
               Running subshells are unaffected. A restart of one whose preset was deleted will fail.
             </p>
           </>

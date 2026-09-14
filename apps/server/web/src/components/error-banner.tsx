@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
  * pane/tab column (the strip under the tab row), `floating` hovers over the
  * dock tiles so it never steals layout from panels mid-drag.
  */
-const errorBannerVariants = cva("flex items-center bg-terminal-strip text-xs", {
+const errorBannerVariants = cva("flex items-center bg-terminal-strip text-detail", {
   variants: {
     variant: {
       bar: "justify-between gap-2 border-b px-3 py-1.5",

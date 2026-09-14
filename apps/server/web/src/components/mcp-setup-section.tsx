@@ -17,17 +17,17 @@ export function McpSetupSection({ mcp }: { mcp: McpSetupInfo }) {
     <div className="space-y-2">
       <p className="text-muted-foreground text-sm">Cross-subshell comms</p>
       {mcp.mode === "auto" ? (
-        <p className="text-muted-foreground text-xs">{mcp.summary}</p>
+        <p className="text-detail text-muted-foreground">{mcp.summary}</p>
       ) : (
         <>
-          <p className="text-muted-foreground text-xs">
+          <p className="text-detail text-muted-foreground">
             This harness has no per-subshell config, so register subshell once on each node that runs it. Every subshell
             there then picks up its own credentials automatically:
           </p>
           <div className="space-y-2">
             {mcp.steps.map((step) => (
               <div key={step.label} className="space-y-1">
-                <p className="text-muted-foreground text-xs">{step.label}</p>
+                <p className="text-detail text-muted-foreground">{step.label}</p>
                 <CopyCommandRow text={step.command} />
               </div>
             ))}

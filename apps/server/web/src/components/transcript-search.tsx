@@ -132,10 +132,10 @@ function TranscriptSearchBar({
           if (e.key === "Escape") onClose();
         }}
         placeholder="Find…"
-        className="h-7 w-36 text-xs sm:w-52"
+        className="h-7 w-36 text-detail sm:w-52"
       />
       {q.trim() && (
-        <span className="min-w-16 text-center text-muted-foreground text-xs" aria-live="polite">
+        <span className="min-w-16 text-center text-detail text-muted-foreground" aria-live="polite">
           {label}
         </span>
       )}

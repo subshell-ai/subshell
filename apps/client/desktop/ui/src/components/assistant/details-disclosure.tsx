@@ -40,9 +40,9 @@ export function DetailsDisclosure(props: {
 
   return (
     <details className="mt-6 w-full">
-      <summary className="cursor-pointer text-muted-foreground text-xs hover:text-foreground">Show Details</summary>
+      <summary className="cursor-pointer text-muted-foreground text-detail hover:text-foreground">Show Details</summary>
       {facts.length > 0 && (
-        <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-3.5 gap-y-1 text-xs">
+        <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-3.5 gap-y-1 text-detail">
           {facts.map((f) => (
             <div key={f.key} className="contents">
               <dt className="text-muted-foreground">{f.key}</dt>
@@ -59,7 +59,7 @@ export function DetailsDisclosure(props: {
           aria-live="polite"
           className={cn(
             "mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-background px-3 py-2.5",
-            "font-mono text-caption leading-relaxed",
+            "font-mono text-detail leading-relaxed",
             output?.ok === false && "border-destructive",
           )}
         >

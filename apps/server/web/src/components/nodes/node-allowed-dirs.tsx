@@ -54,7 +54,7 @@ export function NodeAllowedDirs({ node }: { node: Node }) {
           <ul className="space-y-1.5">
             {dirs.map((dir) => (
               <li key={dir} className="flex items-center justify-between gap-3 rounded-md border px-3 py-1.5">
-                <code className="truncate font-mono text-xs">{dir}</code>
+                <code className="truncate font-mono text-detail">{dir}</code>
                 {node.canManage && (
                   <Button
                     variant="ghost"
@@ -114,7 +114,9 @@ export function NodeAllowedDirs({ node }: { node: Node }) {
           ))}
 
         {dirs.length > 0 && node.canManage && (
-          <p className="text-muted-foreground text-xs">Removing every directory returns this node to unrestricted.</p>
+          <p className="text-detail text-muted-foreground">
+            Removing every directory returns this node to unrestricted.
+          </p>
         )}
         {error && (
           <p role="alert" className="text-destructive text-sm">

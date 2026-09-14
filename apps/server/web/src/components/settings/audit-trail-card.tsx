@@ -82,7 +82,7 @@ export function AuditTrailCard() {
                 {auditEvents.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
                     <td className="py-2 pr-4 text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</td>
-                    <td className="py-2 pr-4 font-mono text-xs">{e.action}</td>
+                    <td className="py-2 pr-4 font-mono text-detail">{e.action}</td>
                     <td className="py-2 pr-4 text-muted-foreground">
                       {e.targetType ? `${e.targetType}:${e.targetId?.slice(0, 8)}` : "—"}
                     </td>

@@ -51,7 +51,7 @@ export function SetupKeysSection() {
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-strong">{k.label}</p>
-                  <p className="text-muted-foreground text-xs">
+                  <p className="text-detail text-muted-foreground">
                     created {new Date(k.createdAt).toLocaleString()}
                     {k.consumedNodeId
                       ? ` · enrolled ${k.consumedNodeId}`
@@ -70,7 +70,7 @@ export function SetupKeysSection() {
                   Revoke
                 </Button>
               </div>
-              {rowError[k.id] && <p className="text-destructive text-xs">{rowError[k.id]}</p>}
+              {rowError[k.id] && <p className="text-destructive text-detail">{rowError[k.id]}</p>}
             </div>
           );
         })}

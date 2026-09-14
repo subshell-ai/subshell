@@ -47,8 +47,6 @@
   --text-body--line-height: 1.5;
   --text-detail: 13px;
   --text-detail--line-height: 1.5;
-  --text-caption: 12px;
-  --text-caption--line-height: 1.5;
   --font-weight-strong: 600;
   --font-weight-regular: 400;
   --default-font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
@@ -163,8 +161,8 @@
   .facts .fact-sub {
     flex-basis: 100%;
     color: var(--muted-foreground);
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
   }
   .hint {
     color: var(--muted-foreground);
@@ -390,8 +388,8 @@
   }
   .sidebar-version {
     margin: auto 0 0 8px;
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     color: var(--muted-foreground);
   }
   /* `min-width: 0` is load-bearing, not defensive. A grid item's automatic
@@ -434,8 +432,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     color: var(--muted-foreground);
   }
   .section-title {
@@ -457,8 +455,8 @@
      the old single-column page read as a stack of unrelated panels. */
   .group-heading {
     margin: 24px 0 0;
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     font-weight: var(--font-weight-strong);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -828,8 +826,8 @@
   }
   .about-copyright {
     margin: 4px 0 0;
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     color: var(--muted-foreground);
   }
 
@@ -918,8 +916,8 @@
     max-width: 100%;
     color: var(--muted-foreground);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

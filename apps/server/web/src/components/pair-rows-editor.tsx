@@ -136,7 +136,7 @@ export function PairRowsEditor({
           type="button"
           variant="link"
           size="sm"
-          className="h-auto p-0 text-muted-foreground text-xs underline hover:text-foreground"
+          className="h-auto p-0 text-detail text-muted-foreground underline hover:text-foreground"
           onClick={() => {
             setPasteOpen((v) => !v);
             setError(null);
@@ -156,7 +156,7 @@ export function PairRowsEditor({
             }}
             placeholder={pastePlaceholder}
             aria-label={`Paste ${firstLabel.toLowerCase()}s in bulk`}
-            className="font-mono text-xs"
+            className="font-mono text-detail"
           />
           {(parsed.error || error) && <p className="text-destructive text-sm">{parsed.error ?? error}</p>}
           <div className="flex justify-end">

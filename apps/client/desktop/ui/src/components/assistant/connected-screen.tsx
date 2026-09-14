@@ -72,9 +72,9 @@ export function ConnectedScreen(props: {
       )}
 
       <details className="mt-6 w-full">
-        <summary className="cursor-pointer text-muted-foreground text-xs hover:text-foreground">More…</summary>
+        <summary className="cursor-pointer text-muted-foreground text-detail hover:text-foreground">More…</summary>
 
-        <div className="mt-4 flex flex-col gap-4 text-xs">
+        <div className="mt-4 flex flex-col gap-4 text-detail">
           {/* Which plane this APP opens. */}
           <div>
             {editingPlane ? (
@@ -90,7 +90,7 @@ export function ConnectedScreen(props: {
                   commands.openPlane(planeTyped);
                 }}
               >
-                <Label htmlFor="plane-url" className="text-muted-foreground text-xs">
+                <Label htmlFor="plane-url" className="text-muted-foreground text-detail">
                   Server URL
                 </Label>
                 <div className="flex items-center gap-2">
@@ -202,7 +202,7 @@ export function ConnectedScreen(props: {
                     commands.repoint(nodeTyped);
                   }}
                 >
-                  <Label htmlFor="node-server-url" className="text-muted-foreground text-xs">
+                  <Label htmlFor="node-server-url" className="text-muted-foreground text-detail">
                     Control plane this node reports to
                   </Label>
                   <p className="text-muted-foreground">

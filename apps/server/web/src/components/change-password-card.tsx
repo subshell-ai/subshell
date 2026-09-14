@@ -100,7 +100,7 @@ export function ChangePasswordCard() {
             />
           </div>
           {pwError && <p className="text-destructive text-sm">{pwError}</p>}
-          {pwSaved && <p className="text-success text-xs">Password updated</p>}
+          {pwSaved && <p className="text-detail text-success">Password updated</p>}
           <Button type="submit" disabled={pwBusy}>
             {pwBusy ? "Updating…" : "Update password"}
           </Button>

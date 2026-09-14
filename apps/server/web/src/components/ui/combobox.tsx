@@ -120,7 +120,7 @@ export function SearchableSelect({
                   )}
                   <span className="truncate">{option.label}</span>
                   {option.reason ? (
-                    <span className="ml-auto max-w-[45%] truncate pl-3 text-muted-foreground text-xs">
+                    <span className="ml-auto max-w-[45%] truncate pl-3 text-detail text-muted-foreground">
                       {option.reason}
                     </span>
                   ) : null}

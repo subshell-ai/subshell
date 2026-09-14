@@ -120,12 +120,13 @@
   --radius-xl: calc(var(--radius) + 4px);
   /* Type roles (design-system.md § Type; spec 2026-09-14 § 3.1). Tailwind v4
      generates `text-<role>` from `--text-<role>` and reads the matching
-     `--text-<role>--line-height`, so these twelve lines make the utilities. Two
-     weights only: `font-strong` and `font-regular`. `--text-sm` and `--text-xs`
-     are pinned to exact px so Tailwind's defaults (0.875rem, 0.75rem — the same
-     numbers at a 16px root, but only by coincidence) become `body` and `caption`
-     by definition; they are accepted aliases, and `lint:design` refuses every
-     other Tailwind text size. */
+     `--text-<role>--line-height`, so these lines make the utilities. Two
+     weights only: `font-strong` and `font-regular`. `--text-sm` is pinned to
+     exact px so Tailwind's default (0.875rem — the same number at a 16px root,
+     but only by coincidence) becomes `body` by definition; it is an accepted
+     alias, and `lint:design` refuses every other Tailwind text size.
+     `--text-xs` is deliberately ABSENT: 12px left the scale, so `text-xs` must
+     not quietly resolve to it. `detail` (13px) is the floor. */
   --text-display: 30px;
   --text-display--line-height: 1.2;
   --text-heading: 20px;
@@ -136,12 +137,8 @@
   --text-body--line-height: 1.5;
   --text-detail: 13px;
   --text-detail--line-height: 1.5;
-  --text-caption: 12px;
-  --text-caption--line-height: 1.5;
   --text-sm: 14px;
   --text-sm--line-height: 1.5;
-  --text-xs: 12px;
-  --text-xs--line-height: 1.5;
   --font-weight-strong: 600;
   --font-weight-regular: 400;
 }

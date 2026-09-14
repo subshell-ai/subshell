@@ -44,7 +44,7 @@ export function AgentRow({
       <div className="flex min-h-11 items-center gap-3 py-2">
         <PluginIcon pluginId={harness.id} name={harness.name} />
         <span className="flex-1 font-strong">{harness.name}</span>
-        <span className={cn("text-xs", chip.className)}>{chip.text}</span>
+        <span className={cn("text-detail", chip.className)}>{chip.text}</span>
         {!harness.installed && installable && onInstall && (
           <Button size="sm" disabled={installing} onClick={() => onInstall(harness.id)}>
             {/* These installers are `curl … | bash` against someone else's
@@ -64,7 +64,7 @@ export function AgentRow({
           step: the tmux install one screen earlier runs on a single press
           too, and one product should not ask twice for the same kind of act. */}
       {!harness.installed && !installing && !failure && (
-        <p className="pb-2 pl-9 text-muted-foreground text-xs">
+        <p className="pb-2 pl-9 text-detail text-muted-foreground">
           {installable && onInstall ? (
             <>
               Runs <code className="font-mono">{harness.install.command}</code> on this machine.
@@ -91,7 +91,7 @@ export function AgentRow({
           {/* The installer's own words, one line, verbatim. There is no
               percentage to derive from `curl … | bash`, and inventing stages
               it does not report would be worse than showing what it says. */}
-          <p aria-live="polite" className="truncate font-mono text-muted-foreground text-xs">
+          <p aria-live="polite" className="truncate font-mono text-detail text-muted-foreground">
             {progress ?? "Starting the installer…"}
           </p>
         </div>
@@ -101,8 +101,8 @@ export function AgentRow({
           <p className="text-destructive text-sm">{failure.message}</p>
           {failure.output !== undefined && failure.output.trim() !== "" && (
             <details className="mt-1 text-sm">
-              <summary className="cursor-pointer text-muted-foreground text-xs">What the installer printed</summary>
-              <pre className="mt-1 max-h-48 overflow-auto text-xs">{failure.output}</pre>
+              <summary className="cursor-pointer text-detail text-muted-foreground">What the installer printed</summary>
+              <pre className="mt-1 max-h-48 overflow-auto text-detail">{failure.output}</pre>
             </details>
           )}
         </div>

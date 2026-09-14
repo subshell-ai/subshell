@@ -27,7 +27,7 @@ export function Field({
           ...style,
         }}
       />
-      {caption ? <Text style={{ ...font("caption"), color: captionColor }}>{caption}</Text> : null}
+      {caption ? <Text style={{ ...font("detail"), color: captionColor }}>{caption}</Text> : null}
     </View>
   );
 }

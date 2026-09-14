@@ -68,7 +68,7 @@ export function InstallAgentScreen(props: {
             "~/.local/bin/subshell, and nothing is downloaded."}
       </p>
       {!probe?.bundledVersion && (
-        <p className="mt-3 text-muted-foreground text-xs">
+        <p className="mt-3 text-muted-foreground text-detail">
           This build ships no agent, so an existing one has to be pointed at.
         </p>
       )}

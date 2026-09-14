@@ -81,13 +81,13 @@ export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onN
         )}
       </div>
       {local && !canEnableHost && (
-        <p className="text-muted-foreground text-xs">An admin can switch {hostName} back on from its node page.</p>
+        <p className="text-detail text-muted-foreground">An admin can switch {hostName} back on from its node page.</p>
       )}
       {/* Every hidden route owes a sentence naming who can take it — that is
           the rule this component's docblock states, and the node route was
           the half not honouring it. */}
       {!mayAddNode && (
-        <p className="text-muted-foreground text-xs">
+        <p className="text-detail text-muted-foreground">
           Adding nodes is turned off on this instance; an admin can add one.
         </p>
       )}

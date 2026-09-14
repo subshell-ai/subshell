@@ -4,12 +4,12 @@ The authoritative reference is [`docs/design-system.md`](../../docs/design-syste
 `bun run lint:design` enforces it and fails the build on a violation.
 
 **Pick a role, never a number.** Six type roles — `display`, `heading`,
-`label`, `body`, `detail`, `caption` — at two weights, `strong` (600) and
+`label`, `body`, `detail` — at two weights, `strong` (600) and
 `regular` (400):
 
 | surface | write |
 |---|---|
-| SPA / client (Tailwind) | `text-label font-strong`; `text-sm`/`text-xs` are accepted aliases of body/caption |
+| SPA / client (Tailwind) | `text-label font-strong`; `text-sm` is the one accepted alias (body) |
 | assistant (plain CSS) | `font-size: var(--text-label); font-weight: var(--font-weight-strong)` |
 | mobile (RN) | `...font("label")` from `src/lib/tokens.ts` |
 
@@ -22,7 +22,9 @@ the system lacks what you need, add the token to every surface in one change.
 Line items are `label` over `detail`, differing by weight and colour. **Every
 explanation a control gives about itself is `detail`** — its help text, a
 "set by the environment" note, a saved-vs-running line, a validation error —
-all at one size; `caption` is metadata only (timestamps, versions, counts) and
-`body` is running text not attached to a control. Long actions show the
+all at one size, the same `detail` that carries metadata (timestamps,
+versions, counts); `body` is running text not attached to a control.
+**There is no 12px** — `detail` (13) is the floor, and `text-xs` /
+`text-caption` are refused by `lint:design`. Long actions show the
 process's own last line; failures render on the thing that failed. The full
 pattern list, each with the defect it closes, is in the reference.

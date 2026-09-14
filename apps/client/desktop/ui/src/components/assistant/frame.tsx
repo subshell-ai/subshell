@@ -79,7 +79,7 @@ export function Frame(props: {
            * button that failed is pressed again.
            */}
           {problem && (
-            <p role="status" className="mt-4 text-center text-warning text-xs leading-relaxed">
+            <p role="status" className="mt-4 text-center text-warning text-detail leading-relaxed">
               {problem}
             </p>
           )}

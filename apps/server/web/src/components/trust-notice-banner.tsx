@@ -129,7 +129,7 @@ export function TrustNoticeBanner({
       className={cn("transition-opacity duration-300", fading ? "opacity-0" : "opacity-100", className)}
       message={active.banner}
       action={
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={dismiss}>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-detail" onClick={dismiss}>
           Got it
         </Button>
       }

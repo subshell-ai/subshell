@@ -212,7 +212,7 @@ export function DirectoryPickerInput({
                 <button
                   type="button"
                   onClick={startOver}
-                  className="rounded-md border px-2 py-1 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+                  className="rounded-md border px-2 py-1 text-detail text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   Start over
                 </button>
@@ -241,7 +241,7 @@ export function DirectoryPickerInput({
                   scroll. */}
               {explore.recent.length > 0 && (
                 <div>
-                  <p className="mb-1 px-2 text-muted-foreground text-xs">Recent</p>
+                  <p className="mb-1 px-2 text-detail text-muted-foreground">Recent</p>
                   {explore.recent.map((r) => (
                     <div key={r.path} className="group flex items-center">
                       <button
@@ -264,7 +264,7 @@ export function DirectoryPickerInput({
               )}
               {explore.favorites.length > 0 && (
                 <div className={explore.recent.length > 0 ? "mt-2 border-t pt-2" : undefined}>
-                  <p className="mb-1 px-2 text-muted-foreground text-xs">Favorites</p>
+                  <p className="mb-1 px-2 text-detail text-muted-foreground">Favorites</p>
                   {explore.favorites.map((f) => (
                     <div key={f.path} className="group flex items-center">
                       <button

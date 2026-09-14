@@ -103,7 +103,7 @@ export function SystemApiKeysCard() {
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <p className="font-strong">{k.name}</p>
-                <p className="font-mono text-muted-foreground text-xs">
+                <p className="font-mono text-detail text-muted-foreground">
                   {k.preview ?? "—"}
                   {k.expiresAt ? ` · expires ${new Date(k.expiresAt).toLocaleDateString()}` : " · never expires"}
                 </p>
@@ -126,7 +126,7 @@ export function SystemApiKeysCard() {
                 Delete
               </Button>
             </div>
-            {rowErrors[k.id] && <p className="text-destructive text-xs">{rowErrors[k.id]}</p>}
+            {rowErrors[k.id] && <p className="text-destructive text-detail">{rowErrors[k.id]}</p>}
           </div>
         ))}
       </CardContent>
@@ -145,7 +145,7 @@ export function SystemApiKeysCard() {
                   {copied ? "Copied" : "Copy"}
                 </Button>
               </div>
-              <p className="text-destructive text-xs">
+              <p className="text-destructive text-detail">
                 Store it somewhere safe. If it is lost, you will need to create a new key.
               </p>
               <DialogFooter>
@@ -168,7 +168,7 @@ export function SystemApiKeysCard() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
-                {formError && <p className="text-destructive text-xs">{formError}</p>}
+                {formError && <p className="text-destructive text-detail">{formError}</p>}
               </div>
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={closeDialog}>

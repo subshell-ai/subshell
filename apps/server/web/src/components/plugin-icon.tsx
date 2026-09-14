@@ -45,7 +45,7 @@ export function PluginIcon({ pluginId, name, className }: PluginIconProps) {
     return (
       <span
         aria-hidden
-        className={cn(box, "grid place-items-center bg-muted font-strong text-caption text-muted-foreground")}
+        className={cn(box, "grid place-items-center bg-muted font-strong text-detail text-muted-foreground")}
       >
         {(name ?? pluginId).charAt(0).toUpperCase()}
       </span>

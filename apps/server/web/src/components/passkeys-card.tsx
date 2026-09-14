@@ -111,7 +111,7 @@ export function PasskeysCard() {
               <Button
                 variant="link"
                 size="sm"
-                className="h-auto p-0 text-inherit text-xs underline"
+                className="h-auto p-0 text-detail text-inherit underline"
                 onClick={() => void refetch()}
               >
                 Retry

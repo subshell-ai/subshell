@@ -80,7 +80,7 @@ export function ServerLogCard({
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <div>
           <CardTitle>Server log</CardTitle>
-          <p className="mt-1.5 text-muted-foreground text-xs">
+          <p className="mt-1.5 text-detail text-muted-foreground">
             last {SERVER_LOG_DEFAULT_LINES} lines · {Math.round(view.logging.capBytes / 1024)} KB cap, replaced when
             full · {paused ? "paused" : "following"}
           </p>
@@ -126,7 +126,7 @@ export function ServerLogCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-muted-foreground text-xs">
+        <p className="text-detail text-muted-foreground">
           Debug logging writes every request to the log file. It is capped at {Math.round(view.logging.capBytes / 1024)}{" "}
           KB and replaced when full.
         </p>
@@ -143,7 +143,7 @@ export function ServerLogCard({
           // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container needs the keyboard
           tabIndex={0}
           aria-label="Server log"
-          className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-caption leading-relaxed"
+          className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-detail leading-relaxed"
         >
           <pre>
             {lines?.length
@@ -160,7 +160,7 @@ export function ServerLogCard({
                 : "Nothing logged yet."}
           </pre>
         </section>
-        <p className="break-all font-mono text-muted-foreground text-xs">
+        <p className="break-all font-mono text-detail text-muted-foreground">
           <CopyableValue value={view.paths.serverLog} label="Server log" />
         </p>
       </CardContent>

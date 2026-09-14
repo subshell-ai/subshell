@@ -88,7 +88,10 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
       // the preview area below stays purely about output.
       headerExtra={
         <div className="flex min-w-0 items-center gap-2">
-          <p className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-xs" title={subshell.workingDir}>
+          <p
+            className="min-w-0 flex-1 truncate font-mono text-detail text-muted-foreground"
+            title={subshell.workingDir}
+          >
             {subshell.workingDir}
           </p>
           {nodePill(subshell, knownNode, isPending)}
@@ -107,7 +110,7 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
         {preview.length > 0 ? (
           <TerminalPreview lines={preview} />
         ) : (
-          <p className="truncate p-1 font-mono text-muted-foreground text-xs">
+          <p className="truncate p-1 font-mono text-detail text-muted-foreground">
             {nodeOffline
               ? "no screen (the node is offline)"
               : exited
@@ -117,7 +120,7 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
         )}
       </div>
       {exited && !nodeOffline && (
-        <p className="truncate text-muted-foreground text-xs">
+        <p className="truncate text-detail text-muted-foreground">
           exit: {subshell.exitCode != null ? subshell.exitCode : "no exit code"}
           {subshell.backoffCount > 0 && ` · restart ${subshell.backoffCount}`}
         </p>

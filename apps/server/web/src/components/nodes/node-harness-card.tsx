@@ -83,7 +83,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
               <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}
             </Button>
             {recheck.isSuccess && (
-              <p className="text-success text-xs">Re-check sent. Inventory will refresh shortly.</p>
+              <p className="text-detail text-success">Re-check sent. Inventory will refresh shortly.</p>
             )}
           </div>
         )}
@@ -119,19 +119,19 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   ready because a plugin that declares no program is not one
                   whose program is missing. */}
               <Badge variant={badgeVariant(h)}>{badgeLabel(h)}</Badge>
-              {h.version && <span className="font-mono text-muted-foreground text-xs">{h.version}</span>}
+              {h.version && <span className="font-mono text-detail text-muted-foreground">{h.version}</span>}
               {checkedAtLabel(h.checkedAt) && (
-                <span className="text-muted-foreground text-xs">{checkedAtLabel(h.checkedAt)}</span>
+                <span className="text-detail text-muted-foreground">{checkedAtLabel(h.checkedAt)}</span>
               )}
             </div>
             {h.reason === "override-invalid" && (
-              <p className="text-muted-foreground text-xs">
+              <p className="text-detail text-muted-foreground">
                 An environment variable overrides where this program is looked for, and it doesn't point at an
                 executable file on this node.
               </p>
             )}
             {h.reason === "no-binary" && (
-              <p className="text-muted-foreground text-xs">No separate program is needed here.</p>
+              <p className="text-detail text-muted-foreground">No separate program is needed here.</p>
             )}
           </div>
         ))}

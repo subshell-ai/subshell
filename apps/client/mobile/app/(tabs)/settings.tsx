@@ -112,7 +112,7 @@ export default function Settings() {
         >
           <Pressable onPress={() => setActive(r.id)} style={{ minHeight: touchTarget - 12, justifyContent: "center" }}>
             <Text style={{ ...font("label"), color: r.id === activeId ? colors.primary : colors.fg }}>{r.label}</Text>
-            <Text style={{ ...font("caption"), color: colors.mutedFg }}>{instanceMeta(r)}</Text>
+            <Text style={{ ...font("detail"), color: colors.mutedFg }}>{instanceMeta(r)}</Text>
           </Pressable>
           <View style={{ flexDirection: "row", gap: 16 }}>
             <Pressable onPress={() => void reprobe(r.id)} disabled={busyId !== null} hitSlop={8}>
@@ -160,7 +160,7 @@ export default function Settings() {
       >
         <View style={{ flex: 1 }}>
           <Text style={{ ...font("label"), color: colors.fg }}>Face ID for terminal &amp; actions</Text>
-          <Text style={{ ...font("caption"), color: colors.mutedFg }}>
+          <Text style={{ ...font("detail"), color: colors.mutedFg }}>
             Required by default — turning it off lets any unlock of this phone drive every pane.
           </Text>
         </View>
@@ -229,21 +229,21 @@ export default function Settings() {
           accessibilityRole="link"
           accessibilityLabel={`Open ${COPYRIGHT_HOLDER}`}
         >
-          <Text style={{ ...font("caption"), color: colors.mutedFg }}>
+          <Text style={{ ...font("detail"), color: colors.mutedFg }}>
             Copyright {COPYRIGHT_YEAR}{" "}
-            <Text style={{ ...font("caption"), color: colors.primary, textDecorationLine: "underline" }}>
+            <Text style={{ ...font("detail"), color: colors.primary, textDecorationLine: "underline" }}>
               {COPYRIGHT_HOLDER}
             </Text>
           </Text>
         </Pressable>
-        <Text style={{ ...font("caption"), color: colors.mutedFg }}>{LICENSE_SUMMARY}</Text>
+        <Text style={{ ...font("detail"), color: colors.mutedFg }}>{LICENSE_SUMMARY}</Text>
         <Pressable
           onPress={() => void Linking.openURL(LICENSE_URL)}
           hitSlop={8}
           accessibilityRole="link"
           accessibilityLabel="Open the full licence text"
         >
-          <Text style={{ ...font("caption"), color: colors.primary, textDecorationLine: "underline" }}>
+          <Text style={{ ...font("detail"), color: colors.primary, textDecorationLine: "underline" }}>
             Full licence text
           </Text>
         </Pressable>

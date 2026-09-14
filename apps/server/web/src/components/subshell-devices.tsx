@@ -62,7 +62,7 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 px-2 text-muted-foreground text-xs"
+            className="h-7 gap-1.5 px-2 text-detail text-muted-foreground"
             aria-label={`${state.viewers.length} devices watching this subshell`}
           />
         }
@@ -71,7 +71,7 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
         {state.viewers.length}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[17rem]">
-        <div className="px-2 py-1.5 text-muted-foreground text-xs">
+        <div className="px-2 py-1.5 text-detail text-muted-foreground">
           {grid && settled ? (
             <>
               Pane is {grid.cols}×{grid.rows}
@@ -98,9 +98,9 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
               <span className="flex w-full items-center gap-2">
                 <Pin className={cn("h-3 w-3 shrink-0", isPinned ? "text-primary" : "text-transparent")} />
                 <span className="truncate">{viewer.label}</span>
-                {you && <span className="shrink-0 text-muted-foreground text-xs">(this device)</span>}
+                {you && <span className="shrink-0 text-detail text-muted-foreground">(this device)</span>}
               </span>
-              <span className="flex w-full items-center gap-2 pl-5 text-muted-foreground text-xs">
+              <span className="flex w-full items-center gap-2 pl-5 text-detail text-muted-foreground">
                 {viewer.capacity ? `${viewer.capacity.cols}×${viewer.capacity.rows}` : "measuring…"}
                 {label && <span>· {label}</span>}
                 {!viewer.canInput && <span>· read-only</span>}

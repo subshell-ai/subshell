@@ -134,7 +134,7 @@ export function SharingDialogCore({
         {/* Before the grant rows, not after: the disclosure has to be read
             while deciding, not discovered under the Save button. */}
         {warning != null && (
-          <p className="rounded-md border border-amber-500/70 px-3 py-2 text-amber-600 text-xs dark:text-amber-400">
+          <p className="rounded-md border border-amber-500/70 px-3 py-2 text-amber-600 text-detail dark:text-amber-400">
             {warning}
           </p>
         )}

@@ -81,9 +81,9 @@ export function TitleDialog({
             if (e.key === "Enter") save();
           }}
         />
-        {tooLong && <p className="text-destructive text-xs">Keep it under {NAME_MAX_DEFAULT} characters</p>}
+        {tooLong && <p className="text-destructive text-detail">Keep it under {NAME_MAX_DEFAULT} characters</p>}
         {mutation.isError && (
-          <p className="text-destructive text-xs">
+          <p className="text-destructive text-detail">
             {mutation.error instanceof Error ? mutation.error.message : "Failed to save"}
           </p>
         )}

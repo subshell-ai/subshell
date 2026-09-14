@@ -178,7 +178,7 @@ export function NodeLogCard({
       </CardHeader>
       <CardContent className="space-y-3">
         {node.runtime?.agentLogPath && (
-          <div className="text-xs">
+          <div className="text-detail">
             <CopyableValue value={node.runtime.agentLogPath} label="Log file" />
           </div>
         )}
@@ -192,7 +192,7 @@ export function NodeLogCard({
           // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container needs the keyboard
           tabIndex={0}
           aria-label={`Log for ${node.name}`}
-          className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-background px-3 py-2.5 font-mono text-caption leading-relaxed"
+          className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-background px-3 py-2.5 font-mono text-detail leading-relaxed"
         >
           {lines.length === 0 ? (
             <span className="text-muted-foreground">Nothing logged yet.</span>
@@ -223,7 +223,7 @@ export function NodeLogCard({
           </Button>
           {logging &&
             (logging.source === "process env" ? (
-              <span className="text-muted-foreground text-xs">
+              <span className="text-detail text-muted-foreground">
                 Debug logging is set by that machine's environment (SUBSHELL_DEBUG_LOGGING).
               </span>
             ) : (
@@ -246,7 +246,7 @@ export function NodeLogCard({
             HTTP request lines, and an agent serves no HTTP — so this is the
             control in place ahead of the lines, not a promise of output. */}
         {logging && !logging.debug && (
-          <p className="text-muted-foreground text-xs">
+          <p className="text-detail text-muted-foreground">
             The agent writes no debug-level lines yet, so this changes what it would record rather than what it does.
           </p>
         )}

@@ -116,7 +116,7 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
               value={pluginId}
               onChange={(e) => setPluginId(e.target.value)}
             />
-            <p className="text-muted-foreground text-xs">
+            <p className="text-detail text-muted-foreground">
               Only if the package declares a different id than its name suggests. A mismatch is refused by name, and the
               refusal says what to type here.
             </p>

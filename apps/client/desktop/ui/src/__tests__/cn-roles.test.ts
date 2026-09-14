@@ -8,10 +8,10 @@ describe("cn knows the design-system roles are font-sizes", () => {
   });
   test("roles still conflict with other sizes, last wins", () => {
     expect(cn("text-heading", "text-label")).toBe("text-label");
-    expect(cn("text-sm", "text-caption")).toBe("text-caption");
+    expect(cn("text-sm", "text-detail")).toBe("text-detail");
   });
   test("roles override each other both directions", () => {
-    expect(cn("text-caption", "text-body")).toBe("text-body");
+    expect(cn("text-detail", "text-body")).toBe("text-body");
   });
   test("font-weight is its own group: a weight never evicts a family", () => {
     // Measured, final review 2026-09-14: unregistered, `font-strong` fell

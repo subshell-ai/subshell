@@ -61,7 +61,7 @@ export function PresetListRow({ preset, binary, items }: { preset: PresetRow; bi
           <ActionsMenu label={preset.name} items={items} />
         </div>
       </div>
-      <pre className="whitespace-pre-wrap break-words border-t bg-muted/40 px-4 py-2 font-mono text-xs leading-relaxed">
+      <pre className="whitespace-pre-wrap break-words border-t bg-muted/40 px-4 py-2 font-mono text-detail leading-relaxed">
         {command}
       </pre>
     </div>

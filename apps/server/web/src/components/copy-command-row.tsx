@@ -22,7 +22,7 @@ export function CopyCommandRow({ text }: { text: string }) {
 
   return (
     <div className="flex items-center gap-2 rounded-md bg-muted p-2">
-      <code className="min-w-0 flex-1 break-all font-mono text-xs">{text}</code>
+      <code className="min-w-0 flex-1 break-all font-mono text-detail">{text}</code>
       <Button type="button" variant="outline" size="sm" onClick={() => void copy()}>
         {copied ? "Copied" : "Copy"}
       </Button>

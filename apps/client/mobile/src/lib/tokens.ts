@@ -67,7 +67,7 @@ export const radius = 8;
 /** Minimum interactive size (Apple HIG / the web key bar's `min-h-11`). */
 export const touchTarget = 44;
 
-export type TypeRole = "display" | "heading" | "label" | "body" | "detail" | "caption";
+export type TypeRole = "display" | "heading" | "label" | "body" | "detail";
 
 /** React Native wants `fontWeight` as a string. Two weights only. */
 type Weight = "400" | "600";
@@ -79,7 +79,6 @@ export const type: Record<TypeRole, { size: number; lineHeight: number; weight: 
   label: { size: 16, lineHeight: 1.5, weight: "600" },
   body: { size: 16, lineHeight: 1.5, weight: "400" },
   detail: { size: 13, lineHeight: 1.5, weight: "400" },
-  caption: { size: 12, lineHeight: 1.5, weight: "400" },
 };
 
 /**

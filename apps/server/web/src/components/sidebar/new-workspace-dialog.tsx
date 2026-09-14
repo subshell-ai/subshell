@@ -179,7 +179,7 @@ export function NewWorkspaceDialog({
 
         {error && <p className="text-destructive text-sm">{error}</p>}
         {!createdId && selected.length > 0 && (
-          <p className="text-muted-foreground text-xs">
+          <p className="text-detail text-muted-foreground">
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add
           </p>
         )}

@@ -42,7 +42,7 @@ export function DevicesStrip({
         accessibilityLabel={`${state.viewers.length} devices watching this subshell`}
         style={{ minHeight: touchTarget, paddingHorizontal: 12, justifyContent: "center" }}
       >
-        <Text style={{ ...font("caption"), color: colors.mutedFg }}>
+        <Text style={{ ...font("detail"), color: colors.mutedFg }}>
           {state.viewers.length} devices
           {grid && settled ? ` · pane ${grid.cols}×${grid.rows}` : " · measuring…"}
           {pinnedId ? " · pinned" : ""}
@@ -77,7 +77,7 @@ export function DevicesStrip({
                   {viewer.label}
                   {you ? "  (this device)" : ""}
                 </Text>
-                <Text style={{ ...font("caption"), color: colors.mutedFg }}>
+                <Text style={{ ...font("detail"), color: colors.mutedFg }}>
                   {viewer.capacity ? `${viewer.capacity.cols}×${viewer.capacity.rows}` : "measuring…"}
                   {label ? ` · ${label}` : ""}
                   {viewer.canInput ? "" : " · read-only"}

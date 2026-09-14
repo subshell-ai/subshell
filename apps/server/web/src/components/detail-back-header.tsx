@@ -73,7 +73,7 @@ export function DetailBackHeader({
             the column gives each the row's full height to read. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-w-0 shrink truncate">{title}</div>
-          {subtitle ? <div className="min-w-0 truncate text-muted-foreground text-xs">{subtitle}</div> : null}
+          {subtitle ? <div className="min-w-0 truncate text-detail text-muted-foreground">{subtitle}</div> : null}
         </div>
         {actions}
       </header>
@@ -90,7 +90,7 @@ export function DetailBackHeader({
           phone width readably — the path gets its own line under the title. */}
       <div className="flex min-w-0 flex-col">
         <div className="min-w-0 shrink truncate font-strong text-sm">{title}</div>
-        {subtitle ? <div className="min-w-0 truncate text-muted-foreground text-xs">{subtitle}</div> : null}
+        {subtitle ? <div className="min-w-0 truncate text-detail text-muted-foreground">{subtitle}</div> : null}
       </div>
     </header>
   );

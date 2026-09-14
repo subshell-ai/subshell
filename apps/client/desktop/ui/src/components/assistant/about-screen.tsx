@@ -83,8 +83,8 @@ export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined
             <p>Desktop app {data.appVersion}</p>
             {agent && <p className="text-muted-foreground">CLI {agent}</p>}
           </div>
-          <p className="text-muted-foreground text-xs">{data.licenseSummary}</p>
-          <div className="flex flex-wrap items-center justify-center gap-x-3 text-muted-foreground text-xs">
+          <p className="text-muted-foreground text-detail">{data.licenseSummary}</p>
+          <div className="flex flex-wrap items-center justify-center gap-x-3 text-muted-foreground text-detail">
             <AboutLink label="Website" target="website" />
             <span aria-hidden className="text-border">
               ·
@@ -95,7 +95,7 @@ export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined
             </span>
             <AboutLink label={data.company} target="company" />
           </div>
-          <p className="text-muted-foreground text-xs">{data.copyright}</p>
+          <p className="text-muted-foreground text-detail">{data.copyright}</p>
         </div>
       ) : (
         <p className="text-center text-muted-foreground text-sm">Reading…</p>
