@@ -603,7 +603,10 @@ export function AppSidebar({
         {isDesktop() && (
           <button
             type="button"
-            title="Open in browser"
+            // Collapsed only, like every sibling nav row: expanded, the label
+            // is right there and a tooltip repeating it is noise.
+            title={collapsed ? "Open in browser" : undefined}
+            aria-label="Open in browser"
             onClick={() =>
               void desktopInvoke("desktop_open_in_browser", {
                 path: `${location.pathname}${location.searchStr}`,

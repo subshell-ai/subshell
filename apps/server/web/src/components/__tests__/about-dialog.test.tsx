@@ -66,4 +66,24 @@ describe("AboutDialog", () => {
     // programs, which usually carry the same number anyway.
     expect(screen.getByText(/Desktop app 0\.2\.0/)).toBeTruthy();
   });
+
+  /**
+   * Subshell CLIENT is a desktop shell and gets NO "Desktop app" line.
+   *
+   * The line is a pair with the "CLI" line under it — the app, and the
+   * `subshell-server` it bundles — and Subshell Client bundles a node agent
+   * instead. "Desktop app 0.3.0" over "CLI 0.2.0" there would read as a
+   * version skew between two programs that have no relationship.
+   *
+   * Nothing is lost: that app says what it is on its own About screen. And the
+   * gate is `shell?.app === "server"` rather than the mere presence of a
+   * marker, which is exactly what this pins — a `desktopShell() !== null`
+   * check would pass the client straight through.
+   */
+  it("names no desktop app under Subshell Client's marker", () => {
+    renderAbout("Mozilla/5.0 SubshellClient/0.3.0 (linux; p=1)");
+    expect(screen.queryByText(/Desktop app/)).toBeNull();
+    // The CLI line is still the whole truth there, exactly as in a browser.
+    expect(screen.getByText(/CLI 0\.2\.0/)).toBeTruthy();
+  });
 });
