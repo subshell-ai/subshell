@@ -1,7 +1,7 @@
 {
   "name": "@internal/desktop-server",
   "description": "Subshell Server — a Tauri shell that installs, runs and manages a local subshell-server",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,

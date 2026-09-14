@@ -30,7 +30,7 @@
     },
     "apps/client/desktop": {
       "name": "@internal/desktop-client",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/subshell-protocol": "workspace:*",
@@ -99,7 +99,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "dependencies": {
         "@internal/backend-errors": "workspace:*",
         "@internal/mcp-core": "workspace:*",
@@ -119,7 +119,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -164,7 +164,7 @@
     },
     "apps/server/desktop": {
       "name": "@internal/desktop-server",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "@tauri-apps/api": "2.11.1",
@@ -315,7 +315,7 @@
     },
     "packages/plugin-api": {
       "name": "@subshell-ai/plugin-api",
-      "version": "1.0.1",
+      "version": "2.0.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
@@ -326,7 +326,7 @@
     },
     "packages/plugins/claude-code": {
       "name": "@subshell-ai/plugin-claude-code",
-      "version": "1.0.1",
+      "version": "2.0.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -338,7 +338,7 @@
     },
     "packages/plugins/codex": {
       "name": "@subshell-ai/plugin-codex",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -350,7 +350,7 @@
     },
     "packages/plugins/hermes": {
       "name": "@subshell-ai/plugin-hermes",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -362,7 +362,7 @@
     },
     "packages/plugins/opencode": {
       "name": "@subshell-ai/plugin-opencode",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -374,7 +374,7 @@
     },
     "packages/plugins/pi": {
       "name": "@subshell-ai/plugin-pi",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -386,7 +386,7 @@
     },
     "packages/plugins/terminal": {
       "name": "@subshell-ai/plugin-terminal",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
