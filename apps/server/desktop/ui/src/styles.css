@@ -1,14 +1,15 @@
 @import "tailwindcss";
 
 /*
- * Dreamframe (Castorice) — the SPA's ground and accents under the shadcn
- * names every surface uses. What `lint:design` pins are the NAMES (plus the
- * SPA↔client byte-equality), never colour VALUES across surfaces: six here —
- * card, border, primary-foreground, success, warning, destructive — are this
- * page's own near-Dreamframe tuning and drift slightly from the SPA;
- * converging them is an open operator decision. Tailwind supplies this
- * page's spacing and type utilities; it generates NO palette utilities —
- * these tokens are plain custom properties, and `.muted-text` is the one colour class.
+ * Dreamframe (Castorice) — the SPA's palette, VALUE for value, under the
+ * shadcn names every surface uses. `lint:design` pins both: the names across
+ * all three CSS surfaces, and every colour value against the SPA's. Six of
+ * these — card, border, primary-foreground, success, warning, destructive —
+ * were this page's own "near-Dreamframe tuning" until 2026-09-14, which is
+ * exactly the drift the check now refuses: a shared vocabulary with private
+ * values is drift wearing its uniform. Tailwind supplies this page's spacing
+ * and type utilities; it generates NO palette utilities — these tokens are
+ * plain custom properties, and `.muted-text` is the one colour class.
  */
 :root {
   /* Dreamframe (spec 2026-09-03), under the shadcn names every surface uses
@@ -16,15 +17,15 @@
      SPA, and `lint:design` can compare the three files by name. Values are
      unchanged. */
   --background: oklch(0.224 0.035 296);
-  --card: oklch(0.264 0.038 298);
-  --border: oklch(0.34 0.04 300);
+  --card: oklch(0.255 0.032 296);
+  --border: oklch(0.33 0.035 296);
   --foreground: oklch(0.92 0.03 312);
   --muted-foreground: oklch(0.74 0.04 310);
   --primary: oklch(0.75 0.17 322);
-  --primary-foreground: oklch(0.18 0.04 300);
-  --success: oklch(0.74 0.14 155);
-  --warning: oklch(0.8 0.14 80);
-  --destructive: oklch(0.68 0.19 20);
+  --primary-foreground: oklch(0.16 0.05 322);
+  --success: oklch(0.765 0.177 163.223);
+  --warning: oklch(0.828 0.189 84.429);
+  --destructive: oklch(0.65 0.2 25);
   /* The primary button's "sunk plum" gradient (Dreamframe: quiet at the
      component, bright at the token). Named here because `lint:design`
      refuses colour literals outside a token block, and a gradient IS a

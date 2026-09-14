@@ -4,6 +4,7 @@ import {
   COLOR_ROLES,
   contrastProblems,
   contrastRatio,
+  cssColorAgreement,
   findEscapes,
   hexToSrgb,
   MOBILE_SCALE,
@@ -135,6 +136,34 @@ describe("agreementProblems", () => {
     expect(agreementProblems("spa", parseCssTokens(broken), WEB_SCALE)).toEqual([
       expect.stringContaining("destructive"),
     ]);
+  });
+});
+
+describe("cssColorAgreement", () => {
+  const spa = `:root, .dark {\n  --card: oklch(0.255 0.032 296);\n  --success: oklch(0.765 0.177 163.223);\n}`;
+
+  test("is empty when a surface's colour values equal the SPA's", () => {
+    expect(cssColorAgreement(spa, { assistant: spa })).toEqual([]);
+  });
+
+  test("names a role whose VALUE differs, even under the same name", () => {
+    // The gap the first wave left open: the assistant carried six values that
+    // were "near-Dreamframe tuning" under Dreamframe's names, and a check that
+    // compared names only called that agreement. A shared vocabulary with
+    // private values is the drift the system exists to end, wearing its
+    // uniform.
+    const tuned = spa.replace("oklch(0.765 0.177 163.223)", "oklch(0.74 0.14 155)");
+    const problems = cssColorAgreement(spa, { assistant: tuned });
+    expect(problems).toEqual([expect.stringContaining("assistant: --success is oklch(0.74 0.14 155)")]);
+    expect(problems[0]).toContain("oklch(0.765 0.177 163.223)");
+  });
+
+  test("ignores whitespace and a role the SPA itself lacks", () => {
+    const spaced = spa.replace("oklch(0.255 0.032 296)", "oklch( 0.255  0.032 296 )");
+    expect(cssColorAgreement(spa, { client: spaced })).toEqual([]);
+    // A role missing from the SPA is the SPA's own agreement problem, not a
+    // disagreement with it.
+    expect(cssColorAgreement(spa, { client: `${spa}\n:root { --warning: oklch(0.8 0.14 80); }` })).toEqual([]);
   });
 });
 

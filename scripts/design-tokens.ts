@@ -418,12 +418,51 @@ export const CSS_SURFACES: Record<Exclude<Surface, "mobile">, string> = {
 export const MOBILE_TOKENS = "apps/client/mobile/src/lib/tokens.ts";
 
 /** The agreement half of the check, all four surfaces. */
+/**
+ * The three CSS surfaces must agree on colour VALUES, not only names.
+ *
+ * The first wave pinned names across the three files and byte-equality
+ * between SPA and client, and left the assistant free to carry "near-Dreamframe
+ * tuning" under Dreamframe's names — six values, documented in its header as
+ * an open decision. A shared vocabulary with private values is the drift the
+ * system exists to end, wearing its uniform; this closes it. Whitespace is
+ * normalised so `oklch( 0.2  0 0 )` equals `oklch(0.2 0 0)`; a role the SPA
+ * itself lacks is the SPA's own problem (reported by `agreementProblems`) and
+ * is not counted twice here.
+ */
+export function cssColorAgreement(spaCss: string, others: Record<string, string>): string[] {
+  const norm = (v: string) => v.replace(/\s+/g, " ").replace(/\(\s/g, "(").replace(/\s\)/g, ")").trim();
+  const spa = parseCssTokens(spaCss).colors;
+  const problems: string[] = [];
+  for (const [name, css] of Object.entries(others)) {
+    const theirs = parseCssTokens(css).colors;
+    for (const role of COLOR_ROLES) {
+      if (!(role in spa) || !(role in theirs)) continue;
+      if (norm(theirs[role]) !== norm(spa[role])) {
+        problems.push(`${name}: --${role} is ${norm(theirs[role])}, but the SPA's is ${norm(spa[role])}`);
+      }
+    }
+  }
+  return problems;
+}
+
 export async function allAgreement(only?: Surface): Promise<string[]> {
   const problems: string[] = [];
-  for (const [surface, rel] of Object.entries(CSS_SURFACES) as [Exclude<Surface, "mobile">, string][]) {
+  const css = Object.fromEntries(
+    (Object.entries(CSS_SURFACES) as [Exclude<Surface, "mobile">, string][]).map(([surface, rel]) => [
+      surface,
+      readFileSync(join(REPO_ROOT, rel), "utf8"),
+    ]),
+  ) as Record<Exclude<Surface, "mobile">, string>;
+  for (const surface of Object.keys(css) as Exclude<Surface, "mobile">[]) {
     if (only && only !== surface) continue;
-    problems.push(...agreementProblems(surface, parseCssTokens(readFileSync(join(REPO_ROOT, rel), "utf8")), WEB_SCALE));
+    problems.push(...agreementProblems(surface, parseCssTokens(css[surface]), WEB_SCALE));
   }
+  // Values, not just names: the SPA is the source and the other two must
+  // match it. Scoped by --only so a single-surface run reports only its own.
+  const { spa, ...others } = css;
+  const compared = only && only !== "spa" ? { [only]: others[only as Exclude<Surface, "mobile" | "spa">] } : others;
+  if (!only || only !== "mobile") problems.push(...cssColorAgreement(spa, compared as Record<string, string>));
   if (!only || only === "mobile") {
     // Imported, not parsed: tokens.ts is a pure module (no React Native
     // imports), so bun can load it directly and we compare real values.
