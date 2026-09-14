@@ -3,8 +3,19 @@ import { StepDots } from "@/components/setup/step-dots";
 import { Button } from "@/components/ui/button";
 
 export interface SetupAssistantProps {
-  /** Art on a 96px floor: a lucide icon element, or an <img> sized by height. */
-  illustration: ReactNode;
+  /**
+   * Art on a 96px floor: a lucide icon element, or an <img> sized by height.
+   *
+   * OPTIONAL, and every `/setup` screen now omits it. The three that had one
+   * opened with a 72px outline — a key, a bot, a rocket — above a heading
+   * that said the same thing in words, and the box cost 124px (a 96px floor
+   * plus its margin) of a frame a person meets on a laptop. Decorative by
+   * construction: the wrapper is `aria-hidden`, so nothing was announced and
+   * nothing was lost. The prop stays because the frame is one specification
+   * with the native assistant, whose Welcome screen still carries the
+   * wordmark — that art is the product naming itself, which is work.
+   */
+  illustration?: ReactNode;
   title: string;
   subtitle?: string;
   dots: { total: number; done: number; current: number };
@@ -61,12 +72,16 @@ export function SetupAssistant({
   return (
     <div className="grid h-dvh grid-rows-[1fr_72px] bg-background text-foreground">
       <main className="assistant-enter justify-center-safe flex flex-col items-center overflow-auto p-8">
-        <div
-          aria-hidden
-          className="mb-7 flex min-h-24 items-center justify-center text-primary/55 [&_img]:h-16 [&_img]:w-auto [&_svg]:size-[72px]"
-        >
-          {illustration}
-        </div>
+        {/* Rendered only when there IS art: an empty box still reserves its
+            floor and margin, which is the 124px this exists to stop spending. */}
+        {illustration && (
+          <div
+            aria-hidden
+            className="mb-7 flex min-h-24 items-center justify-center text-primary/55 [&_img]:h-16 [&_img]:w-auto [&_svg]:size-[72px]"
+          >
+            {illustration}
+          </div>
+        )}
         <h1 aria-live="polite" className="text-center font-semibold text-[30px] tracking-[-0.01em]">
           {title}
         </h1>

@@ -2,13 +2,12 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { ForbiddenError } from "@/api/auth-guard.js";
 import { harnessInfo } from "@/api/harness-utils.js";
-import { AgentInstallResultSchema } from "@/api/models.js";
 import { resolveSetupActor } from "@/api/setup.route.js";
 import { IS_TEST } from "@/constants.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
-import { type AgentInstallDeps, AgentInstallRefused, installBuiltInAgent } from "@/services/agent-install.service.js";
+import { type AgentInstallDeps, installBuiltInAgent, refuseInstall } from "@/services/agent-install.service.js";
 import { audit } from "@/services/audit.js";
 import { localPluginReports } from "@/services/nodes/local-plugins.js";
 
@@ -64,31 +63,76 @@ export const setupAgentInstallRoute = new Elysia({ prefix: "/api/setup/agents" }
   "/:pluginId/install",
   async ({ request, params, status }) => {
     if ((await resolveSetupActor(request)) !== "admin") throw new ForbiddenError();
-    try {
-      const result = await installBuiltInAgent(params.pluginId, depsOverride);
-      // Best-effort actor id for the audit row; the gate above already
-      // proved a valid admin cookie, so this just reads it back out.
-      const actor = await resolveCookieSession(request.headers.get("cookie") ?? "");
-      await audit({
-        actorUserId: actor?.user.id ?? null,
-        action: "agent.install",
-        targetType: "plugin",
-        targetId: params.pluginId,
-        metadataJson: JSON.stringify({ ok: result.ok, exitCode: result.exitCode, durationMs: result.durationMs }),
-      });
-      const installedHere = (await localPluginReports()).some((r) => r.id === params.pluginId && !r.broken);
-      return { ...result, harness: await harnessInfo(params.pluginId, installedHere) };
-    } catch (err) {
-      if (err instanceof AgentInstallRefused) {
-        return status(err.status, apiErrorBody({ code: codeForRefusalStatus(err.status), message: err.message }));
-      }
-      throw err;
+    // REFUSALS ARE DECIDED BEFORE A BYTE IS STREAMED. Once the body opens the
+    // status is 200 and cannot be taken back, so anything that answers 4xx —
+    // an unknown id, one with no command, one already installing — has to be
+    // settled here rather than discovered mid-stream.
+    const refusal = await refuseInstall(params.pluginId, depsOverride);
+    if (refusal) {
+      return status(
+        refusal.status,
+        apiErrorBody({ code: codeForRefusalStatus(refusal.status), message: refusal.message }),
+      );
     }
+
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        /** One NDJSON frame. A closed stream (the page navigated) must not throw into the installer. */
+        const send = (frame: unknown) => {
+          try {
+            controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`));
+          } catch {
+            // The reader is gone. The install carries on regardless — it is
+            // changing this machine, and abandoning it half-done because
+            // nobody is watching would be worse than finishing unobserved.
+          }
+        };
+        try {
+          const result = await installBuiltInAgent(params.pluginId, depsOverride, (line) =>
+            send({ type: "line", text: line }),
+          );
+          // Best-effort actor id for the audit row; the gate above already
+          // proved a valid admin cookie, so this just reads it back out.
+          const actor = await resolveCookieSession(request.headers.get("cookie") ?? "");
+          await audit({
+            actorUserId: actor?.user.id ?? null,
+            action: "agent.install",
+            targetType: "plugin",
+            targetId: params.pluginId,
+            metadataJson: JSON.stringify({ ok: result.ok, exitCode: result.exitCode, durationMs: result.durationMs }),
+          });
+          const installedHere = (await localPluginReports()).some((r) => r.id === params.pluginId && !r.broken);
+          send({ type: "done", ...result, harness: await harnessInfo(params.pluginId, installedHere) });
+        } catch (err) {
+          // The status line is long gone, so a failure has to arrive as a
+          // FRAME. A client that sees neither `done` nor `error` before the
+          // stream ends treats that as a failure too — see `use-install-agent`.
+          send({ type: "error", message: err instanceof Error ? err.message : "The install failed." });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+    return new Response(body, {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        // Nothing between here and the page may hold these frames back: the
+        // whole point is that they arrive while the installer is still going.
+        "cache-control": "no-store, no-transform",
+        "x-accel-buffering": "no",
+      },
+    });
   },
   {
     params: t.Object({ pluginId: t.String({ description: "Built-in plugin id whose agent CLI to install" }) }),
+    // NO typed 200: this route streams. The body is NDJSON — one
+    // `{"type":"line","text":…}` per line the installer prints, then exactly
+    // one `{"type":"done", …AgentInstallResult, harness}` or
+    // `{"type":"error","message":…}`. `AgentInstallResultSchema` still
+    // describes the `done` frame's payload and is where that shape lives; it
+    // is simply no longer the shape of the whole body.
     response: {
-      200: AgentInstallResultSchema,
       400: "ApiErrorResponse",
       401: "ApiErrorResponse",
       403: "ApiErrorResponse",
@@ -98,7 +142,7 @@ export const setupAgentInstallRoute = new Elysia({ prefix: "/api/setup/agents" }
       operationId: "installSetupAgent",
       tags: ["setup"],
       description:
-        "Runs the official installer of one built-in agent CLI on the control-plane host, as the server's own user. Admin cookie only, never public, audited. ok:false is a run that failed; a 4xx is a refusal before anything ran.",
+        "Runs the official installer of one built-in agent CLI on the control-plane host, as the server's own user. Admin cookie only, never public, audited. STREAMS application/x-ndjson while it runs: a {type:line,text} per line of installer output, then one terminal {type:done,...} carrying ok/exitCode/output/harness, or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened and before anything ran.",
     },
   },
 );

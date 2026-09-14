@@ -64,7 +64,13 @@ export function isAbortError(err: unknown): boolean {
  * anything that is not that shape (a proxy error page, an older body) falls
  * back to the raw text so the `API <status>: <detail>` copy never changes form.
  */
-function parseErrorBody(raw: string): { message: string; code?: string; errId?: string } {
+/**
+ * Exported for the one caller that cannot use {@link apiFetch}: the agent
+ * install streams its 200, so it reads the body itself — but a REFUSAL still
+ * arrives as an ordinary status code with this body, and it should surface as
+ * the same `ApiError` every other call produces.
+ */
+export function parseErrorBody(raw: string): { message: string; code?: string; errId?: string } {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {

@@ -21,6 +21,40 @@ describe("SetupAssistant", () => {
     expect(screen.getByRole("button", { name: "Create Account" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
   });
+  it("reserves NO room for art when a screen has none", () => {
+    // The three /setup screens each opened with a 72px lucide glyph above a
+    // heading that said the same thing in words, in a box costing 124px (a
+    // 96px floor plus its margin) of a frame met on a laptop. An empty box
+    // still reserves that, so the element must be absent rather than blank.
+    const { container } = render(
+      <SetupAssistant
+        title="Create Your Account"
+        dots={dots}
+        primary={{ label: "Create Account", onClick: () => {} }}
+      />,
+    );
+    // `.min-h-24` IS the 96px floor — the thing that reserves the space, so
+    // the thing to assert on. (A broader `[aria-hidden]` also matches the
+    // button icons the frame renders.)
+    expect(container.querySelector(".min-h-24")).toBeNull();
+    // The heading is still the first thing in the frame.
+    expect(screen.getByRole("heading", { name: "Create Your Account" })).toBeTruthy();
+  });
+
+  it("still renders art when a screen passes some", () => {
+    // The frame is one specification with the native assistant, whose Welcome
+    // screen carries the wordmark. Removing the prop would have broken that.
+    render(
+      <SetupAssistant
+        illustration={<img alt="" src="/wordmark.png" />}
+        title="T"
+        dots={dots}
+        primary={{ label: "Continue", onClick: () => {} }}
+      />,
+    );
+    expect(document.querySelector(".min-h-24 img")).toBeTruthy();
+  });
+
   it("shows Back and Skip when given, and a pending label while pending", () => {
     render(
       <SetupAssistant

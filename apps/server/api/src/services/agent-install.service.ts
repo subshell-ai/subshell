@@ -119,9 +119,36 @@ const inFlight = new Set<string>();
  * process's own — the control plane holds `BETTER_AUTH_SECRET` and the
  * database path, which a vendor's install script has no business reading.
  */
+/**
+ * The refusal {@link installBuiltInAgent} would raise before running anything,
+ * or undefined when it would proceed.
+ *
+ * Exported for the STREAMING caller. Once a response body opens, the status
+ * line is already sent and 200 cannot be taken back — so a refusal has to be
+ * decided while a status code is still available, and the checks cannot be
+ * left to discover themselves inside the stream.
+ *
+ * The checks are not duplicated here: `installBuiltInAgent` runs them again
+ * on its own, which is what still makes it safe to call directly. This is the
+ * same question asked earlier, not a second answer to it — and `inFlight` in
+ * particular MUST be re-checked there, since the gap between these two calls
+ * is exactly where a second request would slip in.
+ */
+export async function refuseInstall(
+  id: string,
+  deps: AgentInstallDeps = defaultDeps,
+): Promise<AgentInstallRefused | undefined> {
+  const command = await deps.commandFor(id);
+  if (command === undefined) return new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
+  if (command.trim() === "") return new AgentInstallRefused(`"${id}" has nothing to install`, 400);
+  if (inFlight.has(id)) return new AgentInstallRefused(`"${id}" is already being installed`, 409);
+  return undefined;
+}
+
 export async function installBuiltInAgent(
   id: string,
   deps: AgentInstallDeps = defaultDeps,
+  onLine?: (line: string) => void,
 ): Promise<AgentInstallResult> {
   const command = await deps.commandFor(id);
   if (command === undefined) throw new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
@@ -159,7 +186,7 @@ export async function installBuiltInAgent(
       void stderrReader.cancel().catch(() => {});
     }, deps.timeoutMs);
     try {
-      const [stdout, stderr] = await Promise.all([cap(stdoutReader), cap(stderrReader)]);
+      const [stdout, stderr] = await Promise.all([cap(stdoutReader, onLine), cap(stderrReader, onLine)]);
       const exitCode = await proc.exited;
       const output = [
         stdout,
@@ -191,9 +218,16 @@ export async function installBuiltInAgent(
  * which is what lets the call return AT the deadline rather than when the
  * orphan exits.
  */
-async function cap(reader: { read(): Promise<{ done?: boolean; value?: Uint8Array }> }): Promise<string> {
+async function cap(
+  reader: { read(): Promise<{ done?: boolean; value?: Uint8Array }> },
+  onLine?: (line: string) => void,
+): Promise<string> {
   const chunks: Uint8Array[] = [];
   let size = 0;
+  // Only assembled when someone is listening: the accumulate-and-return
+  // contract above is unchanged for every caller that passes no sink.
+  const decoder = onLine ? new TextDecoder() : null;
+  let pending = "";
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -202,10 +236,22 @@ async function cap(reader: { read(): Promise<{ done?: boolean; value?: Uint8Arra
         chunks.push(value);
         size += value.byteLength;
       }
+      if (decoder && onLine && value !== undefined) {
+        // Chunks are not lines: a read can split one mid-word or carry
+        // several. `stream: true` keeps a multi-byte character whole across
+        // the boundary, and the tail is held until its newline arrives.
+        pending += decoder.decode(value, { stream: true });
+        const lines = pending.split("\n");
+        pending = lines.pop() ?? "";
+        for (const line of lines) onLine(line);
+      }
     }
   } catch {
     // Cancelled by the timeout - return what we have.
   }
+  // A final line with no trailing newline is still a line — an installer that
+  // dies mid-sentence has usually said the most useful thing it will say.
+  if (onLine && pending.trim() !== "") onLine(pending);
   const text = new TextDecoder().decode(Buffer.concat(chunks)).slice(0, OUTPUT_CAP);
   return size > OUTPUT_CAP ? `${text}\n[truncated]` : text;
 }

@@ -176,15 +176,37 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
     expect((await first).status).toBe(200);
   });
 
+  it("refuses BEFORE the body opens, so a refusal is still a status code", async () => {
+    // Once a stream starts the status line is sent and 200 cannot be taken
+    // back — so every refusal has to be decided while a code is still
+    // available. An id this build does not carry is the cheapest one to prove.
+    setAgentInstallDepsForTests({ commandFor: async () => undefined, timeoutMs: 5_000, extraPath: async () => [] });
+    const res = await app.fetch(authedRequest("/api/setup/agents/nope/install", adminCookie, { method: "POST" }));
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("application/json");
+  });
+
   it("200s for the admin, running the fake installer and re-probing the harness", async () => {
     setAgentInstallDepsForTests({ commandFor: async () => "echo ok", timeoutMs: 5_000, extraPath: async () => [] });
     const req = authedRequest(`/api/setup/agents/claude-code/install`, adminCookie, { method: "POST" });
     const res = await app.fetch(req);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; output: string; harness: { id: string } };
-    expect(body.ok).toBe(true);
-    expect(body.output).toContain("ok");
-    expect(body.harness.id).toBe("claude-code");
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    // NDJSON, not one object: the installer's lines arrive while it runs, and
+    // the last frame carries the result the body used to be.
+    const frames = (await res.text())
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .map(
+        (l) =>
+          JSON.parse(l) as { type: string; text?: string; ok?: boolean; output?: string; harness?: { id: string } },
+      );
+    expect(frames.some((f) => f.type === "line" && f.text === "ok")).toBe(true);
+    const done = frames.at(-1);
+    expect(done?.type).toBe("done");
+    expect(done?.ok).toBe(true);
+    expect(done?.output).toContain("ok");
+    expect(done?.harness?.id).toBe("claude-code");
 
     // docs/security.md §11.10: this row is the only durable record that a
     // vendor script ran on the host, since the output is deliberately not

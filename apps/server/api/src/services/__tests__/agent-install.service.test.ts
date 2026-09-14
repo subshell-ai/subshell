@@ -6,6 +6,37 @@ function deps(command: string | undefined, timeoutMs = 5_000) {
 }
 
 describe("installBuiltInAgent", () => {
+  it("reports each line as it arrives, and still returns the whole output", async () => {
+    // The progress the setup screen shows while an installer runs: without
+    // this the page hears nothing until a `curl … | bash` against someone
+    // else's host finishes, which is the difference between a slow install
+    // and a wedged one.
+    const seen: string[] = [];
+    const r = await installBuiltInAgent("claude-code", deps("echo one; echo two >&2; echo three"), (l) => seen.push(l));
+    expect(r.ok).toBe(true);
+    expect(seen.sort()).toEqual(["one", "three", "two"]);
+    // The accumulated text is unchanged — a caller that passes no sink gets
+    // exactly what it always did.
+    expect(r.output).toContain("one");
+    expect(r.output).toContain("two");
+  });
+
+  it("emits a final line that never got its newline", async () => {
+    // An installer killed mid-sentence has usually just said the most useful
+    // thing it will say; holding that back because no "\n" followed loses it.
+    const seen: string[] = [];
+    await installBuiltInAgent("claude-code", deps("printf 'no newline here'"), (l) => seen.push(l));
+    expect(seen).toContain("no newline here");
+  });
+
+  it("does not split a line that arrives in two reads", async () => {
+    // Chunks are not lines. A sink fed raw chunks would report "half" and
+    // "way" as two steps of an install that only had one.
+    const seen: string[] = [];
+    await installBuiltInAgent("claude-code", deps("printf 'half'; sleep 0.2; printf 'way\n'"), (l) => seen.push(l));
+    expect(seen).toEqual(["halfway"]);
+  });
+
   it("runs the command and returns its words", async () => {
     const r = await installBuiltInAgent("claude-code", deps("echo installed; echo warn >&2"));
     expect(r.ok).toBe(true);

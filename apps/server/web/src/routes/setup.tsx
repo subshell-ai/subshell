@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Bot, KeyRound, Rocket } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { AgentRow } from "@/components/setup/agent-row";
@@ -51,8 +50,41 @@ function SetupPage() {
   // is a separate step (Settings → Plugins); this screen only says what's on
   // this host right now, and refreshes on its own so an install made in a
   // terminal beside it shows up without a control.
-  const install = useInstallAgent();
+  /**
+   * The installer's latest line, per agent id.
+   *
+   * Kept out here rather than in the row so it survives the row re-rendering
+   * on every frame, and keyed by id so a second install never shows the
+   * first one's output.
+   */
+  const [installLines, setInstallLines] = useState<Record<string, string>>({});
+  const install = useInstallAgent((id, line) => {
+    // Blank lines are spacing in an installer's output, not progress; showing
+    // one would blank the only thing on screen that was saying anything.
+    if (line.trim() !== "") setInstallLines((prev) => ({ ...prev, [id]: line }));
+  });
   const installingId = install.isPending ? install.variables : undefined;
+  /**
+   * The last install attempt's failure, or undefined when the last one worked.
+   *
+   * Two different failures, said differently: the call itself failing (the
+   * server refused, the network went) is `install.error`, while a command
+   * that RAN and exited non-zero comes back `ok: false` with the installer's
+   * own output — which is the case worth showing, and which used to be
+   * offered as a collapsed "Installer output" with no sentence saying the
+   * install had failed at all.
+   */
+  const installFailure = install.error
+    ? { message: errMessage(install.error, "Couldn't run the installer.") }
+    : install.data && !install.data.ok
+      ? {
+          message:
+            install.data.exitCode === null
+              ? "The installer could not be started."
+              : `The installer exited with code ${install.data.exitCode}.`,
+          output: install.data.output,
+        }
+      : undefined;
   const {
     data: harnesses,
     isLoading: harnessesLoading,
@@ -156,7 +188,6 @@ function SetupPage() {
     return (
       <SetupAssistant
         key={step}
-        illustration={<KeyRound strokeWidth={1.5} />}
         title="Create Your Account"
         subtitle={
           isDesktop()
@@ -224,7 +255,6 @@ function SetupPage() {
     return (
       <SetupAssistant
         key={step}
-        illustration={<Bot strokeWidth={1.5} />}
         title="Add an Agent"
         subtitle="A plain terminal is always available with nothing to install. Add an agent CLI now, or later in Settings."
         dots={dotsFor(1)}
@@ -254,18 +284,15 @@ function SetupPage() {
               harness={h}
               onInstall={(id) => install.mutate(id)}
               installing={installingId === h.id}
+              progress={installLines[h.id]}
+              // A failure belongs to the row that produced it. `variables` is
+              // the id the last mutation ran with, which is what ties the
+              // result back to an agent — the old placement, under the whole
+              // list, named none of them.
+              failure={!install.isPending && install.variables === h.id ? installFailure : undefined}
             />
           ))}
         </ul>
-        {install.data && !install.data.ok && (
-          <details className="mt-4 text-sm">
-            <summary className="cursor-pointer text-muted-foreground">Installer output</summary>
-            <pre className="max-h-48 overflow-auto text-xs">{install.data.output}</pre>
-          </details>
-        )}
-        {install.error && (
-          <p className="mt-4 text-destructive text-sm">{errMessage(install.error, "Failed to install the agent")}</p>
-        )}
         {harnesses !== undefined && !agents.some((h) => h.installed) && (
           <p className="mt-4 text-muted-foreground text-sm">
             Nothing on {here}?{" "}
@@ -281,7 +308,6 @@ function SetupPage() {
   return (
     <SetupAssistant
       key={step}
-      illustration={<Rocket strokeWidth={1.5} />}
       title="Start Your First Subshell"
       subtitle="Everything below is already filled in. Change anything you like."
       dots={dotsFor(2)}
