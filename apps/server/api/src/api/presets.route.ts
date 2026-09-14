@@ -118,19 +118,25 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         );
       }
       const repo = new PresetsRepository(db);
-      const created = await repo.create({
-        id: crypto.randomUUID(),
-        userId: user.id,
-        harnessId: body.harnessId,
-        name: body.name,
-        description: body.description ?? null,
-        envJson: body.env ? JSON.stringify(body.env) : null,
-        flagsJson: body.flags ? JSON.stringify(body.flags) : null,
-        settingsJson: body.settings ? JSON.stringify(body.settings) : null,
-        configIsolation: body.configIsolation ? 1 : 0,
-        restartOnExit: body.restartOnExit ? 1 : 0,
-      });
-      return created;
+      try {
+        return await repo.create({
+          id: crypto.randomUUID(),
+          userId: user.id,
+          harnessId: body.harnessId,
+          name: body.name,
+          description: body.description ?? null,
+          envJson: body.env ? JSON.stringify(body.env) : null,
+          flagsJson: body.flags ? JSON.stringify(body.flags) : null,
+          settingsJson: body.settings ? JSON.stringify(body.settings) : null,
+          configIsolation: body.configIsolation ? 1 : 0,
+          restartOnExit: body.restartOnExit ? 1 : 0,
+        });
+      } catch (err) {
+        if (isDuplicateName(err)) {
+          throw new PresetError("duplicate", `You already have a ${body.harnessId} preset named "${body.name}"`, 409);
+        }
+        throw err;
+      }
     },
     {
       body: CreatePresetBodySchema,
@@ -244,15 +250,25 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       if (!existing || existing.userId !== user.id) {
         throw new PresetError("not_found", "Preset not found");
       }
-      const updated = await repo.update(params.id, {
-        name: body.name ?? existing.name,
-        description: body.description ?? existing.description,
-        envJson: body.env ? JSON.stringify(body.env) : existing.envJson,
-        flagsJson: body.flags ? JSON.stringify(body.flags) : existing.flagsJson,
-        settingsJson: body.settings ? JSON.stringify(body.settings) : existing.settingsJson,
-        configIsolation: body.configIsolation !== undefined ? (body.configIsolation ? 1 : 0) : existing.configIsolation,
-        restartOnExit: body.restartOnExit !== undefined ? (body.restartOnExit ? 1 : 0) : existing.restartOnExit,
-      });
+      const name = body.name ?? existing.name;
+      let updated: Awaited<ReturnType<typeof repo.update>>;
+      try {
+        updated = await repo.update(params.id, {
+          name,
+          description: body.description ?? existing.description,
+          envJson: body.env ? JSON.stringify(body.env) : existing.envJson,
+          flagsJson: body.flags ? JSON.stringify(body.flags) : existing.flagsJson,
+          settingsJson: body.settings ? JSON.stringify(body.settings) : existing.settingsJson,
+          configIsolation:
+            body.configIsolation !== undefined ? (body.configIsolation ? 1 : 0) : existing.configIsolation,
+          restartOnExit: body.restartOnExit !== undefined ? (body.restartOnExit ? 1 : 0) : existing.restartOnExit,
+        });
+      } catch (err) {
+        if (isDuplicateName(err)) {
+          throw new PresetError("duplicate", `You already have a ${existing.harnessId} preset named "${name}"`, 409);
+        }
+        throw err;
+      }
       if (!updated) throw new PresetError("not_found", "Preset not found");
       return updated;
     },
@@ -304,6 +320,17 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       },
     },
   );
+
+/**
+ * Elevates the unique-index violation on `(user_id, harness_id, name)` to a
+ * 409 — the same shape `workspaces.service.ts` uses for its own label index
+ * (spec 2026-09-13 follow-up, migration 0028). Caught rather than
+ * pre-checked: a SELECT-then-INSERT is a race, and the index is the thing
+ * that is actually true.
+ */
+function isDuplicateName(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("UNIQUE");
+}
 
 /** Route error with an HTTP status; Elysia maps `status` to the response code. */
 class PresetError extends Error {

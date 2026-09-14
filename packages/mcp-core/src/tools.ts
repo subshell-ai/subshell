@@ -227,9 +227,13 @@ export async function createSubshell(
     // Scope the lookup to the harness: preset names are only unique per harness.
     const presets = await deps.api.req<PresetRow[]>("/api/presets", { query: { harnessId: args.harness } });
     const want = args.preset.toLowerCase();
-    // The name is the agent's addressing key, and no unique index enforces
-    // it — so a tie is REFUSED, never silently won by whichever row sorts
-    // first. Launching the wrong preset writes the wrong credential layer.
+    // The name is the agent's addressing key, so a tie is REFUSED, never
+    // silently won by whichever row sorts first — launching the wrong preset
+    // writes the wrong credential layer. Migration 0028 made the tie
+    // unreachable on a current instance (a NOCASE unique index), and this
+    // stays anyway: the lookup runs over whatever list the SERVER returned,
+    // which may be an older instance, and a client cannot check another
+    // machine's constraints.
     //
     // Exact spelling wins outright before the tie is even considered: with
     // `Dev` and `DEV` both present, asking for `Dev` names ONE row and the

@@ -16,12 +16,16 @@ export interface PresetTable {
   /** Harness plugin id this preset applies to, e.g. "claude-code" */
   harnessId: string;
   /**
-   * Human-friendly preset name. NOT unique: `idx_presets_user_harness` is a
-   * lookup index, not a constraint, and create performs no duplicate check, so
-   * one user can hold two presets with the same name for one harness. Anything
-   * that ADDRESSES a preset by name (the MCP tools) must therefore refuse a
-   * tie rather than take the first row — launching the wrong preset writes the
-   * wrong credential layer.
+   * Human-friendly preset name, UNIQUE per (user, harness) and
+   * case-insensitively so — `idx_presets_user_harness_name`, a NOCASE unique
+   * index (migration 0028); create and rename answer 409 on a collision, as
+   * workspaces do for their own label.
+   *
+   * `0001-init.ts` claimed this invariant while enforcing nothing, which is
+   * how the MCP's name lookup came to pick whichever row sorted first. That
+   * lookup still refuses a tie rather than trusting this line: it runs
+   * against whatever list the server returns, and a guarantee held by an
+   * index on another machine is not one the caller can check.
    */
   name: string;
   /** Optional longer description */

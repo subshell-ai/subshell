@@ -416,6 +416,38 @@ describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
     expect((await repo.findById(id))?.name).toBe("put-stray");
   });
 
+  it("renaming onto a name the caller already uses is 409, and nothing lands", async () => {
+    // The rename half of the unique index (migration 0028). A 200 here would
+    // produce two presets a picker renders identically.
+    const first = await seedUpdatable("rename-target");
+    const second = await seedUpdatable("rename-source");
+    const res = await app.fetch(
+      authedRequest(`/api/presets/${second}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ name: "RENAME-TARGET" }), // case-insensitive, as the index is
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { message: string }).message).toMatch(/already have a claude-code preset named/i);
+    // The failed rename left both rows exactly as they were.
+    expect((await repo.findById(second))?.name).toBe("rename-source");
+    expect((await repo.findById(first))?.name).toBe("rename-target");
+  });
+
+  it("renaming a preset to its OWN name is not a collision with itself", async () => {
+    // The row is being updated, not inserted beside itself — a naive
+    // SELECT-then-reject would fail this.
+    const id = await seedUpdatable("rename-idempotent");
+    const res = await app.fetch(
+      authedRequest(`/api/presets/${id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ name: "rename-idempotent", description: "touched" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect((await repo.findById(id))?.description).toBe("touched");
+  });
+
   it("PUT body carrying harnessId is refused 400 — a preset's harness is fixed at create", async () => {
     // "Move this preset to another agent" used to answer 200 with NOTHING
     // changed (the handler never read harnessId from the partial-create
@@ -615,6 +647,32 @@ describe("preset availability is the instance store (list + create)", () => {
     const { status } = await createClaudePreset("while-uninstalled");
     expect(status).toBe(409);
     await installLocalPlugin("claude-code");
+  });
+
+  it("409s a second preset with the same name for the same agent (any case)", async () => {
+    // Migration 0028's create half. Two same-named presets for one agent are
+    // indistinguishable in every picker, and the name is how the MCP
+    // addresses one — so the duplicate is refused rather than accepted and
+    // disambiguated later.
+    expect((await createClaudePreset("dup-name")).status).toBe(200);
+    const second = await createClaudePreset("DUP-NAME");
+    expect(second.status).toBe(409);
+    expect(second.message).toBe('You already have a claude-code preset named "DUP-NAME"');
+  });
+
+  it("the same name on ANOTHER agent is not a collision", async () => {
+    // The index is scoped to (user, harness): one "Dev" per agent is the
+    // shape a user with several agents actually wants.
+    expect((await createClaudePreset("cross-agent")).status).toBe(200);
+    const res = await app.fetch(
+      authedRequest("/api/presets", cookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "terminal", name: "cross-agent" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string };
+    createdPresetIds.push(body.id);
   });
 
   it("400s an id no plugin answers at all — getHarness still runs FIRST", async () => {

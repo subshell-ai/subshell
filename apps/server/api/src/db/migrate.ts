@@ -27,6 +27,7 @@ import * as dropNodeHarnessesMigration from "@/db/migrations/0024-drop-node-harn
 import * as dropHarnessPluginsMigration from "@/db/migrations/0025-drop-harness-plugins.js";
 import * as dropNodePluginsMigration from "@/db/migrations/0026-drop-node-plugins.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
+import * as presetNameUniqueMigration from "@/db/migrations/0028-preset-name-unique.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -69,6 +70,7 @@ export async function runMigrations(): Promise<void> {
           // Profiles become presets: pin and Default flag out, nullable
           // `subshells.preset_id` in (spec 2026-09-13 §6).
           "0027-presets": presetsMigration,
+          "0028-preset-name-unique": presetNameUniqueMigration,
         };
       },
     },
