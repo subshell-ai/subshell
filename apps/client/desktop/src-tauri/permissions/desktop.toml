@@ -75,8 +75,6 @@ identifier = "allow-node-settings"
 description = "Read the app's own preferences."
 commands.allow = ["node_settings"]
 
-["node_set_close_to_tray"]
-
 [[permission]]
 identifier = "allow-node-open-plane"
 description = "Open the window showing a control plane's own UI, and remember its address. Validated http/https only. That window holds exactly ONE command of its own, allow-desktop-open-in-browser, which takes a path and can name no host; nothing that drives the CLI is reachable from it."
