@@ -63,8 +63,10 @@
 
   /* Emphasis surfaces the role palette has no name for: the sunk-plum
      primary-button gradient, the sidebar's active-nav gradient and the
-     "view + edit" share chip. Lifted out of component literals 2026-09-14 so
-     every colour in the product has exactly one home. */
+     "view + edit" share chip. Lifted out of component literals 2026-09-14,
+     so every value named here lives in a token. Not the whole product yet:
+     some badges still use named Tailwind palette classes (emerald/amber) —
+     a § 8 follow-on, not one home. */
   --button-primary-from: oklch(0.34 0.1 322);
   --button-primary-to: oklch(0.4 0.1 340);
   --button-primary-hover-from: oklch(0.4 0.11 322);
@@ -109,7 +111,7 @@
   --radius-xl: calc(var(--radius) + 4px);
   /* Type roles (design-system.md § Type; spec 2026-09-14 § 3.1). Tailwind v4
      generates `text-<role>` from `--text-<role>` and reads the matching
-     `--text-<role>--line-height`, so these six lines ARE the utilities. Two
+     `--text-<role>--line-height`, so these twelve lines make the utilities. Two
      weights only: `font-strong` and `font-regular`. `--text-sm` and `--text-xs`
      are pinned to exact px so Tailwind's defaults (0.875rem, 0.75rem — the same
      numbers at a 16px root, but only by coincidence) become `body` and `caption`

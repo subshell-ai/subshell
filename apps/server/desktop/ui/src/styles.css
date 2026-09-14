@@ -1,17 +1,14 @@
 @import "tailwindcss";
 
 /*
- * Dreamframe (Castorice) — the same ground and accents apps/server/web
- * paints. The values are copied verbatim from `apps/server/web/src/styles.css`
- * and the names are the shadcn ones every surface uses (both halves pinned by
- * `lint:design`), so the setup assistant's native screens and the SPA's
- * screens do not visibly change palette at the handoff between them. (The
- * Continue button also copies that file's `button.tsx` gradient directly,
- * below.) Tailwind still provides this page's spacing and type utilities; it
- * generates NO palette utilities here — these tokens are plain custom
- * properties, and one `.muted-text` class replaced the last colour utility.
- * A future revamp restates these tokens and everything above them follows;
- * that is the reason this file names colors instead of hard-coding them.
+ * Dreamframe (Castorice) — the SPA's ground and accents under the shadcn
+ * names every surface uses. What `lint:design` pins are the NAMES (plus the
+ * SPA↔client byte-equality), never colour VALUES across surfaces: six here —
+ * card, border, primary-foreground, success, warning, destructive — are this
+ * page's own near-Dreamframe tuning and drift slightly from the SPA;
+ * converging them is an open operator decision. Tailwind supplies this
+ * page's spacing and type utilities; it generates NO palette utilities —
+ * these tokens are plain custom properties, and `.muted-text` is the one colour class.
  */
 :root {
   /* Dreamframe (spec 2026-09-03), under the shadcn names every surface uses
