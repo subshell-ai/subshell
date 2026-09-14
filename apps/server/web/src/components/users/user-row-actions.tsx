@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch, errMessage } from "@/lib/api";
+import { passwordTooShort } from "@/lib/password";
 import type { UserRole } from "@/types/user-role";
 
 /**
@@ -195,7 +196,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
                 <Button variant="ghost" onClick={closeReset} disabled={busy}>
                   Cancel
                 </Button>
-                <Button onClick={() => void resetPassword()} disabled={busy || password.trim().length < 8}>
+                <Button onClick={() => void resetPassword()} disabled={busy || passwordTooShort(password.trim())}>
                   Reset and sign out
                 </Button>
               </>

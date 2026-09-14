@@ -20,7 +20,9 @@ import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { isServerDesktop } from "@/lib/desktop";
+import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -198,7 +200,7 @@ function SetupPage() {
         primary={{
           label: "Create Account",
           onClick: () => void register(),
-          disabled: busy || !name || !email || password.length < 8 || confirmPassword !== password,
+          disabled: busy || !name || !email || passwordTooShort(password) || confirmPassword !== password,
           pending: busy,
           pendingLabel: "Creating account…",
         }}
@@ -224,10 +226,25 @@ function SetupPage() {
               id="password"
               type="password"
               required
-              minLength={8}
+              minLength={MIN_PASSWORD_LENGTH}
+              aria-describedby="password-requirement"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+            {/* The requirement, stated BEFORE it is broken. Create Account is
+                disabled until it is met, and with nothing here that button was
+                simply grey with no way to learn why. It goes red only once
+                something has been typed — red under an empty box is telling
+                someone off for not having started. */}
+            <p
+              id="password-requirement"
+              className={cn(
+                "text-detail",
+                password.length > 0 && passwordTooShort(password) ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {PASSWORD_REQUIREMENT}
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="password-confirm">Confirm password</Label>
@@ -235,7 +252,7 @@ function SetupPage() {
               id="password-confirm"
               type="password"
               required
-              minLength={8}
+              minLength={MIN_PASSWORD_LENGTH}
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -243,7 +260,7 @@ function SetupPage() {
             />
           </div>
           {confirmTouched && confirmPassword !== password && (
-            <p className="text-destructive text-sm">Passwords do not match</p>
+            <p className="text-destructive text-detail">Passwords do not match</p>
           )}
           {regError && <p className="text-destructive text-sm">{regError}</p>}
         </form>

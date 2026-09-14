@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
+import { passwordTooShort } from "@/lib/password";
 
 /**
  * Change-password as a standalone card (spec 2026-09-02 settings-split §1.2) —
@@ -21,7 +22,7 @@ export function ChangePasswordCard() {
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
-    if (newPassword.length < 8) {
+    if (passwordTooShort(newPassword)) {
       setPwError("New password must be at least 8 characters");
       return;
     }
