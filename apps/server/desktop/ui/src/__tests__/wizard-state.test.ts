@@ -391,10 +391,12 @@ describe("autostartSupported", () => {
   it("refuses a server older than the verbs", () => {
     expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: "0.2.0" } }))).toBe(false);
     expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: "0.1.9" } }))).toBe(false);
+    // The npm-only bumps between the last cut and the one that ships the verbs.
+    expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version: "0.4.0" } }))).toBe(false);
   });
 
   it("accepts the version it shipped in, and anything after", () => {
-    for (const version of [MIN_AUTOSTART_SERVER_VERSION, "0.3.1", "1.0.0"]) {
+    for (const version of [MIN_AUTOSTART_SERVER_VERSION, "0.5.1", "1.0.0"]) {
       expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version } }))).toBe(true);
     }
   });

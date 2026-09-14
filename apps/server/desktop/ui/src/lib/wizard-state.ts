@@ -334,8 +334,13 @@ export function setupRows(
  * installed copy, and a machine set up before this release has one. Offering
  * a login choice such a server will refuse would be a checkbox that silently
  * does nothing, so the surfaces that depend on those verbs say why instead.
+ *
+ * No GitHub release of the server has carried the verbs yet (the last cut was
+ * `server-v0.2.0`; 0.3.0 and 0.4.0 were npm-only version bumps), so this names
+ * the release that WILL: 0.5.0, the next server minor. The test beside it
+ * (`wizard-state.test.ts`) turns red the moment a server bump moves past it.
  */
-export const MIN_AUTOSTART_SERVER_VERSION = "0.3.0";
+export const MIN_AUTOSTART_SERVER_VERSION = "0.5.0";
 
 /** Whether the resolved server is new enough to control start-at-login. */
 export function autostartSupported(probe: Probe): boolean {
