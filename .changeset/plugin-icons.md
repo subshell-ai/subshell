@@ -13,4 +13,6 @@ Harnesses show their real marks instead of an emoji. `subshell.icon` now names
 an image file inside the plugin package rather than a glyph, each built-in
 ships its vendor's own logo, and the control plane serves it at
 `GET /api/plugins/<id>/icon`. A plugin that declares no icon renders a
-monogram.
+monogram. The mark shows wherever a harness is listed: first-run setup, the
+agent picker, Settings → Plugins (installed and catalog alike) and a node's
+harness list.
