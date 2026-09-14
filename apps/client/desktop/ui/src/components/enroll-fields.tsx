@@ -47,7 +47,7 @@ export function EnrollFields({ form, busy }: { form: EnrollForm; busy: boolean }
               autoCorrect="off"
             />
             {note && (
-              <p className={cn("mt-1 text-[11.5px] leading-normal", error ? "text-destructive" : "text-warning")}>
+              <p className={cn("mt-1 text-caption leading-normal", error ? "text-destructive" : "text-warning")}>
                 {note}
               </p>
             )}

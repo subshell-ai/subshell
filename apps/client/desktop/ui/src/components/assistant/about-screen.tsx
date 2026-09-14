@@ -80,7 +80,7 @@ export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined
                 ("About Subshell Client"); repeating it would spend the line
                 that should say which of the two programs the number belongs
                 to. */}
-            <p className="font-medium">Desktop app {data.appVersion}</p>
+            <p>Desktop app {data.appVersion}</p>
             {agent && <p className="text-muted-foreground">CLI {agent}</p>}
           </div>
           <p className="text-muted-foreground text-xs">{data.licenseSummary}</p>

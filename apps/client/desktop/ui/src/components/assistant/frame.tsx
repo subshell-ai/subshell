@@ -71,8 +71,8 @@ export function Frame(props: {
               {icon}
             </div>
           )}
-          <h1 className="mt-6 text-center font-semibold text-[30px] leading-tight tracking-[-0.01em]">{title}</h1>
-          {subtitle && <p className="mt-2 text-center text-[15px] text-muted-foreground leading-normal">{subtitle}</p>}
+          <h1 className="mt-6 text-center font-strong text-display leading-tight tracking-[-0.01em]">{title}</h1>
+          {subtitle && <p className="mt-2 text-center text-body text-muted-foreground leading-normal">{subtitle}</p>}
           {/*
            * Above the content rather than below it: the problem is why the
            * screen still looks like this, so it has to be read before the

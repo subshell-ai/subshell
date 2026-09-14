@@ -59,7 +59,7 @@ export function DetailsDisclosure(props: {
           aria-live="polite"
           className={cn(
             "mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-background px-3 py-2.5",
-            "font-mono text-[11.5px] leading-relaxed",
+            "font-mono text-caption leading-relaxed",
             output?.ok === false && "border-destructive",
           )}
         >
