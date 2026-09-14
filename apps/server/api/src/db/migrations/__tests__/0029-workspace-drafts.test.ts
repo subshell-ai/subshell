@@ -73,6 +73,46 @@ describe("migration 0029-workspace-drafts", () => {
     expect(r.rows[0].n).toBe(2);
   });
 
+  // The repository's `update` wrote `datetime('now')` — `2026-09-13 10:00:00` —
+  // while `create` and the default wrote ISO. A space sorts below a `T`, so
+  // every renamed workspace sorted as the oldest one owned. The writer is
+  // fixed; this is the migration fixing the rows it already wrote.
+  it("rewrites the space-form updated_at the old repository wrote, and leaves ISO rows alone", async () => {
+    const file = `/tmp/subshell-0029-stamp-${Math.random().toString(36).slice(2)}.db`;
+    const fresh = new Kysely<MigrationDatabase>({
+      dialect: new BunSqliteDialect({ database: openSqliteDatabase(file) }),
+    });
+    try {
+      await initMigration.up(fresh);
+      await remoteOpsMigration.up(fresh);
+      await workspacesMigration.up(fresh);
+      await profileDefaultFlagMigration.up(fresh);
+      await nodesMigration.up(fresh);
+      await subshellRenameMigration.up(fresh);
+      await fresh
+        .insertInto("workspaces")
+        .values({ id: "old", user_id: "u1", name: "old", layout_json: null, updated_at: "2026-09-13 10:00:00" })
+        .execute();
+      await fresh
+        .insertInto("workspaces")
+        .values({ id: "iso", user_id: "u1", name: "iso", layout_json: null, updated_at: "2026-09-13T11:00:00.000Z" })
+        .execute();
+      await workspaceDraftsMigration.up(fresh);
+      const rows = await sql<{
+        id: string;
+        updated_at: string;
+      }>`SELECT id, updated_at FROM workspaces ORDER BY id`.execute(fresh);
+      expect(rows.rows).toEqual([
+        { id: "iso", updated_at: "2026-09-13T11:00:00.000Z" },
+        { id: "old", updated_at: "2026-09-13T10:00:00Z" },
+      ]);
+      // And the point of it: the renamed row now sorts by when it was touched.
+      expect("2026-09-13T10:00:00Z" < "2026-09-13T11:00:00.000Z").toBe(true);
+    } finally {
+      await fresh.destroy();
+    }
+  });
+
   it("defaults existing rows to saved", async () => {
     // The column is NOT NULL DEFAULT 0, so a row written by code that predates
     // the flag (or by a caller that omits it) is a saved workspace.

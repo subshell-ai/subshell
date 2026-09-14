@@ -108,6 +108,26 @@ export interface WorkspaceDetail {
  */
 export class WorkspacesService extends BaseService {
   /**
+   * The ONE rule for which subshell a pane may hold: any the caller can SEE —
+   * their own or one shared to them (spec 2026-08-31 §4.3). Invisible (absent
+   * or unshared) is a 404, so neither endpoint ever confirms another user's
+   * subshell id. Shared by create-with-pane and add-pane so the two cannot
+   * drift; one of them is what keeps a draft from holding a subshell the caller
+   * could not otherwise reach.
+   * @throws WorkspacesError 404
+   */
+  private async requireVisibleSubshell(userId: string, subshellId: string): Promise<void> {
+    const { row, access } = await loadSubshellAccess(
+      { subshells: this.repos.subshells, shares: this.repos.subshellShares, userMeta: this.repos.userMeta },
+      userId,
+      subshellId,
+    );
+    if (!row || !accessAtLeast(access, "view")) {
+      throw new WorkspacesError("not_found", "Subshell not found", 404);
+    }
+  }
+
+  /**
    * Creates a workspace for the caller, optionally with its first pane already
    * in it — the shape "split this subshell into a workspace" needs, so the
    * browser lands on a dock that already holds the subshell it came from.
@@ -143,16 +163,7 @@ export class WorkspacesService extends BaseService {
   }): Promise<WorkspaceResponse> {
     // Before the insert: a refusal here must leave no workspace row behind, and
     // it is the same check `addWorkspacePane` applies (spec 2026-08-31 §4.3).
-    if (subshellId !== undefined) {
-      const { row, access } = await loadSubshellAccess(
-        { subshells: this.repos.subshells, shares: this.repos.subshellShares, userMeta: this.repos.userMeta },
-        userId,
-        subshellId,
-      );
-      if (!row || !accessAtLeast(access, "view")) {
-        throw new WorkspacesError("not_found", "Subshell not found", 404);
-      }
-    }
+    if (subshellId !== undefined) await this.requireVisibleSubshell(userId, subshellId);
 
     let created: WorkspaceTable;
     try {
@@ -311,17 +322,7 @@ export class WorkspacesService extends BaseService {
     const workspace = await this.repos.workspaces.findByIdForUser(workspaceId, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
 
-    // A pane may reference any subshell the caller can SEE — their own or one
-    // shared to them (spec 2026-08-31 §4.3). Invisible (absent or unshared) is
-    // a 404, so the endpoint never confirms another user's subshell id.
-    const { row, access } = await loadSubshellAccess(
-      { subshells: this.repos.subshells, shares: this.repos.subshellShares, userMeta: this.repos.userMeta },
-      userId,
-      subshellId,
-    );
-    if (!row || !accessAtLeast(access, "view")) {
-      throw new WorkspacesError("not_found", "Subshell not found", 404);
-    }
+    await this.requireVisibleSubshell(userId, subshellId);
 
     const panesRepo = this.repos.workspacePanes;
     const created = await panesRepo.create({

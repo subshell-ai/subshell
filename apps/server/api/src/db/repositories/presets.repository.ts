@@ -39,7 +39,11 @@ export class PresetsRepository extends BaseRepository {
   async update(id: string, update: PresetUpdate): Promise<PresetTable | undefined> {
     await this.db
       .updateTable("presets")
-      .set({ ...update, updatedAt: sql`(datetime('now'))` })
+      // The SAME format as the column default and `create`: `datetime('now')`
+      // yields `2026-09-14 10:00:00`, which sorts BELOW every ISO row under
+      // string comparison. Nothing orders presets by this column today; the
+      // workspaces twin of this line did, and shipped the bug (2026-09-14).
+      .set({ ...update, updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` })
       .where("id", "=", id)
       .execute();
     return this.findById(id);

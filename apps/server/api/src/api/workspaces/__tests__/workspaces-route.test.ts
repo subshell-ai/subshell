@@ -510,6 +510,21 @@ describe("workspaces route", () => {
       expect(await listIds(token)).toContain(draftId);
     });
 
+    // Promotion is the ONLY transition. The schema says `t.Literal(false)`;
+    // this is what fails if it is ever loosened to a boolean.
+    it("PUT { draft: true } is refused — a saved workspace never becomes a draft", async () => {
+      const token = await signIn(ownerEmail, password);
+      const saved = await createWorkspace(token, `saved-${crypto.randomUUID().slice(0, 8)}`);
+      const res = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${saved}`, token, { method: "PUT", body: JSON.stringify({ draft: true }) }),
+      );
+      expect(res.status).toBe(422);
+      const after = (await (await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${saved}`, token))).json()) as {
+        workspace: { draft: boolean };
+      };
+      expect(after.workspace.draft).toBe(false);
+    });
+
     it("removing a pane from a two-pane draft deletes the draft", async () => {
       const token = await signIn(ownerEmail, password);
       const first = await makeSubshell(ownerId);

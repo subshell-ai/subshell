@@ -162,3 +162,24 @@ describe("PluginStateRepository (absent row means enabled)", () => {
     expect(await repo.isEnabled(id)).toBe(true); // back to the absent-row default
   });
 });
+
+describe("PresetsRepository.update", () => {
+  // The workspaces twin of this line wrote `datetime('now')` and every renamed
+  // workspace sorted as the oldest one owned; this pins the ISO form here so
+  // the same defect cannot arrive the day something orders presets by recency.
+  it("stamps updated_at in the ISO form the column default uses", async () => {
+    const created = await presets.create({
+      id: crypto.randomUUID(),
+      userId: `stamp-${crypto.randomUUID().slice(0, 8)}`,
+      harnessId: "claude-code",
+      name: "stamp",
+      description: null,
+      envJson: null,
+      flagsJson: null,
+      settingsJson: null,
+      configIsolation: 0,
+    } as NewPreset);
+    const updated = await presets.update(created.id, { name: "stamped" });
+    expect(updated?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/);
+  });
+});

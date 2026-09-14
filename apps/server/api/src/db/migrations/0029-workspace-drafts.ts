@@ -48,6 +48,21 @@ export async function up(db: Kysely<any>): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_user_name
     ON workspaces (user_id, name) WHERE draft = 0
   `.execute(db);
+
+  // Backfill a stamp the repository wrote wrong. `WorkspacesRepository.update`
+  // used `datetime('now')`, which yields `2026-09-13 10:00:00`, while `create`
+  // and the column default write `2026-09-13T10:00:00.000Z`. A space sorts
+  // BELOW a `T`, so every workspace anyone had ever renamed or re-laid-out
+  // sorted as the oldest thing they owned — in the sidebar's recents and in
+  // the new `?subshellId=` order alike. The writer is fixed beside this
+  // migration; the rows it already wrote are fixed here, since this is the
+  // migration already rewriting the table. Only `updated_at` ever took the
+  // bad form. Idempotent: a `Z`-suffixed value is left alone.
+  await sql`
+    UPDATE workspaces
+    SET updated_at = replace(updated_at, ' ', 'T') || 'Z'
+    WHERE updated_at NOT LIKE '%Z'
+  `.execute(db);
 }
 
 /**
