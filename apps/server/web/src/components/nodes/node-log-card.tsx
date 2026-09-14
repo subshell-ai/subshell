@@ -72,7 +72,19 @@ function levelClass(level: string): string {
  * card's rule, and what lets a person scroll up to read something without the
  * next poll yanking them away from it.
  */
-export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
+export function NodeLogCard({
+  node,
+  /**
+   * How often the tail asks, in ms. A prop only so tests can drive it fast —
+   * the same reason `TrustNoticeBanner` takes `visibleMs`. Waiting a real
+   * second for a real interval left its tests a 4x margin, which 34-way
+   * parallel `turbo test` eats; at 20ms the same assertion has 200x.
+   */
+  pollMs = POLL_MS,
+}: {
+  node: NodeDetail;
+  pollMs?: number;
+}): JSX.Element {
   const read = useNodeLogSlice(node.id);
   const setDebug = useSetNodeLogging(node.id);
   const logging = node.runtime?.logging;
@@ -121,7 +133,7 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
     const start = () => {
       if (timer !== undefined) return;
       void pull();
-      timer = setInterval(() => void pull(), POLL_MS);
+      timer = setInterval(() => void pull(), pollMs);
     };
     const stop = () => {
       if (timer !== undefined) clearInterval(timer);
@@ -135,7 +147,7 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [pull, paused]);
+  }, [pull, paused, pollMs]);
 
   // Re-pin after every poll. `text` IS the dependency, and it is READ in the
   // body so the exhaustive-deps fixer cannot decide otherwise and quietly turn

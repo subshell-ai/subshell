@@ -29,15 +29,22 @@ export const SERVER_LOG_DEFAULT_LINES = 200;
  * @param enabled - true only once the server has confirmed this viewer is an admin
  * @param opts - `paused` stops the poll; `lines` is how many to ask for (the route clamps to 1..1000)
  */
+/** The tail's cadence. A parameter only so tests can drive it fast — see `NodeLogCard`'s `pollMs`. */
+export const SERVER_LOG_POLL_MS = 1_000;
+
 export function useServerLogs(
   enabled: boolean,
-  { paused = false, lines = SERVER_LOG_DEFAULT_LINES }: { paused?: boolean; lines?: number } = {},
+  {
+    paused = false,
+    lines = SERVER_LOG_DEFAULT_LINES,
+    pollMs = SERVER_LOG_POLL_MS,
+  }: { paused?: boolean; lines?: number; pollMs?: number } = {},
 ) {
   return useQuery({
     queryKey: [...SERVER_LOGS_QUERY_KEY, lines],
     queryFn: () => apiFetch<ServerLogs>(`/api/admin/server/logs?lines=${lines}`),
     enabled,
-    refetchInterval: paused ? false : 1_000,
+    refetchInterval: paused ? false : pollMs,
     // Matched to the interval: above it, a remount would render a tail older
     // than the cadence the card promises.
     staleTime: 1_000,

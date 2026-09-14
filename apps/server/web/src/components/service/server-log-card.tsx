@@ -43,9 +43,18 @@ const STICK_SLACK_PX = 24;
  * hold still. Scroll-stick alone does not cover that — it keeps the viewport
  * put, while the lines under it keep changing.
  */
-export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabled: boolean }) {
+export function ServerLogCard({
+  view,
+  enabled,
+  /** The tail's cadence, in ms. A prop only so tests can drive it fast (see `useServerLogs`). */
+  pollMs,
+}: {
+  view: ServerDeployment;
+  enabled: boolean;
+  pollMs?: number;
+}) {
   const [paused, setPaused] = useState(false);
-  const logs = useServerLogs(enabled, { paused });
+  const logs = useServerLogs(enabled, { paused, pollMs });
   const setDebug = useSetDebugLogging();
   const scroller = useRef<HTMLElement | null>(null);
   const stuck = useRef(true);

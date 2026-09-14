@@ -45,7 +45,10 @@ function renderCard(view: ServerDeployment) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ServerLogCard view={view} enabled />
+      {/* 20ms, not the production second — see NodeLogCard's test: the
+          assertion is that the tail polls, and a real-second wait is what
+          made these flake under parallel load. */}
+      <ServerLogCard view={view} enabled pollMs={20} />
     </QueryClientProvider>,
   );
 }
@@ -92,7 +95,7 @@ describe("ServerLogCard", () => {
     renderCard(deploymentView());
 
     // It polls: a second ask arrives with nobody pressing anything.
-    await waitFor(() => expect(calls()).toBeGreaterThan(1), { timeout: 4_000 });
+    await waitFor(() => expect(calls()).toBeGreaterThan(1), { timeout: 2_000 });
 
     const pause = screen.getByRole("button", { name: /Pause/ });
     // The NAME carries the state, and `aria-pressed` is deliberately absent:
@@ -111,7 +114,7 @@ describe("ServerLogCard", () => {
     // one that never stopped it.
     const whilePaused = calls();
     fireEvent.click(screen.getByRole("button", { name: /Resume/ }));
-    await waitFor(() => expect(calls()).toBeGreaterThan(whilePaused), { timeout: 4_000 });
+    await waitFor(() => expect(calls()).toBeGreaterThan(whilePaused), { timeout: 2_000 });
     fireEvent.click(screen.getByRole("button", { name: /Pause/ }));
     await waitFor(() => expect(screen.getByText(/paused/)).toBeTruthy());
 

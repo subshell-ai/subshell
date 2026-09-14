@@ -48,14 +48,18 @@ function renderCard(which: NodeDetail = node) {
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
-  return render(<NodeLogCard node={which} />, { wrapper: Wrapper });
+  // 20ms, not the production second: these tests assert that the interval
+  // FIRES, and waiting a real second for it left a 4x margin that 34-way
+  // parallel `turbo test` ate (measured 2026-09-14). The assertion is
+  // unchanged; only the clock it waits on is honest about being a test.
+  return render(<NodeLogCard node={which} pollMs={20} />, { wrapper: Wrapper });
 }
 
 describe("NodeLogCard", () => {
   it("follows on its own, and Pause stops the asking", async () => {
     renderCard();
     // It polls: a second ask arrives with nobody pressing anything.
-    await waitFor(() => expect(reads).toBeGreaterThan(1), { timeout: 4_000 });
+    await waitFor(() => expect(reads).toBeGreaterThan(1), { timeout: 2_000 });
 
     fireEvent.click(screen.getByRole("button", { name: /Pause/ }));
     const atPause = reads;
@@ -66,12 +70,12 @@ describe("NodeLogCard", () => {
     expect(reads).toBe(atPause);
 
     fireEvent.click(screen.getByRole("button", { name: /Resume/ }));
-    await waitFor(() => expect(reads).toBeGreaterThan(atPause), { timeout: 4_000 });
+    await waitFor(() => expect(reads).toBeGreaterThan(atPause), { timeout: 2_000 });
   }, 15_000);
 
   it("asks nothing while the tab is hidden", async () => {
     renderCard();
-    await waitFor(() => expect(reads).toBeGreaterThan(0), { timeout: 4_000 });
+    await waitFor(() => expect(reads).toBeGreaterThan(0), { timeout: 2_000 });
 
     Object.defineProperty(document, "hidden", { value: true, configurable: true });
     document.dispatchEvent(new Event("visibilitychange"));
@@ -84,7 +88,7 @@ describe("NodeLogCard", () => {
 
     Object.defineProperty(document, "hidden", { value: false, configurable: true });
     document.dispatchEvent(new Event("visibilitychange"));
-    await waitFor(() => expect(reads).toBeGreaterThan(atHide), { timeout: 4_000 });
+    await waitFor(() => expect(reads).toBeGreaterThan(atHide), { timeout: 2_000 });
   }, 15_000);
 
   it("offers the debug switch, and says it is read-only when the environment forces it", () => {
