@@ -817,12 +817,16 @@ which is why they share their own smoke, parameterized by app id.
   them and pushes their `<pkg>@<version>` tags. The
   Action commits those bumps itself, which is why `version-packages` also
   resyncs `bun.lock` — see "The one thing `bun install` will not fix".
-  The six were bootstrapped on npm by hand at `0.0.1` on 2026-09-10, because a
-  trusted publisher cannot be configured for a package that does not exist
-  yet; every version after that comes from CI. The seventh,
-  `@subshell-ai/plugin-terminal`, still needs that same hand bootstrap
-  (`npm publish` once + trusted publisher) before a version PR that includes
-  it can publish; until then CI can bump it forever and never ship it.
+  All seven were bootstrapped on npm by hand at `0.0.1` — six on 2026-09-10
+  and `@subshell-ai/plugin-terminal` on 2026-09-11 — because a trusted
+  publisher cannot be configured for a package that does not exist yet; every
+  version after that comes from CI. **That bootstrap is done and needs no
+  repeating.** The proof is on the registry rather than in anyone's memory:
+  each package's later versions carry SLSA provenance attestations
+  (`npm view <pkg> dist.attestations`), which only the OIDC trusted-publishing
+  path produces — a hand `npm publish` would not have them. An EIGHTH package
+  would need the same bootstrap before a version PR including it can publish;
+  until a package exists, CI can bump it forever and never ship it.
 - **Release notes live in the GitHub Release.** The publish job slices this
   version's section out of `apps/<dir>/CHANGELOG.md` and passes it as the
   release body, so the page a user lands on says what changed instead of
