@@ -69,6 +69,21 @@ function trackTmuxSocket(socket: string): void {
   spawnedSockets.add(socket);
 }
 
+/**
+ * Does a real tmux pane exist for this row?
+ *
+ * These assertions used to go through `SubshellManagerService.isAlive`, a
+ * synchronous probe kept synchronous for their sake — it had no production
+ * caller, and keeping it was the last reason `TmuxRunner.hasSubshell` blocked
+ * the event loop. It and `LocalLauncher.hasSubshellSync` are gone; this asks
+ * tmux the same question directly, which is also a plainer statement of what
+ * the assertion means.
+ */
+async function paneAlive(socket: string | null, id: string): Promise<boolean> {
+  if (!socket) return false;
+  return new TmuxRunner().hasSubshell(socket, id);
+}
+
 beforeAll(async () => {
   // Migrate the SHARED module database too, not just this file's private
   // in-memory one. The service under test reaches past its injected db for
@@ -179,7 +194,7 @@ describe("SubshellManagerService", () => {
     // The tmux subshell should actually be alive (real tmux on this host).
     const row = await subshellsRepo.findById(created.id);
     expect(row).toBeTruthy();
-    expect(subshellManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(true);
+    expect(await paneAlive(created.tmuxSocket, created.id)).toBe(true);
     // A fresh subshell is stamped as just-started output (shows active).
     expect(row?.lastOutputAt).toBeTruthy();
 
@@ -187,7 +202,7 @@ describe("SubshellManagerService", () => {
     const after = await subshellsRepo.findById(created.id);
     expect(after?.status).toBe("terminated");
     expect(after?.alive).toBe(0);
-    expect(subshellManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(false);
+    expect(await paneAlive(created.tmuxSocket, created.id)).toBe(false);
   });
 
   it("rejects subshells for a nonexistent preset", async () => {
@@ -263,7 +278,7 @@ describe("SubshellManagerService restart", () => {
     // the suite with the stub pane still attached (regression guard: the old
     // clone test used to leak exactly that).
     await subshellManager.terminateSubshell("u1", id);
-    expect(subshellManager.isAlive({ id, tmuxSocket: restarted.tmuxSocket })).toBe(false);
+    expect(await paneAlive(restarted.tmuxSocket, id)).toBe(false);
   });
 
   it("restartSubshell kills a live source before respawning it (same row, same socket)", async () => {
@@ -275,13 +290,13 @@ describe("SubshellManagerService restart", () => {
       workingDir: "/tmp",
     });
     trackTmuxSocket(created.tmuxSocket);
-    expect(subshellManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(true);
+    expect(await paneAlive(created.tmuxSocket, created.id)).toBe(true);
     const restarted = await subshellManager.restartSubshell("u1", created.id);
     if (!restarted) throw new Error("expected a restarted subshell");
     expect(restarted.id).toBe(created.id);
     expect(restarted.tmuxSocket).toBe(created.tmuxSocket);
     // A pane is running again under the SAME identity (the stub sleep re-spawned).
-    expect(subshellManager.isAlive({ id: created.id, tmuxSocket: created.tmuxSocket })).toBe(true);
+    expect(await paneAlive(created.tmuxSocket, created.id)).toBe(true);
     await subshellManager.terminateSubshell("u1", created.id);
   });
 

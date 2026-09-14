@@ -43,7 +43,7 @@ class MockTmux extends TmuxRunner {
     this.newSubshellCmds.push(cmd);
   }
   override pipePane(): void {}
-  override hasSubshell(): boolean {
+  override async hasSubshell(): Promise<boolean> {
     return this.alive;
   }
   override async capturePane(): Promise<string> {

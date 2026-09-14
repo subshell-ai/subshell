@@ -1169,7 +1169,7 @@ it.skipIf(!HAS_TMUX)(
         launchCmd({ subshellId, socket, cwd: workDir, cols: undefined, rows: undefined }),
       );
       expect(result).toEqual({ ok: true });
-      expect(runner.hasSubshell(socket, subshellId)).toBe(true); // the pane is LIVE through real tmux
+      expect(await runner.hasSubshell(socket, subshellId)).toBe(true); // the pane is LIVE through real tmux
       runner.killSubshell(socket, subshellId); // deliberate death — the watcher's job is to notice it
       await waitFor(() => events.some((e) => e.type === "exit"), "exit event from the real-death watcher", 15_000);
       const exit = events.find((e) => e.type === "exit") as Extract<NodeEvent, { type: "exit" }>;

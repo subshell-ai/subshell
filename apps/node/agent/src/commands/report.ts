@@ -134,7 +134,7 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
       // socket answered without is confirmed dead. ok:false is a BLIP OR a
       // dead server — indistinguishable from one CLI call (both are rc=1,
       // only stderr differs), so it costs a counter tick, not a death report.
-      const probe = ctx.tmux.listSubshellsChecked(socket);
+      const probe = await ctx.tmux.listSubshellsChecked(socket);
       if (probe.ok) {
         const alive = new Set(probe.names);
         for (const { subshellId, reg } of entries) {
@@ -234,7 +234,7 @@ export async function buildSubshellsReport(
 ): Promise<Extract<NodeEvent, { type: "subshells_report" }>> {
   const subshells: Extract<NodeEvent, { type: "subshells_report" }>["subshells"] = [];
   for (const m of await ctx.meta.list()) {
-    const alive = ctx.tmux.hasSubshell(m.socket, m.subshellId);
+    const alive = await ctx.tmux.hasSubshell(m.socket, m.subshellId);
     subshells.push({
       subshellId: m.subshellId,
       alive,

@@ -931,6 +931,16 @@ too long". A bare hand-typed `bun test` sets no such variable and gets no
 net — correctly, since it also gets the shared default socket dir, where
 killing anything would reach panes this run never started.
 
+**The net covers this package only.** `packages/pane-runtime` and
+`apps/node/agent` also spawn real tmux and run a bare `bun test`, so nothing
+sweeps behind them; what stands there is each suite's own `afterAll`, which
+registers a socket BEFORE spawning on it (`freshSocket` in
+`tmux-runner.test.ts`) and so has no window to leak through. That is a
+narrower guarantee than this one — it holds as long as every future suite
+keeps registering first — and it is stated here rather than fixed because
+extending the variable to those packages is a change to how their sockets are
+named, not a line of cleanup.
+
 **The `--timeout 30000` in the `test` script is measured, not caution.**
 This package's suites set up against that shared DB through migrations and
 better-auth table creation, and bun's 5000 ms per-test/hook default blew

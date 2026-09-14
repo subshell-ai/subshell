@@ -109,16 +109,6 @@ export class LocalLauncher implements NodeLauncher {
     return this.#tmux.hasSubshell(socket, id);
   }
 
-  /**
-   * Sync fast path for the tmux liveness probe (the underlying call is
-   * synchronous). Not on {@link NodeLauncher} — remote liveness is async by
-   * nature; this exists so the local manager's sync `isAlive` can keep its
-   * boolean signature.
-   */
-  hasSubshellSync(socket: string, id: string): boolean {
-    return this.#tmux.hasSubshell(socket, id);
-  }
-
   async paneExitCode(socket: string, id: string): Promise<number | null> {
     return this.#tmux.paneExitCode(socket, id);
   }

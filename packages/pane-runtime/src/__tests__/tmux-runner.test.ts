@@ -3,7 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, unlinkSync, write
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
-import { assertSocketPathFits, TmuxRunner, tmuxSocketFor, tmuxSocketPath } from "../tmux-runner.js";
+import {
+  assertSocketPathFits,
+  TMUX_COMMAND_TIMEOUT_MS,
+  TmuxRunner,
+  tmuxSocketFor,
+  tmuxSocketPath,
+} from "../tmux-runner.js";
 
 const runner = new TmuxRunner();
 
@@ -64,7 +70,7 @@ describe("TmuxRunner", () => {
   it("creates and kills a subshell", async () => {
     const socket = freshSocket("subshell");
     runner.newSubshell(socket, "s1", "/tmp", "echo hello-test; exec sleep 30");
-    expect(runner.hasSubshell(socket, "s1")).toBe(true);
+    expect(await runner.hasSubshell(socket, "s1")).toBe(true);
 
     // Give the shell a moment to render before capturing
     await Bun.sleep(300);
@@ -72,7 +78,7 @@ describe("TmuxRunner", () => {
     expect(out).toContain("hello-test");
 
     runner.killSubshell(socket, "s1");
-    expect(runner.hasSubshell(socket, "s1")).toBe(false);
+    expect(await runner.hasSubshell(socket, "s1")).toBe(false);
   });
 
   it("lists subshell names on a socket in one spawn (batched liveness)", async () => {
@@ -93,17 +99,17 @@ describe("TmuxRunner", () => {
   // tell "socket answered, pane missing" (death) from "socket did not answer"
   // (blip-or-death — indistinguishable from here; the threshold decides).
 
-  it("listSubshellsChecked: live socket ⇒ ok:true with every name", () => {
+  it("listSubshellsChecked: live socket ⇒ ok:true with every name", async () => {
     const socket = freshSocket("checked");
     runner.newSubshell(socket, "ck-a", "/tmp", "exec sleep 30");
-    const probe = runner.listSubshellsChecked(socket);
+    const probe = await runner.listSubshellsChecked(socket);
     expect(probe).toEqual({ ok: true, names: ["ck-a"] });
     runner.killSubshell(socket, "ck-a");
   });
 
-  it("listSubshellsChecked: absent socket ⇒ ok:false whose detail names the socket/connection error", () => {
+  it("listSubshellsChecked: absent socket ⇒ ok:false whose detail names the socket/connection error", async () => {
     const socket = freshSocket("checked-absent"); // never started — no server, no socket file
-    const probe = runner.listSubshellsChecked(socket);
+    const probe = await runner.listSubshellsChecked(socket);
     expect(probe.ok).toBe(false);
     if (!probe.ok) {
       // Real tmux 3.x answers "error connecting to /tmp/tmux-<uid>/<name>
@@ -114,12 +120,12 @@ describe("TmuxRunner", () => {
     }
   });
 
-  it("listSubshellsChecked: after the server dies ⇒ ok:false (where listSubshellNames lies with [])", () => {
+  it("listSubshellsChecked: after the server dies ⇒ ok:false (where listSubshellNames lies with [])", async () => {
     const socket = freshSocket("checked-dead");
     runner.newSubshell(socket, "ck-d", "/tmp", "exec sleep 30");
-    expect(runner.listSubshellsChecked(socket).ok).toBe(true);
+    expect((await runner.listSubshellsChecked(socket)).ok).toBe(true);
     spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
-    const probe = runner.listSubshellsChecked(socket);
+    const probe = await runner.listSubshellsChecked(socket);
     expect(probe.ok).toBe(false);
     if (!probe.ok) expect(probe.detail.length).toBeGreaterThan(0);
   });
@@ -131,11 +137,10 @@ describe("TmuxRunner", () => {
     // to echo at subshell start and then attach, so it raced the attach and
     // usually captured nothing. Start a pane that stays quiet until it is fed
     // input, attach, and only then produce the output being asserted on.
-    // Ordering needs no sleep: TmuxRunner.run uses spawnSync, so pipe-pane has
-    // fully applied before sendInput is issued, and the pty buffers the input
-    // even if `read` has not been reached yet — so no output can escape the
-    // capture window. (`pipePane` is still synchronous and the `sendInput`
-    // below is awaited, so the two are ordered either way.)
+    // Ordering needs no sleep: `pipePane` is synchronous and the `sendInput`
+    // after it is awaited, so pipe-pane has fully applied before any input is
+    // issued — and the pty buffers that input even if `read` has not been
+    // reached yet, so no output can escape the capture window.
     runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read l; echo piped-$l; exec sleep 30'");
     runner.pipePane(socket, "s1", outFile);
     await runner.sendInput(socket, "s1", "line\r");
@@ -276,7 +281,7 @@ describe("TmuxRunner", () => {
     unlinkSync(readyFile);
   }, 15_000);
 
-  it("relaunching on a just-emptied socket wins the server-shutdown race (restart path)", () => {
+  it("relaunching on a just-emptied socket wins the server-shutdown race (restart path)", async () => {
     // THE restart bug: killing a socket's last subshell makes its tmux server
     // exit, but the socket file outlives the decision by a moment — a
     // `new-session` that connects in that window is answered by a server on
@@ -291,7 +296,7 @@ describe("TmuxRunner", () => {
     runner.killSubshell(socket, "s1"); // last subshell ⇒ the server starts exiting
     // Back-to-back, exactly as #reviveRow does — no sleep to paper over it.
     runner.newSubshell(socket, "s1", "/tmp", "exec sleep 30");
-    expect(runner.hasSubshell(socket, "s1")).toBe(true);
+    expect(await runner.hasSubshell(socket, "s1")).toBe(true);
     runner.killSubshell(socket, "s1");
   });
 
@@ -451,10 +456,10 @@ echo "server exited unexpectedly" >&2; exit 1
     }
   });
 
-  it("allows a normal socket path (the guard does not fire on the default tmpdir)", () => {
+  it("allows a normal socket path (the guard does not fire on the default tmpdir)", async () => {
     const socket = freshSocket("guard-ok");
     runner.newSubshell(socket, "s1", "/tmp", "exec sleep 30");
-    expect(runner.hasSubshell(socket, "s1")).toBe(true);
+    expect(await runner.hasSubshell(socket, "s1")).toBe(true);
     runner.killSubshell(socket, "s1");
   });
 
@@ -633,6 +638,33 @@ echo "server exited unexpectedly" >&2; exit 1
       }
     });
 
+    it("gives up on a wedged tmux instead of swallowing the keystroke", async () => {
+      // Async spawns removed the whole-process stall, and put a new failure in
+      // its place: a tmux that never answers used to leave `sendInput` pending
+      // forever. Nothing settled, nothing rejected, nothing logged, and every
+      // later keystroke for that pane queued behind it — one pane's keyboard
+      // silently dead, with the WS handler's `logFailure` never firing.
+      const { dir, path } = writeStub("#!/bin/sh\nsleep 30\n");
+      try {
+        const tmux = new TmuxRunner(path, { timeoutMs: 250 });
+        const started = Date.now();
+        await expect(tmux.sendInput("sock", "s1", "x")).rejects.toThrow(/timed out after 250 ?ms/);
+        // Rejected on the deadline rather than on the stub's own 30 s exit.
+        expect(Date.now() - started).toBeLessThan(5_000);
+        // …and the pane's chain DRAINED: the next keystroke is not stuck behind
+        // the one that hung, which is the half that makes the timeout useful.
+        await expect(tmux.sendInput("sock", "s1", "y")).rejects.toThrow(/timed out/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("defaults that deadline to TMUX_COMMAND_TIMEOUT_MS", () => {
+      // The constant is what production runs on; the test above overrides it,
+      // so without this nothing pins the wiring or the value.
+      expect(TMUX_COMMAND_TIMEOUT_MS).toBe(15_000);
+    });
+
     it("keeps a pane's queue usable after one input fails", async () => {
       // The chain kept per pane is the swallowed form on purpose: a rejected
       // tail would reject every keystroke queued behind it, so one dead frame
@@ -653,16 +685,31 @@ echo "server exited unexpectedly" >&2; exit 1
     it("does not serialize one pane's input behind another's", async () => {
       // A single global lock would make the async conversion pointless: the
       // whole reason for it is that one pane's slow tmux must not hold up
-      // anyone else's keystrokes. Two panes, one stub that sleeps: run
-      // concurrently they take ~one sleep, serialized they take two.
-      const { dir, path } = writeStub("#!/bin/sh\nsleep 0.4\nexit 0\n");
+      // anyone else's keystrokes.
+      //
+      // Asserted as OVERLAP, not as wall-clock. The first version of this gave
+      // the two spawns 700 ms and measured 515-539 ms on an idle 18-core Mac —
+      // a margin a 2-core hosted runner would eat, turning a correctness test
+      // into a load gauge. The stub instead records a start and a finish line
+      // per invocation, and the claim becomes what the test actually means:
+      // the second pane's spawn STARTED before the first one's FINISHED.
+      // Serialized, that is impossible at any speed.
+      const marks = join(tmpdir(), `subshell-overlap-${process.pid}-${Date.now()}.txt`);
+      const { dir, path } = writeStub(
+        `#!/bin/sh\necho "start $2" >> "${marks}"\nsleep 0.4\necho "finish $2" >> "${marks}"\nexit 0\n`,
+      );
       try {
         const tmux = new TmuxRunner(path);
-        const started = Date.now();
         await Promise.all([tmux.sendInput("sock-a", "s1", "x"), tmux.sendInput("sock-b", "s1", "x")]);
-        expect(Date.now() - started).toBeLessThan(700);
+        const lines = (await Bun.file(marks).text()).trim().split("\n");
+        // `$2` is the socket name in `-L <socket> send-keys …`.
+        expect(lines.filter((l) => l.startsWith("start"))).toHaveLength(2);
+        const firstFinish = lines.findIndex((l) => l.startsWith("finish"));
+        const lastStart = lines.map((l) => l.startsWith("start")).lastIndexOf(true);
+        expect(lastStart).toBeLessThan(firstFinish);
       } finally {
         rmSync(dir, { recursive: true, force: true });
+        rmSync(marks, { force: true });
       }
     });
   });

@@ -125,7 +125,7 @@ export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise
   const entries: NodeProbeEntry[] = [];
   for (const subshellId of cmd.subshellIds) {
     const socket = tmuxSocketFor(subshellId); // same derivation the launcher uses — no stored state needed
-    if (!ctx.tmux.hasSubshell(socket, subshellId)) {
+    if (!(await ctx.tmux.hasSubshell(socket, subshellId))) {
       entries.push({ subshellId, alive: false, exitCode: await ctx.tmux.paneExitCode(socket, subshellId) });
       continue;
     }

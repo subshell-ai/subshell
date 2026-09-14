@@ -57,7 +57,7 @@ class MockTmux extends TmuxRunner {
   override pipePane(): void {
     if (this.failPipe) throw new Error("pipe-pane attach failed (test)");
   }
-  override hasSubshell(): boolean {
+  override async hasSubshell(): Promise<boolean> {
     return this.alive;
   }
   override async capturePane(): Promise<string> {

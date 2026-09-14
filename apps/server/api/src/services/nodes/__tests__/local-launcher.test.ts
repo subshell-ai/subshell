@@ -62,7 +62,7 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     const chunks: Uint8Array[] = [];
     const stop = await launcher.tailStart(lid, "sub1", read.next, (b) => chunks.push(b));
     const total = () => chunks.reduce((n, c) => n + c.byteLength, 0);
-    tmux.sendInput(lsock, lid, "streamed\r");
+    await tmux.sendInput(lsock, lid, "streamed\r");
     // POLL rather than sleep a fixed span. Delivery rides TAIL_POLL_MS, with
     // an fs.watch in front of it that only some platforms honour (see that
     // constant), so a fixed wait would encode one platform's timing. The
@@ -74,7 +74,11 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
     const before = total();
     expect(before).toBeGreaterThan(0);
     stop(); // disposer is idempotent
-    tmux.sendInput(lsock, lid, "after-stop\r");
+    // AWAITED, and that is not tidiness: this proves an ABSENCE, and an
+    // unawaited send might not have reached tmux at all by the time the
+    // window below closes — which would make the assertion pass without
+    // testing anything.
+    await tmux.sendInput(lsock, lid, "after-stop\r");
     // A fixed wait is right for proving ABSENCE, but it has to outlast the
     // poll or a stopped tailer would look quiet merely by being between ticks.
     await sleep(TAIL_POLL_MS + 500);
@@ -108,8 +112,11 @@ describe("LocalLauncher pane lifecycle (direct tmux seeding)", () => {
       deliveredAt ||= Date.now();
     });
 
+    // `sentAt` is stamped BEFORE the send either way, so awaiting changes
+    // nothing the budget below measures — the spawn started at the same
+    // instant, and its few milliseconds were always inside the window.
     const sentAt = Date.now();
-    tmux.sendInput(lsock, lid, "k");
+    await tmux.sendInput(lsock, lid, "k");
     const deadline = Date.now() + 5000;
     while (!deliveredAt && Date.now() < deadline) await sleep(2);
     stop();

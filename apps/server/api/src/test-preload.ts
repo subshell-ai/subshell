@@ -73,7 +73,15 @@ afterAll(() => {
     // no sockets were ever created — the common case
   }
   for (const socket of sockets) {
-    spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
+    try {
+      // `spawnSync` THROWS ENOENT when tmux is not installed — it does not
+      // report it as a non-zero exit — so without this the comment above
+      // about ignoring errors would be false on the one machine where the
+      // sweep has nothing to do anyway.
+      spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
+    } catch {
+      // no tmux on this machine; there is nothing it could have started
+    }
   }
   rmSync(base, { recursive: true, force: true });
 });

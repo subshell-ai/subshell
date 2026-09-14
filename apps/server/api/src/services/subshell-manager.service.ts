@@ -168,8 +168,8 @@ export class SubshellManagerService {
   }
 
   /**
-   * The machine for the paths that stay deliberately local: the sync
-   * `isAlive` probe, local view previews, and the LOCAL half of the reconcile
+   * The machine for the paths that stay deliberately local: local view
+   * previews and the LOCAL half of the reconcile
    * sweep. Agent rows NEVER probe through it — the sweep batches their
    * liveness into per-node `probe` commands (spec §6.3), so an online agent
    * row can never false-crash against a local tmux lookup. Exactly
@@ -770,24 +770,6 @@ export class SubshellManagerService {
       metadataJson: JSON.stringify({ name: row.name }),
     });
     return true;
-  }
-
-  /**
-   * True if the tmux subshell is still alive for this row.
-   *
-   * Deliberately SYNC (the sweep's `hasSubshell` below goes through the async
-   * launcher): callers outside async code use this as a cheap boolean probe,
-   * and the local tmux call is synchronous under the hood. It is therefore a
-   * LocalLauncher-only affordance — a phase-2 remote launcher's liveness is
-   * async by nature, so injecting one makes this throw loudly rather than
-   * silently answer from a stale projection.
-   */
-  isAlive(row: { tmuxSocket: string | null; id: string }): boolean {
-    if (!row.tmuxSocket) return false;
-    if (this.#localLauncher instanceof LocalLauncher) {
-      return this.#localLauncher.hasSubshellSync(row.tmuxSocket, row.id);
-    }
-    throw new Error("isAlive() is a local-launcher sync probe; remote liveness must await NodeLauncher.hasSubshell");
   }
 
   /** Reconciles all running rows in the DB against tmux liveness. */

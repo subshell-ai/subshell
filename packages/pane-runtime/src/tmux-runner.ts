@@ -12,6 +12,23 @@ import { shellQuote } from "./shell.js";
  * down another. We use `-L <name>` (default socket dir under /tmp), which
  * keeps cleanup simple (killing the last subshell removes the socket dir).
  */
+/**
+ * How long {@link TmuxRunner.runAsync} waits for a tmux command before killing
+ * it and rejecting.
+ *
+ * A deadline is what the synchronous form never needed: `spawnSync` blocked
+ * the process, so a wedged tmux was a hang somebody noticed immediately.
+ * Asynchronously it is silent and much worse — the promise never settles, so
+ * a keystroke is neither delivered nor reported, the pane's input chain never
+ * drains, and every later keystroke for that pane queues behind it. One
+ * pane's keyboard simply stops, with nothing in the log.
+ *
+ * 15 s is chosen to be far outside any honest tmux command (the pane path's
+ * commands are single-digit milliseconds) while still bounding the failure:
+ * this is the "tmux will never answer" case, not a slow one.
+ */
+export const TMUX_COMMAND_TIMEOUT_MS = 15_000;
+
 /** Attempts {@link TmuxRunner.newSubshell} adds when it loses the server-shutdown race. */
 const NEW_SESSION_RACE_RETRIES = 3;
 /** Pause between those attempts — long enough for the dying server to release its socket. */
@@ -48,8 +65,17 @@ export class TmuxRunner {
    */
   readonly #inputChains = new Map<string, Promise<void>>();
 
-  constructor(tmuxBinary = "tmux") {
+  /** Deadline for every {@link runAsync} call on this instance. */
+  readonly #timeoutMs: number;
+
+  /**
+   * @param tmuxBinary - the tmux executable (tests point this at a stub)
+   * @param opts.timeoutMs - override {@link TMUX_COMMAND_TIMEOUT_MS}; only
+   *   tests pass one, so a deadline case need not take 15 seconds to assert
+   */
+  constructor(tmuxBinary = "tmux", opts: { timeoutMs?: number } = {}) {
     this.#tmuxBinary = tmuxBinary;
+    this.#timeoutMs = opts.timeoutMs ?? TMUX_COMMAND_TIMEOUT_MS;
   }
 
   /**
@@ -66,7 +92,7 @@ export class TmuxRunner {
    */
   async runAsync(
     args: string[],
-    opts: { cwd?: string; env?: Record<string, string>; input?: string } = {},
+    opts: { cwd?: string; env?: Record<string, string>; input?: string; timeoutMs?: number } = {},
   ): Promise<{ stdout: string; stderr: string }> {
     const proc = spawn([this.#tmuxBinary, ...args], {
       cwd: opts.cwd,
@@ -78,29 +104,56 @@ export class TmuxRunner {
     // Drained CONCURRENTLY with the exit wait: a tmux command that filled a
     // pipe buffer (a large `capture-pane`) would deadlock against a sequential
     // `await proc.exited` that never reads.
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) {
-      throw new TmuxError(stderr.trim() || `tmux ${args[0]} failed (exit ${exitCode})`);
+    const collected = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    // The deadline RACES that rather than gating on it, and the difference is
+    // load-bearing: killing the child does not necessarily close the pipes.
+    // Measured against a stub shell that had spawned `sleep` — SIGKILL ended
+    // the shell while the grandchild kept stdout open, so waiting for the
+    // drain after the kill hung exactly as long as doing nothing.
+    const timeoutMs = opts.timeoutMs ?? this.#timeoutMs;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        // SIGKILL rather than a polite SIGTERM: this fires only once the
+        // command is past a deadline no honest tmux call approaches, and
+        // killing the CLIENT leaves the tmux server and its panes untouched.
+        proc.kill("SIGKILL");
+        reject(new TmuxError(`tmux ${args[0]} timed out after ${timeoutMs}ms and was killed`));
+      }, timeoutMs);
+      timer.unref?.();
+    });
+    // The losing side of the race is abandoned, and an abandoned rejection is
+    // an unhandled one — a read that fails after we gave up must not crash the
+    // process on its way out.
+    collected.catch(() => {});
+    deadline.catch(() => {});
+    try {
+      const [stdout, stderr, exitCode] = await Promise.race([collected, deadline]);
+      if (exitCode !== 0) {
+        throw new TmuxError(stderr.trim() || `tmux ${args[0]} failed (exit ${exitCode})`);
+      }
+      return { stdout, stderr };
+    } finally {
+      clearTimeout(timer);
     }
-    return { stdout, stderr };
   }
 
   /**
    * Runs a tmux command, throwing with stderr on non-zero exit.
    *
-   * SYNCHRONOUS, and deliberately kept so for what is left on it: `launch`,
-   * `kill`, the pipe-pane attach and the `list-sessions` probes each run once
-   * per lifecycle event rather than per keystroke or per poll. `hasSubshell`
-   * is the one PER-SWEEP caller still here, and it is here because
-   * `SubshellManager.isAlive` is a documented synchronous boolean affordance
-   * (`LocalLauncher.hasSubshellSync`) — making it async would ripple through
-   * that signature and its callers for one spawn per running row per minute.
-   * Everything the sweep does on top of that (`paneExitCode`, `paneTitle`)
-   * moved to {@link runAsync}, and so did the whole pane hot path.
+   * SYNCHRONOUS, and what is left on it is exactly the once-per-lifecycle-event
+   * set: `newSubshell`, `killSubshell`, `pipePane`, the strict `kill-session`
+   * its callers spell out, the agent CLI, and `listSubshellNames` (which has
+   * no production caller at all). Nothing on a keystroke path and nothing on
+   * a poll runs here any more — the pane hot path, the reconcile sweep's
+   * probes, the agent's 2 s exit watch and the liveness check all went to
+   * {@link runAsync}.
+   *
+   * `hasSubshell` was the last holdout, kept sync for
+   * `SubshellManager.isAlive`; that method turned out to have no production
+   * caller at all (only test assertions), so it and
+   * `LocalLauncher.hasSubshellSync` were deleted rather than defended, and
+   * with them the last blocking spawn on the WS attach path.
    *
    * New per-keystroke or per-poll code belongs on {@link runAsync}.
    */
@@ -126,9 +179,9 @@ export class TmuxRunner {
   }
 
   /** True if a subshell with the given name exists on the socket. */
-  hasSubshell(socket: string, subshellName: string): boolean {
+  async hasSubshell(socket: string, subshellName: string): Promise<boolean> {
     try {
-      this.run(["-L", socket, "has-session", "-t", subshellName], {});
+      await this.runAsync(["-L", socket, "has-session", "-t", subshellName], {});
       return true;
     } catch {
       return false;
@@ -173,9 +226,9 @@ export class TmuxRunner {
    * census is not a list probe — `buildSubshellsReport` checks each recorded
    * row via {@link hasSubshell}.
    */
-  listSubshellsChecked(socket: string): { ok: true; names: string[] } | { ok: false; detail: string } {
+  async listSubshellsChecked(socket: string): Promise<{ ok: true; names: string[] } | { ok: false; detail: string }> {
     try {
-      const out = this.run(["-L", socket, "list-sessions", "-F", "#{session_name}"], {});
+      const out = await this.runAsync(["-L", socket, "list-sessions", "-F", "#{session_name}"], {});
       return { ok: true, names: out.stdout.split("\n").filter((line) => line !== "") };
     } catch (err) {
       return { ok: false, detail: err instanceof Error ? err.message : String(err) };
