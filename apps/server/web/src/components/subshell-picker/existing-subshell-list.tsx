@@ -121,7 +121,7 @@ export function ExistingSubshellList({
                     </span>
                   )}
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-sm">{subshell.name}</span>
+                    <span className="block truncate font-strong text-sm">{subshell.name}</span>
                     <span className="block truncate font-mono text-muted-foreground text-xs">
                       {subshell.workingDir}
                     </span>

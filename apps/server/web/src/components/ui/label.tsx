@@ -14,7 +14,7 @@ export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElem
     <label
       data-slot="label"
       className={cn(
-        "font-medium text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+        "font-strong text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
         className,
       )}
       {...props}

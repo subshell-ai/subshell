@@ -62,7 +62,7 @@ export function WorkspaceHeader({
           value={workspace.name}
           label="Rename workspace"
           onSave={saveName}
-          className="min-w-0 font-medium"
+          className="min-w-0 font-strong"
           inputClassName="w-56"
         />
       }

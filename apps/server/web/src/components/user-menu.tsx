@@ -56,7 +56,7 @@ export function UserMenu({
   const avatar = (
     <span
       aria-hidden
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 font-semibold text-caption text-primary"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 font-strong text-caption text-primary"
     >
       {initialsOf(name, email)}
     </span>
@@ -86,7 +86,7 @@ export function UserMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-56">
         <div className="px-2 py-1.5">
-          <p className="truncate font-medium text-sm">{name.trim() || (email ? "(no name)" : "Signed in")}</p>
+          <p className="truncate font-strong text-sm">{name.trim() || (email ? "(no name)" : "Signed in")}</p>
           {email ? <p className="truncate text-muted-foreground text-xs">{email}</p> : null}
         </div>
         <DropdownMenuSeparator />

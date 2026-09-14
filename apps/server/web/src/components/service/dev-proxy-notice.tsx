@@ -27,7 +27,7 @@ export function DevProxyNotice(): JSX.Element | null {
   const here = typeof window === "undefined" ? null : window.location.origin;
   return (
     <p className="rounded-md border border-warning/40 px-3 py-2 text-muted-foreground text-xs">
-      <span className="font-medium text-warning">Development build.</span> This page is served by Vite
+      <span className="text-warning">Development build.</span> This page is served by Vite
       {here ? ` at ${here}` : ""}, and the addresses below describe the server it proxies to — not this one. Changing
       the port here moves that server out from under the proxy until Vite is restarted.
     </p>

@@ -127,7 +127,7 @@ export function CloneSubshellDialog({
           <dd className="mb-3 truncate font-mono text-xs">{source.workingDir}</dd>
         </dl>
         <div className="space-y-2">
-          <label className="font-medium text-sm" htmlFor="clone-name">
+          <label className="font-strong text-sm" htmlFor="clone-name">
             Name (optional)
           </label>
           <Input

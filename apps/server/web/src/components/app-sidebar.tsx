@@ -159,7 +159,7 @@ function recentClass(active: boolean): string {
   return cn(
     "block truncate rounded-md py-1 pr-3 pl-10 text-xs transition-colors",
     active
-      ? "font-medium text-accent-foreground"
+      ? "font-strong text-accent-foreground"
       : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
   );
 }
@@ -362,7 +362,7 @@ export function AppSidebar({
         "flex items-center rounded-md py-2 text-sm transition-colors",
         collapsed ? "justify-center px-2" : indented ? "gap-3 pr-3 pl-9" : "gap-3 px-3",
         location.pathname === item.to
-          ? "bg-[linear-gradient(90deg,oklch(0.30_0.10_322),oklch(0.38_0.11_340))] font-medium text-accent-foreground"
+          ? "bg-[linear-gradient(90deg,var(--nav-active-from),var(--nav-active-to))] font-strong text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
       )}
     >

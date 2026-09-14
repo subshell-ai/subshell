@@ -43,7 +43,7 @@ export function InstalledPluginsCard({
           <div key={p.id} className="space-y-2 rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-3">
               <div className="min-w-0 flex-1">
-                <p className="font-medium">{p.name}</p>
+                <p className="font-strong">{p.name}</p>
                 <p className="text-muted-foreground text-xs">
                   {[p.id, p.version ? `v${p.version}` : undefined, p.binary ? `drives ${p.binary}` : undefined]
                     .filter((s): s is string => s !== undefined)

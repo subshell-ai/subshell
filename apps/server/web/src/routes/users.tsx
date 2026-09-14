@@ -189,10 +189,10 @@ function UsersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="pr-4 pb-2 font-medium">Email</th>
-                    <th className="pr-4 pb-2 font-medium">Role</th>
-                    <th className="pr-4 pb-2 font-medium">Created</th>
-                    {viewerIsAdmin && <th className="pb-2 font-medium">Manage</th>}
+                    <th className="pr-4 pb-2 font-strong">Email</th>
+                    <th className="pr-4 pb-2 font-strong">Role</th>
+                    <th className="pr-4 pb-2 font-strong">Created</th>
+                    {viewerIsAdmin && <th className="pb-2 font-strong">Manage</th>}
                   </tr>
                 </thead>
                 <tbody>

@@ -72,10 +72,10 @@ export function AuditTrailCard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="pr-4 pb-2 font-medium">When</th>
-                  <th className="pr-4 pb-2 font-medium">Action</th>
-                  <th className="pr-4 pb-2 font-medium">Target</th>
-                  <th className="pb-2 font-medium">Context</th>
+                  <th className="pr-4 pb-2 font-strong">When</th>
+                  <th className="pr-4 pb-2 font-strong">Action</th>
+                  <th className="pr-4 pb-2 font-strong">Target</th>
+                  <th className="pb-2 font-strong">Context</th>
                 </tr>
               </thead>
               <tbody>

@@ -166,7 +166,7 @@ export function SharingDialogCore({
               ) : g.permission === "edit" ? (
                 // Dreamframe N2: edit is a lit plum chip, view stays bare muted
                 // text — the permission levels contrast by presence, not hue.
-                <Badge className="border-[oklch(0.48_0.10_322)] bg-[oklch(0.38_0.09_322)] text-[oklch(0.92_0.06_318)]">
+                <Badge className="border-[var(--edit-badge-border)] bg-[var(--edit-badge-bg)] text-[var(--edit-badge-foreground)]">
                   View + edit
                 </Badge>
               ) : (

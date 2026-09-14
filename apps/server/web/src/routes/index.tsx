@@ -150,7 +150,7 @@ function TileSection({ title, subshells }: { title: string; subshells: SubshellV
   if (subshells.length === 0) return null;
   return (
     <section>
-      <h2 className="mb-3 font-semibold text-muted-foreground text-sm uppercase">{title}</h2>
+      <h2 className="mb-3 font-strong text-muted-foreground text-sm uppercase">{title}</h2>
       {/* Track count follows the container; the card width does not. 240px is
           the floor AND the ceiling, so a tile is the same size on every page
           at every window width and only the number of them per row changes.

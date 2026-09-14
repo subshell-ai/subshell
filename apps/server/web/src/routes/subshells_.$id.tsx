@@ -196,7 +196,7 @@ function SubshellPage() {
               placeholder={id}
               label="Rename subshell"
               onSave={saveName}
-              className="font-medium"
+              className="font-strong"
               inputClassName="w-56"
             />
           )

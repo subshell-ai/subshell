@@ -48,7 +48,7 @@ export function NodeRow({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3">
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{node.name}</p>
+        <p className="truncate font-strong">{node.name}</p>
         <p className="truncate text-muted-foreground text-xs">
           {node.hostname ?? node.id}
           {node.lastSeenAt ? ` · seen ${relativeElapsed(node.lastSeenAt)}` : ""}

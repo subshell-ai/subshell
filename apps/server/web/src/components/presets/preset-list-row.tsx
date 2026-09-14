@@ -36,7 +36,7 @@ export function PresetListRow({ preset, binary, items }: { preset: PresetRow; bi
           <Link
             to="/presets/$id"
             params={{ id: preset.id }}
-            className="max-w-full truncate font-medium text-sm hover:underline"
+            className="max-w-full truncate font-strong text-sm hover:underline"
             title={preset.name}
           >
             {preset.name}

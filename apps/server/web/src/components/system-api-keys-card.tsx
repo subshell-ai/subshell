@@ -102,7 +102,7 @@ export function SystemApiKeysCard() {
           <div key={k.id} className="space-y-2 rounded-lg border p-3">
             <div className="flex items-center gap-3">
               <div className="flex-1">
-                <p className="font-medium">{k.name}</p>
+                <p className="font-strong">{k.name}</p>
                 <p className="font-mono text-muted-foreground text-xs">
                   {k.preview ?? "—"}
                   {k.expiresAt ? ` · expires ${new Date(k.expiresAt).toLocaleDateString()}` : " · never expires"}

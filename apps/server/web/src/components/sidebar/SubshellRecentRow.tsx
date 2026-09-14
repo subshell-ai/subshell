@@ -27,7 +27,7 @@ export function SubshellRecentRow({ subshell, active }: { subshell: SubshellView
       className={cn(
         "flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-xs transition-colors",
         active
-          ? "bg-accent font-medium text-accent-foreground"
+          ? "bg-accent font-strong text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
       )}
     >

@@ -53,7 +53,7 @@ export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onN
   return (
     <div className="space-y-4 rounded-lg border border-dashed p-6 text-center">
       <div className="space-y-1">
-        <p className="font-medium text-sm">No machine can run a subshell</p>
+        <p className="text-sm">No machine can run a subshell</p>
         <p className="text-muted-foreground text-sm">
           {local
             ? `Launching on ${hostName} is switched off, and no other machine is registered as a node.`

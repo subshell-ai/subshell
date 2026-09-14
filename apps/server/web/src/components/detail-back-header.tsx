@@ -89,7 +89,7 @@ export function DetailBackHeader({
       {/* Stacked, not sharing a line: even alone, title + path do not fit a
           phone width readably — the path gets its own line under the title. */}
       <div className="flex min-w-0 flex-col">
-        <div className="min-w-0 shrink truncate font-medium text-sm">{title}</div>
+        <div className="min-w-0 shrink truncate font-strong text-sm">{title}</div>
         {subtitle ? <div className="min-w-0 truncate text-muted-foreground text-xs">{subtitle}</div> : null}
       </div>
     </header>

@@ -111,7 +111,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   name from the instance store's manifest (spec 2026-09-10
                   follow-ups), so the page needs no second registry read and a
                   registry-installed plugin is named exactly like a built-in. */}
-              <span className="min-w-0 flex-1 truncate font-medium">{h.name}</span>
+              <span className="min-w-0 flex-1 truncate font-strong">{h.name}</span>
               {/* The badge is the detection answer: whether the program this
                   plugin drives was found on this machine. `no-binary` reads
                   ready because a plugin that declares no program is not one

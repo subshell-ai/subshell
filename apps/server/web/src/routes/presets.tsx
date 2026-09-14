@@ -148,7 +148,7 @@ function PresetsPage() {
                   <span aria-hidden className="text-label">
                     {plugin?.icon ?? "🤖"}
                   </span>
-                  <h2 className="font-medium text-sm">{plugin?.name ?? harnessId}</h2>
+                  <h2 className="font-strong text-sm">{plugin?.name ?? harnessId}</h2>
                 </div>
                 {rows.map((p) => (
                   <PresetListRow

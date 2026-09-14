@@ -108,8 +108,8 @@ export function PresetFields({
           <>
             {/* Static text needs no association — the Label primitive (a real
                 <label>) would bind to nothing here. Same classes it renders. */}
-            <p className="font-medium text-sm leading-none">Agent</p>
-            <p className="font-medium text-sm">{lockedName}</p>
+            <p className="font-strong text-sm leading-none">Agent</p>
+            <p className="text-sm">{lockedName}</p>
             <p className="text-muted-foreground text-sm">
               An agent is chosen when a preset is created and cannot change afterwards.
             </p>

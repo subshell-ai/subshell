@@ -30,7 +30,7 @@ export function PluginCatalogCard({ plugins }: { plugins: InstancePluginRow[] })
         {plugins.map((p) => (
           <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
             <div className="min-w-0 flex-1">
-              <p className="font-medium">{p.name}</p>
+              <p className="font-strong">{p.name}</p>
               {p.description && <p className="text-muted-foreground text-xs">{p.description}</p>}
             </div>
             <Button

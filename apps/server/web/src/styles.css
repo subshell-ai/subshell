@@ -54,6 +54,21 @@
   --success: oklch(0.765 0.177 163.223);
   --warning: oklch(0.828 0.189 84.429);
 
+  /* Emphasis surfaces the role palette has no name for: the sunk-plum
+     primary-button gradient, the sidebar's active-nav gradient and the
+     "view + edit" share chip. Lifted out of component literals 2026-09-14 so
+     every colour in the product has exactly one home. */
+  --button-primary-from: oklch(0.34 0.1 322);
+  --button-primary-to: oklch(0.4 0.1 340);
+  --button-primary-hover-from: oklch(0.4 0.11 322);
+  --button-primary-hover-to: oklch(0.46 0.11 340);
+  --button-primary-foreground: oklch(0.9 0.05 320);
+  --nav-active-from: oklch(0.3 0.1 322);
+  --nav-active-to: oklch(0.38 0.11 340);
+  --edit-badge-border: oklch(0.48 0.1 322);
+  --edit-badge-bg: oklch(0.38 0.09 322);
+  --edit-badge-foreground: oklch(0.92 0.06 318);
+
   /* Terminal/workspace surfaces. Raw hexes because xterm's theme and
      dockview-theme.css consume the same literals — these vars are the one
      home every layer reads. Values match subshell-terminal.tsx's TERMINAL_THEME. */

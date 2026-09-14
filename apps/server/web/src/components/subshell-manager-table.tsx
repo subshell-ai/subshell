@@ -95,12 +95,12 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
                   onChange={(e) => setSelected(e.target.checked ? subshells.map((s) => s.id) : [])}
                 />
               </th>
-              <th className="px-3 py-2.5 text-left font-medium">Name</th>
-              <th className="px-3 py-2.5 text-left font-medium">Status</th>
-              <th className="px-3 py-2.5 text-left font-medium">Working dir</th>
-              <th className="px-3 py-2.5 text-left font-medium">Last output</th>
-              <th className="px-3 py-2.5 text-left font-medium">Uptime</th>
-              <th className="px-3 py-2.5 text-left font-medium" title={AUTO_RESTART_HELP}>
+              <th className="px-3 py-2.5 text-left font-strong">Name</th>
+              <th className="px-3 py-2.5 text-left font-strong">Status</th>
+              <th className="px-3 py-2.5 text-left font-strong">Working dir</th>
+              <th className="px-3 py-2.5 text-left font-strong">Last output</th>
+              <th className="px-3 py-2.5 text-left font-strong">Uptime</th>
+              <th className="px-3 py-2.5 text-left font-strong" title={AUTO_RESTART_HELP}>
                 Auto-restart
               </th>
               <th className="px-3 py-2.5" />
@@ -132,7 +132,7 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
                       />
                     </td>
                     <td className="max-w-[200px] truncate px-3 py-2">
-                      <Link to="/subshells/$id" params={{ id: s.id }} className="font-medium hover:text-primary">
+                      <Link to="/subshells/$id" params={{ id: s.id }} className="hover:text-primary">
                         {s.name}
                       </Link>
                     </td>

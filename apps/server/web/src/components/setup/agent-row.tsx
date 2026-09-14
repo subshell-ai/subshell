@@ -44,7 +44,7 @@ export function AgentRow({
         <span aria-hidden className="text-heading">
           {harness.icon ?? "🤖"}
         </span>
-        <span className="flex-1 font-medium">{harness.name}</span>
+        <span className="flex-1 font-strong">{harness.name}</span>
         <span className={cn("text-xs", chip.className)}>{chip.text}</span>
         {!harness.installed && installable && onInstall && (
           <Button size="sm" disabled={installing} onClick={() => onInstall(harness.id)}>
