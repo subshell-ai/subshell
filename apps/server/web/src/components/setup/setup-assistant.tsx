@@ -25,11 +25,10 @@ export interface SetupAssistantProps {
   skip?: { label: string; onClick: () => void; disabled?: boolean };
   primary: { label: string; onClick: () => void; disabled?: boolean; pending?: boolean; pendingLabel?: string };
   /**
-   * Muted text left of the primary (a disabled reason). No `/setup` caller
-   * passes this today - it exists for parity with the native assistant's
-   * `.reason` span, which IS used there ("Waiting for tmux"). Keep it: the
-   * two frames are one specification, and a future SPA screen with its own
-   * disabled reason should have somewhere to put it without re-adding this.
+   * Muted text left of the primary (a disabled reason), shown only while the
+   * primary is actually disabled. Parity with the native assistant's
+   * `.reason` span ("Waiting for tmux"); the Add an Agent step passes it
+   * while an install runs, which is the case it was kept for.
    */
   reason?: string;
   children?: ReactNode;

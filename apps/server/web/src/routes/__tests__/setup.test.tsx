@@ -62,6 +62,8 @@ interface SetupMocks {
   create?: { status: number; body: unknown };
   /** What POST /api/setup/agents/:id/install answers */
   install?: { status: number; body: unknown };
+  /** True = the install POST never settles, so the mutation stays pending. */
+  installPending?: boolean;
 }
 
 function routeFetch(opts: SetupMocks): void {
@@ -98,6 +100,9 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify(res.body), { status: res.status }));
     }
     if (path.startsWith("/api/setup/agents/") && path.endsWith("/install") && method === "POST") {
+      // A real `curl … | bash` takes tens of seconds; a promise that never
+      // settles is what "still installing" looks like to the component.
+      if (opts.installPending) return new Promise<Response>(() => {});
       const id = path.slice("/api/setup/agents/".length, -"/install".length);
       const res = opts.install ?? {
         status: 200,
@@ -255,6 +260,19 @@ describe("setup wizard: the agent step is optional", () => {
     expect(screen.queryByRole("listitem", { name: "Terminal" })).toBeNull();
     // Nothing usable? hatch stays hidden once an agent is detected.
     expect(screen.queryByText(/register a Node/)).toBeNull();
+  });
+
+  // An install runs on this machine and takes tens of seconds. Continuing out
+  // from under it abandoned its progress line and any failure on a screen
+  // nobody could see any more (operator report, 2026-09-14).
+  it("refuses to continue while an install is running, and says what it is waiting for", async () => {
+    await renderSetup({ harnesses: [CLAUDE_ABSENT], installPending: true }, 1);
+    const cont = screen.getByRole("button", { name: "Continue" });
+    expect(cont.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(cont.hasAttribute("disabled")).toBe(true));
+    // A disabled control that says nothing is worse than a slow one.
+    expect(screen.getByText("Installing Claude Code…")).toBeTruthy();
   });
 
   it("installs an agent and flips the row to Detected", async () => {
