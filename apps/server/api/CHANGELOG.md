@@ -1,5 +1,46 @@
 # @internal/server
 
+## 0.5.0
+
+### Minor Changes
+
+- [`21f3904`](https://github.com/subshell-ai/subshell/commit/21f3904d82bbaf2ddee3980a372768b08d09ac9b) Thanks [@theogravity](https://github.com/theogravity)! - "Open in browser" in the dashboard, from two places: a row at the bottom of the
+  sidebar that opens whatever route you are on, and an item in a subshell's
+  actions menu (the ⋯ menu and the sidebar's right-click menu) that opens that
+  subshell. Both appear only inside a desktop app — a browser tab already is the
+  browser — and both hand the page to your default browser, with your profile,
+  your password manager and your extensions. You will be asked to sign in there,
+  because a browser carries no session from the app's window.
+  
+  Under it, the SPA learned that there are two desktop apps rather than one.
+  Chrome that belongs to Subshell Server — the overlay title bar, the server
+  pill, native notifications, and the update, reset and supervision cards — is
+  now gated on being inside THAT app specifically, so none of it appears in
+  Subshell Client's window, where the commands behind it do not exist.
+
+### Patch Changes
+
+- [`0209117`](https://github.com/subshell-ai/subshell/commit/02091170f2eae4e8c584a020c742849505572096) Thanks [@theogravity](https://github.com/theogravity)! - Typing in a terminal no longer freezes every other pane on the machine.
+  
+  Every tmux command the pane path runs — a keystroke, a resize, a screen
+  capture, the grid readback, the liveness, title and exit-code probes — was a
+  synchronous child process, so for as long as it took, the whole server was
+  stopped: no other pane's output pump, nobody else's frames, no HTTP. On a
+  loaded host that was measured at 60-70 ms per keystroke, which one person
+  typing paid and everyone else's terminal paid with them. Those commands now run
+  without blocking, on both the control-plane host and the node agent, and a tmux
+  that stops answering now fails the keystroke after fifteen seconds instead of
+  leaving that pane's keyboard silently dead.
+  
+  Keystrokes for one pane still reach tmux in the order they were sent —
+  including the text-then-Enter pair that delivers a prompt — on the
+  control-plane host and on a node alike.
+  
+  Separately, on a node: a burst of frames arriving together (a paste, or fast
+  typing) could be verified out of order, which the agent read as a replay attack
+  and answered by dropping its connection — taking every subshell on that machine
+  offline until it reconnected. Frames are now handled strictly in arrival order.
+
 ## 0.4.0
 
 ### Minor Changes
