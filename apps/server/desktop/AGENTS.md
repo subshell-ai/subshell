@@ -824,16 +824,16 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the sixteen its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
+| `wizard` | the eighteen its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, open a System Settings pane — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
-`main`'s first four are chosen for what they cannot do: raise a window, drop
+`main`'s first five are chosen for what they cannot do: raise a window, drop
 this app's own title bar, display one notification with a fixed shape, and
 open a page of THIS server in the system browser.
-`desktop_set_supervision`, the fifth, is granted by operator decision
+`desktop_set_supervision`, the sixth, is granted by operator decision
 (2026-09-12) so the dashboard's supervision card can confirm in its own dialog
 rather than raising the assistant; `docs/security.md` carries the accounting,
-and `ipc-acl.test.ts` pins `main` at exactly these five so a sixth is loud.
+and `ipc-acl.test.ts` pins `main` at exactly these six so a seventh is loud (the sixth, `desktop_permissions`, is the read-only one argued in the macOS permissions section below).
 
 `desktop_open_in_browser` (2026-09-14) is of the harmless kind and its
 harmlessness is in the ARGUMENT: it takes a PATH — no scheme, no
@@ -928,7 +928,7 @@ the commands invoked by the assistant page — `ui/src/wizard.ts` plus every
 module under `ui/src/assistant/` — are EXACTLY the set `wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
-holds exactly its five commands plus window dragging — by name, by count, by
+holds exactly its six commands plus window dragging — by name, by count, by
 SCOPE (loopback both spellings, `local: false`, one window id), and for the two
 that take arguments, by Rust signature.
 

@@ -59,9 +59,8 @@ Files: `apps/server/desktop/src-tauri/src/control.rs`, `reset.rs`, `lib.rs`,
   the three `x-apple.systempreferences:` URLs in spec §4.2, opened via `app.opener().open_url`
   exactly as `desktop_open_web` does. Register all three in `lib.rs`'s `invoke_handler`.
 - `desktop_notify`: check `notification_permission()` first; return `{ shown: bool, permission:
-  Permission }`; post when `Authorized | Provisional | Unavailable`, skip on `Denied |
-  NotDetermined` with `shown: false`. (NotDetermined: posting would fire the system prompt from a
-  background moment; the assistant's Allow button is where that prompt belongs.)
+  Permission }`; post on everything but `Denied`, which answers `shown: false`. (`NotDetermined` posts: the first
+  post is the in-context system prompt, and skipping it left "Continue without Allow" a dead end.)
 - `Screen::Permissions` in `reset.rs`: `parse_screen("permissions")`, `as_str` → `"permissions"`.
 - ACL: three `[[permission]]` entries in `desktop.toml` with descriptions in the file's voice;
   `wizard.json` grants all three; `main.json` grants `desktop_permissions` ONLY — its comment

@@ -126,6 +126,11 @@ no edit.
 
 ### 6. Out of scope (deferred)
 
+- **A server-side sweep of abandoned one-pane drafts.** A split whose second pane never lands
+  (browser closed, second launch failed) leaves a draft that `/workspaces` never lists and that
+  self-heals the next time the SPA opens it — nothing breaks, but nothing collects it either.
+  If they accumulate, the hourly pane-log pass is where a retention rule belongs.
+
 Splitting into a real tmux pane inside one subshell; hiding split children from the sidebar;
 mobile (`apps/client/mobile` renders no workspaces); a one-click "same plugin" split; keyboard
 shortcuts for split.

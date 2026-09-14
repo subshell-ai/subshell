@@ -58,6 +58,11 @@ against ONE shared database:
 - The specs after it load that storage state via `ADMIN_STATE` from
   `helpers.ts` (`04`–`14`; `02` deliberately stays anonymous — it pins the
   401 boundary itself).
+- Two files share the `06-` prefix: `06-split-to-workspace` sorts before
+  `06-subshell-lifecycle` and so runs between `05` and it. Both depend only on
+  `01`, and the split spec closes the subshells it launches, so the order
+  between the two does not matter — it is named here so nobody reads the
+  duplicate prefix as an accident (`09` and `10` already carry pairs).
 
 `.auth/admin.json` is path-portable: `ADMIN_STATE` in `helpers.ts` resolves it
 to an absolute path from `import.meta.url` (always `e2e/.auth/admin.json`), and

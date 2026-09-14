@@ -312,8 +312,11 @@ Three rules keep a draft honest, and each is load-bearing:
   `hooks/use-discard-thin-draft.ts`, which sends the person back to the
   remaining subshell. That hook is GUARDED by the `?add=` intent: a freshly
   created draft is one pane for as long as its second pane is in flight, and the
-  presentations strip the params only after the refetch shows both. Break that
-  ordering and every split discards itself.
+  presentations strip the params only after the refetch shows both — and only
+  when the add actually LANDED. A failed add keeps the params, so the guard
+  stays engaged and the error banner stays on screen instead of the draft
+  being discarded from under it with nothing said (review, 2026-09-14). Break
+  that ordering and every split discards itself.
 - **`useInvalidateWorkspaces` also invalidates the per-subshell membership
   query**, so a link to a draft never outlives the draft.
 - **The create response is CHECKED, not trusted** (`lib/split-workspace-refusal.ts`).

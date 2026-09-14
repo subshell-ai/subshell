@@ -21,7 +21,7 @@ export interface SubshellPickerProps {
    * this component funnels through this one callback, so there is exactly
    * one place that actually adds a pane.
    */
-  onAdd: (subshellId: string, direction: SplitDirection) => Promise<void>;
+  onAdd: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
 }
 
 /**

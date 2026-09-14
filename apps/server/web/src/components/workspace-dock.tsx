@@ -286,8 +286,9 @@ export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps)
     [detail.panes, onRefetch],
   );
 
+  /** Resolves true when the pane row now exists server-side; false when it does not and the banner says why. */
   const handleAdd = useCallback(
-    async (subshellId: string, direction: SplitDirection) => {
+    async (subshellId: string, direction: SplitDirection): Promise<boolean> => {
       try {
         // The pane row is created first, and everything after this point
         // runs inside a `finally` that always calls `onRefetch` — once this
@@ -342,7 +343,9 @@ export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps)
         }
       } catch (err) {
         setError(errMessage(err, "Failed to add subshell"));
+        return false;
       }
+      return true;
     },
     [addPanel, addPane, onRefetch],
   );
@@ -358,10 +361,19 @@ export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps)
       // Never a second pane for one subshell (regression #13): reloading with
       // the params still in the URL, or a poll that landed before this effect
       // ran, must not add the same subshell twice.
+      // Already here (a reload with the params still present) counts as landed.
+      let landed = true;
       if (!detail.panes.some((p) => p.subshellId === intent.subshellId)) {
-        await handleAdd(intent.subshellId, intent.direction);
+        landed = await handleAdd(intent.subshellId, intent.direction);
       }
       await onRefetch();
+      // A pane that did NOT land keeps the params. Stripping them would leave
+      // a one-pane draft with no intent, which `useDiscardThinDraft` reads as
+      // "discard and go back" — and the error banner would unmount with this
+      // screen, so the person who pressed Split would land where they started
+      // with nothing said (review, 2026-09-14). With the params kept, the guard
+      // stays engaged, the banner stays up, and a reload retries the add.
+      if (!landed) return;
       // Only now are the params spent. `useDiscardThinDraft` reads them as
       // "the second pane is still in flight", so stripping them before the
       // refetch shows both panes would auto-discard this draft from under the

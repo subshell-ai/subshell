@@ -84,10 +84,21 @@ describe("PermissionNotice", () => {
     expect(screen.getByText(/System Settings → Notifications → Subshell Server/)).toBeTruthy();
   });
 
-  it("names the pane that fixes each permission", () => {
+  it("names the System Settings pane for a permission only macOS asks about", () => {
+    setUA(BROWSER_UA);
+    render(<PermissionNotice pane="notifications" message="Blocked." />);
+    expect(screen.getByText(/System Settings → Notifications/)).toBeTruthy();
+  });
+
+  // A FILES refusal is the server's own EACCES/EPERM, on every platform. From
+  // a browser this page cannot see which OS the server runs, and on Linux the
+  // fix is unix modes, not System Settings — so the path is named only where
+  // the shell says the server is on a Mac (review, 2026-09-14).
+  it("does not send a browser to System Settings for a refused folder", () => {
     setUA(BROWSER_UA);
     render(<PermissionNotice pane="files" message="Blocked." />);
-    expect(screen.getByText(/Privacy & Security → Files and Folders/)).toBeTruthy();
+    expect(screen.queryByText(/System Settings/)).toBeNull();
+    expect(screen.getByText("Blocked.")).toBeTruthy();
   });
 });
 
@@ -116,10 +127,13 @@ describe("Preferences → Notifications: the live macOS line", () => {
       fakeTauri({ notifications: permission, photos: "authorized" });
       renderCard();
       await waitFor(() => expect(screen.getByText(LINES[permission])).toBeTruthy());
-      // Fix… only where it leads somewhere: macOS will not prompt twice, so
-      // a denial is the one state System Settings is the answer to.
+      // Fix… only where it leads somewhere. A denial leads to System Settings
+      // (macOS will not prompt twice); not-yet-asked leads to the assistant's
+      // Allow button, which someone who pressed Continue without pressing it
+      // otherwise has no route back to (review, 2026-09-14). Allowed and
+      // unavailable have nothing to press.
       const fix = screen.queryByRole("button", { name: "Fix…" });
-      expect(fix !== null).toBe(permission === "denied");
+      expect(fix !== null).toBe(permission === "denied" || permission === "not-determined");
     });
   }
 

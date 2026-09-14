@@ -2340,7 +2340,13 @@ pub struct NotifyResult {
 pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<NotifyResult, String> {
     use tauri_plugin_notification::NotificationExt;
     let permission = permissions::notification_permission();
-    if matches!(permission, Permission::Denied | Permission::NotDetermined) {
+    // Only a DENIAL is swallowed. `NotDetermined` posts: on macOS the first post
+    // is what raises the system prompt, in context, at the moment an agent is
+    // waiting — the behaviour this app had before it could read the state.
+    // Skipping it made "pressed Continue without pressing Allow" a silent dead
+    // end: no notification, no prompt, no banner (the banner is for `denied`),
+    // and no route back to the Allow button (review, 2026-09-14).
+    if matches!(permission, Permission::Denied) {
         return Ok(NotifyResult {
             shown: false,
             permission,

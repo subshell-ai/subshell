@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
-import { desktopInvoke, isServerDesktop } from "@/lib/desktop";
+import { desktopInvoke, desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
 
 /**
@@ -50,7 +50,11 @@ export function PermissionNotice({ pane, message, className }: PermissionNoticeP
           (docs/design-system.md), and that is what this is. */}
       <span className="text-detail text-muted-foreground">
         {message}
-        {!inShell && ` Allow it in ${PANE_PATH[pane]}.`}
+        {/* The System Settings path is macOS's. Notifications and Photos are
+            only ever asked about inside the Mac shell, but a FILES refusal can
+            be plain unix modes on a Linux server, and pointing at System
+            Settings there would be wrong twice (review, 2026-09-14). */}
+        {!inShell && (pane !== "files" || desktopPlatform() === "macos") && ` Allow it in ${PANE_PATH[pane]}.`}
       </span>
       {inShell && (
         <Button

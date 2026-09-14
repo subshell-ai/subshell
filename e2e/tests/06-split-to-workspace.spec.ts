@@ -50,6 +50,17 @@ async function subshellRow(page: Page, id: string): Promise<{ harnessId: string;
   return (await res.json()) as { harnessId: string; workingDir: string };
 }
 
+/**
+ * Closes the subshells a test launched. The suite shares one database and one
+ * tmux server across every spec (`workers: 1`), so each left-behind pane is a
+ * live process every later spec pays for. "Close" is DELETE (spec 2026-09-03);
+ * an already-gone id is fine — the point is that nothing this file started is
+ * still running when the next file begins.
+ */
+async function closeSubshells(page: Page, ids: string[]): Promise<void> {
+  for (const id of ids) await page.request.delete(`/api/subshells/${id}`);
+}
+
 /** The id in the current `/subshells/<id>` or `/workspaces/<id>` URL. */
 function idFromUrl(page: Page): string {
   return new URL(page.url()).pathname.split("/").pop() ?? "";
@@ -123,6 +134,15 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   // And only now does it reach the list every other surface reads.
   await page.goto("/workspaces");
   await expect(page.getByRole("main").getByText(workspaceName)).toBeVisible();
+
+  const detail = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+    panes: { subshellId: string }[];
+  };
+  await closeSubshells(
+    page,
+    detail.panes.map((p) => p.subshellId),
+  );
+  await page.request.delete(`/api/workspaces/${workspaceId}`);
 });
 
 test("closing a pane of an unsaved workspace discards it and lands on the subshell that remains", async ({ page }) => {
@@ -165,4 +185,6 @@ test("closing a pane of an unsaved workspace discards it and lands on the subshe
   expect(gone.status()).toBe(404);
   expect(await workspacesHolding(page, rootSubshellId)).toEqual([]);
   expect(await workspacesHolding(page, otherSubshellId)).toEqual([]);
+
+  await closeSubshells(page, [rootSubshellId, otherSubshellId]);
 });

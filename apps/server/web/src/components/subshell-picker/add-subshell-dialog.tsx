@@ -58,7 +58,7 @@ export function AddSubshellDialog({
    */
   initialForm?: Partial<NewSubshellFormValue>;
   /** Adds `subshellId` to the workspace at `direction`. */
-  onAdd: (subshellId: string, direction: SplitDirection) => Promise<void>;
+  onAdd: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
 }): JSX.Element {
   const { data: subshells, isError: subshellsFailed, isLoading: subshellsLoading } = useSubshellsList();
   const create = useCreateSubshell();

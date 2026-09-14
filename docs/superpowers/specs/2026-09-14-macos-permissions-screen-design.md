@@ -122,7 +122,7 @@ this is the half it needs (§9).
 | probe field `notification_permission: Permission` | (probe) | kebab-case on the wire: `not-determined` / `denied` / `authorized` / `provisional` / `unavailable`; the page sees it as `notificationPermission`, since `Probe` is camelCased like every other field |
 | probe field `photos_permission: Permission` | (probe) | same words, `photosPermission` on the page |
 | `desktop_permissions` | **main only** | both states, no arguments (§5.5); the assistant reads the probe instead |
-| `desktop_notify` (existing) | main | now checks the state first and returns `{ shown, permission }` (§5.1). Still posts when `authorized`/`provisional`/`unavailable` — `unavailable` is a dev build, where the plugin's own path still shows something |
+| `desktop_notify` (existing) | main | now checks the state first and returns `{ shown, permission }` (§5.1). Skips ONLY `denied`. `not-determined` still posts, because on macOS the first post IS the system prompt, in context — someone who pressed Continue without pressing Allow is asked the moment an agent is waiting, as before. `unavailable` is a dev build, where the plugin's own path still shows something |
 | `desktop_request_notifications` | **wizard only** | calls `request_notifications()`, returns the resulting state |
 | `desktop_open_system_settings(pane)` | **wizard only** | `pane` is a closed enum `SettingsPane { Notifications, FilesAndFolders, Photos }` → a `x-apple.systempreferences:` URL Rust owns, opened with the opener plugin. Same shape as `WebTarget`: the page names a member, never a URL |
 
@@ -295,5 +295,8 @@ harmless, one deliberate exception" and to name `desktop_permissions` among the 
 - Requesting Photos or folder access up front. Both are asked in context by the system at the
   moment of use, which is where Apple's guidance puts them and where the app cannot intervene
   anyway.
+- A blocked listing on an enrolled NODE. `files.route.ts` answers `blocked` for the control-plane
+  host only; a remote node's `fs_ls` has no such field, so a Mac node's refused Desktop still reads
+  as whatever error the agent sends, in the same picker. The agent protocol needs the field first.
 - Requesting Photos from the app. The system asks at the moment of use; the app reads the
   answer (§5.2) and never pre-empts the question.

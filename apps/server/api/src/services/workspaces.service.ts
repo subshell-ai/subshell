@@ -286,6 +286,12 @@ export class WorkspacesService extends BaseService {
     const patch: { name?: string; draft?: number } = {};
     if (update.name !== undefined) patch.name = update.name;
     if (update.draft === false) patch.draft = 0;
+    // An empty body validates (both properties are optional) and used to
+    // stamp `updated_at` for a change that never happened — which, now that
+    // `?subshellId=` orders by that column, reordered a list for nothing.
+    if (Object.keys(patch).length === 0) {
+      return toWorkspaceResponse(existing, await this.repos.workspacePanes.countForWorkspace(id));
+    }
     try {
       const updated = await repo.update(id, patch);
       if (!updated) throw new WorkspacesError("not_found", "Workspace not found", 404);

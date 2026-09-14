@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { Input } from "@/components/ui/input";
 import { ApiError, apiFetch } from "@/lib/api";
+import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import { currentMode } from "@/lib/supervision";
 import type { ExploreResult } from "@/types/files";
@@ -143,6 +144,10 @@ export function DirectoryPickerInput({
   // so a request from here would 403 for most viewers to decide one word. The
   // Service page is what fills this, and `undefined` is a fine answer.
   const deployment = queryClient.getQueryData<ServerDeployment>(SERVER_DEPLOYMENT_QUERY_KEY);
+  // Only the desktop shell on a Mac KNOWS the server is on this Mac. Anywhere
+  // else — a browser, a Linux shell — a refused folder may be plain unix modes,
+  // and naming macOS would be a guess about a machine this page cannot see.
+  const onMacShell = isServerDesktop() && desktopPlatform() === "macos";
   const nodeOutdated = error instanceof ApiError && error.code === BackendErrorCodes.NODE_OUTDATED;
 
   /** Stars/unstars a path; sections refresh from the same responses. */
@@ -254,10 +259,17 @@ export function DirectoryPickerInput({
             // the person would keep clicking into folders wondering why their
             // projects had vanished (operator's report, 2026-09-14).
             <div className="flex h-56 flex-col items-start justify-center gap-2 px-2">
-              <p className="text-sm">Blocked by macOS</p>
+              {/* The server flags EACCES as well as EPERM, on every platform, so
+                  the copy names macOS only where this page can know the server
+                  is on a Mac (review, 2026-09-14). */}
+              <p className="text-sm">{onMacShell ? "Blocked by macOS" : "Not allowed to read this folder"}</p>
               <PermissionNotice
                 pane="files"
-                message={`macOS is not letting ${blockedByName(deployment)} read this folder.`}
+                message={
+                  onMacShell
+                    ? `macOS is not letting ${blockedByName(deployment)} read this folder.`
+                    : `${blockedByName(deployment)} was refused when it tried to list this folder.`
+                }
               />
             </div>
           ) : explore ? (

@@ -135,6 +135,13 @@ export function NotificationsCard({
             {permissions.notifications === "denied" && (
               <PermissionNotice pane="notifications" message="Nothing will be shown until this is allowed again." />
             )}
+            {/* Not asked yet is a state too: someone who pressed Continue on
+                the first run without pressing Allow has no prompt until an
+                agent next waits, and had no route back to the Allow button
+                (review, 2026-09-14). The Fix raises the screen that has it. */}
+            {permissions.notifications === "not-determined" && (
+              <PermissionNotice pane="notifications" message="macOS has not been asked yet." />
+            )}
           </div>
         )}
         {state === "unsupported" && isIOS() && (

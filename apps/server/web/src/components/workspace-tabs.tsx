@@ -121,10 +121,12 @@ export function WorkspaceTabs({ detail, intent, onRefetch }: WorkspaceTabsProps)
    * `SubshellPicker`'s placement control, which this flat tab list has no use
    * for — every pane it adds becomes one more tab, never a split.
    */
-  async function handleAdd(subshellId: string, _direction: SplitDirection) {
+  async function handleAdd(subshellId: string, _direction: SplitDirection): Promise<boolean> {
+    let landed = false;
     try {
       const newPane = await addPane(subshellId);
       setSelectedId(newPane.id);
+      landed = true;
     } catch (err) {
       setError(errMessage(err, "Failed to add subshell"));
     } finally {
@@ -133,6 +135,7 @@ export function WorkspaceTabs({ detail, intent, onRefetch }: WorkspaceTabsProps)
       // harmless no-op refetch — never a case of hiding a pane that exists.
       void onRefetch();
     }
+    return landed;
   }
 
   /**
@@ -184,10 +187,19 @@ export function WorkspaceTabs({ detail, intent, onRefetch }: WorkspaceTabsProps)
     void (async () => {
       // Never a second pane for one subshell (regression #13): reloading with
       // the params still in the URL must not add the same subshell twice.
+      // Already here (a reload with the params still present) counts as landed.
+      let landed = true;
       if (!detail.panes.some((p) => p.subshellId === intent.subshellId)) {
-        await handleAdd(intent.subshellId, intent.direction);
+        landed = await handleAdd(intent.subshellId, intent.direction);
       }
       await onRefetch();
+      // A pane that did NOT land keeps the params. Stripping them would leave
+      // a one-pane draft with no intent, which `useDiscardThinDraft` reads as
+      // "discard and go back" — and the error banner would unmount with this
+      // screen, so the person who pressed Split would land where they started
+      // with nothing said (review, 2026-09-14). With the params kept, the guard
+      // stays engaged, the banner stays up, and a reload retries the add.
+      if (!landed) return;
       // Only now are the params spent. `useDiscardThinDraft` reads them as
       // "the second pane is still in flight", so stripping them any earlier
       // would auto-discard this draft from under the split that created it.

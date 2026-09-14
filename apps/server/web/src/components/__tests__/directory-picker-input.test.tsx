@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { blockedByName, DirectoryPickerInput } from "@/components/directory-picker-input";
+import { resetDesktopShellForTests } from "@/lib/desktop";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
@@ -431,7 +432,42 @@ describe("DirectoryPickerInput", () => {
       return { ...exploreBody(path, []), blocked: "permission" as const };
     }
 
+    // The macOS wording is earned only where this page KNOWS the server is on
+    // a Mac: inside Subshell Server's own shell on macOS. The server flags
+    // EACCES as well as EPERM on every platform, so from a browser the same
+    // answer may be plain unix modes on a Linux host (review, 2026-09-14).
+    const nav = navigator as unknown as Record<string, unknown>;
+    let previousUA: PropertyDescriptor | undefined;
+    function onMacShell() {
+      previousUA ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
+      Object.defineProperty(nav, "userAgent", {
+        value: "Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)",
+        configurable: true,
+        writable: true,
+      });
+      resetDesktopShellForTests();
+    }
+    afterEach(() => {
+      if (previousUA) Object.defineProperty(nav, "userAgent", previousUA);
+      else delete nav.userAgent;
+      previousUA = undefined;
+      resetDesktopShellForTests();
+    });
+
+    it("in a browser, says the folder was refused without naming an OS it cannot see", async () => {
+      const { restore } = mockExplore({ "/srv/ada/Desktop": blockedBody("/srv/ada/Desktop") });
+      try {
+        renderField({ value: "/srv/ada/Desktop" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("Not allowed to read this folder");
+        expect(screen.queryByText(/macOS/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
     it("says Blocked by macOS instead of showing it as empty", async () => {
+      onMacShell();
       const { restore } = mockExplore({ "/Users/ada/Desktop": blockedBody("/Users/ada/Desktop") });
       try {
         renderField({ value: "/Users/ada/Desktop" });
@@ -443,6 +479,7 @@ describe("DirectoryPickerInput", () => {
     });
 
     it("names subshell-server, the binary the prompt named, when the deployment is unknown", async () => {
+      onMacShell();
       const { restore } = mockExplore({ "/Users/ada/Desktop": blockedBody("/Users/ada/Desktop") });
       try {
         renderField({ value: "/Users/ada/Desktop" });
@@ -456,6 +493,7 @@ describe("DirectoryPickerInput", () => {
     });
 
     it("names the APP instead when the app supervises the server", () => {
+      onMacShell();
       // The prompt names whoever asked: under the launchd service that is the
       // binary, under "runs with this app" it is Subshell Server. Naming the
       // wrong one sends a person looking for a row that is not in the list.
