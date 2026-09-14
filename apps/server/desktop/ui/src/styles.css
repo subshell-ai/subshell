@@ -2,16 +2,16 @@
 
 /*
  * Dreamframe (Castorice) — the same ground and accents apps/server/web
- * paints, declared as Tailwind v4 theme tokens so the generated utilities
- * (`bg-card`, `text-muted`, `border-line`, `bg-ok`) ARE the palette. A future
- * revamp restates these tokens and everything above them follows; that is the
- * reason this file names colors instead of hard-coding them fourteen times.
- * `--color-fg`, `--color-muted` and `--color-primary` are copied verbatim
- * from `apps/server/web/src/styles.css`'s `--foreground`, `--muted-foreground`
- * and `--primary` (the assistant frame's Continue button also copies that
- * file's `button.tsx` gradient directly, below) so the setup assistant's
- * native screens and the SPA's screens do not visibly change palette at the
- * handoff between them.
+ * paints. The values are copied verbatim from `apps/server/web/src/styles.css`
+ * and the names are the shadcn ones every surface uses (both halves pinned by
+ * `lint:design`), so the setup assistant's native screens and the SPA's
+ * screens do not visibly change palette at the handoff between them. (The
+ * Continue button also copies that file's `button.tsx` gradient directly,
+ * below.) Tailwind still provides this page's spacing and type utilities; it
+ * generates NO palette utilities here — these tokens are plain custom
+ * properties, and one `.muted-text` class replaced the last colour utility.
+ * A future revamp restates these tokens and everything above them follows;
+ * that is the reason this file names colors instead of hard-coding them.
  */
 :root {
   /* Dreamframe (spec 2026-09-03), under the shadcn names every surface uses
@@ -68,8 +68,8 @@
     padding: 0;
     background: var(--background);
     color: var(--foreground);
-    font-size: 15px;
-    line-height: 1.55;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     -webkit-font-smoothing: antialiased;
   }
   /* The window is a control panel, not a marketing page: every interactive
@@ -80,7 +80,7 @@
     border: 1px solid var(--border);
     background: transparent;
     color: var(--foreground);
-    padding: 6px 12px;
+    padding: 8px 12px;
     cursor: pointer;
   }
   button:hover:not(:disabled) {
@@ -92,7 +92,7 @@
   }
   input {
     width: 100%;
-    padding: 6px 9px;
+    padding: 8px 9px;
     border-radius: 7px;
     border: 1px solid var(--border);
     background: var(--background);
@@ -106,8 +106,9 @@
      `<label>`. */
   label {
     display: block;
-    font-size: 15px;
-    font-weight: 600;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: var(--font-weight-strong);
     color: var(--foreground);
     margin-bottom: 5px;
   }
@@ -126,7 +127,7 @@
     background: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
     color: var(--button-primary-foreground);
     border-color: transparent;
-    font-weight: 600;
+    font-weight: var(--font-weight-strong);
   }
   .primary:hover:not(:disabled) {
     background: linear-gradient(135deg, var(--button-primary-hover-from), var(--button-primary-hover-to));
@@ -139,9 +140,10 @@
   .facts {
     display: grid;
     grid-template-columns: 132px 1fr;
-    gap: 6px 16px;
-    margin: 10px 0 0;
-    font-size: 13.5px;
+    gap: 4px 16px;
+    margin: 8px 0 0;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
   }
   .facts dt {
     color: var(--muted-foreground);
@@ -152,7 +154,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 2px 10px;
+    gap: 2px 8px;
   }
   /* The quiet second line of a value — the resolution rung, a "missing" note.
      Its own row of the value's flex box, so it never shares a line with the
@@ -160,11 +162,13 @@
   .facts .fact-sub {
     flex-basis: 100%;
     color: var(--muted-foreground);
-    font-size: 12.5px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
   }
   .hint {
     color: var(--muted-foreground);
-    font-size: 14px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     margin-top: 8px;
   }
   /*
@@ -204,14 +208,14 @@
      colour — same layer, later declaration, a guarantee utilities-on-border
      would leave to Tailwind's internal sort. */
   .pane-pre {
-    margin: 10px 0 0;
-    padding: 10px 12px;
+    margin: 8px 0 0;
+    padding: 12px;
     background: var(--background);
     border: 1px solid var(--border);
     border-radius: 8px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13.5px;
-    line-height: 1.5;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 220px;
@@ -233,7 +237,7 @@
      under its own explanation, the sentence is read before the button is
      reached and the disclosure bought nothing. */
   .danger {
-    margin-top: 10px;
+    margin-top: 8px;
     border-color: var(--destructive);
     color: var(--destructive);
   }
@@ -263,7 +267,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 20px 12px 14px;
+    padding: 20px 12px 16px;
     border-right: 1px solid var(--border);
     overflow: hidden;
   }
@@ -286,8 +290,9 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 7px 10px;
-    font-size: 14px;
+    padding: 7px 12px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     text-align: left;
     color: var(--muted-foreground);
     border-color: transparent;
@@ -322,8 +327,9 @@
     justify-content: space-between;
     gap: 8px;
     width: 100%;
-    padding: 7px 10px;
-    font-size: 14px;
+    padding: 7px 12px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     text-align: left;
     color: var(--muted-foreground);
     border-color: transparent;
@@ -370,19 +376,21 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding-left: 14px;
-    margin-left: 10px;
+    padding-left: 16px;
+    margin-left: 8px;
     border-left: 1px solid var(--border);
   }
   .nav-group-children[hidden] {
     display: none;
   }
   .nav-item.child {
-    font-size: 13px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
   }
   .sidebar-version {
-    margin: auto 0 0 10px;
-    font-size: 12px;
+    margin: auto 0 0 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
     color: var(--muted-foreground);
   }
   /* `min-width: 0` is load-bearing, not defensive. A grid item's automatic
@@ -392,7 +400,7 @@
      Logs section, where every line is long. */
   .content {
     overflow: auto;
-    padding: 28px 32px 32px;
+    padding: 32px;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -415,7 +423,7 @@
   .pane-tabs {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
   /* Pushed to the far end of the tab row, and truncated: it is a path, so it
      is long, and it must never be the thing that decides the row's width. */
@@ -425,18 +433,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
     color: var(--muted-foreground);
   }
   .section-title {
     margin: 0 0 4px;
-    font-size: 19px;
-    font-weight: 600;
+    font-size: var(--text-heading);
+    line-height: var(--text-heading--line-height);
+    font-weight: var(--font-weight-strong);
     letter-spacing: -0.01em;
   }
   .section-lead {
-    margin: 0 0 10px;
-    font-size: 14.5px;
+    margin: 0 0 8px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     color: var(--muted-foreground);
     max-width: 62ch;
   }
@@ -444,9 +455,10 @@
      is the window here and a bordered box around every concern is what made
      the old single-column page read as a stack of unrelated panels. */
   .group-heading {
-    margin: 26px 0 0;
-    font-size: 12px;
-    font-weight: 600;
+    margin: 24px 0 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: var(--font-weight-strong);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--muted-foreground);
@@ -470,18 +482,20 @@
   }
   .hero-state {
     margin: 0;
-    font-size: 20px;
-    font-weight: 600;
+    font-size: var(--text-heading);
+    line-height: var(--text-heading--line-height);
+    font-weight: var(--font-weight-strong);
     letter-spacing: -0.01em;
   }
   .hero-sub {
     margin: 2px 0 0;
-    font-size: 15px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     color: var(--muted-foreground);
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-    gap: 2px 10px;
+    gap: 2px 8px;
     word-break: break-all;
   }
   .hero-sub[hidden] {
@@ -496,7 +510,8 @@
      "Running", and repeating it is the clutter this page removed. */
   .step-body {
     margin: 20px 0 0;
-    font-size: 15px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   .step-body[hidden] {
     display: none;
@@ -505,7 +520,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 14px;
+    margin-top: 16px;
   }
 
   /* One line saying what the last press did, where the press happened. */
@@ -513,21 +528,22 @@
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-    gap: 2px 10px;
-    margin: 14px 0 0;
-    font-size: 14px;
+    gap: 2px 8px;
+    margin: 16px 0 0;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
 
   .tray-missing {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
   }
 
   /* The reset takeover: the whole window, sidebar included. */
   .reset-view {
-    padding: 26px 32px 32px;
+    padding: 24px 32px 32px;
     max-height: 100vh;
     overflow: auto;
   }
@@ -535,9 +551,10 @@
     display: none;
   }
   .reset-title {
-    margin: 0 0 6px;
-    font-size: 19px;
-    font-weight: 600;
+    margin: 0 0 4px;
+    font-size: var(--text-heading);
+    line-height: var(--text-heading--line-height);
+    font-weight: var(--font-weight-strong);
     letter-spacing: -0.01em;
   }
   /* The chain's live meter (spec 2026-09-13): a legitimate reset takes tens
@@ -552,7 +569,8 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 14px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   .reset-step {
     display: flex;
@@ -625,13 +643,13 @@
      96px width would squash it. */
   .assistant-art {
     min-height: 96px;
-    margin-bottom: 28px;
+    margin-bottom: 32px;
     display: grid;
     place-items: center;
     color: color-mix(in oklch, var(--primary) 55%, transparent);
   }
   /* Only Welcome has art now. Every other screen leaves #art empty, and an
-     empty box must take NO room — the floor and its margin are 124px, which
+     empty box must take NO room — the floor and its margin are 128px, which
      is a fifth of the frame's height spent on nothing. `:empty` rather than a
      class, so the rule follows what wizard.ts actually put there. */
   .assistant-art:empty {
@@ -643,8 +661,9 @@
   }
   .assistant-title {
     margin: 0;
-    font-size: 30px;
-    font-weight: 600;
+    font-size: var(--text-display);
+    line-height: var(--text-display--line-height);
+    font-weight: var(--font-weight-strong);
     letter-spacing: -0.01em;
     text-align: center;
   }
@@ -653,8 +672,8 @@
     max-width: 560px;
     text-align: center;
     color: var(--muted-foreground);
-    font-size: 15px;
-    line-height: 1.55;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   .assistant-subtitle:empty {
     display: none;
@@ -662,7 +681,8 @@
   .assistant-problem {
     margin: 12px 0 0;
     color: var(--warning);
-    font-size: 14px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   .assistant-problem:empty {
     display: none;
@@ -694,7 +714,8 @@
   }
   .assistant-bar-right .reason {
     color: var(--muted-foreground);
-    font-size: 13px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
   }
   .assistant-bar button.primary {
     min-width: 120px;
@@ -717,14 +738,16 @@
     background: none;
     color: var(--muted-foreground);
     padding: 4px 0;
-    font-size: 14px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   /* The setup screen's own link, level with the rows above it: same size,
      same colour. `.linkish` stays muted and 14px everywhere else, where a
      secondary action should recede. */
   .linkish.plain {
     color: var(--foreground);
-    font-size: 15px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
   }
   .linkish:hover:not(:disabled) {
     color: var(--foreground);
@@ -741,7 +764,7 @@
     align-items: center;
     text-align: center;
     flex: 0 0 auto;
-    padding: 28px 0 8px;
+    padding: 32px 0 8px;
   }
   /* The one place the product's own logo is shown at a size meant to be
      looked at; the sidebar's copy is 22px of chrome. */
@@ -750,14 +773,16 @@
     width: auto;
   }
   .about-name {
-    margin: 22px 0 0;
-    font-size: 21px;
-    font-weight: 600;
+    margin: 24px 0 0;
+    font-size: var(--text-heading);
+    line-height: var(--text-heading--line-height);
+    font-weight: var(--font-weight-strong);
     letter-spacing: -0.01em;
   }
   .about-version {
     margin: 5px 0 0;
-    font-size: 13.5px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     color: var(--muted-foreground);
   }
   /* Wide enough to hold the sentence on one line at the default window, and
@@ -767,7 +792,8 @@
   .about-lead {
     margin: 16px 0 0;
     max-width: 68ch;
-    font-size: 14.5px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     color: var(--muted-foreground);
     text-wrap: balance;
   }
@@ -780,7 +806,7 @@
     justify-content: center;
     align-items: baseline;
     gap: 0 8px;
-    margin: 18px 0 0;
+    margin: 16px 0 0;
   }
   /* A single class declared AFTER `.linkish`, not `.about-links .linkish` —
      same specificity, later wins, and the descendant form would have been a
@@ -794,20 +820,22 @@
     color: var(--border);
   }
   .about-license {
-    margin: 22px 0 0;
-    font-size: 13px;
+    margin: 24px 0 0;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     color: var(--muted-foreground);
   }
   .about-copyright {
-    margin: 6px 0 0;
-    font-size: 12.5px;
+    margin: 4px 0 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
     color: var(--muted-foreground);
   }
 
   /* Dots: not interactive (aria-hidden; an sr-only "Step N of M" sits beside them). */
   .assistant-dots {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
   }
   .assistant-dots i {
@@ -843,7 +871,7 @@
     display: grid;
     grid-template-columns: 28px 1fr auto;
     align-items: center;
-    gap: 0 14px;
+    gap: 0 16px;
     min-height: 48px;
   }
   .checklist li + li {
@@ -853,7 +881,7 @@
      manager's own last line under it. */
   .install-progress {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     justify-items: center;
     text-align: center;
   }
@@ -861,8 +889,9 @@
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 15px;
+    gap: 8px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
   }
   .install-head .detail {
     color: var(--muted-foreground);
@@ -888,7 +917,8 @@
     max-width: 100%;
     color: var(--muted-foreground);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -913,10 +943,10 @@
     display: grid;
     grid-template-columns: 28px 1fr;
     align-items: start;
-    gap: 0 14px;
+    gap: 0 16px;
     padding: 8px 0;
     margin-bottom: 0;
-    font-weight: 400;
+    font-weight: var(--font-weight-regular);
   }
   .supervision-mode {
     cursor: pointer;
@@ -938,8 +968,9 @@
      detail separate by a tone step alone and read as one paragraph, with the
      scannable half being the one that recedes. */
   .label {
-    font-size: 15px;
-    font-weight: 600;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: var(--font-weight-strong);
     color: var(--foreground);
     /* A `<label>` element carrying this class must not keep the base rule's
        gap: here the detail is a sibling with its own spacing. */
@@ -951,14 +982,15 @@
     display: block;
     margin-top: 2px;
     color: var(--muted-foreground);
-    font-size: 13px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     text-align: left;
     text-wrap: pretty;
   }
   .supervision-login {
-    margin-top: 10px;
+    margin-top: 8px;
     border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
-    padding-top: 14px;
+    padding-top: 16px;
   }
   .supervision-login input:disabled + .supervision-copy {
     opacity: 0.55;
@@ -966,7 +998,8 @@
 
   .checklist .detail {
     color: var(--muted-foreground);
-    font-size: 13px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     text-align: right;
     overflow-wrap: anywhere;
   }
@@ -978,8 +1011,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    font-size: 15px;
+    gap: 8px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
   }
   .checklist .glyph,
   .tmux-ready .glyph {
@@ -989,7 +1023,8 @@
     align-items: center;
     justify-content: center;
     border-radius: 999px;
-    font-size: 13px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
   }
   .checklist li[data-state="pending"] .glyph {
     border: 1.5px solid var(--border);
@@ -1009,8 +1044,9 @@
   }
   .checklist .sub {
     grid-column: 2 / -1;
-    padding-bottom: 10px;
-    font-size: 13px;
+    padding-bottom: 12px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     color: var(--destructive);
   }
   .assistant details {
@@ -1020,7 +1056,8 @@
   .assistant details > summary {
     cursor: pointer;
     color: var(--muted-foreground);
-    font-size: 14px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   /* The recovery screen's log and last-action panes. Capped and scrollable
      because the frame is a FIXED 1024x720 with a 72px bar: an uncapped tail
@@ -1035,7 +1072,8 @@
   .big {
     width: 100%;
     padding: 12px 16px;
-    font-size: 15px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
   }
   .code-line {
     display: inline-block;
@@ -1044,7 +1082,8 @@
     border-radius: 6px;
     padding: 4px 9px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
   }
   @media (prefers-reduced-motion: no-preference) {
     .assistant-screen.enter {
@@ -1089,8 +1128,8 @@
   /* The reset view's copy (console `#reset-rows` / `#reset-disclosures`). */
   .wizard-copy {
     margin: 0 0 8px;
-    font-size: 14.5px;
-    line-height: 1.55;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   /* The tray switch: the control stays visible when DISABLED because the
      reason beside it is the actionable part. */
@@ -1098,7 +1137,8 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    font-size: 14.5px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     cursor: pointer;
   }
   .switch input {
@@ -1120,7 +1160,7 @@
     display: grid;
     grid-template-columns: 20px 1fr;
     align-items: start;
-    gap: 2px 10px;
+    gap: 2px 8px;
     padding: 12px 0;
     cursor: pointer;
   }
@@ -1141,9 +1181,12 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    margin-left: 30px;
+    /* 28px = the choice-row's 20px radio column + its 8px gap, so the login
+       box still starts where the option's copy starts. */
+    margin-left: 28px;
     padding-bottom: 12px;
-    font-size: 14.5px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     cursor: pointer;
   }
   .choice-sub input {
@@ -1164,8 +1207,9 @@
     width: 100%;
     border: 1px solid var(--warning);
     border-radius: 8px;
-    padding: 10px 12px;
-    font-size: 14px;
+    padding: 12px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
   }
   .tmux-warning p {
     margin: 0 0 8px;
@@ -1183,13 +1227,15 @@
     border-radius: 6px;
     padding: 2px 7px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13.5px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     overflow-wrap: anywhere;
   }
   /* The pane's two tabs. Selected tab gets the inset look of a raised tab;
      unselected ones are quiet until hovered. */
   .pane-tabs button {
-    font-size: 13px;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     padding: 3px 9px;
     color: var(--muted-foreground);
     background: transparent;
