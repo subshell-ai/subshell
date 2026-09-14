@@ -879,50 +879,97 @@ below.
 
 The split is the boundary, and it is a split by window KIND: every command
 that touches a CLI, a config file, a service manager or the filesystem is
-granted to BUNDLED pages alone. The client app has two windows (one remote,
-one bundled); the server app has three — the remote SPA page, the bundled
-console, and the bundled first-run wizard, which share one build and the same
-ACL rule. What differs between the apps is how much the remote window gets,
-and the difference follows from whether its origin can be known ahead of time.
+granted to BUNDLED pages alone. Each app has **two** windows now — one remote,
+one bundled. The server app's `console` was deleted by spec 2026-09-12 and its
+management surface moved into the SPA, leaving the remote SPA page plus one
+bundled ASSISTANT (`capabilities/wizard.json`) that owns first run, recovery,
+update and reset. What differs between the apps is how much the remote window
+gets, and the difference follows from whether its origin can be known ahead of
+time.
 
-**Subshell Server — loopback, three commands.** Its `main` window loads
+**Subshell Server — loopback, five commands.** Its `main` window loads
 `http://127.0.0.1:<port>`: the SPA served by the very server this app manages,
 so the origin is knowable and is pinned four ways.
 
 | Gate | What it does |
 | --- | --- |
-| `capabilities/main.json` | scopes the window to loopback URLs and grants only `desktop_open_console`, `desktop_shell_ready`, `desktop_notify` and window dragging |
+| `capabilities/main.json` | scopes the window to loopback URLs (`local: false`, `windows: ["main"]`) and grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_set_supervision` and window dragging |
 | `Probe::origin` | builds the URL from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
 | `open_main` | refuses a non-loopback origin outright |
 | `on_navigation` | pins the window to the origin it was opened with |
 
-The three granted commands are chosen for what they cannot do: show a window
-that already exists, drop this app's own title bar, and display one
-fixed-shape notification.
+Four of the five are chosen for what they cannot do: raise the assistant at a
+named screen, drop this app's own title bar, display one fixed-shape
+notification, and open a page of THIS server in the system browser (a path
+only — see below). The fifth, `desktop_set_supervision`, **does** drive the
+CLI and is the one deliberate exception; its accounting, including the three
+caveats that make it honest, is §11.11 below. The count and the SCOPE are both
+pinned — by `ui/src/__tests__/ipc-acl.test.ts` and again in Rust by
+`control.rs` — because "a few harmless ones" is how a boundary erodes, and
+because widening `remote.urls` would hand the same grant to a page on any
+host with every command-name assertion still green.
 
-**Subshell Client — any origin, and therefore nothing.** Its `main` window loads
-a control plane's own UI, and a control plane can live on any host: a LAN
+**Subshell Client — any origin, and therefore ONE command.** Its `main` window
+loads a control plane's own UI, and a control plane can live on any host: a LAN
 address, a VPN name, a public hostname. That origin cannot be enumerated in a
-capability file, so rather than reach for Tauri's runtime ACLs, **no capability
-names that window** and every `invoke` from it is refused. Two supporting
-choices: the window is built without the `SubshellDesktop/…` user-agent marker,
-so `apps/server/web` never takes its desktop-shell branch and never calls
-anything; and `on_navigation` still pins it to the origin it opened with, so a
-redirect cannot walk it elsewhere. Enrolment, agent installation and service
-control live on the app's bundled `node` window, which the plane cannot reach.
+capability file, and that has not changed. What changed on 2026-09-14 is that
+the window went from being granted NOTHING to being granted exactly one thing,
+so the boundary moved one level in rather than away: the capability's scope is
+a wildcard (`http://*:*`, `https://*:*` — `http://*` alone does not match a
+non-default port in the `urlpattern` crate Tauri 2.11.5 uses, which would
+silently exclude the default `:3080` deployment), and the narrowness lives in
+the command's ARGUMENT instead.
 
-**The server app's third window, and the reset behind it.** The `wizard`
-window is bundled like the console and gets its own capability file scoped to
-what first run needs (probe, setup chain, tmux/agent installs, the binary
-picker, opening the dashboard or console) — no service verbs, no bare `init`,
-no logs, no settings. The app's one destructive command, `desktop_reset`, is
-granted to the console alone. Its deep link is the boundary working as
-designed, and its true worst case is precise rather than implied: an XSS in a
-control plane's SPA can call `desktop_open_console({ screen: "reset" })`,
-which raises a window that already exists and performs exactly one read-only
-`status --json` the app already runs on a five-second poll — spammable, and
-nothing else; no verb that changes the machine is reachable, because
-execution requires the machine's hostname typed into the console's own box.
+The accounting, stated plainly:
+
+- **What it can do.** `desktop_open_in_browser` opens one page of the plane
+  this window is already on, in the person's default browser. The page supplies
+  a PATH; the ORIGIN is `windows.rs`'s `PlanePin` — the same value that
+  window's navigation guard already enforces. So the widest thing an XSS in a
+  control plane's SPA gains is opening a page of that same plane, which the
+  person can do by typing the address.
+- **What it cannot do.** Name a host. The path must begin with `/`, must not
+  begin with `//` (protocol-relative is another HOST), must contain no `://`,
+  no backslash (the WHATWG URL parser treats `\` as `/` for special schemes, so
+  `/\evil.test` is `//evil.test` in another spelling), and no whitespace or
+  control characters. The rule and its tests live once, in
+  `crates/desktop-core`'s `browser` module, so the two apps cannot disagree
+  about what a path is. It touches no CLI, no config, no service manager and no
+  file. No `node_*` verb, no plugin permission and no `core:default` is granted
+  to that window, and the ACL test asserts each of those by name.
+- **Why the wildcard scope is sound.** It is not a widening of WHO may invoke.
+  `on_navigation` pins the window to the origin it was opened with — and the
+  pin follows a deliberate plane switch rather than being fixed at build time —
+  so any page loaded there is the plane the person chose. The scope has to be a
+  wildcard because that plane's address is the user's, not ours; the command
+  behind it is what makes the grant narrow.
+- **The marker now exists.** That window shipped no `SubshellDesktop/…`
+  user-agent marker precisely because it was granted nothing: the marker is how
+  `apps/server/web` decides it is in a shell, and every call it invited would
+  have been refused one at a time. It now carries `SubshellClient/…`, a
+  different PRODUCT TOKEN, and the SPA branches on it — `isServerDesktop()`
+  gates the overlay title bar and the update, reset, supervision and native
+  notification surfaces (all Subshell Server's), while `isDesktop()` gates only
+  the two "Open in browser" surfaces. So the marker switches on the one thing
+  this window can actually do.
+
+Two consequences a person will notice, neither of which the command tries to
+fix: the browser carries no session cookie from the webview, so they sign in
+again; and the server app opens its LOOPBACK origin, where a passkey works only
+if `APP_BASE_URL` is loopback too (§ `TRUSTED_ORIGINS`: `APP_BASE_URL` is
+better-auth's passkey rpID).
+
+**The assistant, and the reset behind it.** The `wizard` window is the app's
+one bundled page and holds every command that changes this machine, the
+destructive ones included — first run, recovery, update and reset. The app's
+one destructive command, `desktop_reset`, is granted there alone. Its deep link
+is the boundary working as designed, and its true worst case is precise rather
+than implied: an XSS in the served SPA can call
+`desktop_open_assistant({ screen: "reset" })`, which raises a window and
+performs exactly one read-only `status --json` the app already runs on a
+five-second watch — spammable, and nothing else; no verb that changes the
+machine is reachable, because execution requires the machine's hostname typed
+into the assistant's own box.
 The command takes ONLY that string: the five deletion paths are read from the
 server's own `status --json` `paths` block at the moment the screen opens,
 captured in Rust app state (all-or-nothing — a partial block is refused like
@@ -938,7 +985,7 @@ statement.
 Two limits worth stating rather than implying. Each `csp` in `tauri.conf.json`
 applies to that app's bundled page **only** — a remote window's page carries
 whatever CSP its origin sends, so an XSS in the server app's SPA reaches those
-three commands (and, in the client app, nothing). And each app's ACL manifest is
+five commands, and in the client app exactly one. And each app's ACL manifest is
 what makes any of this apply at all: Tauri leaves app commands ungated for local
 windows when no manifest exists.
 

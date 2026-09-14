@@ -530,20 +530,21 @@ grant equal to what the page actually invokes. The `csp` in each
 `tauri.conf.json` governs the bundled pages only — the remote window carries
 whatever CSP the plane sends.
 
-- **The server app's remote window is PINNED TO LOOPBACK and holds four
-  commands — three harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
+- **The server app's remote window is PINNED TO LOOPBACK and holds five
+  commands — four harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
   the server this app itself manages — so `capabilities/main.json` scopes it
   with `remote.urls` to loopback and grants only commands that cannot touch the
   CLI, the config, the service or the filesystem (drop this app's own title
-  bar, display one fixed-shape notification, and raise the assistant at a named
-  screen) — plus `desktop_set_supervision`, the ONE
+  bar, display one fixed-shape notification, raise the assistant at a named
+  screen, and open a page of THIS server in the system browser) — plus
+  `desktop_set_supervision`, the ONE
   CLI-touching command granted there (2026-09-12): switching who runs the
   server is a restart with a different respawner, and an admin page already
   holds the restart route, so the assistant window that carried the consent
   defended less than it cost. `docs/security.md` carries the accounting.
   `open_main` independently refuses a non-loopback origin, and `on_navigation`
   pins the window to the origin it opened with. An XSS in the SPA reaches
-  those four commands and nothing else.
+  those five commands and nothing else.
 
   Three caveats on that trade, all in `docs/security.md` and none of them
   decoration: the grant is scoped to the WINDOW, not to an admin session, so a
@@ -580,14 +581,26 @@ whatever CSP the plane sends.
   Enrolled remote nodes and a same-machine `subshell` node agent are NOT
   reached by a reset and keep their keys and processes; that is stated in the
   confirmation itself.
-- **The client app's remote window is granted NOTHING.** A control plane can
-  live on any host, so its origin cannot be enumerated in a capability file the
-  way loopback can — and rather than reach for runtime ACLs, no capability names
-  that window at all, so every `invoke` from it is refused. It is also built
-  WITHOUT the `SubshellDesktop/…` user-agent marker, so the SPA never takes its
-  desktop-shell branch and never tries; `on_navigation` still pins it to the
-  origin it opened with. An XSS in a control plane's SPA therefore reaches
-  nothing in Subshell Client.
+- **The client app's remote window is granted exactly ONE command**
+  (2026-09-14; it was granted NOTHING before). A control plane can live on any
+  host, so its origin cannot be enumerated in a capability file the way loopback
+  can — and that has not changed. What changed is that the boundary moved one
+  level in rather than away: `capabilities/main.json`'s scope is a WILDCARD
+  (`http://*:*`, `https://*:*` — `http://*` alone does not match a non-default
+  port in Tauri 2.11.5's `urlpattern`, which would silently exclude the default
+  `:3080` plane), and the narrowness lives in the command's ARGUMENT.
+  `desktop_open_in_browser` takes a PATH — no scheme, no protocol-relative
+  `//host`, no backslash, no whitespace or control characters
+  (`crates/desktop-core`'s `browser` module, shared by both apps) — and joins it
+  onto the origin `PlanePin` already enforces for navigation. So an XSS in a
+  control plane's SPA can open a page of THAT SAME PLANE in the person's
+  browser, and nothing else: no `node_*` verb, no plugin permission, no
+  `core:default`, no CLI, config, service or file. The window now carries a
+  `SubshellClient/…` user-agent marker, a DIFFERENT product token from the
+  server app's, and the SPA branches on it — `isServerDesktop()` gates every
+  Subshell Server surface (overlay title bar, update, reset, supervision,
+  notifications), `isDesktop()` gates only "Open in browser". `on_navigation`
+  still pins the window to the origin it opened with.
 - **Each app's ACL manifest is load-bearing BY EXISTENCE.** Tauri gates an app
   command only when `plugin_command.is_some() || has_app_acl_manifest ||
   !is_local`, so deleting `permissions/desktop.toml` leaves every command

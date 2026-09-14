@@ -212,6 +212,50 @@ silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-
 published artifact set is visible at once.
 
+## This SPA meets TWO desktop shells, and "desktop" is two questions
+
+`lib/desktop.ts` parses a `SubshellDesktop/…` or `SubshellClient/…` User-Agent
+suffix, which each shell's `windows.rs` sets on its remote window. The marker is
+a UA suffix rather than an injected script or an IPC handshake because it is
+present on the FIRST request, readable before React mounts (so there is no flash
+of the wrong chrome), and survives the hard `window.location.href` navigations
+at sign-out and after sign-in.
+
+**Two predicates, and picking the wrong one is a control that cannot work:**
+
+- **`isServerDesktop()` — "am I inside Subshell Server".** What every gate that
+  predates 2026-09-14 means. It switches on the overlay title bar and its drag
+  strip (`useDesktopShellReady` in `routes/__root.tsx`), the server pill, native
+  notifications, and the update, reset and supervision surfaces. Each of those
+  either invokes a command only that app grants or describes a
+  `subshell-server` only that app manages. Taking the title-bar branch inside
+  Subshell Client would leave a window with no title bar and no drag strip —
+  unmovable.
+- **`isDesktop()` — "am I inside EITHER shell".** Exactly two surfaces use it,
+  and both work in both apps: the rail's **Open in browser** row
+  (`components/app-sidebar.tsx`, last in the `<nav>`) and the same item in
+  `components/subshell-actions-menu.tsx` (`sidebar: true`, so the rail's
+  right-click menu carries it too).
+
+**"Open in browser" sends a PATH and never a URL.** `desktopInvoke(
+"desktop_open_in_browser", { path })` — the forgiving variant, so an older
+shell that knows no such command simply does nothing. Rust joins the path onto
+the window's OWN origin (the server app's loopback origin; the client app's
+pinned plane), and refuses anything that could name a host. The rail sends
+`location.pathname + location.searchStr`; the menu sends `/subshells/<id>`.
+
+Two things the person will notice, and neither is something this feature
+tries to fix:
+
+- **They sign in again over there.** Cookies do not cross from the webview to
+  the browser — different cookie jars, same origin or not — so the browser
+  arrives signed out.
+- **Subshell Server opens its LOOPBACK origin**, because that is the only
+  origin its window is ever pointed at. Passkeys are bound to the configured
+  `APP_BASE_URL` host (better-auth derives the rpID from the static baseURL,
+  not the request host), so a passkey works on that address only if
+  `APP_BASE_URL` is the loopback one.
+
 ## Talking to the backend
 
 All backend traffic goes through shared helpers; the only raw `fetch` calls in

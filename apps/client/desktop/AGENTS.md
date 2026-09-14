@@ -25,7 +25,7 @@ weight or colour outside the token file. Pick a role, never a number.
 
 | window | page | granted |
 |---|---|---|
-| `main` | the control plane's own UI, at the plane's origin | **nothing** |
+| `main` | the control plane's own UI, at the plane's origin | **one command**: `desktop_open_in_browser` |
 | `node` | `ui/dist/index.html`, from the bundle — the assistant | every `node_*` command |
 
 `main` loads the plane's own page rather than a bundled copy because
@@ -34,18 +34,46 @@ weight or colour outside the token file. Pick a role, never a number.
 built from `window.location.host` — so a `tauri://` page could not carry the
 `SameSite=Lax` session cookie to any of them.
 
-**No capability file names `main`, and that absence is the security boundary.**
-`apps/server/desktop` can pin its remote window to loopback because it manages
-the server serving it; a control plane can live on any host, so there is no
-equivalent pin here — and a window whose origin cannot be enumerated ahead of
-time gets no commands at all. Two consequences follow and are deliberate:
+**`capabilities/main.json` grants that window ONE command, and the narrowness
+is in the ARGUMENT rather than in the scope.** `apps/server/desktop` can pin
+its remote window to loopback because it manages the server serving it; a
+control plane can live on any host, so there is no equivalent pin here. The
+capability's `remote.urls` is therefore a WILDCARD (`http://*:*`,
+`https://*:*` — `http://*` alone does not match a non-default port in the
+`urlpattern` crate Tauri 2.11.5 uses, which would silently exclude the default
+`:3080` plane), and the command is what has to be safe.
 
-- **No `SubshellDesktop/…` user-agent marker on that window.** That marker is
-  how `apps/server/web` decides it is in a desktop shell and starts talking to
-  Tauri (overlay title bar, window drags); with no grant those calls would be
-  refused one at a time. Without it the SPA renders exactly as it does in a
-  browser, which is right for a window that is one. So there is no
-  `shell_ready` handshake and no `bridge.rs` CustomEvent bus here either.
+Until 2026-09-14 that file did not exist, and the ABSENCE was the boundary.
+That was right while a plane's page had nothing useful to ask for. "Open in
+browser" is useful: a webview has no address bar and no second tab, and the
+page a person wants in their real browser — with their profiles, their password
+manager, their extensions — is the one they are looking at.
+
+- **`desktop_open_in_browser` takes a PATH.** It must start with `/`, must not
+  start with `//` (protocol-relative names a HOST), and may contain no `://`,
+  no backslash (`\` is `/` to the WHATWG URL parser, so `/\evil.test` is the
+  same attack in another spelling), no whitespace and no control characters.
+  The rule and its tests are `crates/desktop-core`'s `browser` module, shared
+  with the other app so the two cannot disagree about what a path is. The
+  ORIGIN comes from `PlanePin` — the same value `on_navigation` enforces — so
+  the page names the route and Rust names the host. The worst an XSS in a
+  plane's SPA gains is opening a page of that same plane, which the person can
+  do by typing the address.
+- **Nothing else.** No `node_*` verb, no plugin permission, no `core:default`;
+  `ui/src/__tests__/ipc-acl.test.ts` pins the scope, pins the permission list
+  at one entry, asserts every other manifest permission is the bundled page's,
+  and pins the Rust signature at `(app, path)`.
+- **A `SubshellClient/…` user-agent marker, new and paired with that grant.**
+  The marker is how `apps/server/web` decides it is in a desktop shell and
+  starts talking to Tauri; it was deliberately absent while nothing was
+  granted, because every call it invited would have been refused one at a time.
+  The SPA branches on the PRODUCT TOKEN now: `isServerDesktop()` gates Subshell
+  Server's chrome (overlay title bar, update, reset, supervision, native
+  notifications) and is false here, while `isDesktop()` gates only the two
+  "Open in browser" surfaces — the sidebar row and a subshell's actions menu.
+  So there is still no `shell_ready` handshake and no `bridge.rs` CustomEvent
+  bus here: this window's whole Tauri surface is one command.
+  `withGlobalTauri` is `true` for the same reason (see below).
 - **What IS kept:** an `on_navigation` origin pin, `disable_drag_drop_handler`
   (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
   drag-a-subshell-into-a-workspace and the terminal's uploads), and a 360x240
@@ -68,7 +96,8 @@ with the plane window only when an address is already settled (the stored
 `planeUrl`, else the enrolled node's own `serverUrl`).
 
 **It must always have a route home, and the tray is not one.** The plane window
-is remote content granted nothing, so it cannot offer a way back, and a tray
+is remote content whose one grant opens a browser, so it cannot offer a way
+back into this app, and a tray
 icon is silently invisible wherever no StatusNotifier host is registered. So:
 macOS gets **Window → This machine…** in the menu bar (always drawn, which also
 covers the notched-display hazard in `tray.rs`); everywhere else,
@@ -97,11 +126,21 @@ Three things about it are load-bearing:
   generates it, so `ui/src/__tests__/ipc-acl.test.ts` reads
   `permissions/desktop.toml` and `capabilities/node.json` and asserts the
   granted command set is exactly the invoked one. That three-way mismatch is a
-  runtime permission rejection, not a compile error. The same file asserts that
-  NO capability names the `main` window.
-- **`withGlobalTauri` is `false`.** `invoke` is imported from
-  `@tauri-apps/api/core`; `window.__TAURI__` existed only for the framework-free
-  page and is gone.
+  runtime permission rejection, not a compile error. The same file asserts what
+  the `main` window holds — one permission, one scope, one Rust signature.
+- **`withGlobalTauri` is `true`, and it is the OTHER window that needs it.**
+  This page imports `invoke` from `@tauri-apps/api/core` and has no use for a
+  global; it was `false` from the day that import landed. What changed on
+  2026-09-14 is that the plane's window has something to invoke, and
+  `apps/server/web`'s bridge (`src/lib/desktop.ts`) reads `window.__TAURI__`
+  and imports nothing by design — it must not pull `@tauri-apps/api` into a
+  bundle served to browsers, and the repo forbids the dynamic import that would
+  avoid that. The global GRANTS nothing; `capabilities/main.json` does. Turning
+  it back off would not close a hole, it would make that one command silently
+  unreachable — the bridge never throws, which is exactly the failure
+  `apps/server/desktop` measured on 2026-09-10 when its config was copied from
+  this one. `ui/src/__tests__/tauri-config.test.ts` pins the PAIR: while
+  `windows.rs` ships a marker, the global must exist.
 - **Design tokens and the `components/ui/` primitives are COPIED** from
   `apps/server/web`, verbatim except the `cn` import path. Copied rather than
   shared so extracting them into a package later is a straight move, and so a
@@ -403,7 +442,7 @@ ladder, the clamp and the frame arithmetic are `desktop-core`'s `zoom` module;
 **Tauri's own `zoom_hotkeys_enabled` was rejected, and the reason is the trust
 boundary.** On macOS and Linux it injects a page script that invokes
 `plugin:webview|set_webview_zoom`, so it works only on a window granted that
-command — and this app's `main` window is granted NOTHING on purpose, since a control plane's origin cannot be enumerated ahead of time. It also keeps its level in a page-local variable, which a
+command — and this app's `main` window is granted exactly one, which opens a browser rather than resizing anything, since a control plane's origin cannot be enumerated ahead of time and the grant there has to stay argument-narrow. It also keeps its level in a page-local variable, which a
 reload resets. `set_zoom` called from Rust touches no ACL at all.
 
 **Both menus' items share one id set, and it is routed in exactly one place** —
@@ -451,7 +490,7 @@ for, which no probe ever implies. The routes to it:
   the same constants. Unchanged.
 - **Everywhere**: the tray's `About Subshell Client`, which raises the node
   window and emits `desktop-screen` to THAT window alone (`windows::show_node_screen`).
-  A broadcast would also reach the plane's page, which this app grants nothing
+  A broadcast would also reach the plane's page, which this app tells nothing
   and tells nothing. A screen id this build does not know is ignored rather
   than being an error, so a menu item and the page can ship independently.
 

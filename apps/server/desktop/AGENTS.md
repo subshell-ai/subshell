@@ -779,14 +779,29 @@ With it, the split is enforced, and the split is window KIND:
 | Window | Gets |
 | --- | --- |
 | `wizard` | the sixteen its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
-| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
-`main`'s first three are chosen for what they cannot do: raise a window, drop
-this app's own title bar, and display one notification with a fixed shape.
-The fourth, `desktop_set_supervision`, is granted by operator decision
+`main`'s first four are chosen for what they cannot do: raise a window, drop
+this app's own title bar, display one notification with a fixed shape, and
+open a page of THIS server in the system browser.
+`desktop_set_supervision`, the fifth, is granted by operator decision
 (2026-09-12) so the dashboard's supervision card can confirm in its own dialog
 rather than raising the assistant; `docs/security.md` carries the accounting,
-and `ipc-acl.test.ts` pins `main` at exactly these four so a fifth is loud.
+and `ipc-acl.test.ts` pins `main` at exactly these five so a sixth is loud.
+
+`desktop_open_in_browser` (2026-09-14) is of the harmless kind and its
+harmlessness is in the ARGUMENT: it takes a PATH — no scheme, no
+protocol-relative `//host`, no backslash, no whitespace or control characters,
+all refused by `crates/desktop-core`'s shared `browser` module — and joins it
+onto this window's own loopback origin, so the page names the route and Rust
+names the host. Its signature is pinned as well as its name, because an
+exception is only as narrow as its arguments. A webview has no address bar and
+no second tab, which is the whole reason it exists; the tray's and the View
+menu's "Open in Browser" reach the same act from Rust and need no grant at all.
+Two things a person will notice and that this does not try to fix: the browser
+carries no session cookie from the webview, so they sign in again; and the
+origin opened is LOOPBACK, where a passkey works only if `APP_BASE_URL` is
+loopback.
 Nothing else that touches the CLI, the config, the service or the filesystem
 is reachable from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
 `screen` argument, and the SPA sends it from exactly three places: the
@@ -845,14 +860,17 @@ because `windows.rs` marks `main`'s user agent `SubshellDesktop/…`. Turning
 the global off while the marker ships kills the title-bar handshake, the
 server pill, native notifications and window dragging, and kills them
 SILENTLY: the bridge never throws and the ACL stays green. Subshell Client
-ships `false` precisely because it strips the marker. The pair, not either
-half, is what `tauri-config.test.ts` pins.
+ships `true` as well since 2026-09-14 — its plane window carries a
+`SubshellClient/…` marker and one command now, and the same pair rule applies
+there. The pair, not either half, is what `tauri-config.test.ts` pins in both
+apps.
 
 **That marker carries the bundled server's version.**
 `SubshellDesktop/0.2.0 (macos; p=1; b=0.3.0)` — `b=` is what
 `bundled_version()` reports, and only the app knows it, so it is the one way
 the SPA's Service page can offer an update. The group is optional, so a build
-that ships no server, Subshell Client (no marker at all) and every older shell
+that ships no server, Subshell Client (whose `SubshellClient/…` marker never
+carries one — it bundles a node agent) and every older shell
 stay valid against the same regex; `DESKTOP_PROTOCOL` is unchanged by it.
 `user_agent_for` is the pure body, pinned by test.
 
@@ -864,9 +882,11 @@ the commands invoked by the assistant page — `ui/src/wizard.ts` plus every
 module under `ui/src/assistant/` — are EXACTLY the set `wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
-holds exactly its three commands plus window dragging.
+holds exactly its five commands plus window dragging — by name, by count, by
+SCOPE (loopback both spellings, `local: false`, one window id), and for the two
+that take arguments, by Rust signature.
 
-**"Three" is a number worth a test**, because "a few harmless ones" is how a
+**The count is a number worth a test**, because "a few harmless ones" is how a
 boundary erodes. Three more pins arrived with the console's deletion: that
 `capabilities/` contains exactly `main.json` and `wizard.json` (a third file
 is a third window, and a window added without a deliberate grant list is what
