@@ -297,8 +297,16 @@ Three rules keep a draft honest, and each is load-bearing:
 
 - **Drafts are absent from `GET /api/workspaces`**, so `/workspaces`, the
   sidebar recents and the cards need no draft awareness. The only read that
-  returns them is `?subshellId=`, which feeds the subshell page's "Open unsaved
-  workspace" link (`components/subshell-workspace-link.tsx`).
+  returns them is `?subshellId=`, which feeds the subshell page's workspace
+  control (`components/subshell-workspace-link.tsx`). A subshell can sit on
+  any number of workspaces, so that control has two shapes, decided by the
+  pure `workspaceLinkView`: ONE is a direct link naming it, SEVERAL is
+  "In N workspaces" opening a menu of all of them. Drafts lead and read
+  "Unsaved workspace" rather than their placeholder name, and the sort is
+  stable so rows the server already ordered by recency keep that order when
+  their timestamps tie — which they do, a split writing several rows inside
+  one millisecond. Menu rows are real links (`render={<Link/>}` +
+  `nativeButton={false}`), so middle-click still works.
 - **A draft below two panes is discarded** — server-side when a pane is removed
   (`removePane` resolves `{ workspaceDeleted }`), and client-side on read by
   `hooks/use-discard-thin-draft.ts`, which sends the person back to the
