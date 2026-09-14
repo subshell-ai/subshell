@@ -271,8 +271,10 @@ describe("setup wizard: the agent step is optional", () => {
     expect(cont.hasAttribute("disabled")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
     await waitFor(() => expect(cont.hasAttribute("disabled")).toBe(true));
-    // A disabled control that says nothing is worse than a slow one.
-    expect(screen.getByText("Installing Claude Code…")).toBeTruthy();
+    // The progress lives on the ROW, not beside the button: the bar carries
+    // no status text at all (operator's call, 2026-09-14).
+    const row = screen.getByRole("listitem", { name: "Claude Code" });
+    expect(row.textContent).toContain("Installing…");
   });
 
   it("installs an agent and flips the row to Detected", async () => {

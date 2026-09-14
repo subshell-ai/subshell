@@ -25,12 +25,13 @@ export interface SetupAssistantProps {
   skip?: { label: string; onClick: () => void; disabled?: boolean };
   primary: { label: string; onClick: () => void; disabled?: boolean; pending?: boolean; pendingLabel?: string };
   /**
-   * Muted text left of the primary (a disabled reason), shown only while the
-   * primary is actually disabled. Parity with the native assistant's
-   * `.reason` span ("Waiting for tmux"); the Add an Agent step passes it
-   * while an install runs, which is the case it was kept for.
+   * There is deliberately NO status slot beside the primary button
+   * (operator's call, 2026-09-14). A control's own progress belongs on the
+   * thing it is acting on — the agent row spins and says "Installing…" — and
+   * a second copy in the bar had room for about twelve characters, so it
+   * rendered "Installing pi…" next to a greyed Continue: a truncated echo of
+   * a sentence already on screen, in the one place with no space for it.
    */
-  reason?: string;
   children?: ReactNode;
 }
 
@@ -52,7 +53,6 @@ export function SetupAssistant({
   back,
   skip,
   primary,
-  reason,
   children,
 }: SetupAssistantProps) {
   const primaryDisabled = primary.disabled || primary.pending;
@@ -99,7 +99,6 @@ export function SetupAssistant({
         </div>
         <StepDots {...dots} />
         <div className="flex items-center justify-end gap-2">
-          {reason && primaryDisabled && <span className="text-detail text-muted-foreground">{reason}</span>}
           {skip && (
             <Button variant="ghost" onClick={skip.onClick} disabled={skip.disabled}>
               {skip.label}

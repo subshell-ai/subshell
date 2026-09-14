@@ -92,10 +92,6 @@ function SetupPage() {
     refetch: refetchHarnesses,
   } = useHarnesses({ refetchInterval: step === 1 && !install.isPending ? 4000 : undefined });
   const agents = (harnesses ?? []).filter((h) => h.type === "agent-harness");
-  // The row being installed, for the disabled-Continue reason. Resolved from
-  // the list rather than remembered, so it cannot name an agent the refreshed
-  // list no longer has. Must sit after `harnesses` is declared.
-  const installingAgent = installingId ? agents.find((h) => h.id === installingId) : undefined;
 
   // Launch step. The form defaults itself (node `local`, a usable agent, the
   // node's home directory), so this is one click unless the user wants it to
@@ -268,7 +264,6 @@ function SetupPage() {
         // step's agent list was already stale — so the press waits, and the
         // bar says what for (operator report, 2026-09-14).
         primary={{ label: "Continue", onClick: () => setStep(2), disabled: busy || install.isPending }}
-        reason={installingAgent ? `Installing ${installingAgent.name}…` : undefined}
       >
         {harnessesLoading && <p className="text-muted-foreground text-sm">Checking {here}…</p>}
         {harnessesError && (

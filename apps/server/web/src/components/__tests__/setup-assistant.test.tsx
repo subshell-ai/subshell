@@ -91,16 +91,18 @@ describe("SetupAssistant", () => {
     fireEvent.keyDown(document, { key: "Enter" });
     expect(onClick).toHaveBeenCalledTimes(1);
   });
-  it("shows the reason beside a disabled primary", () => {
+  // The bar holds the buttons and nothing else: a control's progress belongs
+  // on the thing it acts on, and the bar had room for about twelve characters
+  // (operator's call, 2026-09-14).
+  it("puts no status text beside the primary", () => {
     render(
       <SetupAssistant
         illustration={<span />}
         title="T"
         dots={dots}
-        reason="Waiting for tmux"
         primary={{ label: "Set Up", onClick: () => {}, disabled: true }}
       />,
     );
-    expect(screen.getByText("Waiting for tmux")).toBeTruthy();
+    expect(screen.queryByText(/Installing|Waiting for/)).toBeNull();
   });
 });
