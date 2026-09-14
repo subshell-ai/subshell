@@ -40,6 +40,13 @@ export function setFetchRouter(router: FetchRouter): void {
 }
 
 const globals = globalThis as Record<string, unknown>;
+// `__BUILD_ID__` is a Vite `define`: the real build inlines it at compile
+// time, so under bun test the global simply is not there. It is typed as a
+// bare const (src/vite-env.d.ts), so this supplies the VALUE the bundler would
+// have, not a second declaration. Set HERE rather than per test file since
+// 2026-09-14: the About dialog reads it, the sidebar mounts the dialog, and
+// every test that renders the sidebar would otherwise throw a ReferenceError.
+globals.__BUILD_ID__ = "2026-09-14 00:00";
 // Tells React 19's act() machinery that the test environment supports it,
 // silencing the "not wrapped in act" noise around RTL renders.
 globals.IS_REACT_ACT_ENVIRONMENT = true;

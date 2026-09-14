@@ -7,7 +7,6 @@ import { SwipeNavCard } from "@/components/swipe-nav-card";
 import { TerminalFontCard } from "@/components/terminal-font-card";
 import { TerminalHistoryCard } from "@/components/terminal-history-card";
 import { TrustBannersCard } from "@/components/trust-banners-card";
-import { VersionStamp } from "@/components/version-stamp";
 
 export const Route = createFileRoute("/preferences")({ component: PreferencesPage });
 
@@ -56,13 +55,6 @@ function PreferencesPage() {
           <SwipeNavCard />
           <TrustBannersCard />
         </div>
-      </Section>
-      {/* Last, and read-only: everything above is something to CHANGE, this is
-          something to QUOTE. The bundle stamp moved here from "This device" to
-          sit beside the server version — on-device bug reports need both, and
-          two stamps in two places is how they end up disagreeing. */}
-      <Section id="prefs-about" label="About">
-        <VersionStamp />
       </Section>
     </main>
   );

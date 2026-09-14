@@ -71,6 +71,14 @@ export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChang
                 tray everywhere else), from `node_about`. */}
             {shell?.app === "server" && <p>Desktop app {shell.version}</p>}
             <p>CLI {settings?.serverVersion ?? "—"}</p>
+            {/* The web bundle's own stamp, beside the CLI it was served by. A
+                bug report needs the PAIR: the CLI decides which behaviour is
+                expected, and the build says whether THIS device actually picked
+                a fix up — iOS caches are sticky enough to have fooled a fix
+                review once. It lived in a second About section on Preferences
+                until 2026-09-14; two stamps in two places is how they end up
+                disagreeing (operator's call). */}
+            <p>App build {__BUILD_ID__}</p>
           </div>
           <p className="text-detail text-muted-foreground">{LICENSE_SUMMARY}</p>
           <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-detail text-muted-foreground">

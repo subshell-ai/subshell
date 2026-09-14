@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean);
 
   return {
-    // Bundle stamp shown on Preferences → "This device". iOS PWA caches are
+    // Bundle stamp shown in the About dialog (user menu). iOS PWA caches are
     // sticky enough to have poisoned on-device debugging before; this line is
     // how a device proves which build it is actually running.
     define: {

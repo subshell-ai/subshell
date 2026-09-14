@@ -52,6 +52,10 @@ describe("AboutDialog", () => {
     // In a browser the CLI line is the whole truth — there is no app wrapping
     // anything here.
     expect(screen.getByText(/CLI 0\.2\.0/)).toBeTruthy();
+    // The web bundle's stamp sits beside the CLI it was served by — the pair
+    // a bug report needs, and the ONE About surface it lives on since the
+    // Preferences section that duplicated this dialog went (2026-09-14).
+    expect(screen.getByText(/App build/)).toBeTruthy();
     // No shell to name: the desktop line is absent rather than blank.
     expect(screen.queryByText(/Desktop app 0\./)).toBeNull();
     expect(screen.getByRole("link", { name: "Licence" })).toBeTruthy();
