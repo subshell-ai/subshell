@@ -8,7 +8,14 @@ living reference; the decision record is
 that enforces it is `bun run lint:design` (`scripts/design-tokens.ts`).
 
 **The one rule:** pick a ROLE, never a number. Sizes, weights and colours are
-tokens; a literal outside a token file is refused.
+tokens; a literal outside a token file is refused. Refused by the scanner
+specifically means: class literals (`text-[13px]`), CSS `font-size:` /
+`font-weight:` outside the assistant's token block, and `fontSize` /
+`fontWeight` / hex / oklch in mobile code — not arbitrary `rem` spellings, and
+the web stylesheets are exempt by design (the two anti-zoom `font-size: 16px`
+rules ride that exemption). And it cannot see the platform default: every
+`Text` (mobile) / unclassed node (web) must opt into a role — an element with
+no class at all is the one escape.
 
 ## Type — six roles, two weights
 
@@ -48,7 +55,9 @@ never carry meaning alone; pair them with a word.
 
 ## Spacing, radius, motion, targets
 
-- Spacing on the 4px grid: 4, 8, 12, 16, 24, 32.
+- Spacing on the 4px grid: 4, 8, 12, 16, 24, 32. The check does not enforce the
+  grid; the 2026-09-14 audit moved the enumerated values, and a few hand-written
+  stragglers remain (assistant 7/9px paddings, wizard `mb-2.5`).
 - Radius 8 (`--radius`, `radius`).
 - Motion: 150ms for micro-feedback, 220ms for a screen or panel entering; every
   animation inside `prefers-reduced-motion: no-preference`. One-shot animations
@@ -86,6 +95,8 @@ admitted here.
   on the press.
 - **Decorative art** — earns its space or is absent; an empty art box takes no
   room. *(124px per screen of glyphs repeating the heading.)*
+- **Animation** — one-shot animations only on elements the poll does not rebuild.
+  *(The done-mark's 160 ms pop replayed forever on every 1.5 s render.)*
 
 ## Accessibility
 
