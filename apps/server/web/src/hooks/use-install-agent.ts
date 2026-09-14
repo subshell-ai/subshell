@@ -59,32 +59,96 @@ export function useInstallAgent(onLine?: (id: string, line: string) => void) {
         throw new ApiError(res.status, message, { code, errId });
       }
       if (!res.body) throw new ApiError(res.status, "The server sent no install output.");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let pending = "";
-      let done: AgentInstallResult | undefined;
-      const handle = (frame: InstallFrame) => {
-        if (frame.type === "line") onLine?.(id, frame.text);
-        else if (frame.type === "done") done = frame;
-        else throw new ApiError(500, frame.message);
-      };
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        pending += decoder.decode(chunk.value, { stream: true });
-        const lines = pending.split("\n");
-        pending = lines.pop() ?? "";
-        for (const line of lines) if (line.trim() !== "") handle(JSON.parse(line) as InstallFrame);
-      }
-      if (pending.trim() !== "") handle(JSON.parse(pending) as InstallFrame);
-      // A stream that ended with no terminal frame is a failure, not a
-      // success with missing fields: the server died, or something between
-      // here and it cut the body. Silently resolving would report an install
-      // that never finished as one that worked.
-      if (!done) throw new ApiError(500, "The install ended without saying whether it worked.");
-      return done;
+      return await readInstallStream(res.body, (line) => onLine?.(id, line));
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: HARNESS_QUERY_KEY }),
   });
+}
+
+/**
+ * How long the page waits with NOTHING arriving before it stops believing the
+ * stream.
+ *
+ * The server bounds the installer itself at ten minutes and then always sends
+ * a terminal frame, so total silence for two is not a slow install — it is a
+ * stream that is never going to say anything again. Measured on 2026-09-14: a
+ * hermes install finished and put its binaries on disk, the server closed its
+ * side, and the page span forever because the dev proxy between them never
+ * passed the close along. Anything that can stall a body does this — a tunnel,
+ * a sleeping laptop, a proxy — and an unbounded read turns it into a spinner
+ * with no way out.
+ *
+ * Generous on purpose: a false trip costs nothing, because giving up here does
+ * NOT stop the installer (the route keeps running it on a closed stream, by
+ * design) and detection resumes polling the moment the mutation settles — so a
+ * install that really was just quiet still flips its row to Detected.
+ */
+export const INSTALL_STALL_MS = 120_000;
+
+/**
+ * What the page says when it gives up on the stream. It promises nothing about
+ * the installer, because giving up here does not stop it — the row's own
+ * detection is what will answer.
+ */
+export const STALLED_MESSAGE =
+  "The installer stopped reporting. It may still be running — this page will say so once it finishes.";
+
+/**
+ * Reads the install route's NDJSON stream to its terminal frame.
+ *
+ * Exported for its own tests: the three endings that matter are a clean
+ * `done`, a body that stops mid-flight, and a body that simply never speaks
+ * again, and the last one is the defect this function exists to bound.
+ * @param body - The response body to read
+ * @param onLine - Called with each `line` frame's text as it arrives
+ * @param stallMs - Silence allowed before giving up
+ */
+export async function readInstallStream(
+  body: ReadableStream<Uint8Array>,
+  onLine?: (line: string) => void,
+  stallMs: number = INSTALL_STALL_MS,
+): Promise<AgentInstallResult> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  let done: AgentInstallResult | undefined;
+  const handle = (frame: InstallFrame) => {
+    if (frame.type === "line") onLine?.(frame.text);
+    else if (frame.type === "done") done = frame;
+    else throw new ApiError(500, frame.message);
+  };
+  try {
+    for (;;) {
+      // The clock is per READ, so it measures silence rather than duration: a
+      // long install that keeps printing never trips it. The timer is CLEARED
+      // on every frame — an uncleared one per line would leave a chatty
+      // install holding hundreds of pending rejections, each firing minutes
+      // later into a race nobody is listening to any more.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new ApiError(504, STALLED_MESSAGE)), stallMs);
+        }),
+      ]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer);
+      });
+      if (chunk.done) break;
+      pending += decoder.decode(chunk.value, { stream: true });
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) if (line.trim() !== "") handle(JSON.parse(line) as InstallFrame);
+    }
+    if (pending.trim() !== "") handle(JSON.parse(pending) as InstallFrame);
+  } finally {
+    // Let go of the body either way. On the stall path this is what releases
+    // the connection the page has given up on.
+    reader.cancel().catch(() => {});
+  }
+  // A stream that ended with no terminal frame is a failure, not a success
+  // with missing fields: the server died, or something between here and it cut
+  // the body. Silently resolving would report an install that never finished
+  // as one that worked.
+  if (!done) throw new ApiError(500, "The install ended without saying whether it worked.");
+  return done;
 }
