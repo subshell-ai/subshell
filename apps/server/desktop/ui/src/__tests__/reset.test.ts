@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { armed, emptySteps, knownStep, RESET_STEPS, refusal, resetRows } from "../lib/reset";
+import { armed, emptySteps, knownStep, RESET_STEPS, refusal, resetRows, resetStarted } from "../lib/reset";
 
 const paths = {
   dataDir: "/data",
@@ -65,5 +65,21 @@ describe("armed", () => {
     // of hostname(1), not a name - and two empties must never arm a wipe.
     expect(armed("", "")).toBe(false);
     expect(armed("   ", "")).toBe(false);
+  });
+});
+
+describe("resetStarted", () => {
+  // It decides which of the two panes is the screen, so it is the difference
+  // between a confirmation box and a progress meter.
+  it("is false while every row is still pending", () => {
+    expect(resetStarted(emptySteps())).toBe(false);
+  });
+
+  it("is true the moment the first row moves", () => {
+    expect(resetStarted({ ...emptySteps(), plan: "running" })).toBe(true);
+  });
+
+  it("stays true for a half-run that failed", () => {
+    expect(resetStarted({ ...emptySteps(), plan: "done", stop: "failed" })).toBe(true);
   });
 });

@@ -556,65 +556,16 @@
     font-weight: var(--font-weight-strong);
     letter-spacing: -0.01em;
   }
-  /* The chain's live meter (spec 2026-09-13): a legitimate reset takes tens
-     of seconds of compiled-CLI spawns and tmux kills, and "Resetting…" on a
-     dead button read identically to a hang. One row per phase; the running
-     row carries the spinner, a failed row says so at the row that failed —
-     not in a log off-screen below everything. */
-  .reset-steps {
-    list-style: none;
-    margin: 0 0 12px;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  .reset-step {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    color: var(--muted-foreground);
-  }
-  .reset-step .mark {
-    display: inline-block;
-    width: 1em;
-    flex: none;
-    text-align: center;
-  }
-  .reset-step.step-running {
-    color: var(--foreground);
-  }
-  .reset-step.step-done .mark {
-    color: var(--success);
-  }
-  .reset-step.step-failed,
-  .reset-step.step-failed .mark {
-    color: var(--destructive);
-  }
-  .reset-step .mark.spin::after {
-    content: "";
-    display: inline-block;
-    width: 0.75em;
-    height: 0.75em;
-    border: 2px solid currentColor;
-    border-top-color: transparent;
-    border-radius: 50%;
-    /* `translate` keeps the circle centred in the mark while it rotates. */
-    transform: translateY(1px);
-    animation: reset-spin 0.8s linear infinite;
-  }
-  @keyframes reset-spin {
-    to {
-      transform: translateY(1px) rotate(360deg);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .reset-step .mark.spin::after {
-      animation-duration: 2.4s;
-    }
-  }
+  /* The chain's live meter used to be a visual language of its own here
+     (`.reset-steps` / `.reset-step`, spec 2026-09-13): a denser list with its
+     own marks, colours and spinner, sitting between the disclosures and the
+     confirmation box. It is now the FIRST RUN's `.checklist`, on a pane of
+     its own — same rows, same green tick, same spinner — because watching a
+     reset and watching a setup are the same kind of moment and were being
+     drawn twice (operator's call, 2026-09-14).
+     A reset takes tens of seconds of compiled-CLI spawns and tmux kills, so
+     the meter itself is not optional: "Resetting…" on a dead button reads
+     identically to a hang. */
 
   /* The setup assistant's frame (spec 2026-09-11 § 3.1). One fixed 1024x720
      window: a centered 560px column, and a 72px bar pinned to the bottom. */

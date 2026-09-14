@@ -81,6 +81,19 @@ export const RESET_STEPS: { key: StepKey; label: string }[] = [
   { key: "files", label: "Deleting the data" },
 ];
 
+/**
+ * Whether the chain has touched anything yet — which is also which SCREEN the
+ * reset view is on.
+ *
+ * Confirming and watching are two panes, not one growing one: a press
+ * replaces the promises with the meter. Before the first step moves, the
+ * confirmation is the whole screen; after it, the progress pane is.
+ * @param steps - The meter's rows
+ */
+export function resetStarted(steps: Record<StepKey, StepState>): boolean {
+  return RESET_STEPS.some(({ key }) => steps[key] !== "pending");
+}
+
 export function emptySteps(): Record<StepKey, StepState> {
   return { plan: "pending", stop: "pending", panes: "pending", service: "pending", files: "pending" };
 }

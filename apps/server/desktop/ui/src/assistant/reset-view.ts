@@ -15,7 +15,16 @@
  * sweeps sockets is a way out from under a screen that has none.
  */
 import * as ipc from "../lib/ipc";
-import { armed, emptySteps, knownStep, RESET_STEPS, refusal, resetRows, type StepState } from "../lib/reset";
+import {
+  armed,
+  emptySteps,
+  knownStep,
+  RESET_STEPS,
+  refusal,
+  resetRows,
+  resetStarted,
+  type StepState,
+} from "../lib/reset";
 import { type AssistantHost, el, errText } from "./host";
 
 export interface ResetView {
@@ -94,6 +103,7 @@ export function createResetView(host: AssistantHost): ResetView {
     (el("reset-run") as HTMLButtonElement).disabled = host.busy() || !(why === null && armed(typed, host_name));
     el("reset-run").textContent = host.busy() ? "Resetting…" : resetRunLabel;
     el("reset-run").dataset.armed = String(armed(typed, host_name));
+    renderPhase();
     renderSteps();
     // The reason, beside the control it disables. Only for a REFUSAL: "you
     // have not typed the hostname yet" is what the label above the box already
@@ -102,27 +112,50 @@ export function createResetView(host: AssistantHost): ResetView {
     el("reset-why").textContent = why ?? "";
   }
 
+  /** True once the chain has touched anything — the moment confirming becomes watching. */
+  const started = (): boolean => resetStarted(steps);
+
   /**
-   * Draw the meter. Hidden while nothing has started — the confirmation is
-   * the screen until a press makes the promises concrete, and a static
-   * forecast of five grey rows would read as part of the list above it.
+   * Which of the two panes is the screen right now.
+   *
+   * A press does not extend the confirmation, it REPLACES it: the promises
+   * are what you read before pressing, and once services are stopping and
+   * directories are going the only thing worth the window is how far it has
+   * got. The meter used to render between the disclosures and the input,
+   * which put a live task list ABOVE the box someone was still typing in and
+   * left the whole confirmation on screen underneath it.
+   */
+  function renderPhase(): void {
+    const running = started();
+    el("reset-confirm-pane").hidden = running;
+    el("reset-progress-pane").hidden = !running;
+  }
+
+  /**
+   * Draw the meter in the FIRST RUN's checklist, element for element —
+   * `li[data-state]` with a glyph column, which is what makes a done row's
+   * green tick, a running row's spinner and a failed row's cross identical to
+   * the Setting Up screen's. It is the same kind of moment and it now looks
+   * like it; before this the screen carried a denser list of its own with a
+   * separate set of colours and marks.
    */
   function renderSteps(): void {
     const box = el("reset-steps");
-    const touched = RESET_STEPS.some(({ key }) => steps[key] !== "pending");
-    box.hidden = !touched;
     box.textContent = "";
-    if (!touched) return;
+    if (!started()) return;
     for (const { key, label } of RESET_STEPS) {
       const state: StepState = steps[key];
       const li = document.createElement("li");
-      li.className = `reset-step step-${state}`;
-      const mark = document.createElement("span");
-      mark.className = state === "running" ? "mark spin" : "mark";
-      mark.textContent = state === "done" ? "✓" : state === "failed" ? "✗" : "";
+      // "active" rather than "running": the checklist's own vocabulary, and
+      // the state its spinner animation is keyed to.
+      li.dataset.state = state === "running" ? "active" : state;
+      const glyph = document.createElement("span");
+      glyph.className = "glyph";
+      glyph.textContent = state === "done" ? "✓" : state === "failed" ? "✕" : "";
       const text = document.createElement("span");
+      text.className = "label";
       text.textContent = label;
-      li.append(mark, text);
+      li.append(glyph, text);
       box.append(li);
     }
   }
