@@ -19,7 +19,7 @@
  *
  * Spec: docs/superpowers/specs/2026-09-14-design-system-design.md § 6.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 export const TYPE_ROLES = ["display", "heading", "label", "body", "detail", "caption"] as const;
@@ -259,6 +259,127 @@ export function mobileAgreement(
 }
 
 // ---------------------------------------------------------------------------
+// Escapes: the values that made the drift. One rule set per surface kind,
+// each finding naming the role to use instead so the report is a to-do list.
+// ---------------------------------------------------------------------------
+
+export interface Escape {
+  file: string;
+  line: number;
+  found: string;
+  use: string;
+}
+
+/** Nearest role for a px size — what the message suggests, not a decision made for the author. */
+function roleForPx(px: number, prefix: string, sep = " or "): string {
+  if (px >= 26) return `${prefix}display`;
+  if (px >= 17) return `${prefix}heading${sep}${prefix}label`;
+  if (px > 14.5) return `${prefix}label`;
+  if (px >= 13.5) return `${prefix}body${sep}${prefix}label`;
+  if (px >= 12.5) return `${prefix}detail`;
+  return `${prefix}caption`;
+}
+
+const HEX_OR_OKLCH = /#[0-9a-fA-F]{3,8}\b|oklch\(/g;
+
+/**
+ * Files that DEFINE colours are allowed literals; everything else consumes
+ * tokens. The dockview theme and xterm consume the terminal trio raw by
+ * design (spec § 3.2) and are not scanned.
+ */
+function isColourSource(surface: Surface, relPath: string): boolean {
+  if (surface === "mobile") return relPath.endsWith("src/lib/tokens.ts");
+  return relPath.endsWith("styles.css") || relPath.includes("dockview-theme") || relPath.includes("subshell-terminal");
+}
+
+export function findEscapes(surface: Surface, relPath: string, source: string): Escape[] {
+  const out: Escape[] = [];
+  const lines = source.split("\n");
+  const push = (i: number, found: string, use: string) => out.push({ file: relPath, line: i + 1, found, use });
+
+  if (surface === "spa" || surface === "client") {
+    if (relPath.endsWith(".css")) return out; // Task 2/3 own the stylesheets; literals there are the tokens
+    lines.forEach((l, i) => {
+      for (const m of l.matchAll(/\btext-\[([\d.]+)px\]/g)) push(i, m[0], roleForPx(Number(m[1]), "text-"));
+      for (const m of l.matchAll(/\btext-(base|lg|xl|2xl|3xl)\b/g)) {
+        const px = { base: 16, lg: 18, xl: 20, "2xl": 24, "3xl": 30 }[m[1]] ?? 16;
+        push(i, m[0], roleForPx(px, "text-"));
+      }
+      for (const m of l.matchAll(/\bfont-(medium|bold|extrabold|black)\b/g)) {
+        push(i, m[0], m[1] === "medium" ? "font-strong or (regular) nothing" : "font-strong");
+      }
+      if (!isColourSource(surface, relPath)) {
+        for (const m of l.matchAll(HEX_OR_OKLCH)) push(i, m[0], "a colour token (var(--…) / a text-*/bg-* utility)");
+      }
+    });
+    return out;
+  }
+
+  if (surface === "assistant") {
+    // Everything before the first `}` closes the `:root {}` token block.
+    const tokenBlockEnd = lines.findIndex((l) => l.trim() === "}");
+    lines.forEach((l, i) => {
+      if (i <= tokenBlockEnd) return;
+      const fs = /font-size:\s*([\d.]+)px/.exec(l);
+      if (fs) push(i, fs[0], roleForPx(Number(fs[1]), "var(--text-", ") or ").replace(/(\w)$/, "$1)"));
+      const fw = /font-weight:\s*(\d+)/.exec(l);
+      if (fw) push(i, fw[0], Number(fw[1]) >= 500 ? "var(--font-weight-strong)" : "var(--font-weight-regular)");
+      for (const m of l.matchAll(HEX_OR_OKLCH)) push(i, m[0], "a colour token in :root");
+    });
+    return out;
+  }
+
+  // mobile
+  if (isColourSource(surface, relPath)) return out;
+  lines.forEach((l, i) => {
+    for (const m of l.matchAll(/\bfontSize:\s*(\d+)/g))
+      push(i, m[0], `...font("${roleForPx(Number(m[1]), "").split(" or ")[0]}")`);
+    for (const m of l.matchAll(/\bfontWeight:\s*"?\d+"?/g))
+      push(i, m[0], `...font("<role>") — weight comes with the role`);
+    for (const m of l.matchAll(/#[0-9a-fA-F]{6}\b/g)) push(i, m[0], "colors.<role> from tokens.ts");
+  });
+  return out;
+}
+
+/** The files each surface's scanner walks. */
+export const SURFACE_GLOBS: Record<Surface, { root: string; include: RegExp; exclude: RegExp }> = {
+  spa: { root: "apps/server/web/src", include: /\.(tsx?|css)$/, exclude: /__tests__|\.test\./ },
+  client: { root: "apps/client/desktop/ui/src", include: /\.(tsx?|css)$/, exclude: /__tests__|\.test\./ },
+  assistant: { root: "apps/server/desktop/ui/src", include: /styles\.css$/, exclude: /__tests__/ },
+  mobile: { root: "apps/client/mobile", include: /\.(tsx?)$/, exclude: /__tests__|\.test\.|node_modules|\.expo/ },
+};
+
+// ---------------------------------------------------------------------------
+// Contrast: computed from the tokens, every run, rather than trusted from the
+// day the palette was approved (spec § 5).
+// ---------------------------------------------------------------------------
+
+const AA = 4.5;
+
+export function contrastProblems(spaCss: string): string[] {
+  const t = parseCssTokens(spaCss);
+  const rgb = (role: string) => {
+    const v = t.colors[role];
+    const o = v ? parseOklch(v) : null;
+    return o ? oklchToSrgb(...o) : v?.startsWith("#") ? hexToSrgb(v) : null;
+  };
+  const problems: string[] = [];
+  for (const [text, ground] of [
+    ["muted-foreground", "card"],
+    ["muted-foreground", "background"],
+    ["foreground", "card"],
+    ["foreground", "background"],
+  ] as const) {
+    const a = rgb(text);
+    const b = rgb(ground);
+    if (!a || !b) continue;
+    const ratio = contrastRatio(a, b);
+    if (ratio < AA) problems.push(`contrast: --${text} on --${ground} is ${ratio.toFixed(2)}:1, below AA ${AA}:1`);
+  }
+  return problems;
+}
+
+// ---------------------------------------------------------------------------
 // The surfaces. Paths are relative to the repo root, which is where every
 // package.json script runs from.
 // ---------------------------------------------------------------------------
@@ -285,6 +406,9 @@ export async function allAgreement(only?: Surface): Promise<string[]> {
   if (!only || only === "mobile") {
     // Imported, not parsed: tokens.ts is a pure module (no React Native
     // imports), so bun can load it directly and we compare real values.
+    // The repo's no-dynamic-imports rule does not bind here: this is a dev
+    // tool under scripts/, never compiled into a binary, and the path is a
+    // fixed constant rather than a runtime-discovered module.
     const mod = (await import(join(REPO_ROOT, MOBILE_TOKENS))) as {
       colors: Record<string, string>;
       type: Record<string, { size: number; weight: string }>;
@@ -294,17 +418,69 @@ export async function allAgreement(only?: Surface): Promise<string[]> {
   return problems;
 }
 
+function walk(dir: string, include: RegExp, exclude: RegExp, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (exclude.test(p)) continue;
+    if (statSync(p).isDirectory()) walk(p, include, exclude, out);
+    else if (include.test(p)) out.push(p);
+  }
+  return out;
+}
+
+export function allEscapes(only?: Surface): Escape[] {
+  const out: Escape[] = [];
+  for (const [surface, g] of Object.entries(SURFACE_GLOBS) as [Surface, (typeof SURFACE_GLOBS)[Surface]][]) {
+    if (only && only !== surface) continue;
+    for (const abs of walk(join(REPO_ROOT, g.root), g.include, g.exclude)) {
+      const rel = abs.slice(REPO_ROOT.length + 1);
+      out.push(
+        ...findEscapes(surface, rel.slice(g.root.length + 1), readFileSync(abs, "utf8")).map((e) => ({
+          ...e,
+          file: rel,
+        })),
+      );
+    }
+  }
+  return out;
+}
+
 if (import.meta.main) {
   const report = process.argv.includes("--report");
-  const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length) as Surface | undefined;
-  const problems = await allAgreement(only);
-  if (problems.length === 0) {
-    console.log("✓ design tokens agree");
+  const onlyRaw = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
+  const surfaces = Object.keys(SURFACE_GLOBS) as Surface[];
+  if (onlyRaw !== undefined && !surfaces.includes(onlyRaw as Surface)) {
+    console.error(`✗ unknown --only="${onlyRaw}" — expected one of: ${surfaces.join(", ")}`);
+    process.exit(2);
+  }
+  const only = onlyRaw as Surface | undefined;
+  const agreement = await allAgreement(only);
+  const escapes = allEscapes(only);
+  const contrast =
+    only && only !== "spa" ? [] : contrastProblems(readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8"));
+  const total = agreement.length + escapes.length + contrast.length;
+  if (total === 0) {
+    console.log("✓ design system: tokens agree, no escapes, contrast clears AA");
     process.exit(0);
   }
   const out = report ? console.log : console.error;
-  out(`${report ? "•" : "✗"} ${problems.length} design-token problem(s):\n`);
-  for (const p of problems) out(`  ${p}`);
-  out("");
+  out(`${report ? "•" : "✗"} ${total} design-system problem(s)\n`);
+  if (agreement.length) {
+    out(`  agreement (${agreement.length}):`);
+    for (const p of agreement) out(`    ${p}`);
+  }
+  if (escapes.length) {
+    out(`  escapes (${escapes.length}):`);
+    for (const e of escapes) out(`    ${e.file}:${e.line}  ${e.found}  →  ${e.use}`);
+  }
+  if (contrast.length) {
+    out(`  contrast (${contrast.length}):`);
+    for (const p of contrast) out(`    ${p}`);
+  }
+  out(
+    report
+      ? "\n  (report mode — not failing; see docs/design-system.md)\n"
+      : "\n  See docs/design-system.md for the roles.\n",
+  );
   process.exit(report ? 0 : 1);
 }

@@ -88,6 +88,13 @@ jobs:
       - name: Check the per-path licence declarations
         run: bun run lint:licenses
 
+      # The design system (docs/design-system.md): one type/colour vocabulary
+      # across four surfaces, asserted from the token files rather than trusted
+      # to a comment saying "copied verbatim". REPORT mode until the audits in
+      # docs/superpowers/plans/2026-09-14-design-system.md land; Task 13 flips it.
+      - name: Check the design tokens (report)
+        run: bun run lint:design:report
+
       - name: Run type checking
         run: bun run verify-types
 

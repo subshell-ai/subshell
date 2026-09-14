@@ -35,6 +35,8 @@
     "lint:licenses:fix": "bun scripts/license-fields.ts --fix",
     "lint:lockfile": "bun scripts/lockfile-workspace-versions.ts",
     "lint:lockfile:fix": "bun scripts/lockfile-workspace-versions.ts --fix",
+    "lint:design": "bun scripts/design-tokens.ts",
+    "lint:design:report": "bun scripts/design-tokens.ts --report",
     "test": "turbo run test --continue --",
     "test:scripts": "bun test ./scripts/__tests__/",
     "test:e2e": "turbo run test:e2e",

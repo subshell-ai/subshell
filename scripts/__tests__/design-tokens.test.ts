@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   agreementProblems,
   COLOR_ROLES,
+  contrastProblems,
   contrastRatio,
+  findEscapes,
   hexToSrgb,
   MOBILE_SCALE,
   mobileAgreement,
@@ -212,5 +214,65 @@ describe("mobileAgreement", () => {
   test("names a missing colour key", () => {
     const { destructive: _drop, ...rest } = good.colors;
     expect(mobileAgreement(spa, { ...good, colors: rest })).toContainEqual(expect.stringContaining("destructive"));
+  });
+});
+
+describe("findEscapes", () => {
+  test("spa/client: arbitrary px and off-scale Tailwind sizes; sm/xs are aliases", () => {
+    const src = `<p className="text-[13px] text-sm text-lg font-medium">x</p>\n<span className="text-xs text-[11.5px]">y</span>`;
+    const found = findEscapes("spa", "a.tsx", src);
+    expect(found.map((e) => e.found)).toEqual(["text-[13px]", "text-lg", "font-medium", "text-[11.5px]"]);
+    expect(found[0]).toMatchObject({ file: "a.tsx", line: 1, use: "text-detail" });
+    expect(found[1].use).toBe("text-heading or text-label");
+    expect(found[2].use).toBe("font-strong or (regular) nothing");
+    expect(found[3].use).toBe("text-caption");
+  });
+
+  test("spa/client: a hex or oklch literal outside styles.css", () => {
+    const found = findEscapes("spa", "components/x.tsx", `const c = "#1d182a"; const d = "oklch(0.5 0.1 300)";`);
+    expect(found).toHaveLength(2);
+    expect(found[0].use).toBe("a colour token (var(--…) / a text-*/bg-* utility)");
+  });
+
+  test("spa/client: styles.css and dockview-theme.css are not scanned for literals", () => {
+    expect(findEscapes("spa", "styles.css", `--background: #1d182a;`)).toEqual([]);
+    expect(findEscapes("spa", "styles/dockview-theme.css", `color: #fff;`)).toEqual([]);
+  });
+
+  test("assistant: font-size and font-weight literals outside the token block", () => {
+    const css = `:root {\n  --text-label: 15px;\n}\n.x {\n  font-size: 14.5px;\n  font-weight: 600;\n}\n.y { font-size: var(--text-body); }`;
+    const found = findEscapes("assistant", "styles.css", css);
+    expect(found.map((e) => e.found)).toEqual(["font-size: 14.5px", "font-weight: 600"]);
+    expect(found[0].use).toBe("var(--text-body) or var(--text-label)");
+    expect(found[1].use).toBe("var(--font-weight-strong)");
+  });
+
+  test("assistant: colour literals outside :root", () => {
+    const css = `:root {\n  --background: oklch(0.2 0 0);\n}\n.x { color: #fff; }`;
+    expect(findEscapes("assistant", "styles.css", css)).toHaveLength(1);
+  });
+
+  test("mobile: fontSize/fontWeight literals anywhere but tokens.ts", () => {
+    expect(findEscapes("mobile", "app/x.tsx", `style={{ fontSize: 17, fontWeight: "500" }}`)).toHaveLength(2);
+    expect(findEscapes("mobile", "src/lib/tokens.ts", `size: 17,`)).toEqual([]);
+    expect(findEscapes("mobile", "app/y.tsx", `style={{ ...font("label") }}`)).toEqual([]);
+  });
+
+  test("mobile: hex literals outside tokens.ts", () => {
+    expect(findEscapes("mobile", "app/x.tsx", `color: "#7abdff"`)).toHaveLength(1);
+  });
+});
+
+describe("contrastProblems", () => {
+  test("passes Dreamframe's muted-foreground on card and background", () => {
+    const spa = `:root, .dark {\n  --background: oklch(0.224 0.035 296);\n  --card: oklch(0.255 0.032 296);\n  --muted-foreground: oklch(0.74 0.04 310);\n  --foreground: oklch(0.92 0.03 312);\n}`;
+    expect(contrastProblems(spa)).toEqual([]);
+  });
+
+  test("fails a muted text that would not clear AA", () => {
+    const spa = `:root, .dark {\n  --background: oklch(0.224 0.035 296);\n  --card: oklch(0.255 0.032 296);\n  --muted-foreground: oklch(0.45 0.04 310);\n  --foreground: oklch(0.92 0.03 312);\n}`;
+    const problems = contrastProblems(spa);
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems[0]).toContain("4.5");
   });
 });
