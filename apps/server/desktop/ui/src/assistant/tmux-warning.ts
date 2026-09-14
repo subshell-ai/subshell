@@ -19,6 +19,7 @@
  */
 import type { InstallPlan } from "../lib/installers";
 import * as ipc from "../lib/ipc";
+import { copyButton } from "./copy-button";
 import type { AssistantHost } from "./host";
 
 export type TmuxWarning = HTMLElement & { applyPlan: (plan: InstallPlan) => void };
@@ -47,30 +48,11 @@ export function buildTmuxWarning(host: AssistantHost, install: () => unknown): T
   // and a blank console). A click happens long after evaluation.
   installButton.addEventListener("click", () => install());
   const code = document.createElement("code");
-  const copy = document.createElement("button");
-  copy.type = "button";
-  copy.textContent = "Copy";
   // Opted OUT of the busy-disable: the warning's whole moment is "an action
   // is refused until you install something" — being unable to copy the fix
-  // while a re-probe is in flight is the worst possible timing.
-  copy.dataset.always = "1";
-  copy.addEventListener("click", () => {
-    // Copies what is SHOWN: the code line and the clipboard cannot then
-    // disagree, whatever `applyPlan` last wrote there.
-    navigator.clipboard
-      .writeText(code.textContent ?? "")
-      .then(() => {
-        copy.textContent = "Copied";
-      })
-      .catch(() => {
-        copy.textContent = "Copy failed";
-      })
-      .finally(() => {
-        setTimeout(() => {
-          copy.textContent = "Copy";
-        }, 1600);
-      });
-  });
+  // while a re-probe is in flight is the worst possible timing. Copies what is
+  // SHOWN, so the code line and the clipboard cannot disagree.
+  const copy = copyButton(() => code.textContent ?? "", { label: "install command", always: true });
   // Reading, not running: the no-Homebrew plan needs somewhere to go, and
   // spec §6.1 names this page. A button calling a Rust command that holds the
   // URL itself, so no URL is a value that crosses the IPC boundary — the same

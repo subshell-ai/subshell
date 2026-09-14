@@ -38,21 +38,23 @@ describe("manualTmuxRoutes", () => {
     expect(manualTmuxRoutes("darwin").map((r) => r.name)).toEqual(["Homebrew", "MacPorts"]);
   });
 
-  it("gives Homebrew both lines: get the manager, then get tmux", () => {
-    const brew = manualTmuxRoutes("darwin")[0];
-    expect(brew?.commands).toHaveLength(2);
-    expect(brew?.commands[0]).toContain("Homebrew/install");
-    expect(brew?.commands[1]).toBe("brew install tmux");
+  // The tmux line is shown only once a manager's button is pressed. The line
+  // that installs the MANAGER is never carried here at all — that is the
+  // `curl … | bash` nobody should take from a window's say-so.
+  it("carries the one line that installs tmux, and never one that installs a manager", () => {
+    for (const route of manualTmuxRoutes("darwin")) {
+      expect(Object.keys(route).sort()).toEqual(["command", "name", "target"]);
+      expect(route.command).toContain("tmux");
+      expect(route.command).not.toContain("curl");
+    }
   });
 
-  // A `port` command on a machine with no MacPorts answers "command not
-  // found", so the route says where MacPorts comes from instead of implying
-  // the line alone is enough.
-  it("says MacPorts comes from its site rather than from a command", () => {
-    const ports = manualTmuxRoutes("darwin")[1];
-    expect(ports?.commands).toEqual(["sudo port install tmux"]);
-    expect(ports?.note).toMatch(/package on its own site/);
-    expect(ports?.docsUrl).toContain("macports.org");
+  it("names each manager's own install line", () => {
+    expect(manualTmuxRoutes("darwin").map((r) => r.command)).toEqual(["brew install tmux", "sudo port install tmux"]);
+  });
+
+  it("names members of the app's closed URL set, never URLs", () => {
+    expect(manualTmuxRoutes("darwin").map((r) => r.target)).toEqual(["homebrew", "macports"]);
   });
 
   it("invents nothing for platforms this app does not ship to", () => {

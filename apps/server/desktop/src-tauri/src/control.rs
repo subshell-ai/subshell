@@ -2123,6 +2123,13 @@ pub enum WebTarget {
     /// Homebrew, offered on the tmux screen when this Mac has no package manager.
     Homebrew,
     /// MacPorts, the other way out of that same screen.
+    ///
+    /// Renamed explicitly: `rename_all = "kebab-case"` would put `mac-ports`
+    /// on the wire, which is not how the project spells itself and is not what
+    /// the page sends. The page did send `macports` and the command refused it
+    /// — a runtime refusal no type check could see (2026-09-14), which is what
+    /// `web-targets.test.ts` now holds shut.
+    #[serde(rename = "macports")]
     MacPorts,
 }
 

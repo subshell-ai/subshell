@@ -39,22 +39,25 @@ export interface InstallPlan {
   docsUrl: string;
 }
 
-/** Where each package manager tells you to get it. */
-const BREW_DOCS = "https://brew.sh";
-const MACPORTS_DOCS = "https://www.macports.org/install.php";
-
-/** One way a person can get tmux themselves, when this app cannot do it for them. */
+/**
+ * One way a person can get tmux themselves, when this app cannot do it for
+ * them: a package manager's name, and the member of the app's closed URL set
+ * that opens its site.
+ *
+ * **The command is shown only when ASKED FOR.** Printing both routes' shell
+ * lines up front asked someone to paste an unexplained command on a window's
+ * say-so; pressing a manager's name and being shown the one line for it does
+ * not. The line that installs the MANAGER is still never shown — that is the
+ * `curl … | bash` nobody should take from here, and each project's own site
+ * carries it in its own words (operator's calls, 2026-09-14).
+ */
 export interface ManualRoute {
   /** The package manager's name, spelled as its own project spells it */
   name: string;
   /** Which member of the app's closed URL set opens this manager's site */
   target: "homebrew" | "macports";
-  /** Lines to run, in order — the manager first where it installs from a shell */
-  commands: string[];
-  /** Where to get the manager itself */
-  docsUrl: string;
-  /** How you get this manager when it does not install from a command */
-  note?: string;
+  /** The one line that installs tmux once the manager itself is there */
+  command: string;
 }
 
 /**
@@ -66,11 +69,9 @@ export interface ManualRoute {
  * fewer people would take, and the obvious one looked unsupported (operator's
  * call, 2026-09-14).
  *
- * Homebrew goes first and carries both lines, because it installs from a shell
- * and then installs tmux. MacPorts cannot: it ships as a package from its own
- * site, so its route is a link plus the one command that follows, and the note
- * says so rather than leaving a `port` command that would answer "command not
- * found".
+ * Homebrew goes first, being the one almost everyone means. Each route carries
+ * the single line that installs tmux once that manager exists, and a way to
+ * the manager's own site for getting it in the first place.
  *
  * Only darwin has these. Linux gets a button (apt-get via pkexec), and an
  * unknown platform gets the reading link it already had — inventing routes for
@@ -81,22 +82,8 @@ export interface ManualRoute {
 export function manualTmuxRoutes(platform: string): ManualRoute[] {
   if (platform !== "darwin") return [];
   return [
-    {
-      name: "Homebrew",
-      target: "homebrew",
-      commands: [
-        '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
-        "brew install tmux",
-      ],
-      docsUrl: BREW_DOCS,
-    },
-    {
-      name: "MacPorts",
-      target: "macports",
-      commands: ["sudo port install tmux"],
-      docsUrl: MACPORTS_DOCS,
-      note: "MacPorts installs from a package on its own site, not from a command.",
-    },
+    { name: "Homebrew", target: "homebrew", command: "brew install tmux" },
+    { name: "MacPorts", target: "macports", command: "sudo port install tmux" },
   ];
 }
 

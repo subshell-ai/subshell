@@ -19,6 +19,7 @@
  */
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { copyButton } from "./assistant/copy-button";
 import { type AssistantHost, el, errText } from "./assistant/host";
 import { renderOutput, renderTail } from "./assistant/logs";
 import { createResetView } from "./assistant/reset-view";
@@ -33,7 +34,7 @@ import {
   type FormValues,
   fieldProblems,
 } from "./lib/config-form";
-import { manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
+import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
 import type { About, ActionResult, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
@@ -115,6 +116,8 @@ let lastTail: LogTail | null = null;
 let detailsOpen = false;
 /** True while the ready handoff is on screen, so its entrance replays once. */
 let handedOff = false;
+/** Which manager's instructions the tmux screen is showing, or null for none yet. */
+let manualRoute: ManualRoute["target"] | null = null;
 /**
  * The setup chain ran to completion in THIS window, so the ready screen owes
  * the person its result rather than vanishing into the dashboard. Page state
@@ -380,6 +383,14 @@ function renderTmux(p: Probe): void {
       content.append(text("p", "Your package manager may ask for your password.", "hint centered"));
     }
   } else {
+    // ABOVE the instructions, not under them. The screen is already polling
+    // (`tick`), so it WILL notice tmux the moment it appears — but a person
+    // who has gone off to a terminal and come back reads the top of the pane
+    // first, and a window that says nothing about watching looks frozen.
+    const checking = document.createElement("p");
+    checking.className = "tmux-checking";
+    checking.append(text("span", "", "glyph"), text("span", "Checking for tmux…", "label"));
+    content.append(checking);
     const routes = manualTmuxRoutes(p.platform);
     if (routes.length === 0) {
       // A platform this app does not ship to: the reading link is the whole
@@ -390,28 +401,35 @@ function renderTmux(p: Probe): void {
       if (plan.docsUrl !== "")
         content.append(button("Read the tmux docs", () => void ipc.openTmuxDocs().catch(setProblem), "ghost"));
     } else {
-      content.append(text("p", "This machine has no package manager this app can drive. Use either of these:", "hint"));
+      // What to DO, not what this machine lacks. It read "This machine has no
+      // package manager this app can drive", which explains the app's own
+      // position to someone who only wants tmux, and names an absence where a
+      // next step belongs (operator's call, 2026-09-14).
+      //
+      // `wizard-copy centered`, not `hint`: running text introducing the two
+      // buttons takes the body role rather than the detail one this screen's
+      // asides use, centred under a centred title.
+      content.append(text("p", "Installing tmux through Homebrew or MacPorts is recommended.", "wizard-copy centered"));
+      // Two ordinary buttons, side by side: no class, so they carry the app's
+      // default button look rather than the ghost one, which read as a link
+      // and did not say it could be pressed. Pressing one REVEALS that
+      // manager's instructions below; nothing is shown until asked for.
+      const choices = document.createElement("div");
+      choices.className = "manual-routes";
       for (const route of routes) {
-        const block = document.createElement("div");
-        block.className = "manual-route";
-        block.append(text("p", route.name, "label"));
-        if (route.note !== undefined) block.append(text("p", route.note, "hint"));
-        for (const command of route.commands) block.append(text("span", command, "code-line"));
-        // A MEMBER of the closed set, never the URL beside it: Rust owns
-        // every address this app can open (see `WebTarget`). `docsUrl` on the
-        // route is for the reader's eyes.
-        block.append(button(`Open ${route.name}`, () => void ipc.openWeb(route.target).catch(setProblem), "ghost"));
-        content.append(block);
+        const choice = button(route.name, () => {
+          manualRoute = manualRoute === route.target ? null : route.target;
+          render();
+          refocus(`route-${route.target}`);
+        });
+        choice.id = `route-${route.target}`;
+        choice.setAttribute("aria-pressed", String(manualRoute === route.target));
+        choices.append(choice);
       }
+      content.append(choices);
+      const chosen = routes.find((route) => route.target === manualRoute);
+      if (chosen !== undefined) content.append(manualRouteSteps(chosen));
     }
-    // The screen is already polling (`tick`), so it WILL notice tmux the
-    // moment it appears — with nothing on screen saying so, a person who has
-    // just installed it in a terminal has no reason to believe coming back
-    // here does anything, and reaches for a restart.
-    const checking = document.createElement("p");
-    checking.className = "tmux-checking";
-    checking.append(text("span", "", "glyph"), text("span", "Checking for tmux…", "label"));
-    content.append(checking);
   }
   el("bar-left").append(button("Back", () => go("welcome"), "ghost", installing));
   // NO reason text beside Continue. This screen carries a hardcoded "Waiting
@@ -422,6 +440,38 @@ function renderTmux(p: Probe): void {
   // manager's own words. A disabled button next to a label repeating the
   // screen is the screen saying it twice.
   el("bar-right").append(button("Continue", () => found && go(next()), "primary", !found));
+}
+
+/**
+ * One manager's instructions, shown after its button is pressed.
+ *
+ * Two steps, in the order they happen: get the manager from its own site, then
+ * run one line. Only the second is printed here — the line that installs a
+ * package MANAGER is a `curl … | bash` nobody should take from a window's
+ * say-so, and each project carries it on its own page in its own words.
+ */
+function manualRouteSteps(route: ManualRoute): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = "manual-steps";
+  // No numbering: two things in the order they are laid out, where the words
+  // carry the order. But each line has to SAY where it leads — "Don't have
+  // Homebrew?" over a button that opens a website answers a question with a
+  // dead end, leaving "open the site and then what?" (operator's report,
+  // 2026-09-14). So the first line says what the site is for and that you come
+  // back, and the second says what you can do once you have.
+  panel.append(text("p", `Don't have ${route.name}? Install it from its site, then come back.`, "hint"));
+  // A MEMBER of the closed URL set, never the address: Rust owns every page
+  // this app can open (see `WebTarget`).
+  panel.append(button(`Open ${route.name} site`, () => void ipc.openWeb(route.target).catch(setProblem)));
+  panel.append(text("p", `Once you have ${route.name}, run:`, "hint"));
+  const line = document.createElement("div");
+  line.className = "manual-command";
+  line.append(
+    text("span", route.command, "code-line"),
+    copyButton(() => route.command, { label: `the ${route.name} command` }),
+  );
+  panel.append(line);
+  return panel;
 }
 
 function renderSetup(p: Probe): void {

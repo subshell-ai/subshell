@@ -189,7 +189,12 @@
    * address form's field hints sit under left-aligned inputs, where centred
    * text would float away from the field it explains.
    */
-  .hint.centered {
+  .hint.centered,
+  /* `.wizard-copy` needs its own arm for the same reason `.hint` does: the
+     rule is compound, so a paragraph carrying `centered` alone was left
+     aligned inside a centred column — which is exactly how it looked, a
+     centred title over a line that drifted left as it wrapped. */
+  .wizard-copy.centered {
     text-align: center;
   }
   .warn-text {
@@ -965,20 +970,76 @@
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
   }
-  /* One way out of a Mac with no package manager: the manager's name, what to
-     run, and a way to its own site. Two of these stack on the tmux screen. */
-  .manual-route {
-    margin-top: 16px;
+  /* The two ways out of a Mac with no package manager, side by side. Each is
+     an ordinary button — the default look, not the ghost one, which reads as
+     a link and did not say it could be pressed. No commands are shown at all:
+     each project's site says how to install it, in its own words. */
+  .manual-routes {
+    margin-top: 20px;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    justify-content: center;
     gap: 8px;
   }
+  /* The pressed manager reads as chosen, since its instructions are what is
+     below. */
+  .manual-routes button[aria-pressed="true"] {
+    border-color: var(--primary);
+    color: var(--foreground);
+  }
+  /* The chosen manager's two steps: get it from its own site, then run one
+     line. Centred under the pair, on the same 4px rhythm as the rest. */
+  .manual-steps {
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .manual-command {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  /* The copy affordance, matching the SPA's `CopyableValue`: a square icon
+     button that becomes a check. Square by padding rather than a fixed size,
+     so it keeps the same border and radius as every other button here. */
+  .copy-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px;
+    /* No border, no box: beside a code line the chrome was louder than the
+       command it sits next to, and a bordered square next to a bordered code
+       line read as two competing fields (operator's call, 2026-09-14). The
+       glyph brightens on hover, which is the whole affordance it needs. */
+    border-color: transparent;
+    color: var(--muted-foreground);
+  }
+  .copy-button:hover:not(:disabled) {
+    border-color: transparent;
+    color: var(--foreground);
+  }
+  .copy-button svg {
+    width: 16px;
+    height: 16px;
+  }
+  .copy-button[data-state="copied"] {
+    color: var(--success);
+  }
+  /* A refused clipboard has to be visible, not only announced: a button that
+     flashed nothing would read as a press that never registered. */
+  .copy-button[data-state="failed"] {
+    color: var(--destructive);
+  }
+
   /* The screen keeps probing while someone installs tmux in a terminal, and
      this is the only thing that says so — without it, coming back to a window
      that looks frozen invites a restart. */
   .tmux-checking {
-    margin: 20px 0 0;
+    /* FIRST in the pane, so no top margin (the content column brings its own
+       36px) — and a real gap below it, which it had none of: the status and
+       the sentence under it ran together as one block. */
+    margin: 0 0 24px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -987,6 +1048,13 @@
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
   }
+  /* The row's text takes `.label` as-is — 15px/600 on full-strength
+     foreground, the same as the done-mark row beside it on the machines that
+     already have tmux. It was briefly toned down to regular muted, on the
+     argument that a status should not outweigh the instruction under it;
+     matching the `.tmux-ready` row it alternates with won (operator's call,
+     2026-09-14), and the two states of one screen now look like two states of
+     one thing. */
   .tmux-checking .glyph {
     border: 2px solid var(--primary);
     border-right-color: transparent;
