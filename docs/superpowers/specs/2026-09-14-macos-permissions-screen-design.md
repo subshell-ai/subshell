@@ -77,7 +77,10 @@ own state, per the rule this app keeps.
 ### 3.2 As a requested screen
 
 `REQUESTED_SCREENS` gains `"permissions"`, `Screen` gains `Permissions`, `parse_screen` accepts
-`"permissions"`, `as_str` returns it. Raised from the dashboard it renders the same four rows
+`"permissions"`, `as_str` returns it. It is the one screen in BOTH the first-run list and the
+requested set; the render tells a visit apart by whether `screensFor` already holds it, which is
+false exactly when the request came from the dashboard — no second flag, and a requested visit
+draws no dot row. Raised from the dashboard it renders the same four rows
 over whatever the probe implies, with the bar reading Back → `host.close()` and no Continue,
 exactly as `supervision` does. Which means it is reachable on an onboarded machine, which is the
 whole point.
@@ -105,7 +108,9 @@ One `Permission` type for both, because the page renders both with one model (§
   bounded wait (10 s) and answer `Unavailable` on timeout rather than hanging a command forever.
 - Dependencies: `objc2-user-notifications` 0.3.2 and `objc2-foundation` 0.3.2, both already in
   the registry, pinned exactly, target-gated to macOS in `Cargo.toml`.
-- `UNAuthorizationStatusEphemeral` maps to `Authorized`.
+- `UNAuthorizationStatusEphemeral` maps to `Authorized`. For Photos, `Restricted` maps to
+  `Denied` (nothing the person can flip) and `Limited` to `Authorized` — a limited library still
+  attaches, so a notice on it would be false.
 
 Shared crate, not `control.rs`: Subshell Client posts no notifications today, and the day it does
 this is the half it needs (§9).
@@ -114,9 +119,9 @@ this is the half it needs (§9).
 
 | command | grant | does |
 |---|---|---|
-| probe field `notification_permission: String` | (probe) | `notification_permission()` serialized kebab-case: `not-determined` / `denied` / `authorized` / `provisional` / `unavailable` |
-| probe field `photos_permission: String` | (probe) | `photos_permission()`, same words |
-| `desktop_permissions` | **main + wizard** | both states, no arguments (§5.5) |
+| probe field `notification_permission: Permission` | (probe) | kebab-case on the wire: `not-determined` / `denied` / `authorized` / `provisional` / `unavailable`; the page sees it as `notificationPermission`, since `Probe` is camelCased like every other field |
+| probe field `photos_permission: Permission` | (probe) | same words, `photosPermission` on the page |
+| `desktop_permissions` | **main only** | both states, no arguments (§5.5); the assistant reads the probe instead |
 | `desktop_notify` (existing) | main | now checks the state first and returns `{ shown, permission }` (§5.1). Still posts when `authorized`/`provisional`/`unavailable` — `unavailable` is a dev build, where the plugin's own path still shows something |
 | `desktop_request_notifications` | **wizard only** | calls `request_notifications()`, returns the resulting state |
 | `desktop_open_system_settings(pane)` | **wizard only** | `pane` is a closed enum `SettingsPane { Notifications, FilesAndFolders, Photos }` → a `x-apple.systempreferences:` URL Rust owns, opened with the opener plugin. Same shape as `WebTarget`: the page names a member, never a URL |
@@ -210,8 +215,10 @@ desktopInvoke("desktop_permissions") → { notifications: Permission; photos: Pe
 // Permission = "not-determined" | "denied" | "authorized" | "provisional" | "unavailable"
 ```
 
-Granted to `main` and `wizard`. No arguments, no side effects, answers two facts about the app's
-own standing with the OS. `ipc-acl.test.ts` pins `main` at **six** commands and pins this one by
+Granted to `main` only. The assistant never calls it — both states ride on the probe it already
+re-reads every 1500 ms — and this app refuses a grant with no caller the way it refuses
+`dialog:allow-ask` (the ACL test pins the exact set). No arguments, no side effects, answers two
+facts about the app's own standing with the OS. `ipc-acl.test.ts` pins `main` at **six** commands and pins this one by
 signature (no arguments), the way `desktop_set_supervision` and `desktop_open_in_browser` are.
 
 ## 6. Dots and steps

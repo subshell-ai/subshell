@@ -458,6 +458,52 @@ done
 dpkg -l libxdo-dev >/dev/null 2>&1 && echo "OK      libxdo-dev" || echo "MISSING libxdo-dev"
 ```
 
+## macOS permissions (spec 2026-09-14)
+
+A first run on a Mac meets four system prompts or banners, and only ONE is the
+app's own: Notifications. Files-and-Folders is attributed to whichever process
+lists the folder (`subshell-server` under launchd, this app under "runs with
+this app"), Photos is raised by the image picker's own panel, and Background
+Items is a banner, not a permission. So the `permissions` screen — macOS only,
+between Install tmux and Set Up — REQUESTS Notifications and EXPLAINS the
+other three, and never blocks Continue. It is also a REQUESTED screen (the one
+in both lists): the dashboard raises it as the fix for every missing-permission
+notice, and it tells a requested visit from a first-run one by whether
+`screensFor` already holds it.
+
+**Tauri's notification plugin cannot see any of this.** Its desktop
+`permission_state()` and `request_permission()` are stubs that answer
+`Granted` (2.4.0, measured), so the truth comes from `UNUserNotificationCenter`
+and `PHPhotoLibrary` directly, in `crates/desktop-core/src/permissions.rs` —
+shared, because Subshell Client will want the notifications half the day it
+notifies. Two facts about that module are load-bearing:
+
+- **The bundle guard runs before every call, and checks BOTH halves.** The UN
+  API aborts a process that is not an `.app` bundle — no error, no stack, the
+  window just never paints — and `tauri dev` runs the bare binary. A bundle
+  identifier alone is not proof: `tauri-build` embeds an `Info.plist` into the
+  dev binary through a linker section, so `bundleIdentifier` answers there too.
+  The bundle PATH ending in `.app` is what a linker section cannot fake. Dev
+  therefore answers `unavailable` by design, the page says "Permissions can only
+  be requested from the installed app", and the real prompt is testable only in
+  a built app. `cargo test` in desktop-core is itself not a bundle, which is why
+  its test that every function answers `Unavailable` there is the crash guard
+  under test.
+- **Both states ride on the probe** (`notificationPermission`,
+  `photosPermission`), so the screen re-reads them on the poll it already runs.
+  The dashboard cannot read the probe, so it has `desktop_permissions` — the
+  sixth `main` command, read-only, no argument, argued in `docs/security.md`
+  and in `capabilities/main.json`'s own comment. Requesting and opening a
+  System Settings pane are `wizard`-only; `desktop_open_system_settings` takes
+  a closed `SettingsPane`, never a URL, the `WebTarget` shape.
+
+`src-tauri/Info.plist` carries the four usage descriptions; they are the
+sentence a prompt attributed to THIS APP shows, and a prompt attributed to
+`subshell-server` under launchd shows none, which is what the `files` row's
+attribution sentence is for. The row model is pure
+(`ui/src/lib/permissions-model.ts`): every `Permission` value to a glyph state,
+a suffix and an action, and which pane each row opens.
+
 ## Commands
 
 ```bash

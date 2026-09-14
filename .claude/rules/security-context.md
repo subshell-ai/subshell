@@ -530,13 +530,18 @@ grant equal to what the page actually invokes. The `csp` in each
 `tauri.conf.json` governs the bundled pages only — the remote window carries
 whatever CSP the plane sends.
 
-- **The server app's remote window is PINNED TO LOOPBACK and holds five
-  commands — four harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
+- **The server app's remote window is PINNED TO LOOPBACK and holds six
+  commands — five harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
   the server this app itself manages — so `capabilities/main.json` scopes it
   with `remote.urls` to loopback and grants only commands that cannot touch the
   CLI, the config, the service or the filesystem (drop this app's own title
   bar, display one fixed-shape notification, raise the assistant at a named
-  screen, and open a page of THIS server in the system browser) — plus
+  screen, open a page of THIS server in the system browser, and read this
+  app's own macOS permission states — `desktop_permissions`, the sixth,
+  2026-09-14: no argument, two facts from the OS, argued in spec 2026-09-14
+  §7 because two of the three moments a missing permission must be explained
+  are in this very page; requesting one and opening System Settings stay on
+  the bundled page) — plus
   `desktop_set_supervision`, the ONE
   CLI-touching command granted there (2026-09-12): switching who runs the
   server is a restart with a different respawner, and an admin page already
@@ -544,7 +549,7 @@ whatever CSP the plane sends.
   defended less than it cost. `docs/security.md` carries the accounting.
   `open_main` independently refuses a non-loopback origin, and `on_navigation`
   pins the window to the origin it opened with. An XSS in the SPA reaches
-  those five commands and nothing else.
+  those six commands and nothing else.
 
   Three caveats on that trade, all in `docs/security.md` and none of them
   decoration: the grant is scoped to the WINDOW, not to an admin session, so a

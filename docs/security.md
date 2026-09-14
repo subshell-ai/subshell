@@ -887,27 +887,47 @@ update and reset. What differs between the apps is how much the remote window
 gets, and the difference follows from whether its origin can be known ahead of
 time.
 
-**Subshell Server — loopback, five commands.** Its `main` window loads
+**Subshell Server — loopback, six commands.** Its `main` window loads
 `http://127.0.0.1:<port>`: the SPA served by the very server this app manages,
 so the origin is knowable and is pinned four ways.
 
 | Gate | What it does |
 | --- | --- |
-| `capabilities/main.json` | scopes the window to loopback URLs (`local: false`, `windows: ["main"]`) and grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_set_supervision` and window dragging |
+| `capabilities/main.json` | scopes the window to loopback URLs (`local: false`, `windows: ["main"]`) and grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_set_supervision` and window dragging |
 | `Probe::origin` | builds the URL from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
 | `open_main` | refuses a non-loopback origin outright |
 | `on_navigation` | pins the window to the origin it was opened with |
 
-Four of the five are chosen for what they cannot do: raise the assistant at a
+Five of the six are chosen for what they cannot do: raise the assistant at a
 named screen, drop this app's own title bar, display one fixed-shape
-notification, and open a page of THIS server in the system browser (a path
-only — see below). The fifth, `desktop_set_supervision`, **does** drive the
-CLI and is the one deliberate exception; its accounting, including the three
+notification, open a page of THIS server in the system browser (a path only —
+see below), and read this app's own macOS permission states (no argument at
+all — see the paragraph after the table). The sixth, `desktop_set_supervision`,
+**does** drive the CLI and is the one deliberate exception; its accounting, including the three
 caveats that make it honest, is §11.11 below. The count and the SCOPE are both
 pinned — by `ui/src/__tests__/ipc-acl.test.ts` and again in Rust by
 `control.rs` — because "a few harmless ones" is how a boundary erodes, and
 because widening `remote.urls` would hand the same grant to a page on any
 host with every command-name assertion still green.
+
+**The permissions read, and the argument for it (2026-09-14).** `AGENTS.md`
+held `main` at five and said a sixth needs the case made in writing. Here it
+is. `desktop_permissions` answers two questions about the app's OWN standing
+with the OS — may it post notifications, may it read Photos — and takes no
+argument: it runs no program, reads no path, touches no service or config, and
+changes nothing, so it cannot be pointed at anything. The dashboard needs it
+because the operator's requirement is that a missing permission be said at
+the moment it is needed, in the surface where it is needed, and two of those
+moments (attaching an image; the standing state in Preferences) are in the
+dashboard, which cannot know without asking. What an XSS in the SPA gains is
+two booleans about the app's permissions, with nothing to act on. What stays
+off `main` is everything that ACTS: requesting the permission and opening a
+System Settings pane both live on the bundled page and are reached by raising
+it — the command `main` already held — because a page that could pop system
+panes on its own is a nuisance vector, and the request should come from a
+press under a sentence the person can read. `desktop_notify` also widened its
+answer from nothing to `{ shown, permission }`: same call, same capability, now
+reporting instead of guessing.
 
 **Subshell Client — any origin, and therefore ONE command.** Its `main` window
 loads a control plane's own UI, and a control plane can live on any host: a LAN
@@ -1006,7 +1026,7 @@ statement.
 Two limits worth stating rather than implying. Each `csp` in `tauri.conf.json`
 applies to that app's bundled page **only** — a remote window's page carries
 whatever CSP its origin sends, so an XSS in the server app's SPA reaches those
-five commands, and in the client app exactly one. And each app's ACL manifest is
+six commands, and in the client app exactly one. And each app's ACL manifest is
 what makes any of this apply at all: Tauri leaves app commands ungated for local
 windows when no manifest exists.
 
