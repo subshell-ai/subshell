@@ -98,9 +98,14 @@ export function SupervisionCard({
         disabled={!desktop || settling !== null}
         onChange={() => ask(mode)}
       />
+      {/* `text-[15px]` / `text-[13px]` rather than the sm/xs pair: this card
+          and the desktop assistant's setup screen ask the same question with
+          the same words, minutes apart, and they now read at the same size.
+          The label is foreground, not muted — it is a line item, not a
+          caption. */}
       <span className="space-y-0.5">
-        <span className="block font-medium text-sm">{title}</span>
-        <span className="block text-muted-foreground text-xs">{body}</span>
+        <span className="block font-semibold text-[15px]">{title}</span>
+        <span className="block text-[13px] text-muted-foreground">{body}</span>
       </span>
     </label>
   );
@@ -184,10 +189,10 @@ export function SupervisionCard({
           id="server-autostart"
         />
         <div className="space-y-0.5">
-          <label htmlFor="server-autostart" className="font-medium text-sm">
+          <label htmlFor="server-autostart" className="font-semibold text-[15px]">
             Start at login
           </label>
-          <p className="text-muted-foreground text-xs">
+          <p className="text-[13px] text-muted-foreground">
             {loginBlocked ??
               "Starts the server again the next time you log in to this machine. Without it, the service runs now but nothing brings it back after you log out or restart."}
           </p>
