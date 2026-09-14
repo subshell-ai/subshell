@@ -309,6 +309,57 @@ describe("findEscapes", () => {
   });
 });
 
+describe("optional roles are compared when present", () => {
+  test("a hex-valued web token is compared to mobile, not silently skipped", () => {
+    // `--scrim` is a hex with alpha (black at 70%, not a tint of the palette),
+    // and the mobile comparison converts oklch→hex — so a hex on the web side
+    // hit `parseOklch() === null` and fell through the `continue`. The value
+    // agreed only because it had just been set by hand, which is the state
+    // this whole check exists to stop trusting.
+    const spa = `:root, .dark {\n  --scrim: #000000b3;\n}`;
+    const ok = { colors: { scrim: "#000000b3" }, type: {} };
+    const drifted = { colors: { scrim: "#000000aa" }, type: {} };
+    expect(mobileAgreement(spa, ok).filter((p) => p.includes("scrim"))).toEqual([]);
+    expect(mobileAgreement(spa, drifted).filter((p) => p.includes("scrim"))).toHaveLength(1);
+  });
+
+  test("a surface that simply lacks the optional role is not a problem", () => {
+    // The assistant has no modal and declares no scrim; absence is not drift.
+    const spa = `:root, .dark {\n  --scrim: #000000b3;\n}`;
+    expect(cssColorAgreement(spa, { assistant: `:root {\n  --background: oklch(0.2 0 0);\n}` })).toEqual([]);
+  });
+
+  test("but a surface that declares it must match", () => {
+    const spa = `:root, .dark {\n  --scrim: #000000b3;\n}`;
+    expect(cssColorAgreement(spa, { client: `:root {\n  --scrim: #000000aa;\n}` })).toHaveLength(1);
+  });
+});
+
+describe("colour WORDS are escapes too", () => {
+  test("bg-black/70 and friends are refused, with the token named", () => {
+    // The one colour literal the scanner could not see: it matches hex and
+    // oklch, and Tailwind's named utilities are neither. `bg-black/70` sat in
+    // dialog.tsx and sheet.tsx — the same value written twice, invisible to a
+    // check whose whole job is finding exactly that.
+    const found = findEscapes("spa", "components/ui/dialog.tsx", `<div className="fixed inset-0 bg-black/70" />`);
+    expect(found).toHaveLength(1);
+    expect(found[0].found).toBe("bg-black/70");
+    expect(found[0].use).toContain("scrim");
+  });
+
+  test("names the roles for white and for a bare black", () => {
+    const found = findEscapes("spa", "x.tsx", `<p className="bg-white text-black border-white/20" />`);
+    expect(found.map((e) => e.found)).toEqual(["bg-white", "text-black", "border-white/20"]);
+    expect(found[0].use).toContain("--");
+  });
+
+  test("does not fire on words that merely contain a colour name", () => {
+    // `text-blackboard` is not `text-black`, and a utility this rule does not
+    // know is not this rule's business.
+    expect(findEscapes("spa", "x.tsx", `className="bg-background text-foreground border-border"`)).toEqual([]);
+  });
+});
+
 describe("contrastProblems", () => {
   test("passes Dreamframe's muted-foreground on card and background", () => {
     const spa = `:root, .dark {\n  --background: oklch(0.224 0.035 296);\n  --card: oklch(0.255 0.032 296);\n  --muted-foreground: oklch(0.74 0.04 310);\n  --foreground: oklch(0.92 0.03 312);\n}`;

@@ -54,6 +54,14 @@
   --success: oklch(0.765 0.177 163.223);
   --warning: oklch(0.828 0.189 84.429);
 
+  /* The modal scrim, behind a dialog or sheet. Hex with alpha rather than a
+     role colour: it is BLACK at 70%, not a tint of the palette, and every
+     surface draws the same one — mobile's `colors.scrim` is this value, and
+     `lint:design` compares them. It was `bg-black/70` written twice at the
+     callsites, which is the one colour literal Tailwind's own utility made
+     invisible to the scanner (it sees hex and oklch, not colour WORDS). */
+  --scrim: #000000b3;
+
   /* Emphasis surfaces the role palette has no name for: the sunk-plum
      primary-button gradient, the sidebar's active-nav gradient and the
      "view + edit" share chip. Lifted out of component literals 2026-09-14,
@@ -105,6 +113,7 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-scrim: var(--scrim);
   --color-terminal-strip: var(--terminal-strip);
   --color-terminal-canvas: var(--terminal-canvas);
   --color-terminal-tab-active: var(--terminal-tab-active);

@@ -68,6 +68,18 @@ export const COLOR_ROLES = [
 ] as const;
 export type ColorRole = (typeof COLOR_ROLES)[number];
 
+/**
+ * Roles a surface MAY declare, compared whenever it does.
+ *
+ * `scrim` is not required: not every surface has a modal — the assistant has
+ * none — but a surface that draws one must draw the same one. Absence is not
+ * drift; a different value is.
+ */
+export const OPTIONAL_COLOR_ROLES = ["scrim"] as const;
+
+/** Every role worth comparing between two surfaces that both declare it. */
+const COMPARABLE_ROLES: readonly string[] = [...COLOR_ROLES, ...OPTIONAL_COLOR_ROLES];
+
 export interface CssTokens {
   text: Partial<Record<TypeRole, { size: number; lineHeight?: number }>>;
   weights: { strong?: number; regular?: number };
@@ -216,6 +228,7 @@ export const MOBILE_COLOR_MAP: Record<string, ColorRole> = {
   success: "success",
   warning: "warning",
   destructive: "destructive",
+  scrim: "scrim",
 };
 
 /**
@@ -235,12 +248,24 @@ export function mobileAgreement(
       problems.push(`mobile: colors.${key} is missing (should be --${role})`);
       continue;
     }
-    const oklch = spa.colors[role] ? parseOklch(spa.colors[role]) : null;
-    // An unparseable `--role` skips value comparison here: its PRESENCE is
-    // reported by the SPA's own agreement check, and a %- or alpha-spelled
-    // value would simply not convert. Unreachable today — the web stylesheets
-    // spell every role bare — and parseOklch is deliberately not widened
-    // (spec § 8).
+    const value = spa.colors[role];
+    // A MISSING role is the SPA's own agreement problem, reported there.
+    if (!value) continue;
+    if (value.startsWith("#")) {
+      // A hex-valued token — the scrim is black at an alpha, not a tint of
+      // the palette — is compared as text. Converting it would drop the
+      // alpha, and it used to fall through the `parseOklch() === null` guard
+      // below entirely: the two sides agreed only because they had just been
+      // set by hand, which is the state this check exists to stop trusting.
+      if (value.toLowerCase() !== hex.toLowerCase()) {
+        problems.push(`mobile: colors.${key} is ${hex}, but --${role} is ${value}`);
+      }
+      continue;
+    }
+    const oklch = parseOklch(value);
+    // An unparseable `--role` skips value comparison: a %-spelled value would
+    // simply not convert. Unreachable today — the web stylesheets spell every
+    // non-hex role bare — and parseOklch is deliberately not widened (spec § 8).
     if (!oklch) continue;
     const want = oklchToSrgb(...oklch);
     const have = hexToSrgb(hex);
@@ -288,6 +313,17 @@ function roleForPx(px: number, prefix: string, sep = " or "): string {
 const HEX_OR_OKLCH = /#[0-9a-fA-F]{3,8}\b|oklch\(/g;
 
 /**
+ * Tailwind's NAMED colour utilities, which the hex/oklch scan cannot see.
+ *
+ * `bg-black/70` was written twice — dialog.tsx and sheet.tsx — and is exactly
+ * the duplicated literal this check exists to find, invisible only because
+ * Tailwind spells black as a word. `black` at an alpha is the scrim; anything
+ * else wants a role. Bounded by `\b` on both sides so `bg-background` and a
+ * hypothetical `text-blackboard` are not matches.
+ */
+const COLOR_WORD = /\b(bg|text|border|ring|fill|stroke|from|via|to)-(black|white)(\/\d+)?\b/g;
+
+/**
  * Files that DEFINE colours are allowed literals; everything else consumes
  * tokens. The dockview theme and xterm consume the terminal trio raw by
  * design (spec § 3.2) and are not scanned.
@@ -328,6 +364,12 @@ export function findEscapes(surface: Surface, relPath: string, source: string): 
       }
       if (!isColourSource(surface, relPath)) {
         for (const m of l.matchAll(HEX_OR_OKLCH)) push(i, m[0], "a colour token (var(--…) / a text-*/bg-* utility)");
+        for (const m of l.matchAll(COLOR_WORD)) {
+          // A translucent black behind something is the scrim; everything
+          // else is a role the palette already names.
+          const scrim = m[2] === "black" && m[3] !== undefined && m[1] === "bg";
+          push(i, m[0], scrim ? "bg-scrim (--scrim)" : "a role colour (--foreground, --background, --border, …)");
+        }
       }
     });
     return out;
@@ -436,7 +478,7 @@ export function cssColorAgreement(spaCss: string, others: Record<string, string>
   const problems: string[] = [];
   for (const [name, css] of Object.entries(others)) {
     const theirs = parseCssTokens(css).colors;
-    for (const role of COLOR_ROLES) {
+    for (const role of COMPARABLE_ROLES) {
       if (!(role in spa) || !(role in theirs)) continue;
       if (norm(theirs[role]) !== norm(spa[role])) {
         problems.push(`${name}: --${role} is ${norm(theirs[role])}, but the SPA's is ${norm(spa[role])}`);

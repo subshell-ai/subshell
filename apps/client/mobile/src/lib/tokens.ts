@@ -46,11 +46,13 @@ export const colors = {
    */
   destructiveFg: "#f8f8f8",
   /**
-   * Modal scrim. Web renders `bg-black/70` and no cross-surface token exists
-   * either side, so this key simply documents the mobile value as the single
-   * home instead of a hex living at the callsite.
+   * Modal scrim, behind a dialog or sheet — web `--scrim`, which the web
+   * gained on 2026-09-14 when its two `bg-black/70` callsites became a token.
+   * Black at 70%, not a tint of the palette, which is why it is a hex with
+   * alpha on every surface rather than a role colour. `lint:design` compares
+   * it to the web's like any other role.
    */
-  scrim: "#000000aa",
+  scrim: "#000000b3",
   /** Terminal chrome: shell bg — web `--terminal-strip` (already hex there). */
   termBg: "#221c32",
   /** Terminal canvas — web `--terminal-canvas`. */
