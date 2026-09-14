@@ -308,6 +308,14 @@ Three rules keep a draft honest, and each is load-bearing:
   ordering and every split discards itself.
 - **`useInvalidateWorkspaces` also invalidates the per-subshell membership
   query**, so a link to a draft never outlives the draft.
+- **The create response is CHECKED, not trusted** (`lib/split-workspace-refusal.ts`).
+  Elysia strips body fields a schema does not declare, so a server older than
+  this page answers the split with a plain 200 and silently drops both `draft`
+  and `subshellId` — landing the person on a workspace missing the subshell
+  they split from. That happened on 2026-09-14 against a dev SPA proxying to an
+  installed binary built hours earlier. The button now refuses a response that
+  is not `{ draft: true, subshellCount: 1 }`, deletes the empty workspace such
+  a server did create, and says the server is behind.
 
 `WorkspaceHeader` renders a draft with a static "Unsaved workspace" title plus
 **Save workspace…** (`PUT /:id { name, draft: false }` — the one transition) and

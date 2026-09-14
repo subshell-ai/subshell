@@ -4,8 +4,9 @@ import { SquareSplitHorizontal } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { Button } from "@/components/ui/button";
-import { apiPost } from "@/lib/api";
+import { apiFetch, apiPost } from "@/lib/api";
 import { SUBSHELL_WORKSPACES_QUERY_KEY } from "@/lib/query-keys";
+import { splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
 import type { SubshellView } from "@/types/subshell";
 import type { SplitDirection, WorkspaceRow } from "@/types/workspace";
@@ -43,6 +44,16 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
       draft: true,
       subshellId: subshell.id,
     });
+    // A 200 is not yet a split: a server older than this page answers one
+    // while silently dropping `draft` and `subshellId`, which lands the person
+    // on a workspace missing the subshell they split. Refuse that instead, and
+    // take the empty workspace it did create back out — the failed attempt
+    // must not leave a stray row in their list to clean up by hand.
+    const refusal = splitWorkspaceRefusal(workspace);
+    if (refusal) {
+      await apiFetch(`/api/workspaces/${workspace.id}`, { method: "DELETE" }).catch(() => {});
+      throw new Error(refusal);
+    }
     // This subshell now sits on a workspace — the header's link reads it.
     await queryClient.invalidateQueries({ queryKey: [...SUBSHELL_WORKSPACES_QUERY_KEY, subshell.id] });
     await navigate({
