@@ -82,11 +82,11 @@ export function SetupAssistant({
             {illustration}
           </div>
         )}
-        <h1 aria-live="polite" className="text-center font-semibold text-[30px] tracking-[-0.01em]">
+        <h1 aria-live="polite" className="text-center font-strong text-display tracking-[-0.01em]">
           {title}
         </h1>
         {subtitle && (
-          <p className="mt-2 max-w-[560px] text-center text-[15px] text-muted-foreground leading-[1.55]">{subtitle}</p>
+          <p className="mt-2 max-w-[560px] text-center text-body text-muted-foreground leading-[1.55]">{subtitle}</p>
         )}
         {children && <section className="mt-9 w-full max-w-[560px]">{children}</section>}
       </main>
@@ -100,7 +100,7 @@ export function SetupAssistant({
         </div>
         <StepDots {...dots} />
         <div className="flex items-center justify-end gap-2">
-          {reason && primaryDisabled && <span className="text-[13px] text-muted-foreground">{reason}</span>}
+          {reason && primaryDisabled && <span className="text-detail text-muted-foreground">{reason}</span>}
           {skip && (
             <Button variant="ghost" onClick={skip.onClick} disabled={skip.disabled}>
               {skip.label}

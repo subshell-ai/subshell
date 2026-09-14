@@ -738,7 +738,7 @@ export function SubshellTerminal({
 
   if (!active) {
     return (
-      <pre className="h-full w-full overflow-hidden whitespace-pre p-2 font-mono text-[11px] text-muted-foreground">
+      <pre className="h-full w-full overflow-hidden whitespace-pre p-2 font-mono text-caption text-muted-foreground">
         {snapshot}
       </pre>
     );

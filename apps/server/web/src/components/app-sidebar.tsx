@@ -550,7 +550,7 @@ export function AppSidebar({
                 </div>
               )}
               {!collapsed && item.to === "/" && q !== "" && listedSubshells.length === 0 && (
-                <p className="px-3 py-1 text-[10px] text-muted-foreground">No matches.</p>
+                <p className="px-3 py-1 text-caption text-muted-foreground">No matches.</p>
               )}
               {!collapsed &&
                 item.to === "/" &&

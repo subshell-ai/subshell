@@ -23,7 +23,7 @@ export function TerminalPreview({ lines }: { lines: string[] }): JSX.Element {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none select-none overflow-hidden font-mono text-[10px] leading-[1.35]"
+      className="pointer-events-none select-none overflow-hidden font-mono text-caption leading-[1.35]"
     >
       {rows.map((spans, i) => (
         // Index keys: rows are an anonymous, wholesale-replaced snapshot of a

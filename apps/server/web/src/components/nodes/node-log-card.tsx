@@ -180,7 +180,7 @@ export function NodeLogCard({ node }: { node: NodeDetail }): JSX.Element {
           // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container needs the keyboard
           tabIndex={0}
           aria-label={`Log for ${node.name}`}
-          className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-background px-3 py-2.5 font-mono text-[11.5px] leading-relaxed"
+          className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-background px-3 py-2.5 font-mono text-caption leading-relaxed"
         >
           {lines.length === 0 ? (
             <span className="text-muted-foreground">Nothing logged yet.</span>

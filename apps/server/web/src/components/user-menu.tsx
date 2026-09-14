@@ -56,7 +56,7 @@ export function UserMenu({
   const avatar = (
     <span
       aria-hidden
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 font-semibold text-[11px] text-primary"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 font-semibold text-caption text-primary"
     >
       {initialsOf(name, email)}
     </span>

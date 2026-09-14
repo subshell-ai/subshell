@@ -134,7 +134,7 @@ export function ServerLogCard({ view, enabled }: { view: ServerDeployment; enabl
           // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll container needs the keyboard
           tabIndex={0}
           aria-label="Server log"
-          className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-[12px] leading-relaxed"
+          className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-caption leading-relaxed"
         >
           <pre>
             {lines?.length

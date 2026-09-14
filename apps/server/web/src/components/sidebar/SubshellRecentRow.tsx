@@ -35,7 +35,7 @@ export function SubshellRecentRow({ subshell, active }: { subshell: SubshellView
       <span className="min-w-0 flex-1">
         <span className="block truncate">{subshell.name}</span>
         {subshell.workingDir ? (
-          <span className="block truncate text-[10px] opacity-70">{subshell.workingDir}</span>
+          <span className="block truncate text-caption opacity-70">{subshell.workingDir}</span>
         ) : null}
       </span>
     </Link>
