@@ -158,7 +158,7 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
         return Ok(w);
     }
     // The assistant frame (spec 2026-09-11 § 3.1, adopted here by spec
-    // 2026-09-12 § 6.4): the same 1024x720 Subshell Server's assistant uses,
+    // 2026-09-12 § 6.4): the same frame Subshell Server's assistant uses,
     // because the two are one product and a person who has seen one should
     // recognise the other. FIXED rather than a minimum — every screen is a
     // 560px column centred in the region with a 72px bar under it, drawn to
@@ -566,9 +566,16 @@ mod tests {
 
     // The node window is the SAME frame as Subshell Server's assistant. The
     // two are built in different crates now, so nothing but this says so.
+    //
+    // The literal pair is a TRIPWIRE, not a second source of truth: a change
+    // to the shared frame is meant to fail here, so that whoever makes it
+    // looks at THIS window's screens before agreeing to it. That is what it
+    // did on 2026-09-14, when the frame was cut to 720x620 for the server's
+    // setup screens — this app's widest fixed element is a `w-[360px]`
+    // column, so it fits with room to spare, and the pair moves.
     #[test]
     fn the_node_window_is_the_shared_assistant_frame() {
         use subshell_desktop_core::zoom::{ASSISTANT_HEIGHT, ASSISTANT_WIDTH};
-        assert_eq!((ASSISTANT_WIDTH, ASSISTANT_HEIGHT), (1024.0, 720.0));
+        assert_eq!((ASSISTANT_WIDTH, ASSISTANT_HEIGHT), (720.0, 620.0));
     }
 }

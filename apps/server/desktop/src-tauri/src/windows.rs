@@ -63,6 +63,65 @@ fn clamped_floor(level: f64, work_area: Option<(f64, f64)>) -> LogicalSize<f64> 
     }
 }
 
+/// The dashboard's default size, before the text size scales it.
+///
+/// 1024x768 — the SPA's own `useIsWide()` breakpoint is `min-width: 1024px`,
+/// so this is the narrowest default that still opens on the wide layout, and
+/// a window that opens exactly as large as it needs to be reads as considered
+/// where a 1280x860 one read as "freaking huge" (operator, 2026-09-14).
+///
+/// **Scaled by the text size at the call site**, for the reason
+/// `assistant_frame` is: zoom divides physical pixels into CSS pixels, so an
+/// unscaled 1024 window at 110% is a 931px viewport — under the breakpoint,
+/// and the first thing a person would see is the phone drawer this app exists
+/// to replace.
+const MAIN_WIDTH: f64 = 1024.0;
+const MAIN_HEIGHT: f64 = 768.0;
+
+/// The dashboard's default size at one text size, never larger than the
+/// display — the same clamp, and the same reason, as `assistant_frame`.
+fn main_size(level: f64, work_area: Option<(f64, f64)>) -> (f64, f64) {
+    let (width, height) = (MAIN_WIDTH * level, MAIN_HEIGHT * level);
+    match work_area {
+        Some((w, h)) if w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0 => (width.min(w), height.min(h)),
+        _ => (width, height),
+    }
+}
+
+/// Where to put the dashboard so it replaces the assistant IN PLACE.
+///
+/// The assistant's CENTRE is what carries over, not its top-left and not its
+/// size. Size stopped being inheritable when the assistant was cut to its
+/// content (720x620, 2026-09-14): the dashboard opening at that size would
+/// land under the SPA's own `useIsWide()` breakpoint of 1024 and render the
+/// narrow chrome this app exists to replace — on the very first screen after
+/// setup. Inheriting the top-left instead would keep one corner still and
+/// throw the window down-right, which reads as a new window appearing rather
+/// than as this one changing screen.
+///
+/// Clamped so the result is on the display: a centred 1280-wide window whose
+/// assistant sat near an edge would otherwise hang off it, and this window is
+/// movable but that is a worse first impression than a nudge.
+fn main_origin(
+    assistant: Option<(f64, f64, f64, f64)>,
+    size: (f64, f64),
+    work_area: Option<(f64, f64)>,
+) -> Option<(f64, f64)> {
+    let (x, y, w, h) = assistant?;
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    // Centred on the size ACTUALLY used, which the text size scales — centring
+    // on the unscaled constant would offset the window at every zoom but one.
+    let (mw, mh) = size;
+    let (mut left, mut top) = (cx - mw / 2.0, cy - mh / 2.0);
+    if let Some((aw, ah)) = work_area {
+        if aw.is_finite() && ah.is_finite() && aw > 0.0 && ah > 0.0 {
+            left = left.min(aw - mw).max(0.0);
+            top = top.min(ah - mh).max(0.0);
+        }
+    }
+    Some((left, top))
+}
+
 /// The primary monitor's usable area in logical pixels, if one answers.
 fn work_area(app: &AppHandle) -> Option<(f64, f64)> {
     let monitor = app.primary_monitor().ok().flatten()?;
@@ -236,16 +295,19 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    // When the assistant is on screen, the dashboard appears exactly where it
-    // was, at the same size, and the assistant closes underneath: one window
-    // changing screen, not two windows trading places (spec § 4). Logical
-    // units, because the builder takes logical and the window reports physical.
-    let inherited = app.get_webview_window("wizard").and_then(|w| {
+    // When the assistant is on screen the dashboard appears in its place and
+    // the assistant closes underneath: one window changing screen, not two
+    // windows trading places (spec § 4). What carries over is the CENTRE —
+    // see `main_origin` for why the size no longer can. Logical units,
+    // because the builder takes logical and the window reports physical.
+    let assistant = app.get_webview_window("wizard").and_then(|w| {
         let scale = w.scale_factor().ok()?;
         let pos = w.outer_position().ok()?.to_logical::<f64>(scale);
         let size = w.inner_size().ok()?.to_logical::<f64>(scale);
-        Some((pos, size))
+        Some((pos.x, pos.y, size.width, size.height))
     });
+    let size = main_size(crate::zoom::level(app), work_area(app));
+    let inherited = main_origin(assistant, size, work_area(app));
 
     let level = crate::zoom::level(app);
     let floor = clamped_floor(level, work_area(app));
@@ -276,9 +338,11 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // step with a release it cannot see.
         .visible(false);
 
+    let builder = builder.inner_size(size.0, size.1);
     let builder = match inherited {
-        Some((pos, size)) => builder.position(pos.x, pos.y).inner_size(size.width, size.height),
-        None => builder.inner_size(1280.0, 860.0),
+        Some((left, top)) => builder.position(left, top),
+        // No assistant to replace — the OS decides, as it did before.
+        None => builder,
     };
 
     let window = builder
@@ -390,11 +454,90 @@ mod tests {
         assert_eq!(floor.height as u32, 240);
     }
 
-    // `open_main` inherits the assistant's geometry so the dashboard appears
-    // in its place, and a size below the floor is a size the window cannot
-    // hold. They are scaled by the same text size, so it is the UNSCALED pair
+    // `open_main` places the dashboard on the assistant's centre, and a
+    // frame below the floor is one the window cannot hold. They are scaled by the same text size, so it is the UNSCALED pair
     // that has to clear it — and they live in two crates now, which is exactly
     // when a pair like this drifts.
+    /// The dashboard replaces the assistant CENTRED on it, at its own size.
+    ///
+    /// Inheriting the assistant's SIZE is what this replaced: at 720x620 the
+    /// dashboard would open under the SPA's 1024 breakpoint and render narrow
+    /// chrome on the first screen after setup.
+    #[test]
+    fn the_dashboard_takes_the_assistants_centre_not_its_corner() {
+        // An assistant at (440, 190) sized 720x620 is centred on (800, 500);
+        // a 1280x860 dashboard centred there starts at (160, 70).
+        let got = super::main_origin(
+            Some((440.0, 190.0, 720.0, 620.0)),
+            (1280.0, 860.0),
+            Some((2560.0, 1440.0)),
+        );
+        assert_eq!(got, Some((160.0, 70.0)));
+    }
+
+    #[test]
+    fn the_dashboard_is_nudged_back_onto_the_display() {
+        // An assistant near the top-left would centre a wider window off the
+        // screen. Movable is not an excuse for opening half off it.
+        let got = super::main_origin(Some((0.0, 0.0, 720.0, 620.0)), (1280.0, 860.0), Some((1440.0, 900.0)));
+        assert_eq!(got, Some((0.0, 0.0)));
+        // And near the bottom-right, the other edge.
+        let got = super::main_origin(
+            Some((1400.0, 860.0, 720.0, 620.0)),
+            (1280.0, 860.0),
+            Some((1440.0, 900.0)),
+        );
+        assert_eq!(got, Some((160.0, 40.0)));
+    }
+
+    /// The default opens on the WIDE layout at every text size.
+    ///
+    /// 1024 is the SPA's `useIsWide()` breakpoint exactly, and zoom divides
+    /// physical pixels into CSS pixels — so an unscaled window at 110% would
+    /// be a 931px viewport and the first screen a person saw would be the
+    /// phone drawer this app exists to replace.
+    #[test]
+    fn the_default_size_grows_with_the_text_in_it() {
+        let big = Some((3840.0, 2160.0));
+        assert_eq!(super::main_size(1.0, big), (1024.0, 768.0));
+        assert_eq!(super::main_size(1.1, big), (1024.0 * 1.1, 768.0 * 1.1));
+        // The CSS viewport is what the breakpoint reads, and it stays at 1024.
+        let (w, _) = super::main_size(1.5, big);
+        assert_eq!(w / 1.5, 1024.0);
+    }
+
+    #[test]
+    fn the_default_size_never_outgrows_the_display() {
+        // A 1366x768 laptop cannot show 1024x768 plus chrome at 150%.
+        assert_eq!(super::main_size(1.5, Some((1366.0, 768.0))), (1366.0, 768.0));
+        assert_eq!(super::main_size(1.0, None), (1024.0, 768.0));
+    }
+
+    #[test]
+    fn no_assistant_means_no_inherited_position() {
+        // Nothing to replace: the OS places it, which is what happened before
+        // any of this when the assistant was already closed.
+        assert_eq!(super::main_origin(None, (1280.0, 860.0), Some((1440.0, 900.0))), None);
+    }
+
+    #[test]
+    fn an_unanswerable_display_still_places_the_dashboard() {
+        // No monitor, or a nonsense one: centre on the assistant and skip the
+        // clamp rather than refusing to place the window at all.
+        assert_eq!(
+            super::main_origin(Some((440.0, 190.0, 720.0, 620.0)), (1280.0, 860.0), None),
+            Some((160.0, 70.0))
+        );
+        assert_eq!(
+            super::main_origin(
+                Some((440.0, 190.0, 720.0, 620.0)),
+                (1280.0, 860.0),
+                Some((f64::NAN, f64::NAN))
+            ),
+            Some((160.0, 70.0))
+        );
+    }
+
     #[test]
     fn the_assistant_clears_the_dashboards_floor() {
         let floor = super::floor_at(1.0);

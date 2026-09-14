@@ -23,8 +23,9 @@
 //! Closing the read ends instead would be worse: the child's next write then
 //! takes SIGPIPE, which changes what a killed command reports.
 
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
@@ -81,6 +82,93 @@ impl Run {
 /// reason in `stderr`.
 pub fn run(argv: &[String], timeout: Duration) -> Run {
     run_with_path(argv, timeout, login_path())
+}
+
+/// A sink for output lines as they arrive, shared by both pipe threads.
+pub type LineSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// `run`, reporting each output line the moment it arrives.
+///
+/// For the one command whose WAIT is the user experience: installing tmux is
+/// `brew install`, which can run for minutes on a cold cache, and the blocking
+/// `run` hands the page nothing until it is over. A screen that cannot say
+/// what is happening for ten minutes (`INSTALL_TIMEOUT`) is indistinguishable
+/// from one that has hung.
+///
+/// Everything `run`'s module doc says about draining still applies and is
+/// unchanged: both pipes are read on their own threads, the full text is still
+/// accumulated into {@link Run}, and a thread that overruns the deadline is
+/// abandoned rather than joined. The only difference is that each line is
+/// handed to `on_line` on its way into the buffer, so nothing about the
+/// failure reporting changes — a caller that ignores the sink gets exactly
+/// what `run` gives it.
+///
+/// `on_line` runs on the READER threads, so it must be cheap and must not
+/// block: the emit it is built for is a queue push.
+pub fn run_streaming(argv: &[String], timeout: Duration, on_line: LineSink) -> Run {
+    let Some((program, args)) = argv.split_first() else {
+        return Run::spawn_failure("empty command".into());
+    };
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .env("PATH", login_path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    match cmd.spawn() {
+        Ok(child) => wait_draining_lines(child, timeout, on_line),
+        Err(e) => Run::spawn_failure(format!("spawn failed: {e}")),
+    }
+}
+
+/// One pipe, read by line, each line handed to `sink` on its way to the buffer.
+fn line_reader<R: Read + Send + 'static>(pipe: Option<R>, sink: LineSink) -> Option<thread::JoinHandle<String>> {
+    let pipe = pipe?;
+    Some(thread::spawn(move || {
+        let mut buf = String::new();
+        for line in BufReader::new(pipe).lines() {
+            // A read error ends this pipe; whatever arrived already is still
+            // the caller's, which is why the buffer is returned rather than
+            // discarded on the way out.
+            let Ok(line) = line else { break };
+            sink(&line);
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        buf
+    }))
+}
+
+/// {@link wait_draining}, reading by LINE and reporting each one.
+fn wait_draining_lines(mut child: Child, timeout: Duration, on_line: LineSink) -> Run {
+    let started = Instant::now();
+    // A generic fn rather than a closure: stdout and stderr are two different
+    // types, and a closure's parameter type is inferred from its first call.
+    let out_reader = line_reader(child.stdout.take(), Arc::clone(&on_line));
+    let err_reader = line_reader(child.stderr.take(), on_line);
+
+    let (code, timed_out) = match child.wait_timeout(timeout) {
+        Ok(Some(status)) => (status.code(), false),
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            (None, true)
+        }
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Run::spawn_failure(format!("wait failed: {e}"));
+        }
+    };
+    let remaining = timeout
+        .saturating_sub(started.elapsed())
+        .max(Duration::from_millis(250));
+    Run {
+        code,
+        stdout: join_within(out_reader, remaining),
+        stderr: join_within(err_reader, remaining),
+        timed_out,
+    }
 }
 
 /// `run`, with the PATH given explicitly.
@@ -181,6 +269,56 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(test)]
 mod tests {
+
+    /// The streaming variant reports lines AS THEY ARRIVE and still returns
+    /// the whole text — the two halves of its contract.
+    #[test]
+    fn streaming_reports_each_line_and_still_accumulates() {
+        use std::sync::Mutex;
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = {
+            let seen = Arc::clone(&seen);
+            Arc::new(move |line: &str| seen.lock().unwrap().push(line.to_string())) as LineSink
+        };
+        let argv = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "echo one; echo two >&2; echo three".to_string(),
+        ];
+        let run = run_streaming(&argv, Duration::from_secs(10), sink);
+        assert_eq!(run.code, Some(0));
+        let mut lines = seen.lock().unwrap().clone();
+        lines.sort();
+        assert_eq!(lines, vec!["one", "three", "two"], "every line reached the sink");
+        // And the buffers are what a non-streaming caller would have got.
+        assert!(
+            run.stdout.contains("one") && run.stdout.contains("three"),
+            "{}",
+            run.stdout
+        );
+        assert_eq!(run.stderr.trim(), "two");
+    }
+
+    /// A sink that is never called must not change the outcome: the streaming
+    /// path is `run` plus a callback, not a different contract.
+    #[test]
+    fn streaming_reports_a_failing_command_like_run_does() {
+        let sink = Arc::new(|_: &str| {}) as LineSink;
+        let argv = vec!["sh".to_string(), "-c".to_string(), "exit 3".to_string()];
+        let run = run_streaming(&argv, Duration::from_secs(10), sink);
+        assert_eq!(run.code, Some(3));
+        assert!(!run.timed_out);
+    }
+
+    /// The deadline still bounds it — the whole reason these spawns exist.
+    #[test]
+    fn streaming_still_times_out() {
+        let sink = Arc::new(|_: &str| {}) as LineSink;
+        let argv = vec!["sh".to_string(), "-c".to_string(), "sleep 5".to_string()];
+        let run = run_streaming(&argv, Duration::from_millis(300), sink);
+        assert!(run.timed_out, "the deadline fired");
+        assert_eq!(run.code, None);
+    }
     use super::*;
 
     #[test]

@@ -117,7 +117,7 @@ pub fn run() {
             .plugin(
                 tauri_plugin_window_state::Builder::default()
                     // The NODE window is not tracked at all. It is a FIXED,
-                    // non-resizable, centred 1024x720 assistant frame (spec
+                    // non-resizable, centred assistant frame (spec
                     // 2026-09-12 § 6.4), so there is no user choice to
                     // remember, and a restored size is actively wrong: the
                     // frame is drawn to that arithmetic.

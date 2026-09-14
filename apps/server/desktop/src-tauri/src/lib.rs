@@ -97,13 +97,13 @@ pub fn run() {
             .plugin(
                 tauri_plugin_window_state::Builder::default()
                     // The ASSISTANT is not tracked at all. It is a FIXED,
-                    // non-resizable, centred 1024x720 frame (spec 2026-09-11
-                    // § 4), so there is no user choice to remember — and a
-                    // restored size is actively wrong twice over: the frame
-                    // is drawn to that arithmetic, and `open_main` INHERITS
-                    // this window's geometry so the dashboard appears in its
-                    // place, which would carry a stale size straight into a
-                    // window whose floor is 1024.
+                    // non-resizable, centred frame sized from
+                    // `assistant_frame` (spec 2026-09-11 § 4), so there is no
+                    // user choice to remember — and a restored size is
+                    // actively wrong: the frame is drawn to that arithmetic,
+                    // and `open_main` reads this window's geometry to place
+                    // the dashboard where it stood, so a stale size would
+                    // move a window it no longer describes.
                     //
                     // Measured on 2026-09-12, and only reachable once the
                     // assistant started opening on every not-ready boot

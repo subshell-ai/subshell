@@ -16,11 +16,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::legal;
-use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
+use subshell_desktop_core::proc::{run, run_streaming, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::{SettingsState, Supervision};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
@@ -1056,11 +1056,33 @@ fn console_platform() -> &'static str {
 /// the manager's own output verbatim — including the fallback to `detail()`
 /// when the spawn itself is what failed, so a refused or timed-out install
 /// never reads back as an empty success.
+/// The event each output line is emitted on while tmux installs.
+///
+/// Named here rather than inline because the page listens for this exact
+/// string and nothing else connects the two.
+pub const INSTALL_LINE_EVENT: &str = "desktop-install-line";
+
 #[tauri::command(async)]
-pub fn desktop_install_tmux() -> Result<ActionResult, String> {
+pub fn desktop_install_tmux(app: AppHandle) -> Result<ActionResult, String> {
     let _guard = ActionGuard::new();
     let argv = tmux_install_argv().ok_or("no package manager this app can drive")?;
-    Ok(run(&argv, INSTALL_TIMEOUT).into())
+    // STREAMED, unlike every other action here, because this one's wait is
+    // the user experience: `brew install` on a cold cache runs for minutes
+    // under a 10-minute deadline, and a screen that says nothing for that
+    // long cannot be told apart from a hung one. The manager's own output is
+    // the only real progress signal — there is no percentage to invent.
+    //
+    // Emitted to the whole app rather than one window: the assistant is the
+    // only page listening, and addressing it by label here would make this
+    // command care which window called it.
+    let handle = app.clone();
+    let sink: LineSink = std::sync::Arc::new(move |line: &str| {
+        // Best-effort by design. A failed emit means nothing is listening —
+        // the window closed mid-install — and the install itself carries on
+        // and still reports through its return value.
+        let _ = handle.emit(INSTALL_LINE_EVENT, line.to_string());
+    });
+    Ok(run_streaming(&argv, INSTALL_TIMEOUT, sink).into())
 }
 
 /// The argv that installs tmux here, or None when no manager we can drive is

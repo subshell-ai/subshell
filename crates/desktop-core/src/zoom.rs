@@ -78,8 +78,18 @@ pub fn zoom_percent(level: f64) -> u32 {
 /// Both apps' assistants are this one frame — a 560px column centred in the
 /// region with a 72px bar under it — so the arithmetic lives once even though
 /// each app builds its own window.
-pub const ASSISTANT_WIDTH: f64 = 1024.0;
-pub const ASSISTANT_HEIGHT: f64 = 720.0;
+///
+/// **Sized to the column it holds, since 2026-09-14.** It was 1024x720, which
+/// was wrong twice over: the column is capped at 560px, so 232px of each side
+/// was dead by construction, and the height did not fit a 1366x768 laptop —
+/// the clamp below cut it to 688 on the most ordinary panel there is, which
+/// is a design size failing the common case rather than the edge one. 720x620
+/// leaves ~80px gutters and fits that panel untouched at every text size a
+/// person is likely to pick. The floor on how small this may go is the
+/// content: the column plus its gutters, and a bar that has to stay on
+/// screen.
+pub const ASSISTANT_WIDTH: f64 = 720.0;
+pub const ASSISTANT_HEIGHT: f64 = 620.0;
 
 /// Room reserved for OS chrome a monitor's work area does not already exclude
 /// everywhere (a title bar, in particular), subtracted before clamping.
@@ -199,11 +209,45 @@ mod tests {
     // nothing inside the page can bring it back.
     #[test]
     fn the_assistant_frame_never_outgrows_the_work_area() {
-        // A 1366x768 laptop panel at normal size: the design height alone
-        // already exceeds what the work area can show.
-        assert_eq!(assistant_frame(1.0, Some((1366.0, 768.0))), (1024.0, 688.0));
-        // And at 150%, where BOTH dimensions would otherwise overflow.
-        assert_eq!(assistant_frame(1.5, Some((1366.0, 768.0))), (1286.0, 688.0));
+        // A 1366x768 laptop panel at 150%, where both dimensions would
+        // otherwise overflow.
+        assert_eq!(assistant_frame(1.5, Some((1366.0, 768.0))), (1080.0, 688.0));
+    }
+
+    // The design size used to be 1024x720, which this very panel could not
+    // show at normal size: the height clamped to 688 with nothing asking for
+    // it, on the most ordinary laptop there is. A frame that has to be cut
+    // down to fit the common case was the wrong design size, so it is smaller
+    // than the common case now and the clamp is back to being the edge case
+    // it was written as.
+    #[test]
+    fn the_design_size_fits_an_ordinary_laptop_untouched() {
+        assert_eq!(
+            assistant_frame(1.0, Some((1366.0, 768.0))),
+            (ASSISTANT_WIDTH, ASSISTANT_HEIGHT)
+        );
+        // And at the text size a person is most likely to have nudged it to.
+        let (w, h) = assistant_frame(1.1, Some((1366.0, 768.0)));
+        assert_eq!((w, h), (ASSISTANT_WIDTH * 1.1, ASSISTANT_HEIGHT * 1.1));
+    }
+
+    // The frame exists to hold a 560px column. Wider than the column plus
+    // gutters is dead space by construction, and that is what it had: 1024
+    // around 560 left 232px of nothing on each side.
+    #[test]
+    fn the_design_width_is_the_column_it_holds_plus_gutters() {
+        // Read through the function rather than off the constants: clippy
+        // rejects an assert whose condition is a constant expression (it
+        // compiles to `assert!(true)` and is optimised out), and going
+        // through `assistant_frame` is what a caller does anyway.
+        const COLUMN: f64 = 560.0;
+        let (width, _) = assistant_frame(1.0, None);
+        assert!(width > COLUMN, "the column has to fit");
+        assert!(
+            width - COLUMN <= 200.0,
+            "{width} leaves {} of gutter around a {COLUMN}px column",
+            width - COLUMN
+        );
     }
 
     #[test]
