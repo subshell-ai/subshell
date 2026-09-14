@@ -9,6 +9,10 @@ cannot do: background push, app-icon badge, lock-screen actions, and a
 Keychain-held credential behind Face ID. Subshell *viewing* on a phone is
 already served by the responsive web shell — do not re-ship it here.
 
+**Styling follows `docs/design-system.md`** — six type roles, two weights,
+shadcn colour names — and `bun run lint:design` fails on a literal size,
+weight or colour outside the token file. Pick a role, never a number.
+
 ## Commands
 
 ```bash

@@ -6,6 +6,10 @@ is what its place in the tree says: it sits beside `apps/server/api`, which
 builds it into its binary and serves it. The two desktop apps carry their own
 small bundled pages under `<app>/ui/` and share nothing with this one.
 
+**Styling follows `docs/design-system.md`** — six type roles, two weights,
+shadcn colour names — and `bun run lint:design` fails on a literal size,
+weight or colour outside the token file. Pick a role, never a number.
+
 ## URLs
 
 - Dev server: http://localhost:5174 (Vite) — proxies `/api` and `/ws` to the

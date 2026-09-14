@@ -4,6 +4,10 @@
 **Tauri v2** shell that installs, runs and manages a `subshell-server` on this
 machine, so a user never has to touch a CLI binary.
 
+**Styling follows `docs/design-system.md`** — six type roles, two weights,
+shadcn colour names — and `bun run lint:design` fails on a literal size,
+weight or colour outside the token file. Pick a role, never a number.
+
 ## Two windows, and why they are two
 
 | Window | Page | Why |

@@ -356,6 +356,7 @@ bun run lint               # Lint all packages, writing fixes
 bun run lint:check         # Lint read-only — fails instead of fixing (what pre-push runs)
 bun run lint:packages      # syncpack: dependency versions agree across packages
 bun run lint:lockfile      # bun.lock's workspace versions match their package.json
+bun run lint:design        # the design system: tokens agree, no escapes, contrast clears AA
 bun run verify-types       # Type check all packages
 
 # Format specific files

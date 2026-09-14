@@ -46,7 +46,7 @@ pre-push:
       tags:
         - lint
     "design tokens":
-      run: bun run lint:design:report
+      run: bun run lint:design
       tags:
         - lint
     # NOTE: the test suite deliberately does NOT run here — CI (.github/workflows/test.yml)

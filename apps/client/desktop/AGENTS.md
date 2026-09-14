@@ -17,6 +17,10 @@ each has a window holding a remote page and a window holding its own bundled
 one. Read that app's `AGENTS.md` too — most of the machinery is documented there
 once.
 
+**Styling follows `docs/design-system.md`** — six type roles, two weights,
+shadcn colour names — and `bun run lint:design` fails on a literal size,
+weight or colour outside the token file. Pick a role, never a number.
+
 ## Two windows, and why that is the whole design
 
 | window | page | granted |

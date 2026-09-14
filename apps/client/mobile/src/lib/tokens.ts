@@ -5,7 +5,7 @@
  * **Colours are Dreamframe's** (spec 2026-09-03), converted to hex because
  * native colour parsing cannot be assumed to speak oklch(). Each value names
  * the oklch it was converted from, and `bun run lint:design` re-derives every
- * one and fails if this file is more than one 8-bit step away — because the
+ * compared one and fails if this file is more than one 8-bit step away — because the
  * previous version of this file said the same thing in its header and was a
  * whole palette behind (black ground, blue primary) when checked.
  *
