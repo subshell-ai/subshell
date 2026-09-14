@@ -2,7 +2,7 @@
  * The preset half of a launch definition: the emptiness a presetless launch
  * composes from, and the row → {@link PresetDefinition} parse. Its own module
  * rather than a tail of `subshell-manager.service.ts` because `EMPTY_PRESET`
- * is a spec-named concept (2026-09-13 §4) that four test files across three
+ * is a spec-named concept (2026-09-13 §4) that three test files across three
  * directories reach for, and that file is already far past the size the
  * style rule asks for.
  */

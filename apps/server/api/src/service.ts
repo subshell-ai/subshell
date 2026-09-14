@@ -687,6 +687,33 @@ export function uninstallService(deps: ServiceDeps): CliResult {
 }
 
 /** Manager verbs `service` accepts beyond install/uninstall. */
+/**
+ * Gone ⇔ print answers the documented not-loaded way: exit 113 or "could not
+ * find service" — the SAME discrimination {@link queryService} makes for the
+ * installed-but-stopped state, so stop and status can never disagree about
+ * what "absent" means. Any other answer — including exit-0-with-a-pid and a
+ * manager that will not answer at all — is not-proof, and the poll keeps
+ * spending its budget rather than guessing.
+ */
+function jobGoneFromDomain(deps: ServiceDeps, target: string): boolean {
+  const res = deps.runCmd(["launchctl", "print", target]);
+  if (res.code === 0) return false;
+  return res.code === 113 || /could not find service/i.test(`${res.err}${res.out}`);
+}
+
+/** The stop's own budget: 30 s of half-second polls, the install side's shape. */
+const STOP_WAIT_ATTEMPTS = 60;
+const STOP_WAIT_MS = 500;
+
+function waitForJobGone(deps: ServiceDeps, target: string): boolean {
+  const sleep = deps.sleep ?? ((ms: number) => Bun.sleepSync(ms));
+  for (let attempt = 0; attempt < STOP_WAIT_ATTEMPTS; attempt++) {
+    if (jobGoneFromDomain(deps, target)) return true;
+    sleep(STOP_WAIT_MS);
+  }
+  return jobGoneFromDomain(deps, target);
+}
+
 export type ServiceVerb = "start" | "stop" | "restart";
 
 /** The runtime list beside the type — cli.ts validates argv against THIS, so the two cannot drift. */
@@ -1093,6 +1120,21 @@ export function controlService(deps: ServiceDeps, verb: ServiceVerb, opts: { for
     // that merely dies. Unloading the job is the only thing that stays stopped.
     const res = deps.runCmd(["launchctl", "bootout", target]);
     if (res.code !== 0) return errLine(`launchctl bootout failed (exit ${res.code}): ${cmdDetail(res)}`);
+    // Exit 0 means the request was ACCEPTED, not the job gone — `domainBusy`
+    // has documented bootout's asynchrony since 2026-09-12, and until now only
+    // the install path acted on it. Measured cost on 2026-09-13: a desktop
+    // reset's `service stop` said "subshell-server stopped." while the process
+    // ran for 90 more seconds, and the chain deleted the database out from
+    // under it. DONE is only owed to a domain that answered "no such job".
+    if (!waitForJobGone(deps, target)) {
+      return errLine(
+        `launchctl bootout was accepted, but the job is still in launchd's domain after ` +
+          `${STOP_WAIT_ATTEMPTS * STOP_WAIT_MS}ms — a teardown that slow is usually the server ` +
+          `finishing something (or a manager that will not answer), and either way the service ` +
+          `was NOT confirmed stopped. Re-check with \`subshell-server service status\` before ` +
+          `treating anything it owns as gone.`,
+      );
+    }
     return done(DONE.stop);
   }
   if (verb === "restart") {

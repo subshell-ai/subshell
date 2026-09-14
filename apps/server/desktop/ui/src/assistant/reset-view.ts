@@ -15,7 +15,7 @@
  * sweeps sockets is a way out from under a screen that has none.
  */
 import * as ipc from "../lib/ipc";
-import { armed, refusal, resetRows } from "../lib/reset";
+import { armed, emptySteps, knownStep, RESET_STEPS, refusal, resetRows, type StepState } from "../lib/reset";
 import { type AssistantHost, el, errText } from "./host";
 
 export interface ResetView {
@@ -26,10 +26,19 @@ export interface ResetView {
   open(): Promise<void>;
   /** Drop the screen without arming anything — the page's own `close()` path. */
   hide(): void;
+  /** Merge one `desktop-reset-step` frame from the running chain. */
+  applyStep(step: unknown, state: unknown): void;
 }
 
 export function createResetView(host: AssistantHost): ResetView {
   let open = false;
+
+  /**
+   * The meter's rows. PAGE state like `armingProblem` and the same reason:
+   * `#content` and this screen rebuild on every render and the poll renders
+   * on its own clock, so a state the DOM held would be erased mid-chain.
+   */
+  let steps = emptySteps();
 
   /**
    * Why the last arming attempt did not stage a plan, or null when it did.
@@ -85,11 +94,37 @@ export function createResetView(host: AssistantHost): ResetView {
     (el("reset-run") as HTMLButtonElement).disabled = host.busy() || !(why === null && armed(typed, host_name));
     el("reset-run").textContent = host.busy() ? "Resetting…" : resetRunLabel;
     el("reset-run").dataset.armed = String(armed(typed, host_name));
+    renderSteps();
     // The reason, beside the control it disables. Only for a REFUSAL: "you
     // have not typed the hostname yet" is what the label above the box already
     // says, and repeating it under the button would nag through every
     // keystroke of a correct answer.
     el("reset-why").textContent = why ?? "";
+  }
+
+  /**
+   * Draw the meter. Hidden while nothing has started — the confirmation is
+   * the screen until a press makes the promises concrete, and a static
+   * forecast of five grey rows would read as part of the list above it.
+   */
+  function renderSteps(): void {
+    const box = el("reset-steps");
+    const touched = RESET_STEPS.some(({ key }) => steps[key] !== "pending");
+    box.hidden = !touched;
+    box.textContent = "";
+    if (!touched) return;
+    for (const { key, label } of RESET_STEPS) {
+      const state: StepState = steps[key];
+      const li = document.createElement("li");
+      li.className = `reset-step step-${state}`;
+      const mark = document.createElement("span");
+      mark.className = state === "running" ? "mark spin" : "mark";
+      mark.textContent = state === "done" ? "✓" : state === "failed" ? "✗" : "";
+      const text = document.createElement("span");
+      text.textContent = label;
+      li.append(mark, text);
+      box.append(li);
+    }
   }
 
   /**
@@ -128,11 +163,13 @@ export function createResetView(host: AssistantHost): ResetView {
         refusal(host.probe()?.status) ?? "This server did not report its data locations, so there is nothing to stage."
       );
     } catch (err) {
-      // Say what is out of step, not what kind of build this is. Reset works
-      // exactly the same in a dev build as in a release one - nothing on this
-      // path branches on either - and the first person to read the older
-      // wording took it as a prohibition, which would have sent them looking
-      // for a setting that does not exist.
+      // Say what is out of step, not what kind of build this is. The chain
+      // itself behaves the same in a dev build as in a release one; the one
+      // branch is the FINAL restart (a dev build re-probes in place rather
+      // than restart out of `tauri dev`'s tree), which is after anything
+      // this screen can fail at. The first person to read the older wording
+      // took it as a prohibition, which would have sent them looking for a
+      // setting that does not exist.
       return `The reset could not be staged: ${errText(err)}. This app's window is newer than the app itself, which is what happens when a dev session reloads the page but not its Rust half. Quit and relaunch it.`;
     }
   }
@@ -173,6 +210,13 @@ export function createResetView(host: AssistantHost): ResetView {
       const typed = (el("reset-confirm") as HTMLInputElement).value;
       if (!armed(typed, host.probe()?.hostname ?? "")) return;
       host.setBusy(true);
+      // A fresh meter per press — including Retry, whose rows still show the
+      // last half-run's failure. The chain re-runs from the top; the rows do
+      // too. `plan` is the page's own first step: the arming round trip
+      // spawns its own probes, and before the meter existed the press's
+      // first one-to-three silent seconds were the same complaint.
+      steps = emptySteps();
+      steps.plan = "running";
       showResetResult("", false);
       host.render();
       try {
@@ -189,11 +233,14 @@ export function createResetView(host: AssistantHost): ResetView {
         // refusal, which phrases the same fact as a staging accident.
         armingProblem = await armReset();
         if (armingProblem !== null) {
+          steps.plan = "failed";
           showResetResult(armingProblem, true);
           host.setBusy(false);
           host.render();
           return;
         }
+        steps.plan = "done";
+        host.render();
         const result = await ipc.reset(typed);
         const parts: string[] = [];
         if (result?.stdout?.trim()) parts.push(result.stdout.trim());
@@ -218,6 +265,13 @@ export function createResetView(host: AssistantHost): ResetView {
     isOpen: () => open,
     render,
     hide,
+    applyStep(step: unknown, state: unknown): void {
+      // Unknown words drop: a page newer than its binary (or the reverse,
+      // which is `tauri dev` HMR's normal condition) must not invent rows.
+      if (!knownStep(step, state)) return;
+      steps[step] = state as StepState;
+      render();
+    },
     async open(): Promise<void> {
       // SHOW FIRST, then arm. The screen is open from the moment it was
       // asked for, and the plan is content that arrives after.
@@ -240,6 +294,7 @@ export function createResetView(host: AssistantHost): ResetView {
       // open would be the first thing drawn — the old "no", with the button
       // disabled, over a machine that may well now be resettable.
       armingProblem = null;
+      steps = emptySteps();
       show();
       armingProblem = await armReset();
       render();

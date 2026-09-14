@@ -245,10 +245,14 @@ export async function createSubshell(
       );
     }
     if (matches.length > 1) {
-      // Name the SPELLINGS: when the collision is case-only they are the
-      // whole actionable content, and "rename them" without them forces a
-      // round trip to list_presets to find out what to rename.
-      const spellings = matches.map((p) => `'${p.name}'`).join(", ");
+      // Name the SPELLINGS when they differ — with a case-only collision
+      // they are the whole actionable content, and "rename them" without
+      // them forces a round trip to list_presets to find out what to rename.
+      // Identical spellings would render ('dev', 'dev'), which says nothing:
+      // there the ids are the only thing that tells the two rows apart.
+      const distinct = new Set(matches.map((p) => p.name));
+      const spellings =
+        distinct.size > 1 ? matches.map((p) => `'${p.name}'`).join(", ") : matches.map((p) => p.id).join(", ");
       throw new Error(
         `subshell: more than one preset named '${args.preset}' for harness '${args.harness}' (${spellings}); rename one, or ask for an exact spelling`,
       );

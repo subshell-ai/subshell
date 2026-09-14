@@ -490,6 +490,64 @@
     font-weight: 600;
     letter-spacing: -0.01em;
   }
+  /* The chain's live meter (spec 2026-09-13): a legitimate reset takes tens
+     of seconds of compiled-CLI spawns and tmux kills, and "Resetting…" on a
+     dead button read identically to a hang. One row per phase; the running
+     row carries the spinner, a failed row says so at the row that failed —
+     not in a log off-screen below everything. */
+  .reset-steps {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 14px;
+  }
+  .reset-step {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    color: var(--color-muted);
+  }
+  .reset-step .mark {
+    display: inline-block;
+    width: 1em;
+    flex: none;
+    text-align: center;
+  }
+  .reset-step.step-running {
+    color: var(--color-fg);
+  }
+  .reset-step.step-done .mark {
+    color: var(--color-ok);
+  }
+  .reset-step.step-failed,
+  .reset-step.step-failed .mark {
+    color: var(--color-bad);
+  }
+  .reset-step .mark.spin::after {
+    content: "";
+    display: inline-block;
+    width: 0.75em;
+    height: 0.75em;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    /* `translate` keeps the circle centred in the mark while it rotates. */
+    transform: translateY(1px);
+    animation: reset-spin 0.8s linear infinite;
+  }
+  @keyframes reset-spin {
+    to {
+      transform: translateY(1px) rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reset-step .mark.spin::after {
+      animation-duration: 2.4s;
+    }
+  }
 
   /* The setup assistant's frame (spec 2026-09-11 § 3.1). One fixed 1024x720
      window: a centered 560px column, and a 72px bar pinned to the bottom. */

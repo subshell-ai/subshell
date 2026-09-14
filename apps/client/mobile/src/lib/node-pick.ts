@@ -53,5 +53,33 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
  */
 export function nodePickSettled(nodes: Node[] | undefined, current: string): boolean {
   if (!nodes) return true;
+  // `""` is the re-home's "an explicit choice is due" answer, and it is a
+  // FIXED POINT of `pickNodeDefault` — so the equality below calls it settled
+  // while no node is chosen at all. It is not: `installedOnNode` finds no row
+  // for `""`, reads every agent as unknown-and-therefore-usable, and the
+  // default fills from an all-unknown inventory — which is the same
+  // greyed-but-selected end state this gate exists to prevent, reached by a
+  // different road. Nothing is lost by waiting: the effect re-runs on
+  // `nodeId`, so the default fires the moment the user picks, and Start is
+  // blocked until they do.
+  if (current === "") return false;
   return pickNodeDefault(nodes, current) === current;
+}
+
+/**
+ * Whether `node` could run `harnessId` — the mobile mirror of web's
+ * `harnessFitsNode` (`src/lib/subshell-compat.ts`); change one, change both.
+ * Two "blocks nothing" cases, both deliberate: no agent chosen yet (there is
+ * nothing to fail against), and a node row from an older server carrying no
+ * inventory at all — unknown is not a refusal, and the launch 409 is the
+ * backstop either way. An entry that exists but is not installed IS a
+ * refusal: the node declared the plugin and its binary was not seen.
+ *
+ * Web's type makes `harnesses` required and mobile's optional, which is the
+ * only reason this is not the identical function.
+ */
+export function nodeRunsHarness(node: Node, harnessId: string | null): boolean {
+  if (harnessId === null) return true;
+  if (!node.harnesses) return true;
+  return node.harnesses.some((h) => h.harnessId === harnessId && h.installed);
 }

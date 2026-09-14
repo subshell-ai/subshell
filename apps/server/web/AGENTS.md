@@ -239,8 +239,20 @@ tmux + a one-time `bunx playwright install chromium`.
 
 Workspace panes hold live xterm.js terminals inside dockview panels. A dockview
 panel remount disposes its terminal, closes the WS, and forces a history
-replay — every panel must keep `renderer: "always"`, and every `dockview-react`
-upgrade must re-run the manual probe documented in the root `AGENTS.md`.
+replay — every panel must keep `renderer: "always"`, which is what keeps the
+DOM alive when a panel is hidden.
+
+### Upgrading `dockview-react`
+
+dockview must **not** remount a panel's content when panels are moved or split.
+The last known-good version is 8.2.0, verified by hand, and nothing automated
+covers the promise. After any `dockview-react` upgrade, re-run the probe:
+
+1. Open a workspace with two or more panes and open DevTools → Network → WS.
+2. Drag a pane onto another pane's edge to split, and drag a tab between groups.
+3. **No new `/ws` connection may appear, and no existing one may close.**
+
+If one does, the upgrade is not safe: pin back to the last known-good version.
 
 ### Swipe navigation
 

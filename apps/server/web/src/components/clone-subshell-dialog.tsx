@@ -64,7 +64,7 @@ export function CloneSubshellDialog({
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const create = useCreateSubshell();
-  const { data: presets } = usePresets();
+  const { data: presets, isError: presetsFailed } = usePresets();
   const { data: nodeData } = useNodes();
   const { data: pluginData } = useInstancePlugins();
   // Both lookups name what the POST already carries by id (`harnessId`,
@@ -82,9 +82,15 @@ export function CloneSubshellDialog({
   const presetName =
     source.presetId === null
       ? "None"
-      : presets === undefined
-        ? "…"
-        : (presets.find((p) => p.id === source.presetId)?.name ?? "(preset no longer available)");
+      : presets !== undefined
+        ? (presets.find((p) => p.id === source.presetId)?.name ?? "(preset no longer available)")
+        : // An ERRORED query is `undefined` too, and it never becomes
+          // anything else — so the in-flight "…" would be permanent. Say the
+          // lookup failed instead: the clone itself still works (it posts the
+          // id, which this dialog never needed to resolve).
+          presetsFailed
+          ? "(could not load presets)"
+          : "…";
   const node = (nodeData?.nodes ?? []).find((n) => n.id === cloneNodeId(source));
   // `cloneNodeId` still feeds the create request, where `local` is the correct
   // IDENTIFIER — but it is never rendered: an id is not a label.

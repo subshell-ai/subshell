@@ -21,7 +21,7 @@ import { usePresets } from "@/hooks/use-presets";
 import { useSubshells } from "@/hooks/use-subshells";
 import { agentDefault } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
-import { isSelectable, nodePickSettled, pickNodeDefault } from "@/lib/node-pick";
+import { isSelectable, nodePickSettled, nodeRunsHarness, pickNodeDefault } from "@/lib/node-pick";
 import { colors, radius, touchTarget } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/files";
@@ -75,9 +75,12 @@ export default function NewSubshell() {
    */
   const installedOnNode = useCallback(
     (id: string): boolean => {
-      const harnesses = (nodes.data ?? []).find((n) => n.id === nodeId)?.harnesses;
-      if (!harnesses) return true;
-      return harnesses.some((h) => h.harnessId === id && h.installed);
+      const node = (nodes.data ?? []).find((n) => n.id === nodeId);
+      // No row for the current pick (none chosen, or a node that vanished)
+      // reads as unknown, which blocks nothing — same `!== false` posture as
+      // `canLaunch`. `nodeRunsHarness` owns the rest of the rule, so the
+      // agent chips and the node chips cannot disagree about one pairing.
+      return node === undefined || nodeRunsHarness(node, id);
     },
     [nodes.data, nodeId],
   );
@@ -190,10 +193,14 @@ export default function NewSubshell() {
    * The launch picker (spec §9): every visible node (ANY share grants launch).
    * Hidden unless there is a real choice — one node (or a pre-nodes instance
    * where the route 404s) means `local`, and single-machine users see no
-   * change. Labels/selectability mirror the web picker exactly: "Local" for
-   * the control-plane host, an " — offline" suffix on a downed agent, which
-   * is disabled because launching there 409s (the 409 path still covers the
-   * race when the list goes stale mid-form).
+   * change. Labels/selectability mirror the web picker: the node's own NAME
+   * (the control-plane row is admin-named and defaults to "Server" — nothing
+   * rendered derives from the id), an " — offline" suffix on a downed agent,
+   * which is disabled because launching there 409s (the 409 path still
+   * covers the race when the list goes stale mid-form). A node that cannot
+   * run the agent now held is greyed too, as web's `buildNodeOptions` does
+   * it — without that, the incompatible pair stayed reachable by tapping
+   * node-then-agent.
    */
   const nodeOptions = nodes.data ?? [];
 
@@ -302,13 +309,20 @@ export default function NewSubshell() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {nodeOptions.map((n) => {
-                  const pickable = isSelectable(n);
+                  // Both halves of the pairing, as web does it
+                  // (`buildNodeOptions`): the node's own state AND whether it
+                  // can run the agent now held. Greying only the first left
+                  // the incompatible pair reachable by tapping node-then-
+                  // agent, where the agent chips' greying never applies.
+                  const pickable = isSelectable(n) && nodeRunsHarness(n, harnessId);
                   const sel = nodeId === n.id;
                   return (
                     <Pressable
                       key={n.id}
                       onPress={() => setNodeId(n.id)}
                       disabled={!pickable}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: sel, disabled: !pickable }}
                       style={{
                         padding: 10,
                         borderRadius: radius,
@@ -319,7 +333,13 @@ export default function NewSubshell() {
                       }}
                     >
                       <Text style={{ color: sel ? colors.primary : colors.fg, fontWeight: "600" }}>
-                        {n.kind === "local" ? "Local" : n.status === "online" ? n.name : `${n.name} — offline`}
+                        {/* `n.name`, never a word derived from the id: the
+                            control-plane row is admin-named (root AGENTS.md,
+                            spec 2026-09-08) and defaults to "Server", so the
+                            hardcoded "Local" that used to sit here showed
+                            every other user a name for a machine that is not
+                            theirs — and survived a rename. */}
+                        {n.kind === "local" || n.status === "online" ? n.name : `${n.name} — offline`}
                       </Text>
                     </Pressable>
                   );

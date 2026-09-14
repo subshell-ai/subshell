@@ -276,6 +276,68 @@ its own re-probe (now `onboarded: false`) agrees with. With one bundled page the
 (N2) reduces to a single rule: **never close the assistant from inside the
 chain.** It is the window the command is running in, and closing it once
 `main` is already gone runs the last-window path and quits the app mid-reset.
+
+**The chain is on the meter while it runs (spec 2026-09-13).** A legitimate
+reset spends tens of seconds in compiled-CLI spawns and one kill per pane
+socket, and a dead button lettered "Resetting…" reads identically to a hang —
+reported as one. `ResetStep` (`stop | panes | service | files`) is the Rust
+enum behind `desktop-reset-step` frames of `{step, state}`, the page mirrors
+it in `lib/reset.ts` beside its own first row (`plan`, the arming round trip),
+and the containment is pinned both ways by
+`reset_steps_round_trip_and_mirror_the_page`. The states live in the view,
+not the DOM — same reason `Show Details` keeps its openness — because
+`renderSteps` rebuilds inside a render that runs on the poll's clock. An
+unknown wire word drops (`knownStep`): a page newer than its binary is
+`tauri dev` HMR's normal condition.
+
+**The manager's "stopped" is a claim the chain now verifies — and the claim
+itself was the CLI bug.** Measured 2026-09-13: a service-mode stop returned
+success while the process kept running for 90 more seconds, and the deletes
+ran anyway — the server's own log filled with `SQLITE_IOERR_VNODE` as its
+database went out from under it. Root cause in `apps/server/api/service.ts`:
+`bootout` is ASYNCHRONOUS — a fact `domainBusy()` has documented since
+2026-09-12 — but only the install path ever acted on it, and stop answered
+"subshell-server stopped." on bootout's exit-0 alone. CLI stop now polls the
+domain until `print` gives the same "no such job" answer `queryService` calls
+stopped (30 s budget, `STOP_WAIT_ATTEMPTS`) and fails honestly if the job
+never leaves; the tests pin the poll, and two old tests whose `at(-1)`
+assertion ended at bootout were updated because they had pinned the lie. The
+desktop chain keeps its OWN dial check (`dial_target`, 10 s, after the stop)
+because it is the manager-independent half: a server nobody's manager owns —
+the hand-run process, a stray on the port — is visible only on the port.
+`listen.port` joined the all-or-nothing plan block (R17 applies exactly as to
+a path: the page's `refusal` refuses without it, so screen and plan cannot
+disagree about "armable"). The app-mode branch needed no second opinion —
+`sup.stop` blocks on the pid it signalled and already answers false for a
+stop that gave up.
+
+**The tmux sweep skips only when the DIRECTORY agrees there is nothing to
+do.** Measured 2026-09-13 and NOT fully explained: a reset chain completed
+steps 1–7 with 69 stale `subshell-*` sockets on disk and tmux installed — step
+3 skipped silently. The first suspect, `which("tmux")` answering None, was
+disproven afterwards by reading `build_path`: it appends the FLOOR (which
+includes `/opt/homebrew/bin`) UNCONDITIONALLY, so no probe failure can hide an
+installed tmux. The surviving suspect is the directory — an inherited
+`TMUX_TMPDIR` pointing the read elsewhere — unconfirmable after the fact
+because the launching terminal's environment died with the dev session. The
+fix therefore targets silence, not the guess: empty directory skips as
+before; sockets present means tmux ran here once, so the sweep goes through
+each spawn's own login PATH regardless, a spawn failure keeps ending the chain
+as "a pane may have survived", and the skip's log line NAMES the directory it
+looked in — if the surviving suspect fires again, it identifies itself.
+
+**A dev build does not restart after a reset.** `app.restart()` re-execs the
+binary OUT of the `tauri dev` process tree — the CLI sees its child exit and
+quits, taking the Vite server (`beforeDevCommand`) with it, and a debug
+binary loads `devUrl`, so the relaunched window renders white against a dead
+:5178. Reported 2026-09-13 as "the FTE screen is white" after exactly that.
+Under `cfg!(debug_assertions)` (runtime, not `#[cfg]`, so `schedule_restart`
+never goes dead-code) the success arm takes the window-move fallback that
+already existed for "a restart that does not happen": the live page
+re-probes, sees `onboarded: false`, and draws first run in place. Release
+ships embedded assets and restarts as designed — the white window was never
+a shipped-app bug, and nothing on the reset path branches on build kind
+except this gate.
 Pane closing goes through tmux's OWN directory rule —
 `TMUX_TMPDIR ?? /tmp`, symlink-resolved, `tmux-<uid>/`, and only `subshell-*`
 sockets (R1). `cleanSocket` used to join `TMPDIR`, which on macOS names a

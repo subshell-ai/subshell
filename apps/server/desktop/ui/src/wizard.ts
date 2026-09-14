@@ -1163,6 +1163,13 @@ function applyScreen(payload: string): void {
 }
 
 void listen<string>("desktop-screen", (event) => applyScreen(event.payload));
+// The reset chain's progress: one frame per phase transition, merged into the
+// reset view's page state. A chain that legitimately takes tens of seconds
+// names the phase spending them instead of holding one word on a dead button
+// (spec 2026-09-13 — the meter exists because slow-read-as-hung was reported).
+void listen<{ step: string; state: string }>("desktop-reset-step", (event) =>
+  resetView.applyStep(event.payload.step, event.payload.state),
+);
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) return;

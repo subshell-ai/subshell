@@ -11,6 +11,35 @@ const ICONED: ComboboxOption[] = [{ value: "c", label: "Claude Code", icon: "ðŸ¤
 afterEach(cleanup);
 
 describe("SearchableSelect", () => {
+  it("forwards describedBy to the real input, so hint lines are announced", () => {
+    // Visual reading order is not an association: without this the field is
+    // announced as "Agent, combobox" and nothing about why every option is
+    // greyed. Asserted on the <input> because that IS the closed state here
+    // (unlike select.tsx, whose trigger is a button).
+    render(
+      <SearchableSelect
+        id="picker-agent"
+        value=""
+        onValueChange={() => {}}
+        placeholder="Choose an agent"
+        options={OPTIONS}
+        describedBy="picker-agent-no-agent picker-agent-no-node"
+      />,
+    );
+    expect(screen.getByPlaceholderText("Choose an agent").getAttribute("aria-describedby")).toBe(
+      "picker-agent-no-agent picker-agent-no-node",
+    );
+  });
+
+  it("omits aria-describedby entirely when there is no hint", () => {
+    // Not the empty string: an empty `aria-describedby` is a dangling
+    // reference, which some screen readers announce as a missing label.
+    render(
+      <SearchableSelect id="picker-agent" value="" onValueChange={() => {}} placeholder="Pick" options={OPTIONS} />,
+    );
+    expect(screen.getByPlaceholderText("Pick").hasAttribute("aria-describedby")).toBe(false);
+  });
+
   it("renders a searchable combobox carrying the caller's id and placeholder", () => {
     render(
       <SearchableSelect

@@ -54,45 +54,6 @@ and the pieces it names nested inside. `apps/server/`, `apps/client/` and
 `apps/node/` are plain directories with no `package.json` of their own —
 grouping, not packages.
 
-```
-subshell/
-├── apps/
-│   ├── server/                     # the control plane (grouping dir, not a package)
-│   │   ├── api/                    # ElysiaJS API server; also serves the built SPA in prod
-│   │   ├── web/                    # React SPA the server serves (Vite, TanStack Router/Query, Tailwind)
-│   │   └── desktop/                # Tauri v2 GUI for apps/server/api — installs, runs and recovers a local control plane
-│   ├── client/                     # interfaces to a control plane (grouping dir, not a package)
-│   │   ├── desktop/                # Tauri v2 GUI — Subshell Client; also registers this machine as a node
-│   │   └── mobile/                 # Native companion (React Native + Expo)
-│   └── node/                       # machines that run agents (grouping dir, not a package)
-│       └── agent/                  # subshell — node daemon; enrolls and runs signed commands
-├── crates/
-│   └── desktop-core/               # The tauri-free Rust both desktop apps share (spawning, login PATH, sidecar install)
-├── packages/
-│   ├── tsconfig/                   # Shared TypeScript configuration
-│   ├── backend-errors/             # Error emission and handling for the backend
-│   ├── backend-client/             # Type-safe client for the backend API via Eden Treaty
-│   ├── subshell-protocol/          # Subshell contract shared by backend and frontend: WS frames, upload limits, shared-pane sizing
-│   ├── plugin-api/                 # @subshell-ai/plugin-api — the contract a plugin implements (published)
-│   ├── plugins/                    # the built-in plugins (grouping dir, not a package)
-│   │   ├── claude-code/            # @subshell-ai/plugin-claude-code (published)
-│   │   ├── codex/                  # @subshell-ai/plugin-codex (published)
-│   │   ├── hermes/                 # @subshell-ai/plugin-hermes (published)
-│   │   ├── opencode/               # @subshell-ai/plugin-opencode (published)
-│   │   ├── pi/                     # @subshell-ai/plugin-pi (published)
-│   │   └── terminal/               # @subshell-ai/plugin-terminal (published; a plain shell, no agent CLI)
-│   ├── pane-runtime/               # Running a pane here: binary detection, plugin loading, argv, TmuxRunner
-│   └── mcp-core/                   # The `subshell mcp` server (tools, E2EE crypto, identity/pin stores) shared by backend and agent
-├── e2e/                            # Playwright suite — its own backend on :3199, real tmux (see e2e/AGENTS.md)
-├── brand/                          # Wordmark/palette masters + generators (`bun run brand:generate`)
-├── docker/                         # Dockerfile support files (gitconfig.example, ssh-config)
-├── scripts/                        # Release + smoke scripts (macOS signing/notarization, entitlements)
-├── turbo.json                      # Turbo task configuration
-├── package.json                    # Root workspace definition
-├── biome.json                      # Linting and formatting
-└── lefthook.yml                    # Git hooks
-```
-
 **What each app is.**
 
 | the thing | its CLI/service | its GUI |
@@ -258,20 +219,6 @@ Contributions need the one-time CLA in `CLA.md` (`.github/workflows/cla.yml`);
 that is what keeps non-AGPL commercial licensing of the server possible, and a
 DCO would not substitute.
 
-### Technology Stack
-
-- **Runtime**: Bun (>= 1.4.0); Rust (stable) for the two desktop apps and `crates/desktop-core`
-- **Backend Framework**: ElysiaJS
-- **Frontend**: React 19, Vite, TanStack Router, TanStack Query, Tailwind CSS
-- **Database**: SQLite via `bun:sqlite` with Kysely (type-safe query builder); dialect from [`kysely-bun-sqlite-dialect`](https://www.npmjs.com/package/kysely-bun-sqlite-dialect)
-- **Validation**: Elysia's `t` module (TypeBox-based, generates OpenAPI schemas)
-- **Logging**: LogLayer + @loglayer/elysia (request-scoped logging)
-- **API Docs**: @elysiajs/openapi (Scalar UI at /docs)
-- **Client SDK**: Eden Treaty (type-safe, no code generation)
-- **Testing**: `bun test` (vitest was removed — its node worker cannot import `bun:sqlite`)
-- **Linting/Formatting**: Biome
-- **Monorepo**: Turborepo + Bun workspaces
-
 ## Cross-session coordination (the subshell MCP)
 
 **Other panes are agents.** In a pane, `list_subshells`/`get_subshell` give a
@@ -355,6 +302,9 @@ turbo build                # Build all packages
 
 ### Testing
 
+Testing is `bun test` (vitest was removed — its node worker cannot import
+`bun:sqlite`).
+
 ```bash
 bun run test               # Run tests across all packages
 bun run test:e2e           # Playwright end-to-end suite (boots its own backend on :3199)
@@ -398,23 +348,6 @@ A new migration must be **both** created in `apps/server/api/src/db/migrations/`
 in the provider map in `apps/server/api/src/db/migrate.ts` — the CLI scans the folder, but the
 app's boot-time migrator reads the static map (a dynamic import would break
 `bun build --compile`). The file name and the map key must match.
-
-### Upgrading `dockview-react`
-
-Workspace panes hold live terminals. dockview must **not** remount a panel's
-content when panels are moved or split — a remount disposes the terminal, closes
-its WebSocket and forces a full history replay.
-
-This was verified at 8.2.0 and is not covered by any automated test. After any
-`dockview-react` upgrade, re-run the probe by hand:
-
-1. Open a workspace with two or more panes and open DevTools → Network → WS.
-2. Drag a pane onto another pane's edge to split, and drag a tab between groups.
-3. **No new `/ws` connection may appear, and no existing one may close.**
-
-If one does, the upgrade is not safe: pin back to the last known-good version.
-Every panel must also keep `renderer: 'always'` — that is what keeps the DOM
-alive when a panel is hidden.
 
 ### Linting and Formatting
 
@@ -823,8 +756,12 @@ which is why they share their own smoke, parameterized by app id.
   version after that comes from CI. **That bootstrap is done and needs no
   repeating.** The proof is on the registry rather than in anyone's memory:
   each package's later versions carry SLSA provenance attestations
-  (`npm view <pkg> dist.attestations`), which only the OIDC trusted-publishing
-  path produces — a hand `npm publish` would not have them. An EIGHTH package
+  (`npm view <pkg> dist.attestations`) and its `0.0.1` does not — and an
+  attestation comes only from a CI publish under OIDC, never from a hand
+  `npm publish` at a terminal. (Strictly it proves "published by CI with
+  `--provenance`" rather than "trusted publisher" specifically; since this
+  repo's `npm-publish` job has no `NPM_TOKEN` to fall back on, the two are
+  the same thing here.) An EIGHTH package
   would need the same bootstrap before a version PR including it can publish;
   until a package exists, CI can bump it forever and never ship it.
 - **Release notes live in the GitHub Release.** The publish job slices this

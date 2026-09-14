@@ -80,6 +80,50 @@ pub fn parse_screen(raw: Option<String>) -> Screen {
     }
 }
 
+/// Which phase of the chain is running, for the page's step meter.
+///
+/// The words are the whole contract with the page — the same relationship
+/// `Screen::as_str` has through `desktop_pending_screen` — and a chain that
+/// takes tens of seconds (compiled-CLI spawns for stop and uninstall, one
+/// kill per pane socket) must say WHICH of them it is in. Before this the
+/// screen's only truth was "Resetting…", which reads identically to a hang;
+/// measured 2026-09-13, a legitimate minute-long chain was reported as one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetStep {
+    Stop,
+    Panes,
+    Service,
+    Files,
+}
+
+impl ResetStep {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResetStep::Stop => "stop",
+            ResetStep::Panes => "panes",
+            ResetStep::Service => "service",
+            ResetStep::Files => "files",
+        }
+    }
+}
+
+/// One meter row's update, pushed on `desktop-reset-step`.
+#[derive(Clone, serde::Serialize)]
+struct StepEvent {
+    step: &'static str,
+    state: &'static str,
+}
+
+fn report_step(app: &AppHandle, step: ResetStep, state: &'static str) {
+    let _ = app.emit(
+        "desktop-reset-step",
+        StepEvent {
+            step: step.as_str(),
+            state,
+        },
+    );
+}
+
 /// The five paths a confirmed reset deletes, read off a fresh `status --json`.
 ///
 /// These are DATA, quoted from the server's own report (Task 3 made `status`
@@ -93,24 +137,91 @@ pub struct DeletePlan {
     pub logs_dir: PathBuf,
     pub artifacts_dir: PathBuf,
     pub data_dir: PathBuf,
+    /// Where to dial to ask whether the server is REALLY gone after the
+    /// manager says it stopped. The manager's answer is not the fact: measured
+    /// 2026-09-13, a service-mode stop returned success while the process kept
+    /// running for another 90 seconds, and the chain deleted its database out
+    /// from under it (the server's own log filled with `SQLITE_IOERR_VNODE`).
+    /// Part of the all-or-nothing block — a plan without a port is a chain
+    /// with no way to prove it is not deleting under a live server.
+    pub port: u16,
+    pub listen_host: String,
 }
 
-/// All-or-nothing (R17): every path present, non-empty and absolute, or
-/// there is no plan. A partial block deleted and reported success would be
-/// R1's shape again, so a subset is refused exactly like nothing at all.
+/// All-or-nothing (R17): every path present, non-empty and absolute, the
+/// listen port a real number, or there is no plan. A partial block deleted
+/// and reported success would be R1's shape again, so a subset is refused
+/// exactly like nothing at all.
 pub fn parse_delete_plan(status: &Value) -> Option<DeletePlan> {
     let abs = |v: Option<&Value>| -> Option<PathBuf> {
         let s = v?.as_str()?;
         (!s.is_empty() && Path::new(s).is_absolute()).then(|| PathBuf::from(s))
     };
     let paths = status.get("paths")?;
+    let listen = status.get("listen")?;
+    let raw = listen.get("port")?.as_u64()?;
+    let port = u16::try_from(raw).ok().filter(|p| *p > 0)?;
+    let listen_host = listen
+        .get("host")
+        .and_then(Value::as_str)
+        .filter(|h| !h.is_empty())
+        .unwrap_or("127.0.0.1")
+        .to_string();
     Some(DeletePlan {
         config_env: abs(status.get("configEnv")?.get("path"))?,
         data_dir: abs(paths.get("dataDir"))?,
         database: abs(paths.get("database"))?,
         logs_dir: abs(paths.get("logsDir"))?,
         artifacts_dir: abs(paths.get("nodeArtifacts"))?,
+        port,
+        listen_host,
     })
+}
+
+/// The address to dial to ask whether the server is still answering.
+/// `0.0.0.0` and `::` are BIND addresses and cannot be dialled as written;
+/// `::` maps to IPv6 loopback, since a server bound to `::` may answer there
+/// and nowhere else. A host that is not an IP is asked of IPv4 loopback —
+/// the configuration this whole check exists for is the default bind.
+fn dial_target(host: &str, port: u16) -> std::net::SocketAddr {
+    use std::net::{IpAddr, Ipv6Addr};
+    const IPV4_LOOPBACK: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    let ip: IpAddr = match host {
+        "0.0.0.0" | "" => IPV4_LOOPBACK,
+        "::" | "[::]" => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        other => other.parse().unwrap_or(IPV4_LOOPBACK),
+    };
+    std::net::SocketAddr::new(ip, port)
+}
+
+/// One dial: an open connection means something is answering.
+fn port_answering(target: std::net::SocketAddr) -> bool {
+    std::net::TcpStream::connect_timeout(&target, std::time::Duration::from_millis(300)).is_ok()
+}
+
+/// The stop's verification budget. Long enough for a service manager's
+/// SIGTERM to land and the port to drain, short enough that a wedged chain
+/// still says so inside one human breath of the meter's first row.
+const STOP_VERIFY_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Wait for a supposedly-stopped server to stop answering. True = quiet.
+/// A port that will not quiet in the budget means the answer the manager
+/// gave is not the fact on the machine, and the caller must treat that as
+/// a stopped chain, not a warning — the app-mode branch has held this rule
+/// since its design ("a stop that gave up ... must stop the chain here
+/// rather than be taken as permission to delete under a live server");
+/// this is the same rule's service-mode half.
+fn wait_for_port_closed(target: std::net::SocketAddr, budget: std::time::Duration) -> bool {
+    let start = std::time::Instant::now();
+    loop {
+        if !port_answering(target) {
+            return true;
+        }
+        if start.elapsed() >= budget {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 }
 
 /// What a reset press leaves behind: the requested screen until some page
@@ -327,6 +438,7 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     }
 
     let mut log = String::new();
+    report_step(&app, ResetStep::Stop, "running");
     // 2. Stop. Tolerates the CLI's measured refusal for a machine with no
     // service (`controlService` answers exit 1, `nothing installed: no
     // service definition at ...` on stderr): without it a Retry after any
@@ -385,73 +497,96 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
         crate::control::service_now(&settings, ServiceCommand::Stop, false)
     };
     if let Some(stderr) = push_step(&mut log, &stop, &["nothing installed"]) {
+        report_step(&app, ResetStep::Stop, "failed");
         return Ok(ActionResult {
             ok: false,
             stdout: log,
             stderr,
         });
     }
+    // The manager's "stopped" is a claim, not a fact (see `DeletePlan::port`):
+    // verify the port itself went quiet before anything is deleted. App mode
+    // needs no second opinion — `sup.stop` blocks on the pid it signalled and
+    // already returns false for a stop that gave up.
+    if !app_mode {
+        let target = dial_target(&plan.listen_host, plan.port);
+        if !wait_for_port_closed(target, STOP_VERIFY_BUDGET) {
+            report_step(&app, ResetStep::Stop, "failed");
+            let detail = format!(
+                "the service manager answered, but a server is still answering on {target} — \
+                 nothing was deleted. If a server was started by hand (or another process \
+                 holds that port), stop it and press Retry."
+            );
+            log.push_str(&detail);
+            return Ok(ActionResult {
+                ok: false,
+                stdout: log,
+                stderr: detail,
+            });
+        }
+    }
+    report_step(&app, ResetStep::Stop, "done");
     // 3. Close this instance's panes (their per-subshell tmux servers).
+    report_step(&app, ResetStep::Panes, "running");
     if let Some(detail) = close_subshell_tmux(&mut log) {
+        report_step(&app, ResetStep::Panes, "failed");
         return Ok(ActionResult {
             ok: false,
             stdout: log,
             stderr: detail,
         });
     }
+    report_step(&app, ResetStep::Panes, "done");
     // 4. Uninstall the service, while the binary and config it names exist.
     // Linux answers a missing unit with exit 0 (its "nothing installed" goes
     // to stdout), so this tolerance is belt-and-braces - but anchored on the
     // CLI's real spelling, not the old "not installed", which matched nothing
     // anywhere (PR review).
+    report_step(&app, ResetStep::Service, "running");
     let un = crate::control::service_now(&settings, ServiceCommand::Uninstall, false);
     if let Some(stderr) = push_step(&mut log, &un, &["nothing installed"]) {
+        report_step(&app, ResetStep::Service, "failed");
         return Ok(ActionResult {
             ok: false,
             stdout: log,
             stderr,
         });
     }
+    report_step(&app, ResetStep::Service, "done");
     // 5. Delete in the order the screen drew, absence = done, config.env
     // last. Every deletion's failure ends the chain (K2): a surviving
     // signing key announced as a completed wipe is worse than the R1 and
     // R17 cases this document already refused twice, because the hostname
     // was typed against the promise that THESE bytes are gone.
+    report_step(&app, ResetStep::Files, "running");
+    // One arm names the failed Files row; the five deletion steps below all
+    // end the chain the same way.
+    macro_rules! files_failed {
+        ($detail:expr) => {{
+            report_step(&app, ResetStep::Files, "failed");
+            return Ok(ActionResult {
+                ok: false,
+                stdout: log,
+                stderr: $detail,
+            });
+        }};
+    }
     if let Some(detail) = remove_if_exists(&plan.database, &mut log) {
-        return Ok(ActionResult {
-            ok: false,
-            stdout: log,
-            stderr: detail,
-        });
+        files_failed!(detail);
     }
     if let Some(detail) = delete_tree(&plan.logs_dir, &mut log) {
-        return Ok(ActionResult {
-            ok: false,
-            stdout: log,
-            stderr: detail,
-        });
+        files_failed!(detail);
     }
     if let Some(detail) = delete_tree(&plan.artifacts_dir, &mut log) {
-        return Ok(ActionResult {
-            ok: false,
-            stdout: log,
-            stderr: detail,
-        });
+        files_failed!(detail);
     }
     if let Some(detail) = delete_tree_but(&plan.data_dir, &plan.config_env, &mut log) {
-        return Ok(ActionResult {
-            ok: false,
-            stdout: log,
-            stderr: detail,
-        });
+        files_failed!(detail);
     }
     if let Some(detail) = remove_if_exists(&plan.config_env, &mut log) {
-        return Ok(ActionResult {
-            ok: false,
-            stdout: log,
-            stderr: detail,
-        });
+        files_failed!(detail);
     }
+    report_step(&app, ResetStep::Files, "done");
     // Remove-if-empty tidies, after the last consented byte is gone. These
     // two stay fire-and-forget: every file the human confirmed IS deleted at
     // this point, and failing to remove a now-empty (or still-populated-by-
@@ -503,7 +638,21 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     if let Some(w) = app.get_webview_window("wizard") {
         let _ = w.emit("desktop-screen", Screen::Home.as_str());
     }
-    schedule_restart(&app);
+    // **A dev build does not restart, and `cfg!(debug_assertions)` is the honest
+    // condition.** `app.restart()` re-execs this binary OUT of the `tauri dev`
+    // process tree: the CLI sees its child exit, quits, and takes the Vite
+    // server (`beforeDevCommand`) with it — and a debug binary loads `devUrl`,
+    // so the relaunched window renders white against a dead :5178. Reported
+    // 2026-09-13 as "the FTE screen is white" after a dev-mode reset. The
+    // window moves above are the documented fallback for "a restart that does
+    // not happen", and they land in the same place: the live page re-probes,
+    // sees `onboarded: false`, and draws first run in its own still-running
+    // process tree. Release ships embedded assets and restarts as designed.
+    if cfg!(debug_assertions) {
+        eprintln!("subshell: dev build — skipping the post-reset restart; the assistant re-probes in place");
+    } else {
+        schedule_restart(&app);
+    }
     Ok(ActionResult {
         ok: true,
         stdout: log,
@@ -690,9 +839,10 @@ fn socket_kill_outcome(r: &Run, name: &str) -> SocketOutcome {
     // the thousands.
     //
     // Anything else that failed is a pane that SURVIVED, which is a reset
-    // that lied — including a spawn that never started, because "no tmux on
-    // this machine" is the pre-loop `which`'s fact to know, not this
-    // function's to infer.
+    // that lied — including a spawn that never started. "No tmux anywhere"
+    // is the pre-loop skip's fact, and it only skips when the DIRECTORY is
+    // empty too; a socket on disk means tmux ran here, so a spawn that
+    // cannot start is a pane that may have survived, never a clean pass.
     let combined = format!("{}{}", r.stdout, r.stderr);
     if combined.contains("error connecting") || combined.contains("no server running on") {
         return SocketOutcome::Stale;
@@ -711,17 +861,27 @@ fn socket_kill_outcome(r: &Run, name: &str) -> SocketOutcome {
 /// already dead: unlink the stale socket and continue. Any other failure ends
 /// the chain (as a half-run): a pane that survived is a reset that lied.
 fn close_subshell_tmux(log: &mut String) -> Option<String> {
-    // "No tmux on this machine" is a fact about the machine, established ONCE
-    // before the loop (PR review): drawing it from one failed kill instead
-    // would report the step as succeeding while abandoning every remaining
-    // socket, on any spawn failure at all - fork refused under memory
-    // pressure, a PATH race, anything. Inside the loop a failure is either
-    // the stale-socket case or a real refusal that stops the chain, exactly
-    // as the uid read below already does.
-    if subshell_desktop_core::shell_env::which("tmux").is_none() {
-        log.push_str("tmux is not installed; no pane servers to close\n");
-        return None;
-    }
+    // The skip decision reads the DIRECTORY first, and only skips when the
+    // directory AND PATH both say there is nothing to do. Measured 2026-09-13,
+    // then and unfalsified: a reset chain completed steps 1-7 with 69 stale
+    // `subshell-*` sockets ON DISK and tmux installed, so step 3 skipped while
+    // panes-to-nothing remained sweepable. Which arm skipped is the part that
+    // could NOT be established: the first suspect, `which("tmux")` answering
+    // None, was disproven afterwards by reading `build_path` — it appends the
+    // FLOOR (which names /opt/homebrew/bin) UNCONDITIONALLY, so no probe
+    // failure can hide an installed tmux. The surviving suspect is the wrong
+    // directory — an inherited `TMUX_TMPDIR` pointing the read elsewhere —
+    // unconfirmable after the fact because the launching terminal's
+    // environment died with the `tauri dev` session. Either way the old
+    // which-first shape is what let the skip be silent, so: empty directory
+    // skips exactly as before (the PR-review reason for establishing "no
+    // tmux" from one source rather than from failed kills stands — a fork
+    // refused under memory pressure must never read as "nothing installed");
+    // sockets on disk mean tmux ran here once, so the sweep attempts anyway
+    // (`run` injects the login PATH per spawn) and a spawn failure keeps
+    // ending the chain as "a pane may have survived". And the log names the
+    // directory it looked in, so if the surviving suspect ever fires again,
+    // it names ITSELF.
     let base_raw = std::env::var("TMUX_TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
     let base = std::fs::canonicalize(&base_raw).unwrap_or_else(|_| PathBuf::from(&base_raw));
     // A uid this side cannot read means a directory this side cannot name,
@@ -735,18 +895,27 @@ fn close_subshell_tmux(log: &mut String) -> Option<String> {
         ));
     }
     let dir = base.join(format!("tmux-{}", uid.stdout.trim()));
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(e) => e,
-        Err(_) => {
-            log.push_str("no tmux socket directory here; nothing to close\n");
-            return None;
-        }
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !is_subshell_socket(&name) {
-            continue;
-        }
+    let names: Vec<String> = std::fs::read_dir(&dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|name| is_subshell_socket(name))
+                .collect()
+        })
+        .unwrap_or_default();
+    if names.is_empty() {
+        // Whether or not tmux resolves on this PATH, there is nothing HERE
+        // to close: no litter, no panes. The directory is named because a
+        // wrong-directory skip and a true-empty one look identical in every
+        // other record — see the block comment.
+        log.push_str(&format!("no pane servers to close in {}\n", dir.display()));
+        return None;
+    }
+    if subshell_desktop_core::shell_env::which("tmux").is_none() {
+        log.push_str("tmux is not on the app's PATH; sweeping anyway through each spawn's login PATH\n");
+    }
+    for name in names {
         let r = run(
             &[
                 "tmux".to_string(),
@@ -838,23 +1007,94 @@ mod tests {
         assert_eq!(stash.screen.lock().unwrap().take(), None);
     }
 
+    /// The shape `status --json` answers at its fullest: the five paths AND a
+    /// usable listen block. Every fixture that expects a plan must carry both.
+    fn good_status() -> Value {
+        json!({"configEnv": {"path": "/c/config.env", "exists": true},
+            "paths": {"dataDir": "/data", "database": "/data/subshell.db",
+                      "logsDir": "/data/subshells", "nodeArtifacts": "/data/node-artifacts"},
+            "listen": {"host": "0.0.0.0", "port": 3080, "portRaw": "3080", "portValid": true, "listening": true}})
+    }
+
     #[test]
     fn plan_parses_all_or_nothing() {
         // R17: a partial block is the same refusal as no block. A subset
         // deleted and reported success is R1's shape again.
-        let good = json!({"configEnv": {"path": "/c/config.env", "exists": true},
-            "paths": {"dataDir": "/data", "database": "/data/subshell.db",
-                      "logsDir": "/data/subshells", "nodeArtifacts": "/data/node-artifacts"}});
-        let plan = parse_delete_plan(&good).expect("the four-path block parses");
+        let plan = parse_delete_plan(&good_status()).expect("the four-path block parses");
         assert_eq!(plan.data_dir.to_str().unwrap(), "/data");
         assert_eq!(plan.config_env.to_str().unwrap(), "/c/config.env");
+        // The port is part of the block now (2026-09-13): a chain that cannot
+        // dial is a chain that cannot prove it is not deleting under a live
+        // server, and the measured failure was exactly that.
+        assert_eq!(plan.port, 3080);
+        assert_eq!(plan.listen_host, "0.0.0.0");
         for missing in [
             json!({"configEnv": {"path": "/c/config.env"}, "paths": {"database": "/d", "logsDir": "/l", "nodeArtifacts": "/n"}}),
             json!({"configEnv": {"path": "/c/config.env"}, "paths": {"dataDir": "", "database": "/d", "logsDir": "/l", "nodeArtifacts": "/n"}}),
             json!({"configEnv": {"path": "/c/config.env"}, "paths": {"dataDir": "relative", "database": "/d", "logsDir": "/l", "nodeArtifacts": "/n"}}),
             json!({"configEnv": {"path": "/c/config.env"}}),
+            // no listen block, a null port (the CLI's invalid-port spelling),
+            // and out-of-range: each refuses exactly like a missing path.
+            {
+                let mut v = good_status();
+                v.as_object_mut().unwrap().remove("listen");
+                v
+            },
+            {
+                let mut v = good_status();
+                v["listen"]["port"] = json!(null);
+                v
+            },
+            {
+                let mut v = good_status();
+                v["listen"]["port"] = json!(70000);
+                v
+            },
+            {
+                let mut v = good_status();
+                v["paths"] = Value::Null;
+                v
+            },
         ] {
             assert!(parse_delete_plan(&missing).is_none(), "must refuse, not partially plan");
+        }
+    }
+
+    #[test]
+    fn a_bind_address_is_not_dialable_as_written() {
+        // 0.0.0.0 and :: are LISTEN spellings; the dial must land on the
+        // matching loopback, and :: on IPv6 loopback because a `::` bind may
+        // answer there and nowhere else. Anything else that parses is dialed
+        // as named; a hostname (dialable, but not this check's shape) falls
+        // back to IPv4 loopback, the default bind this whole gate exists for.
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+        let v4 = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        assert_eq!(dial_target("0.0.0.0", 3080), (v4, 3080).into());
+        assert_eq!(dial_target("", 3080), (v4, 3080).into());
+        assert_eq!(dial_target("::", 3080), (IpAddr::V6(Ipv6Addr::LOCALHOST), 3080).into());
+        assert_eq!(
+            dial_target("127.0.0.5", 9),
+            (IpAddr::V4(Ipv4Addr::new(127, 0, 0, 5)), 9).into()
+        );
+        assert_eq!(dial_target("box.lan", 3080), (v4, 3080).into());
+    }
+
+    #[test]
+    fn reset_steps_round_trip_and_mirror_the_page() {
+        for step in [ResetStep::Stop, ResetStep::Panes, ResetStep::Service, ResetStep::Files] {
+            assert!(matches!(step.as_str(), "stop" | "panes" | "service" | "files"));
+        }
+        // The three-way contract this crate keeps pinning (ipc-acl.test.ts on
+        // the bun side): a wire word lives in Rust's emit and in the page's
+        // step table. The page matching on a word Rust never sends is the
+        // silent half-row failure; containment in both directions is cheap.
+        let page = include_str!("../../ui/src/lib/reset.ts");
+        for step in [ResetStep::Stop, ResetStep::Panes, ResetStep::Service, ResetStep::Files] {
+            assert!(
+                page.contains(&format!("key: \"{}\"", step.as_str())),
+                "the page's step table must carry the wire word `{}`",
+                step.as_str()
+            );
         }
     }
 

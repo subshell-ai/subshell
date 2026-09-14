@@ -10,19 +10,28 @@
 interface StatusLike {
   configEnv?: { path: string; exists: boolean };
   paths?: { dataDir?: string; database?: string; logsDir?: string; nodeArtifacts?: string };
+  listen?: { port?: number | null };
 }
 
 const isAbsolute = (p: unknown): p is string => typeof p === "string" && p.startsWith("/");
 
 export function refusal(status: StatusLike | null | undefined): string | null {
   const p = status?.paths;
+  // The listen port is part of the block the screen may promise from, exactly
+  // as it is part of Rust's all-or-nothing plan (2026-09-13): a chain with no
+  // port cannot prove the server died before it deletes, so an old server
+  // without the `listen` report must meet this refusal here rather than a
+  // Rust-side "nothing staged" surprise after the hostname is typed.
+  const port = status?.listen?.port;
   const complete =
     p !== undefined &&
     isAbsolute(p.dataDir) &&
     isAbsolute(p.database) &&
     isAbsolute(p.logsDir) &&
     isAbsolute(p.nodeArtifacts) &&
-    typeof status?.configEnv?.path === "string";
+    typeof status?.configEnv?.path === "string" &&
+    typeof port === "number" &&
+    port > 0;
   if (complete) return null;
   return (
     "This server does not report its data locations, so there is no list this screen can promise to delete. " +
@@ -50,4 +59,43 @@ export function resetRows(status: StatusLike): { label: string; path: string }[]
  */
 export function armed(typed: string, hostname: string): boolean {
   return hostname !== "" && typed.trim() === hostname;
+}
+
+/**
+ * The chain's live meter (spec 2026-09-13). A reset runs tens of seconds of
+ * compiled-CLI spawns and tmux kills with nothing else to show, and a dead
+ * button lettered "Resetting…" is indistinguishable from a hang — reported as
+ * exactly that. `plan` is the page's own row (the arming round trip); the
+ * other four are Rust's `ResetStep` wire words, and the containment in both
+ * directions is pinned by `reset_steps_round_trip_and_mirror_the_page` in
+ * `src-tauri/src/reset.rs`.
+ */
+export type StepKey = "plan" | "stop" | "panes" | "service" | "files";
+export type StepState = "pending" | "running" | "done" | "failed";
+
+export const RESET_STEPS: { key: StepKey; label: string }[] = [
+  { key: "plan", label: "Reading this machine" },
+  { key: "stop", label: "Stopping the server" },
+  { key: "panes", label: "Closing the pane servers" },
+  { key: "service", label: "Uninstalling the service" },
+  { key: "files", label: "Deleting the data" },
+];
+
+export function emptySteps(): Record<StepKey, StepState> {
+  return { plan: "pending", stop: "pending", panes: "pending", service: "pending", files: "pending" };
+}
+
+/**
+ * Whether a `desktop-reset-step` payload is words this meter knows. The event
+ * comes from the same crate, but a page newer than the binary (or the reverse,
+ * under `tauri dev` HMR) is this window's normal condition — an unknown word
+ * drops silently rather than corrupting the row states.
+ */
+export function knownStep(step: unknown, state: unknown): step is StepKey {
+  return (
+    typeof step === "string" &&
+    typeof state === "string" &&
+    RESET_STEPS.some((s) => s.key === step) &&
+    ["pending", "running", "done", "failed"].includes(state)
+  );
 }

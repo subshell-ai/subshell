@@ -644,13 +644,29 @@ function darwinStub({
   pid = 5150,
   printError = null as { code: number; err: string } | null,
   stateLine = "not running",
+  // What `print` answers AFTER a bootout has been issued — because bootout is
+  // not synchronous (`domainBusy`'s own note), a stub that answers the same
+  // before and after cannot express the wait. "gone": the job leaves at once.
+  // A number: it survives N post-bootout polls, then leaves. "stays": it
+  // never leaves (the 2026-09-13 case, taken to its limit).
+  afterBootout = "gone" as "gone" | "stays" | number,
 } = {}) {
+  let bootedOut = false;
+  let postBootoutPrints = 0;
   const s = stub({
     platform: "darwin",
     respond: (cmd) => {
+      if (cmd[1] === "bootout") {
+        bootedOut = true;
+        return { code: 0, out: "", err: "" };
+      }
       if (cmd[0] === "plutil")
         return abandon ? { code: 0, out: "true\n", err: "" } : { code: 1, out: "", err: "No value at that key path" };
       if (cmd[1] === "print") {
+        if (bootedOut && afterBootout !== "stays") {
+          postBootoutPrints++;
+          if (afterBootout === "gone" || postBootoutPrints > afterBootout) return { code: 113, out: "", err: "" };
+        }
         if (printError) return { code: printError.code, out: "", err: printError.err };
         if (!loaded) return { code: 113, out: "", err: "" };
         return running
@@ -1004,7 +1020,45 @@ describe("controlService", () => {
     const r = controlService(s.deps, "stop");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe(DONE.stop);
-    expect(s.calls.at(-1)).toEqual(["launchctl", "bootout", "gui/1000/dev.subshell.server"]);
+    expect(s.calls.some((c) => c[1] === "bootout")).toBe(true);
+    // And bootout is NOT the last command any more: the job's absence is
+    // re-read from the domain before DONE is said (2026-09-13 — the old
+    // `at(-1) === bootout` pin WAS the async lie, tested into permanence).
+    expect(s.calls.at(-1)?.[1]).toBe("print");
+  });
+
+  // `domainBusy` has documented since 2026-09-12 that bootout returns while
+  // the job is still leaving; only the install path ever acted on it. The
+  // measured cost was a desktop RESET: stop said "stopped." at bootout's
+  // exit-0 while the process kept running for 90 more seconds, and the
+  // chain deleted the database out from under it (`SQLITE_IOERR_VNODE` in
+  // the server's own log). DONE now means PROVEN gone, and this pins the
+  // polling that earns the word.
+  test("darwin: stop POLLS the domain until the job actually leaves, then says stopped", () => {
+    const s = darwinStub({ afterBootout: 3 });
+    const sleeps: number[] = [];
+    const r = controlService({ ...s.deps, sleep: (ms) => sleeps.push(ms) }, "stop");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe(DONE.stop);
+    // Initial query, then three "still here" answers and the one that proves
+    // it left — and the sleep only happens between not-gone answers.
+    const prints = s.calls.filter((c) => c[1] === "print").length;
+    expect(prints).toBe(5);
+    expect(sleeps).toHaveLength(3);
+  });
+
+  test("darwin: a job that never leaves the domain is a FAILED stop, never DONE.stop", () => {
+    const s = darwinStub({ afterBootout: "stays" });
+    let sleeps = 0;
+    const r = controlService({ ...s.deps, sleep: () => sleeps++ }, "stop");
+    expect(r.code).toBe(1);
+    // It says what it saw, what it therefore cannot claim, and what to do.
+    expect(msgLine(r.err)).toContain("still in launchd's domain");
+    expect(r.err).toContain("NOT confirmed stopped");
+    expect(r.err).toContain("service status");
+    expect(r.out).not.toContain("stopped.");
+    // The budget is real: it spent every poll.
+    expect(sleeps).toBeGreaterThanOrEqual(30);
   });
 
   // bootout on an unloaded job exits non-zero; a second stop must not look
@@ -1027,7 +1081,8 @@ describe("controlService", () => {
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe(DONE.stop);
     expect(r.out).not.toContain("already stopped");
-    expect(s.calls.at(-1)).toEqual(["launchctl", "bootout", "gui/1000/dev.subshell.server"]);
+    expect(s.calls.some((c) => c[1] === "bootout")).toBe(true);
+    expect(s.calls.at(-1)?.[1]).toBe("print");
   });
 
   // The fail-open hole `state: unknown` could have dug: `loaded` is false
@@ -1036,13 +1091,24 @@ describe("controlService", () => {
   // manager. Stop attempts the bootout and lets the manager's real answer
   // speak — this verb ends live panes when it guesses.
   test("darwin: stop on an UNANSWERABLE manager attempts the bootout, never 'already stopped'", () => {
-    const s = darwinStub({ printError: { code: 5, err: "Could not read domain: Input/output error" } });
-    const r = controlService(s.deps, "stop");
+    // afterBootout "stays" keeps the print failing forever — a manager that
+    // cannot answer at any point in the wait, which is what licenses the
+    // refusal below.
+    const s = darwinStub({
+      printError: { code: 5, err: "Could not read domain: Input/output error" },
+      afterBootout: "stays",
+    });
+    const r = controlService({ ...s.deps, sleep: () => {} }, "stop");
     expect(r.out).not.toContain("already stopped");
     expect(s.calls.some((c) => c[1] === "bootout")).toBe(true);
-    // The stub's bootout answers 0 — as a real one would for a loaded job —
-    // so the success here is the BOOTOUT's, not a shortcut's.
-    expect(r.code).toBe(0);
+    // The bootout was ACCEPTED (exit 0), but a manager that cannot answer
+    // whether the job left cannot license "stopped." either — the honest
+    // answer is the failure naming the unanswered question. (This is a
+    // tightening the old test had no way to express: bootout's exit-0 WAS
+    // the whole check, and that is precisely the claim 2026-09-13 proved
+    // insufficient.)
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("still in launchd's domain");
   });
 
   test("darwin: restart of a running job is kickstart -k (the README's own line)", () => {

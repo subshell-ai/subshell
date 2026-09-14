@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isSelectable, nodePickSettled, pickNodeDefault } from "@/lib/node-pick";
+import { isSelectable, nodePickSettled, nodeRunsHarness, pickNodeDefault } from "@/lib/node-pick";
 import type { Node } from "@/types/node";
 
 /** Minimal Node factory — the decision only reads id/name/status. */
@@ -80,5 +80,40 @@ describe("nodePickSettled", () => {
 
   it("a pick the re-home is about to CLEAR is not settled either", () => {
     expect(nodePickSettled([make({ id: "a9" }), A1], "local")).toBe(false);
+  });
+
+  it('NO pick ("") is never settled, though it is a fixed point of pickNodeDefault', () => {
+    // The trap: `pickNodeDefault(nodes, "") === ""` when several nodes are
+    // selectable, so an equality-only gate would call "no node at all"
+    // settled. `installedOnNode` then finds no row, reads every agent as
+    // unknown-and-usable, and the default fills from an inventory belonging
+    // to nothing — greyed-but-selected by another road.
+    const two = [make({ id: "a1" }), make({ id: "a9" })];
+    expect(pickNodeDefault(two, "")).toBe("");
+    expect(nodePickSettled(two, "")).toBe(false);
+  });
+});
+
+describe("nodeRunsHarness", () => {
+  const withHarnesses = (installed: boolean) =>
+    make({ id: "a1", harnesses: [{ harnessId: "claude-code", name: "Claude Code", installed }] });
+
+  it("no agent chosen blocks nothing — there is nothing to fail against", () => {
+    expect(nodeRunsHarness(withHarnesses(false), null)).toBe(true);
+  });
+
+  it("a node with NO inventory blocks nothing (older server: unknown is not a refusal)", () => {
+    expect(nodeRunsHarness(make({ id: "a1" }), "claude-code")).toBe(true);
+  });
+
+  it("an entry that exists and is installed fits; one that is not installed does not", () => {
+    expect(nodeRunsHarness(withHarnesses(true), "claude-code")).toBe(true);
+    expect(nodeRunsHarness(withHarnesses(false), "claude-code")).toBe(false);
+  });
+
+  it("an agent absent from a declared inventory does not fit", () => {
+    // The node reported its set; this plugin is not in it. That is a real
+    // "no", unlike the missing-inventory case above.
+    expect(nodeRunsHarness(withHarnesses(true), "codex")).toBe(false);
   });
 });
