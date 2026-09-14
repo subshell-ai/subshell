@@ -33,7 +33,7 @@ export function PluginCatalogCard({ plugins }: { plugins: InstancePluginRow[] })
             <PluginIcon pluginId={p.id} name={p.name} className="size-8" />
             <div className="min-w-0 flex-1">
               <p className="font-strong">{p.name}</p>
-              {p.description && <p className="text-muted-foreground text-xs">{p.description}</p>}
+              {p.description && <p className="text-detail text-muted-foreground">{p.description}</p>}
             </div>
             <Button
               size="sm"

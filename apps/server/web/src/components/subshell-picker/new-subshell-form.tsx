@@ -434,7 +434,7 @@ export function NewSubshellForm({
           </div>
           {value.harnessId !== "" && (
             <>
-              <p id={`${ids.preset}-hint`} className="text-muted-foreground text-xs">
+              <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
                 Saved flags, env vars and restart policy for {agentName}.
               </p>
               {agentPresets.length === 0 && (

@@ -168,8 +168,8 @@
   }
   .hint {
     color: var(--muted-foreground);
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
     margin-top: 8px;
   }
   /*

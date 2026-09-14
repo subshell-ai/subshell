@@ -100,7 +100,7 @@ export function ServerLogCard({
             {paused ? "Resume" : "Pause"}
           </Button>
           {fromEnv ? (
-            <span className="text-muted-foreground text-xs">Set by the environment (SUBSHELL_DEBUG_LOGGING).</span>
+            <span className="text-detail text-muted-foreground">Set by the environment (SUBSHELL_DEBUG_LOGGING).</span>
           ) : (
             <span className="flex items-center gap-2">
               <Label htmlFor="server-debug-logging">Debug logging</Label>

@@ -336,7 +336,7 @@ export function DirectoryPickerInput({
         </div>
       )}
 
-      {helper && <p className="text-muted-foreground text-xs">{helper}</p>}
+      {helper && <p className="text-detail text-muted-foreground">{helper}</p>}
     </div>
   );
 }

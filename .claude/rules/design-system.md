@@ -19,7 +19,10 @@ Spacing on the 4px grid. A `text-[13px]`, a `font-size: 14.5px`, a
 `fontSize: 17` or a hex outside a token file is refused by the check — if
 the system lacks what you need, add the token to every surface in one change.
 
-Line items are `label` over `detail`, differing by weight and colour; long
-actions show the process's own last line; failures render on the thing that
-failed. The full pattern list, each with the defect it closes, is in the
-reference.
+Line items are `label` over `detail`, differing by weight and colour. **Every
+explanation a control gives about itself is `detail`** — its help text, a
+"set by the environment" note, a saved-vs-running line, a validation error —
+all at one size; `caption` is metadata only (timestamps, versions, counts) and
+`body` is running text not attached to a control. Long actions show the
+process's own last line; failures render on the thing that failed. The full
+pattern list, each with the defect it closes, is in the reference.

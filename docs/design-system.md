@@ -24,9 +24,9 @@ no class at all is the one escape.
 | `display` | 30 / 600 | 28 / 600 | one per screen — a frame or page title |
 | `heading` | 20 / 600 | 20 / 600 | card, section, dialog and sheet titles |
 | `label` | 15 / 600 | 16 / 600 | **line items**: form labels, checklist rows, radio/toggle titles, table headers, buttons — what you scan for |
-| `body` | 14 / 400 | 16 / 400 | running text, hints, subtitles |
-| `detail` | 13 / 400 | 13 / 400 | the explanation under a `label`; `muted-foreground` by default |
-| `caption` | 12 / 400 | 12 / 400 | chips, timestamps, monospace output |
+| `body` | 14 / 400 | 16 / 400 | running text, subtitles, dialog and card prose |
+| `detail` | 13 / 400 | 13 / 400 | **anything that explains a control**: the line under a `label`, a field's help text, its state note, its error; `muted-foreground` by default |
+| `caption` | 12 / 400 | 12 / 400 | metadata only — chips, timestamps, versions, counts, monospace output. Never explanation |
 
 Line-height 1.2 for `display`/`heading`, 1.5 otherwise. Code is `caption` in the
 monospace stack. **Weights are `strong` (600) and `regular` (400) — nothing
@@ -72,6 +72,14 @@ admitted here.
 
 - **Line item** — `label` over `detail`, differing by weight AND colour, never
   by tone alone. *(15px regular over 13px muted read as one paragraph.)*
+- **Help text** — everything a control says about itself is `detail`, at ONE
+  size: its hint, "set by the environment", a saved-vs-running note, a
+  validation error. `caption` is for metadata (a timestamp, a version, a
+  count), never for prose, and `body` is for running text that is not attached
+  to a control. *(One screen explained a toggle at 13 and the field below it at
+  12; a plugin's description was 12 in one card and 14 in the other; the
+  assistant's `.hint` was 14. Three sizes for one idea, because the table used
+  to file "hints" under `body`.)*
 - **Choice group** — radios inside `role="radiogroup"` with an `aria-label`; a
   dependent setting sits BELOW the group after a rule, never indented under one
   option; its dependency is a disabled control that says why and names what

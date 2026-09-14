@@ -86,7 +86,7 @@ export function InstalledPluginsCard({
                 </Button>
               )}
             </div>
-            {p.description && <p className="text-muted-foreground text-sm">{p.description}</p>}
+            {p.description && <p className="text-detail text-muted-foreground">{p.description}</p>}
             {/* A broken install keeps its row precisely so it can say this;
                 every launch of it fails, and the operator needs to know why. */}
             {p.broken && <p className="text-destructive text-xs">Not loaded: {p.broken}</p>}

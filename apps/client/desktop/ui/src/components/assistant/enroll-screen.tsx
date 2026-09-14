@@ -87,7 +87,7 @@ export function EnrollScreen(props: {
             {note}
           </p>
         ))}
-        {hint && <p className="mt-3 text-warning text-xs leading-relaxed">{hint}</p>}
+        {hint && <p className="mt-3 text-detail text-warning">{hint}</p>}
       </div>
       {/*
        * The CLI's own words matter MOST here: an enrolment that failed after

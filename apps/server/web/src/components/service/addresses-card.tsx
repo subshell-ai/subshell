@@ -267,7 +267,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                 }}
               />
               {fromEnv && (
-                <p className="text-muted-foreground text-xs">Set by the environment ({key}); change it there.</p>
+                <p className="text-detail text-muted-foreground">Set by the environment ({key}); change it there.</p>
               )}
               {/* The field's own explanation, in the same place for every
                   field — replacing a card-level gloss and a hard-coded
@@ -275,17 +275,17 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                   the environment's: the line above already says the only
                   thing that matters there, which is that this is not where to
                   change it. */}
-              {!fromEnv && <p className="text-muted-foreground text-xs">{hint}</p>}
+              {!fromEnv && <p className="text-detail text-muted-foreground">{hint}</p>}
               {setting.saved !== setting.running && (
-                <p className="text-warning text-xs">
+                <p className="text-detail text-warning">
                   Saved {setting.saved || "(blank)"} · running {setting.running || "(blank)"}
                 </p>
               )}
               {(problems[key] ?? (fieldFailure?.key === key ? fieldFailure.reason : null)) && (
-                <p className="text-destructive text-xs">{problems[key] ?? fieldFailure?.reason}</p>
+                <p className="text-destructive text-detail">{problems[key] ?? fieldFailure?.reason}</p>
               )}
               {setting.problems?.map((problem) => (
-                <p key={problem.entry} className="text-destructive text-xs">
+                <p key={problem.entry} className="text-destructive text-detail">
                   {problem.entry}: {problem.reason}
                 </p>
               ))}

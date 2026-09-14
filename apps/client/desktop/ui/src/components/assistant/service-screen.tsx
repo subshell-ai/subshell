@@ -102,7 +102,7 @@ export function ServiceScreen(props: {
           agent on macOS) that starts the agent at login and brings it back if it exits.
         </p>
       )}
-      {hint && <p className="mt-3 text-warning text-xs leading-relaxed">{hint}</p>}
+      {hint && <p className="mt-3 text-detail text-warning">{hint}</p>}
       {/*
        * The one remedy that survived the card page's action row, and it is
        * here rather than in the bar because the restart refusal names it BY
