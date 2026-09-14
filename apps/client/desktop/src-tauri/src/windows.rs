@@ -9,8 +9,9 @@
 //!   with `credentials: "include"`, an auth client with no `baseURL`, a
 //!   WebSocket URL built from `window.location.host` — so a bundled copy could
 //!   not carry the `SameSite=Lax` session cookie to any of them. It is remote
-//!   content, and it is granted NOTHING: no capability file names this window,
-//!   so every command is refused. See [`open_plane`].
+//!   content, and it is granted exactly ONE command —
+//!   `desktop_open_in_browser`, which takes a path and can name no host. Every
+//!   other command is refused. See [`open_plane`].
 //! - **`node`** is ours: a bundled page that must render with the plane
 //!   unreachable, and the only surface allowed to drive the `subshell` CLI —
 //!   enrol, install the agent, drive the service.
@@ -28,10 +29,15 @@ use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewW
 /// The label of the window showing a control plane's own page.
 ///
 /// It is `main` because that is what it is to the user, and because the
-/// window-state plugin and the Dock both key off labels. Nothing grants it a
-/// capability — see the module note — and that absence is the security
-/// boundary, so a `capabilities/*.json` naming `main` is a change to the trust
-/// model, not a convenience.
+/// window-state plugin and the Dock both key off labels.
+///
+/// `capabilities/main.json` names it and grants it ONE command. That file was
+/// an absence until 2026-09-14, and the absence was the security boundary;
+/// what replaced it is a boundary of the same kind drawn one level in — the
+/// capability's scope is a wildcard, because a plane lives anywhere, so the
+/// narrowness has to live in the COMMAND's argument instead. Adding a second
+/// permission to that file is a change to the trust model, not a convenience,
+/// and `ui/src/__tests__/ipc-acl.test.ts` pins it at one.
 pub const PLANE_LABEL: &str = "main";
 
 /// The bundled node page's label.
@@ -68,6 +74,46 @@ impl PlanePin {
     fn set(&self, url: &tauri::Url) {
         *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(url.origin().ascii_serialization());
     }
+
+    /// The origin this window is pinned to, if it has been pointed anywhere.
+    ///
+    /// Read by `control::desktop_open_in_browser`, which is the whole reason
+    /// this is not private: the plane's page may name a PATH, and the host it
+    /// is joined onto has to be the one the navigation guard already enforces —
+    /// not a second copy of the ladder that could answer differently after a
+    /// switch. `None` while nothing has been opened, which the command reports
+    /// rather than guessing.
+    pub fn get(&self) -> Option<String> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// The marker the plane's SPA reads to know it is inside a shell.
+///
+/// This window carried NO marker until 2026-09-14, and the reason was sound
+/// while it held no capability: the SPA reads the marker and then talks to
+/// Tauri, and with nothing granted every one of those calls would have been
+/// refused one at a time. It carries one now because the SPA's chrome split in
+/// two — `isServerDesktop()` for everything that drives Subshell Server, and
+/// `isDesktop()` for the two surfaces that are true of any shell — and this
+/// window is granted exactly the one command those two need.
+///
+/// So the token is what matters: `SubshellClient`, which the SPA maps to
+/// `app: "client"` and which switches on nothing else.
+pub fn user_agent(app: &AppHandle) -> String {
+    let version = app.package_info().version.to_string();
+    let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    user_agent_for(&version, platform)
+}
+
+/// The pure body of [`user_agent`], for the test.
+///
+/// No `b=` group, unlike `apps/server/desktop`'s: that group is the SERVER
+/// version a shell bundles, and this app bundles a node agent. The SPA's regex
+/// leaves it optional, so its absence is a valid marker rather than a
+/// truncated one.
+pub fn user_agent_for(version: &str, platform: &str) -> String {
+    format!("SubshellClient/{version} ({platform}; p=1)")
 }
 
 /// The narrowest the plane window may be dragged.
@@ -194,17 +240,21 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
 ///
 /// Three things about this window are deliberate and belong together:
 ///
-/// - **No capability names it**, so the page can invoke nothing. A control
-///   plane is reachable over a LAN or a VPN, so its origin cannot be pinned to
-///   loopback the way `apps/server/desktop`'s can, and an origin this app
-///   cannot enumerate ahead of time must not be handed commands. Everything
-///   privileged lives on the bundled node page instead.
-/// - **No user-agent marker.** `apps/server/web` decides it is running in a
-///   desktop shell by reading a `SubshellDesktop/…` suffix, and then talks to
-///   Tauri — asks for an overlay title bar, starts window drags. With no grant
-///   here those calls would be refused one by one. Without the marker the SPA
-///   renders as it does in a browser, which is correct for a window that is a
-///   browser.
+/// - **`capabilities/main.json` names it, and grants it exactly ONE command**
+///   (2026-09-14): `desktop_open_in_browser`, which takes a path and joins it
+///   onto the origin [`PlanePin`] already holds. A control plane is reachable
+///   over a LAN or a VPN, so its origin cannot be enumerated the way
+///   `apps/server/desktop` pins loopback — which is why that capability's scope
+///   is a wildcard and why the COMMAND, not the scope, has to be the narrow
+///   thing. Everything privileged still lives on the bundled node page: no
+///   `node_*` verb and no plugin permission is granted here.
+/// - **A `SubshellClient/…` user-agent marker**, which is new and paired with
+///   that grant. `apps/server/web` reads the marker to know it is in a shell;
+///   it branches on the product TOKEN, so this window gets the two
+///   shell-agnostic surfaces and none of Subshell Server's chrome — no overlay
+///   title bar (this window keeps its own), no update, reset or supervision
+///   card. Before the grant existed the marker was deliberately absent, because
+///   every call it invited would have been refused one at a time.
 /// - **Navigation is pinned to the plane it is pointed at**, so a redirect or
 ///   an href in rendered content cannot walk this window somewhere else. The
 ///   pin follows a deliberate plane switch rather than being fixed at build
@@ -251,6 +301,10 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
         .title("Subshell Client")
         .inner_size(1280.0, 860.0)
         .min_inner_size(floor.width, floor.height)
+        // See `user_agent_for`. The SPA reads this to offer "Open in browser",
+        // which is the one thing this window is granted — and reads the PRODUCT
+        // TOKEN, so it takes none of Subshell Server's chrome branches.
+        .user_agent(&user_agent(app))
         // Tauri's native file-drop handler otherwise SWALLOWS HTML5 drag
         // events, which would silently break both drag-a-subshell-into-a-
         // workspace (the `application/x-subshell-id` payload) and the
@@ -285,8 +339,8 @@ pub fn focus_node(app: &AppHandle) {
 /// macOS always does: the menu bar is a system bar, it is always drawn, and
 /// `menu.rs` puts "This machine…" on it. Linux has no menu bar (a GTK one is
 /// per-window chrome inside the window you are trying to reach), and the plane
-/// window cannot offer a route either — it is remote content granted nothing,
-/// so it has no way to ask this app for anything.
+/// window cannot offer a route either — it is remote content, and its one
+/// grant opens a browser rather than a window of this app.
 ///
 /// That leaves the tray, which on a desktop with no StatusNotifier host is
 /// SILENTLY INVISIBLE. So where the probe says no tray, the node window has to
@@ -455,9 +509,10 @@ mod tests {
         assert_eq!(NODE_LABEL, "node");
     }
 
-    // The plane window is granted nothing, so its label must NOT be the one
-    // the capability names. If these two ever became one string, the control
-    // plane's own page would inherit the whole CLI surface.
+    // The plane window's label must NOT be the one `node.json` names. If these
+    // two ever became one string, the control plane's own page would inherit
+    // the whole CLI surface — which is a different thing from the one command
+    // `main.json` grants it, and the failure this pin exists for.
     #[test]
     fn the_plane_window_is_not_the_granted_one() {
         assert_ne!(PLANE_LABEL, NODE_LABEL);
@@ -562,6 +617,38 @@ mod tests {
         // What `open_node` does when it builds: the new page has not asked.
         state.listening.store(false, Ordering::SeqCst);
         assert!(!state.listening.load(Ordering::SeqCst));
+    }
+
+    /// The marker the plane's SPA reads to know it is inside a shell.
+    ///
+    /// Pinned against the regex in `apps/server/web/src/lib/desktop.ts`, which
+    /// is the only consumer and lives in another language: a marker this app
+    /// formats differently is not an error anywhere — the SPA simply renders
+    /// as a browser, and "Open in browser" is silently absent.
+    ///
+    /// `SubshellClient`, not `SubshellDesktop`: the SPA branches on the product
+    /// token, and reusing the server app's would switch on that app's chrome —
+    /// the overlay title bar (which needs `desktop_shell_ready`, granted here
+    /// to nothing) and the update, reset and supervision cards (which drive a
+    /// `subshell-server` this app does not manage).
+    ///
+    /// There is NO `b=` group and never can be: that is the server version the
+    /// shell BUNDLES, and this app bundles a node agent.
+    #[test]
+    fn the_user_agent_names_this_app_and_bundles_no_server() {
+        assert_eq!(
+            super::user_agent_for("0.3.0", "macos"),
+            "SubshellClient/0.3.0 (macos; p=1)"
+        );
+        assert_eq!(
+            super::user_agent_for("1.0.0", "linux"),
+            "SubshellClient/1.0.0 (linux; p=1)"
+        );
+        for platform in ["macos", "linux"] {
+            let ua = super::user_agent_for("0.3.0", platform);
+            assert!(!ua.contains("SubshellDesktop"), "{ua}");
+            assert!(!ua.contains("b="), "{ua}");
+        }
     }
 
     // The node window is the SAME frame as Subshell Server's assistant. The

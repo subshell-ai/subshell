@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The window showing a CONTROL PLANE's own page. A plane can live on any host, so unlike apps/server/desktop's loopback window this one's origin cannot be enumerated here — which is why the scope is a wildcard and why the narrowness has to live in the COMMAND instead. It gets exactly one: desktop_open_in_browser, which takes a PATH (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters) and joins it onto the origin windows.rs's PlanePin already holds — the same value that window's navigation guard enforces. So a compromised plane page can open a page of ITSELF in the person's browser, which they could do by typing the address. No node_* verb, no plugin permission, and no core:default: everything that drives the subshell CLI is granted to the bundled `node` window and to nothing else. The wildcard scope is deliberate and is NOT a widening of who may invoke: any page loaded in this window is the plane the person chose, because on_navigation pins the window to that origin. Adding a second permission here is a change to the trust model — see docs/security.md, and the pin in ui/src/__tests__/ipc-acl.test.ts.",
+  "local": false,
+  "remote": {
+    "urls": [
+      "http://*:*",
+      "https://*:*"
+    ]
+  },
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-desktop-open-in-browser"
+  ]
+}

@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::legal;
@@ -1256,6 +1256,73 @@ pub fn node_open_plane_url(app: AppHandle, settings: State<'_, SettingsState>) -
     app.opener()
         .open_url(&url, None::<&str>)
         .map_err(|e| format!("could not open {url}: {e}"))
+}
+
+/// The MENU BAR's "Open in Browser" id.
+///
+/// It lives here rather than in `menu.rs` because that module is macOS-only
+/// and `tray.rs` — which is not — has to assert the two ids DIFFER: a Tauri
+/// menu event is global, so one id handled in both menus fires twice per
+/// click, which for this item is two browser tabs. A constant behind a
+/// `#[cfg]` cannot be named from a test that compiles on Linux.
+pub const MENU_BROWSER_ID: &str = "menu:browser";
+
+/// Open one page of the control plane this window is on, in the system browser.
+///
+/// **The only command granted to the plane's window**, and the only one that
+/// ever will be without the argument in `docs/security.md` being rewritten. It
+/// is safe for a window whose origin this app cannot enumerate because it names
+/// no origin: the page supplies a PATH,
+/// `subshell_desktop_core::browser::browser_url` refuses anything that could be
+/// a host, and the origin comes from [`crate::windows::PlanePin`] — the same
+/// value the window's own navigation guard enforces. So a compromised plane
+/// page can open a page of ITSELF in the person's browser, which they can do by
+/// typing the address.
+///
+/// The pin rather than `resolve_plane_url`: the two can differ for a moment
+/// after a switch, and the honest answer to "where am I" is the origin this
+/// window is actually pinned to.
+///
+/// The person signs in again over there — a browser carries no cookie from
+/// this webview — and that is not a bug this command should paper over.
+#[tauri::command(async)]
+pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), String> {
+    let origin = app
+        .state::<crate::windows::PlanePin>()
+        .get()
+        .ok_or_else(|| "no control plane is open yet".to_string())?;
+    let url = subshell_desktop_core::browser::browser_url(&origin, &path)?;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("could not open {url}: {e}"))
+}
+
+/// Open whatever the plane window is showing, in the system browser.
+///
+/// The tray's and the menu bar's entry point, and Rust-side on purpose: this
+/// app tells the plane's page nothing (no `eval` bridge, no `DesktopAction`),
+/// so a menu item that needed the page to act could not exist here at all.
+///
+/// The CURRENT route when the window can report one, `/` otherwise — the plane
+/// is still a sensible page to offer, and a menu item disabled until a window
+/// exists would be a dead end on the one desktop where the tray is the only
+/// route to anything.
+///
+/// Failure goes to stderr and nowhere else: a menu item has no place to render
+/// an error, and the one way this fails (no plane opened yet) is a state the
+/// person can see.
+pub fn open_current_in_browser(app: &AppHandle) {
+    let path = app
+        .get_webview_window(crate::windows::PLANE_LABEL)
+        .and_then(|w| w.url().ok())
+        .map(|url| match url.query() {
+            Some(query) => format!("{}?{}", url.path(), query),
+            None => url.path().to_string(),
+        })
+        .unwrap_or_else(|| "/".to_string());
+    if let Err(err) = desktop_open_in_browser(app.clone(), path) {
+        eprintln!("subshell-client: could not open this page in a browser: {err}");
+    }
 }
 
 /// The directories and files the window may ask to reveal.

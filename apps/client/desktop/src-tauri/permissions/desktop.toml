@@ -8,11 +8,20 @@
 # granted deliberately, per window.
 #
 # That second window now exists. `main` shows a control plane's own UI, loaded
-# from the plane's own origin, and NO capability names it — so every permission
-# defined below reaches the bundled `node` page and nothing else. A control
-# plane can live on any host, which is exactly why it cannot be granted
-# anything: `apps/server/desktop` can pin its remote window to loopback because
-# it manages the server serving it, and there is no equivalent pin here.
+# from the plane's own origin, and every `allow-node-*` permission below reaches
+# the bundled `node` page and nothing else — nothing that drives the `subshell`
+# CLI is reachable from a page this repo did not ship.
+#
+# `main` holds exactly ONE permission (2026-09-14),
+# `allow-desktop-open-in-browser`, and it is named `desktop_` rather than
+# `node_` to say out loud that it is not a node verb. A control plane can live
+# on any host, so `capabilities/main.json`'s scope is a WILDCARD —
+# `apps/server/desktop` can pin its remote window to loopback because it manages
+# the server serving it, and there is no equivalent pin here. The narrowness
+# therefore lives in the command's ARGUMENT instead: a path, refused if it could
+# name a host, joined onto the origin that window is already pinned to. A second
+# permission here is a change to the trust model, not a convenience; see
+# `docs/security.md` and the pin in `ui/src/__tests__/ipc-acl.test.ts`.
 
 "$schema" = "schemas/schema.json"
 
@@ -92,3 +101,8 @@ commands.allow = ["node_about"]
 identifier = "allow-node-open-web"
 description = "Open ONE of three fixed pages in the system browser: the product's site, the repository's LICENSE, or the copyright holder's site. A closed enum, never a URL, so the page names which of the three and this side decides what it is."
 commands.allow = ["node_open_web"]
+
+[[permission]]
+identifier = "allow-desktop-open-in-browser"
+description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is the one permission in this file that is NOT a node verb: it is granted to `main` — the plane's own page — and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters — crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
+commands.allow = ["desktop_open_in_browser"]

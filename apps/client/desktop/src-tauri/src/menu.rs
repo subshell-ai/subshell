@@ -7,7 +7,8 @@
 //! **"This machine…" is the exception to that rule, and it is load-bearing.**
 //! Every other item here is a predefined system action, but this app's node
 //! window can otherwise be reached only from the tray — the plane window is
-//! remote content granted nothing, so it cannot offer a route — and a macOS
+//! remote content whose one grant opens a browser, so it cannot offer a route
+//! back to this app — and a macOS
 //! status item is silently invisible on a notched display whose Control Center
 //! has wedged (see `tray.rs`). A menu bar is always drawn, so this is the route
 //! that cannot disappear. Linux has no menu bar at all, which is why
@@ -110,6 +111,22 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &MenuItem::with_id(app, crate::zoom::IN_ID, "Bigger", true, Some("CmdOrCtrl+="))?,
             &MenuItem::with_id(app, crate::zoom::OUT_ID, "Smaller", true, Some("CmdOrCtrl+-"))?,
             &MenuItem::with_id(app, crate::zoom::RESET_ID, "Actual Size", true, Some("CmdOrCtrl+0"))?,
+            &PredefinedMenuItem::separator(app)?,
+            // The second item on this menu that changes nothing about the
+            // machine — it hands the plane's current page to the system
+            // browser — which is the rule this menu follows: everything else
+            // this app does belongs behind the node window's confirmations.
+            //
+            // Routed in Rust (`control::open_current_in_browser`), not through
+            // the page: this app tells the plane's page nothing, so a menu item
+            // that needed the page to act could not exist here at all.
+            &MenuItem::with_id(
+                app,
+                crate::control::MENU_BROWSER_ID,
+                "Open in Browser",
+                true,
+                None::<&str>,
+            )?,
         ],
     )?;
 
@@ -137,6 +154,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 pub fn on_event(app: &AppHandle, id: &str) {
     if id == NODE_ID {
         crate::windows::focus_node(app);
+    }
+    if id == crate::control::MENU_BROWSER_ID {
+        crate::control::open_current_in_browser(app);
     }
 }
 

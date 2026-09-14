@@ -72,11 +72,40 @@ describe("the dev CSP relaxes dev and only dev", () => {
 });
 
 describe("the window's ambient surface", () => {
-  // `window.__TAURI__` existed only for the vanilla page, which read `invoke`
-  // off it. `lib/ipc.ts` imports it from `@tauri-apps/api/core` instead, so
-  // the global is one fewer handle in the webview.
-  it("exposes no global Tauri object", () => {
-    expect(config.app.withGlobalTauri).toBe(false);
+  /**
+   * The global is BACK, and it is the plane window that needs it.
+   *
+   * It was `false` from the day `lib/ipc.ts` started importing `invoke` from
+   * `@tauri-apps/api/core` — the bundled page has no use for a global, and one
+   * fewer handle in the webview was a free win. What changed on 2026-09-14 is
+   * that the OTHER window has something to invoke: `apps/server/web`'s bridge
+   * (`src/lib/desktop.ts`) reads `window.__TAURI__` and imports nothing, by
+   * design — it must not pull `@tauri-apps/api` into a bundle that is served
+   * to browsers, and the repo forbids the dynamic import that would avoid it.
+   *
+   * The global GRANTS nothing: `capabilities/main.json` does, and it names one
+   * command. Turning this back off would not close a hole — it would make that
+   * one command silently unreachable, because the bridge never throws, exactly
+   * the failure `apps/server/desktop` measured on 2026-09-10 when its own
+   * config was copied from this file.
+   *
+   * So the invariant is the PAIR: while `windows.rs` ships a user-agent
+   * marker, the global must exist for the page that reads it.
+   */
+  it("ships the global the plane SPA's bridge reads, for as long as the marker ships", () => {
+    const windows = readFileSync(join(import.meta.dir, "../../../src-tauri/src/windows.rs"), "utf8");
+    expect(windows).toContain("SubshellClient");
+    expect(config.app.withGlobalTauri).toBe(true);
+  });
+
+  // And the marker is this app's OWN token. `SubshellDesktop` would make the
+  // SPA take Subshell Server's chrome branches — an overlay title bar this
+  // window does not implement, and update/reset/supervision cards backed by
+  // commands nothing here grants.
+  it("marks the plane window as the CLIENT, not the server app", () => {
+    const windows = readFileSync(join(import.meta.dir, "../../../src-tauri/src/windows.rs"), "utf8");
+    expect(windows).toContain('format!("SubshellClient/{version} ({platform}; p=1)")');
+    expect(windows).not.toContain("SubshellDesktop/");
   });
 });
 

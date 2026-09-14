@@ -163,6 +163,7 @@ pub fn run() {
             control::node_settings,
             control::node_open_plane,
             control::node_open_plane_url,
+            control::desktop_open_in_browser,
             reset::node_arm_reset,
             reset::node_reset,
         ])

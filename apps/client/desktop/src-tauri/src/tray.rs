@@ -59,6 +59,13 @@ const TRAY_ID: &str = "subshell-node";
 /// The menu ids. Namespaced so they can never collide with a predefined
 /// item's id.
 const OPEN_ID: &str = "tray:open";
+/// "Open in Browser".
+///
+/// Distinct from the menu bar's (`control::MENU_BROWSER_ID`) for the reason
+/// the text-size items are absent from this handler: a Tauri menu event is
+/// GLOBAL, so an id handled here AND in `lib.rs`'s app-level handler fires
+/// twice per click — two browser tabs, in this item's case.
+const BROWSER_ID: &str = "tray:browser";
 const NODE_ID: &str = "tray:node";
 const KEEP_ID: &str = "tray:keep";
 const ABOUT_ID: &str = "tray:about";
@@ -82,6 +89,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // second is also the only way BACK to the node page once a client has
     // settled on a plane and opens there every time.
     let open = MenuItem::with_id(app, OPEN_ID, "Open Subshell Client", true, None::<&str>)?;
+    // Directly under it: the same plane, through the browser the person keeps
+    // their profiles and passwords in. Always enabled — the Rust side falls
+    // back to `/`, and the one state it cannot serve (no plane opened yet) is
+    // one the person can see for themselves.
+    let browser = MenuItem::with_id(app, BROWSER_ID, "Open in Browser", true, None::<&str>)?;
     let node = MenuItem::with_id(app, NODE_ID, "This machine…", true, None::<&str>)?;
     // The two names for one idea, each the one that platform's users read.
     let keep_label = if cfg!(target_os = "macos") {
@@ -99,7 +111,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     app.manage(KeepItem(keep.clone()));
     // On Linux this is the ONLY route to the text size: there is no menu bar
     // to hang ⌘+ on (a GTK one is per-window chrome), and the window showing
-    // the plane's page is granted nothing, so it cannot offer one either. On
+    // the plane's page holds one command that opens a browser and nothing
+    // that could change the text size, so it cannot offer one either. On
     // macOS it is a second route to what the View menu already carries, which
     // costs a submenu.
     let text_size = text_size_submenu(app)?;
@@ -113,6 +126,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         app,
         &[
             &open,
+            &browser,
             &node,
             &PredefinedMenuItem::separator(app)?,
             &text_size,
@@ -157,6 +171,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         // shared between the two menus.
         .on_menu_event(|app, event| match event.id.as_ref() {
             OPEN_ID => crate::windows::focus_any(app),
+            // Rust-side, no page involved: this app tells the plane's page
+            // nothing, so a menu item that needed the page to act could not
+            // exist here at all.
+            BROWSER_ID => crate::control::open_current_in_browser(app),
             NODE_ID => crate::windows::focus_node(app),
             ABOUT_ID => crate::windows::show_node_screen(app, "about"),
             KEEP_ID => set_close_to_tray(app),
@@ -248,8 +266,23 @@ mod tests {
         assert!(OPEN_ID.starts_with("tray:"));
         assert!(NODE_ID.starts_with("tray:"));
         assert!(KEEP_ID.starts_with("tray:"));
+        assert!(BROWSER_ID.starts_with("tray:"));
         assert_ne!(OPEN_ID, NODE_ID);
         assert_ne!(OPEN_ID, KEEP_ID);
         assert_ne!(NODE_ID, KEEP_ID);
+        assert_ne!(BROWSER_ID, OPEN_ID);
+        assert_ne!(BROWSER_ID, NODE_ID);
+    }
+
+    /// The two menus' browser ids differ.
+    ///
+    /// A Tauri menu event is global: this handler sees the menu bar's items
+    /// and the app-level handler sees this menu's. One id in both fires twice
+    /// per click — measured as two zoom steps for the text-size ladder, and
+    /// here it would be two browser tabs.
+    #[test]
+    fn the_browser_id_is_not_the_menu_bars() {
+        assert_ne!(BROWSER_ID, crate::control::MENU_BROWSER_ID);
+        assert_ne!(BROWSER_ID, crate::zoom::IN_ID);
     }
 }

@@ -7,10 +7,11 @@
  * permissions — not a compile error, and not something any type checks. Nothing
  * held those three files together before this test.
  *
- * `node.json` and not `main.json`, and that is the point of the last block
- * here: `main` is the window showing a CONTROL PLANE's own page, and it is
- * granted nothing. A capability file that named it would hand a remote origin
- * the whole CLI surface.
+ * `node.json` and not `main.json`, and that is the point of the second block
+ * here: `main` is the window showing a CONTROL PLANE's own page, and it holds
+ * exactly one command — one that takes a path and can name no host. Nothing
+ * else about the CLI surface is reachable from a remote origin, which is what
+ * that block asserts entry by entry.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -60,6 +61,14 @@ function capabilityPermissions(): string[] {
   return capability.permissions;
 }
 
+/** What the PLANE's window is granted — one entry, pinned in its own block. */
+function mainPermissions(): string[] {
+  const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/main.json"), "utf8")) as {
+    permissions?: string[];
+  };
+  return capability.permissions ?? [];
+}
+
 /**
  * A file's CODE, with comments removed.
  *
@@ -104,11 +113,13 @@ describe("the IPC contract", () => {
     for (const id of own) expect(manifest.has(id)).toBe(true);
   });
 
-  it("defines no permission the capability does not grant", () => {
-    // A granted-nowhere permission is a command the page cannot call, which is
-    // the same runtime rejection read from the other end.
-    const granted = new Set(capabilityPermissions());
-    for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
+  it("defines no permission neither capability grants", () => {
+    // A granted-nowhere permission is a command no page can call, which is the
+    // same runtime rejection read from the other end — and after a deletion it
+    // is also how a dead command survives in Rust unnoticed. BOTH files, since
+    // `main.json` arrived: one of the manifest's entries is granted only there.
+    const granted = new Set([...capabilityPermissions(), ...mainPermissions()]);
+    for (const id of manifestPermissions().keys()) expect(granted.has(id), `${id} is granted nowhere`).toBe(true);
   });
 
   it("keeps the dialog surface to open + message, with no `ask`", () => {
@@ -120,32 +131,120 @@ describe("the IPC contract", () => {
   });
 });
 
-describe("the window that is granted nothing", () => {
+/**
+ * The window that is granted ONE command.
+ *
+ * It was granted nothing until 2026-09-14, and the absence WAS the boundary: a
+ * control plane can live on any host, so unlike `apps/server/desktop`'s
+ * loopback window this one's origin cannot be enumerated in a capability file
+ * at all. That has not changed. What changed is that "Open in browser" is
+ * chrome any shell owes its user — a webview has no address bar and no second
+ * tab — so the boundary moved one level in: the SCOPE is a wildcard, and the
+ * narrowness lives in the command's ARGUMENT.
+ *
+ * Which makes three things worth pinning rather than one: that the scope is
+ * exactly what was argued for, that the permission list is exactly one entry,
+ * and that the Rust signature behind it takes a path and no host. Any of those
+ * widening quietly is the failure this block exists to make loud.
+ */
+describe("the window that is granted one command", () => {
   /** Every capability file the app ships, parsed. */
-  function capabilities(): { file: string; identifier: string; windows?: string[]; local?: boolean }[] {
+  function capabilities(): {
+    file: string;
+    identifier: string;
+    windows?: string[];
+    local?: boolean;
+    remote?: { urls?: string[] };
+    permissions?: string[];
+  }[] {
     const dir = join(TAURI_DIR, "capabilities");
     return readdirSync(dir)
       .filter((f) => f.endsWith(".json"))
       .map((f) => ({ file: f, ...JSON.parse(readFileSync(join(dir, f), "utf8")) }));
   }
 
-  // The security boundary of this app is an ABSENCE: no capability names the
-  // `main` window, so every command it invokes is refused. A control plane can
-  // live on any host, so unlike `apps/server/desktop`'s loopback window this
-  // one's origin cannot be pinned in a capability at all — which is exactly why
-  // it gets none.
-  it("grants the control-plane window no capability", () => {
-    for (const capability of capabilities()) {
-      expect(capability.windows ?? [], capability.file).not.toContain("main");
+  const main = () => {
+    const found = capabilities().find((c) => c.file === "main.json");
+    if (!found) throw new Error("capabilities/main.json is missing");
+    return found;
+  };
+
+  it("is the app's two capability files, and no more", () => {
+    // A THIRD file is a third window, and a window added without a deliberate
+    // grant list is exactly what `permissions/desktop.toml` exists to prevent.
+    expect(
+      capabilities()
+        .map((c) => c.file)
+        .sort(),
+    ).toEqual(["main.json", "node.json"]);
+  });
+
+  it("keeps `main`'s scope to what was argued for", () => {
+    const capability = main();
+    // Any host, any PORT. `http://*` alone does NOT match a non-default port
+    // in the `urlpattern` crate tauri 2.11.5 uses, so the `:*` is load-bearing
+    // rather than decorative: without it a plane on :3080 — the default
+    // deployment — is granted nothing and the row silently does nothing.
+    expect(capability.remote?.urls?.slice().sort()).toEqual(["http://*:*", "https://*:*"]);
+    // `local: false` keeps this a REMOTE capability. True would apply the
+    // same grant to the bundled `node` page, which already has its own.
+    expect(capability.local).toBe(false);
+    // One window, by name.
+    expect(capability.windows).toEqual(["main"]);
+  });
+
+  it("grants `main` exactly one permission, and nothing that drives the CLI", () => {
+    const permissions = main().permissions ?? [];
+    expect(permissions).toEqual(["allow-desktop-open-in-browser"]);
+    // Stated as invariants too, not just as an equality: these are the
+    // properties the equality is protecting, and they should be readable as
+    // the reason it is there.
+    for (const id of permissions) {
+      expect(id.startsWith("allow-node-"), `${id} is a node verb on the plane's window`).toBe(false);
+      expect(id.includes(":"), `${id} is a plugin permission on the plane's window`).toBe(false);
+    }
+    // `core:default` in particular: it carries the window, webview, event and
+    // app command sets, which is a very different window from this one.
+    expect(permissions).not.toContain("core:default");
+  });
+
+  it("keeps every CLI-driving command granted to `node` alone", () => {
+    const nodeGrants = new Set(capabilityPermissions());
+    for (const id of manifestPermissions().keys()) {
+      if (id === "allow-desktop-open-in-browser") continue;
+      expect(nodeGrants.has(id), `${id} must be the bundled page's`).toBe(true);
+      expect(main().permissions ?? [], id).not.toContain(id);
     }
   });
 
-  // The corollary: everything this app grants goes to the bundled page.
-  it("grants everything to the bundled node window, locally", () => {
-    const files = capabilities();
-    expect(files.map((c) => c.file).sort()).toEqual(["node.json"]);
-    expect(files[0]?.windows).toEqual(["node"]);
-    expect(files[0]?.local).toBe(true);
+  it("keeps the browser command to a PATH, so the plane's page names no host", () => {
+    // The whole safety of granting anything to a wildcard origin. One
+    // parameter, `path`, joined onto the origin `PlanePin` already enforces
+    // for navigation. A second string parameter — an origin, a base URL, a
+    // host — would make a compromised plane page able to name where the
+    // system browser goes, and no assertion above would see it.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn desktop_open_in_browser("));
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    const names = params
+      .split(",")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(":")[0]?.trim());
+    expect(names).toEqual(["app", "path"]);
+    expect(params).toContain("path: String");
+    // The refusals are the SHARED ones, not a second copy written here:
+    // `crates/desktop-core` holds the join and its tests, so the two apps
+    // cannot disagree about what a path is.
+    expect(rust).toContain("subshell_desktop_core::browser::browser_url");
+  });
+
+  // The corollary, unchanged: everything the CLI surface needs goes to the
+  // bundled page, locally.
+  it("grants the node surface to the bundled node window, locally", () => {
+    const node = capabilities().find((c) => c.file === "node.json");
+    expect(node?.windows).toEqual(["node"]);
+    expect(node?.local).toBe(true);
   });
 });
 
