@@ -13,6 +13,7 @@ import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
+import * as workspaceDraftsMigration from "@/db/migrations/0029-workspace-drafts.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -69,6 +70,7 @@ beforeAll(async () => {
   await sharingMigration.up(db); // 0019 renames session_shares
   await subshellRenameMigration.up(db); // renamed schema the code sees
   await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
+  await workspaceDraftsMigration.up(db); // workspaces.draft — listByUser filters on it
 });
 
 beforeEach(async () => {
@@ -96,9 +98,57 @@ describe("workspaces repository", () => {
     const created = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "W" });
     const updated = await workspaces.update(created.id, { layoutJson: '{"grid":{}}' });
     expect(updated?.layoutJson).toBe('{"grid":{}}');
+    // The stamp must stay comparable with the one `create` writes, or ordering
+    // by `updated_at` puts every touched row below every untouched one.
+    expect(updated?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 
     await workspaces.delete(created.id);
     expect(await workspaces.findByIdForUser(created.id, "u1")).toBeUndefined();
+  });
+
+  it("listByUser hides drafts unless they are asked for", async () => {
+    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Saved" });
+    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Unsaved", draft: 1 });
+
+    expect((await workspaces.listByUser("u1")).map((w) => w.name)).toEqual(["Saved"]);
+    expect((await workspaces.listByUser("u1", { includeDrafts: true })).map((w) => w.name)).toEqual([
+      "Saved",
+      "Unsaved",
+    ]);
+  });
+
+  it("listBySubshellForUser returns each holding workspace once, newest first, drafts included", async () => {
+    const subshellId = await makeSubshell("u1");
+    const older = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Older" });
+    const draft = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Draft", draft: 1 });
+    const foreign = await workspaces.create({ id: crypto.randomUUID(), userId: "u2", name: "Foreign" });
+    const empty = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Empty" });
+
+    // TWO panes on one workspace for the same subshell: the query must still
+    // report that workspace once, which is why it is an EXISTS and not a join.
+    await panes.create({ id: crypto.randomUUID(), workspaceId: older.id, subshellId });
+    await panes.create({ id: crypto.randomUUID(), workspaceId: older.id, subshellId });
+    await panes.create({ id: crypto.randomUUID(), workspaceId: draft.id, subshellId });
+    await panes.create({ id: crypto.randomUUID(), workspaceId: foreign.id, subshellId });
+
+    // Stamped explicitly: four inserts can land inside one millisecond, and a
+    // tie would make the assertion below flaky rather than wrong.
+    await db
+      .updateTable("workspaces")
+      .set({ updatedAt: "2026-01-01T00:00:00.000Z" })
+      .where("id", "=", older.id)
+      .execute();
+    await db
+      .updateTable("workspaces")
+      .set({ updatedAt: "2026-02-01T00:00:00.000Z" })
+      .where("id", "=", draft.id)
+      .execute();
+
+    const mine = await workspaces.listBySubshellForUser("u1", subshellId);
+    expect(mine.map((w) => w.id)).toEqual([draft.id, older.id]);
+    expect(mine.map((w) => w.id)).not.toContain(empty.id);
+    // Another user's workspace holding the same subshell is invisible here.
+    expect(await workspaces.listBySubshellForUser("u2", subshellId)).toHaveLength(1);
   });
 });
 

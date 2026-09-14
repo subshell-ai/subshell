@@ -4,6 +4,14 @@ import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
+const RemovePaneResponseSchema = t.Object({
+  ok: t.Boolean({ description: "Always true" }),
+  workspaceDeleted: t.Boolean({
+    description:
+      "True when the workspace went with the pane — an unsaved draft left with fewer than two panes is discarded, so the caller navigates away instead of closing a panel",
+  }),
+});
+
 /** `DELETE /api/workspaces/:id/panes/:paneId` — removes a pane (the subshell is untouched). */
 export const removeWorkspacePaneRoute = new Elysia()
   .use(contextPlugin)
@@ -17,7 +25,7 @@ export const removeWorkspacePaneRoute = new Elysia()
     },
     {
       response: {
-        200: t.Object({ ok: t.Boolean({ description: "Always true" }) }),
+        200: RemovePaneResponseSchema,
         401: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },

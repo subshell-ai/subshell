@@ -32,20 +32,23 @@ function safeParse(json: string): unknown {
 }
 
 /** A workspace in API shape: parsed `layout` instead of `layoutJson`, plus the pane tally. */
-type WorkspaceResponse = Omit<WorkspaceTable, "layoutJson"> & {
+export type WorkspaceResponse = Omit<WorkspaceTable, "layoutJson" | "draft"> & {
   /** The serialized dockview layout, or null when absent/unparseable. */
   layout: unknown;
   /** Number of panes referencing this workspace. */
   subshellCount: number;
+  /** True while this is an unsaved draft; saving it ("Save workspace…") clears the flag. */
+  draft: boolean;
 };
 
 /**
  * Maps a workspace row to its API shape, replacing the stored `layoutJson`
- * string with the parsed `layout` and attaching the pane tally the cards show.
+ * string with the parsed `layout`, the 0/1 `draft` column with a boolean, and
+ * attaching the pane tally the cards show.
  */
 function toWorkspaceResponse(workspace: WorkspaceTable, subshellCount: number): WorkspaceResponse {
-  const { layoutJson, ...rest } = workspace;
-  return { ...rest, layout: layoutJson ? safeParse(layoutJson) : null, subshellCount };
+  const { layoutJson, draft, ...rest } = workspace;
+  return { ...rest, layout: layoutJson ? safeParse(layoutJson) : null, subshellCount, draft: draft === 1 };
 }
 
 /** One pane joined with a summary of the subshell it renders, as returned by `GET /:id`. */
@@ -89,7 +92,7 @@ interface WorkspacePaneView {
 /** Body of a detail read (`GET /:id`): the workspace plus its panes. */
 export interface WorkspaceDetail {
   /** The workspace in API shape, with its layout pruned against the live panes. */
-  workspace: Omit<WorkspaceTable, "layoutJson"> & { layout: unknown; subshellCount: number };
+  workspace: WorkspaceResponse;
   /** Every pane with a summary of the subshell it renders. */
   panes: WorkspacePaneView[];
 }
@@ -105,39 +108,104 @@ export interface WorkspaceDetail {
  */
 export class WorkspacesService extends BaseService {
   /**
-   * Creates a workspace for the caller.
-   * @throws WorkspacesError 409 when the caller already has that workspace name.
+   * Creates a workspace for the caller, optionally with its first pane already
+   * in it — the shape "split this subshell into a workspace" needs, so the
+   * browser lands on a dock that already holds the subshell it came from.
+   *
+   * **Not transactional, because this codebase has no transaction helper** (no
+   * service calls `db.transaction()`). Two things stand in for one: the
+   * subshell visibility check runs BEFORE the workspace is inserted, so the
+   * common failure leaves nothing behind at all; and a pane insert that throws
+   * anyway is followed by deleting the workspace row before the error is
+   * rethrown, so a create either yields a workspace with its pane or yields
+   * nothing.
+   *
+   * @throws WorkspacesError 409 when the caller already has that workspace name
+   *   (drafts are exempt — they sit outside the unique index).
+   * @throws WorkspacesError 404 when `subshellId` names a subshell the caller
+   *   cannot see (absent, or another user's and unshared — reported as 404 so
+   *   the endpoint never confirms someone else's subshell id).
    */
   async createWorkspace({
     userId,
     name,
+    draft = false,
+    subshellId,
   }: {
     /** Owner of the new workspace (never taken from the body). */
     userId: string;
-    /** Workspace name, unique per user. */
+    /** Workspace name, unique per user unless this is a draft. */
     name: string;
-  }): Promise<ReturnType<typeof toWorkspaceResponse>> {
+    /** True creates it unsaved: hidden from the list, free to collide by name. */
+    draft?: boolean | undefined;
+    /** When given, the workspace is created holding one pane for this subshell. */
+    subshellId?: string | undefined;
+  }): Promise<WorkspaceResponse> {
+    // Before the insert: a refusal here must leave no workspace row behind, and
+    // it is the same check `addWorkspacePane` applies (spec 2026-08-31 §4.3).
+    if (subshellId !== undefined) {
+      const { row, access } = await loadSubshellAccess(
+        { subshells: this.repos.subshells, shares: this.repos.subshellShares, userMeta: this.repos.userMeta },
+        userId,
+        subshellId,
+      );
+      if (!row || !accessAtLeast(access, "view")) {
+        throw new WorkspacesError("not_found", "Subshell not found", 404);
+      }
+    }
+
+    let created: WorkspaceTable;
     try {
-      const created = await this.repos.workspaces.create({
+      created = await this.repos.workspaces.create({
         id: crypto.randomUUID(),
         userId,
         name,
+        draft: draft ? 1 : 0,
       });
-      // Nothing can reference a workspace that did not exist a moment ago.
-      return toWorkspaceResponse(created, 0);
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new WorkspacesError("duplicate", "You already have a workspace with that name", 409);
       }
       throw err;
     }
+
+    // Nothing else can reference a workspace that did not exist a moment ago,
+    // so the tally is exactly the pane this call adds.
+    if (subshellId === undefined) return toWorkspaceResponse(created, 0);
+
+    try {
+      await this.repos.workspacePanes.create({
+        id: crypto.randomUUID(),
+        workspaceId: created.id,
+        subshellId,
+      });
+    } catch (err) {
+      // The compensating delete stands in for the transaction this codebase
+      // has no helper for. Its own failure must not mask the real error.
+      await this.repos.workspaces.delete(created.id).catch(() => {});
+      throw err;
+    }
+    return toWorkspaceResponse(created, 1);
   }
 
-  /** Lists the caller's workspaces with each pane tally. */
-  async listWorkspaces(userId: string): Promise<ReturnType<typeof toWorkspaceResponse>[]> {
+  /**
+   * Lists the caller's workspaces with each pane tally.
+   *
+   * Drafts are EXCLUDED by default — an unsaved workspace belongs to the page
+   * that created it, not to the Workspaces list or the sidebar. Passing
+   * `subshellId` answers a different question ("which of my workspaces hold
+   * this subshell"), where a freshly split draft is the most interesting
+   * answer, so that filter includes them and orders by recency instead of name.
+   *
+   * @param userId - Owner whose workspaces to list
+   * @param opts.subshellId - Restrict to workspaces holding a pane for this subshell
+   */
+  async listWorkspaces(userId: string, opts?: { subshellId?: string | undefined }): Promise<WorkspaceResponse[]> {
     // Two queries regardless of list size: the rows, then every pane count
     // grouped by workspace — merging beats an N+1.
-    const workspaces = await this.repos.workspaces.listByUser(userId);
+    const workspaces = opts?.subshellId
+      ? await this.repos.workspaces.listBySubshellForUser(userId, opts.subshellId)
+      : await this.repos.workspaces.listByUser(userId);
     const counts = await this.repos.workspacePanes.countByUser(userId);
     return workspaces.map((w) => toWorkspaceResponse(w, counts.get(w.id) ?? 0));
   }
@@ -183,20 +251,32 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Renames or updates a workspace.
+   * Renames a workspace, and/or promotes a draft to a saved one.
+   *
+   * `draft` accepts only `false`: promotion is the one transition, and a saved
+   * workspace never becomes a draft (the route's schema is a `t.Literal(false)`,
+   * so the other direction cannot even be spelled). Promotion is where a draft's
+   * auto-name meets the unique index for the first time, which is why the same
+   * 409 a rename produces is the answer here too.
+   *
    * @throws WorkspacesError 404 when absent or owned by someone else.
-   * @throws WorkspacesError 409 when the new name collides with the caller's own.
+   * @throws WorkspacesError 409 when the name collides with one the caller has saved.
    */
   async updateWorkspace(
     userId: string,
     id: string,
-    update: { name?: string | undefined },
-  ): Promise<ReturnType<typeof toWorkspaceResponse>> {
+    update: { name?: string | undefined; draft?: false | undefined },
+  ): Promise<WorkspaceResponse> {
     const repo = this.repos.workspaces;
     const existing = await repo.findByIdForUser(id, userId);
     if (!existing) throw new WorkspacesError("not_found", "Workspace not found", 404);
+    // Built key by key rather than spread: an explicit `undefined` would reach
+    // the UPDATE as a column to set.
+    const patch: { name?: string; draft?: number } = {};
+    if (update.name !== undefined) patch.name = update.name;
+    if (update.draft === false) patch.draft = 0;
     try {
-      const updated = await repo.update(id, update);
+      const updated = await repo.update(id, patch);
       if (!updated) throw new WorkspacesError("not_found", "Workspace not found", 404);
       const subshellCount = await this.repos.workspacePanes.countForWorkspace(id);
       return toWorkspaceResponse(updated, subshellCount);
@@ -266,10 +346,24 @@ export class WorkspacesService extends BaseService {
 
   /**
    * Removes a pane from a workspace (the subshell is untouched).
+   *
+   * **A draft left with fewer than two panes is deleted with it.** A draft only
+   * exists because someone split a subshell in two, so one pane is no longer a
+   * tiling of anything — the browser sends the user back to that subshell's own
+   * page, and leaving the row behind would strand an unnamed workspace nothing
+   * lists. A SAVED workspace is a thing the user chose to keep and is left with
+   * its remaining pane (or none), exactly as before.
+   *
+   * @returns `workspaceDeleted` so the caller knows whether to close a panel or
+   *   navigate away — it cannot infer that from the pane it asked to remove.
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
    * @throws WorkspacesError 404 when the pane is not part of that workspace.
    */
-  async removeWorkspacePane(userId: string, workspaceId: string, paneId: string): Promise<{ ok: true }> {
+  async removeWorkspacePane(
+    userId: string,
+    workspaceId: string,
+    paneId: string,
+  ): Promise<{ ok: true; workspaceDeleted: boolean }> {
     const workspace = await this.repos.workspaces.findByIdForUser(workspaceId, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
     const panesRepo = this.repos.workspacePanes;
@@ -278,6 +372,11 @@ export class WorkspacesService extends BaseService {
       throw new WorkspacesError("not_found", "Pane not found", 404);
     }
     await panesRepo.delete(paneId);
-    return { ok: true };
+
+    if (workspace.draft === 1 && (await panesRepo.countForWorkspace(workspace.id)) < 2) {
+      await this.repos.workspaces.delete(workspace.id);
+      return { ok: true, workspaceDeleted: true };
+    }
+    return { ok: true, workspaceDeleted: false };
   }
 }

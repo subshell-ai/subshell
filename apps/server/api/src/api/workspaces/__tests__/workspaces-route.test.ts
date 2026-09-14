@@ -373,6 +373,179 @@ describe("workspaces route", () => {
     expect(updated.subshellCount).toBe(2);
   });
 
+  /**
+   * Splitting a subshell creates an UNSAVED workspace (spec 2026-09-14): a
+   * normal workspace row carrying `draft`, hidden from the list until someone
+   * names it, and discarded again when it stops being a tiling of two things.
+   */
+  describe("drafts", () => {
+    /** POSTs a workspace with a body of the caller's choosing and returns the response. */
+    const post = (token: string, body: Record<string, unknown>) =>
+      workspaceRoutes.fetch(authedRequest("/api/workspaces", token, { method: "POST", body: JSON.stringify(body) }));
+
+    /** Ids on `GET /api/workspaces`, optionally filtered by subshell. */
+    async function listIds(token: string, subshellId?: string): Promise<string[]> {
+      const path = subshellId ? `/api/workspaces?subshellId=${subshellId}` : "/api/workspaces";
+      const res = await workspaceRoutes.fetch(authedRequest(path, token));
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { id: string }[]).map((w) => w.id);
+    }
+
+    /** Adds a pane and returns its id. */
+    async function addPane(token: string, workspaceId: string, subshellId: string): Promise<string> {
+      const res = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${workspaceId}/panes`, token, {
+          method: "POST",
+          body: JSON.stringify({ subshellId }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { id: string }).id;
+    }
+
+    it("a draft is absent from the workspace list, and says so on create", async () => {
+      const token = await signIn(ownerEmail, password);
+      const draftRes = await post(token, { name: `d-${crypto.randomUUID().slice(0, 8)}`, draft: true });
+      expect(draftRes.status).toBe(200);
+      const draft = (await draftRes.json()) as { id: string; draft: boolean };
+      expect(draft.draft).toBe(true);
+
+      const savedId = await createWorkspace(token, `s-${crypto.randomUUID().slice(0, 8)}`);
+      const ids = await listIds(token);
+      expect(ids).toContain(savedId);
+      expect(ids).not.toContain(draft.id);
+
+      // It is still reachable by URL — the page that made it lives there.
+      const detail = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${draft.id}`, token));
+      expect(detail.status).toBe(200);
+      expect(((await detail.json()) as { workspace: { draft: boolean } }).workspace.draft).toBe(true);
+    });
+
+    it("two drafts may share a name; two saved workspaces may not", async () => {
+      const token = await signIn(ownerEmail, password);
+      const name = `twin-${crypto.randomUUID().slice(0, 8)}`;
+      expect((await post(token, { name, draft: true })).status).toBe(200);
+      // The auto-name is the subshell's, so a second split from the same
+      // subshell must not 409 on a name the user never typed.
+      expect((await post(token, { name, draft: true })).status).toBe(200);
+      expect((await post(token, { name })).status).toBe(200);
+      expect((await post(token, { name })).status).toBe(409);
+    });
+
+    it("?subshellId= returns the caller's drafts and saved workspaces for that subshell, and nobody else's", async () => {
+      const ownerToken = await signIn(ownerEmail, password);
+      const otherToken = await signIn(otherEmail, password);
+      const subshellId = await makeSubshell(ownerId);
+
+      const draftRes = await post(ownerToken, { name: `f-${crypto.randomUUID().slice(0, 8)}`, draft: true });
+      const draftId = ((await draftRes.json()) as { id: string }).id;
+      const savedId = await createWorkspace(ownerToken, `f-${crypto.randomUUID().slice(0, 8)}`);
+      const unrelatedId = await createWorkspace(ownerToken, `f-${crypto.randomUUID().slice(0, 8)}`);
+      await addPane(ownerToken, draftId, subshellId);
+      await addPane(ownerToken, savedId, subshellId);
+
+      const filtered = await listIds(ownerToken, subshellId);
+      expect(filtered.sort()).toEqual([draftId, savedId].sort());
+      expect(filtered).not.toContain(unrelatedId);
+
+      // 404-never-403 holds by simply being empty: the other user owns no
+      // workspace holding it, and learns nothing about whose subshell it is.
+      expect(await listIds(otherToken, subshellId)).toEqual([]);
+    });
+
+    it("create with subshellId makes the first pane in the same call", async () => {
+      const token = await signIn(ownerEmail, password);
+      const subshellId = await makeSubshell(ownerId);
+      const res = await post(token, { name: `split-${crypto.randomUUID().slice(0, 8)}`, draft: true, subshellId });
+      expect(res.status).toBe(200);
+      const created = (await res.json()) as { id: string; subshellCount: number };
+      expect(created.subshellCount).toBe(1);
+
+      const detail = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${created.id}`, token));
+      const body = (await detail.json()) as { panes: { subshellId: string }[] };
+      expect(body.panes.map((p) => p.subshellId)).toEqual([subshellId]);
+    });
+
+    it("create with a subshell the caller cannot see 404s and leaves NO workspace row", async () => {
+      const ownerToken = await signIn(ownerEmail, password);
+      const name = `orphan-${crypto.randomUUID().slice(0, 8)}`;
+      const foreign = await makeSubshell(otherId);
+
+      const res = await post(ownerToken, { name, draft: true, subshellId: foreign });
+      expect(res.status).toBe(404);
+
+      // The check runs before the insert, so nothing was created to clean up —
+      // and the name is free, which is how the next attempt can reuse it.
+      const rows = await db.selectFrom("workspaces").select("id").where("name", "=", name).execute();
+      expect(rows).toEqual([]);
+    });
+
+    it("PUT { name, draft: false } promotes a draft, and 409s on a name already saved", async () => {
+      const token = await signIn(ownerEmail, password);
+      const taken = `taken-${crypto.randomUUID().slice(0, 8)}`;
+      await createWorkspace(token, taken);
+
+      const draftId = ((await (await post(token, { name: "unsaved", draft: true })).json()) as { id: string }).id;
+
+      // Promotion is where the auto-name meets the unique index for the first
+      // time, so it answers with the rename endpoint's own 409.
+      const clash = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${draftId}`, token, {
+          method: "PUT",
+          body: JSON.stringify({ name: taken, draft: false }),
+        }),
+      );
+      expect(clash.status).toBe(409);
+
+      const free = `free-${crypto.randomUUID().slice(0, 8)}`;
+      const ok = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${draftId}`, token, {
+          method: "PUT",
+          body: JSON.stringify({ name: free, draft: false }),
+        }),
+      );
+      expect(ok.status).toBe(200);
+      const promoted = (await ok.json()) as { draft: boolean; name: string };
+      expect(promoted).toMatchObject({ draft: false, name: free });
+      expect(await listIds(token)).toContain(draftId);
+    });
+
+    it("removing a pane from a two-pane draft deletes the draft", async () => {
+      const token = await signIn(ownerEmail, password);
+      const first = await makeSubshell(ownerId);
+      const second = await makeSubshell(ownerId);
+      const id = ((await (await post(token, { name: "two", draft: true, subshellId: first })).json()) as { id: string })
+        .id;
+      const paneId = await addPane(token, id, second);
+
+      const del = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" }),
+      );
+      expect(del.status).toBe(200);
+      expect(await del.json()).toEqual({ ok: true, workspaceDeleted: true });
+
+      const gone = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+      expect(gone.status).toBe(404);
+    });
+
+    it("removing a pane from a two-pane SAVED workspace keeps it", async () => {
+      const token = await signIn(ownerEmail, password);
+      const id = await createWorkspace(token, `keep-${crypto.randomUUID().slice(0, 8)}`);
+      const paneId = await addPane(token, id, await makeSubshell(ownerId));
+      await addPane(token, id, await makeSubshell(ownerId));
+
+      const del = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" }),
+      );
+      expect(del.status).toBe(200);
+      expect(await del.json()).toEqual({ ok: true, workspaceDeleted: false });
+
+      const still = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+      expect(still.status).toBe(200);
+      expect(((await still.json()) as { panes: unknown[] }).panes).toHaveLength(1);
+    });
+  });
+
   // F4 (security audit 2026-08): /api/workspaces is a browser-only surface —
   // the `subshell mcp` binary never calls it (see the endpoint census in
   // packages/mcp-core/src/tools.ts), so a bearer key (any grants, any owner) must not act

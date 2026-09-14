@@ -7,6 +7,11 @@ import { apiModels } from "@/schema/index.js";
 
 const UpdateWorkspaceBodySchema = t.Object({
   name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Workspace name" })),
+  draft: t.Optional(
+    t.Literal(false, {
+      description: "false promotes a draft to a saved workspace; the only transition allowed",
+    }),
+  ),
 });
 
 /** `PUT /api/workspaces/:id` — renames or updates a workspace. */
@@ -32,7 +37,7 @@ export const updateWorkspaceRoute = new Elysia()
       detail: {
         operationId: "updateWorkspace",
         tags: ["workspaces"],
-        description: "Renames or updates a workspace",
+        description: "Renames a workspace, and/or promotes an unsaved draft to a saved one",
       },
     },
   );

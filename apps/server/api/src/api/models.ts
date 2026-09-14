@@ -125,6 +125,10 @@ export const WorkspaceSchema = t.Object({
   createdAt: t.String({ description: "Created timestamp" }),
   updatedAt: t.String({ description: "Updated timestamp" }),
   subshellCount: t.Number({ description: "Number of subshells (panes) the workspace currently holds" }),
+  draft: t.Boolean({
+    description:
+      "True while the workspace is an unsaved draft created by splitting a subshell; drafts are hidden from the list until named",
+  }),
 });
 
 export const WorkspacePaneSchema = t.Object({
