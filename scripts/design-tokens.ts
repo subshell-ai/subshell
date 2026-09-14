@@ -145,6 +145,120 @@ export function agreementProblems(name: string, tokens: CssTokens, scale: Record
 }
 
 // ---------------------------------------------------------------------------
+// Colour math. OKLCH → OKLab → LMS → linear sRGB → sRGB, the standard
+// Björn Ottosson matrices. Mobile cannot parse oklch() and keeps hex, so this
+// is how the check knows whether mobile's hex IS the web's oklch — the drift
+// spec § 1 found was a whole palette hiding behind a comment that said "port".
+// ---------------------------------------------------------------------------
+
+export function parseOklch(value: string): [number, number, number] | null {
+  const m = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)$/.exec(value.trim());
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+function gamma(c: number): number {
+  const v = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+  return Math.max(0, Math.min(255, Math.round(v * 255)));
+}
+
+export function oklchToSrgb(l: number, c: number, h: number): [number, number, number] {
+  const rad = (h * Math.PI) / 180;
+  const a = c * Math.cos(rad);
+  const b = c * Math.sin(rad);
+  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const r = 4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_;
+  const g = -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_;
+  const bl = -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_;
+  return [gamma(r), gamma(g), gamma(bl)];
+}
+
+export function hexToSrgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  const full =
+    h.length === 3
+      ? h
+          .split("")
+          .map((ch) => ch + ch)
+          .join("")
+      : h;
+  return [
+    Number.parseInt(full.slice(0, 2), 16),
+    Number.parseInt(full.slice(2, 4), 16),
+    Number.parseInt(full.slice(4, 6), 16),
+  ];
+}
+
+function luminance([r, g, b]: [number, number, number]): number {
+  const lin = (v: number) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** WCAG 2.x contrast ratio, ≥ 1. */
+export function contrastRatio(a: [number, number, number], b: [number, number, number]): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** Mobile's camelCase keys → the CSS roles they must equal. The terminal trio is not compared (mobile's termFg has no CSS token). */
+export const MOBILE_COLOR_MAP: Record<string, ColorRole> = {
+  bg: "background",
+  card: "card",
+  border: "border",
+  fg: "foreground",
+  mutedFg: "muted-foreground",
+  primary: "primary",
+  primaryFg: "primary-foreground",
+  success: "success",
+  warning: "warning",
+  destructive: "destructive",
+};
+
+/**
+ * Every way mobile disagrees with the SPA: a colour whose hex is more than one
+ * 8-bit step from the SPA's oklch on any channel, a missing colour key, a type
+ * role at the wrong size or weight for the MOBILE column.
+ */
+export function mobileAgreement(
+  spaCss: string,
+  mobile: { colors: Record<string, string>; type: Record<string, { size: number; weight: string }> },
+): string[] {
+  const problems: string[] = [];
+  const spa = parseCssTokens(spaCss);
+  for (const [key, role] of Object.entries(MOBILE_COLOR_MAP)) {
+    const hex = mobile.colors[key];
+    if (!hex) {
+      problems.push(`mobile: colors.${key} is missing (should be --${role})`);
+      continue;
+    }
+    const oklch = spa.colors[role] ? parseOklch(spa.colors[role]) : null;
+    if (!oklch) continue; // the SPA's own agreement check reports that
+    const want = oklchToSrgb(...oklch);
+    const have = hexToSrgb(hex);
+    if (want.some((v, i) => Math.abs(v - have[i]) > 1)) {
+      const wantHex = `#${want.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+      problems.push(`mobile: colors.${key} is ${hex}, but --${role} converts to ${wantHex}`);
+    }
+  }
+  for (const role of TYPE_ROLES) {
+    const have = mobile.type[role];
+    const want = MOBILE_SCALE[role];
+    if (!have) {
+      problems.push(`mobile: type.${role} is missing`);
+      continue;
+    }
+    if (have.size !== want.size) problems.push(`mobile: type.${role}.size is ${have.size}, want ${want.size}`);
+    if (Number(have.weight) !== want.weight)
+      problems.push(`mobile: type.${role}.weight is ${have.weight}, want ${want.weight}`);
+  }
+  return problems;
+}
+
+// ---------------------------------------------------------------------------
 // The surfaces. Paths are relative to the repo root, which is where every
 // package.json script runs from.
 // ---------------------------------------------------------------------------
@@ -161,12 +275,21 @@ export const CSS_SURFACES: Record<Exclude<Surface, "mobile">, string> = {
 
 export const MOBILE_TOKENS = "apps/client/mobile/src/lib/tokens.ts";
 
-/** The agreement half of the check, for the three CSS surfaces. Task 5 adds mobile. */
-export function cssAgreement(only?: Surface): string[] {
+/** The agreement half of the check, all four surfaces. */
+export async function allAgreement(only?: Surface): Promise<string[]> {
   const problems: string[] = [];
   for (const [surface, rel] of Object.entries(CSS_SURFACES) as [Exclude<Surface, "mobile">, string][]) {
     if (only && only !== surface) continue;
     problems.push(...agreementProblems(surface, parseCssTokens(readFileSync(join(REPO_ROOT, rel), "utf8")), WEB_SCALE));
+  }
+  if (!only || only === "mobile") {
+    // Imported, not parsed: tokens.ts is a pure module (no React Native
+    // imports), so bun can load it directly and we compare real values.
+    const mod = (await import(join(REPO_ROOT, MOBILE_TOKENS))) as {
+      colors: Record<string, string>;
+      type: Record<string, { size: number; weight: string }>;
+    };
+    problems.push(...mobileAgreement(readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8"), mod));
   }
   return problems;
 }
@@ -174,7 +297,7 @@ export function cssAgreement(only?: Surface): string[] {
 if (import.meta.main) {
   const report = process.argv.includes("--report");
   const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length) as Surface | undefined;
-  const problems = cssAgreement(only);
+  const problems = await allAgreement(only);
   if (problems.length === 0) {
     console.log("✓ design tokens agree");
     process.exit(0);
