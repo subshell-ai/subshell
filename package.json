@@ -7,6 +7,7 @@
   "scripts": {
     "prepare": "lefthook install",
     "start": "turbo watch dev",
+    "reset:desktop": "bun scripts/reset-desktop.ts",
     "dev:desktop-server": "bun scripts/desktop-dev.ts server",
     "dev:desktop-client": "bun scripts/desktop-dev.ts client",
     "build": "turbo run build",
