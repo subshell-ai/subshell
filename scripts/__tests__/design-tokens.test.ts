@@ -271,6 +271,12 @@ describe("findEscapes", () => {
 
   test("mobile: hex literals outside tokens.ts", () => {
     expect(findEscapes("mobile", "app/x.tsx", `color: "#7abdff"`)).toHaveLength(1);
+    // Short hex and oklch() are the same escape as a 6-digit hex — every
+    // colour spelling a mobile consumer reaches for must instead come from
+    // tokens.ts, so the mobile branch shares the web's HEX_OR_OKLCH rule.
+    expect(findEscapes("mobile", "app/x.tsx", `color: "#fff"`)).toHaveLength(1);
+    expect(findEscapes("mobile", "app/x.tsx", `color: "oklch(0.5 0.1 300)"`)).toHaveLength(1);
+    expect(findEscapes("mobile", "src/lib/tokens.ts", `bg: "#1d182a",`)).toEqual([]);
   });
 });
 

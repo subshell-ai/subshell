@@ -236,7 +236,12 @@ export function mobileAgreement(
       continue;
     }
     const oklch = spa.colors[role] ? parseOklch(spa.colors[role]) : null;
-    if (!oklch) continue; // the SPA's own agreement check reports that
+    // An unparseable `--role` skips value comparison here: its PRESENCE is
+    // reported by the SPA's own agreement check, and a %- or alpha-spelled
+    // value would simply not convert. Unreachable today — the web stylesheets
+    // spell every role bare — and parseOklch is deliberately not widened
+    // (spec § 8).
+    if (!oklch) continue;
     const want = oklchToSrgb(...oklch);
     const have = hexToSrgb(hex);
     if (want.some((v, i) => Math.abs(v - have[i]) > 1)) {
@@ -289,8 +294,9 @@ const HEX_OR_OKLCH = /#[0-9a-fA-F]{3,8}\b|oklch\(/g;
  *
  * The two exact paths below hold ANSI/xterm palette literals that MUST stay
  * raw to match what xterm renders (plan Global Constraints: consumers of the
- * terminal trio, deliberately raw). Exact paths, not patterns, so a new file
- * naming its own colours stays checked. They are relative to each surface's
+ * terminal trio, deliberately raw). Suffix matches on each surface's
+ * root-relative path — deliberately narrow, so a new file naming its own
+ * colours stays checked. They are relative to each surface's
  * SURFACE_GLOBS root, which is `…/src` for spa/client — hence `lib/ansi.ts`.
  */
 function isColourSource(surface: Surface, relPath: string): boolean {
@@ -348,7 +354,10 @@ export function findEscapes(surface: Surface, relPath: string, source: string): 
       push(i, m[0], `...font("${roleForPx(Number(m[1]), "").split(" or ")[0]}")`);
     for (const m of l.matchAll(/\bfontWeight:\s*"?\d+"?/g))
       push(i, m[0], `...font("<role>") — weight comes with the role`);
-    for (const m of l.matchAll(/#[0-9a-fA-F]{6}\b/g)) push(i, m[0], "colors.<role> from tokens.ts");
+    // The shared colour regex, not a 6-digit-only one: `#fff` and `oklch(…)`
+    // in mobile code are the same escape as `#7abdff`, and mobile's tokens.ts
+    // is the only home for any spelling.
+    for (const m of l.matchAll(HEX_OR_OKLCH)) push(i, m[0], "colors.<role> from tokens.ts");
   });
   return out;
 }
@@ -459,7 +468,12 @@ export function allEscapes(only?: Surface): Escape[] {
 
 if (import.meta.main) {
   const report = process.argv.includes("--report");
-  const onlyRaw = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
+  // A bare `--only` (no `=`) is as much a mistake as an unknown value: the
+  // slice leaves "", this guard rejects it, and nothing silently scans all
+  // four surfaces behind a flag that named none.
+  const onlyRaw = process.argv
+    .find((a) => a === "--only" || a.startsWith("--only="))
+    ?.slice("--only=".length);
   const surfaces = Object.keys(SURFACE_GLOBS) as Surface[];
   if (onlyRaw !== undefined && !surfaces.includes(onlyRaw as Surface)) {
     console.error(`✗ unknown --only="${onlyRaw}" — expected one of: ${surfaces.join(", ")}`);

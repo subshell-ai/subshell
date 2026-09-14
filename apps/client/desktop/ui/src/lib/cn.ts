@@ -6,10 +6,18 @@ import { extendTailwindMerge } from "tailwind-merge";
 // unregistered, `cn("text-heading", "text-muted-foreground")` DROPS the size into the
 // text-colour group's conflict. Registering them keeps size-vs-size replacement
 // (text-heading yields to text-label) and size-vs-colour co-existence.
+//
+// The weight utilities need the same treatment: an unregistered `font-*` name
+// falls into the font-FAMILY group, so `cn("font-mono", "font-strong")`
+// silently evicted `font-mono` (measured, final review 2026-09-14). Registering
+// them under font-weight keeps family-vs-weight co-existence and makes
+// weight-vs-weight replacement work: a role weight yields to any of
+// Tailwind's own weight classes, and vice versa.
 const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
       "font-size": ["text-display", "text-heading", "text-label", "text-body", "text-detail", "text-caption"],
+      "font-weight": ["font-strong", "font-regular"],
     },
   },
 });
