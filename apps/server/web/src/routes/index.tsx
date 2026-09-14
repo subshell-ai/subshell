@@ -70,7 +70,7 @@ function SubshellsPage() {
     <main className="mx-auto w-full max-w-6xl space-y-6 p-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="font-bold text-2xl">Subshells</h1>
+          <h1 className="font-strong text-heading">Subshells</h1>
           <p className="text-muted-foreground text-sm">Agent harness subshells</p>
         </div>
         <Button onClick={openLaunch}>

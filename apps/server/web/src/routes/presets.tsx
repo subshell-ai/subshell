@@ -145,7 +145,7 @@ function PresetsPage() {
                     preview renders the bare harness id — text matching would
                     collide. PageHeader carries the h1; these are the h2s. */}
                 <div className="flex items-center gap-2">
-                  <span aria-hidden className="text-base">
+                  <span aria-hidden className="text-label">
                     {plugin?.icon ?? "🤖"}
                   </span>
                   <h2 className="font-medium text-sm">{plugin?.name ?? harnessId}</h2>

@@ -69,13 +69,13 @@ export function EntityCard({
             <div className="flex items-center justify-between gap-2">
               {accessory ? (
                 <>
-                  <CardTitle className="min-w-0 truncate text-base" title={title}>
+                  <CardTitle className="min-w-0 truncate text-label" title={title}>
                     {title}
                   </CardTitle>
                   <div className="flex shrink-0 items-center gap-2 pr-7">{accessory}</div>
                 </>
               ) : (
-                <CardTitle className="truncate pr-7 text-base" title={title}>
+                <CardTitle className="truncate pr-7 text-label" title={title}>
                   {title}
                 </CardTitle>
               )}

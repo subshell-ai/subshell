@@ -41,7 +41,7 @@ export function AgentRow({
   return (
     <li aria-label={harness.name} className="border-border/60 border-b last:border-b-0">
       <div className="flex min-h-11 items-center gap-3 py-2">
-        <span aria-hidden className="text-lg">
+        <span aria-hidden className="text-heading">
           {harness.icon ?? "🤖"}
         </span>
         <span className="flex-1 font-medium">{harness.name}</span>

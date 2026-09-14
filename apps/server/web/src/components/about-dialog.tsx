@@ -49,7 +49,7 @@ export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChang
             alt="Subshell"
             className="h-8 w-auto"
           />
-          <DialogTitle className="text-base">{settings?.instanceName ?? ""}</DialogTitle>
+          <DialogTitle className="text-label">{settings?.instanceName ?? ""}</DialogTitle>
           <div className="space-y-0.5 text-muted-foreground text-sm">
             {/* **"Desktop app" and "CLI".** Two different programs — the app
                 wrapping this, and the `subshell-server` binary serving it —

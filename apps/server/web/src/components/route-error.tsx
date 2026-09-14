@@ -63,7 +63,7 @@ export function RouteError({ error }: { error: unknown }) {
   return (
     <main className="flex h-full min-h-0 flex-col items-center justify-center gap-4 bg-background p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-center text-sm">
       <div className="flex max-w-md flex-col items-center gap-1.5">
-        <h1 className="font-medium text-base">This page hit an error</h1>
+        <h1 className="font-medium text-body">This page hit an error</h1>
         {chunk ? (
           <p className="text-muted-foreground">
             The app updated while this page was open.{" "}

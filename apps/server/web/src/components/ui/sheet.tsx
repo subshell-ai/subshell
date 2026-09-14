@@ -72,5 +72,5 @@ export function SheetContent({
 }
 
 export function SheetTitle({ className, ...props }: Dialog.Title.Props): JSX.Element {
-  return <Dialog.Title className={cn("font-semibold text-lg", className)} {...props} />;
+  return <Dialog.Title className={cn("font-strong text-heading", className)} {...props} />;
 }

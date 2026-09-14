@@ -20,7 +20,7 @@ export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
   return (
     <header className="mb-6 flex items-center justify-between">
       <div>
-        <h1 className="font-bold text-2xl">{title}</h1>
+        <h1 className="font-strong text-heading">{title}</h1>
         <p className="text-muted-foreground text-sm">{subtitle}</p>
       </div>
       {action}
