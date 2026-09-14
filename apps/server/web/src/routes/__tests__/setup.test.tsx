@@ -296,22 +296,31 @@ describe("setup wizard: the dot row continues the native assistant", () => {
     expect(screen.getByText("Step 2 of 3")).toBeTruthy();
   });
 
-  it("reads Step 5 of 6 under the desktop shell's UA, continuing its three native screens", async () => {
+  /** Renders step `n` under `userAgent`, restoring the real one afterwards. */
+  async function underUA(userAgent: string, n: 0 | 1 | 2) {
     const nav = globalThis.navigator as unknown as Record<string, unknown>;
     const prev = Object.getOwnPropertyDescriptor(nav, "userAgent");
     resetDesktopShellForTests();
-    Object.defineProperty(nav, "userAgent", {
-      value: "Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)",
-      configurable: true,
-    });
+    Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true });
     try {
-      await renderSetup({}, 1);
-      expect(screen.getByText("Step 5 of 6")).toBeTruthy();
+      await renderSetup({}, n);
     } finally {
       if (prev) Object.defineProperty(nav, "userAgent", prev);
       else delete nav.userAgent;
       resetDesktopShellForTests();
     }
+  }
+
+  it("reads Step 5 of 6 on Linux, continuing the assistant's three native screens", async () => {
+    await underUA("Mozilla/5.0 SubshellDesktop/1.0.0 (linux; p=1)", 1);
+    expect(screen.getByText("Step 5 of 6")).toBeTruthy();
+  });
+
+  it("reads Step 6 of 7 on macOS — the assistant shows a fourth screen there", async () => {
+    // "What macOS Will Ask" sits between Install tmux and Set Up, and exists
+    // only on the platform that asks (spec 2026-09-14 §3, §6).
+    await underUA("Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)", 1);
+    expect(screen.getByText("Step 6 of 7")).toBeTruthy();
   });
 });
 

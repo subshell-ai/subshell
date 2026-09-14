@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { DirectoryPickerInput } from "@/components/directory-picker-input";
+import { blockedByName, DirectoryPickerInput } from "@/components/directory-picker-input";
+import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
  * Renders the field inside a fully controlled parent — every `onChange`
@@ -415,6 +416,67 @@ describe("DirectoryPickerInput", () => {
     } finally {
       restore();
     }
+  });
+
+  /**
+   * macOS asks per protected folder the first time one is listed, and a
+   * decline makes the read throw forever after. The server flags the LISTING
+   * (spec 2026-09-14 §5.3) — an empty `entries` with no flag is a folder that
+   * genuinely holds nothing, and rendering the refusal as that would tell the
+   * person their projects had vanished.
+   */
+  describe("a folder macOS refuses", () => {
+    /** An explore body for a blocked listing: no entries, flag set. */
+    function blockedBody(path: string) {
+      return { ...exploreBody(path, []), blocked: "permission" as const };
+    }
+
+    it("says Blocked by macOS instead of showing it as empty", async () => {
+      const { restore } = mockExplore({ "/Users/ada/Desktop": blockedBody("/Users/ada/Desktop") });
+      try {
+        renderField({ value: "/Users/ada/Desktop" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("Blocked by macOS");
+      } finally {
+        restore();
+      }
+    });
+
+    it("names subshell-server, the binary the prompt named, when the deployment is unknown", async () => {
+      const { restore } = mockExplore({ "/Users/ada/Desktop": blockedBody("/Users/ada/Desktop") });
+      try {
+        renderField({ value: "/Users/ada/Desktop" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        // `GET /api/admin/server` is admin-only and is never fetched from
+        // here, so most viewers land on this fallback.
+        await screen.findByText(/macOS is not letting subshell-server read this folder\./);
+      } finally {
+        restore();
+      }
+    });
+
+    it("names the APP instead when the app supervises the server", () => {
+      // The prompt names whoever asked: under the launchd service that is the
+      // binary, under "runs with this app" it is Subshell Server. Naming the
+      // wrong one sends a person looking for a row that is not in the list.
+      const asApp = { service: { manager: "app", installed: false } } as unknown as ServerDeployment;
+      const asService = { service: { manager: "launchd", installed: true } } as unknown as ServerDeployment;
+      expect(blockedByName(asApp)).toBe("Subshell Server");
+      expect(blockedByName(asService)).toBe("subshell-server");
+      expect(blockedByName(undefined)).toBe("subshell-server");
+    });
+
+    it("an empty folder is still just an empty folder — no notice", async () => {
+      const { restore } = mockExplore({ "/tmp/empty": exploreBody("/tmp/empty", []) });
+      try {
+        renderField({ value: "/tmp/empty" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByRole("button", { name: ".." });
+        expect(screen.queryByText("Blocked by macOS")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
   });
 
   it("a pointerdown outside the field closes the panel", async () => {

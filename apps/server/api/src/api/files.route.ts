@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 import { dirAllowed, dirNavigable } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
+import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
@@ -21,6 +22,25 @@ interface DirEntry {
   name: string;
   path: string;
   kind: "dir" | "file";
+}
+
+/** The one directory read `/explore` performs, so a test can make it fail. */
+type ReaddirFn = (path: string) => string[];
+
+let readdir: ReaddirFn = readdirSync;
+
+/**
+ * Test seam for the ONE `readdir` the local browse performs. A refused
+ * listing (macOS TCC, or plain unix modes) cannot be produced with `chmod` in
+ * this suite — CI runs as root, which ignores permission bits — so the error
+ * is injected here instead. Passing `null` restores the real call. Same
+ * hard refusal as `setHasUsersProbeForTests`: a mis-wired production import
+ * must not be able to replace the filesystem under the folder picker.
+ * @internal
+ */
+export function setFilesReaddirForTests(fn: ReaddirFn | null): void {
+  if (!IS_TEST) throw new Error("setFilesReaddirForTests is a test-only seam");
+  readdir = fn ?? readdirSync;
 }
 
 /** One saved-directory row shared by the Recent and Favorites sections. */
@@ -42,6 +62,12 @@ const ExploreResponseSchema = t.Object({
   ),
   recent: t.Array(SavedPathSchema, { description: "Three most recently used paths, favorites excluded" }),
   favorites: t.Array(SavedPathSchema, { description: "Starred paths, newest first" }),
+  blocked: t.Optional(
+    t.Literal("permission", {
+      description:
+        "Present when the OS refused to list THIS directory (macOS Files-and-Folders, or unix modes): entries is empty because the read failed, not because the folder is. Absent on a genuinely empty directory",
+    }),
+  ),
 });
 
 const FavoriteBodySchema = t.Object({
@@ -170,24 +196,42 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       }
 
       const entries: DirEntry[] = [];
+      // Set when the OS refused THIS listing — reported to the picker rather
+      // than thrown, because the folder exists and the person can fix it.
+      let blocked: "permission" | undefined;
       if (stat.isDirectory()) {
+        let names: string[] = [];
         try {
-          for (const name of readdirSync(resolved)) {
-            if (name.startsWith(".")) continue;
-            const full = join(resolved, name);
-            let kind: DirEntry["kind"];
-            try {
-              const s = statSync(full);
-              if (s.isDirectory()) kind = "dir";
-              else if (s.isFile()) kind = "file";
-              else continue;
-            } catch {
-              continue;
-            }
-            entries.push({ name, path: full, kind });
+          names = readdir(resolved);
+        } catch (err) {
+          // macOS asks per protected folder (Desktop, Documents, Downloads)
+          // the first time one is listed, and a decline makes this throw
+          // EPERM from then on; unix modes throw EACCES. Neither is a broken
+          // request — the picker shows the folder as blocked and offers the
+          // way to fix it (spec 2026-09-14 §5.3). Anything else still 403s.
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code !== "EPERM" && code !== "EACCES") {
+            throw new FilesError("unreadable", "Directory is not readable", 403);
           }
-        } catch {
-          throw new FilesError("unreadable", "Directory is not readable", 403);
+          blocked = "permission";
+        }
+        for (const name of names) {
+          if (name.startsWith(".")) continue;
+          const full = join(resolved, name);
+          let kind: DirEntry["kind"];
+          try {
+            // `statSync` only — a child is NEVER read as a directory here.
+            // A readdir per entry would fire one macOS prompt per folder under
+            // the home directory on the first open of the picker, which is
+            // exactly what flagging the listing instead of its children avoids.
+            const s = statSync(full);
+            if (s.isDirectory()) kind = "dir";
+            else if (s.isFile()) kind = "file";
+            else continue;
+          } catch {
+            continue;
+          }
+          entries.push({ name, path: full, kind });
         }
       }
 
@@ -209,7 +253,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         .filter((r) => !starred.has(r.path))
         .slice(0, 3)
         .map(({ path: p, label }) => ({ path: p, label }));
-      return { path: resolved, parent, entries: visible, recent, favorites } as const;
+      return { path: resolved, parent, entries: visible, recent, favorites, blocked } as const;
     },
     {
       query: t.Object({

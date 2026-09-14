@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { act, cleanup, render, renderHook, waitFor } from "@testing-library/react";
 import type { RefObject } from "react";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
+import { resetDesktopShellForTests } from "@/lib/desktop";
+import type { Permission } from "@/types/permissions";
 
 /**
  * openImagePicker is the touch stand-in for drag-and-drop/paste: it must open
@@ -44,11 +46,39 @@ class FakeXhr {
 
 const realXhr = globalThis.XMLHttpRequest;
 
+const SERVER_UA = "Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)";
+const nav = globalThis.navigator as unknown as Record<string, unknown>;
+let previousUserAgent: PropertyDescriptor | undefined;
+
+/** Point `navigator.userAgent` at the server shell for the next render. */
+function setUA(userAgent: string) {
+  previousUserAgent ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
+  Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true, writable: true });
+  resetDesktopShellForTests();
+}
+
+/** A fake `window.__TAURI__` answering `desktop_permissions` with `photos`. */
+function fakeTauri(photos: Permission) {
+  (window as unknown as Record<string, unknown>).__TAURI__ = {
+    core: {
+      invoke: (command: string) =>
+        Promise.resolve(command === "desktop_permissions" ? { notifications: "authorized", photos } : null),
+    },
+  };
+}
+
 describe("useTerminalUploads.openImagePicker", () => {
   afterEach(() => {
     cleanup();
     globalThis.XMLHttpRequest = realXhr;
     FakeXhr.instances = [];
+    delete (window as unknown as Record<string, unknown>).__TAURI__;
+    if (previousUserAgent) Object.defineProperty(nav, "userAgent", previousUserAgent);
+    // No own descriptor means the real one is on the prototype — deleting the
+    // one `setUA` defined uncovers it. Skip this and the UA outlives the file.
+    else delete nav.userAgent;
+    previousUserAgent = undefined;
+    resetDesktopShellForTests();
   });
 
   it("builds an image-only multi-select picker and clicks it", () => {
@@ -105,6 +135,76 @@ describe("useTerminalUploads.openImagePicker", () => {
 
     createSpy.mockRestore();
     clickSpy.mockRestore();
+  });
+
+  /**
+   * The Photos half (spec 2026-09-14 §5.2). Picking an image from the Photos
+   * sidebar with Photos blocked does nothing at all and says nothing — so the
+   * picker reports it. The panel still opens: Files from folders work, and the
+   * person may not have wanted Photos in the first place.
+   */
+  describe("Photos permission", () => {
+    /** Opens the picker under the server shell with `photos` as the answer. */
+    function openUnder(photos: Permission) {
+      setUA(SERVER_UA);
+      fakeTauri(photos);
+      const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+      const { result } = renderHook(() =>
+        useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+      );
+      act(() => result.current.openImagePicker());
+      // The gesture is what opens the picker, and it must not wait on an IPC
+      // round trip to do it — asserted here, not merely intended.
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      clickSpy.mockRestore();
+      return result;
+    }
+
+    it("reports a denial, having opened the panel anyway", async () => {
+      const result = openUnder("denied");
+      await waitFor(() => expect(result.current.photosBlocked).toBe(true));
+    });
+
+    it("says nothing while macOS has not asked yet — it asks in context", async () => {
+      const result = openUnder("not-determined");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(result.current.photosBlocked).toBe(false);
+    });
+
+    it("says nothing when Photos is allowed", async () => {
+      const result = openUnder("authorized");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(result.current.photosBlocked).toBe(false);
+    });
+
+    it("asks nothing at all in a browser — there is no shell to answer", async () => {
+      let asked = 0;
+      (window as unknown as Record<string, unknown>).__TAURI__ = {
+        core: {
+          invoke: () => {
+            asked += 1;
+            return Promise.resolve(null);
+          },
+        },
+      };
+      setUA("Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15");
+      const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+      const { result } = renderHook(() =>
+        useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+      );
+      act(() => result.current.openImagePicker());
+      await new Promise((r) => setTimeout(r, 20));
+      expect(asked).toBe(0);
+      expect(result.current.photosBlocked).toBe(false);
+      clickSpy.mockRestore();
+    });
+
+    it("the notice is dismissible", async () => {
+      const result = openUnder("denied");
+      await waitFor(() => expect(result.current.photosBlocked).toBe(true));
+      act(() => result.current.dismissPhotosNotice());
+      expect(result.current.photosBlocked).toBe(false);
+    });
   });
 
   it("routes picked files through the shared upload path", async () => {

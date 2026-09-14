@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
+import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDesktopPermissions } from "@/hooks/use-desktop-permissions";
 import { errMessage } from "@/lib/api";
 import { isServerDesktop } from "@/lib/desktop";
 import { disablePush, enablePush, getPushState, type PushState } from "@/lib/notifications";
+import type { Permission } from "@/types/permissions";
 
 /**
  * Account → Notifications: per-device web-push opt-in (spec
@@ -32,6 +35,19 @@ const STATE_HELP: Partial<Record<PushState, string>> = {
  */
 const DESKTOP_HELP = "The desktop app notifies you natively, with no push subscription needed.";
 
+/**
+ * What macOS currently says, in words — the STANDING home for the recovery
+ * (spec 2026-09-14 §5.4). The in-context notices are where someone reaches it
+ * without looking; this is where they look.
+ */
+const PERMISSION_LINE: Record<Permission, string> = {
+  authorized: "Allowed",
+  provisional: "Allowed",
+  denied: "Not allowed",
+  "not-determined": "Not yet asked",
+  unavailable: "Unavailable in this build",
+};
+
 /** iOS Safari only delivers web push from a home-screen-installed PWA. */
 function isIOS(): boolean {
   return typeof navigator !== "undefined" && /iPhone|iPad/.test(navigator.userAgent);
@@ -53,6 +69,7 @@ export function NotificationsCard({
   enable = enablePush,
   disable = disablePush,
 }: NotificationsCardProps) {
+  const { data: permissions } = useDesktopPermissions();
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +123,19 @@ export function NotificationsCard({
           <p role="status" className="text-muted-foreground text-sm">
             {isServerDesktop() && state === "unsupported" ? DESKTOP_HELP : STATE_HELP[state]}
           </p>
+        )}
+        {/* The live half of the desktop branch. Only ever shown inside Subshell
+            Server, where the query is enabled at all — in a browser the app's
+            standing with macOS is not a fact about this device. */}
+        {isServerDesktop() && permissions && (
+          <div className="space-y-1.5">
+            <p className="text-detail text-muted-foreground">
+              macOS permission: {PERMISSION_LINE[permissions.notifications]}
+            </p>
+            {permissions.notifications === "denied" && (
+              <PermissionNotice pane="notifications" message="Nothing will be shown until this is allowed again." />
+            )}
+          </div>
         )}
         {state === "unsupported" && isIOS() && (
           <p className="text-muted-foreground text-sm">

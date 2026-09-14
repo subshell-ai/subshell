@@ -3,16 +3,29 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, ChevronRight, FolderOpen, Star } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
+import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { Input } from "@/components/ui/input";
 import { ApiError, apiFetch } from "@/lib/api";
+import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
+import { currentMode } from "@/lib/supervision";
+import type { ExploreResult } from "@/types/files";
+import type { ServerDeployment } from "@/types/server-deployment";
 
-/** One level of the server-side folder picker (`GET /api/files/explore`). */
-interface ExploreResult {
-  path: string;
-  parent: string | null;
-  entries: { name: string; path: string; kind: "dir" | "file" }[];
-  recent: { path: string; label: string | null }[];
-  favorites: { path: string; label: string | null }[];
+/**
+ * Which name macOS showed in the prompt for a folder this server cannot read.
+ *
+ * Under the launchd service the prompt names the binary, `subshell-server`;
+ * with the desktop app supervising its own child it names the app. Saying the
+ * wrong one sends a person to look for a row that is not in the list — and a
+ * prompt naming a binary they never typed is the one that looks like malware,
+ * which is exactly why it has to be named at all.
+ *
+ * Unknown reads as the binary: the deployment view is admin-only, so most
+ * viewers have no answer, and the service is the deployment a non-admin is
+ * overwhelmingly likely to be looking at.
+ */
+export function blockedByName(deployment: ServerDeployment | undefined): string {
+  return deployment && currentMode(deployment) === "app" ? "Subshell Server" : "subshell-server";
 }
 
 /**
@@ -126,6 +139,10 @@ export function DirectoryPickerInput({
   // other only explains. A too-old node (409 NODE_OUTDATED) is neither —
   // nothing about the path or a retry helps; the node's agent must update.
   const notFound = error instanceof ApiError && error.status === 404;
+  // Read from the CACHE, never fetched: `GET /api/admin/server` is admin-only,
+  // so a request from here would 403 for most viewers to decide one word. The
+  // Service page is what fills this, and `undefined` is a fine answer.
+  const deployment = queryClient.getQueryData<ServerDeployment>(SERVER_DEPLOYMENT_QUERY_KEY);
   const nodeOutdated = error instanceof ApiError && error.code === BackendErrorCodes.NODE_OUTDATED;
 
   /** Stars/unstars a path; sections refresh from the same responses. */
@@ -231,6 +248,18 @@ export function DirectoryPickerInput({
                 Couldn&apos;t browse this path.
               </div>
             )
+          ) : explore?.blocked === "permission" ? (
+            // The folder EXISTS and is not empty — the OS refused the read.
+            // Rendering it as an empty listing would say the opposite, and
+            // the person would keep clicking into folders wondering why their
+            // projects had vanished (operator's report, 2026-09-14).
+            <div className="flex h-56 flex-col items-start justify-center gap-2 px-2">
+              <p className="text-sm">Blocked by macOS</p>
+              <PermissionNotice
+                pane="files"
+                message={`macOS is not letting ${blockedByName(deployment)} read this folder.`}
+              />
+            </div>
           ) : explore ? (
             <div className="h-56 overflow-y-auto">
               {/* Saved paths first — Recent (top 3) over Favorites — each

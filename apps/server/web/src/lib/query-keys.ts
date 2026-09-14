@@ -49,3 +49,10 @@ export const SERVER_DEPLOYMENT_QUERY_KEY = ["server-deployment"] as const;
 
 /** Prefix of the server-log tail: `[...SERVER_LOGS_QUERY_KEY, lines]`. */
 export const SERVER_LOGS_QUERY_KEY = ["server-logs"] as const;
+
+/**
+ * The desktop shell's standing with macOS (`desktop_permissions`); read via
+ * `useDesktopPermissions`. Not an API read — it goes over the webview's IPC,
+ * and it answers nothing at all in a browser.
+ */
+export const DESKTOP_PERMISSIONS_QUERY_KEY = ["desktop-permissions"] as const;

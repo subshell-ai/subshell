@@ -19,7 +19,7 @@ import { useInstallAgent } from "@/hooks/use-install-agent";
 import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { isServerDesktop } from "@/lib/desktop";
+import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
@@ -172,10 +172,11 @@ function SetupPage() {
     }
   }
 
-  // In the desktop shell the native assistant already showed three screens;
-  // the dot row continues from there so the two programs read as one
-  // (spec § 4).
-  const NATIVE_STEPS = isServerDesktop() ? 3 : 0;
+  // In the desktop shell the native assistant already showed its screens; the
+  // dot row continues from there so the two programs read as one (spec § 4).
+  // macOS gets a fourth — "What macOS Will Ask" sits between Install tmux and
+  // Set Up, and exists only on the platform that asks (spec 2026-09-14 §6).
+  const NATIVE_STEPS = isServerDesktop() ? (desktopPlatform() === "macos" ? 4 : 3) : 0;
   const dotsFor = (n: number) => ({
     total: STEPS.length + NATIVE_STEPS,
     done: NATIVE_STEPS + n,

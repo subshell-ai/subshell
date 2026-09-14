@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { StatusPill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import type { UploadEntry } from "@/hooks/use-terminal-uploads";
@@ -15,6 +16,8 @@ export function TerminalDropOverlay({
   entries,
   error,
   onDismiss,
+  photosBlocked = false,
+  onDismissPhotosNotice,
 }: {
   /** True while files are being dragged over the terminal */
   isDragActive: boolean;
@@ -24,6 +27,10 @@ export function TerminalDropOverlay({
   error: string | null;
   /** Clears the error */
   onDismiss: () => void;
+  /** macOS is refusing this app's Photos library (spec 2026-09-14 §5.2) */
+  photosBlocked?: boolean;
+  /** Clears the Photos notice */
+  onDismissPhotosNotice?: () => void;
 }) {
   return (
     <>
@@ -68,6 +75,33 @@ export function TerminalDropOverlay({
               </div>
             );
           })}
+        </div>
+      )}
+      {/* Not an error, and not where the error goes: the picker opened and
+          folder uploads work — only the Photos half of it will not. It sits
+          above the error strip so a real upload failure never has to share a
+          line with it. `pointer-events-auto` because Fix… and Dismiss are the
+          two things on this overlay a person clicks. */}
+      {photosBlocked && (
+        <div
+          role="status"
+          className="pointer-events-auto absolute bottom-14 left-1/2 z-20 flex max-w-[80%] -translate-x-1/2 items-center gap-2 rounded-md border border-amber-500/70 bg-background/95 px-3 py-1.5 shadow backdrop-blur"
+        >
+          <PermissionNotice
+            pane="photos"
+            message="macOS is blocking Subshell Server from your Photos library, so images picked from Photos will not attach. Files from folders still work."
+          />
+          {onDismissPhotosNotice && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 shrink-0"
+              onClick={onDismissPhotosNotice}
+              aria-label="Dismiss Photos notice"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
         </div>
       )}
       {error && (

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
-import { filesRoutes } from "@/api/files.route.js";
+import { filesRoutes, setFilesReaddirForTests } from "@/api/files.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
@@ -101,6 +101,79 @@ describe("files route (folder explorer)", () => {
   it("system key bearer -> 403 (machine credentials are not browsers)", async () => {
     const key = await mintSystemKey();
     expect((await explore({ bearer: key, path: "/tmp" })).status).toBe(403);
+  });
+
+  /**
+   * macOS asks per protected folder (Desktop, Documents, Downloads) the first
+   * time something lists it, and a decline makes `readdir` throw EPERM forever
+   * after. That is a folder the picker must still be able to SHOW — the person
+   * can fix it — so the LISTING carries the flag and the panel stays open. The
+   * error is injected through the route's readdir seam rather than produced
+   * with `chmod`: CI runs as root, which ignores permission bits.
+   */
+  describe("a listing macOS refuses (spec 2026-09-14 §5.3)", () => {
+    afterEach(() => setFilesReaddirForTests(null));
+
+    /** The exact shape node throws for a TCC refusal / a mode-denied read. */
+    function errnoThrower(code: string): (path: string) => string[] {
+      return () => {
+        const err = new Error(`${code}: permission denied`) as NodeJS.ErrnoException;
+        err.code = code;
+        throw err;
+      };
+    }
+
+    for (const code of ["EPERM", "EACCES"]) {
+      it(`${code} on the requested path -> 200, no entries, blocked: "permission"`, async () => {
+        setFilesReaddirForTests(errnoThrower(code));
+        const res = await explore({ cookieToken: cookie, path: "/tmp" });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { entries: unknown[]; blocked?: string; path: string };
+        expect(body.blocked).toBe("permission");
+        expect(body.entries).toEqual([]);
+        // The rest of the listing still answers, so the picker can offer the
+        // parent, the recents and the favorites while this folder is refused.
+        expect(body.path).toBe("/tmp");
+      });
+    }
+
+    it("an empty directory carries no blocked flag — the two stay distinguishable", async () => {
+      const empty = mkdtempSync(join(tmpdir(), "subshell-empty-"));
+      try {
+        const res = await explore({ cookieToken: cookie, path: empty });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { entries: unknown[]; blocked?: string };
+        expect(body.entries).toEqual([]);
+        expect(body.blocked).toBeUndefined();
+      } finally {
+        rmSync(empty, { recursive: true, force: true });
+      }
+    });
+
+    it("an absent path still 404s — it is not a blocked listing", async () => {
+      const res = await explore({
+        cookieToken: cookie,
+        path: join(tmpdir(), `subshell-absent-${crypto.randomUUID()}`),
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("any other readdir failure is still 403 unreadable", async () => {
+      setFilesReaddirForTests(errnoThrower("EIO"));
+      expect((await explore({ cookieToken: cookie, path: "/tmp" })).status).toBe(403);
+    });
+
+    it("children are never probed for permission — one readdir per request", async () => {
+      // A readdir of each child is exactly the act that fires one TCC prompt
+      // per folder under ~, which is why the flag is on the listing.
+      const seen: string[] = [];
+      setFilesReaddirForTests((path) => {
+        seen.push(path);
+        return [];
+      });
+      await explore({ cookieToken: cookie, path: "/tmp" });
+      expect(seen).toEqual(["/tmp"]);
+    });
   });
 
   describe("SUBSHELL_FS_ROOT confinement", () => {

@@ -2,6 +2,8 @@ import { MAX_UPLOAD_BYTES } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type FileRejection, useDropzone } from "react-dropzone";
+import { fetchDesktopPermissions } from "@/hooks/use-desktop-permissions.js";
+import { isServerDesktop } from "@/lib/desktop.js";
 import { prepareForUpload } from "@/lib/image-downscale.js";
 import { injectText } from "@/lib/subshell-frames.js";
 import {
@@ -142,6 +144,13 @@ export function useTerminalUploads({
 }) {
   const [entries, setEntries] = useState<UploadEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * True once macOS has been seen refusing this app's Photos access, at the
+   * moment the image picker was opened. Not cleared by a successful upload —
+   * a file picked from a FOLDER still uploads fine, which is exactly why the
+   * notice says the Photos half is the part that will not work.
+   */
+  const [photosBlocked, setPhotosBlocked] = useState(false);
   // An upload can outlive the component: the user navigates away or the
   // subshell panel unmounts while a drop is still in flight. The request keeps
   // going deliberately — the file should still land on the server — so only the
@@ -372,6 +381,19 @@ export function useTerminalUploads({
    * THIS button, not to the desktop gestures.
    */
   const openImagePicker = useCallback(() => {
+    // Ask what macOS thinks of our Photos access, and do NOT wait for the
+    // answer: `.click()` has to fire inside this user gesture or the browser
+    // refuses the picker outright, and the panel opening is the part that must
+    // never be at risk. The notice lands a tick later, over a panel the person
+    // can already use — Files from folders still work, and they may not have
+    // wanted Photos at all (spec 2026-09-14 §5.2).
+    if (isServerDesktop()) {
+      void fetchDesktopPermissions().then(({ photos }) => {
+        // `not-determined` deliberately says nothing: macOS asks in context,
+        // which is the right moment and not ours to pre-empt.
+        if (photos === "denied") setPhotosBlocked(true);
+      });
+    }
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -405,5 +427,9 @@ export function useTerminalUploads({
     entries,
     error,
     dismissError: useCallback(() => setError(null), []),
+    /** macOS is refusing Photos; the picker opened anyway. */
+    photosBlocked,
+    /** Clears the Photos notice for this terminal. */
+    dismissPhotosNotice: useCallback(() => setPhotosBlocked(false), []),
   };
 }

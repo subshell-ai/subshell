@@ -784,6 +784,8 @@ export function SubshellTerminal({
               entries={uploads.entries}
               error={uploads.error}
               onDismiss={uploads.dismissError}
+              photosBlocked={uploads.photosBlocked}
+              onDismissPhotosNotice={uploads.dismissPhotosNotice}
             />
           )}
         </div>

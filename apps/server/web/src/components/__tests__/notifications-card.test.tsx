@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { NotificationsCard } from "@/components/notifications-card";
 import type { PushState } from "@/lib/notifications";
 
@@ -7,7 +9,16 @@ import type { PushState } from "@/lib/notifications";
  * The card is a state→words table; the tests pin each row. The lib hooks come
  * in through props (defaulted to the real ones in the component), so no
  * globals need stubbing here.
+ *
+ * The one thing it does read for itself is the live macOS permission line
+ * (spec 2026-09-14 §5.4), which is a query — hence the provider. It is
+ * disabled outside Subshell Server, so under these browser UAs it fetches
+ * nothing and every row below is unchanged.
  */
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 const noop = async (): Promise<PushState> => "off";
 
