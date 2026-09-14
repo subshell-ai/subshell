@@ -6,7 +6,7 @@ import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dia
 import { Button } from "@/components/ui/button";
 import { apiFetch, apiPost } from "@/lib/api";
 import { SUBSHELL_WORKSPACES_QUERY_KEY } from "@/lib/query-keys";
-import { splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
+import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
 import type { SubshellView } from "@/types/subshell";
 import type { SplitDirection, WorkspaceRow } from "@/types/workspace";
@@ -39,11 +39,19 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
    * other caller of `onAdd` already relies on.
    */
   async function handleAdd(subshellId: string, direction: SplitDirection): Promise<void> {
-    const workspace = await apiPost<WorkspaceRow>("/api/workspaces", {
-      name: subshell.name || defaultWorkspaceName(),
-      draft: true,
-      subshellId: subshell.id,
-    });
+    let workspace: WorkspaceRow;
+    try {
+      workspace = await apiPost<WorkspaceRow>("/api/workspaces", {
+        name: subshell.name || defaultWorkspaceName(),
+        draft: true,
+        subshellId: subshell.id,
+      });
+    } catch (err) {
+      // A create that FAILS gets its own reading — above all a 409, which on a
+      // current server cannot happen to an unsaved workspace and so names the
+      // server's build rather than the name it complained about.
+      throw new Error(splitCreateFailureMessage(err));
+    }
     // A 200 is not yet a split: a server older than this page answers one
     // while silently dropping `draft` and `subshellId`, which lands the person
     // on a workspace missing the subshell they split. Refuse that instead, and

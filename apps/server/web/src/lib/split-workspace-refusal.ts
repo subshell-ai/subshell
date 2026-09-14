@@ -1,3 +1,8 @@
+import { ApiError, errMessage } from "@/lib/api";
+
+/** Said of a server that predates the half of the split it is failing at. */
+const STALE_SERVER = "the server is running an older build than this page — update and restart it, then try again";
+
 /**
  * Checks that the server actually did what a split asked of it.
  *
@@ -18,5 +23,29 @@
  */
 export function splitWorkspaceRefusal(workspace: { draft?: boolean; subshellCount?: number }): string | null {
   if (workspace.draft === true && workspace.subshellCount === 1) return null;
-  return "The server created a workspace but did not put this subshell in it — it is likely running an older build than this page. Update and restart the server, then try again.";
+  return `The server created a workspace but did not put this subshell in it — ${STALE_SERVER}.`;
+}
+
+/**
+ * Explains a split whose create call FAILED outright.
+ *
+ * A 409 gets its own reading, and it is the same diagnosis as above by a
+ * different route. On a current server a draft sits outside the per-user
+ * unique-name index entirely, so a split cannot collide with a name — it is
+ * not even asked to be unique. A server that answers 409 is therefore one
+ * writing the row as an ordinary saved workspace, i.e. one that never learned
+ * about drafts. Reporting its own words instead ("You already have a workspace
+ * with that name") blames a name the person never chose and points at nothing
+ * they can fix.
+ * @param err - Whatever the create call threw
+ * @returns The message to show the person
+ */
+export function splitCreateFailureMessage(err: unknown): string {
+  if (err instanceof ApiError && err.status === 409) {
+    return `a name collision is impossible for an unsaved workspace, so ${STALE_SERVER}`;
+  }
+  // `errMessage` returns an Error's own message even when it is empty, which
+  // would put an empty parenthetical on screen; fall back on the text, not
+  // just on the type.
+  return errMessage(err, "") || "the server could not create the workspace";
 }
