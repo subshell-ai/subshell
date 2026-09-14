@@ -2,6 +2,15 @@ import type { LabelHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 /**
+ * `block`, and it is load-bearing. A `<label>` is `display: inline` by
+ * default, and vertical margins DO NOT APPLY to inline elements — so the
+ * `space-y-2` every stacked field wrapper sets was declaring `margin-block-end:
+ * 8px` that the layout dropped on the floor. Measured in headless Chromium:
+ * box 18px against a 22.5px line-height, 8px margin declared, 3px of actual
+ * gap. The assistant's own stylesheet has said `label { display: block }`
+ * since it was written, which is why its forms looked right and these did not.
+ */
+/**
  * Form label. Base UI ships no standalone Label primitive (labeling lives in
  * its Field parts), so this is a plain native `<label>` carrying the same
  * styling — the documented Radix-Label replacement.
@@ -27,7 +36,10 @@ export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElem
     // biome-ignore lint/a11y/noLabelWithoutControl: htmlFor is in {...props}
     <label
       data-slot="label"
-      className={cn("font-strong text-label peer-disabled:cursor-not-allowed peer-disabled:opacity-70", className)}
+      className={cn(
+        "block font-strong text-label peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+        className,
+      )}
       {...props}
     />
   );

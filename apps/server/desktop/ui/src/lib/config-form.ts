@@ -82,7 +82,14 @@ export const CONFIG_FIELDS: ConfigField[] = [
     // carried `:3080` read as though a port were part of the format.
     placeholder: "https://subshell.example.com, http://10.0.0.5:3080",
     wide: true,
-    hint: "One full address per entry, comma-separated. Name each one exactly; no wildcards. Include a port only if the address uses one; behind a reverse proxy on 443 there is none. Sign-in from an address that is not listed here (or above) fails with “Invalid origin”. Loopback is always allowed.",
+    // The FORMAT only. Four more sentences lived here — no wildcards, when a
+    // port belongs, what an unlisted address fails with, that loopback is
+    // free — and they turned a hint under one optional field into the longest
+    // block on the screen. The placeholder above already shows both shapes,
+    // and `validateValue` refuses a wildcard with its own message at the
+    // moment it matters; a rule nobody is breaking yet is reference material,
+    // not a caption (docs/security.md, "Which addresses a browser may use").
+    hint: "One full address per entry, comma-separated.",
   },
 ];
 
