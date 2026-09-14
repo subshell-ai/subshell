@@ -1,5 +1,18 @@
 import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// The design-system role utilities (docs/design-system.md; spec 2026-09-14 § 3.1) are
+// font-sizes by definition, but tailwind-merge only recognises t-shirt sizes — left
+// unregistered, `cn("text-heading", "text-muted-foreground")` DROPS the size into the
+// text-colour group's conflict. Registering them keeps size-vs-size replacement
+// (text-heading yields to text-label) and size-vs-colour co-existence.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": ["text-display", "text-heading", "text-label", "text-body", "text-detail", "text-caption"],
+    },
+  },
+});
 
 /**
  * Merge Tailwind classes with conditional variants (shadcn/ui convention).
