@@ -143,7 +143,9 @@ export function LiveHost({
               justifyContent: "center",
             }}
           >
-            <Text style={{ ...font("label"), color: colors.bg }}>Unlock</Text>
+            {/* Text on a primary fill is `primaryFg`, the same pairing every
+                other CTA uses — `bg` only happened to be dark enough to read. */}
+            <Text style={{ ...font("label"), color: colors.primaryFg }}>Unlock</Text>
           </Pressable>
         </View>
       ) : (
