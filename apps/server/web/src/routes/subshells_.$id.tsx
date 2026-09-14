@@ -8,10 +8,12 @@ import { useMemo, useRef, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
+import { SplitSubshellButton } from "@/components/split-subshell-button";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
+import { SubshellWorkspaceLink } from "@/components/subshell-workspace-link";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { TrustIndicators } from "@/components/trust-indicators";
@@ -230,6 +232,11 @@ function SubshellPage() {
                     else can read it. Never suppressible — see
                     components/trust-indicators.tsx. */}
                 <TrustIndicators notices={trustNotices} />
+                {/* The way to a workspace, and the way back: split this
+                    subshell into one, or return to the one it is already on
+                    (renders itself away when there is none). */}
+                {subshell && <SubshellWorkspaceLink subshellId={id} />}
+                {subshell && <SplitSubshellButton subshell={subshell} />}
                 {/* Same menu the cards and rows use, fed by the same mutation hook
                 this page's exited panel uses — so both surfaces run the same
                 actions and refresh the same queries the page observes. Disabled

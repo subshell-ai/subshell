@@ -1,14 +1,26 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
+import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { ApiError } from "@/lib/api";
 import { workspaceLoad } from "@/lib/workspace-load";
+import { parseSplitIntent } from "@/lib/workspace-split-intent";
 
 export const Route = createFileRoute("/workspaces_/$id")({
+  // A split lands here with the subshell to add and where to put it
+  // (`?add=<subshellId>&dir=<direction>`); the presentation consumes the
+  // intent and strips the params. Both are optional and both are kept as
+  // plain strings — `parseSplitIntent` is what decides whether they mean
+  // anything, so one tested function answers it for the route and the dock.
+  validateSearch: (search: Record<string, unknown>): { add?: string; dir?: string } => ({
+    ...(typeof search.add === "string" && search.add ? { add: search.add } : {}),
+    ...(typeof search.dir === "string" && search.dir ? { dir: search.dir } : {}),
+  }),
   component: WorkspaceDetailPage,
 });
 
@@ -23,8 +35,17 @@ export const Route = createFileRoute("/workspaces_/$id")({
  */
 function WorkspaceDetailPage() {
   const { id } = useParams({ from: "/workspaces_/$id" });
+  const search = Route.useSearch();
+  // Memoized so the two effects that consume it (the dock's add, the
+  // auto-discard below) see a stable value and run when the URL changes,
+  // rather than on every poll-driven render.
+  const intent = useMemo(() => parseSplitIntent(search), [search]);
   const { data: detail, isLoading, error, refetch } = useWorkspace(id);
   const wide = useIsWide();
+  // Above every early return: an unsaved workspace that is down to one pane
+  // is discarded and the person sent back to that subshell — unless a split
+  // is still in flight (the `?add=` guard, see the hook).
+  useDiscardThinDraft(detail, intent);
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
@@ -90,9 +111,9 @@ function WorkspaceDetailPage() {
     // in place instead of rebuilding from the new `detail`.
     <main className="flex h-full flex-col overflow-hidden" key={detail.workspace.id}>
       {wide ? (
-        <WorkspaceDock detail={detail} onRefetch={() => void refetch()} />
+        <WorkspaceDock detail={detail} intent={intent} onRefetch={() => refetch().then(() => undefined)} />
       ) : (
-        <WorkspaceTabs detail={detail} onRefetch={() => void refetch()} />
+        <WorkspaceTabs detail={detail} intent={intent} onRefetch={() => refetch().then(() => undefined)} />
       )}
     </main>
   );

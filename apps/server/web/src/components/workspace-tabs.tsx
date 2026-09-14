@@ -1,5 +1,6 @@
+import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { SubshellPane } from "@/components/subshell-pane";
 import { SubshellPicker } from "@/components/subshell-picker";
@@ -10,6 +11,7 @@ import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations"
 import { errMessage } from "@/lib/api";
 import { isPaneWaiting } from "@/lib/subshell-order";
 import { cn } from "@/lib/utils";
+import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link WorkspaceTab}. */
@@ -67,8 +69,18 @@ export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: Work
 export interface WorkspaceTabsProps {
   /** The workspace and its panes, from `useWorkspace`'s poll */
   detail: WorkspaceDetail;
-  /** Re-fetches the workspace detail after a pane or subshell mutation */
-  onRefetch: () => void;
+  /**
+   * The split that opened this page (`?add=…&dir=…`), consumed on mount; null
+   * on an ordinary visit. The direction is ignored here, as it is for every
+   * other add in this flat tab list.
+   */
+  intent: SplitIntent | null;
+  /**
+   * Re-fetches the workspace detail after a pane or subshell mutation, and
+   * RESOLVES when the new detail is in hand — the intent effect below waits
+   * on it before stripping the URL params.
+   */
+  onRefetch: () => Promise<void>;
 }
 
 /**
@@ -90,10 +102,14 @@ export interface WorkspaceTabsProps {
  * touch-drag for text selection inside the terminal, so no swipe gesture is
  * wired up here to compete with it.
  */
-export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.Element {
+export function WorkspaceTabs({ detail, intent, onRefetch }: WorkspaceTabsProps): JSX.Element {
+  const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
+  // The intent is spent the moment the add starts, not when it finishes: the
+  // effect below awaits a refetch, which re-renders this component.
+  const consumedIntentRef = useRef(false);
 
   // Falls back to the first pane whenever `selectedId` doesn't name a pane
   // that still exists — including the moment the poll removes whichever pane
@@ -115,7 +131,7 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
       // Runs even on failure: `apiFetch` throws only on a non-2xx response,
       // so a thrown error here means the pane was never created and this is a
       // harmless no-op refetch — never a case of hiding a pane that exists.
-      onRefetch();
+      void onRefetch();
     }
   }
 
@@ -129,7 +145,7 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
   async function handleRestart(subshellId: string) {
     try {
       await restartSubshell(subshellId);
-      onRefetch();
+      void onRefetch();
     } catch (err) {
       setError(errMessage(err, "Restart failed"));
     }
@@ -137,22 +153,60 @@ export function WorkspaceTabs({ detail, onRefetch }: WorkspaceTabsProps): JSX.El
 
   /** Removes a pane from the workspace, leaving its subshell running (or gone) untouched. */
   async function handleRemovePane(paneId: string) {
+    let workspaceDeleted = false;
     try {
-      await removePane(paneId);
+      ({ workspaceDeleted } = await removePane(paneId));
     } catch (err) {
       setError(errMessage(err, "Failed to remove pane"));
       return;
     }
+    // Removing this pane took the whole (unsaved) workspace with it — a draft
+    // left with fewer than two panes is deleted server-side. There is no tab
+    // strip left to re-select in, so leave for the pane that remains.
+    if (workspaceDeleted) {
+      const other = detail.panes.find((p) => p.id !== paneId);
+      if (other) void navigate({ to: "/subshells/$id", params: { id: other.subshellId }, replace: true });
+      else void navigate({ to: "/", replace: true });
+      return;
+    }
     // Gone (or already gone — the state this call wanted): refetch anyway
     // rather than leaving a stale tab the user has no way to clear.
-    onRefetch();
+    void onRefetch();
   }
+
+  // The split that created this workspace: the second subshell was chosen
+  // before the workspace existed, so attaching it is this page's job. Same
+  // `handleAdd` as the picker's, so the tab is selected the same way.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `handleAdd` is a plain function declaration and so differs every render — which costs nothing here, because `consumedIntentRef` makes this effect's body run at most once per mount whatever its dependencies do.
+  useEffect(() => {
+    if (!intent || consumedIntentRef.current) return;
+    consumedIntentRef.current = true;
+    void (async () => {
+      // Never a second pane for one subshell (regression #13): reloading with
+      // the params still in the URL must not add the same subshell twice.
+      if (!detail.panes.some((p) => p.subshellId === intent.subshellId)) {
+        await handleAdd(intent.subshellId, intent.direction);
+      }
+      await onRefetch();
+      // Only now are the params spent. `useDiscardThinDraft` reads them as
+      // "the second pane is still in flight", so stripping them any earlier
+      // would auto-discard this draft from under the split that created it.
+      await navigate({ to: "/workspaces/$id", params: { id: detail.workspace.id }, search: {}, replace: true });
+    })();
+  }, [intent, detail, onRefetch, navigate]);
 
   return (
     <>
       <WorkspaceHeader
         workspace={detail.workspace}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        // A discarded draft lands on the subshell the person was looking at
+        // — the selected tab's — which only this presentation can name.
+        onDiscarded={() => {
+          const pane = detail.panes.find((p) => p.id === selectedId) ?? detail.panes[0];
+          if (pane) void navigate({ to: "/subshells/$id", params: { id: pane.subshellId }, replace: true });
+          else void navigate({ to: "/", replace: true });
+        }}
       />
       <div className="flex min-h-0 flex-1 flex-col bg-terminal-canvas">
         {error && (

@@ -32,6 +32,7 @@ function renderTab(panes: WorkspacePaneRow[], removed: string[]) {
       name: "ws",
       layout: null,
       subshellCount: panes.length,
+      draft: false,
       createdAt: "2026-08-30T00:00:00.000Z",
       updatedAt: "2026-08-30T00:00:00.000Z",
     },

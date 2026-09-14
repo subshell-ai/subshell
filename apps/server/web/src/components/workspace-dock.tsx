@@ -7,6 +7,7 @@ import {
   type IDockviewPanelProps,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
+import { useNavigate } from "@tanstack/react-router";
 import { type JSX, type DragEvent as ReactDragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { SubshellPicker } from "@/components/subshell-picker";
@@ -27,6 +28,7 @@ import {
   panesMissingFromLayout,
   resolveAddPosition,
 } from "@/lib/workspace-layout";
+import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SubshellView } from "@/types/subshell";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -47,8 +49,17 @@ const components = {
 export interface WorkspaceDockProps {
   /** The workspace and its panes, from `useWorkspace`'s poll */
   detail: WorkspaceDetail;
-  /** Re-fetches the workspace detail after a pane or subshell mutation */
-  onRefetch: () => void;
+  /**
+   * The split that opened this page (`?add=…&dir=…`), consumed once the dock
+   * is ready; null on an ordinary visit.
+   */
+  intent: SplitIntent | null;
+  /**
+   * Re-fetches the workspace detail after a pane or subshell mutation, and
+   * RESOLVES when the new detail is in hand — the intent effect below waits
+   * on it before stripping the URL params.
+   */
+  onRefetch: () => Promise<void>;
 }
 
 /**
@@ -64,7 +75,8 @@ export interface WorkspaceDockProps {
  * correct. Together these replace the canvas's viewport virtualization with
  * a rule that needs no geometry at all.
  */
-export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.Element {
+export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps): JSX.Element {
+  const navigate = useNavigate();
   const apiRef = useRef<DockviewApi | null>(null);
   // Pane ids this component has ever given a panel to. The ongoing
   // reconciliation effect below diffs against this — not against dockview's
@@ -89,6 +101,15 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
   // child of the wrapper, and only the outermost pair is a real leave.
   const [dropActive, setDropActive] = useState(false);
   const dragDepthRef = useRef(0);
+  // True once dockview has handed over its api and the stored layout has been
+  // restored. The split intent cannot be acted on before that: `handleAdd`
+  // places the new panel relative to the active one, and there is no panel —
+  // and no `apiRef.current` — until `onReady` has run.
+  const [ready, setReady] = useState(false);
+  // The intent is spent the moment the add starts, not when it finishes: the
+  // effect below awaits a refetch, which re-renders this component, and
+  // without the guard that second pass would add the pane again.
+  const consumedIntentRef = useRef(false);
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
     setSearchAddons((prev) => {
@@ -164,6 +185,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
       if (!event.api.getPanel(pane.id)) addPanel(event.api, pane);
     }
     event.api.onDidLayoutChange(() => save.schedule(event.api.toJSON()));
+    setReady(true);
   }, []);
 
   // Attaches a pane added elsewhere — another device, or the narrow
@@ -210,7 +232,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
     async (subshellId: string) => {
       try {
         await restartSubshell(subshellId);
-        onRefetch();
+        void onRefetch();
       } catch (err) {
         setError(errMessage(err, "Restart failed"));
       }
@@ -220,19 +242,29 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
 
   const handleRemovePane = useCallback(
     async (paneId: string) => {
+      let workspaceDeleted = false;
       try {
-        await removePane(paneId);
+        ({ workspaceDeleted } = await removePane(paneId));
       } catch (err) {
         setError(errMessage(err, "Failed to remove pane"));
+        return;
+      }
+      // Removing this pane took the whole (unsaved) workspace with it — a
+      // draft left with fewer than two panes is deleted server-side. There is
+      // no dock left to close a tile in, so leave for the pane that remains.
+      if (workspaceDeleted) {
+        const other = detail.panes.find((p) => p.id !== paneId);
+        if (other) void navigate({ to: "/subshells/$id", params: { id: other.subshellId }, replace: true });
+        else void navigate({ to: "/", replace: true });
         return;
       }
       // The row is gone (or was already — the state this call wanted).
       // Close the tile either way rather than leaving the user a blank one
       // they have no way to clear.
       apiRef.current?.getPanel(paneId)?.api.close();
-      onRefetch();
+      void onRefetch();
     },
-    [removePane, onRefetch],
+    [removePane, onRefetch, detail.panes, navigate],
   );
 
   const handleCloseSubshell = useCallback(
@@ -246,7 +278,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
         // `DockedPane`'s vanished-pane check covers the frame or two in
         // between, when the panel still exists but its pane does not.
         await apiFetch(`/api/subshells/${subshellId}`, { method: "DELETE" });
-        onRefetch();
+        void onRefetch();
       } catch (err) {
         setError(errMessage(err, "Failed to close subshell"));
       }
@@ -306,7 +338,7 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
           // panel to, using the server's own join for its title, so the
           // pane still becomes visible (as a plain tab, not at the requested
           // split position) even when this fetch is the thing that failed.
-          onRefetch();
+          void onRefetch();
         }
       } catch (err) {
         setError(errMessage(err, "Failed to add subshell"));
@@ -314,6 +346,29 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
     },
     [addPanel, addPane, onRefetch],
   );
+
+  // The split that created this workspace. The picker chose (or launched) the
+  // second subshell before the workspace existed, so attaching it is this
+  // page's job — done through the same `handleAdd` every later add uses, so
+  // the direction the picker asked for is honoured by one code path.
+  useEffect(() => {
+    if (!ready || !intent || consumedIntentRef.current) return;
+    consumedIntentRef.current = true;
+    void (async () => {
+      // Never a second pane for one subshell (regression #13): reloading with
+      // the params still in the URL, or a poll that landed before this effect
+      // ran, must not add the same subshell twice.
+      if (!detail.panes.some((p) => p.subshellId === intent.subshellId)) {
+        await handleAdd(intent.subshellId, intent.direction);
+      }
+      await onRefetch();
+      // Only now are the params spent. `useDiscardThinDraft` reads them as
+      // "the second pane is still in flight", so stripping them before the
+      // refetch shows both panes would auto-discard this draft from under the
+      // split that just created it.
+      await navigate({ to: "/workspaces/$id", params: { id: detail.workspace.id }, search: {}, replace: true });
+    })();
+  }, [ready, intent, detail.panes, detail.workspace.id, handleAdd, onRefetch, navigate]);
 
   const handleDockDrop = useCallback(
     (e: ReactDragEvent) => {
@@ -359,6 +414,14 @@ export function WorkspaceDock({ detail, onRefetch }: WorkspaceDockProps): JSX.El
       <WorkspaceHeader
         workspace={detail.workspace}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        // A discarded draft lands on the subshell the person was looking at
+        // — the active panel's — which only this presentation can name.
+        onDiscarded={() => {
+          const activeId = apiRef.current?.activePanel?.id;
+          const pane = detail.panes.find((p) => p.id === activeId) ?? detail.panes[0];
+          if (pane) void navigate({ to: "/subshells/$id", params: { id: pane.subshellId }, replace: true });
+          else void navigate({ to: "/", replace: true });
+        }}
       />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 DROP
           target, not a click handler — drag events carry no tap/keyboard

@@ -47,7 +47,12 @@ export function SubshellPicker({ existing, onAdd }: SubshellPickerProps): JSX.El
       >
         <Plus className="h-3.5 w-3.5" /> Add subshell
       </Button>
-      <AddSubshellDialog open={open} onOpenChange={setOpen} existing={existing} onAdd={onAdd} />
+      <AddSubshellDialog
+        open={open}
+        onOpenChange={setOpen}
+        excludeSubshellIds={existing.map((p) => p.subshellId)}
+        onAdd={onAdd}
+      />
     </>
   );
 }

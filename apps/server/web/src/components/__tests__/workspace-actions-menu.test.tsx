@@ -16,6 +16,7 @@ const workspace: WorkspaceRow = {
   name: "demo ws",
   layout: null,
   subshellCount: 2,
+  draft: false,
   createdAt: "2026-09-03T00:00:00.000Z",
   updatedAt: "2026-09-03T00:00:00.000Z",
 };

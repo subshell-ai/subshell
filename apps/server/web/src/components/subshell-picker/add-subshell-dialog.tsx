@@ -21,7 +21,7 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { errMessage } from "@/lib/api";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import type { SplitDirection, WorkspacePaneRow } from "@/types/workspace";
+import type { SplitDirection } from "@/types/workspace";
 
 /** Which half of the dialog is showing. */
 type Mode = "existing" | "new";
@@ -33,17 +33,30 @@ type Mode = "existing" | "new";
  * Both halves live in one dialog because they answer the same question —
  * "what goes in this new pane?" — and the placement applies identically to
  * either answer.
+ *
+ * It takes IDS to exclude rather than the workspace's panes (spec 2026-09-14
+ * §3): splitting from a subshell opens this same dialog before any workspace
+ * exists, so there are no panes to hand it — only the one subshell that must
+ * not be offered as its own second pane.
  */
 export function AddSubshellDialog({
   open,
   onOpenChange,
-  existing,
+  excludeSubshellIds,
+  initialForm,
   onAdd,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Panes already on this workspace; their subshells are excluded from the list. */
-  existing: WorkspacePaneRow[];
+  /** Subshells to leave out of the list — the ones already on this workspace, or the one being split. */
+  excludeSubshellIds: string[];
+  /**
+   * Seeds the New-subshell half, merged over the empty form — and returned
+   * to by `reset()`, so a cancelled launch starts from the same place the
+   * dialog opened at. A split passes the current subshell's plugin, node and
+   * directory so the New half starts as "another one like this".
+   */
+  initialForm?: Partial<NewSubshellFormValue>;
   /** Adds `subshellId` to the workspace at `direction`. */
   onAdd: (subshellId: string, direction: SplitDirection) => Promise<void>;
 }): JSX.Element {
@@ -53,19 +66,19 @@ export function AddSubshellDialog({
   const [mode, setMode] = useState<Mode>("existing");
   const [direction, setDirection] = useState<SplitDirection>("right");
   const [query, setQuery] = useState("");
-  const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm());
+  const [form, setForm] = useState<NewSubshellFormValue>(() => ({ ...emptyNewSubshellForm(), ...initialForm }));
   const [busyId, setBusyId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const attached = new Set(existing.map((p) => p.subshellId));
-  const available = (subshells ?? []).filter((s) => !attached.has(s.id));
+  const excluded = new Set(excludeSubshellIds);
+  const available = (subshells ?? []).filter((s) => !excluded.has(s.id));
 
   /** Resets everything the next open should not inherit. */
   function reset() {
     setMode("existing");
     setQuery("");
-    setForm(emptyNewSubshellForm());
+    setForm({ ...emptyNewSubshellForm(), ...initialForm });
     setBusyId(null);
     setCreating(false);
     setError(null);

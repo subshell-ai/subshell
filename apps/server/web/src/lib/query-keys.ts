@@ -28,6 +28,13 @@ export const SUBSHELL_SHARES_QUERY_KEY = ["subshell-shares"] as const;
 /** Prefix of one workspace's detail query: `[...WORKSPACE_QUERY_KEY, id]`. */
 export const WORKSPACE_QUERY_KEY = ["workspace"] as const;
 
+/**
+ * Prefix of "which workspaces hold this subshell" (`GET /api/workspaces?subshellId=`):
+ * `[...SUBSHELL_WORKSPACES_QUERY_KEY, subshellId]`; read via `useSubshellWorkspaces`.
+ * Unlike the list query, this one INCLUDES drafts (spec 2026-09-14 §2).
+ */
+export const SUBSHELL_WORKSPACES_QUERY_KEY = ["subshell-workspaces"] as const;
+
 /** The caller's node list (`GET /api/nodes`); read via `useNodes`. */
 export const NODES_QUERY_KEY = ["nodes"] as const;
 

@@ -41,14 +41,27 @@ export function useWorkspacePaneMutations(workspaceId: string) {
    * trying to reach, so it resolves quietly — the caller still closes or
    * re-selects its pane either way. A genuine failure (5xx, network) throws
    * so the caller can surface it instead of pretending the pane is gone.
+   *
+   * The server also reports whether removing this pane took the WORKSPACE
+   * with it: an unsaved (draft) workspace left with fewer than two panes is
+   * deleted, because a one-pane split is just the subshell it started from.
+   * The caller navigates to a remaining subshell instead of closing a tile.
+   * An already-gone pane answers `false` — there is no body to read, and a
+   * draft this client already emptied would have navigated away then.
    * @param paneId - The pane row to remove
+   * @returns Whether the workspace itself was deleted along with the pane
    */
   const removePane = useCallback(
-    async (paneId: string): Promise<void> => {
+    async (paneId: string): Promise<{ workspaceDeleted: boolean }> => {
       try {
-        await apiFetch(`/api/workspaces/${workspaceId}/panes/${paneId}`, { method: "DELETE" });
+        const res = await apiFetch<{ ok: boolean; workspaceDeleted?: boolean }>(
+          `/api/workspaces/${workspaceId}/panes/${paneId}`,
+          { method: "DELETE" },
+        );
+        return { workspaceDeleted: res.workspaceDeleted === true };
       } catch (err) {
         if (!isAlreadyGone(err)) throw err;
+        return { workspaceDeleted: false };
       }
     },
     [workspaceId],

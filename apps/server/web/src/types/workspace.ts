@@ -9,12 +9,27 @@ import type { SubshellStatus } from "@/types/subshell";
  */
 export type SplitDirection = "left" | "right" | "above" | "below" | "within";
 
+/**
+ * Every {@link SplitDirection}, for the code that has to validate one — the
+ * `dir` search param a split intent arrives in (`lib/workspace-split-intent.ts`)
+ * is a string until something checks it against this.
+ */
+export const SPLIT_DIRECTIONS: readonly SplitDirection[] = ["left", "right", "above", "below", "within"];
+
 /** A workspace as returned by the workspaces API. */
 export interface WorkspaceRow {
   /** Workspace id */
   id: string;
   /** Name, unique per user */
   name: string;
+  /**
+   * True for an UNSAVED workspace — one made by splitting a subshell, which
+   * exists on the server (so it is reload-safe and cross-device) but is
+   * excluded from `GET /api/workspaces`, and so from the workspaces page and
+   * the sidebar's recents. Saving it is `PUT /:id { name, draft: false }`; a
+   * saved workspace can never become a draft again.
+   */
+  draft: boolean;
   /** Saved dockview layout tree, or null when none has been saved yet */
   layout: unknown | null;
   /** Number of subshells (panes) the workspace currently holds */
