@@ -67,7 +67,7 @@ export function ConnectedScreen(props: {
     >
       {named && (
         <p className="text-center text-sm">
-          Enrolled as <span className="font-semibold">{named}</span>.
+          Enrolled as <span className="font-strong">{named}</span>.
         </p>
       )}
 

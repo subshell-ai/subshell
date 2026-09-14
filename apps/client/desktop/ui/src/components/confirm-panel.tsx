@@ -30,7 +30,7 @@ export function ConfirmPanel(props: {
     // ("Enroll this machine"), and both a screen reader and a test need to be
     // able to tell the two apart.
     <section aria-label={pending.title} className="mt-3.5 rounded-lg border border-warning bg-background px-3.5 py-3">
-      <p className="flex items-center gap-2 font-semibold text-warning text-xs">
+      <p className="flex items-center gap-2 font-strong text-warning text-xs">
         <TriangleAlert aria-hidden className="shrink-0" />
         {pending.title}
       </p>
