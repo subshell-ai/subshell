@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PluginIcon } from "@/components/plugin-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +43,7 @@ export function InstalledPluginsCard({
         {plugins.map((p) => (
           <div key={p.id} className="space-y-2 rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-3">
+              <PluginIcon pluginId={p.id} name={p.name} className="size-8" />
               <div className="min-w-0 flex-1">
                 <p className="font-strong">{p.name}</p>
                 <p className="text-muted-foreground text-xs">

@@ -61,7 +61,7 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
       // Every option gets a mark: `PluginIcon` draws the plugin's own when it
       // declares one and a monogram when it does not, so the labels in this
       // list stay vertically aligned either way.
-      opt.icon = <PluginIcon pluginId={p.id} name={p.name} icon={p.icon} />;
+      opt.icon = <PluginIcon pluginId={p.id} name={p.name} />;
       // Server-side refusals first (they hold no matter what the node says),
       // then the node's own verdict — the precedence is the frozen table's.
       if (!p.installed) {

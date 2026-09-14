@@ -6,22 +6,27 @@ export interface PluginIconProps {
   pluginId: string;
   /** The plugin's display name; its first character is the fallback monogram */
   name?: string;
-  /**
-   * The plugin's declared icon path, straight off the catalog row. Only its
-   * PRESENCE is read — the URL is derived from the id — so a plugin that
-   * declares none renders the monogram without a request that would 404.
-   */
-  icon?: string | undefined;
   className?: string;
 }
 
 /**
+ * Ids whose icon this page session already failed to fetch.
+ *
+ * Whether a plugin HAS an icon is a fact the route knows and no catalog row
+ * carries — `InstancePluginRow`, `HarnessInfo` and `NodeHarness` are three
+ * different shapes and giving each a presence flag would be three wire
+ * changes for a decoration. So this component simply asks, and remembers a
+ * miss so a second row (or a remount) does not ask again.
+ */
+const missing = new Set<string>();
+
+/**
  * A plugin's mark, or a monogram when it has none.
  *
- * The image is fetched from `/api/plugins/<id>/icon` rather than carried in
- * the catalog row: these are real files inside the plugin packages (a vendor's
- * own SVG, or a PNG), and a row that inlined them would put tens of kilobytes
- * of base64 into every list read.
+ * The image is fetched from `/api/plugins/<id>/icon` rather than carried in a
+ * catalog row: these are real files inside the plugin packages (a vendor's own
+ * SVG, or a PNG), and a row that inlined them would put tens of kilobytes of
+ * base64 into every list read.
  *
  * `<img>` and never inline SVG. The bytes are a third party's — a plugin is
  * installed by an admin, but "trusted to run in the control-plane process" is
@@ -29,14 +34,14 @@ export interface PluginIconProps {
  * cookie". An `<img>` is a non-scripting context, which is what makes an
  * unreviewed SVG safe to render at all.
  */
-export function PluginIcon({ pluginId, name, icon, className }: PluginIconProps) {
-  const [failed, setFailed] = useState(false);
+export function PluginIcon({ pluginId, name, className }: PluginIconProps) {
+  const [failed, setFailed] = useState(() => missing.has(pluginId));
   // A different plugin in the same slot must not inherit the previous one's
-  // failure — the picker reuses these rows as the selection changes.
-  useEffect(() => setFailed(false), []);
+  // verdict — the picker reuses these rows as the selection changes.
+  useEffect(() => setFailed(missing.has(pluginId)), [pluginId]);
 
   const box = cn("size-5 shrink-0 rounded-sm", className);
-  if (icon === undefined || failed) {
+  if (failed) {
     return (
       <span
         aria-hidden
@@ -55,7 +60,10 @@ export function PluginIcon({ pluginId, name, icon, className }: PluginIconProps)
       aria-hidden
       className={cn(box, "object-contain")}
       src={`/api/plugins/${encodeURIComponent(pluginId)}/icon`}
-      onError={() => setFailed(true)}
+      onError={() => {
+        missing.add(pluginId);
+        setFailed(true);
+      }}
     />
   );
 }

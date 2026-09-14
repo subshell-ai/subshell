@@ -146,7 +146,7 @@ function PresetsPage() {
                     preview renders the bare harness id — text matching would
                     collide. PageHeader carries the h1; these are the h2s. */}
                 <div className="flex items-center gap-2">
-                  <PluginIcon pluginId={harnessId} name={plugin?.name} icon={plugin?.icon} />
+                  <PluginIcon pluginId={harnessId} name={plugin?.name} />
                   <h2 className="font-strong text-sm">{plugin?.name ?? harnessId}</h2>
                 </div>
                 {rows.map((p) => (

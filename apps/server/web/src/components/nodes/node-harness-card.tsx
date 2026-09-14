@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
+import { PluginIcon } from "@/components/plugin-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,6 +112,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   name from the instance store's manifest (spec 2026-09-10
                   follow-ups), so the page needs no second registry read and a
                   registry-installed plugin is named exactly like a built-in. */}
+              <PluginIcon pluginId={h.harnessId} name={h.name} />
               <span className="min-w-0 flex-1 truncate font-strong">{h.name}</span>
               {/* The badge is the detection answer: whether the program this
                   plugin drives was found on this machine. `no-binary` reads
