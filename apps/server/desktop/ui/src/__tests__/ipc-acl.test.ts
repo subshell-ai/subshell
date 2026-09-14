@@ -15,13 +15,19 @@
  * - `main` shows the SERVER's own SPA. Unlike Subshell Client's remote window
  *   (which is granted NOTHING, because a control plane can live anywhere),
  *   this one shows the server THIS APP manages over loopback, so its origin is
- *   enumerable in `main.json`. It holds exactly FOUR commands, and the count
+ *   enumerable in `main.json`. It holds exactly FIVE commands, and the count
  *   is worth a test because "a few harmless ones" is how a boundary erodes —
- *   which is precisely what the fourth proves can happen: three of them
- *   cannot reach the CLI at all, and `desktop_set_supervision` can. That one is an
+ *   which is precisely what `desktop_set_supervision` proves can happen: four
+ *   of them cannot reach the CLI at all, and that one can. It is an
  *   argued exception (operator's call 2026-09-12, accounted in
- *   `docs/security.md`), not a precedent. A fifth needs the same argument
+ *   `docs/security.md`), not a precedent. A sixth needs the same argument
  *   made again, in writing, before this number moves.
+ *
+ *   The fifth, `desktop_open_in_browser`, is of the harmless kind and joined
+ *   the list on 2026-09-14: it takes a PATH, the Rust side refuses anything
+ *   that could name a host, and the origin is the window's own. It is pinned
+ *   by SIGNATURE below for the same reason the supervision one is — an
+ *   exception is only as narrow as its arguments.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -182,15 +188,16 @@ describe("the assistant's IPC contract", () => {
     for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
   });
 
-  it("keeps `main` to exactly its four commands — three harmless, one deliberate exception", () => {
+  it("keeps `main` to exactly its five commands — four harmless, one deliberate exception", () => {
     // Raise a window, drop this app's own title bar, display one fixed-shape
-    // notification — and switch who runs the server. That last one is the
+    // notification, open a page of this same server in the system browser —
+    // and switch who runs the server. That last one is the
     // ONE command here that touches the service, and it is here on purpose
     // (operator's call, 2026-09-12): the assistant window that carried it read
     // as a bug, and a page that already holds the admin restart route can do
     // worse than move the server between two supervisors. The accounting is
-    // in docs/security.md. Adding a FIFTH is the change this line exists to
-    // make loud; so is quietly widening this one.
+    // in docs/security.md. Adding a SIXTH is the change this line exists to
+    // make loud; so is quietly widening any of these.
     //
     // `desktop_open_assistant` is the deep link the SPA sends from three
     // places — the Settings danger card (`{ screen: "reset" }`), the Service
@@ -205,6 +212,7 @@ describe("the assistant's IPC contract", () => {
     expect(appCommands.sort()).toEqual([
       "desktop_notify",
       "desktop_open_assistant",
+      "desktop_open_in_browser",
       "desktop_set_supervision",
       "desktop_shell_ready",
     ]);
@@ -258,6 +266,29 @@ describe("the assistant's IPC contract", () => {
     expect(params).toContain("mode: String");
     expect(params).toContain("autostart: bool");
     expect(params).toContain("force: bool");
+  });
+
+  it("keeps the browser command to a PATH, so the page names no host", () => {
+    // The only string argument the served SPA sends, and the whole safety of
+    // the command is what it CANNOT be. One parameter, `path`, joined onto the
+    // origin this window is already on. A second string parameter — an origin,
+    // a base URL, a host — would make the page able to name where the system
+    // browser goes, which is a different command with the same name, and no
+    // ACL assertion in this file would see it.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn desktop_open_in_browser("));
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    const names = params
+      .split(",")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(":")[0]?.trim());
+    expect(names).toEqual(["app", "path"]);
+    expect(params).toContain("path: String");
+    // And the refusals are the SHARED ones, not a second copy written here:
+    // `crates/desktop-core` holds the join and its tests, so the two apps
+    // cannot disagree about what a path is.
+    expect(rust).toContain("subshell_desktop_core::browser::browser_url");
   });
 
   it("keeps the assistant's dialog surface to open alone", () => {

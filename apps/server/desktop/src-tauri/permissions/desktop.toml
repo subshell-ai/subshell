@@ -13,11 +13,12 @@
 # update and reset all live there. `main` shows the SERVER's own SPA, over
 # loopback only.
 #
-# `main` holds FOUR commands, and the fourth is an exception with a name:
+# `main` holds FIVE commands, and one of them is an exception with a name:
 # `desktop_set_supervision` DOES drive the CLI. Everything else granted there
 # cannot touch the CLI, the config, the service or the filesystem — show an
 # existing window, drop this app's title bar, show one fixed-shape
-# notification, raise the assistant at a named screen. The exception was the
+# notification, raise the assistant at a named screen, and open a page of THIS
+# server in the system browser. The exception was the
 # operator's call on 2026-09-12: the act needs something that outlives the
 # server, so it cannot be an HTTP route, and routing it through a window that
 # popped up to ask one question read as a bug rather than as a safeguard. The
@@ -25,6 +26,14 @@
 # reach — is in `docs/security.md`; the concurrency refusal that keeps a
 # hundred concurrent calls from interleaving a half-uninstall is
 # `ActionGuard::try_new`. See `capabilities/main.json`.
+#
+# The FIFTH, `desktop_open_in_browser`, is the harmless kind, and the reason it
+# is harmless is its argument rather than its name: it takes a PATH, refuses
+# anything that could be a host (`subshell_desktop_core::browser`), and joins
+# it onto the window's own loopback origin. So the worst it does is open a page
+# of the very server the page is already running in, in the person's own
+# browser — something they can do by typing the address. It touches no CLI, no
+# config, no service and no file.
 
 "$schema" = "schemas/schema.json"
 
@@ -117,6 +126,11 @@ commands.allow = ["desktop_about"]
 identifier = "allow-desktop-open-web"
 description = "Open ONE of three fixed pages in the system browser: the product's site, the repository's LICENSE, or the copyright holder's site. A closed enum, never a URL, so the page names which of the three and this side decides what it is."
 commands.allow = ["desktop_open_web"]
+
+[[permission]]
+identifier = "allow-desktop-open-in-browser"
+description = "Open one page of THIS server in the system browser. Takes a PATH and nothing else — no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters (crates/desktop-core's browser::browser_url) — and joins it onto the origin this window is already on, so the page names the route and this side names the host. Granted to the served SPA because a webview has no second tab and no address bar, and to the assistant's tray/menu route in Rust, which needs no grant at all."
+commands.allow = ["desktop_open_in_browser"]
 
 [[permission]]
 identifier = "allow-desktop-set-supervision"

@@ -112,6 +112,21 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &item(DesktopAction::GoNodes, "Nodes", Some("CmdOrCtrl+3"))?,
             &item(DesktopAction::GoSettings, "Server Settings", Some("CmdOrCtrl+4"))?,
             &PredefinedMenuItem::separator(app)?,
+            // NOT a `DesktopAction`, and that is the whole reason it is built
+            // with a bare id here. Those are ROUTER-level operations the page
+            // performs, dispatched into it by `eval`; this one launches another
+            // program and works with no page at all — so it is routed the way
+            // the zoom items are, in Rust, before the action dispatch is
+            // reached. It also must not need a window: the fallback path is
+            // `/` and the fallback origin is a fresh probe's.
+            &MenuItem::with_id(
+                app,
+                crate::control::MENU_BROWSER_ID,
+                "Open in Browser",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(app)?,
             // Text size, on the accelerators every other app on this platform
             // uses for it. `=` rather than a `Plus` key: the accelerator names
             // a physical key, and ⌘+ is that key with Shift — which is why
@@ -139,6 +154,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
 /// Route a menu selection.
 pub fn on_event(app: &AppHandle, id: &str) {
+    // Before the action dispatch, because that dispatch OPENS A WINDOW when
+    // none is on screen — and "open this page in a browser" on a machine whose
+    // server is down must not be the thing that launches the assistant. The
+    // same rule `zoom::handle` follows, one level up in `lib.rs`.
+    if id == crate::control::MENU_BROWSER_ID {
+        crate::control::open_current_in_browser(app);
+        return;
+    }
     if let Some(action) = DesktopAction::from_id(id) {
         // A menu item that needs the page is a no-op without it; open the
         // window first so ⌘1 from a cold start does something. `open_home`

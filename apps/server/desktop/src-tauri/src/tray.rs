@@ -68,6 +68,14 @@ use subshell_desktop_core::tray::tray_support;
 /// whether it could be pressed needed the probe that now happens when it is.
 pub struct KeepItem(CheckMenuItem<Wry>);
 
+/// The tray's "Open in Browser" id.
+///
+/// Distinct from the menu bar's (`menu.rs`) ON PURPOSE, and the reason is the
+/// one this module's `on_menu` already documents for the zoom items: a Tauri
+/// menu event is GLOBAL, so an id handled here AND in `lib.rs`'s app-level
+/// handler fires twice — which for this item means two browser tabs per click.
+const BROWSER_ID: &str = "tray:browser";
+
 /// Build the tray icon. Failure is not fatal — an app without a tray still works.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // Always enabled: `open_home` answers for both states of the machine, so
@@ -75,6 +83,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // item disabled until the first probe was the one thing on a broken
     // machine's tray that could not be pressed.
     let open = MenuItem::with_id(app, "tray:open", "Open Subshell Server", true, None::<&str>)?;
+    // Directly under it, because it is the same destination through a
+    // different door: this window's page, in the browser the person keeps
+    // their profiles and passwords in. Always enabled for the same reason
+    // "Open Subshell Server" is — the Rust side falls back to `/` and to a
+    // fresh probe's origin, so there is no state in which this needs a probe
+    // to know whether it can be pressed.
+    let browser = MenuItem::with_id(app, BROWSER_ID, "Open in Browser", true, None::<&str>)?;
     // The two names for one idea, each the one that platform's users read.
     let keep_label = if cfg!(target_os = "macos") {
         "Keep Running in Menu Bar"
@@ -96,6 +111,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         app,
         &[
             &open,
+            &browser,
             &PredefinedMenuItem::separator(app)?,
             &text_size,
             &PredefinedMenuItem::separator(app)?,
@@ -174,6 +190,10 @@ fn on_menu(app: &AppHandle, id: &str) {
         "tray:open" => {
             let _ = crate::control::open_home(app);
         }
+        // Rust-side, with no page involved: the act is launching another
+        // program, and it works whether or not a window exists. `control`
+        // reads the dashboard's own url for the path when there is one.
+        BROWSER_ID => crate::control::open_current_in_browser(app),
         "tray:keep" => set_close_to_tray(app),
         // The TEXT SIZE items are deliberately absent. A menu event in Tauri
         // is global — the app-level handler in `lib.rs` sees this menu's items
@@ -210,4 +230,22 @@ fn set_close_to_tray(app: &AppHandle) {
         return;
     }
     let _ = app.state::<SettingsState>().update(|s| s.close_to_tray = on);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tray's browser id is namespaced, and is NOT the menu bar's.
+    ///
+    /// A Tauri menu event is global: this menu's handler sees the menu bar's
+    /// items and the app-level handler sees this menu's. Two items sharing an
+    /// id therefore both fire on one click — which for the zoom ladder was
+    /// measured as two steps per press, and for this item is two browser tabs.
+    #[test]
+    fn the_browser_id_is_this_menus_own() {
+        assert!(BROWSER_ID.starts_with("tray:"));
+        assert_ne!(BROWSER_ID, crate::control::MENU_BROWSER_ID);
+        assert_ne!(BROWSER_ID, crate::zoom::IN_ID);
+    }
 }

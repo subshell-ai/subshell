@@ -2159,6 +2159,91 @@ pub fn desktop_open_tmux_docs(app: AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not open {TMUX_DOCS_URL}: {e}"))
 }
 
+/// The origin "Open in browser" opens, for whatever route is named.
+///
+/// The `main` window's OWN url first, because that is the server the person is
+/// actually looking at — a port changed from the Service page moves it, and
+/// `watch.rs` re-points the window rather than re-creating it. A fresh probe is
+/// the fallback for the window not existing yet (the tray item on a machine
+/// sitting on the assistant), and it answers the same loopback origin
+/// `open_main_now` would open.
+///
+/// Either way the origin is THIS SIDE's: nothing a page sends reaches it.
+fn browser_origin(app: &AppHandle) -> Option<String> {
+    if let Some(url) = app.get_webview_window("main").and_then(|w| w.url().ok()) {
+        return Some(url.origin().ascii_serialization());
+    }
+    let settings = app.state::<SettingsState>();
+    probe_now(settings.get().binary_path.as_deref(), settings.get().supervision).origin()
+}
+
+/// Open a page of THIS server in the system browser.
+///
+/// The one command granted to the served SPA that takes a string, and the
+/// string is a PATH: `subshell_desktop_core::browser::browser_url` refuses
+/// anything that could name a host, and the origin comes from
+/// [`browser_origin`]. So the widest thing an XSS in the SPA gains here is
+/// opening a page of the very server it is already running in, in the person's
+/// own browser — which they can do by typing the address.
+///
+/// Two things a person will notice, and neither is a bug this command should
+/// paper over: the browser carries no session cookie from the webview, so they
+/// sign in again; and this app's window is pinned to LOOPBACK, so the address
+/// that opens is the loopback one — where a passkey works only if
+/// `APP_BASE_URL` is loopback too.
+#[tauri::command(async)]
+pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), String> {
+    let origin = browser_origin(&app).ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
+    let url = subshell_desktop_core::browser::browser_url(&origin, &path)?;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("could not open {url}: {e}"))
+}
+
+/// The path "Open in Browser" opens from the tray or the View menu.
+///
+/// The CURRENT route when a window is showing one, so the menu item and the
+/// SPA's own row do the same thing; `/` when there is no window (or its url
+/// cannot be read), because the app still has a sensible page to offer and a
+/// disabled menu item would need a probe to know it should be.
+///
+/// Rust-side, deliberately: this is not a `DesktopAction`. Those are
+/// ROUTER-level operations the page performs, and they need a page — here the
+/// act is opening another program, which works with no window at all.
+fn current_path(app: &AppHandle) -> String {
+    let Some(url) = app.get_webview_window("main").and_then(|w| w.url().ok()) else {
+        return "/".to_string();
+    };
+    let mut path = url.path().to_string();
+    if let Some(query) = url.query() {
+        path.push('?');
+        path.push_str(query);
+    }
+    path
+}
+
+/// The MENU BAR's "Open in Browser" id.
+///
+/// It lives here rather than in `menu.rs` because `mod menu` is macOS-only and
+/// `tray.rs` — which is not — has to assert the two ids DIFFER: a Tauri menu
+/// event is global, so one id in both menus fires twice per click. A constant
+/// behind a `#[cfg]` cannot be named from a test that compiles on Linux, which
+/// is the cfg-stripping hazard both desktop `AGENTS.md` files warn about.
+pub const MENU_BROWSER_ID: &str = "menu:browser";
+
+/// Open whatever the dashboard is showing in the system browser.
+///
+/// The tray's and the menu bar's entry point. Failure is reported on stderr
+/// and nowhere else: a menu item has no place to render an error, and the two
+/// ways this fails (no server address yet, no browser) are both states the
+/// person can see for themselves.
+pub fn open_current_in_browser(app: &AppHandle) {
+    let path = current_path(app);
+    if let Err(err) = desktop_open_in_browser(app.clone(), path) {
+        eprintln!("subshell: could not open this page in a browser: {err}");
+    }
+}
+
 /// Show a native notification, and focus the app when it is clicked.
 ///
 /// A dedicated command rather than granting the server-origin page the whole
@@ -2708,15 +2793,21 @@ mod tests {
     /// to catch is a command added to it by habit — a test that only forbade
     /// today's names would not see tomorrow's.
     ///
-    /// Four of the five cannot touch the CLI. The fifth,
+    /// Five of the six cannot touch the CLI. The last,
     /// `desktop_set_supervision`, can — it is the ONE deliberate exception
     /// (operator's call, 2026-09-12): the dashboard confirms in its own dialog
     /// rather than raising the assistant, on the argument that a page already
     /// holding the admin restart route can do worse than choose the server's
-    /// respawner. `docs/security.md` carries the accounting. A SIXTH entry, or
-    /// a wider fifth, is what this pin exists to make loud.
+    /// respawner. `docs/security.md` carries the accounting. A SEVENTH entry,
+    /// or a wider one of these, is what this pin exists to make loud.
+    ///
+    /// `allow-desktop-open-in-browser` (2026-09-14) is of the harmless kind,
+    /// and its harmlessness is in its ARGUMENT rather than its name: a path,
+    /// refused by `subshell_desktop_core::browser` if it could name a host, and
+    /// joined onto this window's own loopback origin. Its signature is pinned
+    /// separately, by `ui/src/__tests__/ipc-acl.test.ts`.
     #[test]
-    fn the_remote_window_is_granted_four_harmless_commands_and_one_deliberate_exception() {
+    fn the_remote_window_is_granted_five_harmless_commands_and_one_deliberate_exception() {
         assert_eq!(
             grants("main"),
             vec![
@@ -2724,6 +2815,7 @@ mod tests {
                 "allow-desktop-open-assistant",
                 "allow-desktop-shell-ready",
                 "allow-desktop-notify",
+                "allow-desktop-open-in-browser",
                 "allow-desktop-set-supervision",
             ]
         );
