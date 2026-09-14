@@ -9,6 +9,7 @@ import {
   DEFAULT_SUPERVISION,
   dots,
   failureLine,
+  handoffView,
   isRequestedScreen,
   MIN_AUTOSTART_SERVER_VERSION,
   prereqState,
@@ -476,5 +477,34 @@ describe("MIN_AUTOSTART_SERVER_VERSION", () => {
       verdict = (min[i] ?? 0) - (server[i] ?? 0);
     }
     expect(verdict).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("handoffView", () => {
+  // The report (2026-09-14): on a machine that already had everything, step 3
+  // finished so fast that the checklist flashed past and the account form was
+  // simply there. A run you watched must end on a screen you dismiss.
+  it("waits for a press after a chain that ran in this window", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: false });
+    expect(view.wait).toBe(true);
+    expect(view.title).toBe("Subshell Server Is Ready");
+    expect(view.subtitle).toMatch(/create your account/i);
+  });
+
+  it("opens the dashboard once they continue", () => {
+    expect(handoffView({ onboarded: true, ranSetupHere: true, continued: true }).wait).toBe(false);
+  });
+
+  // `onboarded` cannot stand in for `ranSetupHere`: the probe sets it on the
+  // first `ready` it sees, which is the same probe that reaches this screen.
+  it("still hands off instantly when this window ran nothing", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
+    expect(view.wait).toBe(false);
+    expect(view.title).toBe("Your Server Is Running");
+    expect(view.subtitle).toBe("Opening your dashboard…");
+  });
+
+  it("keeps the first-run wording for a machine that never onboarded", () => {
+    expect(handoffView({ onboarded: false, ranSetupHere: false, continued: false }).title).toBe("Setting Up Subshell…");
   });
 });

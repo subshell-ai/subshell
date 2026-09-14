@@ -44,6 +44,7 @@ import {
   DEFAULT_SUPERVISION,
   dots,
   failureLine,
+  handoffView,
   isRequestedScreen,
   MIN_AUTOSTART_SERVER_VERSION,
   prereqState,
@@ -114,6 +115,15 @@ let lastTail: LogTail | null = null;
 let detailsOpen = false;
 /** True while the ready handoff is on screen, so its entrance replays once. */
 let handedOff = false;
+/**
+ * The setup chain ran to completion in THIS window, so the ready screen owes
+ * the person its result rather than vanishing into the dashboard. Page state
+ * on purpose: `probe.onboarded` cannot answer it, since the probe sets that
+ * flag on the very first `ready` it sees.
+ */
+let ranSetupHere = false;
+/** They pressed Continue on that screen. */
+let continued = false;
 /**
  * Who made this app, its version and its terms — read ONCE and kept.
  *
@@ -566,8 +576,26 @@ function renderHandoff(p: Probe): void {
     );
     return;
   }
-  setFrame("none", p.onboarded ? "Your Server Is Running" : "Setting Up Subshell…", "Opening your dashboard…");
-  openWhenReady();
+  const view = handoffView({ onboarded: p.onboarded, ranSetupHere, continued });
+  setFrame("none", view.title, view.subtitle);
+  if (!view.wait) {
+    openWhenReady();
+    return;
+  }
+  // The checklist stays on screen, every row ticked. It is the answer to
+  // "what did that just do", and on a machine that already had everything it
+  // is the only chance to read it.
+  el("content").append(checklist(p, "active"));
+  el("bar-right").append(
+    button(
+      "Continue",
+      () => {
+        continued = true;
+        render();
+      },
+      "primary",
+    ),
+  );
 }
 
 /**
@@ -1149,6 +1177,11 @@ async function startSetup(): Promise<void> {
   } catch (err) {
     problem = errText(err);
   } finally {
+    // A chain that ran here earns the ready screen a button (see
+    // `handoffView`). Recorded even when the settle loop timed out: the
+    // person still pressed Set Up and still deserves to be shown where it got
+    // to, rather than the window deciding on their behalf.
+    if (result?.ok) ranSetupHere = true;
     // CLEARED LAST, after the settle loop — not the moment `setup` returns.
     // `running` is what holds the progress screen up, and `renderSetup` falls
     // back to the CONFIG screen without it. Clearing it early left up to

@@ -427,3 +427,52 @@ export function failureLine(result: ActionResult): string {
       .at(-1);
   return last(result.stderr) ?? last(result.stdout) ?? "Setup stopped.";
 }
+
+/** What the ready screen shows, and whether it waits for a press. */
+export interface HandoffView {
+  /** true = hold this screen until the person continues; false = open the dashboard now */
+  wait: boolean;
+  title: string;
+  subtitle: string;
+}
+
+/**
+ * Whether the last screen hands off by itself, or waits to be dismissed.
+ *
+ * It always opened the dashboard the moment the probe said `ready`, and on a
+ * machine that already had everything the setup chain finishes in well under a
+ * second — so the checklist the person pressed Set Up to watch appeared and
+ * vanished, and the next thing on screen was an account form. Nothing had gone
+ * wrong, which is the problem: a flow that skips its own result teaches you
+ * that the result was not worth reading (operator report, 2026-09-14).
+ *
+ * So a run STARTED HERE ends on a screen with a button. `ranSetupHere` is page
+ * state rather than a probe fact — `onboarded` cannot answer this, because the
+ * probe sets it the first time it sees `ready`, which is the same probe that
+ * lands on this screen.
+ *
+ * Everything else still hands off instantly, and that is the point of the
+ * split: an assistant that opens onto an already-running server, or one whose
+ * recovery brought it back, has nothing to report and should get out of the
+ * way. Only the person who just watched a chain run is owed its result.
+ * @param opts.onboarded - Whether this machine had completed setup before
+ * @param opts.ranSetupHere - The setup chain completed in THIS window
+ * @param opts.continued - They pressed Continue on the waiting screen
+ */
+export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; continued: boolean }): HandoffView {
+  if (opts.ranSetupHere && !opts.continued) {
+    return {
+      wait: true,
+      title: "Subshell Server Is Ready",
+      subtitle: "Everything below is set up and running. Next, create your account.",
+    };
+  }
+  return {
+    wait: false,
+    // A first run is finishing; an onboarded machine whose server just came
+    // back was never setting anything up, and saying so would be the app
+    // narrating its own state machine.
+    title: opts.onboarded ? "Your Server Is Running" : "Setting Up Subshell…",
+    subtitle: "Opening your dashboard…",
+  };
+}
