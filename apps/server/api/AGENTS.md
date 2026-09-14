@@ -173,6 +173,14 @@ handlers) reaches the same graph via `getRequestlessContext()`
 (`src/lib/context.ts`) — a singleton context whose log is the app logger
 (no request id).
 
+**Workspaces have a draft state** (spec 2026-09-14): `workspaces.draft` is 0/1 and
+the per-user unique name index is PARTIAL (`WHERE draft = 0`), so an unsaved
+workspace created by splitting a subshell may share a name freely. `GET /` hides
+drafts; `?subshellId=` is the one read that returns them. `PUT /:id { draft: false }`
+is the only transition, and removing a pane from a draft left with fewer than two
+deletes the draft (`workspaceDeleted: true`). Migration `0029`'s `down` DELETES
+drafts rather than renaming them — the pre-0029 schema cannot express one.
+
 The pane's size with SEVERAL viewers attached is not decided here: the rule is
 `shared-geometry.ts` in `@internal/subshell-protocol`, because the browser has
 to EXPLAIN the same decision the server APPLIES. It picks the smallest

@@ -283,6 +283,37 @@ end-to-end coverage lives in the repo-root `e2e/` workspace (Playwright) —
 `bun run test:e2e` from the repo root boots its own backend and needs a real
 tmux + a one-time `bunx playwright install chromium`.
 
+## Drafts and the split flow (spec 2026-09-14)
+
+A workspace can begin on a subshell page: **Split** (`components/split-subshell-button.tsx`)
+opens the same add-subshell dialog the dock uses, creates a DRAFT workspace
+around the current subshell (`POST /api/workspaces { draft: true, subshellId }`)
+and navigates to `/workspaces/$id?add=<subshellId>&dir=<direction>`. The dock
+and the tab strip consume that intent once dockview is ready, through their
+ordinary `handleAdd`, then strip the params — so the first split and every later
+add run one code path, and the picker's direction is honoured.
+
+Three rules keep a draft honest, and each is load-bearing:
+
+- **Drafts are absent from `GET /api/workspaces`**, so `/workspaces`, the
+  sidebar recents and the cards need no draft awareness. The only read that
+  returns them is `?subshellId=`, which feeds the subshell page's "Open unsaved
+  workspace" link (`components/subshell-workspace-link.tsx`).
+- **A draft below two panes is discarded** — server-side when a pane is removed
+  (`removePane` resolves `{ workspaceDeleted }`), and client-side on read by
+  `hooks/use-discard-thin-draft.ts`, which sends the person back to the
+  remaining subshell. That hook is GUARDED by the `?add=` intent: a freshly
+  created draft is one pane for as long as its second pane is in flight, and the
+  presentations strip the params only after the refetch shows both. Break that
+  ordering and every split discards itself.
+- **`useInvalidateWorkspaces` also invalidates the per-subshell membership
+  query**, so a link to a draft never outlives the draft.
+
+`WorkspaceHeader` renders a draft with a static "Unsaved workspace" title plus
+**Save workspace…** (`PUT /:id { name, draft: false }` — the one transition) and
+**Discard**; the presentation supplies `onDiscarded` so a discard lands on the
+active pane's subshell. Copy says "unsaved workspace"; code says `draft`.
+
 ## Terminal gotchas
 
 Workspace panes hold live xterm.js terminals inside dockview panels. A dockview
