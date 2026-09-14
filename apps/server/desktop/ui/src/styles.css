@@ -13,17 +13,46 @@
  * native screens and the SPA's screens do not visibly change palette at the
  * handoff between them.
  */
-@theme {
-  --color-bg: oklch(0.224 0.035 296);
-  --color-card: oklch(0.264 0.038 298);
-  --color-line: oklch(0.34 0.04 300);
-  --color-fg: oklch(0.92 0.03 312);
-  --color-muted: oklch(0.74 0.04 310);
-  --color-primary: oklch(0.75 0.17 322);
-  --color-primary-fg: oklch(0.18 0.04 300);
-  --color-ok: oklch(0.74 0.14 155);
-  --color-warn: oklch(0.8 0.14 80);
-  --color-bad: oklch(0.68 0.19 20);
+:root {
+  /* Dreamframe (spec 2026-09-03), under the shadcn names every surface uses
+     (spec 2026-09-14 § 3.2) — so a rule here reads the same as one in the
+     SPA, and `lint:design` can compare the three files by name. Values are
+     unchanged. */
+  --background: oklch(0.224 0.035 296);
+  --card: oklch(0.264 0.038 298);
+  --border: oklch(0.34 0.04 300);
+  --foreground: oklch(0.92 0.03 312);
+  --muted-foreground: oklch(0.74 0.04 310);
+  --primary: oklch(0.75 0.17 322);
+  --primary-foreground: oklch(0.18 0.04 300);
+  --success: oklch(0.74 0.14 155);
+  --warning: oklch(0.8 0.14 80);
+  --destructive: oklch(0.68 0.19 20);
+  /* The primary button's "sunk plum" gradient (Dreamframe: quiet at the
+     component, bright at the token). Named here because `lint:design`
+     refuses colour literals outside a token block, and a gradient IS a
+     design decision, not a one-off. */
+  --button-primary-from: oklch(0.34 0.1 322);
+  --button-primary-to: oklch(0.4 0.1 340);
+  --button-primary-hover-from: oklch(0.4 0.11 322);
+  --button-primary-hover-to: oklch(0.46 0.11 340);
+  --button-primary-foreground: oklch(0.9 0.05 320);
+  /* Type roles (spec § 3.1, web column). Plain custom properties — this page
+     has no Tailwind — consumed as `font-size: var(--text-label)`. Two weights. */
+  --text-display: 30px;
+  --text-display--line-height: 1.2;
+  --text-heading: 20px;
+  --text-heading--line-height: 1.2;
+  --text-label: 15px;
+  --text-label--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-detail: 13px;
+  --text-detail--line-height: 1.5;
+  --text-caption: 12px;
+  --text-caption--line-height: 1.5;
+  --font-weight-strong: 600;
+  --font-weight-regular: 400;
   --default-font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
 }
 
@@ -37,8 +66,8 @@
   body {
     margin: 0;
     padding: 0;
-    background: var(--color-bg);
-    color: var(--color-fg);
+    background: var(--background);
+    color: var(--foreground);
     font-size: 15px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
@@ -48,14 +77,14 @@
      and the variants (.primary, .ghost, .linkish) below carry only their deltas. */
   button {
     border-radius: 7px;
-    border: 1px solid var(--color-line);
+    border: 1px solid var(--border);
     background: transparent;
-    color: var(--color-fg);
+    color: var(--foreground);
     padding: 6px 12px;
     cursor: pointer;
   }
   button:hover:not(:disabled) {
-    border-color: var(--color-primary);
+    border-color: var(--primary);
   }
   button:disabled {
     opacity: 0.45;
@@ -65,9 +94,9 @@
     width: 100%;
     padding: 6px 9px;
     border-radius: 7px;
-    border: 1px solid var(--color-line);
-    background: var(--color-bg);
-    color: var(--color-fg);
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
   }
   /* A form field's label is a line item: the short string you scan for, with
      the explanation under or beside it. It sat at 14px muted while the
@@ -79,7 +108,7 @@
     display: block;
     font-size: 15px;
     font-weight: 600;
-    color: var(--color-fg);
+    color: var(--foreground);
     margin-bottom: 5px;
   }
 }
@@ -91,13 +120,13 @@
      quieter than --color-primary (which stays bright for the dots/glyphs).
      It cannot ride a theme token, so it is a fixed string on both sides. */
   .primary {
-    background: linear-gradient(135deg, oklch(0.34 0.1 322), oklch(0.4 0.1 340));
-    color: oklch(0.9 0.05 320);
+    background: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
+    color: var(--button-primary-foreground);
     border-color: transparent;
     font-weight: 600;
   }
   .primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, oklch(0.4 0.11 322), oklch(0.46 0.11 340));
+    background: linear-gradient(135deg, var(--button-primary-hover-from), var(--button-primary-hover-to));
     border-color: transparent;
   }
   /* A facts list reads as a table, not a stack. The label column is a FIXED
@@ -112,7 +141,7 @@
     font-size: 13.5px;
   }
   .facts dt {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
   .facts dd {
     margin: 0;
@@ -127,11 +156,11 @@
      path above it. */
   .facts .fact-sub {
     flex-basis: 100%;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-size: 12.5px;
   }
   .hint {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-size: 14px;
     margin-top: 8px;
   }
@@ -158,14 +187,14 @@
     text-align: center;
   }
   .warn-text {
-    color: var(--color-warn);
+    color: var(--warning);
   }
   .bad-text {
-    color: var(--color-bad);
+    color: var(--destructive);
   }
   /* A pane showing why it is empty rather than log lines. */
   .muted-text {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
   /* The log / command-output boxes. Colours and metrics together in a
      component (not utilities) because `.output-bad` must override the border
@@ -174,8 +203,8 @@
   .pane-pre {
     margin: 10px 0 0;
     padding: 10px 12px;
-    background: var(--color-bg);
-    border: 1px solid var(--color-line);
+    background: var(--background);
+    border: 1px solid var(--border);
     border-radius: 8px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13.5px;
@@ -202,12 +231,12 @@
      reached and the disclosure bought nothing. */
   .danger {
     margin-top: 10px;
-    border-color: var(--color-bad);
-    color: var(--color-bad);
+    border-color: var(--destructive);
+    color: var(--destructive);
   }
   .danger:hover:not(:disabled) {
-    border-color: var(--color-bad);
-    background: color-mix(in oklch, var(--color-bad) 12%, transparent);
+    border-color: var(--destructive);
+    background: color-mix(in oklch, var(--destructive) 12%, transparent);
   }
   /* ===================================================================
      The console shell (spec 2026-09-11 § 2.1): a 200px sidebar, a content
@@ -232,7 +261,7 @@
     flex-direction: column;
     gap: 12px;
     padding: 20px 12px 14px;
-    border-right: 1px solid var(--color-line);
+    border-right: 1px solid var(--border);
     overflow: hidden;
   }
   .sidebar-mark {
@@ -257,17 +286,17 @@
     padding: 7px 10px;
     font-size: 14px;
     text-align: left;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     border-color: transparent;
   }
   .nav-item:hover:not(:disabled) {
-    color: var(--color-fg);
+    color: var(--foreground);
     border-color: transparent;
-    background: color-mix(in oklch, var(--color-card) 60%, transparent);
+    background: color-mix(in oklch, var(--card) 60%, transparent);
   }
   .nav-item.current {
-    color: var(--color-fg);
-    background: var(--color-card);
+    color: var(--foreground);
+    background: var(--card);
     border-color: transparent;
   }
   /* Only Overview has one, and it mirrors the hero's state colour — so the
@@ -293,20 +322,20 @@
     padding: 7px 10px;
     font-size: 14px;
     text-align: left;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     border-color: transparent;
   }
   .nav-group:hover:not(:disabled) {
-    color: var(--color-fg);
+    color: var(--foreground);
     border-color: transparent;
-    background: color-mix(in oklch, var(--color-card) 60%, transparent);
+    background: color-mix(in oklch, var(--card) 60%, transparent);
   }
   /* Shut over the section you are on, the header is the ONLY thing left that
      can say where you are — the current row is inside the container it just
      hid. Lit text rather than the filled `current` background, because the
      header is still not a page: it says "in here", not "here". */
   .nav-group.holds-current {
-    color: var(--color-fg);
+    color: var(--foreground);
   }
   /* Drawn from a rotated border rather than an asset: the console's CSP is
      `script-src 'self'` with no inlined data assets by build rule, and a
@@ -340,7 +369,7 @@
     gap: 2px;
     padding-left: 14px;
     margin-left: 10px;
-    border-left: 1px solid var(--color-line);
+    border-left: 1px solid var(--border);
   }
   .nav-group-children[hidden] {
     display: none;
@@ -351,7 +380,7 @@
   .sidebar-version {
     margin: auto 0 0 10px;
     font-size: 12px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
   /* `min-width: 0` is load-bearing, not defensive. A grid item's automatic
      minimum size is its MIN-CONTENT width, so one long unbreakable line — a
@@ -394,7 +423,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
   .section-title {
     margin: 0 0 4px;
@@ -405,7 +434,7 @@
   .section-lead {
     margin: 0 0 10px;
     font-size: 14.5px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     max-width: 62ch;
   }
   /* A group inside a section: a heading rather than a card, because the ground
@@ -417,7 +446,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
 
   /* The hero: the three things a person opens this window for. */
@@ -445,7 +474,7 @@
   .hero-sub {
     margin: 2px 0 0;
     font-size: 15px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
@@ -456,7 +485,7 @@
     display: none;
   }
   #hero-url span {
-    color: var(--color-fg);
+    color: var(--foreground);
   }
 
   /* The step: a sentence and its buttons, on the ground rather than in a card.
@@ -526,7 +555,7 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
   .reset-step .mark {
     display: inline-block;
@@ -535,14 +564,14 @@
     text-align: center;
   }
   .reset-step.step-running {
-    color: var(--color-fg);
+    color: var(--foreground);
   }
   .reset-step.step-done .mark {
-    color: var(--color-ok);
+    color: var(--success);
   }
   .reset-step.step-failed,
   .reset-step.step-failed .mark {
-    color: var(--color-bad);
+    color: var(--destructive);
   }
   .reset-step .mark.spin::after {
     content: "";
@@ -596,7 +625,7 @@
     margin-bottom: 28px;
     display: grid;
     place-items: center;
-    color: color-mix(in oklch, var(--color-primary) 55%, transparent);
+    color: color-mix(in oklch, var(--primary) 55%, transparent);
   }
   /* Only Welcome has art now. Every other screen leaves #art empty, and an
      empty box must take NO room — the floor and its margin are 124px, which
@@ -620,7 +649,7 @@
     margin: 8px 0 0;
     max-width: 560px;
     text-align: center;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-size: 15px;
     line-height: 1.55;
   }
@@ -629,7 +658,7 @@
   }
   .assistant-problem {
     margin: 12px 0 0;
-    color: var(--color-warn);
+    color: var(--warning);
     font-size: 14px;
   }
   .assistant-problem:empty {
@@ -648,7 +677,7 @@
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     padding: 0 32px;
-    border-top: 1px solid var(--color-line);
+    border-top: 1px solid var(--border);
   }
   .assistant-bar-left {
     display: flex;
@@ -661,7 +690,7 @@
     align-items: center;
   }
   .assistant-bar-right .reason {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-size: 13px;
   }
   .assistant-bar button.primary {
@@ -673,17 +702,17 @@
   .ghost {
     border-color: transparent;
     background: transparent;
-    color: var(--color-fg);
+    color: var(--foreground);
   }
   .ghost:hover:not(:disabled) {
-    color: var(--color-fg);
+    color: var(--foreground);
     border-color: transparent;
-    background: var(--color-card);
+    background: var(--card);
   }
   .linkish {
     border: none;
     background: none;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     padding: 4px 0;
     font-size: 14px;
   }
@@ -691,11 +720,11 @@
      same colour. `.linkish` stays muted and 14px everywhere else, where a
      secondary action should recede. */
   .linkish.plain {
-    color: var(--color-fg);
+    color: var(--foreground);
     font-size: 15px;
   }
   .linkish:hover:not(:disabled) {
-    color: var(--color-fg);
+    color: var(--foreground);
     border: none;
   }
   /* About is a title page, so it is the one section that centres. Everything
@@ -726,7 +755,7 @@
   .about-version {
     margin: 5px 0 0;
     font-size: 13.5px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
   /* Wide enough to hold the sentence on one line at the default window, and
      `balance` so the two lines it becomes at the 720px minimum are even rather
@@ -736,7 +765,7 @@
     margin: 16px 0 0;
     max-width: 68ch;
     font-size: 14.5px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     text-wrap: balance;
   }
   /* One row of names, not a stack of URLs: three addresses side by side are
@@ -756,20 +785,20 @@
      `.warn-text` pair above keeps the same discipline for the same reason. */
   .about-link {
     padding: 0;
-    color: var(--color-fg);
+    color: var(--foreground);
   }
   .about-sep {
-    color: var(--color-line);
+    color: var(--border);
   }
   .about-license {
     margin: 22px 0 0;
     font-size: 13px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
   .about-copyright {
     margin: 6px 0 0;
     font-size: 12.5px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
   }
 
   /* Dots: not interactive (aria-hidden; an sr-only "Step N of M" sits beside them). */
@@ -783,13 +812,13 @@
     width: 8px;
     height: 8px;
     border-radius: 999px;
-    background: var(--color-line);
+    background: var(--border);
   }
   .assistant-dots i.done {
-    background: var(--color-primary);
+    background: var(--primary);
   }
   .assistant-dots i.current {
-    background: var(--color-primary);
+    background: var(--primary);
     width: 10px;
     height: 10px;
   }
@@ -815,7 +844,7 @@
     min-height: 48px;
   }
   .checklist li + li {
-    border-top: 1px solid color-mix(in oklch, var(--color-line) 60%, transparent);
+    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   }
   /* The tmux install's progress: a spinner and clock on one line, the package
      manager's own last line under it. */
@@ -833,15 +862,15 @@
     font-size: 15px;
   }
   .install-head .detail {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
   .install-spinner {
     width: 14px;
     height: 14px;
     border-radius: 999px;
-    border: 2px solid color-mix(in oklch, var(--color-primary) 30%, transparent);
-    border-top-color: var(--color-primary);
+    border: 2px solid color-mix(in oklch, var(--primary) 30%, transparent);
+    border-top-color: var(--primary);
   }
   @media (prefers-reduced-motion: no-preference) {
     .install-spinner {
@@ -854,7 +883,7 @@
   .install-line {
     margin: 0;
     max-width: 100%;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     white-space: nowrap;
@@ -908,7 +937,7 @@
   .label {
     font-size: 15px;
     font-weight: 600;
-    color: var(--color-fg);
+    color: var(--foreground);
     /* A `<label>` element carrying this class must not keep the base rule's
        gap: here the detail is a sibling with its own spacing. */
     margin-bottom: 0;
@@ -918,14 +947,14 @@
   .supervision-copy .detail {
     display: block;
     margin-top: 2px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-size: 13px;
     text-align: left;
     text-wrap: pretty;
   }
   .supervision-login {
     margin-top: 10px;
-    border-top: 1px solid color-mix(in oklch, var(--color-line) 60%, transparent);
+    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
     padding-top: 14px;
   }
   .supervision-login input:disabled + .supervision-copy {
@@ -933,7 +962,7 @@
   }
 
   .checklist .detail {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-size: 13px;
     text-align: right;
     overflow-wrap: anywhere;
@@ -960,26 +989,26 @@
     font-size: 13px;
   }
   .checklist li[data-state="pending"] .glyph {
-    border: 1.5px solid var(--color-line);
+    border: 1.5px solid var(--border);
   }
   .checklist li[data-state="done"] .glyph,
   .tmux-ready .glyph {
-    background: var(--color-ok);
-    color: var(--color-primary-fg);
+    background: var(--success);
+    color: var(--primary-foreground);
   }
   .checklist li[data-state="active"] .glyph {
-    border: 2px solid var(--color-primary);
+    border: 2px solid var(--primary);
     border-right-color: transparent;
   }
   .checklist li[data-state="failed"] .glyph {
-    border: 1.5px solid var(--color-bad);
-    color: var(--color-bad);
+    border: 1.5px solid var(--destructive);
+    color: var(--destructive);
   }
   .checklist .sub {
     grid-column: 2 / -1;
     padding-bottom: 10px;
     font-size: 13px;
-    color: var(--color-bad);
+    color: var(--destructive);
   }
   .assistant details {
     margin-top: 16px;
@@ -987,7 +1016,7 @@
   }
   .assistant details > summary {
     cursor: pointer;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     font-size: 14px;
   }
   /* The recovery screen's log and last-action panes. Capped and scrollable
@@ -1007,8 +1036,8 @@
   }
   .code-line {
     display: inline-block;
-    background: var(--color-bg);
-    border: 1px solid var(--color-line);
+    background: var(--background);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 4px 9px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1052,7 +1081,7 @@
     display: none;
   }
   .output-bad {
-    border-color: var(--color-bad);
+    border-color: var(--destructive);
   }
   /* The reset view's copy (console `#reset-rows` / `#reset-disclosures`). */
   .wizard-copy {
@@ -1072,13 +1101,13 @@
   .switch input {
     width: auto;
     margin: 0;
-    accent-color: var(--color-primary);
+    accent-color: var(--primary);
   }
   .switch input:disabled {
     cursor: default;
   }
   .switch:has(input:disabled) {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     cursor: default;
   }
   /* The supervision screen's two mode choices. A radio in its own column so
@@ -1093,12 +1122,12 @@
     cursor: pointer;
   }
   .choice-row + .choice-row {
-    border-top: 1px solid color-mix(in oklch, var(--color-line) 60%, transparent);
+    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   }
   .choice-row input {
     width: auto;
     margin: 2px 0 0;
-    accent-color: var(--color-primary);
+    accent-color: var(--primary);
   }
   .choice-row .hint {
     margin: 0;
@@ -1117,10 +1146,10 @@
   .choice-sub input {
     width: auto;
     margin: 0;
-    accent-color: var(--color-primary);
+    accent-color: var(--primary);
   }
   .choice-sub:has(input:disabled) {
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     cursor: default;
   }
   .choice-sub .hint {
@@ -1130,14 +1159,14 @@
      of the action area because it explains why parts of it are disabled. */
   .tmux-warning {
     width: 100%;
-    border: 1px solid var(--color-warn);
+    border: 1px solid var(--warning);
     border-radius: 8px;
     padding: 10px 12px;
     font-size: 14px;
   }
   .tmux-warning p {
     margin: 0 0 8px;
-    color: var(--color-warn);
+    color: var(--warning);
   }
   .tmux-warning-row {
     display: flex;
@@ -1146,8 +1175,8 @@
     gap: 8px;
   }
   .tmux-warning code {
-    background: var(--color-bg);
-    border: 1px solid var(--color-line);
+    background: var(--background);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 2px 7px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1159,13 +1188,13 @@
   .pane-tabs button {
     font-size: 13px;
     padding: 3px 9px;
-    color: var(--color-muted);
+    color: var(--muted-foreground);
     background: transparent;
     border-color: transparent;
   }
   .pane-tabs button[aria-selected="true"] {
-    color: var(--color-fg);
-    background: var(--color-bg);
-    border-color: var(--color-line);
+    color: var(--foreground);
+    background: var(--background);
+    border-color: var(--border);
   }
 }
