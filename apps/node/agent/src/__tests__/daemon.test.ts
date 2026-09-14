@@ -803,6 +803,102 @@ test("status --probe: explicit opt-in dials the plane with a loud stderr warning
 const HEX_A = "00000000-0000-4000-8000-00000000000a";
 const HEX_B = "00000000-0000-4000-8000-00000000000b";
 
+/**
+ * Wraps the real WebSocket and keeps each socket's `message` listeners, so a
+ * test can hand the daemon several frames in ONE event-loop turn.
+ *
+ * Sending them from the plane does not do that: they cross a real socket and
+ * arrive as separate turns, which is exactly the case that already worked.
+ * @param pumps - filled with one entry per socket the daemon opens
+ */
+function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: string[]) => void }>): WsConstructor {
+  const Real = globalThis.WebSocket as unknown as new (
+    url: string,
+    opts?: { headers?: Record<string, string> },
+  ) => WsLike;
+  class Pumped {
+    private readonly inner: WsLike;
+    private readonly messageListeners: Array<(event: { data: unknown }) => void> = [];
+    constructor(url: string, opts?: { headers?: Record<string, string> }) {
+      this.inner = new Real(url, opts);
+      pumps.push({
+        deliverBurst: (frames: string[]): void => {
+          for (const frame of frames) {
+            for (const listener of this.messageListeners) listener({ data: frame });
+          }
+        },
+      });
+    }
+    get readyState(): number {
+      return this.inner.readyState;
+    }
+    send(data: string): void {
+      this.inner.send(data);
+    }
+    close(code?: number, reason?: string): void {
+      this.inner.close(code, reason);
+    }
+    addEventListener(type: string, listener: (event?: unknown) => void): void {
+      if (type === "message") this.messageListeners.push(listener as (event: { data: unknown }) => void);
+      const add = this.inner.addEventListener as unknown as (t: string, l: unknown) => void;
+      add.call(this.inner, type, listener);
+    }
+  }
+  return Pumped as unknown as WsConstructor;
+}
+
+test("a burst of frames in one turn is verified in ARRIVAL order, not signature-check order", async () => {
+  // `verifyCommand` awaits an ES256 `crypto.subtle.verify` BEFORE the seq gate
+  // (`node-signing.ts`), and the gate refuses any seq <= the last accepted. So
+  // with a frame handler that starts each message's verify immediately, three
+  // frames arriving in one event-loop turn reach the gate in whatever order
+  // the crypto finishes — and the moment seq 3 is accepted before seq 2, the
+  // daemon calls seq 2 a REGRESSION and closes the connection (spec §4).
+  //
+  // That is a paste, or fast typing, on a node: the burst takes down every
+  // subshell on that machine until the reconnect. The per-pane input chain in
+  // `TmuxRunner` cannot help — the damage is done before anything is enqueued.
+  //
+  // This is very likely also what the CI flake noted on the serialization test
+  // below was (2026-09-07: `order` held only "input:start", the terminate
+  // never reaching its handler at all).
+  const sent: string[] = [];
+  const fakeTmux = {
+    sendInput: async (_socket: string, _id: string, data: string) => {
+      sent.push(data);
+    },
+  } as unknown as TmuxRunner;
+  const pumps: Array<{ deliverBurst: (frames: string[]) => void }> = [];
+  const h = await startDaemon({
+    tmux: fakeTmux,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    WebSocketImpl: wrapRealWsWithPump(pumps),
+  });
+  // FIVE, not three: measured on this machine, three concurrent
+  // `verifyCommand` calls land out of order in 19 of 20 rounds, so three would
+  // leave a ~5% chance of passing on the broken code. Five makes that
+  // vanishing while still being a plausible burst (it is a short paste).
+  const keystrokes = ["a", "b", "c", "d", "e"];
+  // Signed UP FRONT so the deliveries are synchronous — one event-loop turn,
+  // which is the condition being tested.
+  const frames = await Promise.all(
+    keystrokes.map((data, i) => signEnvelope(h, { type: "input", subshellId: HEX_A, data }, `burst-${i + 1}`, i + 1)),
+  );
+  const pump = pumps.at(-1);
+  if (!pump) throw new Error("no socket was opened");
+  const closesBefore = h.plane.closes;
+  pump.deliverBurst(frames);
+
+  await waitFor(h, (e) => e.type === "result" && e.ref === `burst-${keystrokes.length}`, "the last input's result");
+  // Every one accepted: no verify error, and above all no seq regression.
+  expect(eventsAs(h, "error").map((e) => e.message)).toEqual([]);
+  expect(h.plane.closes).toBe(closesBefore);
+  // Arrival order end to end — the results and the pane effects alike.
+  expect(eventsAs(h, "result").map((e) => e.ref)).toEqual(keystrokes.map((_, i) => `burst-${i + 1}`));
+  expect(sent).toEqual(keystrokes);
+  expect(h.plane.unparsed).toEqual([]);
+});
+
 test("commands run SERIALLY in arrival order (spec §3.4): the second starts only after the first's promise resolves", async () => {
   // The first command (terminate) is made slow INSIDE its await (the meta
   // lookup); the second (input) is instant. With the old per-message

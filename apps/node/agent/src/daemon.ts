@@ -644,8 +644,31 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         }, inventoryMs);
         inventory.unref?.(); // a background push must never hold the daemon (or a test process) open
       });
+      // SERIAL FRAME HANDLER, and the serialization is not a nicety.
+      //
+      // `verifyCommand` awaits an ES256 `crypto.subtle.verify` BEFORE it
+      // reaches the seq gate, and the gate refuses any seq <= the last
+      // accepted. So a handler that started each message's verify immediately
+      // let concurrent frames reach that gate in whatever order the crypto
+      // happened to finish — and the first time a higher seq landed first, the
+      // one behind it was called a REGRESSION and the connection was dropped
+      // (spec §4). Measured on this machine: three concurrent verifies land
+      // out of order in 19 of 20 rounds.
+      //
+      // What that cost in practice is a paste, or fast typing, on a node:
+      // several `input` frames in one event-loop turn took down every subshell
+      // on that machine until the reconnect. `TmuxRunner`'s per-pane input
+      // chain cannot help — the damage happens before anything is enqueued.
+      //
+      // The chain is PER CONNECTION, matching `seqTracker`'s own lifetime (it
+      // is reset on every open), and a frame's handling starts only once the
+      // previous frame's has finished. The catch is on the chain rather than
+      // on each call, so one rejected frame is logged and the next still runs.
+      let frameChain: Promise<void> = Promise.resolve();
       ws.addEventListener("message", (ev) => {
-        void onFrame(ws, ev.data).catch((err: unknown) => log(`frame handling error: ${String(err)}`));
+        frameChain = frameChain
+          .then(() => onFrame(ws, ev.data))
+          .catch((err: unknown) => log(`frame handling error: ${String(err)}`));
       });
       ws.addEventListener("close", (ev) => finish({ code: ev?.code ?? 1006, reason: ev?.reason ?? "" }));
       ws.addEventListener("error", () => {
