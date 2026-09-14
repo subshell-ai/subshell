@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:f
 import { dirname, join } from "node:path";
 import { semverLt } from "@internal/subshell-protocol";
 import { parseManifest, type SubshellManifest } from "@subshell-ai/plugin-api";
-import { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
+import { builtInIds, type EmbeddedPlugin, packageJsonText, readBuiltIn } from "./builtin-source.js";
 import { enforceMode } from "./fs-mode.js";
 import { DEFAULT_REGISTRY_URL, fetchVerifiedTarball, parsePackageSpec, resolvePackageVersion } from "./npm-registry.js";
 import { createInProcessRuntime } from "./plugin-runtime.js";
@@ -537,7 +537,7 @@ async function resolveBuiltInFromSpec(name: string): Promise<{ id: string; sourc
     if (id === name) continue; // already tried above
     const source = await readBuiltIn(id);
     if (!source) continue;
-    const pkgName = (JSON.parse(source.files["package.json"] ?? "{}") as { name?: unknown }).name;
+    const pkgName = (JSON.parse(packageJsonText(source.files)) as { name?: unknown }).name;
     if (pkgName === name) return { id, source };
   }
   return null;
@@ -577,7 +577,7 @@ export async function installPlugin(
   if (builtinCandidate) {
     if (range === undefined) return await installEmbedded(dataDir, builtinCandidate.id);
     const embeddedVersion = String(
-      (JSON.parse(builtinCandidate.source.files["package.json"] ?? "{}") as { version?: unknown }).version ?? "",
+      (JSON.parse(packageJsonText(builtinCandidate.source.files)) as { version?: unknown }).version ?? "",
     );
     if (range === embeddedVersion) return await installEmbedded(dataDir, builtinCandidate.id);
   }
@@ -656,9 +656,7 @@ export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
     // The parse that CAN throw is the one inside `readBuiltIn`, and it is
     // guarded there, where a malformed built-in makes it answer null instead
     // of ending this loop.
-    const sourceVersion = String(
-      (JSON.parse(source.files["package.json"] ?? "{}") as { version?: unknown }).version ?? "",
-    );
+    const sourceVersion = String((JSON.parse(packageJsonText(source.files)) as { version?: unknown }).version ?? "");
     if (sourceVersion === installed.version && !installed.broken) continue;
     try {
       await installEmbedded(dataDir, installed.id);

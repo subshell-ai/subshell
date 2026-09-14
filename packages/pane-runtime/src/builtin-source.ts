@@ -27,12 +27,48 @@ import { EMBEDDED_PLUGINS } from "./generated/embedded-plugins.js";
  * copy. Hide that path before asserting embedded mode is live.
  */
 
+/**
+ * One file's content in the GENERATED module. Text rides as itself; anything
+ * that is not text (a PNG icon) rides base64-wrapped, because this record is
+ * serialized with `JSON.stringify` and a `Uint8Array` does not survive it.
+ * {@link readBuiltIn} decodes the wrapper, so nothing downstream sees it.
+ */
+export type EmbeddedFile = string | { b64: string };
+
 /** One plugin's manifest plus every file an install must write. */
 export interface EmbeddedPlugin {
   /** The parsed `subshell` block, so a caller need not re-read package.json */
   manifest: SubshellManifest;
-  /** Relative path to file content, including `package.json` and the entry */
-  files: Record<string, string>;
+  /** Relative path to file content, including `package.json`, the entry and any icon */
+  files: Record<string, string | Uint8Array>;
+}
+
+/** The generated module's shape, before {@link readBuiltIn} decodes its bytes. */
+export interface EmbeddedPluginSource {
+  manifest: SubshellManifest;
+  files: Record<string, EmbeddedFile>;
+}
+
+/** Undoes the base64 wrapping {@link EmbeddedFile} describes. */
+function decodeFiles(files: Record<string, EmbeddedFile>): Record<string, string | Uint8Array> {
+  const out: Record<string, string | Uint8Array> = {};
+  for (const [rel, content] of Object.entries(files)) {
+    out[rel] = typeof content === "string" ? content : Uint8Array.from(Buffer.from(content.b64, "base64"));
+  }
+  return out;
+}
+
+/**
+ * A plugin's `package.json`, as text.
+ *
+ * Both readers always write it as a string, but `files` is typed for bytes
+ * too (an icon may be a PNG), so callers that parse it need one place that
+ * says so rather than a cast each.
+ */
+export function packageJsonText(files: Record<string, string | Uint8Array>): string {
+  const raw = files["package.json"];
+  if (raw === undefined) return "{}";
+  return typeof raw === "string" ? raw : new TextDecoder().decode(raw);
 }
 
 /** Where `packages/plugins` sits relative to this module, when running from source. */
@@ -66,7 +102,7 @@ async function fromDisk(id: string): Promise<EmbeddedPlugin | null> {
   }
   if ("error" in manifest) return null;
 
-  const files: Record<string, string> = { "package.json": pkgRaw };
+  const files: Record<string, string | Uint8Array> = { "package.json": pkgRaw };
   const distDir = join(dir, dirname(manifest.entry));
   try {
     for (const entry of await readdir(distDir, { withFileTypes: true, recursive: true })) {
@@ -81,6 +117,24 @@ async function fromDisk(id: string): Promise<EmbeddedPlugin | null> {
     return null;
   }
   if (!(manifest.entry in files)) return null;
+
+  // The icon sits at the package ROOT, not under the entry's dist directory,
+  // so the walk above does not reach it — it is read by name, the way
+  // `package.json` is. Always as BYTES: an SVG is text and a PNG is not, and
+  // a branch on which would buy nothing that `writeFile` does not already do.
+  //
+  // A DECLARED icon that is missing is tolerated here and refused in
+  // `embed-plugins.ts`. A built-in that does not ship what it declares is a
+  // build mistake and the build is where that is caught; at runtime, losing a
+  // whole harness over a missing decoration is the worse failure — the route
+  // 404s and the UI draws a monogram.
+  if (manifest.icon !== undefined) {
+    try {
+      files[manifest.icon] = new Uint8Array(await readFile(join(dir, manifest.icon)));
+    } catch {
+      // No icon; the plugin is still perfectly installable.
+    }
+  }
   return { manifest, files };
 }
 
@@ -89,7 +143,10 @@ async function fromDisk(id: string): Promise<EmbeddedPlugin | null> {
  * @param id - plugin id, e.g. "claude-code"
  */
 export async function readBuiltIn(id: string): Promise<EmbeddedPlugin | null> {
-  return (await fromDisk(id)) ?? EMBEDDED_PLUGINS[id] ?? null;
+  const disk = await fromDisk(id);
+  if (disk) return disk;
+  const embedded = EMBEDDED_PLUGINS[id];
+  return embedded ? { manifest: embedded.manifest, files: decodeFiles(embedded.files) } : null;
 }
 
 /** Every built-in id this build can install, from whichever source answered. */

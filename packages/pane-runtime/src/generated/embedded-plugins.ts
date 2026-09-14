@@ -1,4 +1,4 @@
-import type { EmbeddedPlugin } from "../builtin-source.js";
+import type { EmbeddedPluginSource } from "../builtin-source.js";
 
 /**
  * The built-in plugins, as bytes, for a build with no checkout beside it.
@@ -13,4 +13,4 @@ import type { EmbeddedPlugin } from "../builtin-source.js";
  * Running from a checkout, this is not consulted at all. See
  * `builtin-source.ts`, which prefers `packages/plugins/<id>` on disk.
  */
-export const EMBEDDED_PLUGINS: Record<string, EmbeddedPlugin> = {};
+export const EMBEDDED_PLUGINS: Record<string, EmbeddedPluginSource> = {};

@@ -1,4 +1,13 @@
-import { builtInHarnesses, builtInIds, getBuiltInHarness, getHarness, parsePackageSpec } from "@internal/pane-runtime";
+import { readFile } from "node:fs/promises";
+import { extname, join, resolve } from "node:path";
+import {
+  builtInHarnesses,
+  builtInIds,
+  getBuiltInHarness,
+  getHarness,
+  parsePackageSpec,
+  readBuiltIn,
+} from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import { Elysia, type Static, t } from "elysia";
 import { authGuard, HttpError, requireAdmin } from "@/api/auth-guard.js";
@@ -10,7 +19,12 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
-import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
+import {
+  installLocalPlugin,
+  localPluginReports,
+  localPluginsDir,
+  uninstallLocalPlugin,
+} from "@/services/nodes/local-plugins.js";
 
 /**
  * The instance-level plugins door (spec 2026-09-10 §6, §6.1).
@@ -204,6 +218,56 @@ async function requireRow(id: string, s: CatalogSources): Promise<Static<typeof 
   return row;
 }
 
+/**
+ * Content types for the extensions {@link ICON_EXTENSIONS} admits. Mapped from
+ * the NAME and never sniffed from the bytes: the bytes are a third party's,
+ * so a type derived from them is a type the plugin chose.
+ */
+const ICON_TYPES: Record<string, string> = {
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webp": "image/webp",
+};
+
+/**
+ * One plugin's icon bytes, or undefined when it declares none, ships none, or
+ * is not a plugin this instance knows.
+ *
+ * Two sources, disk first: `<pluginsDir>/<id>/<icon>` covers a
+ * registry-installed plugin AND a built-in (boot seeds those to the same
+ * place), and `readBuiltIn` is the fallback for the window before a seed has
+ * run. Both are the same file; the ladder is about availability, not about
+ * two kinds of plugin.
+ */
+async function readPluginIcon(id: string): Promise<{ body: Uint8Array; type: string } | undefined> {
+  if (!SAFE_PLUGIN_ID.test(id)) return undefined;
+  const rel = getHarness(id)?.icon;
+  if (!rel) return undefined;
+  const type = ICON_TYPES[extname(rel).toLowerCase()];
+  // An extension `parseManifest` admits but this table does not is a bug in
+  // one of the two lists, and serving it as something guessed is the wrong
+  // way to find out.
+  if (!type) return undefined;
+
+  const dir = join(localPluginsDir(), id);
+  const path = resolve(dir, rel);
+  // `parseManifest` already refuses a leading `/` and any `..` segment. This
+  // re-checks the RESOLVED path, the way the plugin loader re-checks `entry`:
+  // the manifest on disk is a third party's file, and one gate that runs
+  // where the path is USED is worth more than trusting the one upstream.
+  if (path !== dir && !path.startsWith(`${dir}/`)) return undefined;
+
+  try {
+    return { body: new Uint8Array(await readFile(path)), type };
+  } catch {
+    // Not seeded yet, or a plugin that declares an icon it does not ship.
+  }
+  const source = await readBuiltIn(id);
+  const embedded = source?.files[rel];
+  if (embedded === undefined) return undefined;
+  return { body: typeof embedded === "string" ? new TextEncoder().encode(embedded) : embedded, type };
+}
+
 /** Reads: open to any authenticated actor. The writes below take `requireAdmin`. */
 const readRoutes = new Elysia()
   .use(authGuard)
@@ -232,6 +296,35 @@ const readRoutes = new Elysia()
         tags: ["plugins"],
         description:
           "The instance's plugin catalog: the embedded catalog merged with the installed store, each with its enabled state (any authenticated actor)",
+      },
+    },
+  )
+  .get(
+    "/:pluginId/icon",
+    async ({ params, set }) => {
+      const bytes = await readPluginIcon(params.pluginId);
+      if (!bytes) throw new HttpError(404, `"${params.pluginId}" has no icon`);
+      set.headers["content-type"] = bytes.type;
+      // The bytes are a PLUGIN's, and a third party's SVG served from this
+      // origin would otherwise be a scripting context on the origin holding
+      // the session cookie — for anyone who opens the URL directly, not in
+      // the `<img>` the UI renders. `sandbox` with no allow-list is what
+      // makes that document inert; `nosniff` is what stops the declared type
+      // being second-guessed from content the plugin chose.
+      set.headers["content-security-policy"] = "default-src 'none'; sandbox";
+      set.headers["x-content-type-options"] = "nosniff";
+      // Immutable for a day rather than forever: a plugin UPGRADE can change
+      // the icon behind an unchanged URL, and a day is short enough that an
+      // upgrade shows up on its own without a cache-busting query.
+      set.headers["cache-control"] = "private, max-age=86400";
+      return new Response(bytes.body);
+    },
+    {
+      params: t.Object({ pluginId: t.String({ description: "Plugin id" }) }),
+      detail: {
+        operationId: "getPluginIcon",
+        tags: ["plugins"],
+        description: "This plugin's icon image, as declared by its manifest (any authenticated actor)",
       },
     },
   );

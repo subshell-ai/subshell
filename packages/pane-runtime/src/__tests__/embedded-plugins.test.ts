@@ -62,7 +62,10 @@ describe("built-in plugin bytes", () => {
       // carrying one would install cleanly and then fail at load.
       const plugin = await readBuiltIn(id);
       if (!plugin) throw new Error(`no bytes for ${id}`);
-      const entry = plugin.files[plugin.manifest.entry] ?? "";
+      const rawEntry = plugin.files[plugin.manifest.entry] ?? "";
+      // The entry is JavaScript, so it is always text; `files` is typed for
+      // bytes because an icon may be a PNG.
+      const entry = typeof rawEntry === "string" ? rawEntry : new TextDecoder().decode(rawEntry);
       const bare = [...entry.matchAll(/^import[^"']*["']([^"']+)["']/gm)]
         .map((m) => m[1])
         .filter((spec) => spec !== undefined && !spec.startsWith("node:") && !spec.startsWith("."));

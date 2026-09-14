@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
+import { PluginIcon } from "@/components/plugin-icon";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PresetListRow } from "@/components/presets/preset-list-row";
 import { Button } from "@/components/ui/button";
@@ -145,9 +146,7 @@ function PresetsPage() {
                     preview renders the bare harness id — text matching would
                     collide. PageHeader carries the h1; these are the h2s. */}
                 <div className="flex items-center gap-2">
-                  <span aria-hidden className="text-label">
-                    {plugin?.icon ?? "🤖"}
-                  </span>
+                  <PluginIcon pluginId={harnessId} name={plugin?.name} icon={plugin?.icon} />
                   <h2 className="font-strong text-sm">{plugin?.name ?? harnessId}</h2>
                 </div>
                 {rows.map((p) => (

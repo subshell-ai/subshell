@@ -2,6 +2,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseManifest } from "@subshell-ai/plugin-api";
+import type { EmbeddedFile } from "../builtin-source.js";
 
 /**
  * Bakes the built-in plugins into `generated/embedded-plugins.ts`.
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
     .map((e) => e.name)
     .sort();
 
-  const embedded: Record<string, { manifest: unknown; files: Record<string, string> }> = {};
+  const embedded: Record<string, { manifest: unknown; files: Record<string, EmbeddedFile> }> = {};
 
   for (const id of ids) {
     const dir = join(PLUGINS_ROOT, id);
@@ -49,7 +50,7 @@ async function main(): Promise<void> {
       throw new Error(`embed-plugins: ${id} has an invalid manifest: ${manifest.error}`);
     }
 
-    const files: Record<string, string> = { "package.json": pkgRaw };
+    const files: Record<string, EmbeddedFile> = { "package.json": pkgRaw };
     const distDir = join(dir, dirname(manifest.entry));
     let distFiles: string[];
     try {
@@ -65,6 +66,23 @@ async function main(): Promise<void> {
     }
     if (!(manifest.entry in files)) {
       throw new Error(`embed-plugins: ${id}'s entry ${manifest.entry} is not in its built output`);
+    }
+
+    // The icon lives at the package root rather than under the entry's dist
+    // directory, so it is read by name. Base64 because it may be a PNG and
+    // this record is about to be JSON.stringify'd.
+    //
+    // Refused rather than skipped: a BUILT-IN that declares an icon it does
+    // not ship is a mistake in this repo, and this is the build. (The runtime
+    // reader tolerates it — see `builtin-source.ts`.)
+    if (manifest.icon !== undefined) {
+      let iconBytes: Buffer;
+      try {
+        iconBytes = await readFile(join(dir, manifest.icon));
+      } catch {
+        throw new Error(`embed-plugins: ${id} declares icon ${manifest.icon}, which is not in the package`);
+      }
+      files[manifest.icon] = { b64: iconBytes.toString("base64") };
     }
     embedded[manifest.id] = { manifest, files };
   }

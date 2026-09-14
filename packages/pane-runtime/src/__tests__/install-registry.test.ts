@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readBuiltIn } from "../builtin-source.js";
+import { packageJsonText, readBuiltIn } from "../builtin-source.js";
 import {
   installPlugin,
   listInstalled,
@@ -98,7 +98,7 @@ afterAll(() => {
 async function builtInAsTgz(id: string, version: string): Promise<Uint8Array> {
   const src = await readBuiltIn(id);
   if (!src) throw new Error(`fixture needs the '${id}' built-in to exist in this build`);
-  const pkg = JSON.parse(src.files["package.json"] ?? "{}") as { version?: string };
+  const pkg = JSON.parse(packageJsonText(src.files)) as { version?: string };
   pkg.version = version;
   return makeTgz([
     { path: "package/package.json", content: JSON.stringify(pkg) },
@@ -143,7 +143,7 @@ describe("installPlugin", () => {
     const dir = tempDataDir();
     const source = await readBuiltIn("pi");
     if (!source) throw new Error("fixture needs the 'pi' built-in to exist in this build");
-    const embeddedVersion = String((JSON.parse(source.files["package.json"] ?? "{}") as { version: string }).version);
+    const embeddedVersion = String((JSON.parse(packageJsonText(source.files)) as { version: string }).version);
     packumentHits.length = 0;
     await expect(
       installPlugin(dir, { id: "pi", spec: `other-package@${embeddedVersion}`, registryUrl: base }),
@@ -162,7 +162,7 @@ describe("installPlugin", () => {
     const dir = tempDataDir();
     const source = await readBuiltIn("pi");
     if (!source) throw new Error("fixture needs the 'pi' built-in to exist in this build");
-    const embeddedVersion = String((JSON.parse(source.files["package.json"] ?? "{}") as { version: string }).version);
+    const embeddedVersion = String((JSON.parse(packageJsonText(source.files)) as { version: string }).version);
 
     // Rules 2/3: a pin at the embedded version is answered from this build, no bytes over the wire.
     trapHits = 0;

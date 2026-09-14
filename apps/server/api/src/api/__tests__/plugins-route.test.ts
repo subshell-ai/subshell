@@ -196,6 +196,50 @@ describe("/api/plugins", () => {
     }
   });
 
+  it("serves a built-in's icon with the type its extension names, never sniffed", async () => {
+    const res = await get("/api/plugins/claude-code/icon", aliceCookie);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    // The bytes are a third party's and this origin holds the session cookie,
+    // so the document has to be inert for anyone who opens the URL directly.
+    expect(res.headers.get("content-security-policy")).toContain("sandbox");
+    expect(await res.text()).toStartWith("<svg");
+  });
+
+  it("serves a PNG icon as bytes, not as mangled text", async () => {
+    // hermes ships the one non-SVG mark, which is the whole reason the plugin
+    // file map carries `Uint8Array` as well as `string`. Decoding it as UTF-8
+    // anywhere on the path corrupts it silently, and the magic is what says so.
+    const res = await get("/api/plugins/hermes/icon", aliceCookie);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect([...bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  });
+
+  it("serves the icon of a built-in that is not on disk, from this build's own bytes", async () => {
+    // The catalog lists uninstalled built-ins (the one-click region), so their
+    // rows render before anything has been seeded or installed.
+    expect(await uninstallLocalPlugin("codex")).toBe(true);
+    try {
+      const res = await get("/api/plugins/codex/icon", aliceCookie);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toStartWith("<svg");
+    } finally {
+      await installLocalPlugin("codex");
+    }
+  });
+
+  it("an id this instance does not know is a 404, and a traversal attempt is the same 404", async () => {
+    expect((await get("/api/plugins/not-a-plugin/icon", aliceCookie)).status).toBe(404);
+    expect((await get("/api/plugins/..%2f..%2fetc/icon", aliceCookie)).status).toBe(404);
+  });
+
+  it("anonymous icon read -> 401", async () => {
+    expect((await app.fetch(new Request("http://localhost/api/plugins/claude-code/icon"))).status).toBe(401);
+  });
+
   it("a system bearer key may LIST", async () => {
     expect((await bearerSend("GET", "/api/plugins", systemKey)).status).toBe(200);
   });

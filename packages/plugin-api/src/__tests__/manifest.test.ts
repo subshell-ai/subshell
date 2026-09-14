@@ -129,10 +129,37 @@ describe("parseManifest", () => {
   });
 
   it("carries the optional icon and install block through", () => {
-    const result = parseManifest(pkg({ icon: "X" }));
+    const result = parseManifest(pkg({ icon: "icon.svg" }));
     expect("error" in result).toBe(false);
     if ("error" in result) return;
-    expect(result.icon).toBe("X");
+    expect(result.icon).toBe("icon.svg");
     expect(result.install?.docsUrl).toBe("https://example.invalid");
+  });
+
+  it("refuses an icon that is not a path to a file the package ships", () => {
+    // `icon` names a FILE now, not a glyph. An emoji parsed fine under the
+    // old contract and would now be joined onto the plugin directory and
+    // read, so it has to fail here rather than 404 at the route.
+    expect("error" in parseManifest(pkg({ icon: "🤖" }))).toBe(true);
+    expect("error" in parseManifest(pkg({ icon: "" }))).toBe(true);
+    expect("error" in parseManifest(pkg({ icon: 7 }))).toBe(true);
+  });
+
+  it("refuses an icon that escapes the package, exactly as `entry` is refused", () => {
+    expect("error" in parseManifest(pkg({ icon: "/etc/passwd.png" }))).toBe(true);
+    expect("error" in parseManifest(pkg({ icon: "../../secrets.svg" }))).toBe(true);
+    // A `..` has to be a SEGMENT to be traversal; a file merely named with
+    // dots is fine.
+    expect("error" in parseManifest(pkg({ icon: "art/..logo.svg" }))).toBe(false);
+  });
+
+  it("refuses an extension the server has no Content-Type for", () => {
+    // The type is mapped from the NAME, never sniffed from a third party's
+    // bytes, so an extension outside the table has no safe answer.
+    expect("error" in parseManifest(pkg({ icon: "icon.gif" }))).toBe(true);
+    expect("error" in parseManifest(pkg({ icon: "icon.html" }))).toBe(true);
+    for (const ok of ["icon.svg", "icon.png", "icon.webp", "art/mark.png"]) {
+      expect("error" in parseManifest(pkg({ icon: ok }))).toBe(false);
+    }
   });
 });

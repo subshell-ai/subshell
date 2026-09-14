@@ -1,3 +1,4 @@
+import { PluginIcon } from "@/components/plugin-icon";
 import type { ComboboxOption } from "@/components/ui/combobox";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { isOfflineAgent, nodeOptionLabel } from "@/lib/node-label";
@@ -57,7 +58,10 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
   return usableFirst(
     plugins.map((p) => {
       const opt: ComboboxOption = { value: p.id, label: p.name, disabled: false };
-      if (p.icon !== undefined) opt.icon = p.icon;
+      // Every option gets a mark: `PluginIcon` draws the plugin's own when it
+      // declares one and a monogram when it does not, so the labels in this
+      // list stay vertically aligned either way.
+      opt.icon = <PluginIcon pluginId={p.id} name={p.name} icon={p.icon} />;
       // Server-side refusals first (they hold no matter what the node says),
       // then the node's own verdict — the precedence is the frozen table's.
       if (!p.installed) {

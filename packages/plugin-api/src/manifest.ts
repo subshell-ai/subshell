@@ -14,6 +14,14 @@ import { PLUGIN_TYPES, type PluginType } from "./types.js";
 export const PLUGIN_API_VERSION = 2;
 
 /**
+ * Image formats a plugin icon may be. The server maps these to a Content-Type
+ * from a fixed table rather than sniffing the file, so this list and that
+ * table are one decision: adding a format here without adding it there leaves
+ * an icon that parses and then 500s when something asks for it.
+ */
+export const ICON_EXTENSIONS: readonly string[] = [".svg", ".png", ".webp"];
+
+/**
  * Ids become directory names under `<dataDir>/plugins/`, so they are path
  * segments and nothing else: no separators, no traversal, no surprises from a
  * case-insensitive filesystem.
@@ -50,7 +58,11 @@ export interface SubshellManifest {
   name: string;
   /** One-line description shown in the UI */
   description: string;
-  /** Optional emoji/glyph */
+  /**
+   * Relative path to this plugin's icon file, e.g. `icon.svg`. Served by
+   * the control plane at `/api/plugins/<id>/icon`; absent means the UI
+   * renders a monogram instead.
+   */
   icon?: string;
   /** Module to import, relative to the package directory */
   entry: string;
@@ -127,8 +139,25 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     return { error: "`subshell.name` must be a non-empty string" };
   }
   if (typeof block.description !== "string") return { error: "`subshell.description` must be a string" };
-  if (block.icon !== undefined && typeof block.icon !== "string") {
-    return { error: "`subshell.icon` must be a string" };
+  if (block.icon !== undefined) {
+    if (typeof block.icon !== "string" || block.icon.trim() === "") {
+      return { error: "`subshell.icon` must be a non-empty relative path to an image in the package" };
+    }
+    // Same containment rule as `entry`, for the same reason: this path is
+    // joined onto the plugin's directory and the file is READ and SERVED, so
+    // it must not be able to name one outside it.
+    if (block.icon.startsWith("/") || block.icon.split("/").includes("..")) {
+      return { error: "`subshell.icon` must stay inside the package (no leading `/` and no `..` segment)" };
+    }
+    // The extension is the whole basis for the Content-Type the icon is
+    // served with - the server maps it from a fixed table and never sniffs
+    // the bytes, because a type inferred from plugin-supplied content is a
+    // type the plugin chose. An extension outside the table has no safe
+    // answer, so it is refused here rather than guessed at there.
+    const icon = block.icon;
+    if (!ICON_EXTENSIONS.some((ext) => icon.endsWith(ext))) {
+      return { error: `\`subshell.icon\` must end in one of: ${ICON_EXTENSIONS.join(", ")}` };
+    }
   }
 
   if (typeof block.entry !== "string" || block.entry.trim() === "") {

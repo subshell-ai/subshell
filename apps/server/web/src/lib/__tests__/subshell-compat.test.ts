@@ -57,7 +57,7 @@ function plugin(p: {
   };
   return row;
 }
-const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", icon: "🤖" });
+const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", icon: "icon.svg" });
 const PI = plugin({ id: "pi", name: "Pi" });
 const TERM = plugin({ id: "terminal", name: "Terminal", type: "terminal" });
 
@@ -89,11 +89,15 @@ describe("buildAgentOptions", () => {
 
   it("without a node, a healthy plugin is selectable; label is the name, icon carried", () => {
     const [opt] = buildAgentOptions([CLAUDE], null);
-    expect(opt).toEqual({ value: "claude-code", label: "Claude Code", disabled: false, icon: "🤖" });
+    // The icon is a `PluginIcon` element now, not the manifest's path: the
+    // path names a file inside the plugin package and means nothing to a
+    // browser, so the component turns the plugin id into the image route.
+    expect(opt).toMatchObject({ value: "claude-code", label: "Claude Code", disabled: false });
+    expect(opt?.icon).toBeDefined();
   });
-  it("a plugin with no icon carries no icon key at all", () => {
+  it("a plugin with no icon still carries one — the monogram keeps the rows aligned", () => {
     const opt = buildAgentOptions([PI], null)[0];
-    expect(opt && "icon" in opt).toBe(false);
+    expect(opt?.icon).toBeDefined();
   });
   it("an enabled option omits the 'reason' key entirely", () => {
     const opt = buildAgentOptions([PI], null)[0];
@@ -124,7 +128,9 @@ describe("buildAgentOptions", () => {
   });
   it("a node without the plugin reasons 'not installed on this node'", () => {
     const bare = node({ id: "a1", name: "bare", harnesses: [] });
-    expect(buildAgentOptions([PI], bare)[0]).toEqual({
+    // toMatchObject, not toEqual: every agent option now also carries an
+    // icon node, which this case is not about.
+    expect(buildAgentOptions([PI], bare)[0]).toMatchObject({
       value: "pi",
       label: "Pi",
       disabled: true,

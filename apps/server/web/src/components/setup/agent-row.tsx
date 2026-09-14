@@ -1,4 +1,5 @@
 import { LoaderCircle } from "lucide-react";
+import { PluginIcon } from "@/components/plugin-icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { HarnessInfo } from "@/types/harness";
@@ -41,9 +42,7 @@ export function AgentRow({
   return (
     <li aria-label={harness.name} className="border-border/60 border-b last:border-b-0">
       <div className="flex min-h-11 items-center gap-3 py-2">
-        <span aria-hidden className="text-heading">
-          {harness.icon ?? "🤖"}
-        </span>
+        <PluginIcon pluginId={harness.id} name={harness.name} icon={harness.icon} />
         <span className="flex-1 font-strong">{harness.name}</span>
         <span className={cn("text-xs", chip.className)}>{chip.text}</span>
         {!harness.installed && installable && onInstall && (
