@@ -118,7 +118,13 @@ export class TmuxRunner {
         // command is past a deadline no honest tmux call approaches, and
         // killing the CLIENT leaves the tmux server and its panes untouched.
         proc.kill("SIGKILL");
-        reject(new TmuxError(`tmux ${args[0]} timed out after ${timeoutMs}ms and was killed`));
+        // Cancelling the readers releases the pipes even when something else
+        // still holds the write end — a grandchild the killed process had
+        // spawned. Real tmux has no grandchild, so this is the stub case
+        // only; without it the abandoned `collected` would retain both pipes.
+        proc.stdout.cancel().catch(() => {});
+        proc.stderr.cancel().catch(() => {});
+        reject(new TmuxTimeoutError(`tmux ${args[0]} timed out after ${timeoutMs}ms and was killed`));
       }, timeoutMs);
       timer.unref?.();
     });
@@ -178,12 +184,25 @@ export class TmuxRunner {
     return { stdout, stderr };
   }
 
-  /** True if a subshell with the given name exists on the socket. */
+  /**
+   * True if a subshell with the given name exists on the socket.
+   *
+   * `false` means tmux ANSWERED and the pane is not there — no server, no
+   * session. A {@link TmuxTimeoutError} is re-thrown instead, because tmux
+   * saying nothing is not tmux saying no: collapsing it into `false` made the
+   * server's reconcile sweep kill a live row (see that class's doc). Every
+   * caller has to decide what "unknown" means for it, and they do not agree —
+   * the sweep skips the row, an attach refuses, the agent's census reports the
+   * failure.
+   *
+   * @throws {TmuxTimeoutError} when tmux did not answer within the deadline
+   */
   async hasSubshell(socket: string, subshellName: string): Promise<boolean> {
     try {
       await this.runAsync(["-L", socket, "has-session", "-t", subshellName], {});
       return true;
-    } catch {
+    } catch (err) {
+      if (err instanceof TmuxTimeoutError) throw err;
       return false;
     }
   }
@@ -225,6 +244,12 @@ export class TmuxRunner {
    * stays as a public API (its only callers are tests); the connect-time
    * census is not a list probe — `buildSubshellsReport` checks each recorded
    * row via {@link hasSubshell}.
+   *
+   * A {@link TmuxTimeoutError} lands in `ok:false` like any other failure, and
+   * that is right HERE where it is wrong in {@link hasSubshell}: this answer
+   * already carries "could not tell" as a distinct third state, and the
+   * watcher's consecutive-tick threshold is exactly the tolerance a wedged
+   * client needs.
    */
   async listSubshellsChecked(socket: string): Promise<{ ok: true; names: string[] } | { ok: false; detail: string }> {
     try {
@@ -626,9 +651,28 @@ export function assertSocketPathFits(socket: string): void {
   );
 }
 
-class TmuxError extends Error {
+export class TmuxError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "TmuxError";
+  }
+}
+
+/**
+ * The deadline fired: tmux did not answer, so the pane's state is UNKNOWN.
+ *
+ * A distinct class because callers that collapse failures into a boolean
+ * cannot otherwise tell "tmux says this pane is gone" from "tmux said
+ * nothing". {@link TmuxRunner.hasSubshell} is the case that matters: it
+ * swallowed EVERY failure into `false`, so a wedged tmux client made the
+ * server's reconcile sweep take its death branch on a live pane — token
+ * revoked, `endedAt` stamped, a death notification pushed to the owner. A
+ * timeout now propagates and each caller decides, because "unknown" and
+ * "dead" are the same word only if you never have to act on it.
+ */
+export class TmuxTimeoutError extends TmuxError {
+  constructor(message: string) {
+    super(message);
+    this.name = "TmuxTimeoutError";
   }
 }

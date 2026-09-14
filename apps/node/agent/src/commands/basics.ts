@@ -115,6 +115,12 @@ export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Pro
  * + an opportunistic screen capture for alive panes. Captures feed the
  * backend's preview cache, so when the whole answer would bust the frame
  * budget they are dropped in ONE rebuild — the liveness rows survive.
+ *
+ * A tmux that does not ANSWER fails the whole batch rather than reporting its
+ * panes dead: `hasSubshell` re-throws a `TmuxTimeoutError`, the dispatcher
+ * turns it into `{ok:false}`, and the plane's sweep logs "probe failed; sweep
+ * continues" and touches no row. `alive: false` in this answer means tmux
+ * said so, and the entry shape has no third state to say anything else with.
  */
 export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise<CommandResult> {
   // Same id-format gate as resolveSocket (probe never touches the store, but

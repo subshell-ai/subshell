@@ -92,7 +92,26 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, params);
     return;
   }
-  if (!row.tmuxSocket || !(await launcher.hasSubshell(row.tmuxSocket, row.id))) {
+  // Split out so the rest of this function sees a non-null socket, and so the
+  // three outcomes stay distinct.
+  const socket = row.tmuxSocket;
+  if (!socket) {
+    ws.close(4004, "subshell not running");
+    return;
+  }
+  // A tmux that did not ANSWER is a failed attach, not a dead pane, and the
+  // two say different things: "not running" sends someone looking for a crash
+  // that did not happen. `hasSubshell` re-throws a `TmuxTimeoutError` rather
+  // than folding it into `false` precisely so this can tell them apart.
+  let paneAlive: boolean;
+  try {
+    paneAlive = await launcher.hasSubshell(socket, row.id);
+  } catch (err) {
+    logger.withError(err).warn(`ws attach: liveness probe failed for ${row.id}`);
+    ws.close(4004, "subshell unreachable");
+    return;
+  }
+  if (!paneAlive) {
     ws.close(4004, "subshell not running");
     return;
   }
@@ -105,7 +124,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   let detached = false;
   const data: WsData = {
     launcher,
-    socket: row.tmuxSocket,
+    socket,
     subshellId: row.id,
     logFile: subshellLogPath(row.id),
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
@@ -186,7 +205,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // is armed (it costs an extra capture). Taken before the resize, it is the
   // evidence that tells "the pane was already holding garbage" apart from
   // "our resize/capture produced it" (see ws/attach-forensics.ts).
-  const preResize = forensicsEnabled() ? await captureStable(launcher, row.tmuxSocket, row.id, 0) : null;
+  const preResize = forensicsEnabled() ? await captureStable(launcher, socket, row.id, 0) : null;
 
   // Fit the pane to the viewer BEFORE anything reads it, then make sure the
   // TUI has actually REPAINTED at that geometry.
@@ -220,7 +239,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       // size: it ENDS by resizing the pane to what it is given, and the
       // joiner's size once undid the shared fit — an incumbent at 122x49 was
       // left rendering a pane a 122x52 joiner had claimed.
-      const outcome = await fitPaneAndRepaint(launcher, row.tmuxSocket, row.id, fit, sizeOf, {
+      const outcome = await fitPaneAndRepaint(launcher, socket, row.id, fit, sizeOf, {
         baseline: logStart,
         canNudge: () => hasLog && !detached,
       });
@@ -241,13 +260,13 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // gap-free: a snapshot that races an animating frame is corrected by the
   // very next diff, which the client is guaranteed to receive.
   const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
-  const text = await captureStable(launcher, row.tmuxSocket, row.id, cap);
+  const text = await captureStable(launcher, socket, row.id, cap);
   // The pane's CONFIRMED grid, announced to every viewer before the
   // replay so the capture is painted onto a grid they already agree
   // with. Null means the pane died between the fit and here, and a
   // dying pane gets no announcement — there is no second meaning to
   // disambiguate any more, because every machine can measure.
-  const attachGeometry = await readPaneGeometry(launcher, row.tmuxSocket, row.id);
+  const attachGeometry = await readPaneGeometry(launcher, socket, row.id);
   if (attachGeometry) {
     broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }
@@ -275,7 +294,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // simultaneous attaches reach the same end by another route. Re-deciding
   // here is idempotent (the queue drops a request for the size it already
   // holds), so the quiet case costs nothing.
-  applySharedGeometry(row.id, launcher, row.tmuxSocket);
+  applySharedGeometry(row.id, launcher, socket);
   // Re-wrap (not raw-assign): the close that arrived during the attach awaits
   // must still reach the disposer armed moments ago — `detached` is true by
   // then, so the same wrapper both propagates and immediately tears down.

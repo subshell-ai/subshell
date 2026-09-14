@@ -899,6 +899,39 @@ test("a burst of frames in one turn is verified in ARRIVAL order, not signature-
   expect(h.plane.unparsed).toEqual([]);
 });
 
+test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", async () => {
+  // The two byte guards are synchronous and cost nothing, so they run before
+  // a frame joins the serialization chain. Behind it, a burst of oversize
+  // frames would be RETAINED in the queue before being rejected — the daemon
+  // holding megabytes of noise it has already decided to drop.
+  //
+  // Asserted with no await at all, which is the whole point: `deliverBurst`
+  // returns once the listener has run for both frames, and by then the
+  // oversize one must ALREADY be logged even though the input ahead of it is
+  // still mid-verify. Chained, nothing would be logged yet.
+  const pumps: Array<{ deliverBurst: (frames: string[]) => void }> = [];
+  const h = await startDaemon({
+    tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    WebSocketImpl: wrapRealWsWithPump(pumps),
+  });
+  const input = await signEnvelope(h, { type: "input", subshellId: HEX_A, data: "x" }, "admit-1", 1);
+  const oversize = JSON.stringify({ jws: "x".repeat(NODE_MAX_FRAME_BYTES + 10_000) });
+  const pump = pumps.at(-1);
+  if (!pump) throw new Error("no socket was opened");
+
+  const logs = captureLogs();
+  try {
+    pump.deliverBurst([input, oversize]);
+    expect(logs.lines.some((l) => l.includes("oversize frame ignored"))).toBe(true);
+  } finally {
+    logs.restore();
+  }
+  // …and the connection is unharmed: the input ahead of it still lands.
+  await waitFor(h, (e) => e.type === "result" && e.ref === "admit-1", "the input's result");
+  expect(h.plane.closes).toBe(0);
+});
+
 test("commands run SERIALLY in arrival order (spec §3.4): the second starts only after the first's promise resolves", async () => {
   // The first command (terminate) is made slow INSIDE its await (the meta
   // lookup); the second (input) is instant. With the old per-message

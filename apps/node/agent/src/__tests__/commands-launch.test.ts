@@ -70,6 +70,9 @@ async function freshDataDir(tag: string): Promise<string> {
   return dir;
 }
 
+/** What the tri-state probe answers (the real one resolves it asynchronously). */
+type ProbeAnswer = { ok: true; names: string[] } | { ok: false; detail: string };
+
 interface Spec {
   newSubshell?: (socket: string, id: string, cwd: string, cmd: string) => void;
   pipePane?: (socket: string, id: string, out: string) => void;
@@ -84,7 +87,7 @@ interface Spec {
    * spawn-count assertions still see the call recorded under
    * "listSubshellNames" (the derivation runs through that wrapper).
    */
-  listSubshellsChecked?: (socket: string) => { ok: true; names: string[] } | { ok: false; detail: string };
+  listSubshellsChecked?: (socket: string) => ProbeAnswer | Promise<ProbeAnswer>;
   paneExitCode?: (socket: string, id: string) => number | null;
   killSubshell?: (socket: string, id: string) => void;
   run?: (args: string[]) => { stdout: string; stderr: string };
@@ -143,7 +146,7 @@ function makeCtx(
     resizeWindow: method("resizeWindow"),
     hasSubshell: method("hasSubshell"),
     listSubshellNames,
-    listSubshellsChecked: (socket: string): { ok: true; names: string[] } | { ok: false; detail: string } => {
+    listSubshellsChecked: (socket: string): ProbeAnswer | Promise<ProbeAnswer> => {
       calls.push({ method: "listSubshellsChecked", args: [socket] });
       const scripted = spec.listSubshellsChecked;
       if (scripted) return scripted(socket);
@@ -692,6 +695,48 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     await new Promise((r) => setTimeout(r, 80)); // an extra beat: never a second event
     expect(events.length).toBe(1);
     expect(ctx.watchTick).toBeUndefined(); // the shared loop stops when the last pane leaves
+  });
+
+  it("a slow tick is never overlapped by the next one", async () => {
+    // The probe is async now and bounded by the tmux deadline (15 s) while
+    // the interval is 2 s, so a wedged socket would let seven ticks run at
+    // once — each re-probing the same sockets and racing the same
+    // registrations through the same death sequence. The synchronous probe
+    // could not do that: it blocked the loop, which WAS the mutual exclusion.
+    const dataDir = await freshDataDir("watcher-reentrancy");
+    const events: NodeEvent[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let probes = 0;
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        listSubshellsChecked: async (): Promise<ProbeAnswer> => {
+          probes += 1;
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((r) => setTimeout(r, 120));
+          inFlight -= 1;
+          // Still alive, so the watcher stays registered and the loop keeps
+          // ticking for the whole window below.
+          return { ok: true, names: [S1] };
+        },
+      },
+      events,
+    );
+    // 10 ms against a 120 ms probe: ~12 ticks arrive while each one runs.
+    startExitWatcher(ctx, S1, "slow-sock", 10);
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      expect(maxInFlight).toBe(1);
+      // And the dropped ticks really were dropped rather than queued: ~3 probes
+      // fit in 400 ms, nowhere near the ~40 ticks the interval fired.
+      expect(probes).toBeLessThan(10);
+      expect(probes).toBeGreaterThan(0);
+      expect(events).toEqual([]); // a live pane is never reported dead
+    } finally {
+      stopWatcher(ctx, S1);
+    }
   });
 
   it("paneExitCode null (server gone before a status was read) ⇒ exitCode null rides the event", async () => {

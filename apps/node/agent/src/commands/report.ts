@@ -87,12 +87,25 @@ export function startExitWatcher(
   const token = Symbol(subshellId);
   ctx.watchers.set(subshellId, { socket, token, unreachable: 0 });
   if (ctx.watchTick !== undefined) return token; // loop already running for the existing set
+  // NON-REENTRANT. The probe is async and bounded by the tmux deadline
+  // (15 s), while this interval is 2 s — so a wedged socket would let seven
+  // ticks run at once, each re-probing the same sockets and racing the same
+  // registrations through the same death sequence. That could not happen
+  // while the probe was synchronous: it blocked the loop, which IS the
+  // mutual exclusion the async version has to state for itself. A tick that
+  // arrives while one is in flight is DROPPED rather than queued — the next
+  // one is two seconds away and reads fresher state than a queued one would.
+  let ticking = false;
   const timer = setInterval(() => {
+    if (ticking) return;
+    ticking = true;
     // TOTAL per tick: a throwing tmux probe must not become an unhandled
     // rejection (nor silently kill the loop on the next throw).
-    void runExitWatchTick(ctx).catch((err: unknown) =>
-      log(`exit watcher tick failed: ${err instanceof Error ? err.message : String(err)}`),
-    );
+    void runExitWatchTick(ctx)
+      .catch((err: unknown) => log(`exit watcher tick failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        ticking = false;
+      });
   }, intervalMs);
   timer.unref?.(); // a watcher must never hold the daemon (or a test process) open
   ctx.watchTick = timer;
@@ -226,6 +239,12 @@ function dropTailsFor(ctx: CommandContext, subshellId: string): void {
  * restart") — one row per recorded meta: alive panes report `null`, dead ones
  * carry `paneExitCode ?? null`. THROWS if tmux does; the daemon catch-logs it
  * — a failed scan must never cost the connection.
+ *
+ * That throw now includes a tmux that did not ANSWER (`hasSubshell` re-throws
+ * a `TmuxTimeoutError`), and losing the whole census is the right answer
+ * rather than a shortcoming: `alive` is a boolean with no room for "could not
+ * tell", and sending `false` for a live pane is what the plane would act on.
+ * No report means the plane keeps the view it already had.
  * @param ctx - the daemon's command context
  * @returns the wire event (rows sorted by subshellId — `meta.list()` order)
  */

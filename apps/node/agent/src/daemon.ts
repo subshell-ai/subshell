@@ -488,19 +488,35 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
     send(ws, { type: "result", ref: claims.jti, ...result });
   };
 
-  /** One inbound frame: byte guard → jws extraction → verify → execute (spec §4). */
-  const onFrame = async (ws: WsLike, data: unknown): Promise<void> => {
+  /**
+   * The two byte guards, run ON ARRIVAL rather than in the serialization chain
+   * below.
+   *
+   * Both are synchronous and cost nothing, and putting them behind the chain
+   * would mean a burst of oversize frames is RETAINED in a queue before being
+   * rejected — the daemon holding megabytes of hostile noise it has already
+   * decided to drop. Dropped here, the memory goes with the event.
+   *
+   * @param data - the raw `message` payload
+   * @returns the frame's text, or null when it was logged and dropped
+   */
+  const admitFrame = (data: unknown): string | null => {
     if (typeof data !== "string") {
       log("ignored non-text frame");
-      return;
+      return null;
     }
     const size = Buffer.byteLength(data); // exact UTF-8 size without allocating a Blob
     if (size > NODE_MAX_FRAME_BYTES) {
       // Ignore, do NOT close: the server already guards its own direction, so an
       // oversize inbound frame is hostile noise — answer nothing.
       log(`oversize frame ignored (${size} bytes > ${NODE_MAX_FRAME_BYTES})`);
-      return;
+      return null;
     }
+    return data;
+  };
+
+  /** One ADMITTED frame: jws extraction → verify → execute (spec §4). */
+  const onFrame = async (ws: WsLike, data: string): Promise<void> => {
     let jws: unknown;
     try {
       jws = (JSON.parse(data) as { jws?: unknown }).jws;
@@ -664,10 +680,16 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       // is reset on every open), and a frame's handling starts only once the
       // previous frame's has finished. The catch is on the chain rather than
       // on each call, so one rejected frame is logged and the next still runs.
+      //
+      // The two cheap byte guards run BEFORE the chain (see `admitFrame`), so
+      // a frame the daemon has already decided to drop is never retained
+      // waiting for its turn.
       let frameChain: Promise<void> = Promise.resolve();
       ws.addEventListener("message", (ev) => {
+        const frame = admitFrame(ev.data);
+        if (frame === null) return;
         frameChain = frameChain
-          .then(() => onFrame(ws, ev.data))
+          .then(() => onFrame(ws, frame))
           .catch((err: unknown) => log(`frame handling error: ${String(err)}`));
       });
       ws.addEventListener("close", (ev) => finish({ code: ev?.code ?? 1006, reason: ev?.reason ?? "" }));

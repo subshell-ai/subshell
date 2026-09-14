@@ -70,7 +70,7 @@ export {
 } from "./registry.js";
 export { shellQuote } from "./shell.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
-export { TmuxRunner, tmuxSocketFor } from "./tmux-runner.js";
+export { TmuxError, TmuxRunner, TmuxTimeoutError, tmuxSocketFor } from "./tmux-runner.js";
 export type {
   BuildCommandInput,
   DetectSpec,

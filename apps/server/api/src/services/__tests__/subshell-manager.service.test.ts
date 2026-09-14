@@ -26,6 +26,7 @@ import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
+import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
@@ -522,6 +523,44 @@ describe("reconcile notifications", () => {
     // Death ends the "waiting for you" state — no stale stamp left behind.
     expect(row?.waitingSince).toBeNull();
     expect(callsFor(calls, id)).toEqual([[id, "exited"]]);
+  });
+
+  it("a tmux that will not answer is UNKNOWN, not dead: the sweep skips the row", async () => {
+    // `hasSubshell` answers a boolean, and before this every failure collapsed
+    // into `false` — including the new 15 s deadline. So a wedged tmux client
+    // made the sweep take the death branch on a pane that is very much alive:
+    // token revoked, `endedAt` stamped, a death notification pushed, and the
+    // row only recoverable by hand. Unknown is not dead.
+    const stubDir = mkdtempSync(join(tmpdir(), "subshell-wedged-tmux-"));
+    const stub = join(stubDir, "tmux-stub");
+    writeFileSync(stub, "#!/bin/sh\nsleep 30\n", { mode: 0o755 });
+    const id = crypto.randomUUID();
+    await seedRunning(id, { alive: 1, tmuxSocket: tmuxSocketFor(id) });
+    const calls: Array<[string, string]> = [];
+    const manager = new SubshellManagerService({
+      subshells: subshellsRepo,
+      presets: presetsRepo,
+      tmux: new TmuxRunner(),
+      // A launcher whose tmux never answers, on a deadline short enough to
+      // assert against.
+      launcher: new LocalLauncher({ tmux: new TmuxRunner(stub, { timeoutMs: 200 }) }),
+      tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
+      audit: async () => {},
+      notify: async (sid, kind) => {
+        calls.push([sid, kind]);
+      },
+    });
+    try {
+      await manager.reconcileAll();
+      const row = await subshellsRepo.findById(id);
+      // Untouched: still alive, no end stamp, and nobody told the owner it died.
+      expect(row?.alive).toBe(1);
+      expect(row?.endedAt).toBeNull();
+      expect(row?.status).toBe("running");
+      expect(callsFor(calls, id)).toEqual([]);
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+    }
   });
 
   it("notifies 'crashed' when the dead subshell opted into auto-restart", async () => {

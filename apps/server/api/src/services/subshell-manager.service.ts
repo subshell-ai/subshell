@@ -8,6 +8,7 @@ import {
   type McpRegistration,
   type ReporterSpec,
   type TmuxRunner,
+  TmuxTimeoutError,
   tmuxSocketFor,
 } from "@internal/pane-runtime";
 import { dirAllowed, type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/subshell-protocol";
@@ -1026,7 +1027,21 @@ export class SubshellManagerService {
         }
         continue;
       }
-      if (!(await this.#localLauncher.hasSubshell(row.tmuxSocket, row.id))) {
+      // UNKNOWN IS NOT DEAD. `hasSubshell` re-throws a timeout rather than
+      // answering `false`, because the death branch below is destructive —
+      // it revokes the subshell's token, stamps `endedAt` and pushes a death
+      // notification — and a tmux client that simply did not answer is no
+      // evidence at all. Skip the row and look again on the next tick; a
+      // genuinely dead pane is still dead in sixty seconds.
+      let paneAlive: boolean;
+      try {
+        paneAlive = await this.#localLauncher.hasSubshell(row.tmuxSocket, row.id);
+      } catch (err) {
+        if (!(err instanceof TmuxTimeoutError)) throw err;
+        logger.withError(err).warn(`subshell ${row.id}: tmux did not answer the liveness probe; skipping this sweep`);
+        continue;
+      }
+      if (!paneAlive) {
         // Probe FIRST, decide after: paneExitCode is awaited just like
         // hasSubshell, so collect every async probe before touching state.
         // ── TOCTOU re-check (spec §6.3 async seam TOCTOU): the probes widen

@@ -7,6 +7,7 @@ import {
   assertSocketPathFits,
   TMUX_COMMAND_TIMEOUT_MS,
   TmuxRunner,
+  TmuxTimeoutError,
   tmuxSocketFor,
   tmuxSocketPath,
 } from "../tmux-runner.js";
@@ -654,6 +655,23 @@ echo "server exited unexpectedly" >&2; exit 1
         // …and the pane's chain DRAINED: the next keystroke is not stuck behind
         // the one that hung, which is the half that makes the timeout useful.
         await expect(tmux.sendInput("sock", "s1", "y")).rejects.toThrow(/timed out/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("hasSubshell: tmux SAYING no is false; tmux saying NOTHING throws", async () => {
+      // The whole point of `TmuxTimeoutError`. `false` used to mean both, and
+      // the server's reconcile sweep acts on it destructively — so a wedged
+      // tmux client revoked a live subshell's token, stamped `endedAt` and
+      // pushed a death notification for a pane that was still running.
+      const absent = freshSocket("liveness-absent"); // never started: tmux answers, with "no"
+      expect(await runner.hasSubshell(absent, "s1")).toBe(false);
+
+      const { dir, path } = writeStub("#!/bin/sh\nsleep 30\n");
+      try {
+        const wedged = new TmuxRunner(path, { timeoutMs: 250 });
+        await expect(wedged.hasSubshell("sock", "s1")).rejects.toThrow(TmuxTimeoutError);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
