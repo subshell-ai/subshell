@@ -117,8 +117,11 @@
   /* Buttons, by what they DO. */
   /* Copied verbatim from apps/server/web/src/components/ui/button.tsx's
      `default` variant: a sunk plum gradient with frost text, deliberately
-     quieter than --color-primary (which stays bright for the dots/glyphs).
-     It cannot ride a theme token, so it is a fixed string on both sides. */
+     quieter than --primary (which stays bright for the dots/glyphs) and
+     brightening again on hover. It rides the five `--button-primary-*`
+     tokens in `:root` — the literals live there because the design check
+     refuses colour literals outside a token block; on the SPA side
+     button.tsx still spells the same values inline. */
   .primary {
     background: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
     color: var(--button-primary-foreground);
