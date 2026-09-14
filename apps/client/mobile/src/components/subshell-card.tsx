@@ -2,7 +2,7 @@ import { stripAnsi } from "@internal/backend-errors";
 import { memo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { isNodeOffline, isWaiting } from "@/lib/subshell-order";
-import { colors, radius } from "@/lib/tokens";
+import { colors, font, radius } from "@/lib/tokens";
 import type { SubshellView } from "@/types/subshell";
 
 /** One list row (spec §Screens Subshells card): name, harness, dot, preview, chip, death stats. */
@@ -51,18 +51,17 @@ export const SubshellCard = memo(function SubshellCard({
                   : colors.warning,
           }}
         />
-        <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 16, fontWeight: "600", flex: 1 }}>
+        <Text numberOfLines={1} style={{ ...font("label"), color: colors.fg, flex: 1 }}>
           {subshell.name}
         </Text>
         {waiting ? (
           <Text
             style={{
+              ...font("caption"),
               color: colors.bg,
               backgroundColor: colors.warning,
               borderRadius: 4,
               paddingHorizontal: 6,
-              fontSize: 11,
-              fontWeight: "700",
             }}
           >
             waiting
@@ -71,7 +70,7 @@ export const SubshellCard = memo(function SubshellCard({
       </View>
       {/* `node unreachable` outranks `exited` (web subshell-card, spec §5.6):
           with no live agent the exit facts are last-known, not current. */}
-      <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
+      <Text style={{ ...font("caption"), color: colors.mutedFg }}>
         {subshell.harnessId}
         {offline
           ? " · node unreachable"
@@ -80,7 +79,7 @@ export const SubshellCard = memo(function SubshellCard({
             : ""}
       </Text>
       {preview ? (
-        <Text numberOfLines={1} style={{ color: colors.mutedFg, fontSize: 12, fontFamily: "Menlo" }}>
+        <Text numberOfLines={1} style={{ ...font("caption"), color: colors.mutedFg, fontFamily: "Menlo" }}>
           {preview}
         </Text>
       ) : null}

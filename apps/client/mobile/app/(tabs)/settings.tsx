@@ -15,7 +15,7 @@ import { useApp } from "@/lib/app-state";
 import { instanceMeta } from "@/lib/instances";
 import { probeInstance } from "@/lib/probe";
 import { makeProbeDeps } from "@/lib/probe-real";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { biometricEnabled, requireBiometric, setBiometricEnabled } from "@/native/biometric";
 import { deregisterPush, setIconBadge } from "@/native/push";
 import { secureTokenStore } from "@/native/secure-token-store";
@@ -95,9 +95,9 @@ export default function Settings() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingTop: insets.top + 24, gap: 10 }}>
-      <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>Settings</Text>
+      <Text style={{ ...font("display"), color: colors.fg }}>Settings</Text>
 
-      <Text style={{ color: colors.mutedFg, fontSize: 13, marginTop: 8 }}>Instances</Text>
+      <Text style={{ ...font("detail"), color: colors.mutedFg, marginTop: 8 }}>Instances</Text>
       {instances.map((r) => (
         <View
           key={r.id}
@@ -111,12 +111,12 @@ export default function Settings() {
           }}
         >
           <Pressable onPress={() => setActive(r.id)} style={{ minHeight: touchTarget - 12, justifyContent: "center" }}>
-            <Text style={{ color: r.id === activeId ? colors.primary : colors.fg, fontWeight: "600" }}>{r.label}</Text>
-            <Text style={{ color: colors.mutedFg, fontSize: 12 }}>{instanceMeta(r)}</Text>
+            <Text style={{ ...font("label"), color: r.id === activeId ? colors.primary : colors.fg }}>{r.label}</Text>
+            <Text style={{ ...font("caption"), color: colors.mutedFg }}>{instanceMeta(r)}</Text>
           </Pressable>
           <View style={{ flexDirection: "row", gap: 16 }}>
             <Pressable onPress={() => void reprobe(r.id)} disabled={busyId !== null} hitSlop={8}>
-              <Text style={{ color: busyId === r.id ? colors.mutedFg : colors.primary, fontWeight: "600" }}>
+              <Text style={{ ...font("label"), color: busyId === r.id ? colors.mutedFg : colors.primary }}>
                 {busyId === r.id ? "Probing…" : "Re-probe"}
               </Text>
             </Pressable>
@@ -132,7 +132,7 @@ export default function Settings() {
               }
               hitSlop={8}
             >
-              <Text style={{ color: colors.destructive, fontWeight: "600" }}>Forget</Text>
+              <Text style={{ ...font("label"), color: colors.destructive }}>Forget</Text>
             </Pressable>
           </View>
         </View>
@@ -141,7 +141,7 @@ export default function Settings() {
         onPress={() => router.push("/connect")}
         style={{ minHeight: touchTarget, alignItems: "flex-start", justifyContent: "center" }}
       >
-        <Text style={{ color: colors.primary, fontWeight: "600" }}>+ Add instance</Text>
+        <Text style={{ ...font("label"), color: colors.primary }}>+ Add instance</Text>
       </Pressable>
 
       <View
@@ -160,7 +160,7 @@ export default function Settings() {
       >
         <View style={{ flex: 1 }}>
           <Text style={{ color: colors.fg }}>Face ID for terminal &amp; actions</Text>
-          <Text style={{ color: colors.mutedFg, fontSize: 11 }}>
+          <Text style={{ ...font("caption"), color: colors.mutedFg }}>
             Required by default — turning it off lets any unlock of this phone drive every pane.
           </Text>
         </View>
@@ -215,7 +215,7 @@ export default function Settings() {
           justifyContent: "center",
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "700" }}>Sign out</Text>
+        <Text style={{ ...font("label"), color: colors.destructiveFg }}>Sign out</Text>
       </Pressable>
 
       {/* The phone's only licence surface. The CLIs answer `license` and the
@@ -229,19 +229,19 @@ export default function Settings() {
           accessibilityRole="link"
           accessibilityLabel={`Open ${COPYRIGHT_HOLDER}`}
         >
-          <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
+          <Text style={{ ...font("caption"), color: colors.mutedFg }}>
             Copyright {COPYRIGHT_YEAR}{" "}
             <Text style={{ color: colors.primary, textDecorationLine: "underline" }}>{COPYRIGHT_HOLDER}</Text>
           </Text>
         </Pressable>
-        <Text style={{ color: colors.mutedFg, fontSize: 12 }}>{LICENSE_SUMMARY}</Text>
+        <Text style={{ ...font("caption"), color: colors.mutedFg }}>{LICENSE_SUMMARY}</Text>
         <Pressable
           onPress={() => void Linking.openURL(LICENSE_URL)}
           hitSlop={8}
           accessibilityRole="link"
           accessibilityLabel="Open the full licence text"
         >
-          <Text style={{ color: colors.primary, fontSize: 12, textDecorationLine: "underline" }}>
+          <Text style={{ ...font("caption"), color: colors.primary, textDecorationLine: "underline" }}>
             Full licence text
           </Text>
         </Pressable>

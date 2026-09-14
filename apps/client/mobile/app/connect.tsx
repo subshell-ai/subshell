@@ -10,7 +10,7 @@ import { InvalidInstanceUrl, normalizeInstanceOrigin } from "@/lib/instance-url"
 import { instanceMeta } from "@/lib/instances";
 import { type ProbeResult, probeInstance } from "@/lib/probe";
 import { makeProbeDeps } from "@/lib/probe-real";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 
 /** Connect screen (spec §Screens): type/paste an origin, manage the list. */
 export default function Connect() {
@@ -60,8 +60,8 @@ export default function Connect() {
       contentContainerStyle={{ padding: 24, paddingTop: insets.top + 32, gap: 16, minHeight: "100%" }}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={{ color: colors.fg, fontSize: 28, fontWeight: "700" }}>subshell</Text>
-      <Text style={{ color: colors.mutedFg, fontSize: 15 }}>
+      <Text style={{ ...font("display"), color: colors.fg }}>subshell</Text>
+      <Text style={{ ...font("body"), color: colors.mutedFg }}>
         The companion for your own instance. Type its address once.
       </Text>
       <Field
@@ -77,7 +77,7 @@ export default function Connect() {
         captionColor={note?.color ?? colors.destructive}
       />
       {plainHttp ? (
-        <Text style={{ color: colors.warning, fontSize: 12 }}>
+        <Text style={{ ...font("caption"), color: colors.warning }}>
           Plain HTTP: your token will cross the network in the clear.
         </Text>
       ) : null}
@@ -85,7 +85,7 @@ export default function Connect() {
 
       {instances.length > 0 ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Saved instances</Text>
+          <Text style={{ ...font("detail"), color: colors.mutedFg }}>Saved instances</Text>
           {instances.map((r) => (
             <Pressable
               key={r.id}
@@ -106,13 +106,13 @@ export default function Connect() {
                 gap: 2,
               }}
             >
-              <Text style={{ color: colors.fg, fontWeight: "500" }}>{r.label}</Text>
-              <Text style={{ color: colors.mutedFg, fontSize: 12 }}>{instanceMeta(r)}</Text>
+              <Text style={{ ...font("label"), color: colors.fg }}>{r.label}</Text>
+              <Text style={{ ...font("caption"), color: colors.mutedFg }}>{instanceMeta(r)}</Text>
             </Pressable>
           ))}
         </View>
       ) : null}
-      <Text style={{ color: colors.mutedFg, fontSize: 11 }}>
+      <Text style={{ ...font("caption"), color: colors.mutedFg }}>
         Private hosts (LAN/CGNAT/.local) default to http; everything else upgrades to https.
       </Text>
     </ScrollView>

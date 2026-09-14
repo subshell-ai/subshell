@@ -38,6 +38,19 @@ export const colors = {
   warning: "#ffb900",
   /** Terminate/delete — web `--destructive: oklch(0.65 0.2 25)`. */
   destructive: "#f14d4c",
+  /**
+   * Text on a destructive fill — web `--destructive-foreground: oklch(0.98 0 0)`,
+   * converted by the same math `lint:design` applies to the compared keys.
+   * Outside MOBILE_COLOR_MAP like `accent` — not one of the ten compared
+   * roles, so this hex is its documented single home, never a callsite literal.
+   */
+  destructiveFg: "#f8f8f8",
+  /**
+   * Modal scrim. Web renders `bg-black/70` and no cross-surface token exists
+   * either side, so this key simply documents the mobile value as the single
+   * home instead of a hex living at the callsite.
+   */
+  scrim: "#000000aa",
   /** Terminal chrome: shell bg — web `--terminal-strip` (already hex there). */
   termBg: "#221c32",
   /** Terminal canvas — web `--terminal-canvas`. */

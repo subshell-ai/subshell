@@ -1,7 +1,7 @@
 import { describeDevices, roleLabel, type ViewersState } from "@internal/subshell-protocol";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 
 /**
  * Who else is watching this subshell, and which device is the reason the
@@ -42,7 +42,7 @@ export function DevicesStrip({
         accessibilityLabel={`${state.viewers.length} devices watching this subshell`}
         style={{ minHeight: touchTarget, paddingHorizontal: 12, justifyContent: "center" }}
       >
-        <Text style={{ color: colors.mutedFg, fontSize: 12 }}>
+        <Text style={{ ...font("caption"), color: colors.mutedFg }}>
           {state.viewers.length} devices
           {grid && settled ? ` · pane ${grid.cols}×${grid.rows}` : " · measuring…"}
           {pinnedId ? " · pinned" : ""}
@@ -72,12 +72,12 @@ export function DevicesStrip({
                   opacity: mayResize ? 1 : 0.6,
                 }}
               >
-                <Text style={{ color: colors.fg, fontSize: 13 }}>
+                <Text style={{ ...font("detail"), color: colors.fg }}>
                   {isPinned ? "📌 " : ""}
                   {viewer.label}
                   {you ? "  (this device)" : ""}
                 </Text>
-                <Text style={{ color: colors.mutedFg, fontSize: 11 }}>
+                <Text style={{ ...font("caption"), color: colors.mutedFg }}>
                   {viewer.capacity ? `${viewer.capacity.cols}×${viewer.capacity.rows}` : "measuring…"}
                   {label ? ` · ${label}` : ""}
                   {viewer.canInput ? "" : " · read-only"}
@@ -91,7 +91,7 @@ export function DevicesStrip({
               accessibilityRole="button"
               style={{ minHeight: touchTarget, paddingHorizontal: 12, justifyContent: "center" }}
             >
-              <Text style={{ color: colors.primary, fontSize: 13 }}>Back to automatic</Text>
+              <Text style={{ ...font("detail"), color: colors.primary }}>Back to automatic</Text>
             </Pressable>
           )}
         </View>

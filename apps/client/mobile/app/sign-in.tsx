@@ -6,7 +6,7 @@ import { Field } from "@/components/field";
 import { PrimaryButton } from "@/components/primary-button";
 import { ApiError, errMessage } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
-import { colors } from "@/lib/tokens";
+import { colors, font } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
 
 /** Sign in as the cookie actor (spec §Auth). Rate-limit copy included. */
@@ -47,7 +47,7 @@ export default function SignIn() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <View style={{ flex: 1, padding: 24, paddingTop: insets.top + 48, gap: 16, justifyContent: "center" }}>
-        <Text style={{ color: colors.fg, fontSize: 24, fontWeight: "700" }}>{instance?.label ?? "subshell"}</Text>
+        <Text style={{ ...font("display"), color: colors.fg }}>{instance?.label ?? "subshell"}</Text>
         <Field
           label="Email"
           value={email}

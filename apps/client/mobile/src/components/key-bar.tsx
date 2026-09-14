@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { isRepeatable, KEY_BAR_BUTTONS, KEY_BAR_EXTENDED } from "@/lib/key-bar";
-import { colors, touchTarget } from "@/lib/tokens";
+import { colors, font, touchTarget } from "@/lib/tokens";
 
 const REPEAT_DELAY_MS = 400;
 const REPEAT_RATE_MS = 90;
@@ -66,7 +66,7 @@ export function KeyBar({
               opacity: disabled ? 0.4 : 1,
             }}
           >
-            <Text style={{ color: colors.mutedFg, fontFamily: "Menlo", fontSize: 14 }}>{b.label}</Text>
+            <Text style={{ ...font("body"), color: colors.mutedFg, fontFamily: "Menlo" }}>{b.label}</Text>
           </Pressable>
         ))}
         <Pressable
@@ -74,14 +74,14 @@ export function KeyBar({
           onPress={() => setExtended((v) => !v)}
           style={{ minWidth: touchTarget, height: touchTarget, alignItems: "center", justifyContent: "center" }}
         >
-          <Text style={{ color: extended ? colors.primary : colors.mutedFg, fontSize: 16 }}>⋯</Text>
+          <Text style={{ ...font("label"), color: extended ? colors.primary : colors.mutedFg }}>⋯</Text>
         </Pressable>
         <Pressable
           disabled={disabled}
           onPress={onPaste}
           style={{ minWidth: touchTarget, height: touchTarget, alignItems: "center", justifyContent: "center" }}
         >
-          <Text style={{ color: colors.mutedFg, fontSize: 14 }}>📋</Text>
+          <Text style={{ ...font("body"), color: colors.mutedFg }}>📋</Text>
         </Pressable>
       </ScrollView>
     </View>

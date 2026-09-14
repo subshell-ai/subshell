@@ -166,6 +166,15 @@ create body (the server default), keeping single-machine payloads
 byte-identical to pre-nodes ones; a presetless launch omits `presetId` the
 same way — absence, never null.
 
+**Tokens mirror the web by CHECK, not by comment.** `src/lib/tokens.ts` is the
+mobile column of the design system (`docs/design-system.md`): the same six type
+roles and ten colour roles as the web, at platform-native sizes. `bun run
+lint:design` re-derives every colour from the SPA's oklch and fails if this
+file drifts by more than one 8-bit step — because this file once said "port of
+the web stylesheet" and was a whole palette behind. Consume type through
+`font(role)` and colour through `colors.*`; the check refuses a literal
+`fontSize` or hex anywhere else.
+
 Two divergences from web are ACCEPTED here — decisions, not omissions,
 recorded so the next reader does not "fix" them by accident:
 

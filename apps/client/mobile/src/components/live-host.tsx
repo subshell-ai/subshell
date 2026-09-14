@@ -8,7 +8,7 @@ import { useForeground } from "@/hooks/use-foreground";
 import type { SubshellClient } from "@/lib/api";
 import { wrapPaste } from "@/lib/key-bar";
 import { type SocketStatus, useSubshellSocket } from "@/lib/subshell-socket";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
 
 const UNLOCK_LABEL = "Unlock the terminal";
@@ -143,7 +143,7 @@ export function LiveHost({
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: colors.bg, fontWeight: "700" }}>Unlock</Text>
+            <Text style={{ ...font("label"), color: colors.bg }}>Unlock</Text>
           </Pressable>
         </View>
       ) : (
@@ -182,7 +182,7 @@ function RejectedBanner({ status }: { status: SocketStatus }) {
         : "The terminal rejected the attach.";
   return (
     <View style={{ padding: 12, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-      <Text style={{ color: colors.warning, fontSize: 13 }}>{text}</Text>
+      <Text style={{ ...font("detail"), color: colors.warning }}>{text}</Text>
     </View>
   );
 }

@@ -1,5 +1,5 @@
 import { Text, TextInput, type TextInputProps, View } from "react-native";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 
 /** Labelled single-line input with a caption line for probe/error copy. */
 export function Field({
@@ -11,7 +11,7 @@ export function Field({
 }: TextInputProps & { label: string; caption?: string; captionColor?: string }) {
   return (
     <View style={{ gap: 6 }}>
-      <Text style={{ color: colors.mutedFg, fontSize: 13 }}>{label}</Text>
+      <Text style={{ ...font("detail"), color: colors.mutedFg }}>{label}</Text>
       <TextInput
         placeholderTextColor={colors.mutedFg}
         {...input}
@@ -23,11 +23,11 @@ export function Field({
           paddingHorizontal: 12,
           color: colors.fg,
           backgroundColor: colors.card,
-          fontSize: 16,
+          ...font("body"),
           ...style,
         }}
       />
-      {caption ? <Text style={{ color: captionColor, fontSize: 12 }}>{caption}</Text> : null}
+      {caption ? <Text style={{ ...font("caption"), color: captionColor }}>{caption}</Text> : null}
     </View>
   );
 }

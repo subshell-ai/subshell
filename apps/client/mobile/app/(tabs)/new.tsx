@@ -22,7 +22,7 @@ import { useSubshells } from "@/hooks/use-subshells";
 import { agentDefault } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
 import { isSelectable, nodePickSettled, nodeRunsHarness, pickNodeDefault } from "@/lib/node-pick";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/files";
 import type { PluginView } from "@/types/plugin";
@@ -207,10 +207,10 @@ export default function NewSubshell() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: insets.top + 24, gap: 16 }}>
-        <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>New subshell</Text>
+        <Text style={{ ...font("display"), color: colors.fg }}>New subshell</Text>
 
         <View style={{ gap: 6 }}>
-          <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Agent</Text>
+          <Text style={{ ...font("detail"), color: colors.mutedFg }}>Agent</Text>
           {plugins.isLoading ? (
             <ActivityIndicator />
           ) : (
@@ -247,7 +247,7 @@ export default function NewSubshell() {
                         opacity: usable ? 1 : 0.5,
                       }}
                     >
-                      <Text style={{ color: sel ? colors.primary : colors.fg, fontWeight: "600" }}>
+                      <Text style={{ ...font("label"), color: sel ? colors.primary : colors.fg }}>
                         {p.icon ? `${p.icon} ` : ""}
                         {p.name}
                       </Text>
@@ -261,7 +261,7 @@ export default function NewSubshell() {
 
         {harnessId && agentPresets.length > 0 ? (
           <View style={{ gap: 6 }}>
-            <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Preset</Text>
+            <Text style={{ ...font("detail"), color: colors.mutedFg }}>Preset</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <Pressable
@@ -276,7 +276,7 @@ export default function NewSubshell() {
                     backgroundColor: colors.card,
                   }}
                 >
-                  <Text style={{ color: presetId === null ? colors.primary : colors.fg, fontWeight: "600" }}>None</Text>
+                  <Text style={{ ...font("label"), color: presetId === null ? colors.primary : colors.fg }}>None</Text>
                 </Pressable>
                 {agentPresets.map((pr) => {
                   const sel = presetId === pr.id;
@@ -294,7 +294,7 @@ export default function NewSubshell() {
                         backgroundColor: colors.card,
                       }}
                     >
-                      <Text style={{ color: sel ? colors.primary : colors.fg, fontWeight: "600" }}>{pr.name}</Text>
+                      <Text style={{ ...font("label"), color: sel ? colors.primary : colors.fg }}>{pr.name}</Text>
                     </Pressable>
                   );
                 })}
@@ -305,7 +305,7 @@ export default function NewSubshell() {
 
         {nodeOptions.length > 1 ? (
           <View style={{ gap: 6 }}>
-            <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Node</Text>
+            <Text style={{ ...font("detail"), color: colors.mutedFg }}>Node</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {nodeOptions.map((n) => {
@@ -332,7 +332,7 @@ export default function NewSubshell() {
                         opacity: pickable ? 1 : 0.5,
                       }}
                     >
-                      <Text style={{ color: sel ? colors.primary : colors.fg, fontWeight: "600" }}>
+                      <Text style={{ ...font("label"), color: sel ? colors.primary : colors.fg }}>
                         {/* `n.name`, never a word derived from the id: the
                             control-plane row is admin-named (root AGENTS.md,
                             spec 2026-09-08) and defaults to "Server", so the
@@ -354,10 +354,10 @@ export default function NewSubshell() {
             "Choose a node" placeholder — here as a hint line under the chip
             row (which can be hidden while ≤1 node is listed), because Start
             is blocked until a pick happens. */}
-        {nodeId === "" ? <Text style={{ color: colors.mutedFg, fontSize: 12 }}>Choose a node</Text> : null}
+        {nodeId === "" ? <Text style={{ ...font("caption"), color: colors.mutedFg }}>Choose a node</Text> : null}
 
         <View style={{ gap: 6 }}>
-          <Text style={{ color: colors.mutedFg, fontSize: 13 }}>Working directory</Text>
+          <Text style={{ ...font("detail"), color: colors.mutedFg }}>Working directory</Text>
           <Pressable
             onPress={() => {
               setSheet(true);
@@ -376,7 +376,7 @@ export default function NewSubshell() {
           >
             <Text
               numberOfLines={1}
-              style={{ color: workingDir ? colors.fg : colors.mutedFg, fontFamily: "Menlo", fontSize: 13 }}
+              style={{ ...font("detail"), color: workingDir ? colors.fg : colors.mutedFg, fontFamily: "Menlo" }}
             >
               {workingDir || "Choose a folder…"}
             </Text>
@@ -394,7 +394,6 @@ export default function NewSubshell() {
         <PrimaryButton
           onPress={() => void start()}
           label="Start subshell"
-          bold
           disabled={!harnessId || !workingDir || !nodeId}
           busy={busy}
         />
@@ -404,9 +403,9 @@ export default function NewSubshell() {
         <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top + 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 12 }}>
             <Pressable onPress={() => void openDir(dir?.parent ?? undefined)} hitSlop={12} disabled={!dir?.parent}>
-              <Text style={{ color: dir?.parent ? colors.primary : colors.mutedFg, fontSize: 17 }}>↑</Text>
+              <Text style={{ ...font("label"), color: dir?.parent ? colors.primary : colors.mutedFg }}>↑</Text>
             </Pressable>
-            <Text numberOfLines={1} style={{ color: colors.fg, flex: 1, fontFamily: "Menlo", fontSize: 13 }}>
+            <Text numberOfLines={1} style={{ ...font("detail"), color: colors.fg, flex: 1, fontFamily: "Menlo" }}>
               {dir?.path ?? "…"}
             </Text>
             <Pressable onPress={() => setSheet(false)} hitSlop={12}>
@@ -440,9 +439,9 @@ export default function NewSubshell() {
                 >
                   <Text
                     style={{
+                      ...font("detail"),
                       color: row.kind === "dir" ? colors.fg : colors.mutedFg,
                       fontFamily: "Menlo",
-                      fontSize: 13,
                     }}
                   >
                     {row.kind === "fav" ? "★ " : row.kind === "recent" ? "🕘 " : ""}
@@ -467,7 +466,7 @@ export default function NewSubshell() {
                 justifyContent: "center",
               }}
             >
-              <Text style={{ color: colors.fg, fontWeight: "700" }}>Use this folder</Text>
+              <Text style={{ ...font("label"), color: colors.fg }}>Use this folder</Text>
             </Pressable>
           ) : null}
         </View>

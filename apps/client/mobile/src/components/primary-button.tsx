@@ -1,5 +1,5 @@
 import { ActivityIndicator, Pressable, Text } from "react-native";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 
 /**
  * The shared primary CTA (review #9: four copy-pasted Pressable blocks with
@@ -11,13 +11,11 @@ export function PrimaryButton({
   label,
   disabled = false,
   busy = false,
-  bold = false,
 }: {
   onPress: () => void;
   label: string;
   disabled?: boolean;
   busy?: boolean;
-  bold?: boolean;
 }) {
   const off = disabled || busy;
   return (
@@ -36,7 +34,11 @@ export function PrimaryButton({
       {busy ? (
         <ActivityIndicator color={colors.bg} />
       ) : (
-        <Text style={{ color: colors.bg, fontWeight: bold ? "700" : "600" }}>{label}</Text>
+        // A button label is never regular (wave precedent: ui/button.tsx is
+        // font-strong at the base; spec § 3.1 puts buttons inside `label`).
+        // The role shape also fixes the latent gap: this Text used to ride
+        // RN's platform-dependent default size.
+        <Text style={{ color: colors.bg, ...font("label") }}>{label}</Text>
       )}
     </Pressable>
   );

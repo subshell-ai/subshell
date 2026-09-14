@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Modal, Pressable, Text, TextInput, View } from "react-native";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 
 /**
  * Minimal text-entry modal for rename (Alert.prompt is iOS-only; this is the
@@ -25,7 +25,7 @@ export function PromptModal({
       <View
         style={{
           flex: 1,
-          backgroundColor: "#000000aa",
+          backgroundColor: colors.scrim,
           alignItems: "center",
           justifyContent: "center",
           padding: 24,
@@ -41,7 +41,7 @@ export function PromptModal({
             gap: 12,
           }}
         >
-          <Text style={{ color: colors.fg, fontSize: 17, fontWeight: "600" }}>{title}</Text>
+          <Text style={{ ...font("heading"), color: colors.fg }}>{title}</Text>
           <TextInput
             value={value}
             onChangeText={setValue}
@@ -62,7 +62,7 @@ export function PromptModal({
               <Text style={{ color: colors.mutedFg }}>Cancel</Text>
             </Pressable>
             <Pressable onPress={() => onDone(value)} hitSlop={8} style={{ padding: 10 }}>
-              <Text style={{ color: colors.primary, fontWeight: "700" }}>Save</Text>
+              <Text style={{ ...font("label"), color: colors.primary }}>Save</Text>
             </Pressable>
           </View>
         </View>

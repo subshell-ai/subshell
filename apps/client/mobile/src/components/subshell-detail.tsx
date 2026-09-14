@@ -14,7 +14,7 @@ import { errMessage, isAlreadyGone } from "@/lib/api-error";
 import { useApp } from "@/lib/app-state";
 import { subshellActionFlags } from "@/lib/subshell-access";
 import { isNodeOffline, isWaiting } from "@/lib/subshell-order";
-import { colors, radius, touchTarget } from "@/lib/tokens";
+import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
 import { useSubshell } from "@/providers/subshell-provider";
 
@@ -100,13 +100,13 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           {onBack ? null : (
             <Pressable onPress={() => router.back()} hitSlop={12} style={{ padding: 6 }}>
-              <Text style={{ color: colors.primary, fontSize: 20 }}>‹</Text>
+              <Text style={{ ...font("heading"), color: colors.primary }}>‹</Text>
             </Pressable>
           )}
-          <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 19, fontWeight: "700", flex: 1 }}>
+          <Text numberOfLines={1} style={{ ...font("heading"), color: colors.fg, flex: 1 }}>
             {subshell?.name ?? "Subshell"}
           </Text>
-          <Text style={{ color: pill.color, fontSize: 12, fontWeight: "700" }}>{pill.text}</Text>
+          <Text style={{ ...font("caption"), color: pill.color }}>{pill.text}</Text>
         </View>
         <View style={{ flexDirection: "row", gap: 6 }}>
           {(["live", "log"] as const).map((t) => (
@@ -133,8 +133,8 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
           // Standing banner (spec §Error handling): this proxy forwards HTTP
           // but not upgrades — every other screen still works.
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 6 }}>
-            <Text style={{ color: colors.warning, fontWeight: "600" }}>Terminal blocked on this instance</Text>
-            <Text style={{ color: colors.mutedFg, fontSize: 12, textAlign: "center" }}>
+            <Text style={{ ...font("heading"), color: colors.warning }}>Terminal blocked on this instance</Text>
+            <Text style={{ ...font("caption"), color: colors.mutedFg, textAlign: "center" }}>
               WebSocket upgrades do not tunnel. Re-probe from Settings once the proxy forwards them.
             </Text>
           </View>
@@ -149,7 +149,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
         <FlatList
           data={log.data?.lines ?? []}
           renderItem={({ item }) => (
-            <Text style={{ color: colors.fg, fontFamily: "Menlo", fontSize: 12, paddingHorizontal: 12 }}>
+            <Text style={{ ...font("caption"), color: colors.fg, fontFamily: "Menlo", paddingHorizontal: 12 }}>
               {item.length > 0 ? item : " "}
             </Text>
           )}
@@ -247,7 +247,7 @@ function Action({ label, color = colors.primary, onPress }: { label: string; col
       onPress={onPress}
       style={{ minHeight: touchTarget - 8, justifyContent: "center", paddingHorizontal: 10 }}
     >
-      <Text style={{ color, fontWeight: "600" }}>{label}</Text>
+      <Text style={{ ...font("label"), color }}>{label}</Text>
     </Pressable>
   );
 }

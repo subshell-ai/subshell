@@ -8,7 +8,7 @@ import { SubshellDetail } from "@/components/subshell-detail";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useSubshells } from "@/hooks/use-subshells";
 import { type SubshellSections, sectionize } from "@/lib/subshell-order";
-import { colors } from "@/lib/tokens";
+import { colors, font } from "@/lib/tokens";
 import type { SubshellView } from "@/types/subshell";
 
 type Row = { kind: "header"; title: string } | { kind: "subshell"; subshell: SubshellView };
@@ -75,12 +75,12 @@ export default function SubshellsList() {
     return (
       <View style={{ flex: 1, paddingTop: insets.top + 8 }}>
         <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-          <Text style={{ color: colors.fg, fontSize: 26, fontWeight: "700" }}>Subshells</Text>
+          <Text style={{ ...font("display"), color: colors.fg }}>Subshells</Text>
         </View>
         {error && !data ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8 }}>
             <Text style={{ color: colors.destructive }}>Cannot reach the instance</Text>
-            <Text style={{ color: colors.mutedFg, fontSize: 12 }}>Pull down to retry</Text>
+            <Text style={{ ...font("caption"), color: colors.mutedFg }}>Pull down to retry</Text>
           </View>
         ) : isLoading && !data ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -101,9 +101,8 @@ export default function SubshellsList() {
               item.kind === "header" ? (
                 <Text
                   style={{
+                    ...font("caption"),
                     color: colors.mutedFg,
-                    fontSize: 12,
-                    fontWeight: "700",
                     textTransform: "uppercase",
                     marginTop: 14,
                     marginBottom: 4,
