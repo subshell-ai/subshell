@@ -45,22 +45,36 @@ function virgin(over: Partial<Probe> = {}): Probe {
 const NO_EDITS = { port: "", host: "" };
 const WITH_TMUX = { tmux: "/opt/homebrew/bin/tmux" };
 
+const LINUX = { platform: "linux" };
+
 describe("screensFor", () => {
   it("shows the tmux screen on every first run, installed or not", () => {
     // It used to be filtered out when tmux was present, and the skip was
     // invisible in the worst way: `dots` positions by `FIRST_RUN.indexOf`, so
     // the flow jumped from dot 1 to dot 3 and a prerequisite the product
     // depends on was satisfied without ever being named.
-    expect(screensFor(virgin(), false)).toEqual(["welcome", "tmux", "setup"]);
-    expect(screensFor(virgin(WITH_TMUX), false)).toEqual(["welcome", "tmux", "setup"]);
+    expect(screensFor(virgin(), false)).toContain("tmux");
+    expect(screensFor(virgin(WITH_TMUX), false)).toContain("tmux");
+  });
+
+  it("puts the permissions screen between tmux and Set Up, on macOS only", () => {
+    // Prerequisites, then what macOS is about to ask, then the server. Linux
+    // raises none of those prompts — no notification authorization, no TCC
+    // folder sheets, no Photos library — so its first run is unchanged.
+    expect(screensFor(virgin(), false)).toEqual(["welcome", "tmux", "permissions", "setup"]);
+    expect(screensFor(virgin(LINUX), false)).toEqual(["welcome", "tmux", "setup"]);
   });
 
   it("keeps the dots continuous on a machine that already has tmux", () => {
     // The property the skip broke: every screen of the run has the dot its
     // position implies, with no gap for the reader to explain to themselves.
+    // It is the property the permissions screen has to keep too, which is why
+    // one function filters the list both `screensFor` and `dots` read.
     const withTmux = virgin(WITH_TMUX);
     const list = screensFor(withTmux, false);
-    expect(list.map((s) => dots(withTmux, s).current)).toEqual([0, 1, 2]);
+    expect(list.map((s) => dots(withTmux, s).current)).toEqual([0, 1, 2, 3]);
+    const linux = virgin({ ...WITH_TMUX, ...LINUX });
+    expect(screensFor(linux, false).map((s) => dots(linux, s).current)).toEqual([0, 1, 2]);
   });
 });
 
@@ -165,22 +179,36 @@ describe("recoveryTitle / recoveryAction", () => {
 });
 
 describe("dots", () => {
-  it("always has six positions, so the row does not grow when the SPA takes over", () =>
-    expect(dots(virgin(), "welcome").total).toBe(6));
-  it("counts a skipped tmux screen as done", () => {
-    expect(dots(virgin(WITH_TMUX), "setup")).toEqual({ total: 6, done: 2, current: 2 });
-    expect(dots(virgin(WITH_TMUX), "welcome")).toEqual({ total: 6, done: 0, current: 0 });
+  it("has a fixed total per platform, so the row does not grow when the SPA takes over", () => {
+    // Three SPA screens always follow the native ones, so the total is the
+    // native count plus three: four plus three on macOS, three plus three
+    // everywhere else. The row's WIDTH never changes at the handoff, only
+    // which dots are filled.
+    expect(dots(virgin(), "welcome").total).toBe(7);
+    expect(dots(virgin(LINUX), "welcome").total).toBe(6);
   });
-  it("walks the three when tmux is missing", () => {
-    expect(dots(virgin(), "tmux")).toEqual({ total: 6, done: 1, current: 1 });
-    expect(dots(virgin(), "setup")).toEqual({ total: 6, done: 2, current: 2 });
+  it("counts the screens before the current one as done", () => {
+    expect(dots(virgin(WITH_TMUX), "setup")).toEqual({ total: 7, done: 3, current: 3 });
+    expect(dots(virgin(WITH_TMUX), "welcome")).toEqual({ total: 7, done: 0, current: 0 });
+  });
+  it("walks the four on macOS and the three on Linux", () => {
+    expect(dots(virgin(), "tmux")).toEqual({ total: 7, done: 1, current: 1 });
+    expect(dots(virgin(), "permissions")).toEqual({ total: 7, done: 2, current: 2 });
+    expect(dots(virgin(), "setup")).toEqual({ total: 7, done: 3, current: 3 });
+    expect(dots(virgin(LINUX), "setup")).toEqual({ total: 6, done: 2, current: 2 });
+  });
+  it("gives the permissions screen no position on a machine that never shows it", () => {
+    // The screen is requestable everywhere, but on Linux it is not a step —
+    // and a dot row drawn for a screen the journey does not contain is a
+    // number the reader cannot reconcile with anything.
+    expect(dots(virgin(LINUX), "permissions")).toEqual({ total: 6, done: -1, current: -1 });
   });
   it("has no position at all for the screens outside the first run", () => {
     // Recovery, Update and Reset are not steps on a journey, so the row is
     // hidden rather than shown with nothing filled. A negative `current` is
     // what the renderer hides on.
     for (const screen of ["recovery", "update", "reset"] as const) {
-      expect(dots(virgin(), screen)).toEqual({ total: 6, done: -1, current: -1 });
+      expect(dots(virgin(), screen)).toEqual({ total: 7, done: -1, current: -1 });
     }
   });
 });
@@ -250,16 +278,35 @@ describe("prereqState", () => {
  * had that rule for `update` alone, hard-coded at its one call site.
  */
 describe("screens entered by request", () => {
-  it("names all of them, and none is ever in a probe's list", () => {
-    // Three now: "How Your Server Runs" joined them (spec 2026-09-12
-    // server-supervision), and it is the same kind of screen — a question a
-    // PERSON asks, which no probe ever implies.
-    expect([...REQUESTED_SCREENS].sort()).toEqual(["reset", "supervision", "update"]);
+  it("names all of them, and none is in the list of a machine that can ask", () => {
+    // Four now. "How Your Server Runs" joined them in 2026-09-12 and
+    // "What macOS Will Ask" on 2026-09-14, and the two are different kinds of
+    // member — which is the thing this test now has to say out loud.
+    expect([...REQUESTED_SCREENS].sort()).toEqual(["permissions", "reset", "supervision", "update"]);
     const ready = virgin({ next: "ready", onboarded: true });
     for (const requested of REQUESTED_SCREENS) {
+      // The property that matters is about the machine that can ASK: a
+      // request comes from the dashboard, which exists only on an onboarded
+      // machine, and an onboarded machine's list is `recovery` or empty. So a
+      // requested screen can never collide with the family showing.
       expect(screensFor(ready, true)).not.toContain(requested);
-      expect(screensFor(virgin(), false)).not.toContain(requested);
+      expect(screensFor(virgin({ ...WITH_TMUX, next: "start" }), true)).not.toContain(requested);
     }
+  });
+
+  it("puts permissions on the macOS first run as well, and nothing else", () => {
+    // The one member that is BOTH. `update`, `reset` and `supervision` are
+    // never on a journey; `permissions` is a macOS step AND the screen every
+    // detection notice sends people back to. The render tells them apart by
+    // whether `screensFor` already holds the screen, so this is the pin on
+    // the fact that makes that check correct.
+    const firstRun = screensFor(virgin(), false);
+    expect(firstRun).toContain("permissions");
+    for (const requested of REQUESTED_SCREENS) {
+      if (requested === "permissions") continue;
+      expect(firstRun).not.toContain(requested);
+    }
+    expect(screensFor(virgin(LINUX), false)).not.toContain("permissions");
   });
 
   it("outranks the ready handoff, which is the whole point", () => {
@@ -438,6 +485,7 @@ describe("screenForRequest", () => {
     expect(screenForRequest("supervision")).toBe("supervision");
     expect(screenForRequest("update")).toBe("update");
     expect(screenForRequest("reset")).toBe("reset");
+    expect(screenForRequest("permissions")).toBe("permissions");
   });
 
   it("answers null for home, for a probe-implied screen, and for junk", () => {

@@ -25,6 +25,8 @@
     "allow-desktop-open-main",
     "allow-desktop-open-tmux-docs",
     "allow-desktop-about",
-    "allow-desktop-open-web"
+    "allow-desktop-open-web",
+    "allow-desktop-request-notifications",
+    "allow-desktop-open-system-settings"
   ]
 }

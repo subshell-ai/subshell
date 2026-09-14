@@ -56,6 +56,12 @@ pub enum Screen {
     /// from recovery, where there is no dashboard; the dashboard has its own
     /// dialog and calls `desktop_set_supervision` directly.
     Supervision,
+    /// What macOS will ask, and what it has already been asked (spec
+    /// 2026-09-14 § 3.2). The ONE member of this enum that is also a first-run
+    /// step: it is on the macOS journey between tmux and Set Up, and it is
+    /// requestable afterwards, because every detection notice in the dashboard
+    /// sends people here to fix a permission they declined.
+    Permissions,
 }
 
 impl Screen {
@@ -65,17 +71,19 @@ impl Screen {
             Screen::Reset => "reset",
             Screen::Update => "update",
             Screen::Supervision => "supervision",
+            Screen::Permissions => "permissions",
         }
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Three accepted words;
+/// Parse the (untrusted, optional) `screen` argument. Four accepted words;
 /// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
         Some("reset") => Screen::Reset,
         Some("update") => Screen::Update,
         Some("supervision") => Screen::Supervision,
+        Some("permissions") => Screen::Permissions,
         _ => Screen::Home,
     }
 }
@@ -950,6 +958,8 @@ mod tests {
         assert_eq!(parse_screen(None), Screen::Home);
         assert_eq!(parse_screen(Some("reset".into())), Screen::Reset);
         assert_eq!(parse_screen(Some("update".into())), Screen::Update);
+        assert_eq!(parse_screen(Some("supervision".into())), Screen::Supervision);
+        assert_eq!(parse_screen(Some("permissions".into())), Screen::Permissions);
         assert_eq!(parse_screen(Some("/etc".into())), Screen::Home);
     }
 
@@ -959,11 +969,19 @@ mod tests {
     /// is a window that opens on the wrong screen, silently.
     #[test]
     fn every_screen_round_trips_through_its_wire_word() {
-        for screen in [Screen::Home, Screen::Reset, Screen::Update] {
+        for screen in [
+            Screen::Home,
+            Screen::Reset,
+            Screen::Update,
+            Screen::Supervision,
+            Screen::Permissions,
+        ] {
             assert_eq!(parse_screen(Some(screen.as_str().to_string())), screen);
         }
         assert_eq!(Screen::Reset.as_str(), "reset");
         assert_eq!(Screen::Update.as_str(), "update");
+        assert_eq!(Screen::Supervision.as_str(), "supervision");
+        assert_eq!(Screen::Permissions.as_str(), "permissions");
         assert_eq!(Screen::Home.as_str(), "home");
     }
 

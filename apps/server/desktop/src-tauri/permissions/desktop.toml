@@ -13,12 +13,13 @@
 # update and reset all live there. `main` shows the SERVER's own SPA, over
 # loopback only.
 #
-# `main` holds FIVE commands, and one of them is an exception with a name:
+# `main` holds SIX commands, and one of them is an exception with a name:
 # `desktop_set_supervision` DOES drive the CLI. Everything else granted there
 # cannot touch the CLI, the config, the service or the filesystem — show an
 # existing window, drop this app's title bar, show one fixed-shape
-# notification, raise the assistant at a named screen, and open a page of THIS
-# server in the system browser. The exception was the
+# notification, raise the assistant at a named screen, open a page of THIS
+# server in the system browser, and read whether macOS has allowed this app to
+# notify or to read Photos. The exception was the
 # operator's call on 2026-09-12: the act needs something that outlives the
 # server, so it cannot be an HTTP route, and routing it through a window that
 # popped up to ask one question read as a bug rather than as a safeguard. The
@@ -26,6 +27,19 @@
 # reach — is in `docs/security.md`; the concurrency refusal that keeps a
 # hundred concurrent calls from interleaving a half-uninstall is
 # `ActionGuard::try_new`. See `capabilities/main.json`.
+#
+# The SIXTH, `desktop_permissions`, is the newest of the harmless ones
+# (2026-09-14) and the first added since this count was written down. It takes
+# NO argument, runs no program, reads no path and changes nothing: it answers
+# two questions about this app's own grants from the OS. It is here because the
+# whole point of the permissions work is that a missing permission is said at
+# the moment it is needed, and two of those moments — the image picker, and the
+# standing line in Preferences — are in the dashboard. Routing them through the
+# assistant would mean raising a second window to decide whether to show a
+# sentence. An XSS in the served SPA gains two words about this app's
+# permissions and nothing to act on; requesting a permission and opening a
+# System Settings pane stay off this window entirely. The written argument is
+# spec 2026-09-14 § 7, as this file's own rule requires before the number moves.
 #
 # The FIFTH, `desktop_open_in_browser`, is the harmless kind, and the reason it
 # is harmless is its argument rather than its name: it takes a PATH, refuses
@@ -136,3 +150,18 @@ commands.allow = ["desktop_open_in_browser"]
 identifier = "allow-desktop-set-supervision"
 description = "Switch who runs the server — a launchd/systemd service, or this app as its own child — and set whether that service starts at login. Both directions leave the server unreachable for a moment (an uninstall stops it; a switch restarts it), so it cannot be an HTTP route; it is granted to the assistant AND, as the one deliberate exception among CLI-touching commands, to the loopback SPA window — see docs/security.md for the accounting."
 commands.allow = ["desktop_set_supervision"]
+
+[[permission]]
+identifier = "allow-desktop-permissions"
+description = "Read whether macOS lets this app post notifications and read the Photos library. Two facts about this app's OWN standing with the OS: no arguments, no paths, nothing to point anywhere, and nothing changed. Granted to the served SPA as well as the assistant — the SIXTH command that page holds — because two of the three moments a missing permission has to be explained (the image picker, the standing line in Preferences) are in the dashboard, and it cannot say a permission is missing without being able to ask. The argument is spec 2026-09-14 § 7; the accounting is in docs/security.md."
+commands.allow = ["desktop_permissions"]
+
+[[permission]]
+identifier = "allow-desktop-request-notifications"
+description = "Ask macOS for permission to post notifications. Assistant only: macOS shows this sheet at most once per install and silently no-ops afterwards, so it has to come from a press on a screen that has already said what is about to be asked — never from a page that could raise it at a moment of its own choosing."
+commands.allow = ["desktop_request_notifications"]
+
+[[permission]]
+identifier = "allow-desktop-open-system-settings"
+description = "Open ONE of three System Settings panes — Notifications, Files and Folders, Photos. A closed enum, never a URL, the same shape desktop_open_web keeps. Assistant only: a page able to pop a system pane on its own is a nuisance an XSS could pull, and every route here already goes through raising the assistant."
+commands.allow = ["desktop_open_system_settings"]

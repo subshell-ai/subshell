@@ -37,6 +37,7 @@ import {
 import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
 import type { About, ActionResult, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
+import { permissionRows } from "./lib/permissions-model";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
   applySupervisionChoice,
@@ -128,6 +129,16 @@ let ranSetupHere = false;
 /** They pressed Continue on that screen. */
 let continued = false;
 /**
+ * The notifications request is in flight — macOS's own sheet is up.
+ *
+ * Page state rather than a probe fact, because no probe can see it: the sheet
+ * is modal to the app and the answer only reaches `notificationPermission` on
+ * a later tick. Without it the row would sit at `pending` with a dead button
+ * for as long as the person takes to read the sheet, which is the same shape
+ * as a hang.
+ */
+let requestingNotifications = false;
+/**
  * Who made this app, its version and its terms — read ONCE and kept.
  *
  * Nine constants that cannot change while the app runs, so re-reading them
@@ -198,6 +209,17 @@ function text(tag: "p" | "span" | "div", s: string, cls = ""): HTMLElement {
   n.textContent = s;
   n.className = cls;
   return n;
+}
+/**
+ * Empty the dot row.
+ *
+ * A screen entered by REQUEST is not a step on a journey, and `#dots` is
+ * outside the `clear()` at the top of `render` — so a screen that simply did
+ * not draw a row would leave the last one up, under a title it has nothing to
+ * do with.
+ */
+function clearDots(): void {
+  el("dots").textContent = "";
 }
 function renderDots(): void {
   const d = el("dots");
@@ -880,6 +902,99 @@ function renderUpdate(p: Probe): void {
 }
 
 /**
+ * **What macOS Will Ask** (spec 2026-09-14 § 3) — the macOS-only first-run
+ * screen between Install tmux and Set Up, and the screen every detection
+ * notice in the dashboard sends people back to.
+ *
+ * It exists because macOS asks each of these exactly ONCE, unannounced, and
+ * attributes some of them to a binary the person never typed. Declining is one
+ * click and there is no second prompt, after which the product simply goes
+ * quiet — no notification when an agent is waiting, an empty folder in the
+ * picker, an image that does not attach — with nothing anywhere saying why.
+ * Saying it first is the cheapest fix there is.
+ *
+ * **Nothing here blocks.** Continue is live in every state: declining is a
+ * legitimate answer, and this screen is also the way back from one, so gating
+ * the flow on an allow would make the recovery path unreachable from the only
+ * place that offers it.
+ *
+ * @param requested - raised from the dashboard rather than reached on the
+ *   journey. It changes the BAR and nothing else: Back closes the screen
+ *   instead of stepping back, and there is no Continue, exactly as the
+ *   supervision screen does. The caller decides it from whether the probe's
+ *   own family already holds this screen, so there is no second flag to drift.
+ */
+function renderPermissions(p: Probe, requested: boolean): void {
+  setFrame("none", "What macOS Will Ask", "Four things, each once. Here is what they are for.");
+  const content = el("content");
+  const ul = document.createElement("ul");
+  ul.className = "checklist";
+  for (const row of permissionRows(p, requestingNotifications)) {
+    const li = document.createElement("li");
+    li.dataset.state = row.state;
+    // The setup checklist's own glyphs, deliberately: "allowed" should look
+    // the same wherever this app says it, and a second visual language for
+    // done and failed is how two screens come to disagree about a tick.
+    const glyph = text("span", row.state === "done" ? "✓" : row.state === "failed" ? "✕" : "", "glyph");
+    const copy = document.createElement("div");
+    copy.className = "permission-copy";
+    copy.append(text("div", row.label, "label"), text("div", row.detail, "detail"));
+    const side = document.createElement("div");
+    side.className = "permission-side";
+    if (row.suffix) side.append(text("span", row.suffix, "detail"));
+    if (row.action === "allow") side.append(button("Allow notifications", allowNotifications, "primary"));
+    if (row.action === "open-settings" && row.pane !== null) {
+      const pane = row.pane;
+      // No `ghost`: on the tmux screen that treatment read as a link and did
+      // not say it could be pressed, and this is the one control a person
+      // arrives here specifically to find.
+      side.append(button("Open System Settings", () => void ipc.openSystemSettings(pane).catch(setProblem)));
+    }
+    li.append(glyph, copy, side);
+    ul.append(li);
+  }
+  content.append(ul);
+  if (requested) {
+    el("bar-left").append(button("Back", () => host.close(), "ghost"));
+    return;
+  }
+  const list = screensFor(p, false);
+  const prev = list[Math.max(0, list.indexOf("permissions") - 1)] ?? "welcome";
+  el("bar-left").append(button("Back", () => go(prev), "ghost"));
+  // NO text beside Continue. Every row carries its own state, and a reason
+  // beside the button is this app's way of saying a press would not work —
+  // which is never true here.
+  el("bar-right").append(button("Continue", () => go(next()), "primary"));
+}
+
+/**
+ * Ask macOS, once.
+ *
+ * The flag is set BEFORE `act` so the very first render of the busy state
+ * already shows the row spinning; `act` renders on entry, and setting it
+ * inside the callback would leave one frame of a disabled button over a
+ * pending row. The early return mirrors `act`'s own, or a press that `act`
+ * ignored would leave the row spinning for the rest of the session.
+ *
+ * The RESULT is thrown away on purpose (spec § 3.1): the row renders from
+ * `probe.notificationPermission`, which the poll refreshes, so there is one
+ * source for what this machine allows. A rejection still surfaces — `act`
+ * puts it in the problem line.
+ */
+function allowNotifications(): void {
+  if (busy || running) return;
+  requestingNotifications = true;
+  void act(async () => {
+    try {
+      await ipc.requestNotifications();
+    } finally {
+      requestingNotifications = false;
+    }
+    return null;
+  });
+}
+
+/**
  * **How Your Server Runs** — reached from the recovery screen's link, never
  * from `screensFor`: it is a question a person asks, not one a probe implies.
  *
@@ -1309,10 +1424,10 @@ function render(): void {
   }
   const p = probe;
   // A REQUESTED screen outranks the probe's own family — BOTH of them, which
-  // is the rule `isRequestedScreen` states beside the `screensFor` that
-  // explains why neither is ever in a probe's list. The SPA deep-links here on
-  // a machine whose server is running (Update from its card, Reset from its
-  // danger card), and the ready handoff below would otherwise send the window
+  // is the rule `isRequestedScreen` states beside `screensFor`. The SPA
+  // deep-links here on a machine whose server is running (Update from its
+  // card, Reset from its danger card, Permissions from any of the detection
+  // notices), and the ready handoff below would otherwise send the window
   // straight back to the dashboard it was just asked to leave.
   //
   // `update` draws itself here. `reset` does not: its screen replaces the
@@ -1322,13 +1437,25 @@ function render(): void {
   // that screen rather than its only guard, and it stays because the rule is
   // "a requested screen outranks the probe's family", which should not have
   // to be re-derived if `open()` ever awaits again.
-  if (isRequestedScreen(screen)) {
-    renderDots();
+  const list = screensFor(p, p.onboarded);
+  // `permissions` is the one screen that is BOTH requestable and a step on the
+  // macOS first run, so "was this asked for?" cannot be read off the screen id
+  // alone. It is read off the probe's own family instead: a machine that can
+  // ASK for this screen is onboarded, and an onboarded machine's list is
+  // `recovery` or empty — so a screen the list already holds is one the person
+  // walked to. One source, and no second flag to fall out of step with the
+  // Rust enum the way the requested-screen routing itself once did.
+  if (isRequestedScreen(screen) && !list.includes(screen)) {
+    // A requested screen is not a step on a journey, so the dot row is emptied
+    // rather than drawn. `dots` answers -1 for update, reset and supervision
+    // and the renderer hides on that — but `permissions` HAS a position on
+    // macOS, and it is the wrong one to show over a screen nobody stepped to.
+    clearDots();
     if (screen === "update") renderUpdate(p);
     if (screen === "supervision") renderSupervision(p);
+    if (screen === "permissions") renderPermissions(p, true);
     return;
   }
-  const list = screensFor(p, p.onboarded);
   if (list.length === 0) {
     // Ready, in either family: the dashboard is what comes next. The replay
     // is triggered HERE because no button press routed through `go()` — and
@@ -1358,16 +1485,18 @@ function render(): void {
   // on the recovery family's list.
   if (screen === null || !list.includes(screen)) screen = list[0] ?? "welcome";
   renderDots();
-  const views: Record<"welcome" | "tmux" | "setup" | "recovery", () => void> = {
+  type JourneyScreen = "welcome" | "tmux" | "permissions" | "setup" | "recovery";
+  const views: Record<JourneyScreen, () => void> = {
     welcome: renderWelcome,
     tmux: () => renderTmux(p),
+    permissions: () => renderPermissions(p, false),
     setup: () => renderSetup(p),
     recovery: () => renderRecovery(p),
   };
-  // `screen` is one of the four by construction — `list` only ever holds
+  // `screen` is one of the five by construction — `list` only ever holds
   // those — and the fallback exists so a family added later is a Welcome
   // screen rather than a blank window on a machine someone is repairing.
-  (views[screen as "welcome" | "tmux" | "setup" | "recovery"] ?? renderWelcome)();
+  (views[screen as JourneyScreen] ?? renderWelcome)();
 }
 
 async function refresh(): Promise<void> {

@@ -2,12 +2,23 @@
  * The typed edge of the IPC boundary — one function per `desktop_*` command
  * THIS page can invoke.
  *
- * `desktop_open_assistant`, `desktop_shell_ready` and `desktop_notify` are
- * deliberately absent: those three belong to the `main` window, whose page is
- * the SERVER's own SPA and reaches them through its own bridge
- * (`apps/server/web/src/lib/desktop.ts`, which reads `window.__TAURI__`). A
- * wrapper here for a command this page never calls would break the exact-set
- * pin below by describing a surface the assistant does not have.
+ * `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify` and
+ * `desktop_permissions` are deliberately absent: those four belong to the
+ * `main` window, whose page is the SERVER's own SPA and reaches them through
+ * its own bridge (`apps/server/web/src/lib/desktop.ts`, which reads
+ * `window.__TAURI__`). A wrapper here for a command this page never calls
+ * would break the exact-set pin below by describing a surface the assistant
+ * does not have.
+ *
+ * `desktop_permissions` is the newest of the four and the one that might look
+ * like an omission, so: this page does not need it. Both permission states
+ * ride on the PROBE ({@link Probe.notificationPermission},
+ * {@link Probe.photosPermission}), which the assistant already re-reads every
+ * 1500 ms — so the Allow button's result lands on the next tick like every
+ * other fact about this machine, and there is nothing here for a second read
+ * to answer. Granting the assistant a command with no caller is the erosion
+ * these pins exist to catch, read from the other end (see
+ * `dialog:allow-ask`, which is absent for exactly that reason).
  *
  * Every type below MIRRORS a Rust type in `../src-tauri/src/control.rs` (or,
  * for the ladder types, `server_bin.rs`), which serializes with
@@ -62,6 +73,25 @@ export interface ServerBinary {
 
 /** The single next action the console should offer. `ProbeStep`, kebab-case. */
 export type ProbeStep = "no-server" | "setup" | "unreachable" | "init" | "install-service" | "start" | "ready";
+
+/**
+ * How this app stands with one macOS permission.
+ * `subshell_desktop_core::permissions::Permission`, kebab-case.
+ *
+ * `"unavailable"` is never a statement about what the person chose. It means
+ * this process cannot ask the question at all — Linux, or a `tauri dev` binary
+ * that is not an `.app` bundle, where the framework API aborts the process and
+ * the Rust side therefore refuses to touch it. The real prompt is testable only
+ * in a built app.
+ */
+export type Permission = "not-determined" | "denied" | "authorized" | "provisional" | "unavailable";
+
+/**
+ * The System Settings panes this app may open. `SettingsPane`, kebab-case — a
+ * closed set in Rust, which owns the `x-apple.systempreferences:` URLs. The
+ * page names a member, never an address, exactly as {@link WebTarget} does.
+ */
+export type SettingsPane = "notifications" | "files-and-folders" | "photos";
 
 /** One `{value, source}` entry of `status --json`'s settings, plus its problems. */
 export interface SettingEntry {
@@ -132,6 +162,21 @@ export interface Probe {
   supervision: "service" | "app";
   /** What this app's own supervisor is doing; null in service mode. */
   supervisor: SupervisorReport | null;
+  /**
+   * Whether macOS lets this app post notifications (spec 2026-09-14 § 4.2).
+   *
+   * A probe field rather than a command, so the permissions screen re-renders
+   * on the poll it already runs: the Allow button's result arrives as a fact
+   * about the machine rather than as a return value the page has to trust.
+   * `"unavailable"` on Linux and in every dev build.
+   */
+  notificationPermission: Permission;
+  /**
+   * Whether macOS lets this app read the Photos library. Read, never
+   * requested — the system asks at the moment an image is picked, which is a
+   * better moment than any screen here could make.
+   */
+  photosPermission: Permission;
 }
 
 /** The app's own child, when it is the one running the server. */
@@ -280,6 +325,31 @@ export const about = (): Promise<About> => invoke<About>("desktop_about");
 
 /** Open one of a fixed set of pages in the SYSTEM browser. A member, never a URL. */
 export const openWeb = (target: WebTarget): Promise<void> => invoke<void>("desktop_open_web", { target });
+
+/**
+ * Ask macOS for permission to post notifications, and answer where that left
+ * things.
+ *
+ * **Assistant-only, and it fires at most once per install.** macOS shows the
+ * sheet only while the state is `not-determined` and silently does nothing
+ * afterwards, which is why the screen offers this button in that state alone
+ * and offers System Settings once the answer is `denied`.
+ *
+ * The returned state is for reporting a failure, not for rendering the row:
+ * the row reads {@link Probe.notificationPermission} on the next poll, so
+ * there is one source for what this machine allows.
+ */
+export const requestNotifications = (): Promise<Permission> => invoke<Permission>("desktop_request_notifications");
+
+/**
+ * Open one System Settings pane. A member of a closed set, never a URL — Rust
+ * owns the three `x-apple.systempreferences:` addresses.
+ *
+ * Assistant-only for the same reason the request is: a page able to pop a
+ * system pane on its own is a nuisance an XSS could pull.
+ */
+export const openSystemSettings = (pane: SettingsPane): Promise<void> =>
+  invoke<void>("desktop_open_system_settings", { pane });
 
 /** `desktop_set_supervision`'s answer: the chain's words, plus where it ended. */
 export interface SupervisionResult extends ActionResult {

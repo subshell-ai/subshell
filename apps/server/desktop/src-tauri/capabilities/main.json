@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The window showing the server's own SPA. Its page is served by the subshell-server this app manages, so it is treated as REMOTE content: it may raise the assistant, drop its own title bar, show one notification, drag its window, open a page of THIS server in the system browser — and, as the ONE deliberate exception to 'nothing that touches the service', switch who runs the server. That exception is argued in docs/security.md: a page already holding the admin restart route can do worse than move the server between two supervisors, and the assistant window that used to carry the act read as a bug. The browser one is not a second exception: it takes a PATH, refuses anything that could be a host, and joins it onto this window's own loopback origin — so it opens the server the page is already running in, which a person can do by typing the address. Everything else that touches the CLI is absent by construction, not by convention.",
+  "description": "The window showing the server's own SPA. Its page is served by the subshell-server this app manages, so it is treated as REMOTE content: it may raise the assistant, drop its own title bar, show one notification, drag its window, open a page of THIS server in the system browser, read this app's own macOS permission states \u2014 and, as the ONE deliberate exception to 'nothing that touches the service', switch who runs the server. That exception is argued in docs/security.md: a page already holding the admin restart route can do worse than move the server between two supervisors, and the assistant window that used to carry the act read as a bug. Neither of the other two is a second exception. The browser one takes a PATH, refuses anything that could be a host, and joins it onto this window's own loopback origin, so it opens the server the page is already running in \u2014 something a person can do by typing the address. The permissions one (2026-09-14, the sixth) takes no argument at all and answers two questions about this app's own grants from the OS; it is here because two of the three moments a missing permission has to be explained are in this very page, and the written argument the count demands is spec 2026-09-14 section 7. Requesting a permission and opening a System Settings pane stay on the bundled page. Everything else that touches the CLI is absent by construction, not by convention.",
   "local": false,
   "remote": {
     "urls": [
@@ -18,6 +18,7 @@
     "allow-desktop-shell-ready",
     "allow-desktop-notify",
     "allow-desktop-open-in-browser",
-    "allow-desktop-set-supervision"
+    "allow-desktop-set-supervision",
+    "allow-desktop-permissions"
   ]
 }

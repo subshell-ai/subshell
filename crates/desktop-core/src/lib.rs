@@ -10,6 +10,8 @@
 //!
 //! - [`browser`] — the one join a REMOTE page's argument reaches, and the
 //!   three refusals that keep it a path rather than a host.
+//! - [`permissions`] — what macOS has allowed this app to do, and the bundle
+//!   guard that keeps asking from aborting a `tauri dev` process.
 //! - [`proc`] — two pipe deadlocks, in opposite directions.
 //! - [`shell_env`] — the PATH a `.app` does not inherit, and the unbounded
 //!   login-shell probe that discovers it.
@@ -63,6 +65,7 @@
 
 pub mod browser;
 pub mod legal;
+pub mod permissions;
 pub mod proc;
 pub mod reset_guards;
 pub mod settings;

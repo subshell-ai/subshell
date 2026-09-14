@@ -20,6 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::legal;
+use subshell_desktop_core::permissions::{self, Permission};
 use subshell_desktop_core::proc::{run, run_streaming, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::{SettingsState, Supervision};
 use subshell_desktop_core::sidecar;
@@ -114,6 +115,25 @@ pub struct Probe {
     /// `None` in service mode and before the app has spawned anything, which
     /// are different facts with the same rendering — the step says which.
     pub supervisor: Option<SupervisorReport>,
+    /// Whether macOS lets this app post notifications (spec 2026-09-14 § 4.2).
+    ///
+    /// A PROBE FIELD rather than a command the permissions screen calls,
+    /// because the assistant already re-renders on its own 1500 ms poll: the
+    /// Allow button's result lands on the next tick like every other fact
+    /// about this machine, and the page never has to trust a return value it
+    /// could render before the OS had finished with it.
+    ///
+    /// `unavailable` on Linux, and in every `tauri dev` process — the API this
+    /// reads aborts outside an `.app` bundle, so `desktop-core` refuses to
+    /// touch it there. See `subshell_desktop_core::permissions`.
+    pub notification_permission: Permission,
+    /// Whether macOS lets this app read the Photos library.
+    ///
+    /// Read, never requested: the system raises that prompt when an image is
+    /// actually picked, which is a better moment than any screen here could
+    /// make. What this buys is the ABLE-to-explain half — a picker that
+    /// attaches nothing says why instead of failing silently.
+    pub photos_permission: Permission,
 }
 
 /// What the app's own supervisor is doing, for the assistant to render.
@@ -146,6 +166,8 @@ impl Default for Probe {
             hostname: String::new(),
             supervision: Supervision::Service,
             supervisor: None,
+            notification_permission: Permission::Unavailable,
+            photos_permission: Permission::Unavailable,
         }
     }
 }
@@ -603,6 +625,14 @@ pub(crate) fn probe_now(configured: Option<&str>, stored: Supervision) -> Probe 
         tmux: subshell_desktop_core::shell_env::which("tmux"),
         platform: console_platform().to_string(),
         has_brew: subshell_desktop_core::shell_env::which("brew").is_some(),
+        // Both answer instantly and without prompting — and outside an `.app`
+        // bundle they answer `unavailable` without touching the framework at
+        // all, which is what keeps `tauri dev` alive. They are read on every
+        // probe rather than cached because the person can change either one in
+        // System Settings while this app is running, and a cached "denied" is
+        // a screen that never notices it was fixed.
+        notification_permission: permissions::notification_permission(),
+        photos_permission: permissions::photos_permission(),
         ..Default::default()
     };
 
@@ -2273,6 +2303,22 @@ pub fn open_current_in_browser(app: &AppHandle) {
     }
 }
 
+/// What [`desktop_notify`] actually did, so the caller can say why it did not.
+///
+/// The return type widened from `()` on 2026-09-14 (spec § 5.1), and that is
+/// the whole of the notifications detection: the act that failed is the one
+/// thing that KNOWS, so nothing else has to poll for the answer. The SPA's
+/// waiting-agent hook reads `shown` and, on `denied`, says once per session
+/// that macOS is blocking this app rather than leaving the silence
+/// unexplained.
+#[derive(Debug, Serialize)]
+pub struct NotifyResult {
+    /// Whether a notification was posted. `false` is never an error.
+    pub shown: bool,
+    /// This app's standing with macOS, so the caller can name the reason.
+    pub permission: Permission,
+}
+
 /// Show a native notification, and focus the app when it is clicked.
 ///
 /// A dedicated command rather than granting the server-origin page the whole
@@ -2281,9 +2327,25 @@ pub fn open_current_in_browser(app: &AppHandle) {
 /// anything. The web path this replaces is VAPID push through a service
 /// worker, which no webview has — `lib/notifications.ts` gates on
 /// `PushManager`, so the desktop app would otherwise report "unsupported".
+///
+/// **It checks the permission FIRST**, and the interesting case is
+/// `not-determined`: posting there is what raises the system prompt, and the
+/// moment an agent happens to go idle is the worst possible time to ask — an
+/// unexplained sheet, attributed to an app the person may not even be looking
+/// at. The assistant's permissions screen is where that prompt belongs, behind
+/// a press, under a sentence saying what is about to be asked. `unavailable`
+/// still posts: that is a dev build (or Linux), where the plugin's own path
+/// shows something and there is no state to respect.
 #[tauri::command(async)]
-pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<NotifyResult, String> {
     use tauri_plugin_notification::NotificationExt;
+    let permission = permissions::notification_permission();
+    if matches!(permission, Permission::Denied | Permission::NotDetermined) {
+        return Ok(NotifyResult {
+            shown: false,
+            permission,
+        });
+    }
     // Truncated rather than refused: the source is the SPA's own subshell
     // titles, and a long one should be a short notification, not none.
     let title: String = title.chars().take(120).collect();
@@ -2293,7 +2355,98 @@ pub fn desktop_notify(app: AppHandle, title: String, body: String) -> Result<(),
         .title(title)
         .body(body)
         .show()
-        .map_err(|e| format!("could not show a notification: {e}"))
+        .map_err(|e| format!("could not show a notification: {e}"))?;
+    Ok(NotifyResult {
+        shown: true,
+        permission,
+    })
+}
+
+/// This app's standing with the two macOS permissions it can read.
+///
+/// No arguments, no side effects, nothing to point anywhere: it answers two
+/// questions about this app's OWN grants. That is the entire argument for it
+/// being the SIXTH command the served SPA may invoke (spec § 7) — the
+/// dashboard is where two of the three detection moments live (the image
+/// picker, and the standing line in Preferences), and it cannot say a
+/// permission is missing without being able to ask.
+#[derive(Debug, Serialize)]
+pub struct PermissionStates {
+    /// May this app post notifications.
+    pub notifications: Permission,
+    /// May this app read the Photos library.
+    pub photos: Permission,
+}
+
+/// Read both permission states. Granted to `main` as well as the assistant.
+#[tauri::command(async)]
+pub fn desktop_permissions() -> PermissionStates {
+    PermissionStates {
+        notifications: permissions::notification_permission(),
+        photos: permissions::photos_permission(),
+    }
+}
+
+/// Ask macOS for permission to post notifications, and answer where it landed.
+///
+/// **Assistant only.** macOS shows this sheet at most once per install, so it
+/// has to come from a press on a screen that has already said what is about to
+/// be asked — not from a page that could raise it at a moment of its own
+/// choosing. The served SPA reaches this by raising the assistant at the
+/// `permissions` screen, which is the command it already holds.
+#[tauri::command(async)]
+pub fn desktop_request_notifications() -> Result<Permission, String> {
+    permissions::request_notifications()
+}
+
+/// The System Settings panes this app may open.
+///
+/// A closed enum for the same reason [`WebTarget`] and [`OpenTarget`] are: the
+/// page names a member and this side owns the URL, so no address crosses the
+/// boundary. These are the three panes that answer the three permissions the
+/// first-run screen explains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SettingsPane {
+    /// Notifications — where a declined app is re-allowed.
+    Notifications,
+    /// Privacy & Security → Files and Folders.
+    FilesAndFolders,
+    /// Privacy & Security → Photos.
+    Photos,
+}
+
+/// The `x-apple.systempreferences:` URLs, macOS 13+.
+///
+/// Constants here rather than arguments from the page. An anchor that does not
+/// resolve on some future macOS opens the parent pane rather than failing,
+/// which is why nothing downstream treats a successful open as proof the
+/// person is looking at the right row.
+impl SettingsPane {
+    fn url(self) -> &'static str {
+        match self {
+            SettingsPane::Notifications => "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+            SettingsPane::FilesAndFolders => {
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_FilesAndFolders"
+            }
+            SettingsPane::Photos => {
+                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Photos"
+            }
+        }
+    }
+}
+
+/// Open one System Settings pane.
+///
+/// **Assistant only**, and deliberately not on `main`: a page that could pop a
+/// system pane on its own is a nuisance an XSS could pull, and every route to
+/// this act already goes through raising the assistant.
+#[tauri::command(async)]
+pub fn desktop_open_system_settings(app: AppHandle, pane: SettingsPane) -> Result<(), String> {
+    let url = pane.url();
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| format!("could not open System Settings: {e}"))
 }
 
 /// Raise the assistant, optionally at a named screen (`reset` | `update`).
@@ -2822,12 +2975,12 @@ mod tests {
     /// to catch is a command added to it by habit — a test that only forbade
     /// today's names would not see tomorrow's.
     ///
-    /// Five of the six cannot touch the CLI. The last,
+    /// Six of the seven cannot touch the CLI. The odd one,
     /// `desktop_set_supervision`, can — it is the ONE deliberate exception
     /// (operator's call, 2026-09-12): the dashboard confirms in its own dialog
     /// rather than raising the assistant, on the argument that a page already
     /// holding the admin restart route can do worse than choose the server's
-    /// respawner. `docs/security.md` carries the accounting. A SEVENTH entry,
+    /// respawner. `docs/security.md` carries the accounting. An EIGHTH entry,
     /// or a wider one of these, is what this pin exists to make loud.
     ///
     /// `allow-desktop-open-in-browser` (2026-09-14) is of the harmless kind,
@@ -2835,8 +2988,17 @@ mod tests {
     /// refused by `subshell_desktop_core::browser` if it could name a host, and
     /// joined onto this window's own loopback origin. Its signature is pinned
     /// separately, by `ui/src/__tests__/ipc-acl.test.ts`.
+    ///
+    /// `allow-desktop-permissions` (2026-09-14) is the newest, and the only one
+    /// whose safety needs no argument about arguments: it has none. It answers
+    /// whether macOS lets this app notify and read Photos, changes nothing, and
+    /// is here because two of the three places a missing permission has to be
+    /// explained are in this very page (spec 2026-09-14 § 7). Note what did NOT
+    /// come with it: `desktop_request_notifications` and
+    /// `desktop_open_system_settings` are `wizard`-only, so this page can read
+    /// the state and never raise a prompt or a system pane.
     #[test]
-    fn the_remote_window_is_granted_five_harmless_commands_and_one_deliberate_exception() {
+    fn the_remote_window_is_granted_six_harmless_commands_and_one_deliberate_exception() {
         assert_eq!(
             grants("main"),
             vec![
@@ -2846,6 +3008,7 @@ mod tests {
                 "allow-desktop-notify",
                 "allow-desktop-open-in-browser",
                 "allow-desktop-set-supervision",
+                "allow-desktop-permissions",
             ]
         );
     }

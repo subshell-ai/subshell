@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the bundle's own Info.plist by the Tauri bundler, which reads
+  `src-tauri/Info.plist` when it exists and adds these keys to the ones it
+  generates. Nothing else in the bundle is described here — the identifier, the
+  version, the minimum system version and the document types all stay in
+  `tauri.conf.json`, which is the file that owns them.
+
+  These four strings are the sentences macOS puts INSIDE its own permission
+  sheet, above the Allow and Don't Allow buttons. Without them the sheet shows
+  the app's name and no reason at all, which is the shape a person reads as
+  "something is asking for my files" rather than as their own server asking to
+  list a folder (operator's report, 2026-09-14).
+
+  Two things about their scope are worth knowing, because both are easy to
+  misread as bugs:
+
+  - There is no notifications key, and there is no such key to add. That prompt
+    is raised by `UNUserNotificationCenter` and carries no usage description;
+    what explains it is the assistant's own permissions screen, which is why
+    that screen exists and why the Allow button lives on it.
+  - These describe prompts attributed to THIS APP. Under the launchd service
+    the directory picker's `readdir` runs in `subshell-server`, a plain binary
+    with no bundle and no plist, so its Files and Folders prompt carries no
+    description whatever we write here. The permissions screen's `files` row
+    names which of the two the person will see, from `probe.supervision`.
+
+  The text is deliberately concrete about WHEN, not just what: a sentence that
+  names the moment ("when you attach it", "so you can pick where an agent
+  runs") is checkable by the person reading it, and a vague one is what makes a
+  legitimate prompt look like a pretext.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Subshell Server reads a photo only when you attach it to an agent.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Subshell Server lists this folder so you can pick where an agent runs.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Subshell Server lists this folder so you can pick where an agent runs.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Subshell Server lists this folder so you can pick where an agent runs.</string>
+  </dict>
+</plist>

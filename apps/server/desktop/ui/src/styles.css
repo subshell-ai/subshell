@@ -1087,6 +1087,33 @@
     border: 1.5px solid var(--destructive);
     color: var(--destructive);
   }
+  /* The permissions screen's rows (spec 2026-09-14 § 3). The setup
+     checklist's grid and glyphs, with one difference that is the whole
+     reason these rules exist: the middle column carries a SENTENCE, not a
+     label. So it is a block with the detail left-aligned under its label —
+     the treatment the supervision options already use — while the setup
+     checklist's right-aligned `.detail` stays right for what it is, a VALUE
+     (a path, a port, an address). */
+  .permission-copy {
+    display: block;
+    padding: 12px 0;
+  }
+  .checklist .permission-copy .detail {
+    display: block;
+    margin-top: 2px;
+    text-align: left;
+    text-wrap: pretty;
+  }
+  /* The right-hand column: a state word, and at most one button under it.
+     A grid rather than a flex row because the two stack on the narrow frame
+     and reading "Not allowed" above the button that fixes it is the order
+     that makes sense. */
+  .permission-side {
+    display: grid;
+    gap: 8px;
+    justify-items: end;
+    padding: 12px 0;
+  }
   .checklist .sub {
     grid-column: 2 / -1;
     padding-bottom: 12px;

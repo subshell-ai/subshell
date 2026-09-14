@@ -15,16 +15,45 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
 /**
  * Every screen this window can show.
  *
- * The first three are the first run, in order (`tmux` exists only while tmux
- * is missing). The last three are not a journey: `recovery` is what a machine
- * that has been set up sees while its server is not answering, and `update`
- * and `reset` are entered by REQUEST — a `desktop-screen` event from the SPA,
- * or the recovery footer — over whatever is showing.
+ * The first four are the first run, in order (`permissions` exists only on
+ * macOS). `recovery` is what a machine that has been set up sees while its
+ * server is not answering, and `update`, `reset` and `supervision` are entered
+ * by REQUEST — a `desktop-screen` event from the SPA, or the recovery footer —
+ * over whatever is showing.
+ *
+ * `permissions` is BOTH, and it is the only screen that is: a macOS first-run
+ * step, and a screen the dashboard asks for afterwards, because every notice
+ * that says a permission is missing (spec 2026-09-14 § 5) sends the person
+ * here to change it. Which of the two a render is doing is not a flag — it is
+ * whether {@link screensFor} already holds the screen, which is false exactly
+ * when the request came from outside.
  */
-export type ScreenId = "welcome" | "tmux" | "setup" | "recovery" | "update" | "reset" | "supervision";
+export type ScreenId = "welcome" | "tmux" | "permissions" | "setup" | "recovery" | "update" | "reset" | "supervision";
 
-/** The first-run trio, which is also every position a dot can take. */
-const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "setup"];
+/**
+ * The first run, in order — and every position a dot can take.
+ *
+ * `permissions` is filtered out off this list rather than absent from it
+ * (see {@link firstRunFor}), so there is ONE list that both the journey and
+ * the dot arithmetic read. Two lists is how the dots came to skip a position
+ * the last time a screen was conditional.
+ */
+const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "permissions", "setup"];
+
+/**
+ * The first-run screens THIS machine has, which is the list `dots` counts.
+ *
+ * Only macOS has any of the prompts the permissions screen explains — no
+ * notification authorization, no TCC folder sheets, no Photos library, and a
+ * systemd user unit announces nothing — so Linux keeps its trio and its six
+ * dots. Deriving both the journey and the dot positions from one function is
+ * what keeps a filtered screen from leaving a gap in the row: that gap was a
+ * real defect the last time a first-run screen was conditional, and it was
+ * invisible except as a number that jumped.
+ */
+function firstRunFor(probe: Probe): ScreenId[] {
+  return FIRST_RUN.filter((id) => id !== "permissions" || probe.platform === "darwin");
+}
 
 /**
  * The label on the way into the Reset screen, and the Reset screen's own
@@ -96,30 +125,42 @@ export function prereqState(probe: Probe): PrereqState {
 /**
  * The screens this machine will see (spec 2026-09-12 § 5.3).
  *
- * Before setup has ever completed: the first-run trio, minus any screen with
- * nothing to ask (tmux, when there already is one). After: the ONE recovery
- * screen while the server is not ready, and nothing at all when it is — the
- * page opens the dashboard and this window steps back.
+ * Before setup has ever completed: the first run for THIS platform — four
+ * screens on macOS, three elsewhere, since the permissions screen explains
+ * prompts only macOS raises. After: the ONE recovery screen while the server
+ * is not ready, and nothing at all when it is — the page opens the dashboard
+ * and this window steps back.
  *
  * A `ready` probe empties the list whichever family the machine is in,
  * because that is the same moment in both: the dashboard is what comes next,
  * and a screen list with anything in it would render behind it.
  *
- * `update` and `reset` are never in the list. They are entered by request,
- * which is what lets them appear over a first run as readily as over a
- * recovery without either family having to name them.
+ * `update`, `reset` and `supervision` are never in the list. They are entered
+ * by request, which is what lets them appear over a first run as readily as
+ * over a recovery without either family having to name them. `permissions` is
+ * the exception in {@link REQUESTED_SCREENS} and is deliberately both: a
+ * macOS first-run step here, AND requestable afterwards from the dashboard's
+ * detection notices. The two never collide — a machine that can request it is
+ * onboarded, and an onboarded machine's list is `recovery` or nothing.
  */
-export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision"];
+export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision", "permissions"];
 
 /**
  * Whether this screen was asked for rather than implied by the probe.
  *
  * The page must let a requested screen OUTRANK an empty {@link screensFor},
  * and that is not a nicety: an empty list means "ready", which the page reads
- * as "open the dashboard and step this window back". Both requested screens
- * render over a ready machine by definition — Update deep-links onto a running
- * server, and Reset is asked for from that server's own dashboard — so without
- * this the window closes itself the moment the probe answers.
+ * as "open the dashboard and step this window back". Every requested screen
+ * renders over a ready machine by definition — Update deep-links onto a
+ * running server, and Reset, Supervision and Permissions are all asked for
+ * from that server's own dashboard — so without this the window closes itself
+ * the moment the probe answers.
+ *
+ * It answers true for `permissions` during a macOS first run too, where the
+ * screen is NOT a request. That is why the render also checks whether
+ * `screensFor` already holds the screen: being on this list makes a screen
+ * requestABLE, and the probe's own family is what says whether this particular
+ * visit was one.
  *
  * Measured on 2026-09-12: pressing the dashboard's reset button opened the assistant,
  * which said "Opening your dashboard…" and vanished. The page had this rule
@@ -145,7 +186,7 @@ export function screenForRequest(payload: string): ScreenId | null {
   return (REQUESTED_SCREENS as readonly string[]).includes(payload) ? (payload as ScreenId) : null;
 }
 
-export function isRequestedScreen(screen: ScreenId | null): boolean {
+export function isRequestedScreen(screen: ScreenId | null): screen is ScreenId {
   return screen !== null && REQUESTED_SCREENS.includes(screen);
 }
 
@@ -159,7 +200,7 @@ export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
   // without ever being named. It costs a machine that has tmux one press of
   // Continue, and buys a flow that is the same length everywhere and a
   // dependency the person has actually been told about.
-  if (!onboarded) return [...FIRST_RUN];
+  if (!onboarded) return firstRunFor(probe);
   return ["recovery"];
 }
 
@@ -242,20 +283,26 @@ export function recoveryAction(step: ProbeStep): { label: string; kind: Recovery
  * machine that skips the tmux screen sees its dot already filled rather than
  * a shorter row.
  *
- * `_probe` is unused now that the total is fixed at six and `done`/`current`
- * derive from `current`'s index alone. Kept for signature stability (call
- * sites, and parity with the other pure functions here that all take a
- * `Probe`) rather than dropped — deliberately, not an oversight.
+ * The total is SEVEN on macOS and six elsewhere, because the native half is
+ * four screens there and three here — the permissions screen exists only where
+ * the prompts do (spec 2026-09-14 § 6). That is what the `probe` parameter is
+ * for; it carried a leading underscore while the total was fixed, and its own
+ * comment said this was the change that would want it back.
  *
  * Recovery, Update and Reset are not on this journey, so they have no
  * position: `indexOf` answers -1 for them and the renderer hides the row on a
  * negative `current`. That falls out of the lookup rather than being a branch
  * — there is one list of dot positions, and a screen is either on it or it is
- * not.
+ * not. `permissions` is on it during a macOS first run and NOT during a
+ * requested visit; the renderer decides that, because the row belongs to the
+ * journey rather than to the screen.
  */
-export function dots(_probe: Probe, current: ScreenId): { total: 6; done: number; current: number } {
-  const index = FIRST_RUN.indexOf(current);
-  return { total: 6, done: index, current: index };
+export function dots(probe: Probe, current: ScreenId): { total: 6 | 7; done: number; current: number } {
+  const list = firstRunFor(probe);
+  const index = list.indexOf(current);
+  // Three SPA screens (Account, Agent, Launch) always follow the native ones.
+  const total = list.length === 4 ? 7 : 6;
+  return { total, done: index, current: index };
 }
 
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";

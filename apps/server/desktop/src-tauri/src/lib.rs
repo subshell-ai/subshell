@@ -165,6 +165,9 @@ pub fn run() {
             control::desktop_notify,
             control::desktop_shell_ready,
             control::desktop_open_in_browser,
+            control::desktop_permissions,
+            control::desktop_request_notifications,
+            control::desktop_open_system_settings,
         ])
         .on_window_event(|window, event| {
             // The assistant's page can no longer hear an event once its window

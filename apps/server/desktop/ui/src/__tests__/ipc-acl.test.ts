@@ -16,12 +16,12 @@
  *   (which holds ONE path-only command, because a control plane can live
  *   anywhere and only the argument can be narrow there), this one shows the
  *   server THIS APP manages over loopback, so its origin is enumerable in
- *   `main.json`. It holds exactly FIVE commands, and the count
+ *   `main.json`. It holds exactly SIX commands, and the count
  *   is worth a test because "a few harmless ones" is how a boundary erodes —
- *   which is precisely what `desktop_set_supervision` proves can happen: four
+ *   which is precisely what `desktop_set_supervision` proves can happen: five
  *   of them cannot reach the CLI at all, and that one can. It is an
  *   argued exception (operator's call 2026-09-12, accounted in
- *   `docs/security.md`), not a precedent. A sixth needs the same argument
+ *   `docs/security.md`), not a precedent. A seventh needs the same argument
  *   made again, in writing, before this number moves.
  *
  *   The fifth, `desktop_open_in_browser`, is of the harmless kind and joined
@@ -29,6 +29,16 @@
  *   that could name a host, and the origin is the window's own. It is pinned
  *   by SIGNATURE below for the same reason the supervision one is — an
  *   exception is only as narrow as its arguments.
+ *
+ *   The sixth, `desktop_permissions`, moved the number on 2026-09-14 with the
+ *   argument spec 2026-09-14 § 7 makes in writing. Its signature is pinned too,
+ *   and it is the easiest of the three to pin: it has NO arguments. Two of the
+ *   three moments a missing macOS permission must be explained are in this very
+ *   page, and it cannot say a permission is missing without being able to ask.
+ *   What did NOT come with it is the half of the feature that acts —
+ *   `desktop_request_notifications` and `desktop_open_system_settings` are
+ *   `wizard`-only, so the served page reads a state and can raise neither a
+ *   system prompt nor a System Settings pane.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -189,23 +199,25 @@ describe("the assistant's IPC contract", () => {
     for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
   });
 
-  it("keeps `main` to exactly its five commands — four harmless, one deliberate exception", () => {
+  it("keeps `main` to exactly its six commands — five harmless, one deliberate exception", () => {
     // Raise a window, drop this app's own title bar, display one fixed-shape
-    // notification, open a page of this same server in the system browser —
-    // and switch who runs the server. That last one is the
+    // notification, open a page of this same server in the system browser,
+    // read this app's own macOS permission states — and switch who runs the
+    // server. That last one is the
     // ONE command here that touches the service, and it is here on purpose
     // (operator's call, 2026-09-12): the assistant window that carried it read
     // as a bug, and a page that already holds the admin restart route can do
     // worse than move the server between two supervisors. The accounting is
-    // in docs/security.md. Adding a SIXTH is the change this line exists to
+    // in docs/security.md. Adding a SEVENTH is the change this line exists to
     // make loud; so is quietly widening any of these.
     //
-    // `desktop_open_assistant` is the deep link the SPA sends from three
-    // places — the Settings danger card (`{ screen: "reset" }`), the Service
-    // page's Update card (`{ screen: "update" }`) and the sidebar pill (no
-    // argument). It names a SCREEN, never a command: raising `update`
-    // performs one read-only probe, and every verb behind either screen needs
-    // a press inside the bundled page.
+    // `desktop_open_assistant` is the deep link the SPA sends — the Settings
+    // danger card (`{ screen: "reset" }`), the Service page's Update card
+    // (`{ screen: "update" }`), the permission notices
+    // (`{ screen: "permissions" }`) and the sidebar pill (no argument). It
+    // names a SCREEN, never a command: raising `update` performs one read-only
+    // probe, raising `permissions` performs none at all, and every verb behind
+    // any of those screens needs a press inside the bundled page.
     const manifest = manifestPermissions();
     const appCommands = capabilityPermissions("main.json")
       .filter((id) => !id.includes(":"))
@@ -214,6 +226,7 @@ describe("the assistant's IPC contract", () => {
       "desktop_notify",
       "desktop_open_assistant",
       "desktop_open_in_browser",
+      "desktop_permissions",
       "desktop_set_supervision",
       "desktop_shell_ready",
     ]);
@@ -290,6 +303,27 @@ describe("the assistant's IPC contract", () => {
     // `crates/desktop-core` holds the join and its tests, so the two apps
     // cannot disagree about what a path is.
     expect(rust).toContain("subshell_desktop_core::browser::browser_url");
+  });
+
+  it("keeps the permissions read to NO arguments, which is the whole of its case", () => {
+    // The sixth command on the served page, and the argument for it (spec
+    // 2026-09-14 § 7) rests entirely on there being nothing to point: it runs
+    // no program, reads no path, touches no service and changes nothing, and
+    // it cannot be aimed because it takes nothing. A parameter added later —
+    // a bundle id, a path, a pane — would make it a different command with the
+    // same name, and no ACL assertion in this file would see it.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn desktop_permissions("));
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    expect(params.trim()).toBe("");
+    // And the acting half stayed OFF this window. These two are what a page
+    // would need to raise a system prompt or a System Settings pane on its
+    // own, and both are the assistant's.
+    const granted = grantedCommands("main.json");
+    expect(granted.has("desktop_request_notifications")).toBe(false);
+    expect(granted.has("desktop_open_system_settings")).toBe(false);
+    expect(grantedCommands("wizard.json").has("desktop_request_notifications")).toBe(true);
+    expect(grantedCommands("wizard.json").has("desktop_open_system_settings")).toBe(true);
   });
 
   it("keeps the assistant's dialog surface to open alone", () => {
