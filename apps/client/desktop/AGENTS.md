@@ -365,9 +365,31 @@ Two things went away with the stop, and neither was a loss:
   tests pin the exact list; `update_argv` here is pinned against it, so this
   app can never spell one of them itself.
 
-**An agent older than the `update` verb cannot be replaced this way**, and that
-is deliberate rather than handled: a silent fall-back to the plain copy would
-be the one update path with nothing behind it.
+**An agent older than the verb falls back to the plain copy, and SAYS so.**
+Every `subshell` agent that existed on 2026-09-15 predates `update` — 0.8.0 was
+cut before it was written — so without a fallback the app's offer would fail
+with a usage dump on exactly the upgrade it exists for. The fallback is
+`install_bundled`, the same `rename(2)` swap this path used before, and the
+screen carries `legacy_install_summary`'s sentence: *Installed 0.9.0 over
+0.8.0. No rollback point was recorded: the previous agent predates the update
+command, so this install cannot be undone automatically.*
+
+**It claims no missing DATABASE backup, unlike the server app's.** The agent
+has none, and its own `update` takes none either — so naming one would alarm
+about something that was never going to happen, which is the defect
+`RESET_LABEL`'s history documents at length. What this install really loses is
+`<binary>.previous`, so that is what the sentence names
+(`cli_update::Unrecorded::Rollback`).
+
+**What makes the fallback safe is how NARROW the detection is.**
+`cli_update::lacks_update_verb` requires the run to have finished, to have
+failed, and to carry `unknown command 'update'` in its own output. It keys on
+that MARKER rather than an exit code because the two CLIs disagree —
+`node-v0.8.0` routes usage errors through `fail(2, UsageError)` and exits **2**
+where `server-v0.6.0` exits **1**, both measured at the tags — so a number
+pinned here would have silently excluded one app. Every other failure stays a
+failure: falling back on a pane-safety refusal or a version mismatch would
+leave no `.previous` while reporting success.
 
 ## Updating the app itself
 

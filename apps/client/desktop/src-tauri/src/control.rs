@@ -702,7 +702,8 @@ fn install_agent_now(settings: &SettingsState) -> Result<ActionResult, String> {
         let Some(staged) = sidecar::bundled_path(&AGENT_SIDECAR) else {
             return Err("this build ships no subshell agent".into());
         };
-        return Ok(delegate_update(probe.agent.as_ref(), &staged));
+        let installed = probe.agent.as_ref().and_then(|a| a.version.clone());
+        return delegate_update(probe.agent.as_ref(), &staged, version.as_deref(), installed.as_deref());
     }
     match sidecar::install_bundled(&AGENT_SIDECAR, version.as_deref(), || {})? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
@@ -734,18 +735,87 @@ fn update_argv(agent: Option<&AgentBinary>, staged: &Path) -> Option<Vec<String>
 /// built from the `--json` tail, naming what moved
 /// (`cli_update::update_summary`). A run with no JSON tail is not a failure:
 /// "Already at 0.9.0." exits 0 and prints prose, and the screen shows it.
-fn delegate_update(agent: Option<&AgentBinary>, staged: &Path) -> ActionResult {
+///
+/// **One failure is answered rather than reported: an agent that predates the
+/// `update` verb.** Every install that existed on 2026-09-15 does — 0.8.0 was
+/// cut before the verb was written — so without this the app's offer would
+/// fail on exactly the upgrade it is there for, with a usage dump. The
+/// fallback is [`sidecar::install_bundled`], the same `rename(2)` swap this
+/// path used before, and the screen SAYS what it could not do. Every other
+/// failure of `update` is still a failure: see
+/// [`cli_update::lacks_update_verb`] for why the test is as narrow as it is.
+fn delegate_update(
+    agent: Option<&AgentBinary>,
+    staged: &Path,
+    bundled: Option<&str>,
+    installed: Option<&str>,
+) -> Result<ActionResult, String> {
     let Some(argv) = update_argv(agent, staged) else {
-        return ActionResult::refused("no installed subshell agent to update");
+        return Ok(ActionResult::refused("no installed subshell agent to update"));
     };
-    let result = ActionResult::from(run(&argv, UPDATE_TIMEOUT));
+    match classify_update(run(&argv, UPDATE_TIMEOUT)) {
+        AfterUpdate::Legacy => install_over_legacy(bundled, installed),
+        AfterUpdate::Reported(result) => Ok(result),
+    }
+}
+
+/// What a finished `update` run calls for.
+///
+/// Pure, and split out from [`delegate_update`] for one reason: the branch it
+/// decides is "copy the binary instead", and a test of that decision must not
+/// be able to reach [`sidecar::install_bundled`] — which would write into the
+/// tester's own `~/.local/bin`. So the decision is testable and the action is
+/// not, which is the right way round.
+#[derive(Debug)]
+enum AfterUpdate {
+    /// The CLI did the work; this is its report, with the summary appended.
+    Reported(ActionResult),
+    /// The CLI has no `update` verb. Copy the file, and say what that costs.
+    Legacy,
+}
+
+fn classify_update(run: Run) -> AfterUpdate {
+    if cli_update::lacks_update_verb(&run) {
+        return AfterUpdate::Legacy;
+    }
+    let result = ActionResult::from(run);
     let Some(report) = cli_update::parse_update_report(&result.stdout) else {
-        return result;
+        return AfterUpdate::Reported(result);
     };
     let summary = cli_update::update_summary(&report, "agent");
-    ActionResult {
+    AfterUpdate::Reported(ActionResult {
         stdout: joined(&result.stdout, &summary),
         ..result
+    })
+}
+
+/// Replace an agent too old to update itself, and say so.
+///
+/// The plain copy the replace path used before the transaction existed. It is
+/// correct here for the same reason it was correct then — a temp file in the
+/// same directory and a `rename(2)`, which a running daemon does not notice —
+/// and it is NOT correct anywhere else, because it leaves no `.previous`.
+///
+/// The agent has no database, so the sentence claims no missing BACKUP: what
+/// it loses is the rollback point, and naming a database here would alarm
+/// about something this CLI's own `update` never does either.
+///
+/// No `stop_first` and no restart: both are exactly as they are on the
+/// `update` path, which passes `--no-restart` and leaves the start to the
+/// screen.
+fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result<ActionResult, String> {
+    match sidecar::install_bundled(&AGENT_SIDECAR, bundled, || {})? {
+        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
+        // `update` refused the verb, so the installed copy is NOT this one —
+        // a size-and-version match here would mean the probe and the binary
+        // disagree, which is worth saying rather than smoothing over.
+        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled agent is already installed.")),
+        sidecar::InstallOutcome::Installed => Ok(ActionResult::said(cli_update::legacy_install_summary(
+            installed,
+            bundled,
+            "agent",
+            cli_update::Unrecorded::Rollback,
+        ))),
     }
 }
 
@@ -1963,6 +2033,68 @@ mod install_policy_tests {
     #[test]
     fn nothing_resolved_builds_no_command() {
         assert!(update_argv(None, &PathBuf::from("/x")).is_none());
+    }
+
+    fn run_of(code: Option<i32>, stdout: &str, stderr: &str) -> Run {
+        Run {
+            code,
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            timed_out: false,
+        }
+    }
+
+    // Every `subshell` agent that existed on 2026-09-15 predates the `update`
+    // verb (0.8.0 was cut before it was written), so WITHOUT this branch the
+    // app's offer fails on exactly the upgrade it is there for. Transcribed
+    // from `node-v0.8.0`'s own cli.ts, which routes usage errors through
+    // `fail(2, UsageError)` — note the exit code is 2 here and 1 in the server
+    // app, which is why the detection keys on the MARKER and not on a number.
+    #[test]
+    fn an_agent_predating_the_verb_falls_back_to_the_plain_copy() {
+        assert!(matches!(
+            classify_update(run_of(Some(2), "", "unknown command 'update'\n")),
+            AfterUpdate::Legacy
+        ));
+    }
+
+    // The refusals that must NEVER fall back. Each is an answer ABOUT this
+    // machine; copying the binary anyway would leave no `.previous` and report
+    // success, which is the one outcome worse than a confusing error.
+    #[test]
+    fn a_real_refusal_is_reported_and_never_falls_back() {
+        let refusal = "subshell: refusing to restart: this service definition would close every running subshell";
+        let AfterUpdate::Reported(result) = classify_update(run_of(Some(1), "", refusal)) else {
+            panic!("a pane-safety refusal must never reach the fallback");
+        };
+        assert!(!result.ok);
+        // The CLI's own words survive verbatim — this layer re-words no
+        // refusal, which is rule 1 of `use-node-commands.ts` read from the
+        // other end.
+        assert!(result.stderr.contains("refusing to restart"), "{}", result.stderr);
+
+        for stderr in [
+            "subshell: not a compiled agent",
+            "subshell: installed binary reports 0.8.0, not 0.9.0",
+        ] {
+            assert!(
+                matches!(classify_update(run_of(Some(1), "", stderr)), AfterUpdate::Reported(_)),
+                "{stderr}"
+            );
+        }
+    }
+
+    // The sentence the fallback screen shows. It claims NO database — the
+    // agent has none, and its own `update` takes no backup either, so naming
+    // one would alarm about something that was never going to happen.
+    #[test]
+    fn the_fallback_says_no_rollback_and_never_mentions_a_database() {
+        let said =
+            cli_update::legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "agent", cli_update::Unrecorded::Rollback);
+        assert!(said.contains("Installed 0.9.0 over 0.8.0."), "{said}");
+        assert!(said.contains("No rollback point was recorded"), "{said}");
+        assert!(said.contains("predates the update command"), "{said}");
+        assert!(!said.contains("database"), "{said}");
     }
 
     // The invariant `agent_bin` states in its own words: a newer installed

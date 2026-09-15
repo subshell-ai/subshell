@@ -27,13 +27,26 @@
 //!   service manager to ask, and the node app deliberately does not restart at
 //!   all (it says so on the screen instead).
 //!
-//! This module is the PURE half — the argv and the report parse. Running it,
-//! and deciding whether this machine is on the replace path at all, stays in
-//! each app's `control.rs` with its own probe.
+//! **One installed CLI cannot be asked: one that predates the verb.** Every
+//! install in existence on 2026-09-15 does — `subshell-server` 0.6.0 and
+//! `subshell` 0.8.0 were cut before `update` was written — so the app's offer
+//! would fail on exactly the upgrade it exists for. [`lacks_update_verb`]
+//! recognises that ONE case from the CLI's own words and the caller falls back
+//! to [`crate::sidecar::install_bundled`], saying on the screen what the
+//! fallback could not do. Every OTHER failure stays a failure: falling back on
+//! a pane-safety refusal, an unwritable path or a version mismatch would skip
+//! the backup while reporting success, which is the outcome this whole module
+//! exists to prevent.
+//!
+//! This module is the PURE half — the argv, the report parse, the detection and
+//! the sentences. Running anything, and deciding whether this machine is on the
+//! replace path at all, stays in each app's `control.rs` with its own probe.
 
 use std::path::Path;
 
 use serde::Deserialize;
+
+use crate::proc::Run;
 
 /// The CLI's `--json` tail for a completed update.
 ///
@@ -90,6 +103,94 @@ pub fn parse_update_report(stdout: &str) -> Option<UpdateReport> {
         .map(str::trim)
         .filter(|line| line.starts_with('{'))
         .find_map(|line| serde_json::from_str::<UpdateReport>(line).ok())
+}
+
+/// The marker both CLIs print when handed a verb they do not have.
+///
+/// MEASURED against the released tags rather than the working tree, because
+/// the binaries this has to recognise are the OLD ones:
+///
+/// | binary | what it prints | exit |
+/// |---|---|---|
+/// | `subshell-server` 0.6.0 | `subshell-server: unknown command 'update'` + the usage block, on stderr | 1 |
+/// | `subshell` 0.8.0 | `unknown command 'update'`, on stderr | 2 |
+///
+/// The EXIT CODES DISAGREE (the agent routes usage errors through
+/// `fail(2, UsageError)`), which is why this keys on the marker and asks only
+/// that the run failed. Pinning 1 would have silently excluded every node
+/// agent; pinning "1 or 2" would bind a number neither CLI promises.
+const UNKNOWN_UPDATE_MARKER: &str = "unknown command 'update'";
+
+/// Whether a finished run is the installed CLI saying it has no `update` verb.
+///
+/// The ONE failure the caller may answer by falling back to a plain copy, so
+/// it is deliberately the narrowest test that can identify it:
+///
+/// - **The command must have RUN and failed.** `code: None` is a deadline or a
+///   spawn error — a binary that never answered is not a binary without a
+///   verb, and treating it as one would install over a machine whose state
+///   nobody established.
+/// - **The marker must be in its own output.** Only the CLIs' command
+///   dispatcher can print it, and only for a word it does not know. Every real
+///   refusal — the pane guard, an unwritable binary, a digest mismatch, a
+///   version the downloaded file does not confirm — prints something else, so
+///   none of them can reach the fallback.
+///
+/// Both streams are scanned because the two CLIs differ in where usage text
+/// lands and neither promises to keep it there.
+pub fn lacks_update_verb(run: &Run) -> bool {
+    if run.code.is_none() || run.ok() {
+        return false;
+    }
+    run.stderr.contains(UNKNOWN_UPDATE_MARKER) || run.stdout.contains(UNKNOWN_UPDATE_MARKER)
+}
+
+/// What a fallback install could NOT record, which differs by app.
+///
+/// The server's `update` takes a database snapshot and keeps `.previous`; the
+/// agent has no database and keeps only `.previous`. Saying "no database
+/// backup was taken" on the agent would name something its own `update` never
+/// does either — alarming about the wrong thing, which is the defect the reset
+/// label's history documents at length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unrecorded {
+    /// Subshell Server: the database snapshot, and with it the rollback.
+    DatabaseBackup,
+    /// Subshell Client: the rollback point alone.
+    Rollback,
+}
+
+/// One sentence for an install that had to bypass the transaction.
+///
+/// Says what happened, then what it could not do and why — in that order,
+/// because the install SUCCEEDED and a reader who stops after the first
+/// sentence has not been misled. It names the missing backup explicitly rather
+/// than staying silent: a person who later needs to undo this has to learn it
+/// now, not when they go looking for a `.previous` that is not there.
+///
+/// @param from - the version being replaced, when the probe knew it
+/// @param to - the version being installed, when this build knows it
+/// @param what - `"server"` or `"agent"`
+pub fn legacy_install_summary(from: Option<&str>, to: Option<&str>, what: &str, missing: Unrecorded) -> String {
+    let installed = match (to, from) {
+        (Some(to), Some(from)) => format!("Installed {to} over {from}."),
+        (Some(to), None) => format!("Installed {to}."),
+        // A version neither side can name is still an install that happened,
+        // and the sentence after this one is the part that matters.
+        (None, _) => format!("Installed the bundled {what}."),
+    };
+    let lost = match missing {
+        Unrecorded::DatabaseBackup => "No database backup was taken",
+        Unrecorded::Rollback => "No rollback point was recorded",
+    };
+    let undo = match missing {
+        Unrecorded::DatabaseBackup => "rolled back",
+        Unrecorded::Rollback => "undone",
+    };
+    format!(
+        "{installed} {lost}: the previous {what} predates the update command, \
+         so this install cannot be {undo} automatically."
+    )
 }
 
 /// One sentence naming what the delegated update did.
@@ -186,6 +287,124 @@ mod tests {
         );
         let report = parse_update_report(stdout).expect("a report");
         assert_eq!(report.to, "0.7.0");
+    }
+
+    fn run_of(code: Option<i32>, stdout: &str, stderr: &str) -> Run {
+        Run {
+            code,
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            timed_out: false,
+        }
+    }
+
+    /// The two lines these old binaries actually print, transcribed from the
+    /// RELEASED tags rather than from the working tree — the binaries this has
+    /// to recognise are the ones that predate the verb.
+    ///
+    /// `server-v0.6.0` `apps/server/api/src/cli.ts`:
+    ///   `error(\`subshell-server: unknown command '${command}'\`)`, then
+    ///   `error(USAGE)`, then `exit(1)`.
+    /// `node-v0.8.0` `apps/node/agent/src/cli.ts`:
+    ///   `return fail(2, new UsageError(\`unknown command '${parsed.command}'\`))`.
+    const SERVER_0_6_0_STDERR: &str =
+        "subshell-server: unknown command 'update'\nusage:\n  subshell-server init\n  subshell-server status\n";
+    const AGENT_0_8_0_STDERR: &str = "unknown command 'update'\n";
+
+    // The whole point of the fallback: every install that exists today
+    // predates the verb, so without this the desktop offer fails on exactly
+    // the upgrade it is there for.
+    #[test]
+    fn a_cli_without_the_verb_is_recognised_on_both_apps_exit_codes() {
+        // The two DISAGREE on the code — the server exits 1, the agent routes
+        // usage errors through fail(2). Keying on either number would have
+        // silently excluded one app.
+        assert!(lacks_update_verb(&run_of(Some(1), "", SERVER_0_6_0_STDERR)));
+        assert!(lacks_update_verb(&run_of(Some(2), "", AGENT_0_8_0_STDERR)));
+        // And on stdout, in case a future CLI moves its usage text there.
+        assert!(lacks_update_verb(&run_of(Some(1), AGENT_0_8_0_STDERR, "")));
+    }
+
+    // The refusals that must NEVER fall back. Each is a real answer about this
+    // machine, and copying the binary anyway would skip the backup while
+    // reporting success — the one outcome worse than a confusing error.
+    #[test]
+    fn a_real_refusal_never_looks_like_a_missing_verb() {
+        for stderr in [
+            "subshell-server: refusing to restart: this service definition would close every running subshell; --force",
+            "subshell-server: cannot replace /usr/local/bin/subshell-server: not writable",
+            "subshell-server: the downloaded binary reports 0.6.0, not 0.7.0",
+            "subshell-server: an update is already in progress; `subshell-server update --rollback` if it is stuck",
+            "subshell-server: could not back up the database: disk full",
+            "subshell: not a compiled agent",
+        ] {
+            assert!(!lacks_update_verb(&run_of(Some(1), "", stderr)), "{stderr}");
+        }
+    }
+
+    // A binary that never answered is not a binary without a verb. `code:
+    // None` is a deadline or a spawn failure, and installing over a machine
+    // whose state nobody established is the opposite of what this is for.
+    #[test]
+    fn a_run_that_never_finished_is_not_a_missing_verb() {
+        assert!(!lacks_update_verb(&Run {
+            code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: true,
+        }));
+        // Nor is a spawn error, even one whose text mentions the command.
+        assert!(!lacks_update_verb(&run_of(
+            None,
+            "",
+            "spawn failed: No such file or directory"
+        )));
+    }
+
+    // A SUCCESS is never a fallback, however odd its output: the CLI did the
+    // work, and the report parse is what reads it.
+    #[test]
+    fn a_successful_run_is_never_a_missing_verb() {
+        assert!(!lacks_update_verb(&run_of(Some(0), "", SERVER_0_6_0_STDERR)));
+    }
+
+    // The sentence has to NAME what it could not do. A fallback that reported
+    // a bare "Installed 0.7.0." would leave someone looking for a `.previous`
+    // that is not there, months later, with nothing to explain it.
+    #[test]
+    fn the_fallback_sentence_names_the_missing_backup() {
+        let said = legacy_install_summary(Some("0.6.0"), Some("0.7.0"), "server", Unrecorded::DatabaseBackup);
+        assert_eq!(
+            said,
+            "Installed 0.7.0 over 0.6.0. No database backup was taken: the previous server predates \
+             the update command, so this install cannot be rolled back automatically."
+        );
+    }
+
+    // The agent has no database, so claiming a missing DATABASE backup would
+    // name something its own `update` never does either — alarming about the
+    // wrong thing. What it really loses is the rollback point.
+    #[test]
+    fn the_agents_sentence_claims_no_database() {
+        let said = legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "agent", Unrecorded::Rollback);
+        assert!(!said.contains("database"), "{said}");
+        assert_eq!(
+            said,
+            "Installed 0.9.0 over 0.8.0. No rollback point was recorded: the previous agent predates \
+             the update command, so this install cannot be undone automatically."
+        );
+    }
+
+    // A version neither side can name is still an install that happened, and
+    // the warning after it is the part that matters — so it is never dropped.
+    #[test]
+    fn an_unknown_version_still_warns() {
+        let neither = legacy_install_summary(None, None, "server", Unrecorded::DatabaseBackup);
+        assert!(neither.starts_with("Installed the bundled server."), "{neither}");
+        assert!(neither.contains("No database backup was taken"), "{neither}");
+        let no_from = legacy_install_summary(None, Some("0.7.0"), "server", Unrecorded::DatabaseBackup);
+        assert!(no_from.starts_with("Installed 0.7.0."), "{no_from}");
+        assert!(no_from.contains("predates the update command"), "{no_from}");
     }
 
     #[test]

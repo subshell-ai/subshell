@@ -28,7 +28,16 @@ the one update on the machine with nothing behind it to roll back to. The
 screen now names what moved and where the backup went. A first install is
 unchanged; so is the second step, which is still the app's to take.
 
-One consequence worth knowing: a server older than the `update` verb cannot be
-replaced this way, and that is deliberate rather than handled. A silent
-fall-back to the old copy would skip the backup while reporting success, which
-is worse than the CLI's own error.
+A CLI older than the `update` verb — which is every one installed today — falls
+back to the plain copy it used before, and the screen says what that cost:
+*"Installed 0.7.0 over 0.6.0. No database backup was taken: the previous server
+predates the update command, so this install cannot be rolled back
+automatically."* (The node app's says "No rollback point was recorded": an
+agent has no database, and claiming a missing backup would be alarming about
+something that was never going to happen.)
+
+The fallback fires on exactly one thing — the CLI's own `unknown command
+'update'`, on a run that finished and failed. A pane-safety refusal, an
+unwritable binary, a digest mismatch or a version the file does not confirm is
+still a failure, because copying the file anyway would skip the backup while
+reporting success.

@@ -279,12 +279,30 @@ Three details that are not obvious from the diff:
   only ever fired when `probe.managed` was true — exactly the path that now
   goes through the CLI — and the CLI's swap is a `rename(2)` a running process
   does not notice.
-- **A server older than the `update` verb cannot be replaced this way**, and
-  that is deliberate rather than handled. The CLI answers its own usage error
-  and the screen shows it. A silent fall-back to `install_bundled` would skip
-  the backup while reporting success, which is the one outcome worse than a
-  confusing error — and there are no installs old enough for this to matter
-  that are not also a reinstall away from fixed.
+- **A server older than the verb falls back to the plain copy, and SAYS so.**
+  Every `subshell-server` that existed on 2026-09-15 predates `update` — 0.6.0
+  was cut before it was written — so without a fallback the app's offer would
+  fail with a usage dump on exactly the upgrade it exists for. The fallback is
+  `install_bundled`, the same `rename(2)` swap this path used before, and the
+  screen carries `legacy_install_summary`'s sentence: *Installed 0.7.0 over
+  0.6.0. No database backup was taken: the previous server predates the update
+  command, so this install cannot be rolled back automatically.* Naming the
+  missing backup is the whole point — someone who later needs to undo this has
+  to learn it now, not when they go looking for a `.previous` that is not there.
+
+  **What makes that safe is how NARROW the detection is.**
+  `cli_update::lacks_update_verb` requires the run to have finished (`code`
+  is `Some`), to have failed, and to carry `unknown command 'update'` in its
+  own output — the marker only a command dispatcher prints, for a word it does
+  not know. It is keyed on the MARKER rather than the exit code because the
+  two CLIs disagree: `server-v0.6.0` exits **1** (`error(USAGE); exit(1)`) and
+  `node-v0.8.0` exits **2** (`fail(2, UsageError)`), both measured at the tags.
+  Every other failure — the pane guard, an unwritable binary, a digest
+  mismatch, a version the file does not confirm, an update already in progress
+  — is still a failure, because falling back on any of those would skip the
+  backup while reporting success. `classify_update` is split out from the run
+  precisely so that decision is testable without a test able to reach
+  `install_bundled` and write into someone's own `~/.local/bin`.
 
 ## Updating the app itself
 

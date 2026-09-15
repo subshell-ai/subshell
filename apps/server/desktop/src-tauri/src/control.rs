@@ -875,7 +875,8 @@ fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> 
         let Some(staged) = sidecar::bundled_path(&SERVER_SIDECAR) else {
             return Err("this build ships no server binary".into());
         };
-        return Ok(delegate_update(&probe.server, &staged));
+        let installed = probe.server.as_ref().and_then(|s| s.version.clone());
+        return delegate_update(&probe.server, &staged, version.as_deref(), installed.as_deref());
     }
     match sidecar::install_bundled(&SERVER_SIDECAR, version.as_deref(), || {})? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no server binary".into()),
@@ -919,25 +920,99 @@ fn update_argv(server: &Option<ServerBinary>, staged: &Path) -> Option<Vec<Strin
 ///
 /// A run with no JSON tail is not a failure. "Already at 0.7.0." exits 0 and
 /// prints prose, and the screen shows that prose.
-fn delegate_update(server: &Option<ServerBinary>, staged: &Path) -> ActionResult {
+///
+/// **One failure is answered rather than reported: a server that predates the
+/// `update` verb.** Every install that existed on 2026-09-15 does — 0.6.0 was
+/// cut before the verb was written — so without this the app's offer would
+/// fail on exactly the upgrade it is there for, with a usage dump. The
+/// fallback is [`sidecar::install_bundled`], the same `rename(2)` swap this
+/// path used before, and the screen SAYS what it could not do. Every other
+/// failure of `update` is still a failure: see
+/// [`cli_update::lacks_update_verb`] for why the test is as narrow as it is.
+fn delegate_update(
+    server: &Option<ServerBinary>,
+    staged: &Path,
+    bundled: Option<&str>,
+    installed: Option<&str>,
+) -> Result<ActionResult, String> {
     let Some(argv) = update_argv(server, staged) else {
-        return ActionResult {
+        return Ok(ActionResult {
             ok: false,
             stdout: String::new(),
             stderr: "no installed subshell-server to update".into(),
-        };
+        });
     };
-    let result = ActionResult::from(run(&argv, UPDATE_TIMEOUT));
+    match classify_update(run(&argv, UPDATE_TIMEOUT)) {
+        AfterUpdate::Legacy => install_over_legacy(bundled, installed),
+        AfterUpdate::Reported(result) => Ok(result),
+    }
+}
+
+/// What a finished `update` run calls for.
+///
+/// Pure, and split out from [`delegate_update`] for one reason: the branch it
+/// decides is "copy the binary instead", and a test of that decision must not
+/// be able to reach [`sidecar::install_bundled`] — which would write into the
+/// tester's own `~/.local/bin`. So the decision is testable and the action is
+/// not, which is the right way round.
+#[derive(Debug)]
+enum AfterUpdate {
+    /// The CLI did the work; this is its report, with the summary appended.
+    Reported(ActionResult),
+    /// The CLI has no `update` verb. Copy the file, and say what that costs.
+    Legacy,
+}
+
+fn classify_update(run: Run) -> AfterUpdate {
+    if cli_update::lacks_update_verb(&run) {
+        return AfterUpdate::Legacy;
+    }
+    let result = ActionResult::from(run);
     let Some(report) = cli_update::parse_update_report(&result.stdout) else {
-        return result;
+        return AfterUpdate::Reported(result);
     };
     let summary = cli_update::update_summary(&report, "server");
-    ActionResult {
+    AfterUpdate::Reported(ActionResult {
         stdout: match result.stdout.trim() {
             "" => summary,
             existing => format!("{existing}\n\n{summary}"),
         },
         ..result
+    })
+}
+
+/// Replace a server too old to update itself, and say so.
+///
+/// The plain copy the replace path used before the transaction existed. It is
+/// correct here for the same reason it was correct then — a temp file in the
+/// same directory and a `rename(2)`, which a running process does not notice —
+/// and it is NOT correct anywhere else, because it takes no backup and leaves
+/// no `.previous`. The sentence names both absences: someone who later needs
+/// to undo this has to learn it now rather than when they go looking.
+///
+/// No `stop_first`: the rename is what makes the swap safe, and the restart is
+/// the UI's own second step exactly as it is on the `update` path.
+fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result<ActionResult, String> {
+    match sidecar::install_bundled(&SERVER_SIDECAR, bundled, || {})? {
+        sidecar::InstallOutcome::NoSidecar => Err("this build ships no server binary".into()),
+        // `update` refused the verb, so the installed copy is NOT this one —
+        // a size-and-version match here would mean the probe and the binary
+        // disagree, which is worth saying rather than smoothing over.
+        sidecar::InstallOutcome::UpToDate => Ok(ActionResult {
+            ok: true,
+            stdout: "The bundled server is already installed.".into(),
+            stderr: String::new(),
+        }),
+        sidecar::InstallOutcome::Installed => Ok(ActionResult {
+            ok: true,
+            stdout: cli_update::legacy_install_summary(
+                installed,
+                bundled,
+                "server",
+                cli_update::Unrecorded::DatabaseBackup,
+            ),
+            stderr: String::new(),
+        }),
     }
 }
 
@@ -2918,6 +2993,93 @@ mod tests {
     #[test]
     fn nothing_resolved_builds_no_command() {
         assert!(update_argv(&None, &std::path::PathBuf::from("/x")).is_none());
+    }
+
+    fn run_of(code: Option<i32>, stdout: &str, stderr: &str) -> Run {
+        Run {
+            code,
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            timed_out: false,
+        }
+    }
+
+    // Every `subshell-server` that existed on 2026-09-15 predates the `update`
+    // verb (0.6.0 was cut before it was written), so WITHOUT this branch the
+    // app's offer fails on exactly the upgrade it is there for — with a usage
+    // dump on the screen. Transcribed from `server-v0.6.0`'s own cli.ts:
+    // `unknown command 'update'` + USAGE on stderr, exit 1.
+    #[test]
+    fn a_server_predating_the_verb_falls_back_to_the_plain_copy() {
+        let usage = "subshell-server: unknown command 'update'\nusage:\n  subshell-server init\n";
+        assert!(matches!(
+            classify_update(run_of(Some(1), "", usage)),
+            AfterUpdate::Legacy
+        ));
+    }
+
+    // The refusal that must NEVER fall back. Copying the binary over a
+    // pane-safety refusal would take every live subshell down on the restart
+    // that follows, having skipped the backup, and report success — the one
+    // outcome worse than a confusing error.
+    #[test]
+    fn a_pane_safety_refusal_is_reported_and_never_falls_back() {
+        let refusal = "subshell-server: refusing to restart: this service definition would close every \
+                       running subshell; --force";
+        let AfterUpdate::Reported(result) = classify_update(run_of(Some(1), "", refusal)) else {
+            panic!("a pane-safety refusal must never reach the fallback");
+        };
+        assert!(!result.ok);
+        // And the CLI's own words survive verbatim — this layer re-words no
+        // refusal, which is the rule the whole file is built on.
+        assert!(result.stderr.contains("refusing to restart"), "{}", result.stderr);
+    }
+
+    // Two more real refusals, for the same reason: each is an answer ABOUT
+    // this machine, and none of them means "there is no such verb".
+    #[test]
+    fn no_other_failure_reaches_the_fallback() {
+        for stderr in [
+            "subshell-server: cannot replace /usr/local/bin/subshell-server: not writable",
+            "subshell-server: the downloaded binary reports 0.6.0, not 0.7.0",
+            "subshell-server: an update is already in progress",
+        ] {
+            assert!(
+                matches!(classify_update(run_of(Some(1), "", stderr)), AfterUpdate::Reported(_)),
+                "{stderr}"
+            );
+        }
+    }
+
+    // A success still gets its summary appended, fallback or no fallback.
+    #[test]
+    fn a_successful_update_still_reports_the_backup() {
+        let tail = r#"{"from":"0.6.0","to":"0.7.0","restarted":false,"backup":"/data/backups/x.db"}"#;
+        let AfterUpdate::Reported(result) = classify_update(run_of(Some(0), tail, "")) else {
+            panic!("a success is never the fallback");
+        };
+        assert!(result.ok);
+        assert!(result
+            .stdout
+            .contains("The database was backed up to /data/backups/x.db"));
+    }
+
+    // The sentence the fallback screen shows. It names the missing BACKUP
+    // because this app's `update` is the one that takes one — someone who
+    // later needs to undo this install has to learn it here, not when they go
+    // looking for a `.previous` that is not there.
+    #[test]
+    fn the_fallback_says_no_backup_was_taken() {
+        let said = cli_update::legacy_install_summary(
+            Some("0.6.0"),
+            Some("0.7.0"),
+            "server",
+            cli_update::Unrecorded::DatabaseBackup,
+        );
+        assert!(said.contains("Installed 0.7.0 over 0.6.0."), "{said}");
+        assert!(said.contains("No database backup was taken"), "{said}");
+        assert!(said.contains("predates the update command"), "{said}");
+        assert!(said.contains("cannot be rolled back automatically"), "{said}");
     }
 
     /// The dev override replaces the ADDRESS, never the readiness check.
