@@ -375,6 +375,17 @@ to. `Settings → Updates` knows; `--to` is how a person acts on having read it.
 `status --json` gains `paths.binary` (null under an interpreter, where there is
 no single file to name) and `update: { pending, lastFailure }`.
 
+`test:cli`'s `node-update.sh` is what proves the swap with two REAL binaries:
+it installs this build, compiles a `99.0.0` one from the same source with a
+patched `package.json` (restored from a trap), and drives `--check`, the
+`--from` swap, the "already at" refusal, `--rollback`, a rollback with nothing
+to roll back to, and a file that cannot say what it is. It boots no server and
+dials no plane — an agent has no database and no boot-time transaction, so the
+only state `update` reads is `config.json`'s `dataDir`, which the script
+writes by hand. The **4406 revert** is deliberately not compiled there: it
+needs a control plane built on a different protocol constant, a second ~110 MB
+build to exercise a close handler `daemon.test.ts` already drives directly.
+
 ## Maintenance (`src/maintenance.ts`, spec 2026-09-14)
 
 One flag, `<dataDir>/maintenance.json` = `{ on, changedAt }`, meaning "this

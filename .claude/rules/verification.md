@@ -70,9 +70,12 @@ bun run test:cli     # compiles both binaries, then drives them as an operator d
 ```
 
 Not part of `bun run test` (it compiles ~150 MB of binaries and takes a
-minute). Run it when you touch `init`, `configure`, `status`, `service`, the
-node `setup`/`enroll` verbs, or the rendered `install.sh` — it is the only
-thing that answers whether those work COMPILED. `bun run test` stubs every
+minute). Run it when you touch `init`, `configure`, `status`, `service`,
+either CLI's `update`/`backup`, the node `setup`/`enroll` verbs, or the
+rendered `install.sh` — it is the only thing that answers whether those work
+COMPILED. The two update scenarios (`server-update.sh`, `node-update.sh`) each
+build a second binary from the same source with a patched version and restore
+the edit from a trap, so an interrupted run leaves no bumped `package.json`. `bun run test` stubs every
 service seam, and `e2e/` boots the server from source, so a bundler dropping a
 module, a prompt that hangs without a TTY, or a handoff line nobody prints are
 invisible to both.
