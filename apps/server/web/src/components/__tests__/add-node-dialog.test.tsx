@@ -1,7 +1,16 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
+import { NODES_QUERY_KEY } from "@/lib/query-keys";
 
 interface Call {
   method: string;
@@ -9,12 +18,20 @@ interface Call {
   body?: string;
 }
 
+/** The node rows `GET /api/nodes` serves; mutated by a test to stage an arrival. */
+interface NodesHolder {
+  /** `null` = the list route answers `{}`, i.e. a shape the dialog cannot read */
+  rows: { id: string; name: string }[] | null;
+}
+
 /**
  * Stubs the setup-key create endpoint (sharing-dialog.test's fetch-mock
  * shape). `publicSettings` is the body served for GET /api/settings/public —
  * `{}` means "loaded but shape-missing", exercising the origin fallback.
+ * `nodes.rows` is what the node list answers, so a test can stage which
+ * machine arrived while the dialog waits.
  */
-function mockFetch(publicSettings?: Record<string, unknown>) {
+function mockFetch(publicSettings?: Record<string, unknown>, nodes: NodesHolder = { rows: null }) {
   const calls: Call[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -31,18 +48,72 @@ function mockFetch(publicSettings?: Record<string, unknown>) {
     if (method === "GET" && url.pathname === "/api/settings/public") {
       return Promise.resolve(new Response(JSON.stringify(publicSettings ?? {}), { status: 200 }));
     }
+    if (method === "GET" && url.pathname === "/api/nodes") {
+      return Promise.resolve(new Response(JSON.stringify(nodes.rows ? { nodes: nodes.rows } : {}), { status: 200 }));
+    }
     return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
   }) as typeof fetch;
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 
-function renderDialog(nodeCount = 1) {
+/** Raises the count prop the way the parent route's 3 s poll would. */
+let raiseNodeCount: ((next: number) => void) | null = null;
+
+function DialogHost({ start }: { start: number }) {
+  const [count, setCount] = useState(start);
+  useEffect(() => {
+    raiseNodeCount = setCount;
+    return () => {
+      raiseNodeCount = null;
+    };
+  }, []);
+  return <AddNodeDialog open onOpenChange={() => {}} nodeCount={count} />;
+}
+
+/**
+ * The dialog links to the arrived node's page, so it needs a router in
+ * context — a bare `Link` throws outside one. `/nodes/$id` is registered as a
+ * dead-end route purely so the href resolves.
+ */
+async function renderDialog(nodeCount = 1) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const rootRoute = createRootRoute();
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => <DialogHost start={nodeCount} />,
+  });
+  const nodeRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/nodes/$id",
+    component: () => null,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute, nodeRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  await router.load();
+  render(
     <QueryClientProvider client={client}>
-      <AddNodeDialog open onOpenChange={() => {}} nodeCount={nodeCount} />
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  // Let the dialog's own reads land before a test acts. The node list in
+  // particular is the baseline the arrival is diffed against, and a dialog
+  // whose list has not loaded refuses to identify anything — which is correct
+  // behaviour, and not what most of these tests are about.
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+  return {
+    /** Re-reads `GET /api/nodes` (what the parent's poll does) and bumps the count prop. */
+    async arrive(count: number) {
+      await act(async () => {
+        await client.refetchQueries({ queryKey: NODES_QUERY_KEY });
+        raiseNodeCount?.(count);
+      });
+    },
+  };
 }
 
 afterEach(cleanup);
@@ -51,7 +122,7 @@ describe("AddNodeDialog", () => {
   it("step 1 → create POSTs the label", async () => {
     const { calls, restore } = mockFetch();
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await waitFor(() => {
@@ -67,7 +138,7 @@ describe("AddNodeDialog", () => {
   it("step 2 shows the plaintext key once with the rendered install command", async () => {
     const { restore } = mockFetch();
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(await screen.findByText("nsk_secret")).toBeDefined();
@@ -82,7 +153,7 @@ describe("AddNodeDialog", () => {
   it("bakes the SERVER's appBaseUrl into the install command, not the browser origin", async () => {
     const { restore } = mockFetch({ appBaseUrl: "http://100.71.37.94:3080" });
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(
@@ -97,7 +168,7 @@ describe("AddNodeDialog", () => {
   it("warns in amber when appBaseUrl points at loopback (a remote node would dial itself)", async () => {
     const { restore } = mockFetch({ appBaseUrl: "http://localhost:3080" });
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       const hint = await screen.findByText(/points at loopback/i);
@@ -111,7 +182,7 @@ describe("AddNodeDialog", () => {
   it("treats an unparseable appBaseUrl as not-loopback (no hint, no throw in render)", async () => {
     const { restore } = mockFetch({ appBaseUrl: "not a url" });
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(await screen.findByText("nsk_secret")).toBeDefined();
@@ -131,7 +202,7 @@ describe("AddNodeDialog", () => {
       nodeArtifactsAutoFetch: false,
     });
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
@@ -150,7 +221,7 @@ describe("AddNodeDialog", () => {
       nodeArtifactsAutoFetch: false,
     });
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       const hint = await screen.findByText(/has no agent binary for:/i);
@@ -170,7 +241,7 @@ describe("AddNodeDialog", () => {
       nodeArtifactTargets: ["linux-x64", "linux-arm64", "darwin-arm64"],
     });
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText("nsk_secret");
@@ -190,7 +261,7 @@ describe("AddNodeDialog", () => {
       nodeArtifactsAutoFetch: true,
     });
     try {
-      renderDialog();
+      await renderDialog();
       await screen.findByLabelText("Node name");
       expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
       // It says the first run is slower, once and quietly.
@@ -203,7 +274,7 @@ describe("AddNodeDialog", () => {
   it("stays silent when the server predates the field ({} — a cached PWA must not nag)", async () => {
     const { restore } = mockFetch({});
     try {
-      renderDialog();
+      await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText("nsk_secret");
@@ -222,7 +293,7 @@ describe("AddNodeDialog", () => {
       nodeArtifactsAutoFetch: false,
     });
     try {
-      renderDialog();
+      await renderDialog();
       expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
       // And no key was minted by merely opening the dialog.
       expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/setup-keys")).toBe(false);
@@ -231,26 +302,86 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("flips to the enrolled hint when the node count rose past the baseline", async () => {
+  it("says what the command does to the machine before it is run", async () => {
+    // The dialog is the one place in the product where a headless node
+    // install is described; it used to describe nothing at all (spec
+    // 2026-09-15 §5.4). Every clause here is a clause of install-script.ts.
     const { restore } = mockFetch();
     try {
-      // Baseline is captured from the count at creation; re-render with a
-      // higher count and the waiting hint becomes the success line.
-      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const view = render(
-        <QueryClientProvider client={client}>
-          <AddNodeDialog open onOpenChange={() => {}} nodeCount={1} />
-        </QueryClientProvider>,
-      );
+      await renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      const what = await screen.findByText(/installs the agent to/i);
+      expect(what.textContent).toContain("~/.local/bin");
+      expect(what.textContent).toMatch(/background service/i);
+      expect(what.textContent).toMatch(/at login/i);
+      const tmux = screen.getByText(/setup refuses without it/i);
+      expect(tmux.textContent).toContain("tmux");
+      expect(tmux.textContent).toContain("brew install tmux");
+      expect(tmux.textContent).toContain("sudo apt-get install tmux");
+    } finally {
+      restore();
+    }
+  });
+
+  it("names the node that arrived and links to its page", async () => {
+    const nodes: NodesHolder = { rows: [{ id: "local", name: "Server" }] };
+    const { restore } = mockFetch(undefined, nodes);
+    try {
+      const { arrive } = await renderDialog(1);
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText("nsk_secret");
-      view.rerender(
-        <QueryClientProvider client={client}>
-          <AddNodeDialog open onOpenChange={() => {}} nodeCount={2} />
-        </QueryClientProvider>,
-      );
-      expect(await screen.findByText(/Node enrolled/i)).toBeDefined();
+      nodes.rows = [
+        { id: "local", name: "Server" },
+        { id: "n2", name: "mac mini" },
+      ];
+      await arrive(2);
+      const line = await screen.findByText(/mac mini enrolled/i);
+      expect(line).toBeDefined();
+      const link = screen.getByRole("link", { name: /open its page/i });
+      expect(link.getAttribute("href")).toBe("/nodes/n2");
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls back to the generic line when two machines arrived at once", async () => {
+    // Guessing which of them is yours would put the operator on a stranger's
+    // node page; the count is still true, so the old line still is.
+    const nodes: NodesHolder = { rows: [{ id: "local", name: "Server" }] };
+    const { restore } = mockFetch(undefined, nodes);
+    try {
+      const { arrive } = await renderDialog(1);
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      await screen.findByText("nsk_secret");
+      nodes.rows = [
+        { id: "local", name: "Server" },
+        { id: "n2", name: "mac mini" },
+        { id: "n3", name: "someone else" },
+      ];
+      await arrive(3);
+      expect(await screen.findByText(/Node enrolled\. Close this dialog/i)).toBeDefined();
+      expect(screen.queryByRole("link", { name: /open its page/i })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls back to the generic line when the node list cannot identify the arrival", async () => {
+    // The list answered a shape with no `nodes` (an older server, a failed
+    // read): the count rose, so the enrollment is real — only the identity is
+    // unknown, and a link is not worth guessing at.
+    const { restore } = mockFetch();
+    try {
+      const { arrive } = await renderDialog(1);
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      await screen.findByText("nsk_secret");
+      await arrive(2);
+      expect(await screen.findByText(/Node enrolled\. Close this dialog/i)).toBeDefined();
+      expect(screen.queryByRole("link", { name: /open its page/i })).toBeNull();
     } finally {
       restore();
     }

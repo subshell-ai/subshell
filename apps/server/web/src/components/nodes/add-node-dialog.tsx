@@ -1,4 +1,5 @@
 import { NODE_TARGETS } from "@internal/subshell-protocol";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useCreateSetupKey } from "@/hooks/use-nodes";
+import { useCreateSetupKey, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
 import type { CreatedSetupKey } from "@/types/node";
@@ -69,6 +70,13 @@ export function AddNodeDialog({
   const [created, setCreated] = useState<CreatedSetupKey | null>(null);
   const [copied, setCopied] = useState(false);
   const [baselineCount, setBaselineCount] = useState<number | null>(null);
+  // WHICH machine arrived, not just that one did. The parent's count answers
+  // "something enrolled"; only the ids answer "this is yours", and a
+  // concurrent enrollment (another operator, another key) would otherwise
+  // hand this one a link to a stranger's node page. Read from the SAME query
+  // the parent polls, so the two never disagree and no second request is made.
+  const { data: nodeList } = useNodes();
+  const [baselineIds, setBaselineIds] = useState<string[] | null>(null);
 
   function close() {
     onOpenChange(false);
@@ -77,6 +85,7 @@ export function AddNodeDialog({
     setFormError(null);
     setCopied(false);
     setBaselineCount(null);
+    setBaselineIds(null);
     // Clear the mutation too — a failed create would otherwise flash its error
     // through the fresh form on the next open (before the first submit).
     create.reset();
@@ -88,6 +97,10 @@ export function AddNodeDialog({
     try {
       setCreated(await create.mutateAsync(name.trim()));
       setBaselineCount(nodeCount);
+      // A list that has not loaded yet leaves this null, which is a refusal to
+      // identify the arrival rather than an empty baseline — with `[]` every
+      // node already enrolled would read as "just arrived".
+      setBaselineIds(nodeList?.nodes ? nodeList.nodes.map((n) => n.id) : null);
       setName("");
     } catch (err) {
       setFormError(errMessage(err, "Something went wrong. No key was created."));
@@ -105,6 +118,11 @@ export function AddNodeDialog({
   }
 
   const enrolled = created !== null && baselineCount !== null && nodeCount > baselineCount;
+  // Exactly one new id, or nothing: two machines enrolling while this dialog
+  // waits makes "yours" a guess, and a guess here navigates someone to a node
+  // they do not own. The generic line is still true in that case.
+  const arrived = enrolled && baselineIds ? (nodeList?.nodes ?? []).filter((n) => !baselineIds.includes(n.id)) : [];
+  const arrivedNode = arrived.length === 1 ? arrived[0] : undefined;
   // Bake the SERVER's own address (APP_BASE_URL via /settings/public), not
   // window.location.origin — the browser may reach the instance through a dev
   // proxy port or a name the remote node cannot dial (spec 2026-08-31 §9.3
@@ -172,6 +190,27 @@ export function AddNodeDialog({
                 {copied ? "Copied" : "Copy"}
               </Button>
             </div>
+            {/* What the one-liner will do, said BEFORE it is pasted into a
+                terminal on a machine the operator is standing at. Every
+                clause is a clause of the rendered script (api/install-script
+                .ts): the dest is `$HOME/.local/bin` unless SUBSHELL_DATA_DIR
+                relocates it, the script ends at one `subshell setup`, and
+                that verb's single question is "Run the agent in the
+                background and start it at login?", default yes. */}
+            <p className="text-detail text-muted-foreground">
+              It installs the agent to <code className="font-mono">~/.local/bin</code>, enrolls this machine, and then
+              asks whether to install a background service that starts it at login.
+            </p>
+            {/* tmux is a refusal, not a warning: `subshell setup` preflights
+                it before the single-use key is spent. Saying so here is what
+                keeps an operator from discovering it at the end of a 70 MB
+                download — or, before the script warned, from a launch that
+                failed an hour later. */}
+            <p className="text-detail text-muted-foreground">
+              That machine needs <span className="font-mono">tmux</span> first — setup refuses without it, and a node
+              runs every subshell inside it. Install with <code className="font-mono">brew install tmux</code> on macOS
+              or <code className="font-mono">sudo apt-get install tmux</code> on Linux.
+            </p>
             <CopyCommandRow text={installCommand} />
             {missingNote && (
               <div className="space-y-2">
@@ -191,7 +230,21 @@ export function AddNodeDialog({
               Single-use, expires in 24 h. This is the only time the full key is shown.
             </p>
             {enrolled ? (
-              <p className="text-sm text-success">Node enrolled. Close this dialog to see it in the list.</p>
+              // The guidance used to end here, at the moment the operator most
+              // needs the next step (spec 2026-09-15 §5.4). The node's own page
+              // is where detection has run, so it is the page that says what
+              // this machine can actually launch.
+              arrivedNode ? (
+                <p className="text-sm text-success">
+                  {arrivedNode.name} enrolled.{" "}
+                  <Link to="/nodes/$id" params={{ id: arrivedNode.id }} className="underline" onClick={close}>
+                    Open its page
+                  </Link>{" "}
+                  to see what it can launch.
+                </p>
+              ) : (
+                <p className="text-sm text-success">Node enrolled. Close this dialog to see it in the list.</p>
+              )
             ) : (
               <p className="text-muted-foreground text-sm">Waiting for enrollment. Run the command on that machine.</p>
             )}
