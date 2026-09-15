@@ -189,7 +189,7 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
  * key belongs.
  *
  * The real key is the operator's, generated once with
- * `bunx tauri signer generate -w ~/.tauri/subshell-desktop.key` and shared by
+ * `bunx @tauri-apps/cli signer generate -w ~/.tauri/subshell-desktop.key` and shared by
  * BOTH apps (they are one publisher; a public key is the publisher's identity
  * rather than the app's). It is committed rather than injected because it must
  * be compiled into every build — it is what an installed app checks an update
@@ -214,7 +214,7 @@ export function assertUpdaterPubkey(config: string): void {
   if (config.includes(UPDATER_PUBKEY_PLACEHOLDER)) {
     throw new Error(
       "src-tauri/tauri.conf.json still carries the updater public-key PLACEHOLDER. " +
-        "Generate the keypair once with `bunx tauri signer generate -w ~/.tauri/subshell-desktop.key`, " +
+        "Generate the keypair once with `bunx @tauri-apps/cli signer generate -w ~/.tauri/subshell-desktop.key`, " +
         "commit the .pub contents as plugins.updater.pubkey in BOTH desktop apps, and set the repo secrets " +
         "TAURI_SIGNING_PRIVATE_KEY (the key file's CONTENTS, not a path) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.",
     );

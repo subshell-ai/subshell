@@ -424,26 +424,30 @@ describe("the updater artifacts (spec 2026-09-15 SS 8)", () => {
 describe("the updater public key", () => {
   const CONF_TEXT = readFileSync(join(import.meta.dir, "../../../src-tauri/tauri.conf.json"), "utf8");
 
-  // The committed value is a PLACEHOLDER until the operator generates the
-  // keypair. This test does not demand the real one - that would fail every
-  // checkout - it pins that the guard SEES the placeholder, which is what
-  // stops a cut from shipping a manifest signed by a key nobody holds.
+  // The keypair was generated on 2026-09-15 and the committed value is the
+  // REAL public key. The guard must accept this checkout and still refuse the
+  // placeholder it carried before.
+  test("is the real key, which the release guard accepts", () => {
+    expect(CONF_TEXT).not.toContain(UPDATER_PUBKEY_PLACEHOLDER);
+    expect(() => assertUpdaterPubkey(CONF_TEXT)).not.toThrow();
+  });
+
   test("is refused by the release guard while it is the placeholder", () => {
-    expect(CONF_TEXT).toContain(UPDATER_PUBKEY_PLACEHOLDER);
-    expect(() => assertUpdaterPubkey(CONF_TEXT)).toThrow(/tauri signer generate/);
-    expect(() => assertUpdaterPubkey('{"plugins":{"updater":{"pubkey":"dW50cnVzdGVk"}}}')).not.toThrow();
+    expect(() =>
+      assertUpdaterPubkey(JSON.stringify({ plugins: { updater: { pubkey: UPDATER_PUBKEY_PLACEHOLDER } } })),
+    ).toThrow(/@tauri-apps\/cli signer generate/);
   });
 
   // ONE keypair for BOTH apps - they are one publisher, and a public key is
-  // the publisher's identity rather than the app's. So the placeholder must be
-  // the same string in both, or the operator replaces one and the other cuts
-  // with a key nobody holds.
-  test("is the same placeholder the server app carries", () => {
-    const sibling = readFileSync(
-      join(import.meta.dir, "../../../../../server/desktop/src-tauri/tauri.conf.json"),
-      "utf8",
+  // the publisher's identity rather than the app's. So the two configs must
+  // carry the SAME key, or one app verifies manifests against a key the
+  // pipeline never signs with.
+  test("is the same key the server app carries", () => {
+    const sibling = JSON.parse(
+      readFileSync(join(import.meta.dir, "../../../../../server/desktop/src-tauri/tauri.conf.json"), "utf8"),
     );
-    expect(sibling).toContain(UPDATER_PUBKEY_PLACEHOLDER);
+    const mine = JSON.parse(CONF_TEXT);
+    expect(mine.plugins.updater.pubkey).toBe(sibling.plugins.updater.pubkey);
   });
 
   // `createUpdaterArtifacts` is what makes the bundler emit the tarball and

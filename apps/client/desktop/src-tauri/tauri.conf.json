@@ -19,7 +19,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_ME_WITH_THE_SUBSHELL_DESKTOP_MINISIGN_PUBLIC_KEY"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFBQjhFMDA3N0VEMzZDNTEKUldSUmJOTitCK0M0cWtMa1RLRmpFTlduZklscG1DbnM4anRScDU0citmL2lRZGxyYnNlYlJxN1UK"
     }
   },
   "bundle": {

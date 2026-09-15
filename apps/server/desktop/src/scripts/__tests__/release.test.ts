@@ -436,27 +436,39 @@ describe("the updater artifacts (spec 2026-09-15 § 8)", () => {
 describe("the updater public key", () => {
   const CONF_TEXT = readFileSync(join(import.meta.dir, "../../../src-tauri/tauri.conf.json"), "utf8");
 
-  // The committed value is a PLACEHOLDER until the operator generates the
-  // keypair. This test does not demand the real one — that would fail every
-  // checkout — it pins that the guard SEES the placeholder, which is what
-  // stops a cut from shipping a manifest signed by a key nobody holds.
+  // The keypair was generated on 2026-09-15 and the committed value is the
+  // REAL public key — the one every installed app checks a manifest against.
+  // The guard must therefore accept this checkout, and must still refuse the
+  // placeholder it would have carried before, which is what stops a cut from
+  // shipping a manifest signed by a key nobody holds.
+  test("is the real key, which the release guard accepts", () => {
+    expect(CONF_TEXT).not.toContain(UPDATER_PUBKEY_PLACEHOLDER);
+    expect(() => assertUpdaterPubkey(CONF_TEXT)).not.toThrow();
+    const conf = JSON.parse(CONF_TEXT);
+    // A minisign public-key file, base64: decodes to the "untrusted comment"
+    // line and the key line the updater plugin parses.
+    const decoded = Buffer.from(conf.plugins.updater.pubkey, "base64").toString("utf8");
+    expect(decoded).toMatch(/^untrusted comment: minisign public key: [0-9A-F]{16}\n[A-Za-z0-9+/=]+\n?$/);
+  });
+
   test("is refused by the release guard while it is the placeholder", () => {
-    expect(CONF_TEXT).toContain(UPDATER_PUBKEY_PLACEHOLDER);
-    expect(() => assertUpdaterPubkey(CONF_TEXT)).toThrow(/tauri signer generate/);
-    expect(() => assertUpdaterPubkey('{"plugins":{"updater":{"pubkey":"dW50cnVzdGVk…"}}}')).not.toThrow();
+    expect(() =>
+      assertUpdaterPubkey(JSON.stringify({ plugins: { updater: { pubkey: UPDATER_PUBKEY_PLACEHOLDER } } })),
+    ).toThrow(/signer generate/);
   });
 
   // The message has to name the two SECRETS as well as the command, because
   // the private half is what CI needs and the measured trap is its shape: on
   // tauri 2.11 only TAURI_SIGNING_PRIVATE_KEY (the file's CONTENTS) is read,
-  // and TAURI_SIGNING_PRIVATE_KEY_PATH is ignored.
+  // and TAURI_SIGNING_PRIVATE_KEY_PATH is ignored. The command names the v2
+  // package: bare `tauri` on npm is the retired v1 CLI, which drags in sharp.
   test("says exactly what the operator has to do", () => {
     try {
-      assertUpdaterPubkey(CONF_TEXT);
+      assertUpdaterPubkey(JSON.stringify({ plugins: { updater: { pubkey: UPDATER_PUBKEY_PLACEHOLDER } } }));
       throw new Error("expected a refusal");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      expect(message).toContain("bunx tauri signer generate");
+      expect(message).toContain("bunx @tauri-apps/cli signer generate");
       expect(message).toContain("TAURI_SIGNING_PRIVATE_KEY");
       expect(message).toContain("TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
       expect(message).toContain("CONTENTS");

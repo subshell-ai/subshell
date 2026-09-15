@@ -229,7 +229,7 @@ export function assertUpdaterPubkey(config: string): void {
   if (config.includes(UPDATER_PUBKEY_PLACEHOLDER)) {
     throw new Error(
       "src-tauri/tauri.conf.json still carries the updater public-key PLACEHOLDER. " +
-        "Generate the keypair once with `bunx tauri signer generate -w ~/.tauri/subshell-desktop.key`, " +
+        "Generate the keypair once with `bunx @tauri-apps/cli signer generate -w ~/.tauri/subshell-desktop.key`, " +
         "commit the .pub contents as plugins.updater.pubkey in BOTH desktop apps, and set the repo secrets " +
         "TAURI_SIGNING_PRIVATE_KEY (the key file's CONTENTS, not a path) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.",
     );
