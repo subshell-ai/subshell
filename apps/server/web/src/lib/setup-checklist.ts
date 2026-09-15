@@ -1,5 +1,6 @@
 import { isLoopbackUrl } from "@internal/server/config-values";
 import { type PersistenceFix, type PersistenceInput, persistence } from "@/lib/supervision";
+import { tmuxInstallHint } from "@/lib/tmux-install";
 
 /**
  * Which item this is. Stable strings rather than an index: the card keys its
@@ -86,31 +87,6 @@ export interface ChecklistInputs {
 }
 
 /**
- * The tmux install command for a platform, or null where this build has no
- * table for it.
- *
- * NOT `commands/tmux-install.ts`'s `chooseTmuxInstaller`, and it cannot be:
- * that function picks between `apt-get` and `dnf` by PROBING the host's PATH,
- * which is a question only the server can answer and this list never asks it.
- * So the browser states the common command for the platform and leaves the
- * rest to the person, who is the one standing at that machine.
- *
- * Unknown platforms answer null on the same rule the server-side table
- * follows: an unrecognized package manager is a hint, not a guess.
- *
- * **This is the same table `lib/tmux-install.ts` states for the wizard's tmux
- * row**, down to the command strings, and the two should be ONE — they were
- * written in the same wave and neither could import the other yet. Converging
- * is deleting this function and calling `tmuxInstallHint(platform).command`;
- * it is kept separate only so the two changes could land independently.
- */
-function tmuxCommand(platform: string): string | null {
-  if (platform === "darwin") return "brew install tmux";
-  if (platform === "linux") return "sudo apt-get install -y tmux";
-  return null;
-}
-
-/**
  * Whether a browser on ANOTHER machine has any address this instance would
  * accept — the configuration `applyConfig`'s third warning is about
  * (`apps/server/api/src/commands/configure.ts`).
@@ -158,7 +134,7 @@ export function checklistItems(input: ChecklistInputs): ChecklistItem[] {
   const items: ChecklistItem[] = [];
 
   if (input.tmuxPath === null) {
-    const command = tmuxCommand(input.platform);
+    const command = tmuxInstallHint(input.platform)?.command ?? null;
     items.push({
       id: "tmux",
       title: "Install tmux",
