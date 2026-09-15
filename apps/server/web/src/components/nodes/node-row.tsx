@@ -107,20 +107,29 @@ export function NodeRow({
       )}
       {isOwner ? <Badge variant="muted">yours</Badge> : <Badge variant="secondary">shared · {node.access}</Badge>}
 
-      <ActionsMenu
-        label={node.name}
-        items={[
-          { label: "Open config", icon: Settings, onSelect: onOpenConfig },
-          { label: "Share", icon: Share2, onSelect: onShare, disabled: !node.canManage },
-          {
-            label: "Delete",
-            icon: Trash2,
-            destructive: true,
-            onSelect: onDelete,
-            disabled: !node.canManage || node.kind === "local",
-          },
-        ]}
-      />
+      {/* `ml-auto` rather than nothing, because the menu's old right-hand
+          placement was never positioned — it was a side effect of the name
+          block absorbing every pixel of free space, which only held while the
+          row fitted on ONE line. It always did, since the name had no minimum
+          and simply collapsed instead (the same defect as the crushed name
+          above). Now that the row genuinely wraps, plain flow drops the menu
+          wherever the last badge leaves it, so the edge has to be asked for. */}
+      <div className="ml-auto">
+        <ActionsMenu
+          label={node.name}
+          items={[
+            { label: "Open config", icon: Settings, onSelect: onOpenConfig },
+            { label: "Share", icon: Share2, onSelect: onShare, disabled: !node.canManage },
+            {
+              label: "Delete",
+              icon: Trash2,
+              destructive: true,
+              onSelect: onDelete,
+              disabled: !node.canManage || node.kind === "local",
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }
