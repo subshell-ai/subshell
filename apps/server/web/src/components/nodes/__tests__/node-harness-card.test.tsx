@@ -301,6 +301,41 @@ describe("NodeHarnessCard", () => {
     }
   });
 
+  it("a row nothing has probed says so, rather than claiming the program is missing", async () => {
+    // The defect this closes: rows come from the INSTANCE catalog crossed
+    // with the node's answer, so a plugin the node has never been asked about
+    // arrives with neither `reason` nor `checkedAt` — and the card read that
+    // as "program not found", asserting a negative about a machine that may
+    // well have the CLI. Every real miss carries a reason
+    // (`binary-lookup.ts`), so its absence is exactly "nobody looked".
+    const { restore } = await mount({
+      harnesses: [{ harnessId: "claude", name: "Claude", installed: false }],
+    });
+    try {
+      expect(screen.getByText("not checked")).toBeDefined();
+      expect(screen.queryByText("program not found")).toBeNull();
+      expect(screen.getByText(/No detection has covered this plugin here yet/i)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a probe that ran and did not complete is unknown, not a missing program", async () => {
+    // `scanOne`'s catch records `installed: false` with a stamp and NO reason
+    // on purpose: the probe itself failed, which is not the same as having
+    // looked and not found it. The badge keeps that distinction.
+    const { restore } = await mount({
+      harnesses: [{ harnessId: "claude", name: "Claude", installed: false, checkedAt: new Date().toISOString() }],
+    });
+    try {
+      expect(screen.getByText("check failed")).toBeDefined();
+      expect(screen.queryByText("program not found")).toBeNull();
+      expect(screen.getByText(/did not complete/i)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
   it("surfaces a failed Re-check", async () => {
     const { restore } = await mount({ harnesses: [], recheckStatus: 409 });
     try {

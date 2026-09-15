@@ -9,14 +9,40 @@ import { useRecheckNode } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { checkedAtLabel } from "@/lib/checked-at";
 
-/** The row's one-word detection verdict: the program runs here, or it was not found. */
-function badgeLabel(h: { installed: boolean; reason?: string }): string {
-  return h.installed || h.reason === "no-binary" ? "ready" : "program not found";
+/** What a row of {@link NodeHarnessCard} knows about one program on this machine. */
+interface DetectionRow {
+  /** The node's answer: the program was found here */
+  installed: boolean;
+  /** Why the lookup failed, when it ran and failed. Absent when it never ran. */
+  reason?: string;
+  /** When the probe ran. Absent when no probe has covered this plugin yet. */
+  checkedAt?: string;
 }
 
-/** The tone that verdict carries. */
-function badgeVariant(h: { installed: boolean; reason?: string }): "success" | "muted" {
-  return h.installed || h.reason === "no-binary" ? "success" : "muted";
+/**
+ * The row's one-word detection verdict — and one of the four is "we do not
+ * know", which is NOT the same claim as "not found".
+ *
+ * A row carries no `reason` only when nothing looked: either no detection has
+ * covered this plugin on this node at all (no `checkedAt` either — a node
+ * enrolled but never probed, or one offline since the plugin was installed),
+ * or a probe ran and threw, which `scanOne` records deliberately without a
+ * reason because "the probe failed" is different from "we looked and it was
+ * not there". Every real miss travels with a reason (`binary-lookup.ts` gives
+ * one on every `path: null` path), so reading its absence as a missing program
+ * asserted a negative nothing had established — the card said "program not
+ * found" about a machine that may well have the CLI.
+ */
+function badgeLabel(h: DetectionRow): string {
+  if (h.installed || h.reason === "no-binary") return "ready";
+  if (h.reason) return "program not found";
+  return h.checkedAt ? "check failed" : "not checked";
+}
+
+/** The tone that verdict carries: found, definitely missing, or unknown. */
+function badgeVariant(h: DetectionRow): "success" | "muted" | "outline" {
+  if (h.installed || h.reason === "no-binary") return "success";
+  return h.reason ? "muted" : "outline";
 }
 
 /**
@@ -149,6 +175,19 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
               )}
               {h.reason === "no-binary" && (
                 <p className="col-span-full text-detail text-muted-foreground">No separate program is needed here.</p>
+              )}
+              {/* The unknown states, spelled out: neither says anything about
+                  whether the program is here, because nothing established it. */}
+              {!h.installed && !h.reason && h.checkedAt === undefined && (
+                <p className="col-span-full text-detail text-muted-foreground">
+                  No detection has covered this plugin here yet. Opening this page asks for one; an offline node cannot
+                  answer.
+                </p>
+              )}
+              {!h.installed && !h.reason && h.checkedAt !== undefined && (
+                <p className="col-span-full text-detail text-muted-foreground">
+                  The probe did not complete, so whether this program is here is unknown.
+                </p>
               )}
             </div>
           ))}
