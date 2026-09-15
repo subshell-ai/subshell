@@ -1367,6 +1367,43 @@ script cannot read either off this process. Trusted-network posture,
 unchanged. A hardening pass for a wider deployment would add an operator
 switch to disable the route (§12).
 
+## 11.10b The control plane installs tmux on request
+
+`POST /api/setup/tmux/install` (spec 2026-09-15) spawns this platform's package
+manager to install tmux on the control-plane host. It exists because the browser
+`/setup` wizard had no tmux step at all — that screen is native-only, so a
+headless install discovered the dependency when its first launch failed, or
+never. Without tmux the host can launch nothing.
+
+It is the same class as §11.10 and narrower in every dimension that matters:
+
+- **Admin cookie only**, never public. That is deliberately stricter than its
+  neighbours in `/api/setup`, which are public during the no-users window: this
+  one runs code, so it follows the agent installer's gate rather than its
+  neighbours'. Bearer keys are refused like every other admin surface.
+- **No operator input reaches the command line.** §11.10 at least takes a plugin
+  id; this takes nothing. The argv comes from `chooseTmuxInstaller`, a fixed
+  table compiled into the binary, and the request body has no field.
+- **Anything `sudo`-prefixed is refused with 409**, before the response body
+  opens and before anything runs. The server has no terminal to answer a
+  password prompt, so a privileged installer would sit on it until the deadline;
+  more importantly, this is what keeps "the server installs tmux" from meaning
+  "the server escalates". In practice it means the route only ever runs on macOS
+  with Homebrew — every Linux entry in the table is `sudo`-prefixed, and a test
+  walks the real table to pin that, so the browser never offers the button
+  there and the route would refuse it if it did.
+- It reuses §11.10's spawn core, so the environment allowlist, the output cap
+  and the bounded deadline are the same ones, not second copies. Audited as
+  `tmux.install`.
+
+Everything else in that spec is sentences, sequencing, and one client-side
+composition of facts already on screen. Two smaller notes from it:
+`subshell-server status` gained a line saying whether the first admin account
+exists — it reads the local database as the local user, who can already read the
+file — and `install-server.sh` is fetched over the public internet and piped to
+a shell exactly as the node one-liner already is, bounded the same way, by
+verifying the published digest before the first `chmod +x`.
+
 ## 11.11 An admin can reconfigure and restart the server from a browser
 
 `PATCH /api/admin/server/config` rewrites config.env and `POST

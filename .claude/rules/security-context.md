@@ -478,6 +478,16 @@ shares and subshell shares are two independent axes:
   2026-09-11 §7): `POST /api/setup/agents/:id/install` runs a BUILT-IN
   manifest's install command as the server's user; admin cookie only, never
   public, audited. Accounting in `docs/security.md` §11.10.
+- **So is installing tmux** (spec 2026-09-15): `POST /api/setup/tmux/install`
+  runs this platform's package manager as the server's user, so the browser
+  wizard can offer what the native assistant always could. Same gate (admin
+  cookie only, never public in the no-users window, audited `tmux.install`) and
+  narrower: the argv comes from a compiled-in table with NO operator input, and
+  anything `sudo`-prefixed is refused 409 before anything runs — the server has
+  no terminal to answer a password prompt, and that refusal is what keeps this
+  from being an escalation. Every Linux entry in the table is `sudo`-prefixed,
+  pinned by a test, so in practice it runs only under Homebrew on macOS.
+  Accounting in `docs/security.md` §11.10b.
 - Trusted-network posture is **unchanged**: node→control traffic is expected to
   ride the same VPN/Tailscale; `wss://` termination is the operator's
   deployment. **Enroll-time loopback trap:** if the server URL is `localhost`-
