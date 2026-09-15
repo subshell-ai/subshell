@@ -139,10 +139,20 @@ function NodeDetailPage() {
                     )}
                 </dd>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Last seen</dt>
-                <dd>{n.lastSeenAt ? relativeElapsed(n.lastSeenAt) : "never"}</dd>
-              </div>
+              {/* Agent facts, and `local` runs no agent — it is a launch
+                  target the server drives in-process through `LocalLauncher`,
+                  with no daemon, no socket and no enrollment. So `lastSeenAt`
+                  is stamped by a connection that never happens and
+                  `agentVersion` by a `ready` frame nobody sends: the two
+                  rendered a permanent "never" and "—" that read as a broken
+                  node rather than as questions this row cannot be asked. Same
+                  reason `local` is excluded from the version-floor list. */}
+              {n.kind !== "local" && (
+                <div>
+                  <dt className="text-muted-foreground">Last seen</dt>
+                  <dd>{n.lastSeenAt ? relativeElapsed(n.lastSeenAt) : "never"}</dd>
+                </div>
+              )}
               <div>
                 <dt className="text-muted-foreground">OS / arch</dt>
                 <dd>
@@ -154,25 +164,27 @@ function NodeDetailPage() {
                 <dt className="text-muted-foreground">Hostname</dt>
                 <dd className="truncate">{n.hostname ?? "—"}</dd>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Node version</dt>
-                <dd className="mt-1 flex flex-wrap items-center gap-2">
-                  {n.agentVersion ?? "—"}
-                  {/* The OTHER refusal gate, and an independent one: the floor
+              {n.kind !== "local" && (
+                <div>
+                  <dt className="text-muted-foreground">Node version</dt>
+                  <dd className="mt-1 flex flex-wrap items-center gap-2">
+                    {n.agentVersion ?? "—"}
+                    {/* The OTHER refusal gate, and an independent one: the floor
                       is raised whenever the server needs newer node behaviour,
                       with or without a protocol bump. Not gated on `offline`,
                       because the floor is checked at connect and such a node
                       never gets online. */}
-                  {n.agentVersion != null && !agentVersionSupported(n.agentVersion) && (
-                    <Badge
-                      variant="warning"
-                      title={`This control plane requires subshell ${MIN_AGENT_VERSION} or newer; this node reports ${n.agentVersion}. Update the node on that host.`}
-                    >
-                      below minimum ({MIN_AGENT_VERSION})
-                    </Badge>
-                  )}
-                </dd>
-              </div>
+                    {n.agentVersion != null && !agentVersionSupported(n.agentVersion) && (
+                      <Badge
+                        variant="warning"
+                        title={`This control plane requires subshell ${MIN_AGENT_VERSION} or newer; this node reports ${n.agentVersion}. Update the node on that host.`}
+                      >
+                        below minimum ({MIN_AGENT_VERSION})
+                      </Badge>
+                    )}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt className="text-muted-foreground">Your access</dt>
                 <dd>{n.access}</dd>

@@ -154,6 +154,40 @@ describe("NodeDetailPage re-check gating", () => {
       restore();
     }
   });
+
+  /**
+   * `local` runs no agent — the server drives it in-process, with no daemon,
+   * no socket and no enrollment — so the two facts an agent REPORTS are
+   * questions this row cannot be asked. They rendered a permanent "never" and
+   * "—", which reads as a node in trouble rather than as a node that was never
+   * going to answer.
+   */
+  it("omits the agent-only facts on the local node, and keeps them on an agent", async () => {
+    const local = mockFetch(agentNode({ id: "local", kind: "local", access: "owner", canManage: true }));
+    try {
+      renderDetail("local");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("Last seen")).toBeNull();
+      expect(screen.queryByText("Node version")).toBeNull();
+      // The facts that ARE true of this machine stay.
+      expect(screen.getByText("Hostname")).toBeDefined();
+      expect(screen.getByText("OS / arch")).toBeDefined();
+    } finally {
+      local.restore();
+    }
+
+    cleanup();
+
+    const agent = mockFetch(agentNode());
+    try {
+      renderDetail("agent1");
+      await screen.findByText("Your access");
+      expect(screen.getByText("Last seen")).toBeDefined();
+      expect(screen.getByText("Node version")).toBeDefined();
+    } finally {
+      agent.restore();
+    }
+  });
 });
 
 describe("NodeDetailPage rename (owner-only PATCH)", () => {
