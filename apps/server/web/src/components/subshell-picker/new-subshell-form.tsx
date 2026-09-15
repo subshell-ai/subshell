@@ -59,7 +59,7 @@ export function isSelectable(n: Node): boolean {
   // into `canLaunch` (spec 2026-09-14): this row is the one unlaunchable node
   // the list keeps, so a payload cached before the flip would otherwise offer
   // a launch the node itself refuses at the pane.
-  return !isOfflineAgent(n) && n.canLaunch !== false && !n.maintenance;
+  return !isOfflineAgent(n) && n.canLaunch && !n.maintenance;
 }
 
 /**
@@ -76,7 +76,7 @@ export function isSelectable(n: Node): boolean {
  * a person hunting for a node that had simply vanished.
  */
 export function launchableNodes(nodes: Node[]): Node[] {
-  return nodes.filter((n) => n.canLaunch !== false || n.maintenance);
+  return nodes.filter((n) => n.canLaunch || n.maintenance);
 }
 
 /**

@@ -69,7 +69,7 @@ export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNaviga
   // 403 use, and lands on the node page whose header opens the dialog. Calling
   // it "Enable on {name}" pointed at a control that page no longer carries,
   // which is the dead end this component exists to not offer.
-  const shareable = nodes.filter((n) => !n.maintenance && n.canLaunch === false && n.canManage);
+  const shareable = nodes.filter((n) => !n.maintenance && !n.canLaunch && n.canManage);
 
   return (
     <div className="space-y-4 rounded-lg border border-dashed p-6 text-center">
@@ -140,7 +140,7 @@ function blockedSentence(node: Node): string {
     return `${node.name} is in maintenance; ${node.kind === "local" ? "an admin" : "its owner"} can end it.`;
   }
   if (isOfflineAgent(node)) return `${node.name} is offline.`;
-  if (node.canLaunch === false) {
+  if (!node.canLaunch) {
     // Reworded per spec 2026-09-14 §2: the host's launch switch is no longer
     // a switch at all. What is left on that row is its share set, so the
     // sentence names grants rather than an on/off nobody can find, and says

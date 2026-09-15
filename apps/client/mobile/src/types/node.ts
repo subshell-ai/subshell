@@ -37,11 +37,15 @@ export interface Node {
    *
    * Any share grants it on an agent node. On the control-plane host it is the
    * granted access alone, so switching launching off there applies to admins
-   * too and that one node can be visible and unlaunchable at once (spec
-   * 2026-09-12). Optional, and read as `!== false`, so an older server that
-   * omits it reads as launchable exactly as before.
+   * too and that a node can be visible and unlaunchable at once (spec
+   * 2026-09-12) — ordinary since maintenance, which takes any node out of
+   * service without unenrolling it (spec 2026-09-14).
+   *
+   * Required, because the server's `NodeViewSchema` requires it: there is no
+   * payload that omits it, so the type states the wire rather than hedging
+   * against one that cannot arrive.
    */
-  canLaunch?: boolean;
+  canLaunch: boolean;
   /** subshell version from `ready`, null until first ready */
   agentVersion: string | null;
   /** Node protocol version from `ready`, null until first ready */

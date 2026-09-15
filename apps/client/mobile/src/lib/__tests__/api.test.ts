@@ -348,6 +348,7 @@ describe("SubshellClient.nodes", () => {
       kind: "agent",
       status: "online",
       access: "owner",
+      canLaunch: true,
       agentVersion: "0.2.1",
       protocolVersion: 1,
     };

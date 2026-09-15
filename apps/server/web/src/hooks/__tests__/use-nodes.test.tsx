@@ -30,6 +30,8 @@ const NODE: Node = {
   protocolVersion: 1,
   access: "owner",
   canManage: true,
+  canLaunch: true,
+  allowedDirs: [],
   capabilities: ["launch"],
   harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "1.2.3" }],
   inventoryStale: false,

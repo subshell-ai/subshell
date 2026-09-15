@@ -32,6 +32,7 @@ const base: NodeDetail = {
   protocolVersion: 5,
   access: "owner",
   canManage: true,
+  canLaunch: true,
   allowedDirs: [],
   capabilities: [],
   harnesses: [],

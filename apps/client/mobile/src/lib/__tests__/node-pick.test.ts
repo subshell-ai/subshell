@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { isSelectable, nodePickSettled, nodeRunsHarness, pickNodeDefault } from "@/lib/node-pick";
 import type { Node } from "@/types/node";
 
-/** Minimal Node factory — the decision only reads id/name/status. */
+/** Minimal Node factory — the decision reads id/name/status and `canLaunch`. */
 function make(over: Partial<Node> = {}): Node {
   return {
     id: "n",
@@ -10,6 +10,10 @@ function make(over: Partial<Node> = {}): Node {
     kind: "agent",
     status: "online",
     access: "owner",
+    // The launchable default: cases about a node that cannot be picked pass
+    // `canLaunch: false` explicitly, which is what makes them read as the
+    // exception they are.
+    canLaunch: true,
     agentVersion: null,
     protocolVersion: null,
     ...over,

@@ -58,6 +58,7 @@ function view(over: Partial<NodeDetail>): NodeDetail {
     protocolVersion: 2,
     access: "owner",
     canManage: true,
+    canLaunch: true,
     capabilities: [],
     allowedDirs: [],
     harnesses: [],

@@ -20,7 +20,7 @@ import type { Node } from "@/types/node";
  * and restarts, not the panes already running.
  */
 export function NodeAllowedDirs({ node }: { node: Node }) {
-  const dirs = node.allowedDirs ?? [];
+  const dirs = node.allowedDirs;
   const setDirs = useSetNodeAllowedDirs(node.id);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");

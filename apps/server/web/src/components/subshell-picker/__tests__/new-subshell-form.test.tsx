@@ -53,6 +53,7 @@ function mockEndpoints(paths: { path: string; label: string | null }[]) {
         protocolVersion: null,
         access: "owner",
         canManage: true,
+        canLaunch: true,
         capabilities: [],
         harnesses: [],
         inventoryStale: false,

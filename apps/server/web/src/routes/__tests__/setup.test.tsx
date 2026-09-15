@@ -158,6 +158,7 @@ const LAUNCH_NODE = {
   protocolVersion: null,
   access: "owner",
   canManage: true,
+  canLaunch: true,
   capabilities: [],
   harnesses: [{ harnessId: "terminal", name: "Terminal", enabled: true, installed: true }],
   inventoryStale: false,

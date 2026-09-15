@@ -16,6 +16,8 @@ const BASE: Node = {
   protocolVersion: null,
   access: "owner",
   canManage: true,
+  canLaunch: true,
+  allowedDirs: [],
   capabilities: [],
   harnesses: [
     { harnessId: "claude", name: "Claude", installed: true },

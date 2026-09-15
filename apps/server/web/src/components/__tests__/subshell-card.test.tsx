@@ -34,6 +34,8 @@ function agent(overrides: Partial<Node> = {}): Node {
     protocolVersion: 1,
     access: "owner",
     canManage: true,
+    canLaunch: true,
+    allowedDirs: [],
     capabilities: [],
     harnesses: [],
     inventoryStale: false,

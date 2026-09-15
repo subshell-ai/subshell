@@ -24,9 +24,16 @@ function node(over: Partial<Node> = {}): Node {
     protocolVersion: 1,
     access: "owner",
     canManage: true,
+    canLaunch: true,
     allowedDirs: [],
+    capabilities: [],
+    harnesses: [],
+    inventoryStale: false,
+    maintenance: false,
+    maintenanceAt: null,
+    maintenanceSource: null,
     ...over,
-  } as Node;
+  };
 }
 
 function renderCard(over: Partial<Node> = {}) {
@@ -76,12 +83,5 @@ describe("NodeAllowedDirs", () => {
     expect(screen.getByText("/srv/work")).toBeDefined();
     expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
-  });
-
-  it("renders for a node whose payload predates the field", () => {
-    // `allowedDirs` is optional on the wire for cached older payloads; absent
-    // must read as unrestricted, never crash or imply a restriction.
-    renderCard({ allowedDirs: undefined });
-    expect(document.body.textContent).toContain("Any directory");
   });
 });

@@ -7,8 +7,11 @@ import type { Node } from "@/types/node";
  * (`nodeCanLaunch` — deliberately not the subshell rule,
  * spec §2), EXCEPT where the server says otherwise: `canLaunch` is false on
  * the control-plane host once an admin switches launching off there, which
- * applies to admins too and is the one visible-but-unlaunchable row in the
- * product (2026-09-12). Without reading it, an admin who threw that switch
+ * applies to admins too. That row used to be the only visible-but-unlaunchable
+ * one; maintenance makes it ordinary, since any node in a window is listed and
+ * unpickable (spec 2026-09-14). Mobile needs no maintenance field of its own
+ * to honour that — the server folds it into `canLaunch`, and the reason text
+ * the web picker shows is the part this screen goes without. Without reading it, an admin who threw that switch
  * would still see the Server chip here and collect a 403 on Start. An
  * OFFLINE agent is shown disabled for its own reason: launching there 409s
  * `NODE_OFFLINE`, and offering a target we know is down would only invite a
@@ -17,7 +20,7 @@ import type { Node } from "@/types/node";
  * defined exactly once.
  */
 export function isSelectable(n: Node): boolean {
-  return (n.kind === "local" || n.status === "online") && n.canLaunch !== false;
+  return (n.kind === "local" || n.status === "online") && n.canLaunch;
 }
 
 /**

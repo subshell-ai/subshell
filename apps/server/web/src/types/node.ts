@@ -96,22 +96,24 @@ export interface Node {
    * Any share grants it on an agent node. On the control-plane host it is the
    * granted access alone, so switching launching off there applies to admins
    * too — which is why that one node can be visible and unlaunchable at once
-   * (spec 2026-09-12). Optional so a build talking to an older server, which
-   * omits it, reads as launchable exactly as it did before.
+   * (spec 2026-09-12). The server's own `NodeViewSchema` requires it, so it
+   * rides every node view there is — this type states the wire rather than
+   * hedging against a payload that cannot arrive.
    */
-  canLaunch?: boolean;
+  canLaunch: boolean;
   /**
    * Directories subshells may be created under on this node.
    *
-   * **EMPTY MEANS UNRESTRICTED**, never "nothing permitted" — the
-   * backwards-compatible default every node starts with. Readable by anyone
-   * who can see the node (a refused directory is unexplainable without it);
-   * only the owner may change it, which `canManage` gates.
+   * **EMPTY MEANS UNRESTRICTED**, never "nothing permitted" — the state every
+   * node starts in. Readable by anyone who can see the node (a refused
+   * directory is unexplainable without it); only the owner may change it,
+   * which `canManage` gates.
    *
-   * Optional for the same reason `nodeId` is on SubshellView: a payload cached
-   * by a client older than the field must keep typechecking.
+   * The server's schema requires the array, so absence is not a state that can
+   * arrive: an empty list is the whole of the unrestricted case, and reading
+   * one is never a question of whether the field came.
    */
-  allowedDirs?: string[];
+  allowedDirs: string[];
   /** Capability strings from `ready` (empty when none reported) */
   capabilities: string[];
   /** One row per plugin the INSTANCE has installed and enabled, crossed with this node's binary detection */

@@ -26,6 +26,8 @@ const NODE: NodeDetail = {
   protocolVersion: null,
   access: "owner",
   canManage: true,
+  canLaunch: true,
+  allowedDirs: [],
   capabilities: [],
   harnesses: [
     { harnessId: "claude", name: "Claude", installed: true, version: "1.2.3" },
