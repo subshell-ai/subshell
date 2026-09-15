@@ -431,7 +431,7 @@ consequences are:
   UI says. It also does not rename: `config.json`'s name never reaches the
   plane outside the enroll body, so the plane owns a node's name.
 
-### What the node discloses to the plane (protocol 7)
+### What the node discloses to the plane (protocol 10)
 
 Connecting a node is itself a disclosure, and the frames it rides on are
 bounded on purpose:
@@ -465,6 +465,15 @@ bounded on purpose:
   account alongside §11.9 — a plugin's declaration cannot read an
   arbitrary variable (the node answers only declared names, and only
   harness plugins declare), but it does name what may be asked.
+- **Being HELD is disclosed to everyone who can see the row** (spec
+  2026-09-15). When the plane refuses an agent for its version or its
+  protocol it now holds the socket instead of closing it (§11.12), and
+  `held: { reason, agentVersion }` rides on the node view for every viewer,
+  not only for a manager. That is deliberate and it is the same disclosure as
+  the `agentVersion` already sitting beside it: "the agent on this machine
+  needs updating" is what anyone looking at the row needs told, and it is not
+  in the class of `runtime`, which names a machine's paths and pids and stays
+  owner-or-`edit`.
 
 ### Directory allowlist (spec 2026-09-05)
 
@@ -571,12 +580,26 @@ posture:
   over the default GitHub HTTPS endpoint that is GitHub's assurance, and over
   an operator-set `SUBSHELL_RELEASE_URL` it is their own network. The
   same sentence the plugin registry carries, for the same reason.
+- **`SUBSHELL_RELEASE_URL` was `SUBSHELL_NODE_RELEASE_URL` until 2026-09-15**,
+  and the rename is not cosmetic: the same list now answers for the server's
+  own `update` and both desktop apps' too (§11.12), so the setting stopped
+  being the node agent's. There is no alias — this project has no installed
+  base to keep compatible, and an alias is a second thing to read that can
+  disagree with the first.
 - **Empty disables it**, and that is the supported air-gapped configuration:
-  the routes then serve only what is on disk, exactly as before. The Nodes
-  dialog's "no agent binary" warning is kept for precisely that case, where it
-  is still exactly true.
-- **A release below `MIN_AGENT_VERSION` is refused**, because the plane would
-  turn away the agent it just handed out, and drafts are skipped — the release
+  the routes then serve only what is on disk, exactly as before. Since
+  2026-09-15 it disables strictly more — `subshell-server update` and
+  `POST /api/nodes/:id/update` refuse with the reason and name `--from` or a
+  hand install. The Nodes dialog's "no agent binary" warning is kept for
+  precisely that case, where it is still exactly true.
+- **Only a release this plane can TALK TO is offered** (tightened 2026-09-15).
+  The old rule was "newest above `MIN_AGENT_VERSION`", which could hand a
+  machine an agent speaking a protocol this server does not — it would enrol,
+  reconnect, and be refused forever. `compatibleNodeRelease()` now requires the
+  release's own `release-manifest.json` to declare THIS server's
+  `NODE_PROTOCOL_VERSION`, and a release carrying no manifest — every cut
+  before 2026-09-15 — is refused BY NAME rather than guessed at, with the
+  reason rendered on the Updates page. Drafts are still skipped: the release
   pipeline publishes draft-then-live.
 - **Only what this instance fetched is ever deleted.** Cached artifacts are
   recorded in `<node-artifacts>/.fetched.json` with the release tag they came
@@ -1601,6 +1624,126 @@ The app earns the `paneSafety: "keeps"` it reports: its supervisor signals the
 main pid and never the process group, which is what `KillMode=process` and
 `AbandonProcessGroup=true` buy under the two managers. A person quitting the
 app stops the server and keeps every live pane.
+
+## 11.12 Updates
+
+Spec 2026-09-15. Before it there was no update path at all except one: Subshell
+Server installed the server binary it bundled over the one in `~/.local/bin`.
+A headless install was never told a newer server existed, a node was never told
+anything but "die", and nothing ever backed up the database before a migration
+ran over it. What follows is what closing that costs.
+
+**The plane downloads and executes code from the release source.** Both halves
+of that sentence are new. The digest it verifies is the one the SAME source
+publishes beside the binary, so integrity proves "these are the bytes the
+release served", never authorship; authenticity rests on the release host's TLS
+and the repository's access controls. That is exactly the trust
+`install-server.sh` and the node enroll one-liner already place, and it is the
+same sentence the lazy agent-binary fetch and the plugin registry carry. A
+compromised release source — or a `SUBSHELL_RELEASE_URL` pointed somewhere
+else — is code execution on every plane that updates, and through them on every
+node that accepts an update from one. **Empty disables all of it**: no server
+update, no node update, no lazy artifact fetch, and each refusal names `--from`
+or a hand install instead of failing quietly.
+
+**The desktop apps are STRONGER here, and they are the only thing that is.**
+`tauri-plugin-updater` verifies a minisign signature over the bundle against a
+public key compiled into the app (`plugins.updater.pubkey`), so a malicious
+release host cannot hand an installed app a binary of its own — it can only
+withhold updates or serve an old one. The private key lives in two repo secrets
+and a password manager, never in the tree; a release cut is REFUSED while the
+placeholder pubkey is still committed, and a desktop shard fails loudly when
+`TAURI_SIGNING_PRIVATE_KEY` is unset, because an unsigned updater artifact is
+one every installed app refuses and publishing it is publishing a lie.
+
+**An admin can now install code on the control-plane host from a browser**,
+where before they could only restart it. `POST /api/admin/server/update` is
+cookie-admin only (bearer keys refused, like every route in that group), and it
+is audited twice: once at the start with the admin as actor, and once at the
+next boot by `completeUpdate` with actor `null` — the pair reads as "who asked"
+and "what happened", and a job that dies mid-download still leaves the first
+half. The same accounting as §11.10 and §11.10b (agent CLI and tmux installs)
+applies, with a narrower argv than either: **the URL comes from the release
+index, never from the request body**, and `version` only SELECTS among
+published tags — naming anything but the newest published release is answered
+with what is available rather than fetched. The downloaded file is made
+executable and then made to say what it is (`<temp> version` must equal the
+version being installed) before it replaces anything; a binary that cannot
+answer does not get installed. Seven refusals precede all of it, and the one
+that matters structurally is `RESTART_UNAVAILABLE`: a swap with no manager to
+respawn the process would leave an old server running beside a new file, so
+there is no way to update a server into nothing.
+
+**An `edit` grantee can now replace a node's binary.** `POST /api/nodes/:id/update`
+carries the gate `service restart` carries (`nodeCanConfigure`, cookie only,
+`local` refused, audited `node.update`), because that is what it is: a restart
+with a file swap in front of it. No new trust — the plane already runs
+arbitrary commands on that machine under that OS user — and the honest note is
+the restart note verbatim: an `edit` grantee may briefly take every subshell on
+a machine they do not own offline, the owner's and other grantees' included.
+The URL and the digest travel INSIDE the signed command, so a node installs
+only what the plane named.
+
+**The download token is not a credential in any general sense.** A node key can
+do nothing on REST (§5.5) and that stays true: the agent presents a `nut_…`
+token, never its key. The token is minted per `update` command, held **in
+memory only** (hashed, never in the database), lives ten minutes, works
+**once**, and is bound to one node and one platform triple — a token minted for
+`linux-x64` cannot fetch the darwin binary. It buys exactly one download of one
+file the release source publishes publicly anyway, and it is refused on the
+`.sha256` routes outright: the agent already holds the digest from the command,
+so spending a single-use token on 65 bytes would leave nothing for the binary.
+A server restart forgets every outstanding token, which is the correct
+behaviour rather than a gap — the agent's download then 401s, it answers
+`download failed`, and the route says so.
+
+**Held sockets are a resource, and a narrow one.** An agent the plane refuses
+for its version or its protocol is no longer closed; its socket is HELD. What
+that means precisely: it is moved out of the live registry, so `isNodeOffline`
+and `listOnline` answer exactly as they did when it closed and no launch, tail
+or probe reaches it; its row is explicitly re-projected `offline`; every frame
+it sends except the `result` of an `update` is DROPPED rather than acted on —
+after the envelope parse and before the dispatch, so nothing it says reaches a
+handler (it speaks a protocol this server does not, so applying its `ready`,
+`inventory` or `maintenance` would write a machine's facts from a build that
+cannot be asked to confirm them); a newer socket for the same
+node supersedes it; it is closed after ten minutes unused with the message it
+would have got at once; and `disconnectNode` closes it too, so rotating or
+deleting a node key takes away the one command a held socket could still carry.
+The `update` command's wire shape is FROZEN across protocol bumps for this
+reason alone — it is the one command sent to an agent whose protocol the plane
+does not share.
+
+**The backup is the whole database** — credential hashes, API-key hashes, audit
+rows, channel ciphertext. It is the most sensitive single file this app writes
+and it is now written repeatedly: 0600 in a 0700 directory at
+`<SUBSHELL_SERVER_DATA_DIR>/backups/`, so it is inside the data dir the desktop
+reset deletes recursively and the disk posture is unchanged. SQLite creates the
+file with the umask (0644 measured), so the `chmod` after the `VACUUM INTO` is
+what makes 0600 true rather than a hope. Five are kept by default; an operator
+who wants fewer bytes on disk sets `SUBSHELL_DB_BACKUPS_KEEP`, and `0` keeps
+them forever. `subshell-server backup` takes one by hand.
+
+**Rollback restores a database from before the update.** Anything written
+between the snapshot and the failed boot is lost — in practice nothing, since
+the backup is taken with the old server still serving and the swap follows
+within seconds, and a slow download happens BEFORE the backup by design. The
+revert order is the reverse of the swap: the database first (an old binary
+cannot boot on a newer database at all — Kysely refuses migration names it does
+not know, measured), the binary second, the marker last, so a crash anywhere in
+there leaves a marker the next boot still acts on. A `pending.json` naming a
+version that is not the one booting is RECORDED as a failure rather than
+ignored, which is also what stops a stuck marker refusing every later update
+forever.
+
+**The deep-link surface is unchanged.** `app-update` is one more name on the
+existing closed screen enum in Subshell Server's assistant, and `main` gains no
+command in either app: the four new updater commands
+(`desktop_check_app_update` / `desktop_install_app_update`,
+`node_check_app_update` / `node_install_app_update`) are granted to the BUNDLED
+window only, in `wizard.json` and `node.json`, and each app's `ipc-acl.test.ts`
+pins that. The server app's remote window still holds its six commands and the
+client app's still holds its one.
 
 ## 12. Hardening checklist for a wider deployment
 
