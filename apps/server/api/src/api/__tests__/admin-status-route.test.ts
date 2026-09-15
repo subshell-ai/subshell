@@ -6,6 +6,7 @@ import { adminStatusRoutes } from "@/api/admin-status.route.js";
 import { AUTH_SECRET, PLACEHOLDER_AUTH_SECRET } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -196,6 +197,57 @@ describe("GET /api/admin/status", () => {
     // The posture is reported as a boolean instead.
     const body = JSON.parse(raw) as { security: { usingPlaceholderSecret: boolean } };
     expect(typeof body.security.usingPlaceholderSecret).toBe("boolean");
+  });
+
+  /**
+   * The posture must be the EFFECTIVE gate, not the stored row.
+   *
+   * This route used to answer with `settings.get("allow_registrations", true)`
+   * — the raw row under an open-by-default fallback. That agreed with
+   * everything else until registration became closed-by-default (an absent
+   * row now means closed unless the instance has no users at all), and then
+   * it did not: a plain instance that has never touched the setting refuses
+   * every sign-up while this card rendered an amber "open".
+   *
+   * The direction was the mild one — it cried wolf rather than reassuring —
+   * but this is the one card whose whole design is that the alarming state is
+   * the loud one, and a card that cries wolf gets skimmed past.
+   *
+   * The row is saved and restored because the settings table is shared by
+   * every suite in this `bun test` process, exactly like the app rows above.
+   */
+  it("reports the EFFECTIVE registration gate, not the raw setting row", async () => {
+    const settings = new SettingsRepository(db);
+    const before = await db
+      .selectFrom("settings")
+      .select("value")
+      .where("key", "=", "allow_registrations")
+      .executeTakeFirst();
+    try {
+      // Absent row, and this suite has registered users — so the gate is
+      // CLOSED, and the old fallback would have said open.
+      await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
+      const closed = await app.fetch(authedRequest("/api/admin/status", adminCookie));
+      const closedBody = (await closed.json()) as { security: { registrationsOpen: boolean } };
+      expect(closedBody.security.registrationsOpen).toBe(false);
+
+      // And it still reports an instance that really is open, so the fix is
+      // not "always false".
+      await settings.set("allow_registrations", true);
+      const open = await app.fetch(authedRequest("/api/admin/status", adminCookie));
+      const openBody = (await open.json()) as { security: { registrationsOpen: boolean } };
+      expect(openBody.security.registrationsOpen).toBe(true);
+
+      // A corrupt value fails CLOSED here as it does at the gate, rather than
+      // falling back to the permissive default.
+      await db.updateTable("settings").set({ value: "not json" }).where("key", "=", "allow_registrations").execute();
+      const corrupt = await app.fetch(authedRequest("/api/admin/status", adminCookie));
+      const corruptBody = (await corrupt.json()) as { security: { registrationsOpen: boolean } };
+      expect(corruptBody.security.registrationsOpen).toBe(false);
+    } finally {
+      await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
+      if (before) await settings.set("allow_registrations", JSON.parse(before.value) as unknown);
+    }
   });
 
   it("refuses a non-admin cookie with 403", async () => {

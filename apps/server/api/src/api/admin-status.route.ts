@@ -17,11 +17,11 @@ import {
 } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { InstanceStatsRepository } from "@/db/repositories/instance-stats.repository.js";
-import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { staticSource } from "@/plugins/static.plugin.js";
 import { probeMcpLaunch } from "@/services/mcp-resolve.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { localPlatform } from "@/services/nodes/seed-local.js";
+import { registrationOpen } from "@/services/registration-gate.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -123,7 +123,10 @@ const InventorySchema = t.Object({
 });
 
 const SecuritySchema = t.Object({
-  registrationsOpen: t.Boolean({ description: "Whether new users can register (the allow_registrations setting)" }),
+  registrationsOpen: t.Boolean({
+    description:
+      "Whether new users can register: the effective gate, which reads closed on an absent or corrupt setting unless the instance has no users yet",
+  }),
   emergencyLoginActive: t.Boolean({
     description: "True while SUBSHELL_EMERGENCY_PASSWORD is set; break-glass admin login is armed and destructive",
   }),
@@ -182,7 +185,6 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
   "/status",
   async () => {
     const stats = new InstanceStatsRepository(db);
-    const settings = new SettingsRepository(db);
     const deploy = resolveDeployFacts();
     const platform = localPlatform();
     const memory = process.memoryUsage();
@@ -190,7 +192,11 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
     const [inventory, agents, registrationsOpen] = await Promise.all([
       stats.snapshot(),
       stats.agentVersions(),
-      settings.get("allow_registrations", true),
+      // The EFFECTIVE gate, never the raw row. `settings.get(key, true)`
+      // agreed with it until registration became closed-by-default, and then
+      // reported "open" on every untouched instance — the drift the gate
+      // function exists to prevent.
+      registrationOpen(db),
     ]);
     // The NON-creating lookup: `ensureSystemUser` INSERTs and logs a creation
     // line, and a GET that advertises itself as read-only must not do that.
