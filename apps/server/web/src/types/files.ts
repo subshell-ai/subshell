@@ -8,8 +8,11 @@ export interface SavedPath {
 
 /** One entry in a directory listing. */
 export interface DirEntry {
+  /** Base name, as it appears in the listing. */
   name: string;
+  /** Absolute path — what a click selects and browses into. */
   path: string;
+  /** Directories are the only rows the picker renders; files are listed but filtered out there. */
   kind: "dir" | "file";
 }
 

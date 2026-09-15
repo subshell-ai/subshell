@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { SubshellPane } from "@/components/subshell-pane";
 import { SubshellPicker } from "@/components/subshell-picker";
@@ -76,6 +76,13 @@ export interface WorkspaceTabsProps {
    */
   intent: SplitIntent | null;
   /**
+   * Claims {@link intent} for this presentation, answering true exactly once
+   * per intent. Owned by the ROUTE, not by this component: the viewport
+   * decides which presentation is mounted, and a per-component flag was spent
+   * again by whichever one the breakpoint swapped in (`lib/intent-claim.ts`).
+   */
+  claimIntent: () => boolean;
+  /**
    * Re-fetches the workspace detail after a pane or subshell mutation, and
    * RESOLVES when the new detail is in hand — the intent effect below waits
    * on it before stripping the URL params.
@@ -102,14 +109,11 @@ export interface WorkspaceTabsProps {
  * touch-drag for text selection inside the terminal, so no swipe gesture is
  * wired up here to compete with it.
  */
-export function WorkspaceTabs({ detail, intent, onRefetch }: WorkspaceTabsProps): JSX.Element {
+export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: WorkspaceTabsProps): JSX.Element {
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
-  // The intent is spent the moment the add starts, not when it finishes: the
-  // effect below awaits a refetch, which re-renders this component.
-  const consumedIntentRef = useRef(false);
 
   // Falls back to the first pane whenever `selectedId` doesn't name a pane
   // that still exists — including the moment the poll removes whichever pane
@@ -180,10 +184,11 @@ export function WorkspaceTabs({ detail, intent, onRefetch }: WorkspaceTabsProps)
   // The split that created this workspace: the second subshell was chosen
   // before the workspace existed, so attaching it is this page's job. Same
   // `handleAdd` as the picker's, so the tab is selected the same way.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `handleAdd` is a plain function declaration and so differs every render — which costs nothing here, because `consumedIntentRef` makes this effect's body run at most once per mount whatever its dependencies do.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `handleAdd` is a plain function declaration and so differs every render — which costs nothing here, because `claimIntent` makes this effect's body run at most once per intent whatever its dependencies do.
   useEffect(() => {
-    if (!intent || consumedIntentRef.current) return;
-    consumedIntentRef.current = true;
+    // The intent is spent the moment the add starts, not when it finishes: the
+    // body below awaits a refetch, which re-renders this component.
+    if (!intent || !claimIntent()) return;
     void (async () => {
       // Never a second pane for one subshell (regression #13): reloading with
       // the params still in the URL must not add the same subshell twice.
@@ -205,7 +210,7 @@ export function WorkspaceTabs({ detail, intent, onRefetch }: WorkspaceTabsProps)
       // would auto-discard this draft from under the split that created it.
       await navigate({ to: "/workspaces/$id", params: { id: detail.workspace.id }, search: {}, replace: true });
     })();
-  }, [intent, detail, onRefetch, navigate]);
+  }, [intent, claimIntent, detail, onRefetch, navigate]);
 
   return (
     <>

@@ -19,6 +19,7 @@ import { PERMISSIONS, type Permission } from "@/types/permissions";
  */
 
 const SERVER_UA = "Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)";
+const SERVER_LINUX_UA = "Mozilla/5.0 SubshellDesktop/1.0.0 (linux; p=1)";
 const CLIENT_UA = "Mozilla/5.0 SubshellClient/1.0.0 (macos; p=1)";
 const BROWSER_UA = "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15";
 
@@ -142,6 +143,20 @@ describe("Preferences → Notifications: the live macOS line", () => {
     renderCard();
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
     expect(screen.queryByText(/macOS permission/)).toBeNull();
+  });
+
+  // The Linux build answers `unavailable` to `desktop_permissions` — it has no
+  // such permission to report on — and the card rendered that verbatim as
+  // "macOS permission: Unavailable in this build" on a machine that has never
+  // run macOS (review, 2026-09-14). The shell alone is not the question; the
+  // platform is the other half of it.
+  it("says nothing about macOS in the Linux shell, where there is no such permission", async () => {
+    setUA(SERVER_LINUX_UA);
+    fakeTauri({ notifications: "unavailable", photos: "unavailable" });
+    renderCard();
+    await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+    expect(screen.queryByText(/macOS permission/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fix…" })).toBeNull();
   });
 });
 

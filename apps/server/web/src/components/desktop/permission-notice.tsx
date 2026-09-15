@@ -3,20 +3,6 @@ import { Button } from "@/components/ui/button";
 import { desktopInvoke, desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
 
-/**
- * The one shape every "macOS is blocking this" notice takes (spec 2026-09-14
- * §5): a sentence naming which permission is missing and what it blocks, then
- * the way to fix it.
- *
- * **The dashboard never opens System Settings itself.** Fix… raises the
- * bundled assistant at its `permissions` screen, where the denied row carries
- * the button that does — the command this page holds is
- * `desktop_open_assistant`, and popping a system pane from a page the server
- * serves is a nuisance an XSS could pull. In a plain browser there is no app
- * to raise, so the same instruction is given in words instead of as a control
- * that cannot work.
- */
-
 /** Which permission a notice is about — and so which pane fixes it. */
 export type PermissionPane = "notifications" | "files" | "photos";
 
@@ -30,6 +16,7 @@ const PANE_PATH: Record<PermissionPane, string> = {
   photos: "System Settings → Privacy & Security → Photos",
 };
 
+/** Props for {@link PermissionNotice}. */
 export interface PermissionNoticeProps {
   /** Which permission this is about. */
   pane: PermissionPane;
@@ -39,6 +26,19 @@ export interface PermissionNoticeProps {
   className?: string;
 }
 
+/**
+ * The one shape every "macOS is blocking this" notice takes (spec 2026-09-14
+ * §5): a sentence naming which permission is missing and what it blocks, then
+ * the way to fix it.
+ *
+ * **The dashboard never opens System Settings itself.** Fix… raises the
+ * bundled assistant at its `permissions` screen, where the denied row carries
+ * the button that does — the command this page holds is
+ * `desktop_open_assistant`, and popping a system pane from a page the server
+ * serves is a nuisance an XSS could pull. In a plain browser there is no app
+ * to raise, so the same instruction is given in words instead of as a control
+ * that cannot work.
+ */
 export function PermissionNotice({ pane, message, className }: PermissionNoticeProps): JSX.Element {
   const inShell = isServerDesktop();
   return (

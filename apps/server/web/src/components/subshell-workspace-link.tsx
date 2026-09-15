@@ -104,7 +104,10 @@ export function SubshellWorkspaceLink({ subshellId }: { subshellId: string }): J
         aria-label={view.ariaLabel}
       >
         <LayoutDashboard className="h-3.5 w-3.5" />
-        <span className="max-w-40 truncate">{view.label}</span>
+        {/* Icon-only below `sm`, exactly as the Split button beside it in this
+            header already is. The `aria-label` above carries the whole name
+            either way, so hiding the text costs nothing but width. */}
+        <span className="hidden max-w-40 truncate sm:inline">{view.label}</span>
       </Button>
     );
   }
@@ -113,7 +116,7 @@ export function SubshellWorkspaceLink({ subshellId }: { subshellId: string }): J
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="sm" aria-label={view.ariaLabel} />}>
         <LayoutDashboard className="h-3.5 w-3.5" />
-        {view.label}
+        <span className="hidden sm:inline">{view.label}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {view.options.map((option) => (

@@ -28,17 +28,20 @@ import type { WorkspaceDetail } from "@/types/workspace";
 export function useDiscardThinDraft(detail: WorkspaceDetail | undefined, intent: SplitIntent | null): void {
   const navigate = useNavigate();
   const invalidateWorkspaces = useInvalidateWorkspaces();
-  // Fires once per mount: the delete below is followed by a poll that 404s,
-  // and without the guard a second pass would re-navigate over whatever the
-  // person did next.
-  const discardedRef = useRef(false);
+  // The workspace this hook has already discarded, so the delete below — which
+  // is followed by a poll that 404s — cannot re-navigate over whatever the
+  // person did next. Keyed by ID rather than a bare boolean: only `<main>` is
+  // keyed by workspace id, so the ROUTE COMPONENT survives a
+  // workspace-to-workspace navigation and a once-per-mount flag would have
+  // left a second thin draft undiscarded (review, 2026-09-14).
+  const discardedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (discardedRef.current) return;
     if (!detail?.workspace.draft) return;
+    if (discardedRef.current === detail.workspace.id) return;
     if (detail.panes.length >= 2) return;
     if (intent) return;
-    discardedRef.current = true;
+    discardedRef.current = detail.workspace.id;
 
     const workspaceId = detail.workspace.id;
     const remaining = detail.panes[0];

@@ -5,8 +5,16 @@
  * serializes from `desktop-core`'s `Permission` enum in kebab-case (spec
  * 2026-09-14 §4.1/§5.5). The words are the wire format, not a local spelling.
  *
- * - `not-determined` — macOS has not asked yet. It will, at the moment of use,
- *   which is why nothing in the dashboard says anything about this state.
+ * - `not-determined` — macOS has not asked yet, and it will ask at the moment
+ *   of use. That is true of all three prompts this app can provoke, each by a
+ *   different route: posting the first notification when an agent waits raises
+ *   the notification prompt in context; opening the Photos panel from the file
+ *   picker raises the library prompt; and the SERVER's own first read of a
+ *   protected folder raises the files prompt, attributed to whichever process
+ *   did the reading (the binary under launchd, the app when it supervises its
+ *   own child). Preferences still names the state for notifications, because
+ *   someone who pressed Continue on first run without pressing Allow needs a
+ *   route back to that button before an agent next waits.
  * - `denied` — asked and refused. macOS never asks again, so the only route
  *   back is System Settings.
  * - `authorized` / `provisional` — allowed (the second is the quiet delivery

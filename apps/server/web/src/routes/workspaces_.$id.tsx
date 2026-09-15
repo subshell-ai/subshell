@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { WorkspaceDock } from "@/components/workspace-dock";
@@ -8,6 +8,7 @@ import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { ApiError } from "@/lib/api";
+import { createIntentClaim } from "@/lib/intent-claim";
 import { workspaceLoad } from "@/lib/workspace-load";
 import { parseSplitIntent } from "@/lib/workspace-split-intent";
 
@@ -40,6 +41,12 @@ function WorkspaceDetailPage() {
   // auto-discard below) see a stable value and run when the URL changes,
   // rather than on every poll-driven render.
   const intent = useMemo(() => parseSplitIntent(search), [search]);
+  // ONE claim for both presentations. Held here rather than in each of them
+  // because the viewport decides which is mounted, and crossing the breakpoint
+  // mid-add swapped one for the other with the params still in the URL — two
+  // fresh refs, two adds, one subshell twice (regression #13).
+  const claim = useRef(createIntentClaim()).current;
+  const claimIntent = useCallback(() => claim(intent), [claim, intent]);
   const { data: detail, isLoading, error, refetch } = useWorkspace(id);
   const wide = useIsWide();
   // Above every early return: an unsaved workspace that is down to one pane
@@ -111,9 +118,19 @@ function WorkspaceDetailPage() {
     // in place instead of rebuilding from the new `detail`.
     <main className="flex h-full flex-col overflow-hidden" key={detail.workspace.id}>
       {wide ? (
-        <WorkspaceDock detail={detail} intent={intent} onRefetch={() => refetch().then(() => undefined)} />
+        <WorkspaceDock
+          detail={detail}
+          intent={intent}
+          claimIntent={claimIntent}
+          onRefetch={() => refetch().then(() => undefined)}
+        />
       ) : (
-        <WorkspaceTabs detail={detail} intent={intent} onRefetch={() => refetch().then(() => undefined)} />
+        <WorkspaceTabs
+          detail={detail}
+          intent={intent}
+          claimIntent={claimIntent}
+          onRefetch={() => refetch().then(() => undefined)}
+        />
       )}
     </main>
   );

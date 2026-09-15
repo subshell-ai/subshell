@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch, errMessage } from "@/lib/api";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { WorkspaceRow } from "@/types/workspace";
@@ -76,8 +76,14 @@ export function SaveWorkspaceDialog({
     try {
       await save.mutateAsync(trimmed);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      setError(message.includes("409") ? "You already have a workspace with that name" : message || "Failed to save");
+      // The STATUS, never the message text: `ApiError`'s message happens to
+      // begin "API 409: …" today, but a name carrying "409" would have been
+      // relabelled as a collision by a substring match (review, 2026-09-14).
+      if (err instanceof ApiError && err.status === 409) {
+        setError("You already have a workspace with that name");
+        return;
+      }
+      setError(errMessage(err, "") || "Failed to save");
     }
   }
 

@@ -55,6 +55,13 @@ export interface WorkspaceDockProps {
    */
   intent: SplitIntent | null;
   /**
+   * Claims {@link intent} for this presentation, answering true exactly once
+   * per intent. Owned by the ROUTE, not by this component: the viewport
+   * decides which presentation is mounted, and a per-component flag was spent
+   * again by whichever one the breakpoint swapped in (`lib/intent-claim.ts`).
+   */
+  claimIntent: () => boolean;
+  /**
    * Re-fetches the workspace detail after a pane or subshell mutation, and
    * RESOLVES when the new detail is in hand — the intent effect below waits
    * on it before stripping the URL params.
@@ -75,7 +82,7 @@ export interface WorkspaceDockProps {
  * correct. Together these replace the canvas's viewport virtualization with
  * a rule that needs no geometry at all.
  */
-export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps): JSX.Element {
+export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: WorkspaceDockProps): JSX.Element {
   const navigate = useNavigate();
   const apiRef = useRef<DockviewApi | null>(null);
   // Pane ids this component has ever given a panel to. The ongoing
@@ -106,10 +113,6 @@ export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps)
   // places the new panel relative to the active one, and there is no panel —
   // and no `apiRef.current` — until `onReady` has run.
   const [ready, setReady] = useState(false);
-  // The intent is spent the moment the add starts, not when it finishes: the
-  // effect below awaits a refetch, which re-renders this component, and
-  // without the guard that second pass would add the pane again.
-  const consumedIntentRef = useRef(false);
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
     setSearchAddons((prev) => {
@@ -355,8 +358,10 @@ export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps)
   // page's job — done through the same `handleAdd` every later add uses, so
   // the direction the picker asked for is honoured by one code path.
   useEffect(() => {
-    if (!ready || !intent || consumedIntentRef.current) return;
-    consumedIntentRef.current = true;
+    // The intent is spent the moment the add starts, not when it finishes: the
+    // body below awaits a refetch, which re-renders this component, and
+    // without the claim that second pass would add the pane again.
+    if (!ready || !intent || !claimIntent()) return;
     void (async () => {
       // Never a second pane for one subshell (regression #13): reloading with
       // the params still in the URL, or a poll that landed before this effect
@@ -380,7 +385,7 @@ export function WorkspaceDock({ detail, intent, onRefetch }: WorkspaceDockProps)
       // split that just created it.
       await navigate({ to: "/workspaces/$id", params: { id: detail.workspace.id }, search: {}, replace: true });
     })();
-  }, [ready, intent, detail.panes, detail.workspace.id, handleAdd, onRefetch, navigate]);
+  }, [ready, intent, claimIntent, detail.panes, detail.workspace.id, handleAdd, onRefetch, navigate]);
 
   const handleDockDrop = useCallback(
     (e: ReactDragEvent) => {

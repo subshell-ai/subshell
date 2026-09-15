@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { UserRowActions } from "@/components/users/user-row-actions";
 import { apiFetch, errMessage } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
-import { MIN_PASSWORD_LENGTH } from "@/lib/password";
+import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT } from "@/lib/password";
 
 export const Route = createFileRoute("/users")({
   component: UsersPage,
@@ -146,7 +146,7 @@ function UsersPage() {
                   minLength={MIN_PASSWORD_LENGTH}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="min 8 characters"
+                  placeholder={PASSWORD_REQUIREMENT}
                   autoComplete="new-password"
                 />
               </div>

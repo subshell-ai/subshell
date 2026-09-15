@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { blockedByName, DirectoryPickerInput } from "@/components/directory-picker-input";
 import { resetDesktopShellForTests } from "@/lib/desktop";
+import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
@@ -12,10 +14,18 @@ import type { ServerDeployment } from "@/types/server-deployment";
  * typed-path sync has to stay correct against.
  */
 function renderField(
-  opts: { value?: string; onChange?: (path: string) => void; nodeId?: string; nodeName?: string } = {},
+  opts: {
+    value?: string;
+    onChange?: (path: string) => void;
+    nodeId?: string;
+    nodeName?: string;
+    /** Seeds the admin deployment view the picker reads from cache, never fetches. */
+    deployment?: ServerDeployment;
+  } = {},
 ) {
   // retry: 0 so the error state settles on the first failed fetch.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (opts.deployment) client.setQueryData(SERVER_DEPLOYMENT_QUERY_KEY, opts.deployment);
   let current = opts.value ?? "/tmp";
   const field = (value: string) => (
     <QueryClientProvider client={client}>
@@ -502,6 +512,53 @@ describe("DirectoryPickerInput", () => {
       expect(blockedByName(asApp)).toBe("Subshell Server");
       expect(blockedByName(asService)).toBe("subshell-server");
       expect(blockedByName(undefined)).toBe("subshell-server");
+    });
+
+    // The shell is not the only thing that knows. An admin reading this from a
+    // browser has the deployment view in cache, and it says which OS the
+    // server runs — which is the reading most of these refusals actually get
+    // (review, 2026-09-14).
+    it("names macOS from the cached deployment view, with no shell involved", async () => {
+      const { restore } = mockExplore({ "/Users/ada/Desktop": blockedBody("/Users/ada/Desktop") });
+      try {
+        renderField({ value: "/Users/ada/Desktop", deployment: { ...deploymentView(), platform: "darwin" } });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("Blocked by macOS");
+      } finally {
+        restore();
+      }
+    });
+
+    it("keeps its mouth shut when the cached deployment says the server is on Linux", async () => {
+      const { restore } = mockExplore({ "/srv/ada/Desktop": blockedBody("/srv/ada/Desktop") });
+      try {
+        renderField({ value: "/srv/ada/Desktop", deployment: { ...deploymentView(), platform: "linux" } });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("Not allowed to read this folder");
+        expect(screen.queryByText(/macOS/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    // Both signals describe the control plane, and a node's filesystem is a
+    // different machine's — so neither may speak for it.
+    it("says nothing about macOS while browsing another machine", async () => {
+      onMacShell();
+      const { restore } = mockExplore({ "/srv/data": blockedBody("/srv/data") });
+      try {
+        renderField({
+          value: "/srv/data",
+          nodeId: "node-7",
+          nodeName: "Build box",
+          deployment: { ...deploymentView(), platform: "darwin" },
+        });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("Not allowed to read this folder");
+        expect(screen.queryByText(/macOS/)).toBeNull();
+      } finally {
+        restore();
+      }
     });
 
     it("an empty folder is still just an empty folder — no notice", async () => {

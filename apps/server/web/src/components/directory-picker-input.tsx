@@ -144,10 +144,19 @@ export function DirectoryPickerInput({
   // so a request from here would 403 for most viewers to decide one word. The
   // Service page is what fills this, and `undefined` is a fine answer.
   const deployment = queryClient.getQueryData<ServerDeployment>(SERVER_DEPLOYMENT_QUERY_KEY);
-  // Only the desktop shell on a Mac KNOWS the server is on this Mac. Anywhere
-  // else — a browser, a Linux shell — a refused folder may be plain unix modes,
-  // and naming macOS would be a guess about a machine this page cannot see.
-  const onMacShell = isServerDesktop() && desktopPlatform() === "macos";
+  // Two independent ways to KNOW the machine being browsed is a Mac, and
+  // either is enough (review, 2026-09-14). The shell answers it for the person
+  // sitting at the machine; the deployment view answers it for an admin in a
+  // browser, which is the reading most of these refusals get looked at from.
+  // With neither — a browser with no cached view, a Linux shell — a refused
+  // folder may be plain unix modes, and naming macOS would be a guess about a
+  // machine this page cannot see.
+  //
+  // Both signals describe the CONTROL PLANE, so neither says anything while
+  // another machine's filesystem is on screen: a Linux node browsed from a Mac
+  // plane would otherwise be told macOS blocked it.
+  const serverOnMac =
+    !remoteNode && ((isServerDesktop() && desktopPlatform() === "macos") || deployment?.platform === "darwin");
   const nodeOutdated = error instanceof ApiError && error.code === BackendErrorCodes.NODE_OUTDATED;
 
   /** Stars/unstars a path; sections refresh from the same responses. */
@@ -262,11 +271,11 @@ export function DirectoryPickerInput({
               {/* The server flags EACCES as well as EPERM, on every platform, so
                   the copy names macOS only where this page can know the server
                   is on a Mac (review, 2026-09-14). */}
-              <p className="text-sm">{onMacShell ? "Blocked by macOS" : "Not allowed to read this folder"}</p>
+              <p className="text-sm">{serverOnMac ? "Blocked by macOS" : "Not allowed to read this folder"}</p>
               <PermissionNotice
                 pane="files"
                 message={
-                  onMacShell
+                  serverOnMac
                     ? `macOS is not letting ${blockedByName(deployment)} read this folder.`
                     : `${blockedByName(deployment)} was refused when it tried to list this folder.`
                 }

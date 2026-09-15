@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch, errMessage } from "@/lib/api";
-import { passwordTooShort } from "@/lib/password";
+import { PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import type { UserRole } from "@/types/user-role";
 
 /**
@@ -183,7 +183,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
                 autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
+                placeholder={PASSWORD_REQUIREMENT}
               />
             </div>
           )}

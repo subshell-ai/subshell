@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDesktopPermissions } from "@/hooks/use-desktop-permissions";
 import { errMessage } from "@/lib/api";
-import { isServerDesktop } from "@/lib/desktop";
+import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { disablePush, enablePush, getPushState, type PushState } from "@/lib/notifications";
 import type { Permission } from "@/types/permissions";
 
@@ -70,6 +70,10 @@ export function NotificationsCard({
   disable = disablePush,
 }: NotificationsCardProps) {
   const { data: permissions } = useDesktopPermissions();
+  // Two questions, and the live permission line needs both answered: the
+  // shell that holds `desktop_permissions`, and a platform that HAS the
+  // permissions it reports on.
+  const onMac = isServerDesktop() && desktopPlatform() === "macos";
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,9 +129,12 @@ export function NotificationsCard({
           </p>
         )}
         {/* The live half of the desktop branch. Only ever shown inside Subshell
-            Server, where the query is enabled at all — in a browser the app's
-            standing with macOS is not a fact about this device. */}
-        {isServerDesktop() && permissions && (
+            Server ON A MAC — in a browser the app's standing with macOS is not
+            a fact about this device, and on the Linux build there is no such
+            standing at all: the command answers `unavailable`, and rendering
+            that line named an operating system the machine does not run
+            (review, 2026-09-14). */}
+        {onMac && permissions && (
           <div className="space-y-1.5">
             <p className="text-detail text-muted-foreground">
               macOS permission: {PERMISSION_LINE[permissions.notifications]}
