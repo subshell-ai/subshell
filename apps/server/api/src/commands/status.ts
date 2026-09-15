@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { DEFAULT_DATABASE_PATH, lingerVerdict, NODE_TARGETS } from "@internal/subshell-protocol";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
@@ -171,6 +171,37 @@ export interface StatusView {
   };
 }
 
+/** True while a test runner is active (`bun test` sets `NODE_ENV=test`). */
+function underTest(): boolean {
+  return process.env.NODE_ENV === "test" || process.env.SUBSHELL_TEST_MODE === "1";
+}
+
+/**
+ * Whether a path sits under the OS temp directory, compared through the
+ * deepest ancestor that exists — a database that was never created cannot be
+ * realpath'd, and on macOS the unresolved `/var/folders` spelling never
+ * prefix-matches the resolved `/private/var` one.
+ */
+function withinTmp(path: string): boolean {
+  const real = (p: string): string => {
+    let cur = resolve(p);
+    const tail: string[] = [];
+    for (;;) {
+      try {
+        return tail.length === 0 ? realpathSync(cur) : join(realpathSync(cur), ...tail);
+      } catch {
+        const parent = dirname(cur);
+        if (parent === cur) return resolve(p);
+        tail.unshift(basename(cur));
+        cur = parent;
+      }
+    }
+  };
+  const tmp = real(tmpdir());
+  const target = real(path);
+  return target === tmp || target.startsWith(`${tmp}/`);
+}
+
 /**
  * Count accounts in the database at `path`, without ever throwing.
  *
@@ -206,6 +237,17 @@ export interface StatusView {
  * @returns the account count, or null when the database could not be read
  */
 function countAccounts(path: string): number | null {
+  // A test must never open the DEVELOPER'S live database. `status` resolves its
+  // path out of config.env, so a test that does not pin
+  // SUBSHELL_SERVER_CONFIG_DIR reads ~/.config/subshell-server/config.env and
+  // opens whatever instance the operator actually runs — and the read-write
+  // fallback below then writes its `-shm`/`-wal` sidecars. Measured
+  // 2026-09-15: the suite was touching the live database on every run.
+  //
+  // Returning null rather than throwing is deliberate: this reports "could not
+  // read", which is exactly what a test asking about a database it never set up
+  // should see, and it keeps `status` honest about never throwing.
+  if (underTest() && !withinTmp(path)) return null;
   const count = (mode: { readonly: true } | { readwrite: true; create: false }): number | null => {
     let db: Database | undefined;
     try {
