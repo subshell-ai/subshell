@@ -3,6 +3,8 @@ import { Elysia } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { GetNodeResponseSchema, toNodeShareViews, toNodeView } from "@/api/nodes/node-view.js";
+import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
@@ -46,10 +48,20 @@ export const getNodeRoute = new Elysia()
       // stale by definition. `local` reports nothing: the control-plane host's
       // own deployment is the Service page's subject, not a node's.
       const runtime = gate.row.kind === "agent" ? getLive(gate.row.id)?.agent?.runtime : undefined;
+      // What entering maintenance would cost, on a NARROWER gate than the two
+      // fields above (spec 2026-09-14 §5.5): `canManage`, not
+      // `nodeCanConfigure`. Only a manager can flip that switch, so only a
+      // manager needs its price — and the number itself is a fact about other
+      // people's work on this machine, which an `edit` grantee has no call to
+      // learn from a node they do not own.
+      const runningSubshells = gate.canManage
+        ? await new NodesRepository(db).countRunningSubshells(gate.row.id)
+        : undefined;
       return {
         ...view,
         shares: await toNodeShareViews(gate.shares),
         ...(runtime ? { runtime } : {}),
+        ...(runningSubshells === undefined ? {} : { runningSubshells }),
       };
     },
     {

@@ -129,6 +129,20 @@ export const NodeViewSchema = t.Object({
       "One row per plugin the INSTANCE has installed and enabled, crossed with this node's binary detection (spec 2026-09-10: the node declares nothing; the instance store is the catalog)",
   }),
   inventoryStale: InventoryStaleSchema,
+  maintenance: t.Boolean({
+    description:
+      "Whether this node is out of service: it answers every other command but accepts no new subshells. `canLaunch` already accounts for it — this field exists because that boolean cannot say WHY, and a node refusing launches for want of a share is a different thing to explain than one an operator took down",
+  }),
+  maintenanceAt: t.Nullable(t.String({ description: "ISO 8601 of the write that set the current value" }), {
+    description: "ISO 8601 of the write that set the current value; null when it was never set",
+  }),
+  maintenanceSource: t.Nullable(
+    t.Union([t.Literal("plane"), t.Literal("node")], { description: "Which end declared it" }),
+    {
+      description:
+        "Which end declared the current value — a browser or the machine's own `subshell maintenance` verb — so a person reading the page learns whether someone at the keyboard did this; null when it was never set",
+    },
+  ),
 });
 
 /** A node as rendered to one viewer. */
@@ -229,6 +243,34 @@ export const GetNodeResponseSchema = t.Object({
         "How the agent runs — present only while the node is online, only for config-capable viewers, and only on agent nodes",
     }),
   ),
+  runningSubshells: t.Optional(
+    t.Number({
+      description:
+        "How many subshells are running here, counted across every owner — what entering maintenance would stop. MANAGERS only: the people who can flip the switch are the only ones who need its price, and the number itself says how much otherwise-invisible work sits on this machine",
+    }),
+  ),
+});
+
+/**
+ * `PUT /api/nodes/:id/maintenance` — the node view plus what the act did.
+ *
+ * `stopped` rides the response rather than being left for the caller to infer
+ * from a refetch, because the count is the one thing a person wants confirmed
+ * immediately after taking a machine out of service. `failed` is present only
+ * when a kill was refused: an empty array would read as a field worth checking
+ * on every ordinary success.
+ */
+export const MaintenanceResponseSchema = t.Object({
+  ...GetNodeResponseSchema.properties,
+  stopped: t.Array(t.String({ description: "Subshell id this act retired" }), {
+    description: "Subshells this act stopped, across every owner; empty when it turned maintenance off",
+  }),
+  failed: t.Optional(
+    t.Array(t.String({ description: "Subshell id whose kill the node refused" }), {
+      description:
+        "Subshells whose kill the node refused — never counted as stopped, because a caller told a pane is down walks away from a machine still running it",
+    }),
+  ),
 });
 
 /** The `NodeTable.capabilities` JSON → string[]; junk or null reads as empty. */
@@ -280,6 +322,9 @@ function nodeViewBase(
     // The SAME helper the launch gate calls, for the same reason `canManage`
     // shares one: the picker must not re-derive a rule the server enforces.
     canLaunch: nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1),
+    maintenance: row.maintenance === 1,
+    maintenanceAt: row.maintenanceAt,
+    maintenanceSource: row.maintenanceSource,
     capabilities: parseCapabilities(row.capabilities),
   };
 }
