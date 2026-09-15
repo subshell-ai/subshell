@@ -15,7 +15,17 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
 import { logger } from "@/utils/logger.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
-import { attachConnection, detachConnection, getLive, type NodeConnection, type NodeSocket } from "./node-registry.js";
+import {
+  attachConnection,
+  detachConnection,
+  getHeld,
+  getLive,
+  type HeldReason,
+  holdConnection,
+  type NodeConnection,
+  type NodeSocket,
+  releaseHeld,
+} from "./node-registry.js";
 import { failConnPendings, resolveResult } from "./node-rpc.js";
 
 /**
@@ -221,6 +231,72 @@ function frameBytes(raw: string | object): number {
 }
 
 /**
+ * Hold a socket the plane refuses, instead of closing it (spec 2026-09-15 §5.3).
+ *
+ * The agent behind this socket speaks a protocol this server does not. Two
+ * things follow, and both are the point:
+ *
+ * - **It is offline for every purpose but `update`.** `holdConnection` moves it
+ *   out of the live registry, so `isNodeOffline` and `listOnline` — the blessed
+ *   liveness predicates — go on answering exactly as they did when this closed.
+ *   Launches, tails and probes never reach it.
+ * - **The plane can still send it one thing.** The `update` command's wire
+ *   shape is frozen precisely so this agent, whatever build it is, can parse
+ *   it. Nothing here decides who may ask for that; the route does.
+ *
+ * NOTHING IS SENT on the held socket by this function. An agent that has been
+ * held is waiting for a command or a close, and a courtesy frame it might not
+ * parse is a worse greeting than silence.
+ *
+ * The idle close carries the reason string the agent would have got
+ * immediately, so an operator at the machine still reads "update required" in
+ * its log — ten minutes later rather than at once, which is the price of the
+ * window in which the plane could have fixed it from a browser.
+ */
+async function holdRefusedAgent(
+  deps: NodeWsDeps,
+  ws: NodeWsSocket,
+  nodeId: string,
+  event: Extract<NodeEvent, { type: "ready" }>,
+  reason: HeldReason,
+  message: string,
+): Promise<void> {
+  const conn = ws.data.nodeConn ?? getLive(nodeId);
+  if (!conn) {
+    // No connection record to hold (a socket that never went through `open`).
+    // Refuse it the old way rather than leaving it attached to nothing.
+    ws.close(NODE_CLOSE_UPDATE_REQUIRED, message);
+    return;
+  }
+  holdConnection(nodeId, conn, {
+    reason,
+    agentVersion: event.agentVersion,
+    protocolVersion: event.protocolVersion,
+    os: event.os,
+    arch: event.arch,
+    onIdle: () => {
+      try {
+        conn.ws.close(NODE_CLOSE_UPDATE_REQUIRED, message);
+      } catch {
+        // already gone — the registry entry is what mattered and it is dropped
+      }
+    },
+  });
+  // THE ROW GOES BACK TO OFFLINE, and this is the line the hold cannot do
+  // without. `applyReady` above sets `status: "online"` — deliberately, since
+  // it is what persists the identity a page needs to say "this node needs an
+  // update" — and before the hold the socket closed in the same turn, so the
+  // close path projected `offline` a moment later. A held socket never closes,
+  // so without this the row would read online for a machine no command can
+  // reach, and `isNodeOffline` (the registry) and the DB projection would
+  // disagree permanently.
+  await deps.nodes.setStatus(nodeId, "offline" satisfies NodeStatus);
+  logger
+    .withMetadata({ nodeId, agentVersion: event.agentVersion, protocolVersion: event.protocolVersion })
+    .warn(`node ws: holding ${nodeId} for update — ${message}`);
+}
+
+/**
  * Inbound event dispatch (agent → control, unsigned — the socket IS the
  * auth). Byte-capped per spec §3.1 (Bun's maxPayloadLength is global, so the
  * node cap is enforced in-handler); unrecognized frames are dropped, never
@@ -248,6 +324,30 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
   const event = parseNodeEvent(raw);
   if (!event) {
     logger.debug(`node ws: dropped unrecognized frame from ${nodeId}`);
+    return;
+  }
+
+  // A HELD socket may say exactly one thing: the `result` of the `update`
+  // this plane sent it (spec 2026-09-15 §5.3). Everything else is dropped
+  // silently — a held agent speaks a protocol this server does not, so its
+  // `ready`, `heartbeat`, `inventory`, `subshells_report` and `maintenance`
+  // frames are claims about a wire contract the two ends do not share, and
+  // applying one would write a machine's facts from a build that cannot be
+  // asked to confirm them. It keeps SENDING them (its heartbeat does not know
+  // it is being ignored), and that costs nothing: dropping is one map probe.
+  //
+  // The `ready` that CAUSED the hold reaches this point too, on a reconnect,
+  // which is why the check is after the parse and before the switch: it must
+  // not re-run `applyReady` and flip the row back to online.
+  const heldEntry = getHeld(nodeId);
+  if (heldEntry && ws.data.nodeConn === heldEntry.conn) {
+    if (event.type !== "result") {
+      logger.debug(`node ws: dropped ${event.type} from held node ${nodeId}`);
+      return;
+    }
+    if (!deps.resolveResult(heldEntry.conn, event)) {
+      logger.debug(`node ws: result frame from held ${nodeId} for unknown ref ${event.ref}`);
+    }
     return;
   }
 
@@ -294,9 +394,21 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // it names the version to install and the version found, where a bare
       // protocol number names neither. Identity is already persisted above,
       // so the Nodes page can show the same thing.
+      //
+      // NEITHER GATE CLOSES ANY MORE (spec 2026-09-15 §5.3). Both HOLD the
+      // socket instead: a refused agent is offline for every purpose except
+      // `update`, which is the one command that can fix it, and dropping the
+      // connection was what left an operator with nothing to do but walk to
+      // the machine. Everything else about the refusal is unchanged — the
+      // reason strings are the ones the agent already logs, and they travel
+      // on the eventual idle close.
       if (!agentVersionSupported(event.agentVersion)) {
-        ws.close(
-          NODE_CLOSE_UPDATE_REQUIRED,
+        await holdRefusedAgent(
+          deps,
+          ws,
+          nodeId,
+          event,
+          "below-floor",
           `subshell ${MIN_AGENT_VERSION} or newer required (this node is ${event.agentVersion || "unversioned"})`,
         );
         return;
@@ -307,8 +419,12 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // parsing frames from an agent that does not speak them is worse than
       // refusing, and the message says which of the two failed.
       if (event.protocolVersion !== NODE_PROTOCOL_VERSION) {
-        ws.close(
-          NODE_CLOSE_UPDATE_REQUIRED,
+        await holdRefusedAgent(
+          deps,
+          ws,
+          nodeId,
+          event,
+          "protocol-mismatch",
           `protocol v${NODE_PROTOCOL_VERSION} required (this node speaks v${event.protocolVersion})`,
         );
         return;
@@ -460,6 +576,15 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     return;
   }
   if (conn) {
+    // A HELD socket lands here too — it was detached from `live` the moment
+    // it was held, so the branch above cannot see it. Releasing is what stops
+    // the registry from offering a dead socket to the next `update`, and it
+    // also disarms the idle timer, which would otherwise fire minutes later
+    // to close something that is already gone.
+    //
+    // The status projection is deliberately NOT touched: `holdRefusedAgent`
+    // already wrote `offline`, and a held node has no other state to leave.
+    releaseHeld(nodeId, conn);
     // Superseded socket (4409) or an already-detached one: drain THIS
     // record's pendings; never touch the registry or the status projection.
     failConnPendings(conn, "offline");

@@ -99,6 +99,7 @@ function view(over: Partial<NodeDetail>): NodeDetail {
     maintenance: false,
     maintenanceAt: null,
     maintenanceSource: null,
+    held: null,
     ...over,
   };
 }

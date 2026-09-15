@@ -8,6 +8,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { artifactPath, artifactStat } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
+import { consumeUpdateToken } from "@/services/nodes/update-tokens.js";
 import { autoFetchEnabled, fetchArtifact, fetchDigest } from "@/services/releases.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -35,31 +36,65 @@ const DownloadQuerySchema = t.Object({
         "One-time `nsk_…` setup key (Settings → Node setup keys); the machine-path alternative to a session cookie; checked without being consumed",
     }),
   ),
+  update_token: t.Optional(
+    t.String({
+      description:
+        "One-time `nut_…` token the plane bakes into a node's `update` command; valid for ten minutes, ONE download, and only for this target. CONSUMED by the request that presents it",
+    }),
+  ),
 });
 
 /**
- * Cookie-OR-setup-key gate (spec §8): a browser downloads with its
- * session cookie, the install pipeline downloads with `?setup_key=`. The cookie probe
- * mirrors `authGuard`/`resolveSetupActor` semantics — a PRESENT cookie must
- * be valid (credential precedence; the bearer-ish path is never tried under a
- * stale subshell) — and the key path is `peekValid`, i.e. consumption-free:
- * the same key later redeems at `/api/nodes/enroll`. Bearer API keys are not
- * a download credential (a node key is /ws/node-only, a subshell key has no
- * reason to fetch agent binaries).
+ * Cookie-OR-setup-key-OR-update-token gate (spec §8, extended 2026-09-15 §5.3):
+ * a browser downloads with its session cookie, the install pipeline downloads
+ * with `?setup_key=`, and an agent the plane told to update downloads with
+ * `?update_token=`. The cookie probe mirrors `authGuard`/`resolveSetupActor`
+ * semantics — a PRESENT cookie must be valid (credential precedence; the
+ * bearer-ish path is never tried under a stale subshell). The setup-key path
+ * is `peekValid`, i.e. consumption-free: the same key later redeems at
+ * `/api/nodes/enroll`.
+ *
+ * **The update token is the one credential here that IS consumed**, and the
+ * asymmetry is the point. A setup key has a second job after this download
+ * (the enroll), so spending it here would break the flow it belongs to. An
+ * update token has exactly one job: this file, once. The `target` it was
+ * minted for is checked, so it buys the one artifact the command named and not
+ * another platform's.
+ *
+ * Bearer API keys remain no download credential at all — a node key is
+ * /ws/node-only (security §5.5, which this leaves true: the agent presents the
+ * token, never its key), and a subshell key has no reason to fetch agent
+ * binaries.
+ *
+ * @param updateTokenTarget - the triple an `?update_token=` may buy here, or
+ *   `null` where the token is not accepted at all. The `.sha256` routes pass
+ *   `null`: the agent already HAS the digest — it rides in the `update`
+ *   command — so spending a single-use token on 65 bytes would leave nothing
+ *   for the binary the command exists to fetch.
  * @returns true when the request may download
  */
-async function authorizeDownload(request: Request, setupKey: string | undefined): Promise<boolean> {
+async function authorizeDownload(
+  request: Request,
+  query: DownloadQuery,
+  updateTokenTarget: NodeTarget | null,
+): Promise<boolean> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   if (extractSessionToken(cookieHeader)) return (await resolveCookieSession(cookieHeader)) !== null;
-  if (setupKey) return await new NodeSetupKeysRepository(db).peekValid(setupKey);
+  if (query.setup_key) return await new NodeSetupKeysRepository(db).peekValid(query.setup_key);
+  if (query.update_token && updateTokenTarget !== null) {
+    return consumeUpdateToken(query.update_token, updateTokenTarget) !== null;
+  }
   return false;
 }
 
-/** 401 body for a request with neither credential kind. */
+/** The credentials a download request may carry in its query string. */
+type DownloadQuery = { setup_key?: string; update_token?: string };
+
+/** 401 body for a request with no usable credential. */
 function unauthorized() {
   return {
     code: BackendErrorCodes.INVALID_CREDENTIALS,
-    message: "Download requires a signed-in session cookie or a valid ?setup_key=.",
+    message: "Download requires a signed-in session cookie, a valid ?setup_key=, or a fresh ?update_token=.",
   } as const;
 }
 
@@ -153,7 +188,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     // First statement, before auth and before ANY path construction: the
     // closed set is enforced here, not in a params schema (see isNodeTarget).
     if (!isNodeTarget(params.target)) return status(404, apiErrorBody(notPublished(params.target)));
-    if (!(await authorizeDownload(request, query.setup_key))) return status(401, apiErrorBody(unauthorized()));
+    if (!(await authorizeDownload(request, query, params.target))) return status(401, apiErrorBody(unauthorized()));
     const headers = {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename=${nodeArtifactFileName(params.target)}`,
@@ -202,7 +237,8 @@ for (const target of NODE_TARGETS) {
   downloadsRoutes.get(
     `/node/${target}.sha256`,
     async ({ request, query, status }) => {
-      if (!(await authorizeDownload(request, query.setup_key))) return status(401, apiErrorBody(unauthorized()));
+      // `null`: an update token is not spendable on a digest — see authorizeDownload.
+      if (!(await authorizeDownload(request, query, null))) return status(401, apiErrorBody(unauthorized()));
       const local = await artifactSha(target);
       if (local) return new Response(`${local}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       // `install.sh` asks for the sha AFTER the binary, so by here the

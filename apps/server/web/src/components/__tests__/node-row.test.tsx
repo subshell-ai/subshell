@@ -28,6 +28,7 @@ const BASE: Node = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  held: null,
 };
 
 /** Six detected harnesses — more than the row shows inline. */

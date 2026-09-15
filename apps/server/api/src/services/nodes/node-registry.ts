@@ -143,6 +143,194 @@ export interface NodeConnection {
 
 const live = new Map<string, NodeConnection>();
 
+/* ------------------------------------------------------------------ */
+/* held connections (spec 2026-09-15 §5.3)                              */
+/* ------------------------------------------------------------------ */
+
+/** Why the plane refused to treat this agent as live. */
+export type HeldReason = "below-floor" | "protocol-mismatch";
+
+/** One socket the plane refuses for everything except `update`. */
+export interface HeldConnection {
+  /**
+   * The connection record, so `node-rpc` can sign, send and correlate over it
+   * exactly as it does for a live one. It is a full {@link NodeConnection}
+   * rather than a bare socket because the `update` command is an ordinary
+   * signed command with an ordinary `result` — none of that machinery should
+   * have a second implementation for the one case it exists to serve.
+   */
+  conn: NodeConnection;
+  /** Which gate refused it. */
+  reason: HeldReason;
+  /** The version it reported, so a page can say what is installed there. */
+  agentVersion: string;
+  /** The protocol it speaks. */
+  protocolVersion: number;
+  /** Reported OS, for picking the artifact to offer. */
+  os: string;
+  /** Reported CPU architecture, same. */
+  arch: string;
+  /** ISO 8601 of when the socket was held. */
+  since: string;
+  /** The idle close armed at hold time; cleared when the socket goes. */
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+/** One held node, as a page renders it. */
+export interface HeldRow {
+  /** Node id. */
+  nodeId: string;
+  /** Which gate refused it. */
+  reason: HeldReason;
+  /** The agent version reported on the socket being held. */
+  agentVersion: string;
+  /** The protocol it speaks. */
+  protocolVersion: number;
+  /** Reported OS. */
+  os: string;
+  /** Reported CPU architecture. */
+  arch: string;
+  /** ISO 8601 of when it was held. */
+  since: string;
+}
+
+/**
+ * Sockets the plane refuses to talk to, except for one command.
+ *
+ * A SECOND map, never `live`, and that separation is the whole design. A held
+ * agent speaks a protocol this server does not: parsing its frames would be
+ * worse than refusing, and treating it as reachable would let launches, tails
+ * and every other command travel to a machine that cannot honour them. So
+ * {@link isNodeOffline} and {@link listOnline} read `live` alone and are
+ * untouched — a held node is offline for every purpose but `update`.
+ *
+ * What this replaces is dropping it: `node-ws-handler` used to close 4406 and
+ * leave an operator to walk to the machine. Held, the plane can still send the
+ * one command that fixes it — which is why the `update` command's wire shape
+ * is frozen (`node-frames.ts`): the agent parsing it is, by construction, one
+ * whose protocol this server does not share.
+ */
+const held = new Map<string, HeldConnection>();
+
+/**
+ * How long a held socket may sit unused before it is closed 4406.
+ *
+ * The plane must not accumulate sockets it will not use, and the agent's own
+ * "update required" line must keep appearing where an operator at the machine
+ * would look. Ten minutes is long enough for a person to notice the row, press
+ * Update and have a ~70 MB download finish; after it the agent's backoff loop
+ * reconnects and is held again, so nothing is lost but the socket.
+ */
+export const HELD_IDLE_MS = 10 * 60 * 1000;
+
+/** What {@link holdConnection} needs to describe the agent it is holding. */
+export interface HoldInput {
+  /** Which gate refused it. */
+  reason: HeldReason;
+  /** Version from `ready`. */
+  agentVersion: string;
+  /** Protocol from `ready`. */
+  protocolVersion: number;
+  /** OS from `ready`. */
+  os: string;
+  /** Arch from `ready`. */
+  arch: string;
+  /** Close the socket when the idle budget runs out (the handler passes its own closer). */
+  onIdle: () => void;
+}
+
+/**
+ * Move `nodeId`'s socket out of the live registry and into the held one.
+ *
+ * DETACHING FIRST is load-bearing: `handleNodeOpen` attaches every
+ * authenticated socket before `ready` is parsed, so a refused agent is already
+ * in `live` by the time the gates run. Leaving it there would make
+ * `isNodeOffline` answer false for a machine the plane cannot talk to — the
+ * exact confusion the second map exists to prevent.
+ *
+ * Newest-wins applies here too: a second hold for the same node supersedes the
+ * first, because two sockets for one node is the same problem whichever map
+ * they are in.
+ *
+ * @returns the held record
+ */
+export function holdConnection(nodeId: string, conn: NodeConnection, input: HoldInput): HeldConnection {
+  detachConnection(nodeId, conn.ws);
+  const previous = held.get(nodeId);
+  if (previous && previous.conn !== conn) {
+    if (previous.timer) clearTimeout(previous.timer);
+    previous.conn.closing = true;
+    try {
+      previous.conn.ws.close(NODE_CLOSE_SUPERSEDED, "replaced by a newer connection for this node");
+    } catch {
+      // already dead — nothing to close
+    }
+    held.delete(nodeId);
+  }
+  const entry: HeldConnection = {
+    conn,
+    reason: input.reason,
+    agentVersion: input.agentVersion,
+    protocolVersion: input.protocolVersion,
+    os: input.os,
+    arch: input.arch,
+    since: new Date().toISOString(),
+  };
+  const timer = setTimeout(() => {
+    // The socket is closed by the CALLER's closer, not here: this module owns
+    // the maps and knows nothing about close reasons or the handler's socket
+    // wrapper. Releasing first means the close handler finds nothing to
+    // release, which is the cheap ordering.
+    if (held.get(nodeId) === entry) {
+      held.delete(nodeId);
+      input.onIdle();
+    }
+  }, HELD_IDLE_MS);
+  // A held socket must never hold the process (or a test runner) open — the
+  // same rule every other background timer in this tree follows.
+  timer.unref?.();
+  entry.timer = timer;
+  held.set(nodeId, entry);
+  return entry;
+}
+
+/** The held connection for `nodeId`, or undefined when there is none. */
+export function getHeld(nodeId: string): HeldConnection | undefined {
+  return held.get(nodeId);
+}
+
+/**
+ * Every held node, for the Updates page and the node view.
+ *
+ * Shaped as plain data rather than handing out the connection: the only
+ * legitimate use for the socket is `sendCommand`, which finds it itself.
+ */
+export function listHeld(): HeldRow[] {
+  return [...held.entries()].map(([nodeId, entry]) => ({
+    nodeId,
+    reason: entry.reason,
+    agentVersion: entry.agentVersion,
+    protocolVersion: entry.protocolVersion,
+    os: entry.os,
+    arch: entry.arch,
+    since: entry.since,
+  }));
+}
+
+/**
+ * Drop `nodeId`'s held entry when `conn` is still the one held — the same
+ * identity guard {@link detachConnection} applies, for the same race: a
+ * superseded socket's late close must not evict its replacement.
+ * @returns true when an entry was removed
+ */
+export function releaseHeld(nodeId: string, conn: NodeConnection): boolean {
+  const current = held.get(nodeId);
+  if (!current || current.conn !== conn) return false;
+  if (current.timer) clearTimeout(current.timer);
+  held.delete(nodeId);
+  return true;
+}
+
 /**
  * Install `ws` as the live connection for `nodeId`, newest-wins: an existing
  * connection is flagged `closing` and its socket closed with 4409 first
@@ -155,6 +343,21 @@ const live = new Map<string, NodeConnection>();
  * @returns the new connection record (seq starts at 0, pendings empty)
  */
 export function attachConnection(nodeId: string, ws: NodeSocket): NodeConnection {
+  // A HELD socket is superseded by a new one exactly as a live one is (spec
+  // 2026-09-15 §5.3). Two sockets for one node is the same problem whichever
+  // map they are in, and the commonest way this fires is the good one: an
+  // agent that was just updated dialing back on the new binary.
+  const heldPrevious = held.get(nodeId);
+  if (heldPrevious && heldPrevious.conn.ws !== ws) {
+    if (heldPrevious.timer) clearTimeout(heldPrevious.timer);
+    held.delete(nodeId);
+    heldPrevious.conn.closing = true;
+    try {
+      heldPrevious.conn.ws.close(NODE_CLOSE_SUPERSEDED, "replaced by a newer connection for this node");
+    } catch {
+      // already dead — nothing to close
+    }
+  }
   const previous = live.get(nodeId);
   // Same socket re-attached (defensive: duplicate `open` dispatch): keep the
   // existing record — seq, pendings, and identity stay untouched.
@@ -240,6 +443,23 @@ export function disconnectNode(
   code: number = REVOKED_CLOSE_CODE,
   reason = "node access revoked",
 ): boolean {
+  // Held sockets are evicted too, and they have to be: a rotated or deleted
+  // key must not leave a socket open just because the plane was refusing to
+  // talk to it for a different reason. The `update` command is the ONE thing
+  // it could still have carried, and that is precisely what a revoked
+  // credential must no longer be able to do.
+  const heldEntry = held.get(nodeId);
+  if (heldEntry) {
+    if (heldEntry.timer) clearTimeout(heldEntry.timer);
+    held.delete(nodeId);
+    heldEntry.conn.closing = true;
+    try {
+      heldEntry.conn.ws.close(code, reason);
+    } catch {
+      // already dead — the eviction above is the point
+    }
+    return true;
+  }
   const conn = live.get(nodeId);
   if (!conn) return false;
   conn.closing = true;
@@ -274,4 +494,6 @@ export function disconnectAllNodes(code: number, reason: string): number {
  */
 export function resetNodeRegistryForTests(): void {
   live.clear();
+  for (const entry of held.values()) if (entry.timer) clearTimeout(entry.timer);
+  held.clear();
 }

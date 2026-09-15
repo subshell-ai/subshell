@@ -1020,7 +1020,7 @@ function remoteFixture(
   revoked: string[];
   launcher: FakeNodeLauncher;
   issues: () => number;
-  sendNode: (nodeId: string, cmd: NodeCommandBody, timeoutMs?: number) => Promise<unknown>;
+  sendNode: (nodeId: string, cmd: NodeCommandBody, options?: { timeoutMs?: number }) => Promise<unknown>;
 } {
   const probes: ProbeCall[] = [];
   const pushes: Array<[string, string]> = [];
@@ -1028,7 +1028,12 @@ function remoteFixture(
   const revoked: string[] = [];
   let issued = 0;
   const launcher = new FakeNodeLauncher(testDir);
-  const sendNode = async (nodeId: string, cmd: NodeCommandBody, timeoutMs = 30_000): Promise<unknown> => {
+  const sendNode = async (
+    nodeId: string,
+    cmd: NodeCommandBody,
+    options: { timeoutMs?: number } = {},
+  ): Promise<unknown> => {
+    const timeoutMs = options.timeoutMs ?? 30_000;
     if (cmd.type !== "probe") throw new Error(`unexpected node command: ${cmd.type}`);
     probes.push({ nodeId, subshellIds: [...cmd.subshellIds], timeoutMs });
     return probe?.(probes.length, cmd.subshellIds);

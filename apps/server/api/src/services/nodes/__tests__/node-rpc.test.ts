@@ -86,7 +86,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
   });
 
   it("rejects `offline` when the node has no live connection", async () => {
-    const err = await rejection(sendCommand("ghost", { type: "ping" }, 1000));
+    const err = await rejection(sendCommand("ghost", { type: "ping" }, { timeoutMs: 1000 }));
     expect(err.code).toBe("offline");
     expect(err.nodeId).toBe("ghost");
   });
@@ -95,7 +95,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     const fake = fakeSocket();
     const conn = attachConnection("n1", fake);
 
-    const p = sendCommand("n1", { type: "ping" }, 5000);
+    const p = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
     await waitFor(() => fake.sent.length === 1, "first frame");
 
     const jws = jwsOf(fake.sent, 0);
@@ -124,7 +124,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     const fakeB = fakeSocket();
     const connB = attachConnection("nB", fakeB);
 
-    const p = sendCommand("nA", { type: "ping" }, 5000);
+    const p = sendCommand("nA", { type: "ping" }, { timeoutMs: 5000 });
     await waitFor(() => fakeA.sent.length === 1, "frame on A");
     const claims = await unwrap(jwsOf(fakeA.sent, 0), "nA", publicJwk, new JtiLru(), new SeqTracker());
     const ev = { type: "result", ref: claims.jti, ok: true, data: "stolen" } satisfies NodeResultEvent;
@@ -142,7 +142,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
   it("resolves with `undefined` data when the result omits it", async () => {
     const fake = fakeSocket();
     const conn = attachConnection("n1", fake);
-    const p = sendCommand("n1", { type: "ping" }, 5000);
+    const p = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
     await waitFor(() => fake.sent.length === 1, "frame");
 
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
@@ -153,7 +153,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
   it("rejects `unsupported` when the node answers error=unsupported", async () => {
     const fake = fakeSocket();
     const conn = attachConnection("n1", fake);
-    const p = sendCommand("n1", { type: "ping" }, 5000);
+    const p = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
     await waitFor(() => fake.sent.length === 1, "frame");
 
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
@@ -168,7 +168,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
   it("rejects `failed` carrying the node's error message for any other ok:false", async () => {
     const fake = fakeSocket();
     const conn = attachConnection("n1", fake);
-    const p = sendCommand("n1", { type: "ping" }, 5000);
+    const p = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
     await waitFor(() => fake.sent.length === 1, "frame");
 
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
@@ -187,7 +187,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
   it("rejects `timeout` on the deadline and drops the pending entry", async () => {
     const fake = fakeSocket();
     const conn = attachConnection("n1", fake);
-    const p = sendCommand("n1", { type: "ping" }, 30);
+    const p = sendCommand("n1", { type: "ping" }, { timeoutMs: 30 });
     await waitFor(() => fake.sent.length === 1, "frame");
     expect(conn.pending.size).toBe(1);
 
@@ -205,7 +205,9 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     const conn = attachConnection("n1", fake);
 
     // Distinct cmd payloads identify each call even once they interleave.
-    const promises = [0, 1, 2, 3, 4].map((i) => sendCommand("n1", { type: "stat_dir", path: `/p${i}` }, 5000));
+    const promises = [0, 1, 2, 3, 4].map((i) =>
+      sendCommand("n1", { type: "stat_dir", path: `/p${i}` }, { timeoutMs: 5000 }),
+    );
     await waitFor(() => fake.sent.length === 5, "all five frames");
 
     // One shared LRU + tracker: verifyCommand itself enforces no-replay and
@@ -238,7 +240,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
       close: () => {},
     };
     const conn = attachConnection("n1", broken);
-    const err = await rejection(sendCommand("n1", { type: "ping" }, 1000));
+    const err = await rejection(sendCommand("n1", { type: "ping" }, { timeoutMs: 1000 }));
     expect(err.code).toBe("failed");
     expect(conn.pending.size).toBe(0);
   });
@@ -246,14 +248,14 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
   it("failConnPendings drains ONLY the given connection — the superseded-socket close path", async () => {
     const oldFake = fakeSocket();
     const oldConn = attachConnection("n1", oldFake);
-    const p1 = sendCommand("n1", { type: "ping" }, 5000);
+    const p1 = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
     await waitFor(() => oldFake.sent.length === 1, "old frame");
 
     // Supersede: the registry now maps the FRESH socket, but the old socket's
     // close event has not fired yet (its pending must survive until it does).
     const fresh = fakeSocket();
     const freshConn = attachConnection("n1", fresh);
-    const p2 = sendCommand("n1", { type: "ping" }, 5000);
+    const p2 = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
     await waitFor(() => fresh.sent.length === 1, "fresh frame");
 
     expect(failConnPendings(oldConn)).toBe(1); // targeted: only the old conn
@@ -268,8 +270,8 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
   it("failConnPendings honors a custom code/message and clears the map", async () => {
     const fake = fakeSocket();
     const conn = attachConnection("n1", fake);
-    const p1 = sendCommand("n1", { type: "ping" }, 5000);
-    const p2 = sendCommand("n1", { type: "inventory" }, 5000);
+    const p1 = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
+    const p2 = sendCommand("n1", { type: "inventory" }, { timeoutMs: 5000 });
     await waitFor(() => fake.sent.length === 2, "two frames");
     expect(conn.pending.size).toBe(2);
 

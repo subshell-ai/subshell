@@ -38,6 +38,7 @@ const NODE: Node = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  held: null,
 };
 
 interface Call {

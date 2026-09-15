@@ -137,7 +137,7 @@ export class RemoteLauncher implements NodeLauncher {
   /** The one wire call: `sendCommand` for this launcher's node with an explicit deadline. */
   #send(cmd: NodeCommandBody, timeoutMs: number = DEFAULT_COMMAND_TIMEOUT_MS): Promise<unknown> {
     const send = this.#deps.send ?? sendCommand;
-    return send(this.#nodeId, cmd, timeoutMs);
+    return send(this.#nodeId, cmd, { timeoutMs });
   }
 
   /** This node's live agent facts (undefined when offline or pre-`ready`). */

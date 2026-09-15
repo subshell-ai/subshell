@@ -1234,7 +1234,7 @@ export class SubshellManagerService {
           const data = await this.#sendNode(
             nodeId,
             { type: "probe", subshellIds: chunk.map((r) => r.id) },
-            RECONCILE_PROBE_TIMEOUT_MS,
+            { timeoutMs: RECONCILE_PROBE_TIMEOUT_MS },
           );
           const entries = parseNodeProbeEntries(data);
           if (!entries) {

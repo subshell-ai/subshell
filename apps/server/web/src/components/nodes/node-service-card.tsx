@@ -163,6 +163,23 @@ export function NodeServiceCard({ node }: { node: NodeDetail }): JSX.Element | n
         {wait.outcome === "timeout" && (
           <p className="text-destructive text-sm">The node has not come back. Check the agent on that machine.</p>
         )}
+        {/* Updating the agent BINARY is a different act from driving its
+            service manager, and it lives in one place for the whole fleet
+            rather than being a sixth button here — a person updating nodes is
+            usually updating several, and the page that lists them can say
+            which ones need it. This is the pointer, not a second door. */}
+        {/* A plain anchor rather than a `<Link>`, and that is temporary: the
+            `/settings/updates` route arrives with the Updates page, and
+            TanStack types `to` off the generated route tree, so a `<Link>`
+            here would not compile until it exists. Swap it when the page
+            lands — the href is already the right one. */}
+        <p className="text-detail text-muted-foreground">
+          To install a newer agent on this machine, use{" "}
+          <a href="/settings/updates" className="underline underline-offset-2">
+            Settings → Updates
+          </a>
+          .
+        </p>
         {done && <p className="whitespace-pre-wrap text-muted-foreground text-sm">{done}</p>}
         {failure && (
           <p role="alert" className="text-destructive text-sm">

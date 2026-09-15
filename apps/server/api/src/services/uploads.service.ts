@@ -383,7 +383,7 @@ export async function writeUploadRemote(nodeId: string, workingRealPath: string,
           chunk: i,
           eof: i === chunkCount - 1,
         },
-        WRITE_CHUNK_TIMEOUT_MS,
+        { timeoutMs: WRITE_CHUNK_TIMEOUT_MS },
       );
     } catch (err) {
       if (err instanceof NodeRpcError) {

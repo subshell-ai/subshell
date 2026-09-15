@@ -63,7 +63,12 @@ function makeHarness(facts: NodeAgentFacts | null = testFacts) {
   let currentFacts: NodeAgentFacts | undefined = facts ?? undefined;
   let row: NodeTable | undefined;
 
-  const send = async (_nodeId: string, cmd: NodeCommandBody, timeoutMs = 10_000): Promise<unknown> => {
+  const send = async (
+    _nodeId: string,
+    cmd: NodeCommandBody,
+    options: { timeoutMs?: number } = {},
+  ): Promise<unknown> => {
+    const timeoutMs = options.timeoutMs ?? 10_000;
     calls.push({ cmd, timeoutMs });
     const queue = scripts.get(cmd.type);
     const script = queue?.shift();

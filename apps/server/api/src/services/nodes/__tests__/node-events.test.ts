@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import {
-  MIN_AGENT_VERSION,
-  NODE_CLOSE_UPDATE_REQUIRED,
-  NODE_PROTOCOL_VERSION,
-  type NodeEvent,
-} from "@internal/subshell-protocol";
+import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/subshell-protocol";
 import { dispatchOutput, resetNodeEventsForTests, setNodeLifecycleHooks, subscribeOutput } from "../node-events.js";
-import { resetNodeRegistryForTests } from "../node-registry.js";
+import { getHeld, resetNodeRegistryForTests } from "../node-registry.js";
 import {
   handleNodeMessage,
   handleNodeMessageQueued,
@@ -225,8 +220,13 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
     // Recorded BEFORE the refusal, on purpose: an operator diagnosing a node
     // that will not connect needs to see what it reported.
     expect(conn.agent?.agentVersion).toBe(MIN_AGENT_VERSION);
-    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
-    expect(ws.closed[0]?.reason).toContain(`v${NODE_PROTOCOL_VERSION}`);
+    // The refusal itself is a HOLD now, not a close (spec 2026-09-15 §5.3):
+    // the socket stays open so the plane can still send the one command that
+    // fixes the machine. What this case is about is unchanged — the facts are
+    // stashed before the gate runs — and the hold carries the same two numbers
+    // the close reason used to.
+    expect(ws.closed).toHaveLength(0);
+    expect(getHeld("n1")).toMatchObject({ reason: "protocol-mismatch", protocolVersion: 999 });
   });
 });
 

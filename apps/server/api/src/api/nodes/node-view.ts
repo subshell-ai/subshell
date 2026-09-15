@@ -7,6 +7,7 @@ import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
 import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
+import { getHeld, type HeldReason } from "@/services/nodes/node-registry.js";
 import { localPlatform } from "@/services/nodes/seed-local.js";
 
 /**
@@ -141,6 +142,18 @@ export const NodeViewSchema = t.Object({
     {
       description:
         "Which end declared the current value — a browser or the machine's own `subshell maintenance` verb — so a person reading the page learns whether someone at the keyboard did this; null when it was never set",
+    },
+  ),
+  held: t.Nullable(
+    t.Object({
+      reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch")], {
+        description: "Which gate refused this agent: its version, or the wire protocol it speaks",
+      }),
+      agentVersion: t.String({ description: "The version reported on the socket being held" }),
+    }),
+    {
+      description:
+        "This node's agent is connected but REFUSED — held open for one command (`update`) and offline for every other purpose. Visible to every viewer who can see the row: it is the same disclosure as `agentVersion`, which is already here, and a node that needs updating is exactly what anyone looking at it needs told. null when the node is not held",
     },
   ),
 });
@@ -336,8 +349,21 @@ function nodeViewBase(
     maintenance: row.maintenance === 1,
     maintenanceAt: row.maintenanceAt,
     maintenanceSource: row.maintenanceSource,
+    // Read from the LIVE registry rather than the row, for the same reason
+    // `runtime` is: being held is a fact about a socket that exists right now,
+    // and a column would go stale the moment the process ends. It is NOT
+    // manage-gated, unlike `runtime` — this says "the agent here needs
+    // updating", which is the same disclosure as the `agentVersion` sitting
+    // beside it, not a machine's paths and pids.
+    held: heldView(row.id),
     capabilities: parseCapabilities(row.capabilities),
   };
+}
+
+/** The `held` field for one node, or null when its socket is not held. */
+function heldView(nodeId: string): { reason: HeldReason; agentVersion: string } | null {
+  const entry = getHeld(nodeId);
+  return entry ? { reason: entry.reason, agentVersion: entry.agentVersion } : null;
 }
 
 /**

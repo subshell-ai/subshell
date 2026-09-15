@@ -40,6 +40,7 @@ const base: NodeDetail = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  held: null,
 };
 
 function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {

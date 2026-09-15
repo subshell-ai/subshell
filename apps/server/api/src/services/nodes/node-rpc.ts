@@ -1,6 +1,6 @@
 import { type NodeCommandBody, type NodeEvent, signCommand } from "@internal/subshell-protocol";
 import { loadControlKeys } from "./control-keys.js";
-import { getLive, type NodeConnection } from "./node-registry.js";
+import { getHeld, getLive, type NodeConnection } from "./node-registry.js";
 
 /**
  * Signed command RPC over the node registry (spec 2026-08-31 §4). This is the
@@ -62,6 +62,23 @@ export type NodeResultEvent = Extract<NodeEvent, { type: "result" }>;
 export const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
 
 /**
+ * Deadline for `update` (spec 2026-09-15 §5.2).
+ *
+ * The FIRST per-command override, and it is one rather than a raised default
+ * on purpose: every other command is a tmux call or a stat and 10 s is
+ * generous for those, while this one downloads ~70 MB over whatever link a
+ * node has. Raising the default would give a hung `launch` five minutes to
+ * look alive.
+ */
+export const UPDATE_COMMAND_TIMEOUT_MS = 300_000;
+
+/** Per-call overrides for {@link sendCommand}. */
+export interface SendCommandOptions {
+  /** Deadline measured from the frame hitting the socket (default {@link DEFAULT_COMMAND_TIMEOUT_MS}). */
+  timeoutMs?: number;
+}
+
+/**
  * Sign `cmd` for `nodeId`, push it through the node's live socket, and await
  * the correlated result.
  *
@@ -73,17 +90,24 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
  * - node not connected now, or gone by the time the queued step runs →
  *   rejects `NodeRpcError("offline")`
  *
- * @param nodeId - target node (must have a live connection)
+ * **A HELD socket is used when there is no live one** (spec 2026-09-15 §5.3).
+ * A held agent speaks a protocol this plane does not, so it is offline for
+ * every purpose but `update` — and `update` reaches it through exactly this
+ * function, over a connection record that is otherwise ordinary. The narrowing
+ * is not here: the ROUTE decides what may be sent to a held node, because that
+ * is a policy question and this is the transport. What this does guarantee is
+ * that a LIVE connection always wins, so the fallback can never steal a
+ * command from a node that came back.
+ *
+ * @param nodeId - target node (must have a live or held connection)
  * @param cmd - command payload (validated wire shape)
- * @param timeoutMs - deadline measured from the frame hitting the socket
+ * @param options - per-call overrides; `timeoutMs` for commands like `update`
+ *   that are not a tmux round trip
  * @returns the result frame's `data`
  */
-export function sendCommand(
-  nodeId: string,
-  cmd: NodeCommandBody,
-  timeoutMs: number = DEFAULT_COMMAND_TIMEOUT_MS,
-): Promise<unknown> {
-  const conn = getLive(nodeId);
+export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendCommandOptions = {}): Promise<unknown> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
+  const conn = getLive(nodeId) ?? getHeld(nodeId)?.conn;
   if (!conn) {
     return Promise.reject(new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId));
   }
@@ -107,8 +131,11 @@ export function sendCommand(
 
   const step = async (): Promise<void> => {
     // Re-check inside the chain: while we queued, the socket may have been
-    // detached or superseded by a newer connection for the same node.
-    if (conn.closing || getLive(nodeId) !== conn) {
+    // detached or superseded by a newer connection for the same node. A held
+    // record counts as still ours — a socket that MOVED from live to held (or
+    // was held all along) has not gone anywhere, and refusing there would
+    // fail the one command a held node exists to receive.
+    if (conn.closing || (getLive(nodeId) !== conn && getHeld(nodeId)?.conn !== conn)) {
       throw new NodeRpcError("offline", `node "${nodeId}" disconnected before the command was sent`, nodeId);
     }
     const { privateJwk } = await loadControlKeys();

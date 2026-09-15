@@ -140,6 +140,30 @@ export interface Node {
   maintenanceAt: string | null;
   /** Which end declared it; null when it has never been declared */
   maintenanceSource: MaintenanceSource | null;
+  /**
+   * This node's agent is connected but REFUSED — held open for exactly one
+   * command and offline for every other purpose (spec 2026-09-15 §5.3).
+   *
+   * The state replaces being dropped. Before, an agent below the version floor
+   * or speaking a different protocol was closed 4406, so the row read as an
+   * ordinary offline node and the only remedy was a shell on that machine.
+   * Held, `POST /api/nodes/:id/update` can still reach it — which is why this
+   * field is worth rendering: `status: "offline"` alone cannot tell a machine
+   * that is powered down from one sitting there waiting to be fixed.
+   *
+   * Visible to every viewer who can see the row, deliberately unlike
+   * `runtime`: it is the same disclosure as the `agentVersion` beside it, not
+   * a machine's paths and pids.
+   */
+  held: NodeHeld | null;
+}
+
+/** Why a node's agent is held rather than live. */
+export interface NodeHeld {
+  /** Which gate refused it: its version, or the wire protocol it speaks */
+  reason: "below-floor" | "protocol-mismatch";
+  /** The version reported on the socket being held */
+  agentVersion: string;
 }
 
 /**

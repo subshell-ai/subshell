@@ -32,6 +32,7 @@ const base: NodeDetail = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  held: null,
 };
 
 /** A supervised systemd agent on a lingering machine, with the fields each test varies. */

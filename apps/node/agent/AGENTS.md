@@ -127,6 +127,13 @@ subshell maintenance off           # back in service
 subshell maintenance status [--json] # what THIS machine's mirror says; always exits 0
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running agent — warned loudly
+subshell update [--check] [--to <v>] [--from <file>] [--force] [--yes] [--json]
+                [--no-restart]     # replace THIS binary with a newer one and restart
+                                     # into it. See "Update" below. --rollback is a
+                                     # FLAG rather than a subcommand: it is the same
+                                     # verb pointed backwards, and a subcommand would
+                                     # invite `update rollback --to 0.8.0`
+subshell update --rollback [--yes] [--json]
 subshell mcp                       # stdio MCP server for a subshell pane (internal;
                                      # configured purely by the SUBSHELL_* pane env)
 subshell report attention turn_complete|needs_attention
@@ -308,6 +315,66 @@ and proceeds (refusing would only push the operator to `systemctl`, which warns
 about nothing), and both fail CLOSED on an unreadable definition. `service
 status` reports it as `teardown keeps panes`.
 
+## Update (`src/update.ts`, `src/commands/update.ts`, spec 2026-09-15 §5)
+
+This agent can replace its own binary — from `subshell update` at the keyboard
+or from a signed `update` command the plane sends — and both run one
+`applyUpdate`, so the download, the verification and the marker have one
+implementation rather than two that drift.
+
+**Every install is a transaction the NEXT PROCESS completes.** The updater
+cannot see the future boot; the booting agent can see the past update. So
+whoever swaps writes `<dataDir>/update-pending.json` and keeps the old file as
+`<binary>.previous`, and the agent that comes up settles it:
+
+- **Accepted** → delete both. The node has no database, so there is nothing
+  else to clean up.
+- **Refused with 4406** → rename `.previous` back, write `update-failed.json`,
+  exit 1. The service manager respawns the version that worked, on a machine
+  nobody had to visit. That swap-back IS the node's whole rollback.
+
+Without a marker, 4406 behaves exactly as it always did (log and exit): a plane
+refusing an agent nobody just updated is the ordinary "your node is too old"
+case, and swapping files there would invent a rollback for an update that never
+happened.
+
+**What counts as "accepted", and why the number is what it is.** There is no
+accepted frame. Two things count: any frame the plane sends after `ready`, or
+the socket staying open past `UPDATE_ACCEPTED_MS`. The spec put that timer at
+30 seconds on the reasoning that a refusal is immediate — which was true when a
+refused agent was CLOSED and is **not true now**: §5.3 made the plane HOLD a
+refused socket, open and silent, until its own ten-minute idle budget expires.
+At 30 s the two rules together delete `.previous` on exactly the machine about
+to need it. So the timer is **15 minutes**, strictly beyond the plane's hold
+budget, and it is a belt: the plane pushes `set_allowed_dirs` on every accepted
+`ready`, so an accepted agent settles on a FRAME within milliseconds. The cost
+of the timer never firing is a stale ~70 MB `.previous`; the cost of it firing
+early is the rollback.
+
+**Refusals are the WIRE CONSTANTS, never sentences.** The plane matches
+`NodeRpcError.detail` by equality, so `applyUpdate` throws `UpdateRefused`
+carrying a `NODE_RESULT_*` string alongside the human message, and the executor
+answers the constant. `execUpdate` applies `service restart`'s two refusals
+first — not supervised, and a definition that would take live panes down
+without `force`, failing closed on `unknown` AND on no report at all — because
+an update is a restart with a file swap in front of it, and a refusal arriving
+after 70 MB has crossed the wire is worse for having been late.
+
+**The `update` command's wire shape is FROZEN across protocol bumps**
+(`node-frames.ts`). It is the one command the plane sends to an agent whose
+protocol it does NOT share — §5.3 holds such a socket precisely so this can
+reach it — so the parser on this side may be any older build. A test pins the
+shape as a literal rather than deriving it from the same source as the code.
+
+The release source is `SUBSHELL_RELEASE_URL` (unset = the project's API, EMPTY
+= air-gapped and every network read refuses pointing at `--from`), and the CLI
+prints one line it cannot answer itself: **this binary holds no REST
+credential**, so it cannot ask its own plane which version that plane can talk
+to. `Settings → Updates` knows; `--to` is how a person acts on having read it.
+
+`status --json` gains `paths.binary` (null under an interpreter, where there is
+no single file to name) and `update: { pending, lastFailure }`.
+
 ## Maintenance (`src/maintenance.ts`, spec 2026-09-14)
 
 One flag, `<dataDir>/maintenance.json` = `{ on, changedAt }`, meaning "this
@@ -478,6 +545,9 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   `identity.json`'s fail-closed quarantine: the list is a restriction an owner
   opts into, not an authentication decision), `maintenance.json`
   (`{ on, changedAt }`, 0600, atomic temp+rename, read fail-CLOSED — see below),
+  `update-pending.json` / `update-failed.json` (0600, the update transaction's
+  markers — see "Update" above; `failed` survives until the next update, so the
+  reason is still on screen an hour later),
   `subshells/<id>.meta.json` + `<id>.log` per supervised
   subshell (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`

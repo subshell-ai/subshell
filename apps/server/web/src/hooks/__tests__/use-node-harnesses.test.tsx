@@ -37,6 +37,7 @@ const NODE: NodeDetail = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  held: null,
 };
 
 interface Call {

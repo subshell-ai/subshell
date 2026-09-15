@@ -64,14 +64,29 @@ export const HEARTBEAT_MS = 15_000;
  * How long an open socket with nothing on it counts as the plane ACCEPTING a
  * freshly installed binary (spec 2026-09-15 §5.1).
  *
- * There is no "accepted" frame and there deliberately is not one: a refusal is
- * immediate (the gates run on `ready` and close the socket in the same turn),
- * so a socket that is still open has already passed them. Any frame the plane
- * sends says the same thing sooner, which is why both count — an idle fleet
- * sends nothing for minutes, and waiting for one would leave `.previous` on
- * disk on every node that happens to be quiet.
+ * **The spec said 30 seconds and that is wrong, because §5.3 changed what an
+ * open socket means.** Its reasoning was that a refusal is immediate, so a
+ * socket still open after 30 s has passed the gates. That was true when a
+ * refused agent was CLOSED. It is not true now: a refused agent is HELD — the
+ * socket stays open indefinitely and the 4406 arrives only after the plane's
+ * ten-minute idle budget. At 30 s the two rules together delete `.previous`
+ * on exactly the machine that is about to need it, and the rollback ten
+ * minutes later finds nothing to restore.
+ *
+ * So the number is above the plane's `HELD_IDLE_MS`, and it must stay above
+ * it: the only thing that separates "accepted and quiet" from "held" is which
+ * of the two events lands first.
+ *
+ * In practice the timer is a belt and never the buckle. The plane pushes
+ * `set_allowed_dirs` on EVERY accepted `ready`
+ * (`services/nodes/allowed-dirs-sync.ts`, unconditional — an empty list is a
+ * real push), so an accepted agent receives a frame within milliseconds and
+ * settles the transaction there. What the timer covers is a plane that stops
+ * doing that; the cost of it never firing is a stale ~70 MB `.previous` until
+ * the next update overwrites it, against the cost of it firing too early,
+ * which is the rollback.
  */
-export const UPDATE_ACCEPTED_MS = 30_000;
+export const UPDATE_ACCEPTED_MS = 15 * 60 * 1000;
 
 /**
  * Periodic `inventory` push period — the "every 5 min" leg of spec §7
@@ -720,10 +735,10 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
           void pushInventory("periodic inventory push failed");
         }, inventoryMs);
         inventory.unref?.(); // a background push must never hold the daemon (or a test process) open
-        // The quiet half of "the plane accepted this binary": a socket still
-        // open this long has passed the version and protocol gates, because a
-        // refusal closes it in the same turn `ready` is handled. The noisy
-        // half is any frame at all, below.
+        // The quiet half of "the plane accepted this binary" — a belt under
+        // the frame check below, and deliberately LONGER than the plane's
+        // hold budget, since an open socket no longer proves acceptance on its
+        // own. See UPDATE_ACCEPTED_MS.
         acceptedTimer = setTimeout(markUpdateAccepted, UPDATE_ACCEPTED_MS);
         acceptedTimer.unref?.();
       });
