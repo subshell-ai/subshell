@@ -1,4 +1,5 @@
-import { chmod, copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   DEFAULT_RELEASE_API,
@@ -13,7 +14,8 @@ import {
   releaseAssetNames,
 } from "@internal/subshell-protocol";
 import { log } from "./log.js";
-import { selfInvokePrefix } from "./self-invoke.js";
+import { looksLikeEntryScript, selfInvokePrefix } from "./self-invoke.js";
+import { serviceExecArgv } from "./service.js";
 import { AGENT_VERSION } from "./version.js";
 
 /**
@@ -165,24 +167,56 @@ async function writeMarker(path: string, body: unknown): Promise<void> {
   await rename(tmp, path);
 }
 
+/** Which rung named the binary. Reported so a person can tell "the unit says so" from "this is me". */
+export type AgentBinarySource = "service definition" | "this process";
+
+/** Injectable seams for {@link resolveAgentBinary}, so the ladder is testable without a real unit or plist. */
+export interface AgentBinaryDeps {
+  /** Runtime platform (default: `process.platform`). */
+  platform?: NodeJS.Platform;
+  /** User home the unit/plist paths hang off (default: `homedir()`). */
+  home?: string;
+  /** Read a file's text, or null when absent/unreadable (default: a real read). */
+  readFile?: (path: string) => Promise<string | null>;
+  /** Run a command — only ever `plutil` (default: a real spawn). */
+  runCmd?: (cmd: string[]) => Promise<{ code: number; out: string; err: string }>;
+}
+
 /**
- * Where this agent's binary is, refusing the two shapes that cannot be swapped.
+ * Where this agent's binary is, refusing the shapes that cannot be swapped.
  *
- * `selfInvokePrefix()` answering with ARGUMENTS means an interpreter is
- * running an entry script — there is no single file to replace, and the
- * remedy is updating that checkout. A directory this user cannot write is the
- * other refusal, and it is named rather than discovered halfway through: a
- * failed `rename` after a 70 MB download is a worse way to learn it.
+ * **The service definition is asked FIRST, and this is the whole point.** The
+ * manager executes the file the unit or plist NAMES, so that file is the only
+ * answer to the question an update is actually asking. Resolving from
+ * `process.execPath` instead — which is what this did until 2026-09-15 — is
+ * correct only while the running process happens to be the installed one, and
+ * `subshell update` typed in a terminal runs whichever copy is first on PATH.
+ * On a host where those differ, the update downloaded, verified and swapped a
+ * binary nobody runs, reported success, and the manager brought the OLD
+ * version back up on the next restart. That failure is invisible from the
+ * outside: `version` still answers, just from the copy that was never
+ * replaced. The server's `resolveInstalledBinary` has always read its
+ * definition first for exactly this reason; the node now does too.
+ *
+ * Two refusals, both about there being no single file to replace:
+ *
+ * - **Two tokens** — an interpreter plus a script, which is the dev-form
+ *   install `execLine()` writes. Replacing token one would overwrite `bun`
+ *   itself, so this refuses and names the checkout as the remedy. The same
+ *   trap `selfInvokePrefix` answering with ARGUMENTS catches on the fallback
+ *   rung.
+ * - **A named file that is not there** — a broken install to report, never a
+ *   licence to replace a different binary instead. Falling back here would
+ *   resurrect the entire bug above.
+ *
+ * A directory this user cannot write is the last refusal, named rather than
+ * discovered halfway through: a failed `rename` after a 70 MB download is a
+ * worse way to learn it.
  */
-export async function resolveAgentBinary(): Promise<{ binary: string; dir: string }> {
-  const prefix = selfInvokePrefix();
-  if (prefix.args.length > 0) {
-    throw new UpdateRefused(
-      NODE_RESULT_NOT_COMPILED,
-      "this agent is running from a source checkout, not a compiled binary; update the checkout instead",
-    );
-  }
-  const binary = prefix.command;
+export async function resolveAgentBinary(
+  deps: AgentBinaryDeps = {},
+): Promise<{ binary: string; dir: string; source: AgentBinarySource }> {
+  const { binary, source } = await resolveAgentBinaryPath(deps);
   const dir = dirname(binary);
   try {
     const info = await stat(binary);
@@ -190,7 +224,9 @@ export async function resolveAgentBinary(): Promise<{ binary: string; dir: strin
   } catch (err) {
     throw new UpdateRefused(
       NODE_RESULT_NOT_COMPILED,
-      `cannot read this agent's own binary at ${binary}: ${err instanceof Error ? err.message : String(err)}`,
+      source === "service definition"
+        ? `the installed service names ${binary}, which cannot be read: ${err instanceof Error ? err.message : String(err)}`
+        : `cannot read this agent's own binary at ${binary}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   try {
@@ -203,7 +239,70 @@ export async function resolveAgentBinary(): Promise<{ binary: string; dir: strin
       `${dir} is not writable by this user, so the agent binary there cannot be replaced`,
     );
   }
-  return { binary, dir };
+  return { binary, dir, source };
+}
+
+/**
+ * The same ladder WITHOUT touching the filesystem beyond reading the
+ * definition — no stat, and above all no write probe.
+ *
+ * Split out for `status`, which must name the file an update would replace and
+ * must stay READ-ONLY doing it. Folding the probe into a status read would
+ * create and delete a file in `~/.local/bin` every time anyone asked, and
+ * would report `binary: null` for an un-writable directory — which is a true
+ * thing about updating and a false thing about where this agent lives.
+ */
+export async function resolveAgentBinaryPath(
+  deps: AgentBinaryDeps = {},
+): Promise<{ binary: string; source: AgentBinarySource }> {
+  const argv = await serviceExecArgv({
+    platform: deps.platform ?? process.platform,
+    home: deps.home ?? homedir(),
+    readFile: deps.readFile ?? (async (path) => await readFile(path, "utf8").catch(() => null)),
+    runCmd:
+      deps.runCmd ??
+      (async (cmd) => {
+        try {
+          const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+          const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+          return { code: (await proc.exited) ?? 1, out, err };
+        } catch {
+          return { code: 127, out: "", err: "could not run the command" };
+        }
+      }),
+  });
+
+  let binary: string;
+  let source: AgentBinarySource;
+  if (argv !== null) {
+    // `execLine()` writes `[...selfInvokePrefix(), <verb>]`, so this agent's
+    // definition ALWAYS carries a trailing `run` — a compiled install reads
+    // `[<binary>, "run"]` and a dev-form one `[bun, <entry>.ts, "run"]`. The
+    // shape that cannot be swapped is therefore the one whose SECOND token is
+    // an entry script, NOT merely one with more than one token. (The server's
+    // reader counts tokens because its unit carries no verb; copying that rule
+    // here would refuse every correctly installed node.) Replacing token one
+    // of a dev-form line would overwrite `bun` itself.
+    if (argv.length > 1 && looksLikeEntryScript(argv[1] as string)) {
+      throw new UpdateRefused(
+        NODE_RESULT_NOT_COMPILED,
+        "the installed service runs this agent from a source checkout, not a compiled binary; update the checkout instead",
+      );
+    }
+    binary = argv[0] as string;
+    source = "service definition";
+  } else {
+    const prefix = selfInvokePrefix();
+    if (prefix.args.length > 0) {
+      throw new UpdateRefused(
+        NODE_RESULT_NOT_COMPILED,
+        "this agent is running from a source checkout, not a compiled binary; update the checkout instead",
+      );
+    }
+    binary = prefix.command;
+    source = "this process";
+  }
+  return { binary, source };
 }
 
 /**

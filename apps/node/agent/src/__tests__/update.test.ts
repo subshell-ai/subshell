@@ -90,7 +90,111 @@ describe("resolveAgentBinary", () => {
   it("names the installed binary and its directory", async () => {
     const { binary, binDir } = await installedAgent();
     pretendInstalledAt(binary);
-    expect(await resolveAgentBinary()).toEqual({ binary, dir: binDir });
+    expect(await resolveAgentBinary()).toEqual({ binary, dir: binDir, source: "this process" });
+  });
+
+  it("prefers the binary the SERVICE DEFINITION names over the one this process is", async () => {
+    // The bug this pins. `subshell update` typed in a terminal runs whichever
+    // copy is first on PATH, which need not be the one the unit executes — so
+    // resolving from `process.execPath` wrote a file nobody runs, and the
+    // manager brought the OLD binary back up. An update that reports success
+    // and changes nothing is the one thing an update must never do, and it is
+    // unfalsifiable from the outside: `version` still answers, just from the
+    // copy that was never replaced.
+    const { binary, binDir } = await installedAgent();
+    const other = join(binDir, "subshell-on-path");
+    await writeFile(other, "A DIFFERENT COPY");
+    await chmod(other, 0o755);
+    pretendInstalledAt(other);
+
+    expect(
+      await resolveAgentBinary({
+        platform: "linux",
+        home: "/home/u",
+        readFile: async (path) =>
+          path === "/home/u/.config/systemd/user/subshell.service"
+            ? `[Service]\nExecStart=${binary} run\nRestart=always\n`
+            : null,
+      }),
+    ).toEqual({ binary, dir: binDir, source: "service definition" });
+  });
+
+  it("takes the LAST ExecStart= and unquotes a spaced path, as systemd itself does", async () => {
+    // systemd's own rule is last-wins, and `systemdQuote` double-quotes any
+    // token with whitespace — a macOS-style "Application Support" home is the
+    // case that produces one. A reader that split on spaces would hand the
+    // updater a truncated path that does not exist.
+    const root = await mkdtemp(join(tmpdir(), "subshell-spaced-"));
+    const binDir = join(root, "Application Support");
+    await mkdir(binDir, { recursive: true });
+    const binary = join(binDir, "subshell");
+    await writeFile(binary, "OLD");
+    await chmod(binary, 0o755);
+
+    expect(
+      await resolveAgentBinary({
+        platform: "linux",
+        home: "/home/u",
+        readFile: async () => `ExecStart=/ignored/first\nExecStart="${binary}" run\n`,
+      }),
+    ).toEqual({ binary, dir: binDir, source: "service definition" });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("refuses a definition naming an interpreter AND a script — replacing token one overwrites `bun`", async () => {
+    // The dev-form install `execLine()` writes records TWO tokens. A reader
+    // keeping only the first hands the updater a copy of `bun` to overwrite
+    // with an agent binary, which breaks every other program on the machine
+    // that runs through it.
+    await expect(
+      resolveAgentBinary({
+        platform: "linux",
+        home: "/home/u",
+        readFile: async () => "ExecStart=/usr/local/bin/bun /repo/apps/node/agent/src/index.ts run\n",
+      }),
+    ).rejects.toMatchObject({ detail: NODE_RESULT_NOT_COMPILED });
+  });
+
+  it("reads launchd's ProgramArguments through plutil, because a plist may be binary1", async () => {
+    const { binary, binDir } = await installedAgent();
+    pretendInstalledAt(join(binDir, "not-this-one"));
+    expect(
+      await resolveAgentBinary({
+        platform: "darwin",
+        home: "/Users/u",
+        readFile: async () => null, // a binary plist: no text answer exists
+        runCmd: async (cmd) =>
+          cmd[0] === "/usr/bin/plutil"
+            ? { code: 0, out: JSON.stringify([binary, "run"]), err: "" }
+            : { code: 1, out: "", err: "no" },
+      }),
+    ).toEqual({ binary, dir: binDir, source: "service definition" });
+  });
+
+  it("falls back to this process when no definition is installed", async () => {
+    // A hand-run agent is a real deployment, and it is the rung that used to
+    // be the only one.
+    const { binary, binDir } = await installedAgent();
+    pretendInstalledAt(binary);
+    expect(await resolveAgentBinary({ platform: "linux", home: "/home/u", readFile: async () => null })).toEqual({
+      binary,
+      dir: binDir,
+      source: "this process",
+    });
+  });
+
+  it("refuses rather than falling back when the definition names a file that is not there", async () => {
+    // Falling back to `process.execPath` here would resurrect the whole bug:
+    // the manager runs the named file, so a missing one is a broken install to
+    // report, never a licence to replace a different binary instead.
+    pretendInstalledAt((await installedAgent()).binary);
+    await expect(
+      resolveAgentBinary({
+        platform: "linux",
+        home: "/home/u",
+        readFile: async () => "ExecStart=/opt/gone/subshell run\n",
+      }),
+    ).rejects.toMatchObject({ detail: NODE_RESULT_NOT_COMPILED });
   });
 });
 

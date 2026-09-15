@@ -41,8 +41,11 @@ export interface SelfInvokeDeps {
  * "does argv1 look like a real entry script?" is what separates an interpreter
  * launch from a compiled one — an actual JS/TS extension, and not the bunfs
  * path. Mirrors the server's gate in `services/mcp-resolve.ts`.
+ *
+ * Exported because `update.ts` asks the same question of a token it read out
+ * of an INSTALLED service definition rather than out of this process.
  */
-function looksLikeEntryScript(argv1: string): boolean {
+export function looksLikeEntryScript(argv1: string): boolean {
   return !argv1.startsWith("/$bunfs/") && /\.(?:[mc]?[jt])s$/.test(argv1);
 }
 

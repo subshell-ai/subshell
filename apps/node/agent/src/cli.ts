@@ -13,7 +13,6 @@ import {
   runMaintenance,
 } from "./maintenance-cli.js";
 import { runAgentMcp } from "./mcp/main.js";
-import { selfInvokePrefix } from "./self-invoke.js";
 import {
   controlService,
   DEFAULT_DEPS,
@@ -32,6 +31,7 @@ import {
   pendingMarkerPath,
   probeFileVersion,
   readMarker,
+  resolveAgentBinaryPath,
   resolveNodeRelease,
   rollbackUpdate,
   type UpdateFailure,
@@ -763,11 +763,35 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           // update so the reason is still on screen an hour later.
           const pending = await readMarker(pendingMarkerPath(cfg.dataDir));
           const lastFailure = await readMarker<UpdateFailure>(failedMarkerPath(cfg.dataDir));
+          // Resolved through the SAME ladder `update` uses — the installed
+          // service definition first, this process only when no definition
+          // names one. Reporting `process.execPath` here (which this did until
+          // 2026-09-15) could name one file while an update replaced another,
+          // on exactly the hosts where that distinction is the whole problem.
+          // A refusal — a source checkout, a definition naming an interpreter
+          // and a script — has no single binary to name: null, not a guess.
+          // Through the CLI's OWN service seam (`RunDeps.service`), not this
+          // module's defaults: the unit/plist paths hang off the real
+          // `homedir()`, so a suite reading them would answer from whatever
+          // the developer happens to have enrolled on their laptop. Every
+          // other reader of a service definition here is injected the same
+          // way, for the same reason.
+          const sd = deps.service ?? DEFAULT_DEPS(configExists);
+          const installed = await resolveAgentBinaryPath({
+            platform: sd.platform,
+            home: sd.home,
+            readFile: sd.readFile,
+            runCmd: sd.runCmd,
+          }).catch(() => null);
           const body = {
             nodeId: cfg.nodeId,
             serverUrl: cfg.serverUrl,
             online,
             agentVersion: AGENT_VERSION,
+            // Which rung named `paths.binary`, so "the unit says so" is
+            // legible from "this is me". NOT inside `paths`: it is not a path,
+            // and that object's key set is pinned as the reset's deletion set.
+            binarySource: installed?.source ?? null,
             ...(daemonAgeMs !== undefined ? { daemonAgeMs } : {}),
             ...(probe !== undefined ? { probe } : {}),
             // What a reset deletes, named by the CLI rather than guessed by a caller
@@ -777,10 +801,8 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
               configFile: configPath(),
               lockFile: lockPath(),
               dataDir: cfg.dataDir,
-              // The file `update` replaces. `selfInvokePrefix().args` being
-              // non-empty means an interpreter is running a script, where
-              // there is no single binary to name — null, not a guess.
-              binary: selfInvokePrefix().args.length > 0 ? null : selfInvokePrefix().command,
+              /** The file `update` replaces — see `installed` above. */
+              binary: installed?.binary ?? null,
             },
             update: { pending, lastFailure },
           };

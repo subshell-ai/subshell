@@ -551,6 +551,122 @@ function serviceArtifactPath(platform: NodeJS.Platform, home: string): string | 
   return null;
 }
 
+/**
+ * Parse a systemd `ExecStart=` value into argv — the inverse of
+ * {@link systemdQuote}, and it must stay its inverse.
+ *
+ * systemd word-splits the line ITSELF (it is not run through a shell), so a
+ * token containing whitespace is double-quoted on the way out and has to be
+ * unquoted on the way back. A spaced path is not exotic here: a macOS
+ * "Application Support" home, a dev-form `bun …/my dir/main.ts`, a spaced
+ * `SUBSHELL_DATA_DIR` all produce one, and a reader that split on spaces would
+ * hand the updater a truncated path that does not exist.
+ *
+ * This is deliberately a SECOND copy of the server's `parseSystemdExec`
+ * (`apps/server/api/src/services/installed-binary.ts`) rather than a shared
+ * helper: `apps/server/**` is AGPL and this file is Apache-2.0, so an import
+ * would entangle the two licences (AGENTS.md, "The licence boundary IS this
+ * directory line"). The quoter it inverts is already duplicated for the same
+ * reason, and an inverse belongs beside the function it inverts.
+ */
+export function parseSystemdExec(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  let escaped = false;
+  let started = false;
+  for (const ch of line) {
+    if (escaped) {
+      cur += ch;
+      escaped = false;
+      started = true;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      started = true;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch) && !inQuotes) {
+      if (started) {
+        out.push(cur);
+        cur = "";
+        started = false;
+      }
+      continue;
+    }
+    cur += ch;
+    started = true;
+  }
+  if (started) out.push(cur);
+  return out;
+}
+
+/** What {@link serviceExecArgv} needs — the read-only corner of {@link ServiceDeps}. */
+export type ServiceExecDeps = Pick<ServiceDeps, "platform" | "home" | "readFile" | "runCmd">;
+
+/**
+ * The argv this machine's INSTALLED service definition names, or `null` when
+ * no definition is installed.
+ *
+ * This is what `update` has to ask before it replaces anything: the manager
+ * executes the file named HERE, so any other answer is a file nobody runs.
+ *
+ * systemd: the LAST `ExecStart=`, which is systemd's own last-wins rule.
+ * launchd: `ProgramArguments` through `plutil`, because a plist may legally be
+ * binary1 and a text predicate answers confidently and wrongly there — the XML
+ * regex survives only as the no-plutil fallback, the same arrangement
+ * {@link abandonProcessGroup} uses.
+ */
+export async function serviceExecArgv(deps: ServiceExecDeps): Promise<string[] | null> {
+  const path = serviceArtifactPath(deps.platform, deps.home);
+  if (path === null) return null;
+
+  if (deps.platform === "linux") {
+    const text = await deps.readFile(path);
+    if (text === null) return null;
+    const last = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("ExecStart="))
+      .at(-1);
+    if (last === undefined) return null;
+    const argv = parseSystemdExec(last.slice("ExecStart=".length));
+    return argv.length > 0 ? argv : null;
+  }
+
+  if (deps.platform !== "darwin") return null;
+  const res = await deps.runCmd(["/usr/bin/plutil", "-extract", "ProgramArguments", "json", "-o", "-", path]);
+  if (res.code === 0) {
+    try {
+      const parsed: unknown = JSON.parse(res.out.trim());
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((a) => typeof a === "string")) {
+        return parsed as string[];
+      }
+    } catch {
+      // Unparseable output is no answer; fall through to the text reader.
+    }
+  }
+  const text = await deps.readFile(path);
+  if (text === null) return null;
+  const block = text.match(/<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  if (block === null) return null;
+  const argv = [...(block[1] ?? "").matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) =>
+    (m[1] ?? "")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, "&"),
+  );
+  return argv.length > 0 ? argv : null;
+}
+
 /** systemd `show` emits `KEY=value` lines; absent properties come back empty, so "" and "missing" are one case. */
 function parseShowProperties(text: string): Record<string, string> {
   const out: Record<string, string> = {};

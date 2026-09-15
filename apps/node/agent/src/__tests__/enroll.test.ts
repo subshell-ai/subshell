@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { hostname } from "node:os";
+import { mkdtemp } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
@@ -8,6 +9,7 @@ import { type CliResult, run } from "../cli.js";
 import { configPath, loadConfig } from "../config.js";
 import { mapOs } from "../enroll.js";
 import { lockPath } from "../lock.js";
+import { DEFAULT_DEPS } from "../service.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
 
@@ -433,26 +435,60 @@ test("status --json names the paths a reset would delete, even while offline", a
   const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
   expect((await run(enrollArgv(url))).code).toBe(0);
 
-  const res = await run(["status", "--json"]);
+  // The service seam is INJECTED with a home that has no definition in it.
+  // Without that, `paths.binary` is resolved from whatever the developer has
+  // enrolled on the machine running the suite — the unit/plist paths hang off
+  // the real `homedir()`, not `SUBSHELL_CONFIG_HOME` — so this test would pass
+  // on a clean laptop and fail on the author's the day they made their own
+  // machine a node.
+  const noDefinition = { ...DEFAULT_DEPS(async () => true), home: await mkdtemp(join(tmpdir(), "subshell-nohome-")) };
+  const res = await run(["status", "--json"], { service: noDefinition });
   expect(res.code).toBe(1); // offline: the fake plane never upgrades to a socket
   const parsed = JSON.parse(res.out) as Record<string, unknown>;
   const cfg = await loadConfig();
 
   // `binary` (spec 2026-09-15 §5.2) is the file `subshell update` replaces,
   // and it is deliberately NOT part of the reset's deletion set — it is the
-  // installed CLI, not this node's state. `null` here because the suite runs
-  // under an interpreter, where there is no single binary to name.
+  // installed CLI, not this node's state. `null` here because no definition
+  // names one and the suite runs under an interpreter, where there is no
+  // single binary to name either.
   expect(parsed.paths).toEqual({
     configFile: configPath(),
     lockFile: lockPath(),
     dataDir: cfg.dataDir,
     binary: null,
   });
+  expect(parsed.binarySource).toBe(null);
   const paths = parsed.paths as Record<string, string | null>;
   expect(isAbsolute(paths.configFile as string)).toBe(true);
   expect(isAbsolute(paths.lockFile as string)).toBe(true);
   expect(isAbsolute(paths.dataDir as string)).toBe(true);
   expect(JSON.stringify(parsed)).not.toInclude(CANNED.nodeKey);
+});
+
+test("status --json names the binary the SERVICE DEFINITION names, not this process", async () => {
+  // The reporting half of the same rule `update` follows. An operator reading
+  // `status --json` on a host where the running process and the unit's
+  // `ExecStart=` differ must be told which file an update would replace —
+  // naming `process.execPath` there described the wrong file on exactly the
+  // hosts where the distinction matters.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  expect((await run(enrollArgv(url))).code).toBe(0);
+
+  const home = await mkdtemp(join(tmpdir(), "subshell-unit-"));
+  const service = {
+    ...DEFAULT_DEPS(async () => true),
+    platform: "linux" as NodeJS.Platform,
+    home,
+    readFile: async (p: string) =>
+      p === join(home, ".config", "systemd", "user", "subshell.service")
+        ? '[Service]\nExecStart="/opt/subshell bin/subshell" run\n'
+        : null,
+  };
+
+  const parsed = JSON.parse((await run(["status", "--json"], { service })).out) as Record<string, unknown>;
+  expect((parsed.paths as Record<string, unknown>).binary).toBe("/opt/subshell bin/subshell");
+  expect(parsed.binarySource).toBe("service definition");
 });
 
 test("status without a config → code 1 pointing at enroll", async () => {
