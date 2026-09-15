@@ -1,5 +1,6 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { type CliDeps, dispatchCli } from "../cli.js";
@@ -385,6 +386,9 @@ describe("dispatchCli — tmux offer wiring (spec 2026-09-03)", () => {
       platform: "linux",
       env: {},
       which: (n) => (n === "apt-get" ? "/usr/bin/apt-get" : n === "tmux" && installed ? "/usr/bin/tmux" : null),
+      // The offer reads `promptSync`: the preflight is shared with the
+      // synchronous `installService`, so it cannot await a clack answer.
+      promptSync: () => answers.shift() ?? "",
       prompt: () => answers.shift() ?? "",
       spawnInstall: () => {
         installed = true;
@@ -406,6 +410,10 @@ describe("dispatchCli — tmux offer wiring (spec 2026-09-03)", () => {
       platform: "linux",
       env: {},
       which: () => null,
+      promptSync: () => {
+        asked++;
+        return "y";
+      },
       prompt: () => {
         asked++;
         return "y";
@@ -964,5 +972,114 @@ describe("dispatchCli — service against a real definition on disk", () => {
     await dispatchCli(["service", "restart"], deps);
     expect(err).toEqual([]);
     expect(exits).toEqual([0]);
+  });
+});
+
+/**
+ * `status` answers "is there an admin account yet?" (spec 2026-09-15 §4.3).
+ *
+ * `status` is documented as the first thing to run when something looks wrong,
+ * and until now it could not answer the first question a stuck operator has:
+ * the CLI never says the server hands its first visitor a setup wizard, so an
+ * install that is working perfectly looks identical to one that is broken.
+ *
+ * The probe reads the database the BOOT would open — the config ladder's
+ * `DATABASE_PATH`, which is what these tests pin — read-only and never
+ * throwing: `status` always exits 0, so an unreadable file is an unknown
+ * answer rather than a failed command.
+ */
+describe("dispatchCli — status says whether an admin account exists", () => {
+  /**
+   * Write a database with a `user_meta` table holding `rows` accounts, in WAL
+   * mode — which is what the server leaves behind, and the case the obvious
+   * implementation gets wrong.
+   */
+  function seedDb(path: string, rows: number): void {
+    const db = new Database(path, { create: true });
+    db.run("PRAGMA journal_mode = WAL");
+    db.run("CREATE TABLE user_meta (user_id TEXT PRIMARY KEY, role TEXT NOT NULL)");
+    for (let i = 0; i < rows; i++) db.run("INSERT INTO user_meta (user_id, role) VALUES (?, 'admin')", [`u${i}`]);
+    db.close();
+  }
+
+  test("no database file: the server has never booted, and the line says so", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, DATABASE_PATH: join(dir, "absent.db") }, async () => {
+      expect(await dispatchCli(["status", "--json"], deps)).toBe(true);
+    });
+    expect(JSON.parse(out[0] as string).setup).toEqual({ database: "missing", hasUsers: null });
+    const human = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, DATABASE_PATH: join(dir, "absent.db") }, async () => {
+      await dispatchCli(["status"], human.deps);
+    });
+    expect(human.out.join("\n")).toMatch(/setup .*= database not created yet/);
+  });
+
+  test("a database with no accounts: the line names the /setup URL to open", async () => {
+    const dir = newConfigDir();
+    const dbPath = join(dir, "empty.db");
+    seedDb(dbPath, 0);
+    writeFileSync(join(dir, "config.env"), "APP_BASE_URL=http://box.local:3080\n");
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, DATABASE_PATH: dbPath, APP_BASE_URL: undefined }, async () => {
+      await dispatchCli(["status"], deps);
+    });
+    const text = out.join("\n");
+    expect(text).toContain("http://box.local:3080/setup");
+    expect(text).toMatch(/setup .*= no admin account yet/);
+  });
+
+  test("a database with an account: hasUsers is true and the line stops advertising the wizard", async () => {
+    const dir = newConfigDir();
+    const dbPath = join(dir, "seeded.db");
+    seedDb(dbPath, 1);
+    const { deps, out } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, DATABASE_PATH: dbPath }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    expect(JSON.parse(out[0] as string).setup).toEqual({ database: "present", hasUsers: true });
+    const human = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, DATABASE_PATH: dbPath }, async () => {
+      await dispatchCli(["status"], human.deps);
+    });
+    expect(human.out.join("\n")).toMatch(/setup .*= admin account exists/);
+    expect(human.out.join("\n")).not.toContain("/setup");
+  });
+
+  // A WAL database with no shared-memory file beside it is what a restored
+  // backup, a copied instance, or any clean SQLite shutdown leaves — bun's own
+  // close does not remove them, but other clients do. SQLite then refuses a
+  // READ-ONLY open outright: reading a WAL database needs a writable `-shm`,
+  // and a read-only connection may not create one. Measured on bun 1.4.2, the
+  // open succeeds and the first query throws "unable to open database file",
+  // so the naive implementation calls a perfectly good database unreadable.
+  test("a WAL database with no -shm beside it still answers", async () => {
+    const dir = newConfigDir();
+    const dbPath = join(dir, "restored.db");
+    seedDb(dbPath, 2);
+    rmSync(`${dbPath}-wal`, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    const { deps, out, exits } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, DATABASE_PATH: dbPath }, async () => {
+      await dispatchCli(["status", "--json"], deps);
+    });
+    expect(exits).toEqual([0]);
+    expect(JSON.parse(out[0] as string).setup).toEqual({ database: "present", hasUsers: true });
+  });
+
+  // A file that is not a database at all is the shape a half-written copy or a
+  // wrong DATABASE_PATH takes. `status` must still exit 0 and print the rest.
+  test("an unreadable database is an unknown answer, never a thrown command", async () => {
+    const dir = newConfigDir();
+    const dbPath = join(dir, "garbage.db");
+    writeFileSync(dbPath, "this is not a sqlite file");
+    const { deps, out, err, exits } = collectingDeps({ probePort: () => false });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir, DATABASE_PATH: dbPath }, async () => {
+      expect(await dispatchCli(["status", "--json"], deps)).toBe(true);
+    });
+    expect(exits).toEqual([0]);
+    expect(err).toEqual([]);
+    expect(JSON.parse(out[0] as string).setup).toEqual({ database: "present", hasUsers: null });
   });
 });

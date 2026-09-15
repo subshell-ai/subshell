@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
@@ -144,6 +145,77 @@ export interface StatusView {
    * anyone has to discover it.
    */
   nodeArtifacts: { published: number; total: number; dir: string };
+  /**
+   * Whether this instance has an admin account yet — the first question a
+   * stuck operator has, and the one `status` could not answer.
+   *
+   * Nothing in the CLI ever said that a freshly configured server hands its
+   * first visitor a setup wizard, so an install that is working perfectly and
+   * one that is broken printed the same output. This is the line that tells
+   * them apart, and the URL to open when the answer is "not yet".
+   */
+  setup: {
+    /**
+     * Whether the database the boot would open exists. `missing` is the
+     * ordinary state of a configured server that has never been started —
+     * migrations create the file — so it is a stage of setup, not a fault.
+     */
+    database: "missing" | "present";
+    /**
+     * True once at least one account exists. `null` means the question could
+     * not be answered: the database is absent, or it could not be read.
+     * Never a throw — `status` always exits 0, so an unreadable file is an
+     * unknown answer rather than a failed command.
+     */
+    hasUsers: boolean | null;
+  };
+}
+
+/**
+ * Count accounts in the database at `path`, without ever throwing.
+ *
+ * Opened INSIDE `collectStatus` rather than through the app's own Kysely
+ * handle: this package pins its CLI entry graph IO-free at import (see
+ * `cli.ts` invariant 2), and `@/db/index.js` opens SQLite when it is
+ * evaluated. `create: false` is what keeps `status` from conjuring the very
+ * database whose absence it reports, or running a migration as a side effect
+ * of being asked a question.
+ *
+ * `user_meta` is the instance's own "a user exists" truth (the same table
+ * `GET /api/setup/status` counts), and a database too old or too damaged to
+ * hold it answers `null` like any other read failure.
+ *
+ * **Read-only is TRIED, not required, and that is the whole subtlety.**
+ * Reading a WAL database needs a writable `-shm` beside it, which a read-only
+ * connection may not create — so on a database whose sidecars are gone (a
+ * restored backup, a copied instance, any client that closed cleanly) SQLite
+ * opens fine and then throws "unable to open database file" on the first
+ * query. Measured on bun 1.4.2. Falling back to a read-write handle is what
+ * keeps `status` from calling a perfectly good database unreadable; it still
+ * creates no database, and by then no live writer holds the file, since a
+ * running server is exactly the case where the `-shm` exists and the
+ * read-only open already worked.
+ *
+ * @returns the account count, or null when the database could not be read
+ */
+function countAccounts(path: string): number | null {
+  const count = (mode: { readonly: true } | { readwrite: true; create: false }): number | null => {
+    let db: Database | undefined;
+    try {
+      db = new Database(path, mode);
+      const row = db.query("SELECT count(*) AS n FROM user_meta").get() as { n: number } | null;
+      return row === null ? null : Number(row.n);
+    } catch {
+      return null;
+    } finally {
+      try {
+        db?.close();
+      } catch {
+        // A handle that would not close is not a reason to fail a read-only view.
+      }
+    }
+  };
+  return count({ readonly: true }) ?? count({ readwrite: true, create: false });
 }
 
 /** Gather the whole `status` picture. Reads only — no writes, no boot, no mutation of `process.env`. */
@@ -217,6 +289,14 @@ export function collectStatus(deps: StatusDeps): StatusView {
   // `~/Library/LaunchAgents` — is reported as installed rather than absent.
   const svc = serviceArtifactPath(deps.platform ?? process.platform, deps.home ?? homedir(), dirname(cfg.path));
 
+  // The database the BOOT would open, resolved through the same ladder as
+  // every other setting here — not the already-imported DATABASE_PATH
+  // constant, which `paths` reports and which under IS_TEST names a fixture
+  // rather than what this config says.
+  const dbPath = cfg.get("DATABASE_PATH") ?? DEFAULT_DATABASE_PATH;
+  const dbExists = existsSync(dbPath);
+  const accounts = dbExists ? countAccounts(dbPath) : null;
+
   return {
     version: SERVER_VERSION,
     configEnv: { path: cfg.path, exists: cfg.exists },
@@ -262,6 +342,10 @@ export function collectStatus(deps: StatusDeps): StatusView {
       total: NODE_TARGETS.length,
       dir: NODE_ARTIFACTS_DIR,
     },
+    setup: {
+      database: dbExists ? "present" : "missing",
+      hasUsers: accounts === null ? null : accounts > 0,
+    },
   };
 }
 
@@ -302,6 +386,18 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
     `node artifacts       = ${published}/${total} published (${dir})` +
       (published < total ? ", install.sh 404s for the rest" : ""),
   );
+  // The one line that says whether anyone can sign in yet. It names the URL
+  // only while opening it is the next thing to do — an instance that has an
+  // admin must not keep advertising a wizard that will refuse.
+  const setup =
+    v.setup.database === "missing"
+      ? "database not created yet (the server has not booted)"
+      : v.setup.hasUsers === null
+        ? `database present but unreadable (${v.settings.DATABASE_PATH.value})`
+        : v.setup.hasUsers
+          ? "admin account exists"
+          : `no admin account yet — open ${v.settings.APP_BASE_URL.value}/setup`;
+  log(`setup                = ${setup}`);
   log(`port ${v.listen.portRaw} on ${v.listen.host}: ${v.listen.listening ? "likely running" : "not listening"}`);
   // Service DEFINITION on disk — not a liveness line (`service status` is the
   // real answer; the port probe above is the closest this view gets).

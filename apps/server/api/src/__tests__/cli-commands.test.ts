@@ -22,6 +22,7 @@ function harness(overrides: Partial<CliDeps> = {}) {
   const out: string[] = [];
   const err: string[] = [];
   const exits: number[] = [];
+  let installs = 0;
   const deps: CliDeps = {
     log: (line) => void out.push(line),
     error: (line) => void err.push(line),
@@ -36,9 +37,29 @@ function harness(overrides: Partial<CliDeps> = {}) {
     prompt: () => {
       throw new Error("prompt must not be consulted: no test here is interactive");
     },
+    // `init` installs a background service now, so the seam is stubbed by
+    // DEFAULT here: without it a dispatch-level test writes a real launchd
+    // plist (or systemd unit) into the developer's own home and bootstraps it.
+    // That happened while this feature was being built.
+    installService: () => {
+      installs++;
+      return { code: 0, out: "Installed (stub).\n", err: "" };
+    },
+    // Second lock, for anything that reaches service.ts another way.
+    home: join(dir, "fake-home"),
+    hostname: () => "test-host",
     ...overrides,
   };
-  return { deps, dir, out, err, exits };
+  return {
+    deps,
+    dir,
+    out,
+    err,
+    exits,
+    get installs() {
+      return installs;
+    },
+  };
 }
 
 const cfgOf = (dir: string): Record<string, string> => parseEnvFile(readFileSync(join(dir, "config.env"), "utf8"));
@@ -390,5 +411,93 @@ describe("dispatchCli — existing behaviour untouched", () => {
       TRUSTED_ORIGINS: "http://x:1",
       SERVER_PORT: "3080",
     });
+  });
+});
+
+/**
+ * The service flags and the handoff at the CLI surface (spec 2026-09-15 §4.1).
+ * The command flows are covered unit-style in `commands/__tests__`; this file
+ * owns what the parser accepts and where the sentence is printed.
+ */
+describe("dispatchCli — init's service question at the CLI surface", () => {
+  test("`init --yes` installs the service: the default is yes, and nobody is asked", async () => {
+    const h = harness();
+    expect(await dispatchCli(["init", "--yes"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([0]);
+    expect(h.installs).toBe(1);
+  });
+
+  test("--no-service is the scripted opt-out", async () => {
+    const h = harness();
+    expect(await dispatchCli(["init", "--yes", "--no-service"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([0]);
+    expect(h.installs).toBe(0);
+  });
+
+  test("--service is the explicit opposite", async () => {
+    const h = harness();
+    expect(await dispatchCli(["init", "--yes", "--service"], h.deps)).toBe(true);
+    expect(h.installs).toBe(1);
+  });
+
+  // `configure` installs nothing, so accepting the flag there would be a flag
+  // that silently does nothing — the way a caller learns a flag is noise.
+  test("configure refuses the service flags", async () => {
+    const h = harness();
+    expect(await dispatchCli(["configure", "--yes", "--no-service"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("unknown flag '--no-service'");
+  });
+
+  test("a value on a boolean flag is a usage error, not a silently dropped word", async () => {
+    const h = harness();
+    expect(await dispatchCli(["init", "--no-service=please"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("'--no-service' takes no value");
+  });
+
+  test("usage names both service flags", async () => {
+    const h = harness();
+    await dispatchCli(["frobnicate"], h.deps);
+    expect(h.err.join("\n")).toContain("--no-service");
+  });
+
+  test("init hands off to /setup with the configured base URL", async () => {
+    const h = harness();
+    await dispatchCli(["init", "--yes", "--no-service", "--base-url", "http://box.local:3080"], h.deps);
+    expect(h.out.join("\n")).toContain("Open http://box.local:3080/setup in a browser to create the admin account.");
+  });
+});
+
+describe("dispatchCli — service install hands off too", () => {
+  // The two commands a person ends on must say the same thing, from one
+  // helper: an operator who ran `init --no-service` and then `service install`
+  // is standing exactly where the `init` path leaves someone.
+  test("a successful install prints the same /setup line", async () => {
+    const h = harness();
+    await dispatchCli(["init", "--yes", "--no-service", "--base-url", "http://box.local:3080"], h.deps);
+    const install = harness({
+      configDir: h.dir,
+      platform: "linux",
+      env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+      runCmd: () => ({ code: 0, out: "", err: "" }),
+    });
+    expect(await dispatchCli(["service", "install"], install.deps)).toBe(true);
+    expect(install.exits).toEqual([0]);
+    expect(install.out.join("\n")).toContain("http://box.local:3080/setup");
+  });
+
+  test("a FAILED install says nothing about /setup — nothing is listening there", async () => {
+    const h = harness();
+    await dispatchCli(["init", "--yes", "--no-service"], h.deps);
+    const install = harness({
+      configDir: h.dir,
+      platform: "linux",
+      env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+      runCmd: () => ({ code: 1, out: "", err: "Failed to connect to bus\n" }),
+    });
+    await dispatchCli(["service", "install"], install.deps);
+    expect(install.exits).toEqual([1]);
+    expect(install.out.join("\n")).not.toContain("/setup");
   });
 });

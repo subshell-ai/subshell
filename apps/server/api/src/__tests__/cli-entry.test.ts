@@ -45,11 +45,22 @@ interface RunResult {
  * runner's SUBSHELL_TEST_MODE (which would skip the prelude outright) never
  * reaches the child. NODE_ENV=development per the e2e child-env idiom.
  */
+/** Throwaway HOME for every child (see the note inside {@link runCli}). */
+const FAKE_HOME = mkdtempSync(join(tmpdir(), `subshell-entry-home-${process.pid}-`));
+
 async function runCli(args: string[], opts: { cwd: string; env: Record<string, string> }): Promise<RunResult> {
   const proc = Bun.spawn({
     cmd: [BUN, ENTRY, ...args],
     cwd: opts.cwd,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", NODE_ENV: "development", ...opts.env },
+    // HOME is pinned to a throwaway directory, and that is a guard rather
+    // than tidiness: `init` installs a background service now, so a child
+    // that resolved the real home would write a systemd unit or a launchd
+    // plist into the developer's account. It happened once, during this
+    // feature's own development, and the plist named a test file as its
+    // ExecStart. Every case here also passes --no-service; this is the second
+    // lock. It is NOT the case's own cwd, which several cases assert stays
+    // empty — bun caches under HOME.
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", NODE_ENV: "development", HOME: FAKE_HOME, ...opts.env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -190,11 +201,11 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       const cwd = mkdtempSync(join(tmpdir(), `subshell-entry-init-${process.pid}-`));
       const cfg = join(cwd, "cfghome", "subshell-server"); // does not exist yet — init creates it
       const env = { SUBSHELL_SERVER_CONFIG_DIR: cfg, SUBSHELL_SERVER_SKIP_TMUX_CHECK: "1" };
-      const first = await runCli(["init", "--yes"], { cwd, env });
+      const first = await runCli(["init", "--yes", "--no-service"], { cwd, env });
       expectCleanExit(first, "init --yes (first)");
       const secret = parseEnvFile(readFileSync(join(cfg, "config.env"), "utf8")).BETTER_AUTH_SECRET;
       expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
-      const second = await runCli(["init", "--yes"], { cwd, env });
+      const second = await runCli(["init", "--yes", "--no-service"], { cwd, env });
       expectCleanExit(second, "init --yes (second)");
       expect(parseEnvFile(readFileSync(join(cfg, "config.env"), "utf8")).BETTER_AUTH_SECRET).toBe(secret);
       // Init itself is pure fs too: no sqlite file appeared in the CWD…
@@ -272,7 +283,7 @@ describe("entry-subprocess CLI: configure must not boot", () => {
       const cwd = mkdtempSync(join(tmpdir(), `subshell-entry-notmux-${process.pid}-`));
       const cfg = mkdtempSync(join(tmpdir(), `subshell-entry-notmux-cfg-${process.pid}-`));
       const emptyBin = mkdtempSync(join(tmpdir(), `subshell-entry-emptybin-${process.pid}-`));
-      const run = await runCli(["init", "--yes"], {
+      const run = await runCli(["init", "--yes", "--no-service"], {
         cwd,
         // No SKIP env, and a PATH with no tmux in it — the real preflight
         // refuses with the platform hint + escape hatch name.

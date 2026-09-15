@@ -86,3 +86,49 @@ describe("applyConfig", () => {
     expect(readFileSync(join(d, "config.env"), "utf8")).toContain("TRUSTED_ORIGINS=https://*.example.com");
   });
 });
+
+/**
+ * The third address warning (spec 2026-09-15 §4.2). Its configuration is the
+ * one whose only symptom is a 403 naming nothing: the boot accepts it, the
+ * server answers on the LAN, and every browser that is not on this box is
+ * refused at sign-in with a message that names no key.
+ */
+describe("applyConfig — the LAN-bind sign-in warning", () => {
+  it("fires on 0.0.0.0 + a loopback base URL + no trusted origins, and names both ways out", () => {
+    const d = dir();
+    const r = applyConfig({ host: "0.0.0.0", baseUrl: "http://localhost:3080", trustedOrigins: "" }, d);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const warning = r.warnings.find((w) => w.includes("403"));
+    expect(warning).toBeDefined();
+    expect(warning).toContain("--trusted-origins");
+    expect(warning).toContain("--base-url");
+  });
+
+  it("is silent once an origin is trusted — the list is what fixes it", () => {
+    const d = dir();
+    const r = applyConfig(
+      { host: "0.0.0.0", baseUrl: "http://localhost:3080", trustedOrigins: "http://box.local:3080" },
+      d,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.warnings.some((w) => w.includes("403"))).toBe(false);
+  });
+
+  it("is silent on a loopback bind — nothing off this box can reach the server to be refused", () => {
+    const d = dir();
+    const r = applyConfig({ host: "127.0.0.1", baseUrl: "http://localhost:3080", trustedOrigins: "" }, d);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.warnings.some((w) => w.includes("403"))).toBe(false);
+  });
+
+  it("is silent when the base URL is already the LAN address people browse", () => {
+    const d = dir();
+    const r = applyConfig({ host: "0.0.0.0", baseUrl: "http://box.local:3080", trustedOrigins: "" }, d);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.warnings.some((w) => w.includes("403"))).toBe(false);
+  });
+});

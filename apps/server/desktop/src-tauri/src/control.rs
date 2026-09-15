@@ -1157,8 +1157,15 @@ fn tmux_install_argv() -> Option<Vec<String>> {
 /// value for that one flag precisely so a list can be cleared, and since a
 /// stored value is now every key's default, collapsing the two would make
 /// clearing impossible.
+///
+/// `--no-service` is always passed (spec 2026-09-15 § 4.1). `init` installs
+/// the background service itself for a headless operator, which is the whole
+/// point of that change — but this app installs the service in its own step,
+/// with its own autostart checkbox, so letting `init` decide would perform an
+/// install the assistant has not asked about yet and answer a question the
+/// user is about to be shown.
 fn init_args(port: &str, host: &str, base_url: &str, trusted_origins: Option<&str>) -> Vec<String> {
-    let mut args: Vec<String> = vec!["init".into(), "--yes".into()];
+    let mut args: Vec<String> = vec!["init".into(), "--yes".into(), "--no-service".into()];
     for (flag, value) in [("--port", port), ("--host", host), ("--base-url", base_url)] {
         if !value.trim().is_empty() {
             args.extend([flag.to_string(), value.to_string()]);
@@ -2529,6 +2536,7 @@ mod tests {
             vec![
                 "init",
                 "--yes",
+                "--no-service",
                 "--port",
                 "3080",
                 "--host",
@@ -2541,12 +2549,26 @@ mod tests {
         );
     }
 
+    /// The app installs the service itself, in its own step and with its own
+    /// autostart checkbox. Without this flag `init` would install one first —
+    /// silently performing what the assistant is about to ask about.
+    #[test]
+    fn init_args_always_opt_out_of_the_cli_service_step() {
+        for args in [
+            init_args("3080", "0.0.0.0", "http://localhost:3080", Some("")),
+            init_args("", "", "", None),
+        ] {
+            assert!(args.contains(&"--no-service".to_string()), "{args:?}");
+            assert!(!args.contains(&"--service".to_string()), "{args:?}");
+        }
+    }
+
     /// An empty field must not become an empty flag VALUE: the CLI refuses one
     /// for these three, where omitting the flag correctly falls back to its own
     /// default (and, for the base URL, to a derivation from the answered port).
     #[test]
     fn init_args_omit_empty_port_host_and_base_url() {
-        assert_eq!(init_args("  ", "", "   ", None), vec!["init", "--yes"]);
+        assert_eq!(init_args("  ", "", "   ", None), vec!["init", "--yes", "--no-service"]);
     }
 
     /// `--trusted-origins ""` is the ONE emptyable flag, and passing it is how
@@ -2556,9 +2578,9 @@ mod tests {
     fn init_args_pass_an_empty_trusted_origins_as_an_explicit_clear() {
         assert_eq!(
             init_args("", "", "", Some("")),
-            vec!["init", "--yes", "--trusted-origins", ""]
+            vec!["init", "--yes", "--no-service", "--trusted-origins", ""]
         );
-        assert_eq!(init_args("", "", "", None), vec!["init", "--yes"]);
+        assert_eq!(init_args("", "", "", None), vec!["init", "--yes", "--no-service"]);
     }
 
     #[test]

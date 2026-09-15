@@ -18,13 +18,21 @@ import { getHarness } from "@internal/pane-runtime";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
 import { isCliEngaged } from "@/cli.js";
-import { assertProdAuthSecret, DATABASE_PATH, HOST, SERVER_PORT, SUBSHELL_LOG_RETENTION_DAYS } from "@/constants.js";
+import {
+  APP_BASE_URL,
+  assertProdAuthSecret,
+  DATABASE_PATH,
+  HOST,
+  SERVER_PORT,
+  SUBSHELL_LOG_RETENTION_DAYS,
+} from "@/constants.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { startServer } from "@/server.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
@@ -134,6 +142,23 @@ async function bootServer(): Promise<void> {
   }
 
   await startServer({ port: SERVER_PORT, host: HOST });
+
+  // The handoff, said where a headless operator is standing (spec 2026-09-15
+  // §4.3). `/api/setup/*` is public until the first account exists, and
+  // nothing ever told anyone to go and use it: a CLI-provisioned server that
+  // is working perfectly looked exactly like one that is broken. Printed
+  // AFTER the listening lines so the address above and the URL here read as
+  // one instruction, and only while it is true — the count is the same
+  // `user_meta` truth `GET /api/setup/status` answers with, so this line and
+  // the wizard cannot disagree. Best-effort: a count that fails is not a
+  // reason to refuse a boot that has already succeeded.
+  try {
+    if ((await new UserMetaRepository(db).countUsers()) === 0) {
+      getLogger().info(`No account yet. Open ${APP_BASE_URL}/setup to create the admin account.`);
+    }
+  } catch (err) {
+    getLogger().withError(err).warn("could not check whether an admin account exists");
+  }
 
   // Background housekeeping: expire WS attach tokens, reconcile tmux state.
   const subshells = new SubshellsRepository(db);

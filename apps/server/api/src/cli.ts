@@ -1,17 +1,20 @@
 import { readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
+import { confirm as clackConfirm, text as clackText, intro, isCancel, outro } from "@clack/prompts";
 import { runReport, runSubshellMcp } from "@internal/mcp-core";
 import { licenseNotice } from "@internal/subshell-protocol";
-import { type CommandDeps, type ConfigureOpts, runConfigure } from "@/commands/configure.js";
-import { runInit } from "@/commands/init.js";
+import { type ConfigureOpts, runConfigure } from "@/commands/configure.js";
+import { type InitDeps, runInit, setupHandoffLines } from "@/commands/init.js";
 import { collectStatus, runStatus, serviceStateLines, syncPortListening } from "@/commands/status.js";
 import { serverConfigDir } from "@/config-env.js";
 import {
+  type CliResult,
   controlService,
   DEFAULT_DEPS,
   installService,
   queryService,
   SERVICE_VERBS,
+  type ServiceDeps,
   setAutostart,
   uninstallService,
 } from "@/service.js";
@@ -63,12 +66,32 @@ export interface CliDeps {
   /** stderr writer for usage/errors (default: `console.error`). */
   error?: (line: string) => void;
   /**
-   * Interactive prompt for `init`/`configure`/`service install` — the tmux
-   * offer uses it too (default: {@link promptLineSync} — sync `readSync(0, …)`,
-   * honoring the sync-by-contract rule above). Returns the raw answer or null
-   * on EOF.
+   * Interactive prompt for the five `init`/`configure` questions (default:
+   * {@link promptText} — `@clack/prompts`'s `text`). Returns the raw answer,
+   * or null on a cancel/EOF.
    */
-  prompt?: (question: string, def: string) => string | null;
+  prompt?: (question: string, def: string) => string | null | Promise<string | null>;
+  /**
+   * Yes/no question (default: {@link promptConfirm} — `@clack/prompts`'s
+   * `confirm`). Today only `init`'s service question asks one.
+   */
+  confirm?: (question: string, def: boolean) => boolean | null | Promise<boolean | null>;
+  /**
+   * The tmux offer's prompt (default: {@link promptLineSync}). A SECOND text
+   * seam because `tmuxPreflight` is shared with `installService`, which is
+   * synchronous end to end and therefore cannot await an answer — see
+   * `CommandDeps.promptSync`.
+   */
+  promptSync?: (question: string, def: string) => string | null;
+  /**
+   * Installs the background service for `init`'s own service question
+   * (default: the same `installService` the `service install` verb calls,
+   * with autostart armed). Injected by tests so an `init` run never writes a
+   * real unit or plist.
+   */
+  installService?: () => CliResult;
+  /** This host's name for the handoff's LAN line (default: `os.hostname()`). */
+  hostname?: () => string;
   /** Process exit, injectable so tests observe codes (default: `process.exit`). */
   exit?: (code: number) => void;
   /**
@@ -135,7 +158,7 @@ usage:
   subshell-server version        print the version and exit
   subshell-server license        print the copyright and licence and exit
   subshell-server status         print the resolved config view and exit (--json for machine output)
-  subshell-server init           first run: config home + auth secret + config.env
+  subshell-server init           first run: config home + auth secret + config.env + the service
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server service install    background the server (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
@@ -153,6 +176,8 @@ usage:
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
                       --trusted-origins <origin,origin>   other addresses browsers will
                                                           use (empty clears the list)
+init-only flags:      --service / --no-service            install the background service,
+                                                          or skip it (default: install)
 
 config precedence: process env > config.env > .env > built-in defaults
 `;
@@ -273,28 +298,49 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       return new Promise<boolean>(() => {});
     case "init":
     case "configure": {
-      const opts = parseConfigFlags(argv.slice(1), error);
+      // `--service`/`--no-service` belong to `init` alone: `configure` never
+      // installs anything, so accepting them there would be a flag that
+      // silently does nothing.
+      const opts = parseConfigFlags(argv.slice(1), error, { allowService: command === "init" });
       if (!opts) {
         error(USAGE);
         exit(1);
         return true;
       }
-      const cmdDeps: CommandDeps = {
-        prompt: deps.prompt ?? promptLineSync,
+      const isTTY = deps.isTTY ?? process.stdin.isTTY === true;
+      const cmdDeps: InitDeps = {
+        prompt: deps.prompt ?? promptText,
+        confirm: deps.confirm ?? promptConfirm,
+        promptSync: deps.promptSync ?? promptLineSync,
         log,
         error,
         configDir: deps.configDir ?? serverConfigDir(),
         env: deps.env ?? process.env,
         which: deps.which ?? ((name) => Bun.which(name) ?? null),
-        isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+        isTTY,
         // tmux offer seams (spec 2026-09-03): platform drives installer
         // detection AND the hint text; spawnInstall stays injectable.
         platform: deps.platform ?? process.platform,
         spawnInstall: deps.spawnInstall,
+        // The SAME function the `service install` verb calls, with autostart
+        // armed (spec 2026-09-15 §4.1) — one installer, so `init` and
+        // `service install` cannot put different definitions on a host.
+        installService: deps.installService ?? (() => installService(serviceDeps(deps, log), { autostart: true })),
+        hostname: deps.hostname,
       };
-      // runInit/runConfigure are fully synchronous (invariant 1) and return
-      // the exit code; the command itself never calls exit — this line does.
-      exit(command === "init" ? runInit(opts, cmdDeps) : runConfigure(opts, cmdDeps));
+      // The clack frame belongs to the clack prompts: a caller that injects
+      // its own `prompt` (every test) is not drawing one, and would otherwise
+      // emit bars onto a real stdout from inside a unit test. `--yes` and a
+      // non-TTY draw nothing either — those runs print nothing but results.
+      const framed = !opts.yes && isTTY && deps.prompt === undefined;
+      if (framed) intro(`subshell-server ${SERVER_VERSION}`);
+      // Async since the prompt became one (spec 2026-09-15 §3.2). Safe for
+      // the same reason `mcp` is: the graph is IO-free at import and
+      // `cliEngaged` was set synchronously above, so no boot can start
+      // underneath a command that is waiting for an answer.
+      const code = command === "init" ? await runInit(opts, cmdDeps) : await runConfigure(opts, cmdDeps);
+      if (framed) outro(code === 0 ? "Done." : "Stopped.");
+      exit(code);
       return true;
     }
     case "service": {
@@ -322,32 +368,7 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         exit(1);
         return true;
       }
-      // Sync end to end (invariant 1): DEFAULT_DEPS runs manager commands via
-      // Bun.spawnSync and writes the unit/plist with sync fs — no await ever
-      // opens the boot graph. service.ts owns every decision; this case only
-      // assembles deps from the seams and routes the result to stdio.
-      const sdeps = DEFAULT_DEPS({
-        platform: deps.platform ?? process.platform,
-        home: deps.home ?? homedir(),
-        uid: deps.uid ?? process.getuid?.() ?? 0,
-        servicePath: deps.servicePath ?? process.execPath,
-        argv1: deps.argv1 ?? process.argv[1] ?? "",
-        configDir: deps.configDir ?? serverConfigDir(),
-        env: deps.env ?? process.env,
-        which: deps.which ?? ((name) => Bun.which(name) ?? null),
-        pathEnv: deps.pathEnv ?? process.env.PATH,
-        // tmux offer (spec 2026-09-03): service install takes no flags, so
-        // the gate is TTY-only — non-interactive installs keep the refusal.
-        // Platform rides on the seed itself (ServiceDeps.platform) where the
-        // preflight reads it for both detection and the hint.
-        tmuxOffer: {
-          interactive: deps.isTTY ?? process.stdin.isTTY === true,
-          log,
-          prompt: deps.prompt ?? promptLineSync,
-          spawn: deps.spawnInstall,
-        },
-      });
-      if (deps.runCmd) sdeps.runCmd = deps.runCmd;
+      const sdeps = serviceDeps(deps, log);
 
       // `status` is a VIEW, not a command: it always exits 0 (same rule as
       // top-level `status`) so a script can read state without branching on
@@ -375,6 +396,12 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       // out/err arrive pre-newline-terminated; log/error append their own.
       if (result.out !== "") log(result.out.replace(/\n+$/, ""));
       if (result.err !== "") error(result.err.replace(/\n+$/, ""));
+      // `init` and `service install` are the two commands a person ends on,
+      // so both say where to create the admin account — from ONE helper, or
+      // the two sentences drift and one of them starts naming a dead address.
+      if (verb === "install" && result.code === 0) {
+        for (const line of setupHandoffLines({ configDir: sdeps.configDir, hostname: deps.hostname })) log(line);
+      }
       exit(result.code);
       return true;
     }
@@ -384,6 +411,43 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       exit(1);
       return true;
   }
+}
+
+/**
+ * Assemble the `service.ts` deps from the CLI's seams.
+ *
+ * Shared by the `service` verbs and by `init`'s own service question, so both
+ * install through one seed — a second assembly here is how `init` would come
+ * to bake a different ExecStart or PATH than `service install` does.
+ *
+ * Sync end to end: DEFAULT_DEPS runs manager commands via `Bun.spawnSync` and
+ * writes the unit/plist with sync fs, which is what lets `installService`
+ * stay a plain function (and why the tmux offer needs its own sync prompt).
+ */
+function serviceDeps(deps: CliDeps, log: (line: string) => void): ServiceDeps {
+  const sdeps = DEFAULT_DEPS({
+    platform: deps.platform ?? process.platform,
+    home: deps.home ?? homedir(),
+    uid: deps.uid ?? process.getuid?.() ?? 0,
+    servicePath: deps.servicePath ?? process.execPath,
+    argv1: deps.argv1 ?? process.argv[1] ?? "",
+    configDir: deps.configDir ?? serverConfigDir(),
+    env: deps.env ?? process.env,
+    which: deps.which ?? ((name) => Bun.which(name) ?? null),
+    pathEnv: deps.pathEnv ?? process.env.PATH,
+    // tmux offer (spec 2026-09-03): service install takes no flags, so the
+    // gate is TTY-only — non-interactive installs keep the refusal. Platform
+    // rides on the seed itself (ServiceDeps.platform) where the preflight
+    // reads it for both detection and the hint.
+    tmuxOffer: {
+      interactive: deps.isTTY ?? process.stdin.isTTY === true,
+      log,
+      prompt: deps.promptSync ?? promptLineSync,
+      spawn: deps.spawnInstall,
+    },
+  });
+  if (deps.runCmd) sdeps.runCmd = deps.runCmd;
+  return sdeps;
 }
 
 /**
@@ -434,10 +498,37 @@ const CONFIG_EMPTYABLE_FLAGS = new Set(["--trusted-origins"]);
  * shadowed by the next flag (`--trusted-origins --yes`) stays an error either
  * way.
  *
+ * `--service`/`--no-service` are boolean and `init`-only; `configure`
+ * installs nothing, so there they are an unknown flag rather than a no-op
+ * silently accepted.
+ *
+ * @param rest - the args after the subcommand word
+ * @param error - stderr sink for the one refusal line
+ * @param opts0 - `allowService` enables the two boolean service flags (`init`)
  * @returns the parsed options, or null after writing the error line
  */
-function parseConfigFlags(rest: string[], error: (line: string) => void): ConfigureOpts | null {
+function parseConfigFlags(
+  rest: string[],
+  error: (line: string) => void,
+  opts0: { allowService: boolean } = { allowService: false },
+): ConfigureOpts | null {
   const opts: ConfigureOpts = {};
+  /** The boolean flags this invocation accepts, and what each one means. */
+  const booleans: Record<string, (o: ConfigureOpts) => void> = {
+    "--yes": (o) => {
+      o.yes = true;
+    },
+    ...(opts0.allowService
+      ? {
+          "--service": (o: ConfigureOpts) => {
+            o.service = true;
+          },
+          "--no-service": (o: ConfigureOpts) => {
+            o.service = false;
+          },
+        }
+      : {}),
+  };
   const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string | null => {
     const value = inline ?? next;
     // A MISSING value, or one shadowed by the next flag, is always an error.
@@ -454,12 +545,13 @@ function parseConfigFlags(rest: string[], error: (line: string) => void): Config
     const eq = token.startsWith("--") ? token.indexOf("=") : -1;
     const flag = eq === -1 ? token : token.slice(0, eq);
     const inline = eq === -1 ? undefined : token.slice(eq + 1);
-    if (flag === "--yes") {
+    const boolean = booleans[flag];
+    if (boolean !== undefined) {
       if (inline !== undefined) {
-        error(`subshell-server: flag '--yes' takes no value`);
+        error(`subshell-server: flag '${flag}' takes no value`);
         return null;
       }
-      opts.yes = true;
+      boolean(opts);
       continue;
     }
     if (!token.startsWith("-")) {
@@ -498,16 +590,45 @@ function parseConfigFlags(rest: string[], error: (line: string) => void): Config
 const decodeLine = (bytes: number[]): string => Buffer.from(bytes).toString("utf8").replace(/\r$/, "");
 
 /**
- * Production prompt: `writeSync(1, …)` + one-byte blocking `readSync(0, …)`
- * until LF. Deliberately NOT readline — readline is promise/event-driven and
- * would suspend the prelude, breaking cli.ts invariant 1 (the boot graph
- * imports the moment the command awaits — see the module docstring). A
+ * The tmux offer's prompt: `writeSync(1, …)` + one-byte blocking
+ * `readSync(0, …)` until LF. It stays SYNCHRONOUS — and stays here beside the
+ * clack ones rather than being replaced by them — because `tmuxPreflight` is
+ * shared with `installService`, which returns a `CliResult` rather than a
+ * promise and cannot await an answer. A
  * canonical-mode TTY delivers whole lines, so byte-at-a-time reads simply
  * block on the tty driver; multi-byte UTF-8 reassembles at decode. EOF
  * (Ctrl-D, or a closed stdin) returns null so the caller aborts with zero
  * writes. EAGAIN (a non-blocking stdin under some launcher) parks briefly
  * and retries rather than fabricating an answer.
  */
+/**
+ * The production text prompt: `@clack/prompts`'s `text`, with the default
+ * shown as a placeholder AND returned for an empty answer, so pressing ENTER
+ * keeps what is configured (which is what "defaults follow the file" means).
+ *
+ * It replaced a one-line `readSync(0, …)` because that could render neither a
+ * default, a validation error, nor a cancel — and the first real branch a
+ * headless operator meets deserves the same affordance the desktop
+ * assistant's radio buttons give (spec 2026-09-15 §3.2).
+ *
+ * @returns the answer, or null when the person cancelled (Ctrl-C)
+ */
+export async function promptText(question: string, def: string): Promise<string | null> {
+  const answer = await clackText({ message: question, placeholder: def, defaultValue: def });
+  return isCancel(answer) ? null : answer;
+}
+
+/**
+ * The production yes/no prompt: `@clack/prompts`'s `confirm`, with `def`
+ * pre-selected so ENTER is the default answer.
+ *
+ * @returns the choice, or null when the person cancelled (Ctrl-C)
+ */
+export async function promptConfirm(question: string, def: boolean): Promise<boolean | null> {
+  const answer = await clackConfirm({ message: question, initialValue: def });
+  return isCancel(answer) ? null : answer;
+}
+
 export function promptLineSync(question: string, def: string): string | null {
   writeSync(1, `${question} [${def}]: `);
   const bytes: number[] = [];

@@ -34,15 +34,6 @@ async function installedIdsHere(): Promise<Set<string>> {
   return new Set((await localPluginReports()).filter((r) => !r.broken).map((r) => r.id));
 }
 
-/** Counts `user_meta` rows — the instance's "a user exists" truth. */
-async function countUserMeta(): Promise<number> {
-  const row = await db
-    .selectFrom("userMeta")
-    .select((eb) => eb.fn.countAll().as("count"))
-    .executeTakeFirstOrThrow();
-  return Number(row.count);
-}
-
 /**
  * Test seam for the needsSetup window (the per-process temp-file test DB is
  * one database shared by every test file in the run, and they write users
@@ -59,7 +50,10 @@ export function setHasUsersProbeForTests(fn: (() => Promise<boolean>) | null): v
 }
 
 async function realHasUsers(): Promise<boolean> {
-  return (await countUserMeta()) > 0;
+  // `user_meta` is the instance's "a user exists" truth, and the boot log asks
+  // the same question — one counter, so the wizard's gate and the line telling
+  // an operator to open it cannot answer differently.
+  return (await new UserMetaRepository(db).countUsers()) > 0;
 }
 
 let hasUsersProbe: () => Promise<boolean> = realHasUsers;

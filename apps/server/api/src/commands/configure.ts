@@ -20,18 +20,18 @@ import { chooseTmuxInstaller, runTmuxInstall, spawnInherit } from "./tmux-instal
  * anywhere. `init` (commands/init.ts) runs the same flow after seeding the
  * auth secret.
  *
- * The whole command is SYNCHRONOUS by contract — every fs call is the sync
- * API, and the interactive prompt reads stdin with `readSync(0, …)` (cli.ts
- * `promptLineSync`). That is not style, it is the entry's invariant 1
- * (cli.ts/cli-bootstrap.ts): a handled CLI command must run to completion
- * and `process.exit` INSIDE the first-imported prelude body, because Bun
- * (measured 1.4.0, Task B audit + the Task C spike) evaluates the rest of
- * `index.ts`'s imports the moment the command suspends — and `@/auth.js`
- * opens the SQLite file inside better-auth's constructor. An async (readline
- * based) configure would therefore litter the CWD with `data/subshell.db`
- * even though the boot gate keeps it from binding the port. Sync commands
- * never import the boot graph at all: zero files, zero listeners, proven by
- * `src/__tests__/cli-entry.test.ts` in a real subprocess.
+ * Every fs call is still the SYNC API, and that half has not changed. What
+ * did change is the prompt: it is `@clack/prompts` now (spec 2026-09-15
+ * §3.2), so this command suspends, like `mcp` already did. That is legal
+ * because what keeps a suspended command safe was never the exit style — it
+ * is cli.ts's two invariants: the entry graph is IO-FREE AT IMPORT (lazy
+ * `getAuth()`, so nothing opens SQLite merely by being evaluated) and
+ * `isCliEngaged()` flips synchronously at subcommand recognition, so the boot
+ * body cannot run underneath a command that is waiting for an answer. The
+ * historical hazard — an async configure littering the CWD with
+ * `data/subshell.db` because `@/auth.js` opened it at import — is gone with
+ * the eager construction that caused it, and `src/__tests__/cli-entry.test.ts`
+ * pins its absence in a real subprocess.
  *
  * Preservation contract for the rewrite: the four keys in {@link OWNED_KEYS}
  * are written from the answers, {@link OPTIONAL_KEYS} is written or removed
@@ -59,11 +59,34 @@ export const SKIP_TMUX_CHECK_ENV = "SUBSHELL_SERVER_SKIP_TMUX_CHECK";
  */
 export interface CommandDeps {
   /**
-   * Interactive prompt: renders `question [default]: ` and reads one stdin
-   * line. Returns the raw answer (possibly empty → caller takes the default)
-   * or `null` on EOF (Ctrl-D → the command aborts with zero writes).
+   * Interactive prompt for the config questions: asks one thing, shows the
+   * default, returns the raw answer (empty → the caller takes the default) or
+   * `null` when the person cancelled or stdin closed (the command then aborts
+   * with zero writes).
+   *
+   * Promise-returning in production (`@clack/prompts`'s `text`, wired in
+   * `cli.ts`); the union still accepts the plain function every test injects,
+   * which is why the seam did not have to move when the implementation did.
    */
-  prompt: (question: string, def: string) => string | null;
+  prompt: (question: string, def: string) => string | null | Promise<string | null>;
+  /**
+   * Yes/no question, with `def` rendered as the pre-selected answer
+   * (production: `@clack/prompts`'s `confirm`). `null` is a cancel.
+   *
+   * Separate from {@link CommandDeps.prompt} because the two render
+   * differently and a caller should not have to parse "y"/"yes" out of a text
+   * answer to find out what was meant.
+   */
+  confirm: (question: string, def: boolean) => boolean | null | Promise<boolean | null>;
+  /**
+   * The tmux offer's own prompt, and the reason it is a SECOND text seam
+   * rather than {@link CommandDeps.prompt}: `tmuxPreflight` is shared with
+   * `service install`, whose `installService` is synchronous end to end
+   * (cli.ts's sync convention, and it returns a `CliResult` rather than a
+   * promise), so the offer cannot await an answer. Production wires
+   * `promptLineSync`.
+   */
+  promptSync: (question: string, def: string) => string | null;
   /** stdout line sink (results, warnings). */
   log: (line: string) => void;
   /** stderr sink (refusals, validation errors). */
@@ -116,7 +139,7 @@ export function makeTmuxOffer(opts: ConfigureOpts, deps: CommandDeps): TmuxOffer
   return {
     interactive: !opts.yes && deps.isTTY,
     log: deps.log,
-    prompt: deps.prompt,
+    prompt: deps.promptSync,
     spawn: deps.spawnInstall,
   };
 }
@@ -139,6 +162,13 @@ export interface ConfigureOpts {
   trustedOrigins?: string;
   /** `--yes` (also implied by non-TTY): accept all defaults/flags, ask nobody. */
   yes?: boolean;
+  /**
+   * `--service` / `--no-service` (`init` only): install the background
+   * service, or do not. Absent means "ask, and take yes when nobody can be
+   * asked" — the opt-out exists for scripts and for the desktop apps, which
+   * install the service themselves with their own autostart choice.
+   */
+  service?: boolean;
 }
 
 /**
@@ -407,6 +437,10 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
   const dbPath = pick("DATABASE_PATH", input.dbPath, join(configDir, "subshell.db"));
   if (!dbPath.ok) return { ok: false, kind: "invalid", key: "DATABASE_PATH", reason: dbPath.reason };
 
+  // Canonicalized here rather than at the write below, because the third
+  // warning asks whether the list is EMPTY and " , " is a list that is.
+  const normalizedOrigins = normalizeTrustedOrigins(origins.value);
+
   // The enroll-time loopback trap (spec 2026-08-31), warned at write time: a
   // LAN bind with a loopback base URL makes every REMOTE node dial its own
   // box. Warned, then accepted — flags and scripted answers outrank taste.
@@ -429,6 +463,23 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
         `origin"). Set --base-url to the address you actually browse, or add it to --trusted-origins.`,
     );
   }
+  // The third face of the same trap, and the only one whose symptom names
+  // nothing. `constants.ts` derives the allowlist from the port, a CONCRETE
+  // HOST and the base URL — so on a wildcard bind with a loopback base URL the
+  // whole derived set is the two loopback spellings. The server answers a
+  // phone or a laptop on the LAN perfectly; sign-in then dies on 403 "Invalid
+  // origin", and nothing in that refusal names TRUSTED_ORIGINS. Warned rather
+  // than refused, like its two siblings: a box nobody browses from elsewhere
+  // is a legitimate configuration.
+  if (host.value === "0.0.0.0" && isLoopbackUrl(baseUrl.value) && normalizedOrigins === "") {
+    warnings.push(
+      `HOST=0.0.0.0 (LAN bind) with a loopback APP_BASE_URL (${baseUrl.value}) and no TRUSTED_ORIGINS: a ` +
+        "browser on any other machine sends an origin this instance does not trust, so sign-in answers " +
+        `403 "Invalid origin" without naming the key that fixes it. Add the address you browse from ` +
+        `(${FLAG_FOR_KEY.TRUSTED_ORIGINS} http://<this-host>:${port.value}), or make it the base URL ` +
+        `(${FLAG_FOR_KEY.APP_BASE_URL} http://<this-host>:${port.value}).`,
+    );
+  }
 
   const values: Record<string, string> = {
     ...existing,
@@ -440,7 +491,6 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
   // Present-or-absent, never present-and-empty (see OPTIONAL_KEYS): an empty
   // value beats `.env` in the precedence ladder and silently strips the
   // built-in dev origins, which is the footgun this key exists to avoid.
-  const normalizedOrigins = normalizeTrustedOrigins(origins.value);
   if (normalizedOrigins === "") delete values.TRUSTED_ORIGINS;
   else values.TRUSTED_ORIGINS = normalizedOrigins;
 
@@ -482,9 +532,10 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
  *   --db-path --yes`)
  * @param deps - injected stdio/IO/env seams; the command touches no other globals
  * @returns process exit code — 0 on success, 1 on refusal/validation failure
- *   (cli.ts hands this to `deps.exit`; the command never calls exit itself)
+ *   (cli.ts hands this to `deps.exit`; the command never calls exit itself).
+ *   Async since the prompt became one: see {@link CommandDeps.prompt}.
  */
-export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
+export async function runConfigure(opts: ConfigureOpts, deps: CommandDeps): Promise<number> {
   // The interactivity gate is decided BEFORE the preflight: the tmux offer
   // may fire only here (spec 2026-09-03) — `--yes`/non-TTY keep the refusal.
   const interactive = !opts.yes && deps.isTTY;
@@ -517,10 +568,10 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
    */
   const dflt = (key: ConfigKey, builtin: string): string => existing[key] ?? builtin;
   /** Resolve one answer (flag > trimmed prompt/ENTER-default > default); null = EOF. */
-  const ask = (question: string, def: string, flag: string | undefined): string | null => {
+  const ask = async (question: string, def: string, flag: string | undefined): Promise<string | null> => {
     if (flag !== undefined) return flag.trim();
     if (!interactive) return def;
-    const answer = deps.prompt(question, def);
+    const answer = await deps.prompt(question, def);
     if (answer === null) return null;
     const trimmed = answer.trim();
     return trimmed === "" ? def : trimmed;
@@ -538,8 +589,13 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
    * for `PATCH /api/admin/server/config`, where there are no prompts to
    * validate at.
    */
-  const resolve = (key: ConfigKey, question: string, def: string, flag: string | undefined): string | null => {
-    const value = ask(question, def, flag);
+  const resolve = async (
+    key: ConfigKey,
+    question: string,
+    def: string,
+    flag: string | undefined,
+  ): Promise<string | null> => {
+    const value = await ask(question, def, flag);
     if (value === null) {
       deps.error("stdin closed before all answers were given. Nothing was written.");
       return null;
@@ -569,9 +625,9 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     return value;
   };
 
-  const port = resolve("SERVER_PORT", "Server port", dflt("SERVER_PORT", "3080"), opts.port);
+  const port = await resolve("SERVER_PORT", "Server port", dflt("SERVER_PORT", "3080"), opts.port);
   if (port === null) return 1;
-  const host = resolve(
+  const host = await resolve(
     "HOST",
     "Bind address. 0.0.0.0 serves the LAN (what remote nodes and devices need); type 127.0.0.1 to stay loopback-only",
     dflt("HOST", "0.0.0.0"),
@@ -581,7 +637,7 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
   // The base-URL default follows the ANSWERED port (constants.ts derives it
   // from SERVER_PORT at boot too — mirrors each other) unless the file stores
   // one — then the stored URL is the default, unchanged.
-  const baseUrl = resolve(
+  const baseUrl = await resolve(
     "APP_BASE_URL",
     "Public base URL (browsers and remote nodes dial this)",
     dflt("APP_BASE_URL", `http://localhost:${port}`),
@@ -608,9 +664,9 @@ export function runConfigure(opts: ConfigureOpts, deps: CommandDeps): number {
     storedOrigins === ""
       ? "Other addresses browsers will use (comma-separated origins; blank for none)"
       : 'Other addresses browsers will use (comma-separated origins; ENTER keeps the list shown, `--trusted-origins ""` clears it)';
-  const trustedOrigins = resolve("TRUSTED_ORIGINS", originsQuestion, storedOrigins, opts.trustedOrigins);
+  const trustedOrigins = await resolve("TRUSTED_ORIGINS", originsQuestion, storedOrigins, opts.trustedOrigins);
   if (trustedOrigins === null) return 1;
-  const dbPath = resolve(
+  const dbPath = await resolve(
     "DATABASE_PATH",
     "SQLite database file",
     dflt("DATABASE_PATH", join(deps.configDir, "subshell.db")),
