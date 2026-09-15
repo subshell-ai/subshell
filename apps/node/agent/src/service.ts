@@ -1,6 +1,7 @@
+import { realpathSync } from "node:fs";
 import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { DESKTOP_CLIENT_BUNDLE_ID, lingerFromProbe, lingerProbeArgv, lingerVerdict } from "@internal/subshell-protocol";
 import type { CliResult } from "./cli.js";
 import { selfInvocation } from "./self-invoke.js";
@@ -380,6 +381,58 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
  * the CLI (`loadConfig()` resolves), keeping this module free of config imports
  * so unit tests stay fs-stub-pure.
  */
+/**
+ * Refuse a REAL service-definition write while a test suite is running.
+ *
+ * This sits in {@link DEFAULT_DEPS} — the PRODUCTION filesystem seam — rather
+ * than in `installService`, because the hazard is precisely "a test used the
+ * real deps". Tests that stub `writeFile` pass a fake home and never touch a
+ * disk; refusing those on `home` alone would break them for no safety.
+ *
+ * The failure it closes is not hypothetical, though it was the SERVER half that
+ * met it: on 2026-09-15, while its `init` was being taught to install a service
+ * by default, a CLI suite ran with real deps and wrote a launchd agent into the
+ * operator's own `~/Library/LaunchAgents` pointing `ExecStart` at a test file.
+ * launchd bootstrapped it and respawned it ten times against the operator's
+ * real database. This side has the same shape and the same exposure, so it gets
+ * the same guard before it earns its own incident.
+ *
+ * Both paths are realpath'd because macOS `tmpdir()` is a `/var/folders`
+ * symlink into `/private/var`. It reads the REAL `process.env` on purpose: the
+ * question is "is a test running", not "what env did a caller inject".
+ *
+ * @param path - the definition path about to be written or removed
+ * @throws when a test runner would touch a path outside the OS temp directory
+ */
+function assertWritableUnderTest(path: string): void {
+  if (process.env.NODE_ENV !== "test" && process.env.SUBSHELL_TEST_MODE !== "1") return;
+  // A path that does not exist yet cannot be realpath'd, and on macOS the
+  // UNRESOLVED spelling (/var/folders/...) never prefix-matches the resolved
+  // temp dir (/private/var/folders/...). Resolve the deepest ancestor that DOES
+  // exist and re-attach the rest, so both sides are in one spelling.
+  const real = (p: string): string => {
+    let cur = resolve(p);
+    const tail: string[] = [];
+    for (;;) {
+      try {
+        return tail.length === 0 ? realpathSync(cur) : join(realpathSync(cur), ...tail);
+      } catch {
+        const parent = dirname(cur);
+        if (parent === cur) return resolve(p);
+        tail.unshift(basename(cur));
+        cur = parent;
+      }
+    }
+  };
+  const tmp = real(tmpdir());
+  const target = real(path);
+  if (target === tmp || target.startsWith(`${tmp}/`)) return;
+  throw new Error(
+    `refusing to touch the service definition at ${path} while NODE_ENV=test — ` +
+      "point ServiceDeps.home at a temp directory, or stub writeFile/removeFile.",
+  );
+}
+
 export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
   return {
     platform: process.platform,
@@ -408,10 +461,12 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
     // The unit/plist directories (~/.config/systemd/user, ~/Library/LaunchAgents)
     // are ours to create; mkdir-recursive first so a fresh box installs cleanly.
     async writeFile(path, text) {
+      assertWritableUnderTest(path);
       await mkdir(dirname(path), { recursive: true });
       await fsWriteFile(path, text, "utf8");
     },
     async removeFile(path) {
+      assertWritableUnderTest(path);
       await rm(path, { force: true });
     },
     async fileExists(path) {
