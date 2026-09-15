@@ -1,5 +1,152 @@
 # @internal/server
 
+## 0.6.0
+
+### Minor Changes
+
+- [`152bdb5`](https://github.com/subshell-ai/subshell/commit/152bdb5da7dfc483e0c1032ecb4c03b1ce76f33b) Thanks [@theogravity](https://github.com/theogravity)! - Headless setup carries the sequence the desktop assistant carries.
+  
+  `subshell-server init` is now the whole first run: it writes config.env as
+  before, then asks whether to run the server in the background and start it at
+  login (default yes, `--no-service` to skip), and ends by naming the address to
+  open — `Open http://…/setup in a browser to create the admin account.` Nothing
+  said that before: not `init`, not `configure`, not `service install`, not the
+  boot log, not `status`. `service install` prints the same line when run alone,
+  and the boot log says it once while no account exists.
+  
+  - `install-server.sh` installs the control plane in one command: it resolves the
+    platform, downloads the newest `server-v*` binary, verifies the published
+    digest **before** the first `chmod +x`, installs to `~/.local/bin`, and runs
+    `init`.
+  - `status` gained a `setup` line saying whether the admin account exists — the
+    first question an operator has, from the command they are told to run first.
+  - `configure` warns about the LAN-bind trap: a wildcard bind with a loopback
+    base URL and no trusted origins is the configuration whose only symptom is a
+    403 "Invalid origin" naming nothing. The validator is shared, so the
+    dashboard's Addresses card inherits it.
+  - The browser `/setup` wizard has a tmux row, detection-first, with an Install
+    button where the package manager needs no privilege. `POST
+    /api/setup/tmux/install` is admin-cookie only and refuses anything
+    `sudo`-prefixed.
+  - Settings → General has a "Finish setting up" card listing only what is still
+    undone: tmux, supervision and lingering, LAN sign-in, the placeholder auth
+    secret, no agent CLI on this host. It renders nothing when there is nothing
+    left.
+  - The agent-CLI installer has a second door: the control-plane node's harness
+    card can install one, so skipping the wizard's agent step is recoverable.
+  - The Add-node dialog says what the one-liner will do to the machine, and its
+    success line links to the node that arrived.
+  
+  Interactive prompts are now rendered with `@clack/prompts`.
+
+- [`5cfcd19`](https://github.com/subshell-ai/subshell/commit/5cfcd19e7c59b5222a4ddc3b210edf5a413eaea4) Thanks [@theogravity](https://github.com/theogravity)! - Nodes can be taken out of service without being unenrolled.
+  
+  Until now the only way to stop subshells landing on a machine was to remove
+  someone's access to it, which meant the control-plane host had a switch nobody
+  else did — and that switch was really share surgery wearing a toggle's clothes.
+  There was no way at all to say "this machine is busy being worked on, send it
+  nothing for an hour."
+  
+  **Maintenance** is that, on every node including the server's own. A node in
+  maintenance stays enrolled and keeps answering everything else — service
+  control, logs, detection, restart, config — and simply takes no new subshells.
+  Turning it on stops the subshells already running there, so the confirmation
+  names how many and warns that their owners are told; those owners get a push
+  saying the machine went into maintenance rather than a crash notice.
+  
+  It can be set from either end. In the browser it is a switch on the node's page
+  and an item in the Nodes list menu, owner-only (an admin for the server's own
+  host). At the machine it is `subshell maintenance on|off|status` — useful when
+  you are already at the keyboard, and the only option when the plane cannot
+  reach the node. Whichever end moved last wins, and the node's page says which
+  one it was.
+  
+  A node in maintenance stays visible in the launch picker, greyed and labelled,
+  rather than disappearing: it is a machine with a reason and a way back, and one
+  that vanishes just looks lost. Trying to launch there anyway now says the node
+  is in maintenance instead of failing with a server error.
+
+- [`b1b7ca2`](https://github.com/subshell-ai/subshell/commit/b1b7ca2df9c80968ef1563617258c8e9d01c792b) Thanks [@theogravity](https://github.com/theogravity)! - Split a running subshell into a workspace. The subshell page gains a **Split**
+  button that opens the add-subshell picker; the two subshells land side by side
+  in an unsaved workspace you can name later with **Save workspace…** or throw
+  away with **Discard**. Unsaved workspaces stay off the Workspaces page and the
+  sidebar, are discarded automatically once they hold fewer than two panes, and
+  the subshell page links back to the workspace it is on.
+
+- [`44b3f8f`](https://github.com/subshell-ai/subshell/commit/44b3f8fe612be94cd35fc034199ea1599d00f5e8) Thanks [@theogravity](https://github.com/theogravity)! - The Service page answers "will this survive a reboot?" instead of offering a switch.
+  
+  Server Settings → Service was designed inside the Subshell Server app and then
+  shown to every browser, which put a choice on screen that most machines cannot
+  make: a headless Linux box was offered "With the Subshell Server app", disabled,
+  under a note telling you to go change it in an app that machine does not have.
+  And the control beneath it, **Start at login**, asked the wrong question. It
+  reads as being about a desktop login; an operator who does not want a GUI thing
+  switches it off and discovers at the next reboot that their server is gone.
+  
+  Worse, on Linux that switch was never the whole answer. A `systemd --user`
+  service runs inside its owner's login session, so an *enabled* unit still stops
+  the moment that user logs out — unless the account **lingers**. The fix is one
+  command, `loginctl enable-linger $USER`, and nothing in the app had ever told
+  you whether your machine needed it. The installer printed the advice once, to a
+  terminal, on a machine most people never open a terminal on.
+  
+  So in a browser the card now states one fact — *comes back after a reboot,
+  without anyone logging in* / *comes back when you log in, and stops when you log
+  out* / *will not come back after a reboot* — and offers a remedy only when the
+  answer is unsatisfying: the lingering command, a **Start automatically** button,
+  or the install command. Lingering is now measured rather than guessed at, so the
+  page says which machine you have instead of explaining both. Inside the Subshell
+  Server app nothing changes: there the choice is real, the vocabulary is native,
+  and the radios, the confirmation dialog and the login switch all stay.
+  
+  A node's Runtime card answers the same question in the same words, with the
+  caveat it used to print for every Linux node replaced by that machine's own
+  answer. `subshell service status` and `subshell-server service status` report
+  it too, and the installer now mentions lingering only when you actually need it.
+  
+  Enrolled nodes have to be updated for this one. Reporting the fact needed a new
+  field on the wire, so the node protocol steps to 9 and the minimum agent version
+  to 0.7.0 — an older agent is refused at connect, as at every previous bump. Cut
+  and publish the `node-v0.7.x` release before anyone reaches for the enroll
+  download: until it exists the server has no agent binary it is willing to fetch.
+
+- [`6b13c2c`](https://github.com/subshell-ai/subshell/commit/6b13c2c8c456b7ee8a2ba72a7c0bc2b5b4bde521) Thanks [@theogravity](https://github.com/theogravity)! - The user roster is a dedicated admin page at `/settings/users`, and adding a user is a dialog opened from its header. The dialog asks with the same form the first-run setup uses (name, email, password, confirmation, the password rule stated up front) plus a role. `POST /api/users` now takes a `name`, and the roster returns one. The old `/users` page is gone.
+
+- [`1f51f9d`](https://github.com/subshell-ai/subshell/commit/1f51f9d9d57798b78c3806bb940eff2ace13fd79) Thanks [@theogravity](https://github.com/theogravity)! - Admins can disable a user account, which signs them out everywhere and refuses every credential they hold, including the bearer tokens their running subshells authenticate with. Enabling restores it. Nobody can disable or re-role their own account, since an admin who removes their own administration cannot undo it without another admin. The Add user dialog asks for the role first, and both role controls on the page spell each role one way. Display names are normalized and capped like every other person-chosen label, on the admin route and at first-run sign-up.
+
+### Patch Changes
+
+- [`fe46712`](https://github.com/subshell-ai/subshell/commit/fe467122bbb010b5340180b94739d182177689c0) Thanks [@theogravity](https://github.com/theogravity)! - An agent install whose output overflows says so again.
+  
+  Installer output is capped at 64 KiB, and a longer run is meant to end in
+  `[truncated]` so the setup screen tells you the log is not the whole story.
+  The counter deciding that only advanced while it was still under the cap, so
+  it could report "we filled up" but never "there was more" — and since a pipe
+  hands over power-of-two sized reads against a power-of-two cap, landing
+  exactly ON the limit is the common case, not the rare one. A chatty installer
+  therefore dropped everything past 64 KiB in silence, which reads as an
+  installer that stopped talking rather than a log that was cut.
+
+- [`5fa2c5a`](https://github.com/subshell-ai/subshell/commit/5fa2c5a0eadcf9c87d2bb7e932607b1a6c6cfb18) Thanks [@theogravity](https://github.com/theogravity)! - The Locations card (config file, data directory, database, logs, node artifacts, service definition) moved from Server Settings → Service to Server Settings → Status, where the read-only facts live; the Runtime card now shows the database size only.
+
+- [`fac6d2c`](https://github.com/subshell-ai/subshell/commit/fac6d2cfcd3bc7db39a24692f5f213f67e93f4af) Thanks [@theogravity](https://github.com/theogravity)! - The first run on a Mac now says what macOS will ask and why — Notifications,
+  Files and Folders, Photos, and the Background Items banner — requests the one
+  the app owns, and never blocks on the answer. A permission that is missing is
+  named at the moment it bites: a banner when a "waiting for you" notification
+  could not post, a notice when the image picker opens with Photos blocked, and
+  "Blocked by macOS" in the directory picker when the server cannot list a
+  folder. Each carries a **Fix…** that opens the assistant, where a declined
+  permission offers **Open System Settings**. Preferences → Notifications shows
+  the live macOS state.
+
+- [`c8f227b`](https://github.com/subshell-ai/subshell/commit/c8f227b0845748fdcc007f8a43050f38a8fedbb6) Thanks [@theogravity](https://github.com/theogravity)! - Two Nodes fixes.
+  
+  Server Settings → Status now counts the control-plane host among the online nodes. "Online" was the live agent-socket registry alone, which the server's own launch target can never appear in because it runs no agent — so an instance whose only node is the server read "0 online · 1 enrolled" forever, beside a Nodes page showing that same machine online.
+  
+  A node row no longer crushes its name. On a node with several detected harnesses the badges pushed the name column down to about one character, rendering a letter per line under an ellipsis. The name now keeps a minimum width, and the harness chips are what give way: three show inline and the rest sit behind a "+N more" button that expands them in place. The OS, status, "inventory stale" and ownership badges are always visible.
+
+- [`63a9fa0`](https://github.com/subshell-ai/subshell/commit/63a9fa05fbd47a930f66549131b86025052f90aa) Thanks [@theogravity](https://github.com/theogravity)! - Server Settings → Status now reports the effective registration gate. It read the stored setting under an open-by-default fallback, so an instance that had never touched the setting showed an amber "open" in Security posture while the Registration toggle correctly showed "Closed" and every sign-up was refused.
+
 ## 0.5.0
 
 ### Minor Changes
