@@ -1,6 +1,6 @@
 {
   "name": "@internal/node",
-  "description": "subshell \u2014 node client daemon: enrolls with the control plane and executes signed commands",
+  "description": "subshell — node client daemon: enrolls with the control plane and executes signed commands",
   "version": "0.7.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -26,6 +26,7 @@
     "compile:release": "bun run src/scripts/release.ts"
   },
   "dependencies": {
+    "@clack/prompts": "1.8.1",
     "@internal/backend-errors": "workspace:*",
     "@internal/mcp-core": "workspace:*",
     "@internal/pane-runtime": "workspace:*",
