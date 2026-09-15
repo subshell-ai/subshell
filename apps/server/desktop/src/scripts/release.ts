@@ -525,7 +525,17 @@ export async function collectUpdaterArtifact(
   // publishing it would be publishing a lie.
   if (!deps.exists(`${source}.sig`)) {
     deps.log(`signing ${basename(source)} (the bundler emitted no .sig)…`);
-    const code = await deps.run(["./node_modules/.bin/tauri", "signer", "sign", "-f", "-", source], DESKTOP_DIR);
+    // NO KEY ARGUMENT, and that is the whole of what this line has to get
+    // right. `tauri signer sign` reads the key from the ENVIRONMENT —
+    // `TAURI_SIGNING_PRIVATE_KEY` (which release.yml exports and which is the
+    // `-k/--private-key` env binding) or `TAURI_SIGNING_PRIVATE_KEY_PATH` —
+    // and `-f` is `--private-key-path`, NOT "read it from stdin". Passing
+    // `-f -` alongside the exported variable makes clap refuse before
+    // anything is signed: "the argument '--private-key-path' cannot be used
+    // with '--private-key'" (measured against this repo's own CLI,
+    // 2026-09-15). And a key passed as `-k <value>` would put the private key
+    // in argv, where `ps` reads it; the environment is where it belongs.
+    const code = await deps.run(["./node_modules/.bin/tauri", "signer", "sign", source], DESKTOP_DIR);
     if (code !== 0) throw new Error(`could not sign ${source} — nothing published`);
   }
   const signature = (await deps.read(`${source}.sig`)).trim();

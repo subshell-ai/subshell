@@ -398,7 +398,13 @@ describe("the updater artifacts (spec 2026-09-15 SS 8)", () => {
     const s = stub({ exists: (p) => !p.endsWith(".sig") });
     const deb = `${ROOT}/deb/${desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, "linux-x64", "1.2.3")}`;
     await collectUpdaterArtifact(s.deps, ROOT, "linux-x64", "1.2.3", deb);
-    expect(s.runs.at(-1)?.argv).toEqual(["./node_modules/.bin/tauri", "signer", "sign", "-f", "-", deb]);
+    // NO key argument: `-f` is `--private-key-path` rather than "stdin", and
+    // release.yml exports `TAURI_SIGNING_PRIVATE_KEY`, which binds `-k`. The
+    // two together make clap refuse before anything is signed. Measured
+    // 2026-09-15 against this repo's own CLI; see the twin in
+    // `apps/server/desktop`.
+    expect(s.runs.at(-1)?.argv).toEqual(["./node_modules/.bin/tauri", "signer", "sign", deb]);
+    expect(s.runs.at(-1)?.argv).not.toContain("-f");
   });
 
   test("refuses when the bundler wrote no updater artifact at all", async () => {
