@@ -24,7 +24,7 @@ import {
   serviceStateLines,
   uninstallService,
 } from "./service.js";
-import { type PromptFn, promptConfirm, runSetup } from "./setup.js";
+import { type ConfirmFn, promptConfirm, runSetup } from "./setup.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
@@ -321,7 +321,7 @@ export interface RunDeps {
    * confirm). Tests inject a plain function, which is the whole point of the
    * seam — nothing has to parse a rendered prompt to know what was asked.
    */
-  prompt?: PromptFn;
+  prompt?: ConfirmFn;
   /**
    * Can anything answer a question? Default: `process.stdin.isTTY`. False
    * takes every default IN SILENCE — a `curl … | bash` install and a CI

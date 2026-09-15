@@ -49,12 +49,20 @@ function setupArgv(serverUrl: string, ...extra: string[]): string[] {
   return ["setup", "--server", serverUrl, "--key", "nsk_test_0123456789", "--data-dir", dataDir, ...extra];
 }
 
-/** Records every prompt asked, answering with a scripted reply. */
-function recordingPrompt(answer: string | null) {
-  const asked: Array<{ question: string; def: string }> = [];
+/**
+ * Records every prompt asked, answering with a scripted reply.
+ *
+ * The seam answers in BOOLEANS — `null` is "nothing answered" (EOF, a closed
+ * stdin, a cancel) and reads as a decline. It used to hand back "y"/"n" text
+ * that `runSetup` re-parsed, which put the question's meaning in the caller
+ * rather than in whatever rendered it; review (2026-09-15) matched it to the
+ * server CLI's own boolean confirm.
+ */
+function recordingPrompt(answer: boolean | null) {
+  const asked: Array<{ question: string; def: boolean }> = [];
   return {
     asked,
-    prompt: (question: string, def: string) => {
+    prompt: (question: string, def: boolean) => {
       asked.push({ question, def });
       return answer;
     },
@@ -91,7 +99,7 @@ test("usage lists setup as the one-command path", async () => {
 test("--yes enrolls, installs the service, and never asks", async () => {
   const url = plane();
   const s = serviceStub();
-  const p = recordingPrompt("n");
+  const p = recordingPrompt(false);
   const res: CliResult = await run(setupArgv(url, "--yes"), { service: s.deps, prompt: p.prompt, interactive: true });
 
   expect(res.code).toBe(0);
@@ -109,7 +117,7 @@ test("--yes enrolls, installs the service, and never asks", async () => {
 test("a non-TTY without --yes takes the same default, silently", async () => {
   const url = plane();
   const s = serviceStub();
-  const p = recordingPrompt("n");
+  const p = recordingPrompt(false);
   const res = await run(setupArgv(url), { service: s.deps, prompt: p.prompt, interactive: false });
 
   expect(res.code).toBe(0);
@@ -120,7 +128,7 @@ test("a non-TTY without --yes takes the same default, silently", async () => {
 test("--no-service enrolls and installs nothing, naming the command that would", async () => {
   const url = plane();
   const s = serviceStub();
-  const p = recordingPrompt("y");
+  const p = recordingPrompt(true);
   const res = await run(setupArgv(url, "--no-service"), { service: s.deps, prompt: p.prompt, interactive: true });
 
   expect(res.code).toBe(0);
@@ -134,20 +142,20 @@ test("--no-service enrolls and installs nothing, naming the command that would",
 test("interactive: the question defaults to yes and its answer decides the install", async () => {
   const url = plane();
   const yes = serviceStub();
-  const ask = recordingPrompt("");
+  const ask = recordingPrompt(true); // what pressing enter on a default-yes confirm yields
   const res = await run(setupArgv(url), { service: yes.deps, prompt: ask.prompt, interactive: true });
 
   expect(res.code).toBe(0);
   expect(ask.asked).toHaveLength(1);
   expect(ask.asked[0].question).toInclude("background");
-  expect(ask.asked[0].def).toBe("y"); // press-enter installs it
+  expect(ask.asked[0].def).toBe(true); // press-enter installs it
   expect(yes.files.has(UNIT)).toBe(true);
 });
 
 test("interactive: a plain no skips the install and says how to do it later", async () => {
   const url = plane();
   const s = serviceStub();
-  const p = recordingPrompt("n");
+  const p = recordingPrompt(false);
   const res = await run(setupArgv(url), { service: s.deps, prompt: p.prompt, interactive: true });
 
   expect(res.code).toBe(0);
@@ -235,7 +243,7 @@ test("a rejected setup key fails with enroll's advice and installs nothing", asy
 test("--json emits the facts a script needs, asks nothing, and never the node key", async () => {
   const url = plane();
   const s = serviceStub();
-  const p = recordingPrompt("n");
+  const p = recordingPrompt(false);
   const res = await run(setupArgv(url, "--json"), { service: s.deps, prompt: p.prompt, interactive: true });
 
   expect(res.code).toBe(0);

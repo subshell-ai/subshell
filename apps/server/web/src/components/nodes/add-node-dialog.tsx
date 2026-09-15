@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { useCreateSetupKey, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
+import { tmuxInstallHint } from "@/lib/tmux-install";
 import type { CreatedSetupKey } from "@/types/node";
 
 /**
@@ -208,8 +209,9 @@ export function AddNodeDialog({
                 failed an hour later. */}
             <p className="text-detail text-muted-foreground">
               That machine needs <span className="font-mono">tmux</span> first — setup refuses without it, and a node
-              runs every subshell inside it. Install with <code className="font-mono">brew install tmux</code> on macOS
-              or <code className="font-mono">sudo apt-get install tmux</code> on Linux.
+              runs every subshell inside it. Install with{" "}
+              <code className="font-mono">{tmuxInstallHint("darwin")?.command}</code> on macOS or{" "}
+              <code className="font-mono">{tmuxInstallHint("linux")?.command}</code> on Linux.
             </p>
             <CopyCommandRow text={installCommand} />
             {missingNote && (

@@ -359,3 +359,32 @@ describe("install-server.sh", () => {
     expect(text).toContain(`Copyright ${year} ${holder}`);
   });
 });
+
+/**
+ * The public path refuses a plaintext hop; an operator override does not.
+ *
+ * `--location` follows redirects, so without `--proto =https` a release host
+ * could bounce the download into http and the script would follow. The pin is
+ * dropped when the endpoints are overridden, because an override is a
+ * deliberate choice about the operator's own network — the same posture the
+ * plugin registry documents for an http mirror, and what lets these tests
+ * drive a local fake at all. Review, 2026-09-15.
+ */
+describe("transport pinning", () => {
+  const script = readFileSync(SCRIPT, "utf8");
+
+  test("pins https and a modern TLS floor for the default endpoints", () => {
+    expect(script).toContain('CURL_PROTO="--proto =https --tlsv1.2"');
+  });
+
+  test("every curl on the download path honours the pin", () => {
+    const curls = script.match(/curl [^\n]*/g) ?? [];
+    const fetching = curls.filter((c) => c.includes("--location"));
+    expect(fetching.length).toBeGreaterThan(0);
+    for (const c of fetching) expect(c).toContain("$CURL_PROTO");
+  });
+
+  test("an override clears the pin, which is what lets a local fake be used", () => {
+    expect(script).toContain('*) CURL_PROTO="" ;;');
+  });
+});

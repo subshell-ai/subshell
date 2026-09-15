@@ -79,7 +79,7 @@ export function TmuxRow({
               being unable to run anything. */}
           <p className="text-detail text-muted-foreground">
             Subshells cannot launch on this machine without it.{" "}
-            {hint === null && <>Install tmux on this machine, then Re-check.</>}
+            {hint === null && <>Install tmux on this machine and this row will pick it up.</>}
           </p>
           {hint !== null && (
             <>
@@ -106,7 +106,7 @@ export function TmuxRow({
       )}
       {failure && (
         <div className="pb-3 pl-9">
-          <p className="text-destructive text-sm">{failure.message}</p>
+          <p className="text-destructive text-detail">{failure.message}</p>
           {failure.output !== undefined && failure.output.trim() !== "" && (
             <details className="mt-1 text-sm">
               <summary className="cursor-pointer text-detail text-muted-foreground">What the installer printed</summary>

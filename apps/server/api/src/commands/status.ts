@@ -196,6 +196,13 @@ export interface StatusView {
  * running server is exactly the case where the `-shm` exists and the
  * read-only open already worked.
  *
+ * **It does write, despite never creating a database.** The read-write
+ * fallback is what lets SQLite build the `-shm`/`-wal` sidecars a WAL database
+ * needs, so a `status` run on an instance whose sidecars are gone leaves them
+ * behind (measured on bun 1.4.2, review 2026-09-15). Harmless as the owning
+ * user; running `status` as root against a per-user instance would leave
+ * root-owned sidecars the server then cannot write.
+ *
  * @returns the account count, or null when the database could not be read
  */
 function countAccounts(path: string): number | null {

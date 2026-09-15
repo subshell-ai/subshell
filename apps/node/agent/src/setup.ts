@@ -26,11 +26,17 @@ import { installService, type ServiceDeps } from "./service.js";
  * `run()` is already async and the production answerer ({@link promptConfirm})
  * is clack, which is not. Tests keep injecting a plain synchronous function.
  *
- * Returns the raw answer, or `null` for "nothing answered" — EOF, a closed
- * stdin, or a cancelled prompt. Null is a DECLINE, never a default: a question
- * someone walked away from must not install a service on their machine.
+ * It answers in BOOLEANS, not in "y"/"n" text. A text seam made every caller
+ * re-derive what the operator meant, and this CLI briefly did exactly that with
+ * its own word parser while the server CLI next door had already decided the
+ * opposite (review, 2026-09-15). The parsing belongs to whatever renders the
+ * question, which is the one place that knows how it was asked.
+ *
+ * Returns the answer, or `null` for "nothing answered" — EOF, a closed stdin,
+ * or a cancelled prompt. Null is a DECLINE, never a default: a question someone
+ * walked away from must not install a service on their machine.
  */
-export type PromptFn = (question: string, def: string) => string | null | Promise<string | null>;
+export type ConfirmFn = (question: string, def: boolean) => boolean | null | Promise<boolean | null>;
 
 /** The one question `setup` asks. Default yes — backgrounded is what an operator came for. */
 export const SERVICE_QUESTION = "Run the agent in the background and start it at login?";
@@ -64,24 +70,9 @@ export interface SetupDeps {
   /** Service-manager + filesystem seams handed to {@link installService}. */
   service: ServiceDeps;
   /** How the service question is asked (production: {@link promptConfirm}). */
-  prompt: PromptFn;
+  prompt: ConfirmFn;
   /** Can anything answer a question? False ⇒ take the default in silence. */
   interactive: boolean;
-}
-
-/**
- * Reads a free-text yes/no answer. Empty takes the default (the press-enter
- * affordance the whole prompt exists for); `null` declines; anything
- * unrecognised takes the default rather than failing, because the only
- * question here has a safe default and an operator who typed "sure" meant yes.
- */
-function readYesNo(answer: string | null, def: boolean): boolean {
-  if (answer === null) return false;
-  const word = answer.trim().toLowerCase();
-  if (word === "") return def;
-  if (word.startsWith("y")) return true;
-  if (word.startsWith("n")) return false;
-  return def;
 }
 
 /**
@@ -94,16 +85,16 @@ function readYesNo(answer: string | null, def: boolean): boolean {
  * (Ctrl-C, or clack's own `isCancel`) returns null, which the caller reads as
  * a decline.
  */
-export async function promptConfirm(question: string, def: string): Promise<string | null> {
+export async function promptConfirm(question: string, def: boolean): Promise<boolean | null> {
   if (!process.stdin.isTTY) return null;
   intro("subshell setup");
-  const answer = await confirm({ message: question, initialValue: def !== "n" });
+  const answer = await confirm({ message: question, initialValue: def });
   if (isCancel(answer)) {
     outro("cancelled");
     return null;
   }
   outro("");
-  return answer ? "y" : "n";
+  return answer;
 }
 
 /**
@@ -135,7 +126,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<Cli
   } else if (opts.json || opts.assumeYes || !deps.interactive) {
     wantService = true;
   } else {
-    wantService = readYesNo(await deps.prompt(SERVICE_QUESTION, "y"), true);
+    wantService = (await deps.prompt(SERVICE_QUESTION, true)) ?? false;
   }
 
   // installService's output rides through VERBATIM: on Linux it carries the

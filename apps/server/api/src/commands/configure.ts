@@ -471,7 +471,18 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
   // origin", and nothing in that refusal names TRUSTED_ORIGINS. Warned rather
   // than refused, like its two siblings: a box nobody browses from elsewhere
   // is a legitimate configuration.
-  if (host.value === "0.0.0.0" && isLoopbackUrl(baseUrl.value) && normalizedOrigins === "") {
+  // EVERY configured origin loopback, not merely an EMPTY list. An explicit
+  // `TRUSTED_ORIGINS=http://localhost:5174` reaches a browser on another
+  // machine exactly as nothing does, so testing for "" alone stayed silent on a
+  // configuration that is just as broken. The dashboard's checklist asks the
+  // wider question, and the two are supposed to agree about anything both can
+  // see (found in review, 2026-09-15).
+  const everyOriginLoopback = normalizedOrigins
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .every((entry) => isLoopbackUrl(entry));
+  if (host.value === "0.0.0.0" && isLoopbackUrl(baseUrl.value) && everyOriginLoopback) {
     warnings.push(
       `HOST=0.0.0.0 (LAN bind) with a loopback APP_BASE_URL (${baseUrl.value}) and no TRUSTED_ORIGINS: a ` +
         "browser on any other machine sends an origin this instance does not trust, so sign-in answers " +

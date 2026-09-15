@@ -337,8 +337,14 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
   it("install.sh forwards SUBSHELL_NO_SERVICE as --no-service, and passes nothing when it is unset", async () => {
     const body = await (await install(await mkKey())).text();
+    // EXACTLY "1", never merely non-empty: install-server.sh reads it the same
+    // way and the same operator runs both one-liners, so `=0` must not skip the
+    // service here while installing one there. Mirrors the server script's own
+    // "only counts as the exact opt-in" test (found in review, 2026-09-15).
     // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
-    expect(body).toContain('if [ -n "${SUBSHELL_NO_SERVICE:-}" ]; then');
+    expect(body).toContain('if [ "${SUBSHELL_NO_SERVICE:-}" = "1" ]; then');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
+    expect(body).not.toContain('if [ -n "${SUBSHELL_NO_SERVICE:-}" ]; then');
     expect(body).toContain("SETUP_SERVICE_ARGS=(--no-service)");
     expect(body).toContain("SETUP_SERVICE_ARGS=()");
     // Guarded expansion, same `set -u` / bash 3.2 reason as the data-dir array.
@@ -566,6 +572,14 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(noSvc.exitCode).toBe(0);
         expect(noSvc.args[0]).toBe("setup");
         expect(noSvc.args).toContain("--no-service");
+
+        // ── and `=0` is NOT the opt-out ──
+        // It used to be, because the test was `-n`: any non-empty value
+        // skipped the service here while install-server.sh, which requires
+        // exactly "1", installed one. The same operator runs both one-liners.
+        const zero = runBranch(join(work, "cwd-no-service-0"), { SUBSHELL_NO_SERVICE: "0" });
+        expect(zero.exitCode).toBe(0);
+        expect(zero.args).not.toContain("--no-service");
       } finally {
         rmSync(work, { recursive: true, force: true });
       }

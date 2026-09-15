@@ -1,7 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, resolve as resolvePath } from "node:path";
-import { DESKTOP_SERVER_BUNDLE_ID, lingerFromProbe, lingerProbeArgv } from "@internal/subshell-protocol";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import {
+  assertManagerCommandUnderTest,
+  assertServiceWriteUnderTest,
+  DESKTOP_SERVER_BUNDLE_ID,
+  lingerFromProbe,
+  lingerProbeArgv,
+} from "@internal/subshell-protocol";
 import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
 
 /**
@@ -1262,112 +1267,6 @@ export interface ServiceSeed {
  * from the seeded configDir here — the one place allowed to spell the file
  * name, mirroring the client ruling that service.ts imports no config loader.
  */
-/**
- * Refuse a REAL service-definition write while a test suite is running.
- *
- * This sits in {@link DEFAULT_DEPS} — the PRODUCTION filesystem seam — rather
- * than in `installService`, because the hazard is precisely "a test used the
- * real deps". Tests that stub `writeFile` pass a fake home and never touch a
- * disk; refusing those would be wrong, and refusing on `home` alone did exactly
- * that.
- *
- * The failure it closes is not hypothetical. On 2026-09-15, while `init` was
- * being taught to install a service by default, a CLI suite ran with real deps
- * and wrote a launchd agent into the operator's own `~/Library/LaunchAgents`
- * pointing `ExecStart` at a test file. launchd bootstrapped it and respawned it
- * ten times against the operator's real database before anyone noticed. The
- * harness was then stubbed, which fixes that harness; this fixes the class, so
- * the next suite that forgets gets a refusal instead of a service.
- *
- * Both paths are realpath'd because macOS `tmpdir()` is a `/var/folders`
- * symlink into `/private/var`. It reads the REAL `process.env` on purpose: the
- * question is "is a test running", not "what env did a caller inject".
- *
- * @param path - the definition path about to be written or removed
- * @throws when a test runner would touch a path outside the OS temp directory
- */
-function assertWritableUnderTest(path: string): void {
-  if (process.env.NODE_ENV !== "test" && process.env.SUBSHELL_TEST_MODE !== "1") return;
-  // A path that does not exist yet cannot be realpath'd, and on macOS the
-  // UNRESOLVED spelling (/var/folders/...) never prefix-matches the resolved
-  // temp dir (/private/var/folders/...). So resolve the deepest ancestor that
-  // DOES exist and re-attach the rest: the answer is then in one spelling
-  // whether or not the definition has been written before.
-  const real = (p: string): string => {
-    let cur = resolvePath(p);
-    const tail: string[] = [];
-    for (;;) {
-      try {
-        return tail.length === 0 ? realpathSync(cur) : join(realpathSync(cur), ...tail);
-      } catch {
-        const parent = dirname(cur);
-        if (parent === cur) return resolvePath(p);
-        tail.unshift(basename(cur));
-        cur = parent;
-      }
-    }
-  };
-  const tmp = real(tmpdir());
-  const target = real(path);
-  if (target === tmp || target.startsWith(`${tmp}/`)) return;
-  throw new Error(
-    `refusing to touch the service definition at ${path} while NODE_ENV=test — ` +
-      "point the seed's home at a temp directory, or stub writeFile/removeFile.",
-  );
-}
-
-/**
- * Refuse a REAL service-manager MUTATION while a test suite is running.
- *
- * {@link assertWritableUnderTest} closed the write, and that was not enough:
- * `uninstallService` runs `systemctl --user disable --now` (and on darwin
- * `launchctl bootout`) BEFORE it removes the definition, so a test on the real
- * deps would stop and disable the operator's own live service and only then
- * meet the write guard. `disable --now` and `bootout` do not merely edit a
- * file — they take a running server down.
- *
- * It is an ALLOWLIST of read-only verbs rather than a denylist of destructive
- * ones, so a mutating verb added later is refused by default instead of
- * silently permitted. Only `systemctl` and `launchctl` are inspected at all:
- * `plutil`, `loginctl show-user` and the arbitrary commands the spawn-guard
- * suite drives are not manager mutations and pass through untouched.
- *
- * The verb is the first argument that is not a flag, which reads both shapes
- * (`systemctl --user <verb> <unit>` and `launchctl <verb> <target>`).
- *
- * MUST be called OUTSIDE `runCmd`'s try/catch: that block turns a throw into
- * `{ code: 127, err: "spawn failed" }`, which would disguise this refusal as a
- * missing service manager.
- *
- * @param cmd - the argv about to be spawned for real
- * @throws when a test runner would mutate this machine's service manager
- */
-function assertManagerCommandUnderTest(cmd: readonly string[]): void {
-  if (process.env.NODE_ENV !== "test" && process.env.SUBSHELL_TEST_MODE !== "1") return;
-  const program = basename(cmd[0] ?? "");
-  if (program !== "systemctl" && program !== "launchctl") return;
-  const verb = cmd.slice(1).find((arg) => !arg.startsWith("-"));
-  const READ_ONLY = new Set([
-    "show",
-    "status",
-    "cat",
-    "is-enabled",
-    "is-active",
-    "is-failed",
-    "is-system-running",
-    "list-units",
-    "list-unit-files",
-    "print",
-    "print-disabled",
-    "list",
-    "blame",
-  ]);
-  if (verb !== undefined && READ_ONLY.has(verb)) return;
-  throw new Error(
-    `refusing to run \`${cmd.join(" ")}\` while NODE_ENV=test — it would change this machine's ` +
-      "service manager. Inject a runCmd stub for this test.",
-  );
-}
 
 export function DEFAULT_DEPS(seed: ServiceSeed): ServiceDeps {
   return {
@@ -1393,12 +1292,12 @@ export function DEFAULT_DEPS(seed: ServiceSeed): ServiceDeps {
     // The unit/plist directories (~/.config/systemd/user, ~/Library/LaunchAgents)
     // are ours to create; mkdir-recursive first so a fresh box installs cleanly.
     writeFile(path, text) {
-      assertWritableUnderTest(path);
+      assertServiceWriteUnderTest(path);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text, "utf8");
     },
     removeFile(path) {
-      assertWritableUnderTest(path);
+      assertServiceWriteUnderTest(path);
       rmSync(path, { force: true });
     },
     fileExists: (path) => existsSync(path),

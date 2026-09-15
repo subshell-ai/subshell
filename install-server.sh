@@ -63,13 +63,24 @@ esac
 # desktop-* cut as a server one. Tags are filtered to `server-v` and ordered
 # with sort -V, which knows 1.10.0 > 1.9.0 and plain `sort` does not.
 API="${SUBSHELL_SERVER_RELEASE_API:-https://api.github.com/repos/$REPO/releases}"
+
+# Refuse a plaintext hop on the PUBLIC path — including a redirect into one,
+# which `--location` would otherwise follow silently. Not applied when an
+# operator has pointed this at their own API or asset host: an override is a
+# deliberate choice about their own network, the same posture the plugin
+# registry documents for an http mirror, and a test fake is exactly that.
+CURL_PROTO="--proto =https --tlsv1.2"
+case "${SUBSHELL_SERVER_RELEASE_API:-}${SUBSHELL_SERVER_RELEASE_BASE:-}" in
+  "") ;;
+  *) CURL_PROTO="" ;;
+esac
 VERSION="${SUBSHELL_SERVER_VERSION:-}"
 if [ -z "$VERSION" ]; then
   echo "==> finding the newest server release"
   # No jq: a fresh headless box has curl and coreutils and frequently nothing
   # else. grep -o over the tag_name fields is enough for a flat list of tags,
   # and a tag that does not match the mint shape simply does not appear.
-  if ! BODY="$(curl --silent --show-error --location --fail "$API")"; then
+  if ! BODY="$(curl $CURL_PROTO --silent --show-error --location --fail "$API")"; then
     fail "could not reach the release index at $API" \
       "Check outbound network, or pass SUBSHELL_SERVER_VERSION=X.Y.Z to skip this lookup."
   fi
@@ -100,7 +111,7 @@ rm -f "$TMP" "$TMP.sha256"
 # release has no asset for your platform" and "the network is down" need
 # different advice, and an exit-status-only guard says the same thing for both.
 echo "==> downloading $ASSET"
-if ! HTTP="$(curl --silent --show-error --location "$BASE/$ASSET" \
+if ! HTTP="$(curl $CURL_PROTO --silent --show-error --location "$BASE/$ASSET" \
   --output "$TMP" --write-out '%{http_code}')"; then
   rm -f "$TMP"
   fail "could not download $BASE/$ASSET; nothing was installed." \
@@ -125,7 +136,14 @@ esac
 # checkers want is paired here rather than downloaded. Verifying before the
 # first chmod +x is what makes `curl | bash` sound: nothing this script fetched
 # can run until its bytes match the digest the release published.
-if ! EXPECTED="$(curl --silent --show-error --location --fail "$BASE/$ASSET.sha256" | tr -d '[:space:]')"; then
+#
+# Be precise about what that buys, because it reads stronger than it is: the
+# digest comes from the SAME host as the binary, so it bounds a corrupt
+# download and a bad mirror, and NOT a compromised release host — which would
+# serve a matching pair. Transport integrity is the `--proto '=https'` below;
+# provenance beyond that would need a signature this project does not yet
+# publish.
+if ! EXPECTED="$(curl $CURL_PROTO --silent --show-error --location --fail "$BASE/$ASSET.sha256" | tr -d '[:space:]')"; then
   rm -f "$TMP"
   fail "could not fetch the checksum for $ASSET; nothing was installed."
 fi

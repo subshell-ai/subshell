@@ -91,18 +91,15 @@ export interface ChecklistInputs {
  * accept — the configuration `applyConfig`'s third warning is about
  * (`apps/server/api/src/commands/configure.ts`).
  *
- * **One deliberate divergence from that warning's predicate, and it is the
- * difference between an item that fires and one that never can.** The CLI
- * tests `normalizeTrustedOrigins(value) === ""`, because at the moment it
- * writes config.env an absent key really is the empty string. The deployment
- * view this card reads fills an absent key with `DEFAULT_TRUSTED_ORIGINS` —
- * the two `localhost` Vite origins — so the empty string never arrives here
- * and an exact transcription would be dead code on precisely the headless
- * installs the item exists for. So the test is the one the CLI's sentence
- * actually makes ("a browser on any other machine sends an origin this
- * instance does not trust"): every configured origin is loopback. On an
- * absent key that is the same answer the CLI gives; the two cannot disagree
- * about a configuration either of them can see.
+ * The two ask the SAME question now. They did not at first: the CLI tested
+ * `normalizeTrustedOrigins(value) === ""`, which is true when it writes an
+ * absent key but never reaches this card — the deployment view fills an absent
+ * key with `DEFAULT_TRUSTED_ORIGINS`, two `localhost` spellings — so an exact
+ * transcription would have been dead code on precisely the headless installs
+ * this item exists for. Asking "is every configured origin loopback" covers the
+ * empty list and also the explicitly-loopback one the CLI used to pass in
+ * silence, and review (2026-09-15) settled the disagreement by widening the CLI
+ * to match rather than narrowing this.
  */
 function lanSignInRefused(input: ChecklistInputs): boolean {
   // `constants.ts` derives the allowlist from the port, a CONCRETE host and

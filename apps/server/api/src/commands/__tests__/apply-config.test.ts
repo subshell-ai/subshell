@@ -132,3 +132,35 @@ describe("applyConfig — the LAN-bind sign-in warning", () => {
     expect(r.warnings.some((w) => w.includes("403"))).toBe(false);
   });
 });
+
+/**
+ * The LAN warning asks "is every configured origin loopback", not "is the list
+ * empty". Review, 2026-09-15: an explicit `TRUSTED_ORIGINS=http://localhost:5174`
+ * reaches a browser on another machine exactly as nothing does, and the CLI used
+ * to stay silent on it while the dashboard's checklist flagged it — the two
+ * disagreeing about a configuration both can see. The CLI was widened to match,
+ * because the checklist was the more correct half.
+ */
+describe("the LAN-bind warning and an explicitly loopback origin list", () => {
+  it("warns when every configured origin is loopback, not only when none is set", () => {
+    const r = applyConfig(
+      { host: "0.0.0.0", baseUrl: "http://localhost:3080", trustedOrigins: "http://localhost:5174" },
+      dir(),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.warnings.join("\n")).toContain("403");
+  });
+
+  it("stays silent once ONE reachable origin is configured", () => {
+    const r = applyConfig(
+      {
+        host: "0.0.0.0",
+        baseUrl: "http://localhost:3080",
+        trustedOrigins: "http://localhost:5174,http://192.168.1.5:3080",
+      },
+      dir(),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.warnings.join("\n")).not.toContain("403");
+  });
+});

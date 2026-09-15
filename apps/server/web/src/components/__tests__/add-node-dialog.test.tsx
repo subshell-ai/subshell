@@ -11,6 +11,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useEffect, useState } from "react";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
 import { NODES_QUERY_KEY } from "@/lib/query-keys";
+import { tmuxInstallHint } from "@/lib/tmux-install";
 
 interface Call {
   method: string;
@@ -317,8 +318,17 @@ describe("AddNodeDialog", () => {
       expect(what.textContent).toMatch(/at login/i);
       const tmux = screen.getByText(/setup refuses without it/i);
       expect(tmux.textContent).toContain("tmux");
-      expect(tmux.textContent).toContain("brew install tmux");
-      expect(tmux.textContent).toContain("sudo apt-get install tmux");
+      // Asserted against the SHARED table, not a literal. The dialog used to
+      // hardcode its own spelling, which made four in the repo for one command
+      // and is what this test pinned in place (review, 2026-09-15).
+      const mac = tmuxInstallHint("darwin");
+      const linux = tmuxInstallHint("linux");
+      // Both platforms must HAVE a command; a table that answered null would
+      // otherwise make the two assertions below vacuously pass.
+      expect(mac?.command).toBeTruthy();
+      expect(linux?.command).toBeTruthy();
+      expect(tmux.textContent).toContain(mac?.command ?? "");
+      expect(tmux.textContent).toContain(linux?.command ?? "");
     } finally {
       restore();
     }

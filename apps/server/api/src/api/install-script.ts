@@ -240,8 +240,14 @@ fi
 
 # The scripted opt-out (\`curl … | SUBSHELL_NO_SERVICE=1 bash\`), for anyone who
 # wants enrollment without a service and cannot pass argv through a pipe.
+# EXACTLY "1", not merely non-empty. install-server.sh reads it the same way,
+# and the same operator runs both one-liners in one session — a spelling that
+# skipped the service here and installed one there would be a trap. It is also
+# the convention the rest of the codebase states for env switches
+# (SUBSHELL_DEBUG_LOGGING): only a truthy spelling counts, and a 0 is a
+# variable somebody left behind rather than an instruction.
 SETUP_SERVICE_ARGS=()
-if [ -n "\${SUBSHELL_NO_SERVICE:-}" ]; then
+if [ "\${SUBSHELL_NO_SERVICE:-}" = "1" ]; then
   SETUP_SERVICE_ARGS=(--no-service)
 fi
 

@@ -151,6 +151,10 @@ export {
   serverArtifactFileName,
 } from "./paths.js";
 export {
+  assertManagerCommandUnderTest,
+  assertServiceWriteUnderTest,
+} from "./service-test-safety.js";
+export {
   DEFAULT_GRID,
   DEFAULT_SIZING,
   decideSharedGrid,
