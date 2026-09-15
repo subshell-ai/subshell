@@ -840,3 +840,47 @@ lines), changesets for all four apps.
 - Delta updates, channels (beta/stable), or pinning a fleet to a version.
 - Migrating the two existing release cuts to carry manifests. The next cut
   does.
+
+## 15. Amendments made while building (2026-09-15)
+
+Each of these was found by the phase that built it and is now what the code
+does; the sections above are left as written so the reasoning survives.
+
+- **§5.1's 30-second acceptance timer was wrong once §5.3 holds refused
+  sockets.** A held agent's socket stays open and silent for up to ten
+  minutes before its 4406, so an agent that deleted `.previous` at 30 s
+  would have nothing to roll back to. `UPDATE_ACCEPTED_MS` is **15 minutes**,
+  strictly above the plane's hold budget. In practice the timer never
+  fires: the plane pushes `set_allowed_dirs` on every accepted `ready`, so
+  an accepted agent settles on a frame within milliseconds.
+- **§5.3: a held node's row is re-projected `offline` explicitly.** The old
+  close path did that a moment after `applyReady` wrote `online`; a held
+  socket never closes, so without the explicit write the row would read
+  online forever while `isNodeOffline` said otherwise.
+- **§5.3: `disconnectNode` also closes a held socket**, so a rotated or
+  deleted node key loses the one command a held socket could still carry.
+- **§4.5's "`canApply.reasons` is the union of every 409" excludes two.**
+  `UPDATE_NOT_AVAILABLE` is the "up to date" state, not a failure, and
+  `RESTART_KILLS_PANES` is forcible, so listing it would disable the button
+  whose dialog offers the forced path. The view carries `paneSafety` for
+  the dialog instead, plus `server.latestError` ("could not check", a source
+  that is on but unreachable — distinct from "updates are unavailable"),
+  and `nodes.minAgentVersion` / `nodes.protocol` so the held-row comparison
+  copy renders without a second read.
+- **§4.5: `version` can only name the newest published release**, because
+  the index keeps one release per component. Anything else answers
+  `UPDATE_NOT_AVAILABLE` naming what is available.
+- **§4.1: backup names carry a `-2`, `-3` … suffix within one second**, since
+  `VACUUM INTO` refuses an existing file; `listBackups` orders by the parsed
+  stamp and sequence, not by name.
+- **`db-backup.ts` logs nothing**: `backup --json` is one JSON line on
+  stdout and the console transport writes there too. It returns what it
+  pruned; callers with a journal log it.
+- **`e2e/stack.ts` sets `SUBSHELL_RELEASE_URL=""`.** The stack boots with
+  `SUBSHELL_TEST_MODE=false`, so `IS_TEST` did not pin the URL empty and
+  every e2e run that reached the download 404 branch was calling GitHub.
+- **§12.6 measured:** a held agent sends `ready`, `subshells_report`, one
+  `inventory`, then a `heartbeat` every 15 s and an `inventory` every 5 min.
+  It has no inbound-idle watchdog, so it never treats the plane's silence as
+  failure; the plane's ten-minute close is the only thing that ends a held
+  socket.
