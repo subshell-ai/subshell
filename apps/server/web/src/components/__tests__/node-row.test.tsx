@@ -25,6 +25,16 @@ const BASE: Node = {
   inventoryStale: false,
 };
 
+/** Six detected harnesses — more than the row shows inline. */
+const MANY_HARNESSES: Node = {
+  ...BASE,
+  harnesses: ["claude", "opencode", "codex", "hermes", "pi", "terminal"].map((harnessId) => ({
+    harnessId,
+    name: harnessId,
+    installed: true,
+  })),
+};
+
 /** Opens the row's ActionsMenu the keyboard way (same trick as actions-menu.test). */
 async function openMenu(name: string) {
   fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${name}` }), { key: "ArrowDown" });
@@ -55,6 +65,57 @@ describe("NodeRow", () => {
     // gone (spec 2026-09-09 §12).
     expect(screen.queryByText("opencode")).toBeNull();
     expect(screen.getByText("yours")).toBeDefined();
+  });
+
+  it("truncates only the HARNESS chips, and the control names how many are held back", () => {
+    // Six detected harnesses is what crushed this row: the badges never
+    // shrink, so the name block collapsed to about one character.
+    render(<NodeRow node={MANY_HARNESSES} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />);
+    for (const id of ["claude", "opencode", "codex"]) expect(screen.getByText(id)).toBeDefined();
+    for (const id of ["hermes", "pi", "terminal"]) expect(screen.queryByText(id)).toBeNull();
+    expect(screen.getByRole("button", { name: "+3 more" })).toBeDefined();
+  });
+
+  it("reveals the rest on click, and collapses again", () => {
+    render(<NodeRow node={MANY_HARNESSES} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "+3 more" }));
+    for (const id of ["hermes", "pi", "terminal"]) expect(screen.getByText(id)).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(screen.queryByText("terminal")).toBeNull();
+    expect(screen.getByRole("button", { name: "+3 more" })).toBeDefined();
+  });
+
+  it("never hides the OS, status, stale or access badges behind the more control", () => {
+    // Each of these is ONE chip of fixed shape, so none of them is what makes
+    // the row too long — and `inventory stale` is a warning, which must never
+    // need a click to be seen.
+    render(
+      <NodeRow
+        node={{ ...MANY_HARNESSES, inventoryStale: true, access: "view", canManage: false }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Apple · arm64/)).toBeDefined();
+    expect(screen.getByText("online")).toBeDefined();
+    expect(screen.getByText("inventory stale")).toBeDefined();
+    expect(screen.getByText("shared · view")).toBeDefined();
+  });
+
+  it("renders the node's whole name beside a full set of chips", () => {
+    // The regression this closes: the name block had a zero flex-basis and no
+    // minimum, so a row with this many badges rendered one letter per line.
+    render(
+      <NodeRow
+        node={{ ...MANY_HARNESSES, name: "workshop-mac-studio" }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText("workshop-mac-studio")).toBeDefined();
   });
 
   it("reads offline as a muted badge and shared access as a badge", () => {

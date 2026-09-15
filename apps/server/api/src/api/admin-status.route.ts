@@ -110,7 +110,8 @@ const InventorySchema = t.Object({
   nodes: t.Object({
     total: t.Number({ description: "Enrolled nodes, including the seeded `local` row" }),
     online: t.Number({
-      description: "Nodes holding a live socket right now: the in-memory registry, not the DB projection",
+      description:
+        "Nodes reachable right now: agents holding a live socket in the in-memory registry, plus the seeded `local` row, which holds no socket and is up whenever this server is",
     }),
     needingUpdate: t.Array(OutdatedAgentSchema, {
       description:
@@ -250,7 +251,21 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
         ...inventory,
         // The socket registry is authoritative for reachability; `nodes.status`
         // is a projection that lags a crashed agent by up to the 60 s sweep.
-        nodes: { total: inventory.nodes, online: listOnline().length, needingUpdate },
+        //
+        // The `local` row is ADDED to it because it can never be in it: the
+        // control-plane host runs no agent and so opens no socket, and this
+        // card counted it in `total` while no registry entry could ever answer
+        // for it — so an instance whose only node is the server read "0 online
+        // · 1 enrolled" forever, next to a Nodes page showing that same
+        // machine online. The server answering this request is the proof that
+        // its own launch target is up. An admin who removed local's Everyone
+        // grant made it unlaunchable, not unreachable, so no launchability
+        // condition belongs here.
+        nodes: {
+          total: inventory.nodes.total,
+          online: listOnline().length + inventory.nodes.local,
+          needingUpdate,
+        },
       },
       security: {
         registrationsOpen,

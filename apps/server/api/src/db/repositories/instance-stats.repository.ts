@@ -30,6 +30,22 @@ export class InstanceStatsRepository extends BaseRepository {
     return Number(row.count);
   }
 
+  /**
+   * The seeded `local` rows — in practice one, the control-plane host itself.
+   *
+   * Counted rather than assumed to be 1: the number is added to a live count
+   * of connected agents, and a hard-coded constant would report an online node
+   * on an instance whose `local` row had never been seeded.
+   */
+  private async countLocalNodes(): Promise<number> {
+    const row = await this.db
+      .selectFrom("nodes")
+      .select((eb) => eb.fn.countAll().as("count"))
+      .where("kind", "=", "local")
+      .executeTakeFirstOrThrow();
+    return Number(row.count);
+  }
+
   /** Subshells that have not ended — the "running right now" figure. */
   private async countRunningSubshells(): Promise<number> {
     const row = await this.db
@@ -83,7 +99,7 @@ export class InstanceStatsRepository extends BaseRepository {
 
   /**
    * The whole inventory in one call. Issued concurrently — these are
-   * independent reads against one local SQLite file, and serializing seven
+   * independent reads against one local SQLite file, and serializing eight
    * round-trips to render one page would be the only slow thing about it.
    */
   async snapshot(): Promise<{
@@ -91,8 +107,8 @@ export class InstanceStatsRepository extends BaseRepository {
     users: { total: number; admins: number };
     /** Subshells ever created, and those currently running */
     subshells: { total: number; running: number };
-    /** Nodes enrolled (including the seeded `local` row) */
-    nodes: number;
+    /** Node rows: every one of them, and how many are the seeded `local` kind */
+    nodes: { total: number; local: number };
     /** Workspaces across all users */
     workspaces: number;
     /** Cross-subshell channels */
@@ -100,11 +116,12 @@ export class InstanceStatsRepository extends BaseRepository {
     /** Harness presets across all users */
     presets: number;
   }> {
-    const [users, subshells, running, nodes, workspaces, channels, presets] = await Promise.all([
+    const [users, subshells, running, nodes, localNodes, workspaces, channels, presets] = await Promise.all([
       this.countUsersByRole(),
       this.countOf("subshells"),
       this.countRunningSubshells(),
       this.countOf("nodes"),
+      this.countLocalNodes(),
       this.countOf("workspaces"),
       this.countOf("channels"),
       this.countOf("presets"),
@@ -112,7 +129,7 @@ export class InstanceStatsRepository extends BaseRepository {
     return {
       users,
       subshells: { total: subshells, running },
-      nodes,
+      nodes: { total: nodes, local: localNodes },
       workspaces,
       channels,
       presets,

@@ -9,6 +9,7 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -184,6 +185,61 @@ describe("GET /api/admin/status", () => {
     expect(ids).toContain(staleId);
     expect(ids).not.toContain(currentId);
     expect(ids).not.toContain("local");
+  });
+
+  /**
+   * The control-plane host counts as online, and an agent holding no socket
+   * does not.
+   *
+   * `online` used to be the socket registry alone, which the `local` row can
+   * never appear in — it runs no agent — while `total` counted it. An instance
+   * whose only node is the server therefore read "0 online · 1 enrolled"
+   * forever, beside a Nodes page showing that same machine online: two
+   * populations, one ratio.
+   *
+   * Both figures are asserted as DELTAS. The registry is process-wide state
+   * this suite does not own, and the nodes table is shared by every suite in
+   * this `bun test` process.
+   */
+  it("counts the seeded local row as online, and a socketless agent as enrolled only", async () => {
+    const nodes = new NodesRepository(db);
+    // `local` is seeded at BOOT, which a route test never runs. Create it only
+    // when this database has none, and clean up only what this suite made.
+    if (!(await nodes.findById(LOCAL_NODE_ID))) {
+      createdNodes.push(LOCAL_NODE_ID);
+      await nodes.create({
+        id: LOCAL_NODE_ID,
+        ownerUserId: adminId,
+        name: "Server",
+        kind: "local",
+        status: "online",
+      });
+    }
+
+    const readNodes = async () => {
+      const res = await app.fetch(authedRequest("/api/admin/status", adminCookie));
+      const body = (await res.json()) as { inventory: { nodes: { total: number; online: number } } };
+      return body.inventory.nodes;
+    };
+
+    const before = await readNodes();
+    expect(before.online).toBeGreaterThanOrEqual(1);
+
+    // An ENROLLED agent with no live socket: it raises the enrolled figure and
+    // must not raise the reachable one.
+    const socketlessId = `socketless-${crypto.randomUUID()}`;
+    createdNodes.push(socketlessId);
+    await nodes.create({
+      id: socketlessId,
+      ownerUserId: adminId,
+      name: "socketless-agent",
+      kind: "agent",
+      status: "offline",
+    });
+
+    const after = await readNodes();
+    expect(after.total).toBe(before.total + 1);
+    expect(after.online).toBe(before.online);
   });
 
   it("NEVER puts a secret in the body, in any field", async () => {

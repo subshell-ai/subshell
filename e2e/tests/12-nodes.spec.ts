@@ -253,10 +253,17 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     expect(probed?.inventoryStale).toBe(false);
 
     // ── 5. The /nodes page renders the row: name, online badge, pi chip.
+    // The harness chips truncate at three with the rest behind "+N more" (six
+    // of them used to crush the name column to one character), so reveal them
+    // when the control is there. Whether pi lands inside the inline three
+    // depends on what else this dev host has on its PATH, which is exactly the
+    // identity a spec must not pin.
     await page.goto("/nodes");
     const nodeRowUi = page.locator("div.rounded-lg", { has: page.getByText(nodeName, { exact: true }) });
     await expect(nodeRowUi).toHaveCount(1);
     await expect(nodeRowUi.getByText("online", { exact: true })).toBeVisible();
+    const moreHarnesses = nodeRowUi.getByRole("button", { name: /^\+\d+ more$/ });
+    if (await moreHarnesses.count()) await moreHarnesses.click();
     await expect(nodeRowUi.getByText("pi", { exact: true })).toBeVisible();
 
     // ── 6. Remote launch through the browser: /new, the pi AGENT (no preset

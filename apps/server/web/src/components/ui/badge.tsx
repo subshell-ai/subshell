@@ -2,7 +2,12 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-const badgeVariants = cva(
+/**
+ * The badge's own classes, exported so a control that must sit AMONG badges
+ * (the node row's harness overflow button) can wear the same shape without a
+ * `<div>` nested inside a `<button>`.
+ */
+export const badgeVariants = cva(
   "inline-flex items-center rounded-full border px-2.5 py-0.5 font-strong text-detail transition-colors",
   {
     variants: {
