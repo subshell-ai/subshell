@@ -174,9 +174,13 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 
 # --- 6. hand over to the CLI ------------------------------------------------
-# Every one of these is an `if` and not a `test && append`: under `set -e` a
-# compound whose test is false IS a failing command, so the last unset knob
-# would end the run here — after the install and before the setup.
+# Every one of these is an `if` and not a `test && append`. Not because `&&`
+# would abort — measured on bash, sh and dash, `set -e` is ignored for a
+# non-last command of an AND-OR list and a short-circuited list does not exit
+# the shell. It is that `test && arr+=(...)` makes the LIST's status the
+# statement's status, so the last knob being unset leaves the script's exit
+# code at 1 if nothing follows it, and a reader has to know that rule to see
+# the difference. An `if` says what it does and owes nothing to `set -e`.
 INIT_ARGS=()
 if [ -n "${SUBSHELL_SERVER_PORT:-}" ]; then INIT_ARGS+=(--port "$SUBSHELL_SERVER_PORT"); fi
 if [ -n "${SUBSHELL_SERVER_HOST:-}" ]; then INIT_ARGS+=(--host "$SUBSHELL_SERVER_HOST"); fi
@@ -188,9 +192,10 @@ if [ "${SUBSHELL_NO_SERVICE:-}" = "1" ]; then INIT_ARGS+=(--no-service); fi
 
 # A piped curl leaves stdin reading the SCRIPT, so `init`'s questions would
 # each get EOF and take their default with nobody having been asked. Point
-# stdin back at the terminal when there demonstrably is one. Guarded with `if`
-# rather than `&&` because a false test under `set -e` would end the run here,
-# after the install and before the setup.
+# stdin back at the terminal when there demonstrably is one. Written as an
+# `if` because the `&&` spelling would leave a headless run's exit status at 1
+# if this were the last statement — not, as is often assumed, because `set -e`
+# aborts on a short-circuited AND-OR list; it does not, on bash, sh or dash.
 if [ -t 1 ] && [ -r /dev/tty ]; then
   exec < /dev/tty
 fi

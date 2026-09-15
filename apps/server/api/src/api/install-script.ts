@@ -230,8 +230,10 @@ chmod +x "$DEST"
 # which is at EOF by the time setup asks whether to install a background
 # service — so the question would be answered by nobody and take its default
 # with the operator watching. Written as an \`if\` rather than an "&&" chain
-# because under \`set -e\` a chain whose first test fails aborts the install; and
-# guarded on /dev/tty because a CI pipe has none.
+# because a short-circuited chain leaves the statement's exit status at 1,
+# which matters when it is the last thing a branch runs; \`set -e\` itself does
+# NOT abort on one (measured: bash, sh and dash all continue). Guarded on
+# /dev/tty because a CI pipe has none.
 if [ -t 1 ] && [ -r /dev/tty ]; then
   exec </dev/tty
 fi
