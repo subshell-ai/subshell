@@ -230,6 +230,13 @@ Two disclosures worth naming even though neither is new:
 - **The Docker path's greyed Restart.** `restart.available` requires the manager
   to report this pid; a container can never satisfy it. Document it, do not
   fix it.
+- **The tmux offer's second prompt seam.** `init` and `configure` now prompt
+  through `@clack/prompts`, but the tmux offer keeps a synchronous seam, so its
+  one y/n renders as a text box rather than a confirm. Its preflight is shared
+  with `installService`, which returns a `CliResult` rather than a promise and
+  cannot await, so unifying them means making every service caller async — a
+  real ripple for a cosmetic gain. Worth doing deliberately or not at all; half
+  of it is worse than neither.
 
 ## 8. Testing
 
@@ -245,3 +252,21 @@ Two disclosures worth naming even though neither is new:
   platform, detection re-probed after the run.
 - `setup-checklist.ts` is a pure function and is tested as one.
 - e2e 01 asserts the tmux row renders.
+
+## 9. Two things measured while building this
+
+- **`status` cannot open the database read-only and stop there.** SQLite cannot
+  read a WAL database without a writable `-shm` beside it, and a read-only
+  connection may not create one — so on any instance whose sidecars are gone (a
+  restored backup, a cleanly closed copy) the open succeeds and the first query
+  throws. The count falls back to read-write with `create: false`, which still
+  never creates a database. A test deletes the sidecars to pin it.
+- **A test that used the production service deps installed a real launchd
+  agent.** It wrote into the operator's own `~/Library/LaunchAgents` with
+  `ExecStart` naming a test file; launchd bootstrapped it and respawned it ten
+  times against the operator's real database. Stubbing the harness fixes the
+  harness, so the guard went at the production filesystem seam instead:
+  `DEFAULT_DEPS` refuses to write or remove a service definition outside the OS
+  temp directory while `NODE_ENV=test`, in both the server and the node agent.
+  It is deliberately NOT a check on `home` — tests that stub `writeFile` pass a
+  fake home and never touch a disk, and refusing those buys nothing.
