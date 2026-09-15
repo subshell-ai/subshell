@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { Fact, FactCard } from "@/components/admin-status/fact-list";
-import { CopyableValue } from "@/components/service/copyable-value";
 import { Badge } from "@/components/ui/badge";
+import { CopyableValue } from "@/components/ui/copyable-value";
 import type { NodeDetail, NodeRuntime } from "@/types/node";
 
 /** Who is running the agent, and since when. */

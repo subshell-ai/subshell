@@ -1,9 +1,9 @@
 import { Pause, Play } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CopyableValue } from "@/components/service/copyable-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CopyableValue } from "@/components/ui/copyable-value";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useNodeLogSlice, useSetNodeLogging } from "@/hooks/use-nodes";

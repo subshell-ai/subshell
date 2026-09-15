@@ -82,7 +82,14 @@ mount fires no doomed 403. It reads TWO routes: `GET /api/admin/status` for
 the instance, and `GET /api/admin/server` for the **Locations** card, which
 moved here from `/settings/service` on 2026-09-14 because it is the one
 Service card carrying no act (the paths live only in the deployment view, so
-the page mounts `useServerDeployment` beside `useAdminStatus`). The two fail
+the page mounts `useServerDeployment` beside `useAdminStatus`). It mounts it
+at **60 s**, not the hook's 5 s default: `/settings/service` needs 5 s because
+an operator watches it while changing the machine elsewhere, while this page
+reads only paths that are fixed for the life of the process — and each poll
+of that route is a `Bun.spawnSync` stall for the whole server, so inheriting
+the fast cadence would triple the probe load for data that cannot change.
+TanStack Query keeps `refetchInterval` per observer, so the two pages really
+do poll one shared key at different rates. The two reads fail
 independently, so each has its own banner and Retry, and neither failure
 hides the other's cards; the Runtime card states the database SIZE only,
 since Locations states the path once, copyably. `/settings/audit` is the same shape

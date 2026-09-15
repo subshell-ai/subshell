@@ -1,5 +1,5 @@
 import { Fact, FactCard } from "@/components/admin-status/fact-list";
-import { CopyableValue } from "@/components/service/copyable-value";
+import { CopyableValue } from "@/components/ui/copyable-value";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /** A fact whose value is a path, or an em-dash when there is none. */
@@ -20,9 +20,6 @@ function PathFact({ label, value }: { label: string; value: string | null }) {
  * currently IS. The database path in particular is settable by the CLI and
  * not by this page: moving it from a web form is a footgun with no undo, so
  * the page shows where it is and stops there.
- *
- * `CopyableValue` stays imported from `components/service/`: four Service
- * cards import it from there, so the card moved and the affordance did not.
  */
 export function LocationsCard({ view }: { view: ServerDeployment }) {
   return (

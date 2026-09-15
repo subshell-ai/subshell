@@ -216,7 +216,13 @@ describe("Server status page", () => {
       renderPage();
       await waitFor(() => expect(screen.getByText("Database size")).toBeDefined());
       expect(screen.getByText("2.0 MiB")).toBeDefined();
+      // The two fixtures name the database differently ON PURPOSE, and both
+      // halves are asserted: Runtime's own path is gone, and Locations states
+      // the deployment view's. Aligning the strings would make the negative
+      // assertion vacuous — one string absent proves nothing about which card
+      // dropped it.
       expect(screen.queryByText(/\/var\/lib\/subshell\/subshell\.db/)).toBeNull();
+      expect(screen.getByText("/c/subshell.db")).toBeDefined();
     } finally {
       restore();
     }
@@ -231,6 +237,27 @@ describe("Server status page", () => {
       expect(screen.getByText("Runtime")).toBeDefined();
       expect(screen.queryByText("Locations")).toBeNull();
       expect(screen.queryByText("Could not load the instance status.")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the Locations card when only the instance read fails", async () => {
+    // The other direction, and the one the route's unusual JSX exists for:
+    // `LocationsCard` sits OUTSIDE the `status` branch, so a 403 on
+    // admin/status must leave the paths on the page. Nesting it back inside
+    // that branch passes every other test in this file.
+    const { restore } = mockFetch(null, true);
+    try {
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Could not load the instance status.")).toBeDefined());
+      expect(screen.getByText("Locations")).toBeDefined();
+      expect(screen.getByText("/c/config.env")).toBeDefined();
+      expect(screen.queryByText("Versions")).toBeNull();
+      expect(screen.queryByText("Runtime")).toBeNull();
+      expect(screen.queryByText("Inventory")).toBeNull();
+      expect(screen.queryByText("Security")).toBeNull();
+      expect(screen.queryByText("Could not load this server's deployment.")).toBeNull();
     } finally {
       restore();
     }

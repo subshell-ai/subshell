@@ -48,10 +48,47 @@ test.describe("server service page", () => {
     await expect(restart).toBeDisabled();
     await expect(page.getByText(/not running under a service manager/i)).toBeVisible();
 
-    // Locations: real paths from the running process, not placeholders.
+    // The Server log CARD is on this page — its title, not the Locations row
+    // that used to answer this selector. The Locations card moved to
+    // /settings/status on 2026-09-14 and is asserted there instead; with both
+    // strings identical, dropping this would have left the move unproven on
+    // either page.
+    await expect(page.getByText("Server log", { exact: true })).toBeVisible();
+  });
+
+  test("the Locations card is on Status, not Service, and states this process's real paths", async ({ page }) => {
+    await page.goto("/");
+
+    // Through the rail for the same reason the Service test does it: the card
+    // moved between two sibling pages, so "it renders" is only half the claim
+    // — the half that regresses is which page a person reaches it from.
+    await page.getByRole("button", { name: "Server Settings" }).click();
+    await page.getByRole("link", { name: "Status", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/status$/);
+
     await expect(page.getByText("Locations", { exact: true })).toBeVisible();
     await expect(page.getByText("Data directory")).toBeVisible();
-    await expect(page.getByText("Server log", { exact: true }).first()).toBeVisible();
+
+    // A real path from the running process, not a placeholder: `stack.ts`
+    // gives this backend an mkdtemp SUBSHELL_SERVER_DATA_DIR, so the deployment
+    // view must echo the directory the server was actually started with. A
+    // card wired to the wrong field renders an em-dash and passes every
+    // title assertion above.
+    const paths = (await (await page.request.get("/api/admin/server")).json()) as {
+      paths: { dataDir: string | null };
+    };
+    expect(paths.paths.dataDir).toBeTruthy();
+    await expect(page.getByText(paths.paths.dataDir as string).first()).toBeVisible();
+
+    // And it is GONE from Service — the move, rather than a copy. The
+    // Addresses title is asserted FIRST because it is the anchor that makes
+    // the next line mean anything: `toHaveCount(0)` is satisfied by a page
+    // that has not rendered yet, so without waiting for something this page
+    // really does draw, a regression putting the card back here would race
+    // past the check rather than fail it.
+    await page.goto("/settings/service");
+    await expect(page.getByText("Addresses", { exact: true })).toBeVisible();
+    await expect(page.getByText("Locations", { exact: true })).toHaveCount(0);
   });
 
   test("refuses a self-restart on a hand-started server, and stays up", async ({ page }) => {

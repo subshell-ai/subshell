@@ -19,33 +19,47 @@ import type { ServerConfigPatch, ServerConfigUpdate, ServerDeployment } from "@/
  * change by this process dying) or written straight into this cache by the
  * mutation that changed it — so the poll is for out-of-band edits alone.
  *
- * Five seconds because this is the page an operator watches WHILE changing
- * the machine from somewhere else, and a slower cadence reads as a page that
- * is not updating at all. The Refresh button that used to paper over that is
- * gone.
+ * **What made a five-second cadence affordable is on the SERVER, not here.** A
+ * poll is a `collectDeployment()`, which runs `netstat` and the service
+ * manager through `Bun.spawnSync` — and Bun is single-threaded, so the cost is
+ * not paid by the poller. It is a whole-process stall: every terminal
+ * WebSocket frame and every other API request waits for it. Tripling the rate
+ * of that (it was 15 s) was only defensible once `GET /api/admin/server`
+ * memoized the collection for ~2 s, so N open tabs cost ONE probe per window
+ * instead of N. Do not raise the rate past that window without moving it too.
  *
- * **What made five seconds affordable is on the SERVER, not here.** A poll is
- * a `collectDeployment()`, which runs `netstat` and the service manager
- * through `Bun.spawnSync` — and Bun is single-threaded, so the cost is not
- * paid by the poller. It is a whole-process stall: every terminal WebSocket
- * frame and every other API request waits for it. Tripling the rate of that
- * (it was 15 s) was only defensible once `GET /api/admin/server` memoized the
- * collection for ~2 s, so N open tabs cost ONE probe per window instead of N.
- * Do not raise the rate past that window without moving it too.
+ * It stays `enabled`-gated to admins, and it has TWO consumers, which want
+ * different cadences over the same data:
  *
- * It stays `enabled`-gated to admins, and this is the only consumer.
+ * - `/settings/service` takes the 5 s default. It renders the fields that
+ *   actually move — `restartRequired`, `settings.saved`, the service state,
+ *   `logging.debug` — and it is the page an operator watches WHILE changing
+ *   the machine from somewhere else, where a slower cadence reads as a page
+ *   that is not updating at all. The Refresh button that used to paper over
+ *   that is gone.
+ * - `/settings/status` passes 60 s. It renders only `configEnv.path`,
+ *   `paths.*`, `service.definitionPath` and the manager log path — every one
+ *   of them fixed for the life of the process, per the paragraph above. At
+ *   the default it would have tripled the probe load for data that cannot
+ *   change while the page is open.
+ *
+ * The two genuinely poll at different rates on one shared query key:
+ * TanStack Query keeps `refetchInterval` per OBSERVER, so each mount runs its
+ * own timer and the faster one does not drag the slower along.
  *
  * @param enabled - true only once the server has confirmed this viewer is an admin
+ * @param refetchMs - poll cadence in milliseconds; also the `staleTime`, so
+ *   the "matched to the interval" invariant below holds for every caller
  */
-export function useServerDeployment(enabled: boolean) {
+export function useServerDeployment(enabled: boolean, refetchMs = 5_000) {
   return useQuery({
     queryKey: SERVER_DEPLOYMENT_QUERY_KEY,
     queryFn: () => apiFetch<ServerDeployment>("/api/admin/server"),
     enabled,
-    refetchInterval: 5_000,
+    refetchInterval: refetchMs,
     // Matched to the interval: above it, a remount would render a view older
     // than the cadence the page promises.
-    staleTime: 5_000,
+    staleTime: refetchMs,
   });
 }
 

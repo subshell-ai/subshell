@@ -12,6 +12,31 @@ import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useServerDeployment } from "@/hooks/use-server-deployment";
 
+/**
+ * A failed read, with the control that retries it.
+ *
+ * Both of this page's reads fail on their own terms and render the identical
+ * strip, so the shape is stated once here. It stays LOCAL to this route: one
+ * other page draws the same thing, and a second consumer is not enough to
+ * decide what a shared version should be.
+ *
+ * @param message - what failed, in the page's own words
+ * @param onRetry - refetches the one read this banner is about
+ */
+function RetryBanner({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <ErrorBanner
+      message={message}
+      className="rounded-md border"
+      action={
+        <Button variant="link" size="sm" className="h-auto p-0 text-detail text-inherit underline" onClick={onRetry}>
+          Retry
+        </Button>
+      }
+    />
+  );
+}
+
 export const Route = createFileRoute("/settings_/status")({ component: ServerStatusPage });
 
 /**
@@ -48,51 +73,30 @@ function ServerStatusPage() {
   const viewerIsAdmin = publicSettings?.viewerIsAdmin;
   const isAdmin = viewerIsAdmin === true;
   const { data: status, error, isLoading, refetch } = useAdminStatus(isAdmin);
+  // 60 s rather than the hook's 5 s default: this page reads only the
+  // Locations paths, which are fixed for the life of the process, and every
+  // poll of that route is a `Bun.spawnSync` stall for the whole server.
   const {
     data: view,
     error: deploymentError,
     isLoading: deploymentLoading,
     refetch: refetchDeployment,
-  } = useServerDeployment(isAdmin);
+  } = useServerDeployment(isAdmin, 60_000);
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader title="Server status" subtitle="What this instance is running right now (admins)" />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
-          {error && (
-            <ErrorBanner
-              message="Could not load the instance status."
-              className="rounded-md border"
-              action={
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-detail text-inherit underline"
-                  onClick={() => void refetch()}
-                >
-                  Retry
-                </Button>
-              }
-            />
-          )}
+          {error && <RetryBanner message="Could not load the instance status." onRetry={() => void refetch()} />}
           {deploymentError && (
-            <ErrorBanner
-              message="Could not load this server's deployment."
-              className="rounded-md border"
-              action={
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-detail text-inherit underline"
-                  onClick={() => void refetchDeployment()}
-                >
-                  Retry
-                </Button>
-              }
-            />
+            <RetryBanner message="Could not load this server's deployment." onRetry={() => void refetchDeployment()} />
           )}
-          {((isLoading && !status) || (deploymentLoading && !view)) && (
+          {/* Only while the page has NOTHING. The two reads land at their own
+              pace, so an `or` here put "Loading…" above already-populated
+              cards whenever one of them was still in flight; cards appearing
+              as each read arrives is the ordinary shape. */}
+          {(isLoading || deploymentLoading) && !status && !view && (
             <p className="text-muted-foreground text-sm">Loading…</p>
           )}
           {status && (

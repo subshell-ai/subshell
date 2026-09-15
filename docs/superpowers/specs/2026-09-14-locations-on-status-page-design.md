@@ -61,6 +61,12 @@ Rendering rules, because the two queries can fail independently:
   the admin branch for the reason both route docstrings already give:
   `refetch()` ignores `enabled`.
 - The "Loading…" line shows while either query is loading and has no data.
+  **Correction (review, 2026-09-14):** as written that is an `or` evaluated
+  before the cards, so a resolved `status` with the deployment read still in
+  flight renders "Loading…" ABOVE a populated Versions and Runtime. It shows
+  only while the page has nothing at all — loading, and neither `status` nor
+  the deployment view present — and each card then appears as its own read
+  lands, which is what every other two-read page here does.
 
 ### 2.2 The Runtime card stops restating the path
 
@@ -79,9 +85,14 @@ and it does not move.
 ### 2.3 Files
 
 - `components/service/locations-card.tsx` → `components/admin-status/locations-card.tsx`.
-  Its imports do not change: it already builds on `admin-status/fact-list`,
-  and `CopyableValue` stays at `components/service/copyable-value.tsx`
-  because four Service cards import it from there.
+  It already builds on `admin-status/fact-list`. **Correction (review,
+  2026-09-14):** this line claimed `CopyableValue` stays at
+  `components/service/copyable-value.tsx` "because four Service cards import
+  it from there". The count was wrong — five files import it, and three of
+  them are outside `components/service/` (this card and the two node cards).
+  So it moved to `components/ui/copyable-value.tsx`, where a primitive a
+  majority of its consumers reach across a directory for belongs, and all
+  five importers were updated.
 - `routes/settings_.service.tsx`: drop the Locations import and render; the
   subtitle becomes "Where this server listens, who supervises it, and what
   it logged."; the docstring's "where it writes" goes with it.
