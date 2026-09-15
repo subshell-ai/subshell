@@ -49,14 +49,32 @@ export function useNodes({ polling = false }: { polling?: boolean } = {}) {
  */
 export function useNode(id: string, enabled = true) {
   return useQuery({
-    queryKey: [...NODE_QUERY_KEY, id],
-    queryFn: () => apiFetch<NodeDetail>(`/api/nodes/${id}`),
+    ...nodeDetailQuery(id),
     enabled: enabled && id.length > 0,
     refetchInterval: 5_000,
-    // Matched to the interval: above it, a remount would render a view older
-    // than the cadence the page promises.
-    staleTime: 5_000,
   });
+}
+
+/**
+ * The node-detail read as query OPTIONS, so the imperative path shares the key
+ * and the fetcher with {@link useNode} rather than restating them.
+ *
+ * It exists for one caller: the Nodes LIST row's maintenance action, which
+ * needs `runningSubshells` — a detail-only, manager-only field the list
+ * payload does not carry — to say in its confirmation how many subshells the
+ * flip would stop. Fetching it at the moment it is asked for (through the
+ * cache, so a page that already holds a fresh detail pays nothing) is the only
+ * way that number can be true; a list that never had it could only guess.
+ * @param id - The node to read
+ */
+export function nodeDetailQuery(id: string) {
+  return {
+    queryKey: [...NODE_QUERY_KEY, id],
+    queryFn: () => apiFetch<NodeDetail>(`/api/nodes/${id}`),
+    // Matched to the poll interval: above it, a remount would render a view
+    // older than the cadence the page promises.
+    staleTime: 5_000,
+  };
 }
 
 /**
@@ -133,6 +151,41 @@ export function useRotateNodeKey(id: string) {
       // Cross-domain (the useCreateSubshell pattern): the eviction drops the
       // agent, which flips every subshell on this node to `nodeOffline` — the
       // subshell list must learn that now, not on its next incidental refetch.
+      void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+    },
+  });
+}
+
+/**
+ * Starts or ends maintenance on one node (`PUT /api/nodes/:id/maintenance`).
+ *
+ * MANAGER-only server-side — the node's real owner, or an admin on the
+ * control-plane host. An admin's instance-wide `edit` does NOT reach a foreign
+ * agent node here, so the surfaces gate on `canManage` and the route is the
+ * gate that matters.
+ *
+ * Turning it ON terminates every subshell on that machine, all owners'. That
+ * is why the subshell list is invalidated beside the two node keys: the rows
+ * this viewer can see went `terminated` the instant this answered, and unlike
+ * the node queries nothing else on the page refetches them (the same
+ * cross-domain reason `useRotateNodeKey` carries).
+ *
+ * The answer is the updated node view, but the detail cache is INVALIDATED
+ * rather than written through — the detail row also carries `shares`,
+ * `runtime` and `runningSubshells`, and the last of those is exactly the
+ * number this mutation just changed.
+ */
+export function useSetNodeMaintenance(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (on: boolean) =>
+      apiFetch<NodeDetail>(`/api/nodes/${id}/maintenance`, {
+        method: "PUT",
+        body: JSON.stringify({ on }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
     },
   });

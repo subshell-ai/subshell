@@ -50,25 +50,36 @@ export function canSubmit(value: NewSubshellFormValue): boolean {
  * the 409 path covers the race.) Harness compatibility greys separately, via
  * `buildNodeOptions`. Mirrored in mobile `src/lib/node-pick.ts`.
  */
-function isSelectable(n: Node): boolean {
+export function isSelectable(n: Node): boolean {
   // `canLaunch` is the SERVER's answer to "may this viewer start a subshell
   // here", and the one node that can be visible without it is the
   // control-plane host with launching switched off (spec 2026-09-12). Read as
   // `!== false` so a build talking to an older server, which omits the field,
   // behaves exactly as it did before.
-  return !isOfflineAgent(n) && n.canLaunch !== false;
+  //
+  // Maintenance is checked SEPARATELY even though the server already ANDs it
+  // into `canLaunch` (spec 2026-09-14): this row is the one unlaunchable node
+  // the list keeps, so a payload cached before the flip — or one from a
+  // server older than the flag — would otherwise offer a launch the node
+  // itself refuses at the pane.
+  return !isOfflineAgent(n) && n.canLaunch !== false && n.maintenance !== true;
 }
 
 /**
- * The machines this viewer can actually launch on.
+ * The machines this picker LISTS — launchable, plus the one unlaunchable kind
+ * worth showing.
  *
- * Unlaunchable rows are FILTERED rather than greyed: a greyed row is a choice
- * with a reason, and "the host you cannot use" is not a choice at all — the
- * empty state below says what to do about it, once, instead of every row
- * saying it.
+ * A host narrowed by its shares is FILTERED rather than greyed: a greyed row
+ * is a choice with a reason, and "the host you were never granted" is not a
+ * choice at all — the empty state below says what to do about it, once,
+ * instead of every row saying it. A node in MAINTENANCE is kept and greyed
+ * (spec 2026-09-14 §6), because it is a choice with a reason and a way back:
+ * somebody is working on that machine, it will take subshells again, and
+ * whoever manages it can end the window from its page. Hiding it would leave
+ * a person hunting for a node that had simply vanished.
  */
 export function launchableNodes(nodes: Node[]): Node[] {
-  return nodes.filter((n) => n.canLaunch !== false);
+  return nodes.filter((n) => n.canLaunch !== false || n.maintenance === true);
 }
 
 /**
@@ -85,7 +96,13 @@ export function launchableNodes(nodes: Node[]): Node[] {
  */
 export function hideMachineField(nodes: Node[]): boolean {
   const targets = launchableNodes(nodes);
-  return targets.length === 1 && targets[0]?.kind === "local";
+  const sole = targets.length === 1 ? targets[0] : undefined;
+  // The rule is "one possible answer, so no question" — which means the sole
+  // row has to BE an answer. A host in maintenance is listed but unpickable
+  // (zero possible answers), and hiding the field there would leave the
+  // greyed row that explains the whole situation off the screen, above a form
+  // that cannot submit and says nothing about why.
+  return sole !== undefined && sole.kind === "local" && isSelectable(sole);
 }
 
 /**
@@ -330,8 +347,13 @@ export function NewSubshellForm({
   // says what to do instead. The caller's submit is already dead — `canSubmit`
   // needs a node id and `pickNodeDefault` leaves it empty when nothing is
   // selectable — so no caller has to learn about this state.
-  if (nodes !== null && targets.length === 0) {
-    return <NoLaunchTargets local={(nodes ?? []).find((n) => n.kind === "local") ?? null} onNavigate={onLeave} />;
+  // Nothing SELECTABLE, not merely nothing listed: a machine kept in the list
+  // for its reason (maintenance) is still not somewhere a subshell can start,
+  // and a form whose every option is greyed asks a question with no answer.
+  // The whole node list goes through, because the empty state's job is now to
+  // say — per machine — what is in the way and who can move it.
+  if (nodes !== null && !targets.some(isSelectable)) {
+    return <NoLaunchTargets nodes={nodes} onNavigate={onLeave} />;
   }
 
   return (

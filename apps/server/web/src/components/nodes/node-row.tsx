@@ -1,4 +1,4 @@
-import { Settings, Share2, Trash2 } from "lucide-react";
+import { Settings, Share2, Trash2, Wrench } from "lucide-react";
 import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { relativeElapsed } from "@/components/subshell-status";
@@ -50,14 +50,15 @@ const INLINE_HARNESSES = 3;
  * column alone.
  *
  * Only the harness chips truncate, behind "+N more": the OS/arch, status,
- * `inventory stale` and ownership badges are each one chip of fixed shape, and
- * a WARNING must never hide behind a "more" control.
+ * `maintenance`, `inventory stale` and ownership badges are each one chip of
+ * fixed shape, and a WARNING must never hide behind a "more" control.
  */
 export function NodeRow({
   node,
   onOpenConfig,
   onShare,
   onDelete,
+  onMaintenance,
 }: {
   /** The node to render */
   node: Node;
@@ -67,6 +68,16 @@ export function NodeRow({
   onShare: () => void;
   /** Delete this node (owner-only server-side) */
   onDelete: () => void;
+  /**
+   * Start or end maintenance on this node — which of the two is decided by
+   * `node.maintenance`, the same flag that labels the item.
+   *
+   * The confirmation and the PUT belong to the caller, like every other item
+   * here: starting maintenance needs a count this row's payload does not
+   * carry (`runningSubshells` rides the detail view), so the asking happens
+   * where the number can be fetched.
+   */
+  onMaintenance: () => void;
 }) {
   const isOwner = node.access === "owner";
   // Row-local and deliberately unpersisted: it is a look at one row, not a
@@ -101,6 +112,13 @@ export function NodeRow({
           {node.arch ? ` · ${node.arch}` : ""}
         </Badge>
         <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
+        {/* Beside the status rather than among the harness chips, for the
+            reason the docblock gives: this is a warning, and a warning that
+            needs a click to be seen is not one. A node in maintenance looks
+            entirely healthy otherwise — `online`, every harness detected —
+            so without this chip the row says nothing about why nobody can
+            launch there. */}
+        {node.maintenance && <Badge variant="warning">maintenance</Badge>}
         {node.inventoryStale && <Badge variant="warning">inventory stale</Badge>}
         {visible.map((h) => (
           <Badge key={h.harnessId} variant="outline" className="border-emerald-500/50 text-emerald-400">
@@ -135,6 +153,17 @@ export function NodeRow({
           items={[
             { label: "Open config", icon: Settings, onSelect: onOpenConfig },
             { label: "Share", icon: Share2, onSelect: onShare, disabled: !node.canManage },
+            {
+              // Ending only widens what the machine accepts, so it is not
+              // destructive and asks nothing; starting stops every subshell
+              // here, including ones this viewer cannot see — hence the red
+              // and the ellipsis promising a confirmation.
+              label: node.maintenance ? "End maintenance" : "Start maintenance…",
+              icon: Wrench,
+              onSelect: onMaintenance,
+              disabled: !node.canManage,
+              destructive: !node.maintenance,
+            },
             {
               label: "Delete",
               icon: Trash2,

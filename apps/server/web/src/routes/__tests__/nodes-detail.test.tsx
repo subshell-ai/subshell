@@ -33,6 +33,9 @@ function agentNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     capabilities: [],
     harnesses: [],
     inventoryStale: false,
+    maintenance: false,
+    maintenanceAt: null,
+    maintenanceSource: null,
     ...overrides,
   };
 }

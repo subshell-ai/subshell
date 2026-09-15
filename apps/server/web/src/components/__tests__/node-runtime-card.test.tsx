@@ -28,6 +28,9 @@ const base: NodeDetail = {
   capabilities: [],
   harnesses: [],
   inventoryStale: false,
+  maintenance: false,
+  maintenanceAt: null,
+  maintenanceSource: null,
 };
 
 /** A supervised systemd agent, with the fields each test varies. */

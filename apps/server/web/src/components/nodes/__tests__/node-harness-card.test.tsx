@@ -62,6 +62,9 @@ function view(over: Partial<NodeDetail>): NodeDetail {
     allowedDirs: [],
     harnesses: [],
     inventoryStale: false,
+    maintenance: false,
+    maintenanceAt: null,
+    maintenanceSource: null,
     ...over,
   };
 }

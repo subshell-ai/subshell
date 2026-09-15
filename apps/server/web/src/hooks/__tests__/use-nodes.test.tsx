@@ -33,6 +33,9 @@ const NODE: Node = {
   capabilities: ["launch"],
   harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "1.2.3" }],
   inventoryStale: false,
+  maintenance: false,
+  maintenanceAt: null,
+  maintenanceSource: null,
 };
 
 interface Call {

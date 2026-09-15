@@ -3,9 +3,9 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { EditableText } from "@/components/editable-text";
-import { LocalLaunchCard } from "@/components/nodes/local-launch-card";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
+import { NodeMaintenanceCard } from "@/components/nodes/node-maintenance-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { osLabel } from "@/components/nodes/node-row";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
@@ -204,10 +204,12 @@ function NodeDetailPage() {
             </dl>
           </div>
 
-          {/* Whether anyone may launch here at all (spec 2026-09-11 §4.6).
-              `local` has no Configuration section — its own config surface is
-              Server Settings — so this stays on the Overview. */}
-          {n.kind === "local" && <LocalLaunchCard nodeId={n.id} />}
+          {/* Whether this machine takes new work at all (spec 2026-09-14).
+              Every kind, and on the OVERVIEW: `local` has no Configuration
+              section — its own config surface is Server Settings — and a
+              switch that moves between sections depending on the kind of
+              machine is one people stop finding. */}
+          <NodeMaintenanceCard node={n} />
 
           {/* Key rotation lives with the enrolled nodes: `local`'s key is the
               control plane's own credential — mint/rotate it server-side

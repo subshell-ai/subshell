@@ -102,11 +102,30 @@ filters its node options on the server's own `canLaunch` (never a re-derived
 rule), hides the Machine field when the sole target is the control-plane host —
 a single AGENT node keeps it, because once a second machine exists the answer
 is news — and replaces itself with `no-launch-targets.tsx` when nothing is
-launchable. That empty state offers both routes out and gates only the one it
-must: adding a node needs a signed-in cookie, so that button is always there,
-while switching the host back on is a manage act and appears only when the
-server says this viewer manages it. Both rules are pure exports
-(`hideMachineField`, `launchableNodes`) tested without opening a dropdown.
+SELECTABLE. Three pure exports carry it (`isSelectable`, `launchableNodes`,
+`hideMachineField`), tested without opening a dropdown.
+
+**Two kinds of unlaunchable, and they are shown differently on purpose** (spec
+2026-09-14). A host narrowed by its shares VANISHES: "the machine you were
+never granted" is not a choice, and one sentence in the empty state beats the
+same sentence on every row. A node in **maintenance** is KEPT and greyed,
+labelled ` (maintenance)` as the label's last segment the way `(offline)`
+already is — it is a choice with a reason and a way back, and hiding it leaves
+a person hunting for a node that simply disappeared. That is also why
+`hideMachineField` requires its sole row to be selectable: a host in
+maintenance has zero possible answers, not one, so the field stays on screen
+carrying the greyed row that explains the whole situation.
+
+`no-launch-targets.tsx` therefore takes the node LIST, not `local` alone, and
+answers per machine — what is in the way (maintenance first, even on a machine
+that is also offline: waking it would change nothing), and for a viewer who
+cannot move it, who can. Every route out goes through `leaveFor`, which closes
+the containing dialog before navigating; `QuickAddProvider` mounts these
+dialogs above the route, so a button that only navigates changes the page
+underneath a modal still showing this same empty state. Ending a maintenance
+window navigates to the node's page rather than PUTting from here — it re-opens
+the machine to everyone it is shared with, so it belongs beside the card that
+says what maintenance means and which end declared it.
 
 **The form asks Agent → Preset → Node → Working directory** (spec
 2026-09-13, presets replace profiles; `#picker-agent` / `#picker-preset` are
@@ -221,6 +240,19 @@ a payload from a server older than the setting carries no such field. The
 button is HIDDEN rather than disabled where it does not apply: a non-admin
 cannot make it work, so a greyed control is worse than a sentence naming who
 can.
+
+**Maintenance is one flag on the node, and the SPA writes it in one place.**
+`NodeMaintenanceCard` sits on every node's Overview (`local` has no other
+section) and replaced `LocalLaunchCard`, which was never a switch — ON was the
+seeded Everyone/`edit` grant and OFF was its removal. Turning it on stops every
+subshell on that machine, other people's included, so the confirmation names a
+count: `runningSubshells`, which rides the DETAIL view only and only for a
+manager. The Nodes LIST has no such number, which is why `node-list-row.tsx`
+exists — it fetches the detail through the query cache at the moment the menu
+item is picked, and hedges the prompt rather than refusing the act if that read
+fails. `useSetNodeMaintenance` invalidates the subshell list beside the two
+node keys, for `useRotateNodeKey`'s reason: rows went `terminated` the instant
+it answered.
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the

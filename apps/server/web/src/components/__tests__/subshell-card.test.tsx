@@ -37,6 +37,9 @@ function agent(overrides: Partial<Node> = {}): Node {
     capabilities: [],
     harnesses: [],
     inventoryStale: false,
+    maintenance: false,
+    maintenanceAt: null,
+    maintenanceSource: null,
     ...overrides,
   };
 }
@@ -81,7 +84,7 @@ function mockNodes(nodes: Node[]) {
 }
 
 // SubshellCard renders a `<Link>` (router context) and a menu (react-query) —
-// the same minimal memory-router wrapper the local-launch-card test uses.
+// the same minimal memory-router wrapper the node-maintenance-card test uses.
 function renderCard(subshell: SubshellView) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();

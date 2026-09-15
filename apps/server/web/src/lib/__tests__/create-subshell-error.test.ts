@@ -26,6 +26,15 @@ describe("createSubshellErrorMessage", () => {
     );
   });
 
+  it("turns a 409 NODE_IN_MAINTENANCE into the line naming both ways out", () => {
+    // The node is up and answering everything else, so "offline" copy would
+    // send the reader to look at a machine that is fine.
+    const err = new ApiError(409, "Node is in maintenance", { code: "NODE_IN_MAINTENANCE" });
+    expect(createSubshellErrorMessage(err, "Failed to create subshell")).toBe(
+      "That node is in maintenance. Pick another node, or end maintenance from its node page.",
+    );
+  });
+
   it("keeps the server's own message for every other failure shape", () => {
     // 404 node_not_found — invisible nodes 404 (never 403): the fallback
     // text must carry the API line verbatim, no node-offline coaching.

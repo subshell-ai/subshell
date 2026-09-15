@@ -36,6 +36,9 @@ const base: NodeDetail = {
   capabilities: [],
   harnesses: [],
   inventoryStale: false,
+  maintenance: false,
+  maintenanceAt: null,
+  maintenanceSource: null,
 };
 
 function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {

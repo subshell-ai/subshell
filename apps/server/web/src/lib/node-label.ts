@@ -17,8 +17,9 @@ export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
  * The option label for a node in a picker: the node's OWN name — an admin- or
  * owner-chosen string for every kind, the control-plane host included — plus a
  * ` · {os}/{arch}` platform suffix when the node has reported both (a young
- * agent's ready may still be in flight), with " (offline)" kept as the LAST
- * segment, because a disabled option still needs to explain itself.
+ * agent's ready may still be in flight), with " (offline)" and
+ * " (maintenance)" kept as the LAST segments, because a disabled option still
+ * needs to explain itself.
  *
  * It reads `name` for every kind on purpose. This used to take the local
  * label from its CALLER, and four callers each passed their own hardcoded
@@ -30,10 +31,20 @@ export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
  *
  * @param node - The node row from `GET /api/nodes`
  */
-export function nodeOptionLabel(node: Pick<Node, "kind" | "status" | "name" | "os" | "arch">): string {
+export function nodeOptionLabel(node: Pick<Node, "kind" | "status" | "name" | "os" | "arch" | "maintenance">): string {
   // "mac-mini · darwin/arm64" — only when the node actually reported both
   // (a young agent's ready may still be in flight).
   const platform = node.os !== null && node.arch !== null ? ` · ${node.os}/${node.arch}` : "";
   const offline = isOfflineAgent(node) ? " (offline)" : "";
-  return `${node.name}${platform}${offline}`;
+  // A node in maintenance stays VISIBLE and greyed rather than vanishing
+  // (spec 2026-09-14 §6) — unlike the share-narrowed host, which keeps
+  // disappearing — so this word is the whole reason the row is still there.
+  // Compared to `true` rather than read for truthiness because a server older
+  // than the flag sends no such field, and an undefined must read as "not in
+  // maintenance" rather than sprouting a word nothing reported. BOTH suffixes
+  // can appear at once, deliberately: ending maintenance would not make a
+  // machine that is down launchable, so hiding either half sends someone to
+  // fix the wrong thing.
+  const maintenance = node.maintenance === true ? " (maintenance)" : "";
+  return `${node.name}${platform}${offline}${maintenance}`;
 }

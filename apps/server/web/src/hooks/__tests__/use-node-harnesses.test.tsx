@@ -32,6 +32,9 @@ const NODE: NodeDetail = {
     { harnessId: "hermes", name: "Hermes", installed: false },
   ],
   inventoryStale: false,
+  maintenance: false,
+  maintenanceAt: null,
+  maintenanceSource: null,
 };
 
 interface Call {

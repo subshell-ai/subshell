@@ -121,9 +121,24 @@ export function buildNodeOptions(nodes: readonly Node[], agent: LaunchAgent | nu
   return usableFirst(
     nodes.map((n) => {
       const offline = isOfflineAgent(n);
-      const fit = !offline && agent !== null ? harnessFitsNode(n, agent.id) : null;
-      const opt: ComboboxOption = { value: n.id, label: nodeOptionLabel(n), disabled: offline || fit !== null };
-      if (fit !== null && agent !== null) {
+      // The one unlaunchable row the picker KEEPS (spec 2026-09-14 §6), so it
+      // is the one that has to explain itself here. Harness fit is not even
+      // asked: a machine nobody may launch on does not owe an answer about
+      // which agent it has.
+      const maintenance = n.maintenance === true;
+      const fit = !offline && !maintenance && agent !== null ? harnessFitsNode(n, agent.id) : null;
+      const opt: ComboboxOption = {
+        value: n.id,
+        label: nodeOptionLabel(n),
+        disabled: offline || maintenance || fit !== null,
+      };
+      // Offline deliberately carries no reason — its label's last segment is
+      // the whole explanation — so a node that is BOTH gets none either:
+      // "in maintenance" beside a machine that is down would read as if
+      // ending maintenance were the fix.
+      if (maintenance && !offline) {
+        opt.reason = "in maintenance";
+      } else if (fit !== null && agent !== null) {
         const stale = fit === "not-installed" && n.inventoryStale;
         opt.reason = `no ${agent.name} here${stale ? STALE_HEDGE : ""}`;
       }

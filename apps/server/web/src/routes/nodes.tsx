@@ -4,7 +4,7 @@ import { useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
-import { NodeRow } from "@/components/nodes/node-row";
+import { NodeListRow } from "@/components/nodes/node-list-row";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -131,12 +131,13 @@ function NodesPage() {
       {nodes.length > 0 && (
         <div className="space-y-3">
           {nodes.map((node) => (
-            <NodeRow
+            <NodeListRow
               key={node.id}
               node={node}
               onOpenConfig={() => goDetail(node.id)}
               onShare={() => goDetail(node.id)}
               onDelete={() => void remove(node)}
+              onError={setActionError}
             />
           ))}
         </div>

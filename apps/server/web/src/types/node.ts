@@ -16,6 +16,17 @@ export type NodeKind = "local" | "agent";
 export type NodeStatus = "online" | "offline";
 
 /**
+ * Which end declared the current maintenance state (spec 2026-09-14 §2).
+ *
+ * One flag, settable from either end: `plane` means someone threw the switch
+ * in a browser, `node` means someone ran `subshell maintenance` at the
+ * machine itself. The distinction is not decoration — it is the difference
+ * between "I did this" and "somebody is standing at that machine", which is
+ * exactly what an owner looking at the card needs to know before undoing it.
+ */
+export type MaintenanceSource = "plane" | "node";
+
+/**
  * One harness row: instance plugin identity × this node's detection answer.
  * Rows are one per plugin the INSTANCE has installed and enabled (spec
  * 2026-09-10); the node contributes only the binary half.
@@ -107,6 +118,26 @@ export interface Node {
   harnesses: NodeHarness[];
   /** Agent's cached inventory is older than the TTL (or never landed) — installed values are last-known. local: always false */
   inventoryStale: boolean;
+  /**
+   * Whether this machine is holding new work off while somebody works on it
+   * (spec 2026-09-14).
+   *
+   * A property of the NODE, not of its shares: shares answer WHO may launch,
+   * this answers WHETHER ANYONE may, and the two compose by AND. The server
+   * has already done that AND — `canLaunch` is false for every viewer of a
+   * node in maintenance — so nothing on this side re-derives the gate. The
+   * flag rides the list view anyway because `canLaunch: false` alone cannot
+   * tell a machine under maintenance from a host narrowed by its shares, and
+   * the two owe the reader different words and different ways out.
+   *
+   * Only launching is refused: service control, logs, detection, restart and
+   * config all keep answering.
+   */
+  maintenance: boolean;
+  /** ISO 8601 of the flip that produced the current state; null on a node that has never been flipped */
+  maintenanceAt: string | null;
+  /** Which end declared it; null when it has never been declared */
+  maintenanceSource: MaintenanceSource | null;
 }
 
 /** One sharing grant on a node (mirrors the backend `NodeShareSchema`). */
@@ -203,6 +234,20 @@ export interface NodeDetail extends Node {
    * their business.
    */
   runtime?: NodeRuntime;
+  /**
+   * Subshells running on this node right now.
+   *
+   * Present ONLY for a viewer who MANAGES the node (`canManage` — the owner,
+   * or an admin on the control-plane host), because the only thing it is for
+   * is telling the one person who can start maintenance what that would stop.
+   * A `view` or `edit` grantee may well have subshells here; the count is not
+   * their business and the field is simply absent for them.
+   *
+   * It counts parked rows as well as live ones, so render it as "N subshells"
+   * and never "N running" — the stronger word claims more than the number
+   * supports.
+   */
+  runningSubshells?: number;
 }
 
 /** One setup key in the management list — the secret is never here. */

@@ -23,6 +23,9 @@ const BASE: Node = {
     { harnessId: "hermes", name: "Hermes", installed: true },
   ],
   inventoryStale: false,
+  maintenance: false,
+  maintenanceAt: null,
+  maintenanceSource: null,
 };
 
 /** Six detected harnesses — more than the row shows inline. */
@@ -54,7 +57,9 @@ describe("osLabel", () => {
 
 describe("NodeRow", () => {
   it("shows the OS/arch chip, status, and a chip per harness whose program was found", () => {
-    render(<NodeRow node={BASE} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />);
+    render(
+      <NodeRow node={BASE} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} onMaintenance={() => {}} />,
+    );
     expect(screen.getByText("mac mini")).toBeDefined();
     expect(screen.getByText(/Apple · arm64/)).toBeDefined();
     expect(screen.getByText("online")).toBeDefined();
@@ -70,14 +75,30 @@ describe("NodeRow", () => {
   it("truncates only the HARNESS chips, and the control names how many are held back", () => {
     // Six detected harnesses is what crushed this row: the badges never
     // shrink, so the name block collapsed to about one character.
-    render(<NodeRow node={MANY_HARNESSES} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />);
+    render(
+      <NodeRow
+        node={MANY_HARNESSES}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {}}
+      />,
+    );
     for (const id of ["claude", "opencode", "codex"]) expect(screen.getByText(id)).toBeDefined();
     for (const id of ["hermes", "pi", "terminal"]) expect(screen.queryByText(id)).toBeNull();
     expect(screen.getByRole("button", { name: "+3 more" })).toBeDefined();
   });
 
   it("reveals the rest on click, and collapses again", () => {
-    render(<NodeRow node={MANY_HARNESSES} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />);
+    render(
+      <NodeRow
+        node={MANY_HARNESSES}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {}}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "+3 more" }));
     for (const id of ["hermes", "pi", "terminal"]) expect(screen.getByText(id)).toBeDefined();
 
@@ -96,6 +117,7 @@ describe("NodeRow", () => {
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
+        onMaintenance={() => {}}
       />,
     );
     expect(screen.getByText(/Apple · arm64/)).toBeDefined();
@@ -113,6 +135,7 @@ describe("NodeRow", () => {
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
+        onMaintenance={() => {}}
       />,
     );
     expect(screen.getByText("workshop-mac-studio")).toBeDefined();
@@ -125,6 +148,7 @@ describe("NodeRow", () => {
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
+        onMaintenance={() => {}}
       />,
     );
     expect(screen.getByText("offline")).toBeDefined();
@@ -140,6 +164,7 @@ describe("NodeRow", () => {
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
+        onMaintenance={() => {}}
       />,
     );
     expect(screen.getByText(/theo-desktop/)).toBeTruthy();
@@ -153,6 +178,7 @@ describe("NodeRow", () => {
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
+        onMaintenance={() => {}}
       />,
     );
     await openMenu("mac mini");
@@ -162,7 +188,9 @@ describe("NodeRow", () => {
   });
 
   it("offers owners enabled Delete/Share", async () => {
-    render(<NodeRow node={BASE} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} />);
+    render(
+      <NodeRow node={BASE} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} onMaintenance={() => {}} />,
+    );
     await openMenu("mac mini");
     const del = screen.getByRole("menuitem", { name: "Delete" });
     expect(del.getAttribute("aria-disabled")).not.toBe("true");
@@ -176,11 +204,103 @@ describe("NodeRow", () => {
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
+        onMaintenance={() => {}}
       />,
     );
     await openMenu("mac mini");
     expect(screen.getByRole("menuitem", { name: "Delete" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("menuitem", { name: "Share" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("menuitem", { name: "Open config" })).toBeDefined();
+  });
+
+  it("shows the maintenance badge only while the flag is set", () => {
+    const { rerender } = render(
+      <NodeRow node={BASE} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} onMaintenance={() => {}} />,
+    );
+    expect(screen.queryByText("maintenance")).toBeNull();
+    rerender(
+      <NodeRow
+        node={{ ...BASE, maintenance: true }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {}}
+      />,
+    );
+    expect(screen.getByText("maintenance")).toBeDefined();
+  });
+
+  it("keeps the maintenance badge out of the '+N more' overflow", async () => {
+    // It is a warning, and the rule this row follows is that a warning never
+    // needs a click to be seen — the same reason `inventory stale` rides
+    // beside the status badge instead of among the harness chips.
+    render(
+      <NodeRow
+        node={{ ...MANY_HARNESSES, maintenance: true }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {}}
+      />,
+    );
+    expect(screen.getByText("maintenance")).toBeDefined();
+    expect(screen.getByRole("button", { name: "+3 more" })).toBeDefined();
+  });
+
+  it("flips the menu item between starting and ending, and only the start asks", async () => {
+    render(
+      <NodeRow node={BASE} onOpenConfig={() => {}} onShare={() => {}} onDelete={() => {}} onMaintenance={() => {}} />,
+    );
+    await openMenu("mac mini");
+    // The ellipsis is the promise that a confirmation follows; ending
+    // maintenance only widens what the machine accepts, so it carries none.
+    expect(screen.getByRole("menuitem", { name: "Start maintenance…" })).toBeDefined();
+    cleanup();
+
+    render(
+      <NodeRow
+        node={{ ...BASE, maintenance: true }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {}}
+      />,
+    );
+    await openMenu("mac mini");
+    expect(screen.getByRole("menuitem", { name: "End maintenance" })).toBeDefined();
+  });
+
+  it("calls back when the item is picked, leaving the confirm and the PUT to the caller", async () => {
+    let picked = 0;
+    render(
+      <NodeRow
+        node={BASE}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {
+          picked += 1;
+        }}
+      />,
+    );
+    await openMenu("mac mini");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Start maintenance…" }));
+    await waitFor(() => expect(picked).toBe(1));
+  });
+
+  it("shows maintenance DISABLED for a viewer who cannot manage the node", async () => {
+    // Shown rather than hidden, like Delete and Share: the row reads the same
+    // to everyone, and the server is the gate.
+    render(
+      <NodeRow
+        node={{ ...BASE, access: "edit", canManage: false }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {}}
+      />,
+    );
+    await openMenu("mac mini");
+    expect(screen.getByRole("menuitem", { name: "Start maintenance…" }).getAttribute("aria-disabled")).toBe("true");
   });
 });

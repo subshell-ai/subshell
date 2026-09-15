@@ -13,6 +13,7 @@ import {
   canSubmit,
   emptyNewSubshellForm,
   hideMachineField,
+  isSelectable,
   launchableNodes,
   NewSubshellForm,
   type NewSubshellFormValue,
@@ -49,6 +50,9 @@ function node(overrides: Partial<Node>): Node {
     capabilities: [],
     harnesses: [],
     inventoryStale: false,
+    maintenance: false,
+    maintenanceAt: null,
+    maintenanceSource: null,
     ...overrides,
   };
 }
@@ -195,7 +199,7 @@ async function renderForm(initial: NewSubshellFormValue = emptyNewSubshellForm()
     return <NewSubshellForm value={value} onChange={holdValue ? () => {} : setValue} firstRun={firstRun} />;
   }
   // The honest hints render `<Link>`s (a router context is required) — the
-  // same minimal memory-router wrapper the local-launch-card test uses.
+  // same minimal memory-router wrapper the node-maintenance-card test uses.
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Harness });
   const router = createRouter({
@@ -765,6 +769,47 @@ describe("hideMachineField", () => {
   });
 });
 
+/**
+ * A node in maintenance is the one unlaunchable row that stays VISIBLE
+ * (spec 2026-09-14 §6). The share-narrowed host keeps vanishing, because
+ * "the host you were not granted" is not a choice; "the machine somebody is
+ * working on" is a choice with a reason and a way back, so it is shown greyed
+ * with the word on it.
+ */
+describe("maintenance in the picker's pure rules", () => {
+  const MAINT = node({ id: "m1", name: "shop", maintenance: true, canLaunch: false });
+
+  it("is never selectable, even if the server's canLaunch disagrees", () => {
+    // The plane ANDs the flag into canLaunch, so the two normally agree —
+    // but a payload cached before the flip, or one from a server older than
+    // the field, would otherwise offer a launch the node itself refuses.
+    expect(isSelectable(MAINT)).toBe(false);
+    expect(isSelectable({ ...MAINT, canLaunch: true })).toBe(false);
+    expect(isSelectable(AGENT_ONLINE)).toBe(true);
+  });
+
+  it("stays in the launchable list, unlike the share-narrowed host", () => {
+    const narrowed = node({ id: "local", kind: "local", canLaunch: false });
+    expect(launchableNodes([MAINT, narrowed, AGENT_ONLINE]).map((n) => n.id)).toEqual(["m1", "a1"]);
+  });
+
+  it("is never auto-picked as the sole option", () => {
+    // `pickNodeDefault` fills a blank only from something submittable;
+    // filling it with a node that 409s would park the form on a dead end.
+    expect(pickNodeDefault([MAINT], "")).toBe("");
+    expect(pickNodeDefault([MAINT], "m1")).toBe("");
+  });
+
+  it("shows the Machine field rather than hiding it above a form that cannot submit", () => {
+    // The hidden-field rule is "one possible answer, so no question" — a host
+    // in maintenance has ZERO possible answers, which is a different thing and
+    // needs the greyed row saying so.
+    const host = node({ id: "local", kind: "local", maintenance: true, canLaunch: false });
+    expect(hideMachineField([host])).toBe(false);
+    expect(hideMachineField([node({ id: "local", kind: "local" })])).toBe(true);
+  });
+});
+
 describe("launchableNodes", () => {
   it("drops what the server says this viewer cannot launch on", () => {
     const off = node({ id: "local", kind: "local", canLaunch: false });
@@ -802,7 +847,11 @@ describe("nowhere to launch", () => {
       await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());
       expect(screen.queryByRole("button", { name: /^Enable on/ })).toBeNull();
       expect(screen.getByRole("button", { name: "Add a node" })).toBeDefined();
-      expect(screen.getByText(/An admin can switch Server back on/)).toBeDefined();
+      // Re-based on spec 2026-09-14 §2: the host's launch "switch" was never a
+      // switch — it was its Everyone grant — and with the maintenance flag
+      // taking over that job the sentence names grants instead of an on/off
+      // nobody can find.
+      expect(screen.getByText("Nobody is granted launch access on Server; an admin can share it.")).toBeDefined();
     } finally {
       restore();
     }

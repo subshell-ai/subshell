@@ -26,6 +26,9 @@ function node(overrides: Partial<Node>): Node {
     capabilities: [],
     harnesses: [],
     inventoryStale: false,
+    maintenance: false,
+    maintenanceAt: null,
+    maintenanceSource: null,
     ...overrides,
   };
 }
@@ -242,6 +245,23 @@ describe("buildNodeOptions", () => {
       ["a1", true],
     ]);
   });
+  it("greys a node in maintenance and says why, rather than dropping it", () => {
+    // It is the one unlaunchable row that stays in the list, so the option
+    // owes the reader both the word on the label and the reason beside it.
+    const maint = node({ id: "m1", name: "shop", harnesses: [CLAUDE_ON], maintenance: true });
+    const [opt] = buildNodeOptions([maint], CLAUDE);
+    expect(opt).toEqual({ value: "m1", label: "shop (maintenance)", disabled: true, reason: "in maintenance" });
+  });
+
+  it("does not stack a maintenance reason on a node whose label already says offline", () => {
+    // Offline carries no reason text — the label's last segment is the whole
+    // explanation — and a machine that is both would otherwise read as if
+    // ending maintenance made it usable.
+    const both = node({ id: "m2", name: "shop", status: "offline", harnesses: [CLAUDE_ON], maintenance: true });
+    const [opt] = buildNodeOptions([both], CLAUDE);
+    expect(opt).toEqual({ value: "m2", label: "shop (offline) (maintenance)", disabled: true });
+  });
+
   it("an offline agent stays disabled with the offline label and no reason text", () => {
     const opts = buildNodeOptions([node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] })], CLAUDE);
     expect(opts[0]).toEqual({ value: "a2", label: "old (offline)", disabled: true });
