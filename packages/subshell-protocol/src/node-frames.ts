@@ -85,8 +85,16 @@ import type { JsonValue } from "./json.js";
  * that is not. The plane could only ever advise about it in the abstract; now
  * it says which of the two this machine is. Additive, and breaking anyway,
  * because the gate is exact-match.
+ *
+ * **9 → 10 is the `update` command (spec 2026-09-15 §5.1).** The plane can now
+ * hand an agent a version, a URL and a digest and have it replace its own
+ * binary, instead of closing 4406 and leaving somebody to walk to the machine.
+ * Additive, and breaking anyway, because the gate is exact-match — but see the
+ * FROZEN-SHAPE note on the command itself: `update` is the ONE command the
+ * plane sends across a protocol boundary, so its field names and meanings may
+ * never be changed by a later bump.
  */
-export const NODE_PROTOCOL_VERSION = 9;
+export const NODE_PROTOCOL_VERSION = 10;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -153,6 +161,44 @@ export const NODE_RESULT_NO_SERVICE = "no service definition";
  * appends the offending path for a human to read.
  */
 export const NODE_RESULT_MAINTENANCE = "in maintenance";
+
+/**
+ * `result.error` from an `update` the agent refused because it is not a
+ * compiled binary: `selfInvokePrefix()` answered WITH arguments, which means an
+ * interpreter is running an entry script. There is no single file to swap, so
+ * the remedy is updating that checkout, not downloading anything.
+ *
+ * Bare, like every constant here — the plane matches `NodeRpcError.detail` by
+ * equality, and a helpful suffix reads there as an ordinary failure.
+ */
+export const NODE_RESULT_NOT_COMPILED = "not a compiled agent";
+
+/**
+ * `result.error` from an `update` whose bytes never arrived: the URL answered
+ * a non-200, the connection died, or the transfer exceeded the agent's cap.
+ *
+ * The commonest real cause is a single-use download token the plane forgot
+ * across its own restart, which the agent sees as a 401. That is why this is a
+ * refusal the route reports rather than something to retry silently — the
+ * operator presses Update again and gets a fresh token.
+ */
+export const NODE_RESULT_DOWNLOAD_FAILED = "download failed";
+
+/**
+ * `result.error` from an `update` whose downloaded bytes did not hash to the
+ * `sha256` the command carried.
+ *
+ * Nothing was installed and the partial file is gone: the check happens before
+ * the first `chmod +x`, which is what makes streaming the download sound.
+ */
+export const NODE_RESULT_DIGEST_MISMATCH = "digest mismatch";
+
+/**
+ * `result.error` from an `update` whose downloaded binary RAN but reported a
+ * version other than the one the command named. A binary that cannot say what
+ * it is does not get installed.
+ */
+export const NODE_RESULT_VERSION_MISMATCH = "installed binary reports a different version";
 
 /**
  * The verbs a `service` command may carry, as a runtime list.
@@ -690,6 +736,38 @@ export type NodeCommandBody =
       on: boolean;
       /** The plane's stamp for this value; stored verbatim. */
       changedAt: string;
+    }
+  | {
+      /**
+       * Replace this agent's own binary and restart into it (spec 2026-09-15 §5.2).
+       *
+       * **THIS SHAPE IS FROZEN ACROSS FUTURE PROTOCOL BUMPS.** Every other
+       * command travels between two ends that agreed on
+       * {@link NODE_PROTOCOL_VERSION} — the gate is exact-match, so a rename
+       * costs nothing but a version number. This one is different: it is the
+       * command the plane sends to an agent whose protocol it does NOT share
+       * (§5.3 — such an agent is HELD rather than dropped, precisely so this
+       * can reach it). So the agent parsing it may be any older build, and the
+       * plane encoding it may be any newer one. Renaming a field, or changing
+       * what one means, breaks the only path by which a stranded machine can
+       * be rescued from a browser. Add nothing here that an old agent must
+       * understand; anything new must be optional and ignorable.
+       *
+       * The agent decides, as it does for `service`: it applies the same two
+       * refusals (not supervised, and a definition that would take live panes
+       * down without `force`), verifies the digest before the first `chmod`,
+       * and answers `{ ok: true }` BEFORE exiting so the plane reads a success
+       * rather than a timeout.
+       */
+      type: "update";
+      /** The version the downloaded binary must report from `<binary> version`. */
+      version: string;
+      /** Absolute http(s) URL the bytes come from; the plane bakes a single-use token into it. */
+      url: string;
+      /** Lowercase-hex sha256 the downloaded bytes must hash to, from the same release. */
+      sha256: string;
+      /** Act even though the service definition's `paneSafety` is not `keeps`. */
+      force?: boolean;
     };
 
 /**
@@ -1113,6 +1191,20 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "set_maintenance": {
       const state = parseNodeMaintenance(value);
       return state ? { type: "set_maintenance", ...state } : null;
+    }
+    case "update": {
+      // Shape only, like `set_server_url` above: WHICH url is acceptable is
+      // the plane's to decide, and the digest is checked against the bytes
+      // rather than against a regex. What this arm does enforce is that all
+      // three required fields are non-empty strings — the FROZEN shape (see
+      // the command's own note) is what an older agent will parse forever,
+      // so it is spelled out field by field rather than cast wholesale.
+      if (!isStr(value.version) || value.version.length === 0) return null;
+      if (!isStr(value.url) || value.url.length === 0) return null;
+      if (!isStr(value.sha256) || value.sha256.length === 0) return null;
+      const base = { type: "update", version: value.version, url: value.url, sha256: value.sha256 } as const;
+      if (!("force" in value)) return base;
+      return isBool(value.force) ? { ...base, force: value.force } : null;
     }
     default:
       return null;

@@ -24,6 +24,7 @@ import { execSetLogLevel } from "./set-log-level.js";
 import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
+import { execUpdate } from "./update.js";
 import { execWriteFile } from "./write-file.js";
 
 export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./context.js";
@@ -35,8 +36,10 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * inversion spec §5), `remove_paths`, `launch`,
  * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`,
  * `set_allowed_dirs`, `service`, `agent_log_read`, `set_server_url`, `set_log_level`
- * (Task 6), `fs_ls` (remote folder picker), and `detect` (detection-on-demand,
- * inversion spec §4). Any
+ * (Task 6), `fs_ls` (remote folder picker), `detect` (detection-on-demand,
+ * inversion spec §4), and `update` (self-replacement, spec 2026-09-15 §5.2 —
+ * the one command whose wire shape is frozen, because the plane sends it to
+ * agents whose protocol it does not share). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
@@ -111,6 +114,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return execSetMaintenance(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
+      case "update":
+        return await execUpdate(ctx, cmd);
       default:
         return { ok: false, error: "unsupported" };
     }

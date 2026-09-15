@@ -70,8 +70,16 @@ export function semverLt(a: string, b: string): boolean {
  * below this reports no linger fact, and the surface that reads it would have
  * to render "unknown" for a machine that simply predates the field — an
  * answer indistinguishable from logind refusing to say.
+ *
+ * Raised to 0.9.0 with protocol 10 (the `update` command, spec 2026-09-15),
+ * the same way — 0.8.0 is the version currently published, so the floor goes
+ * one minor above it rather than to it. An agent below this speaks no
+ * `update`, which is the one thing a refused agent must be able to hear: the
+ * plane HOLDS such a socket instead of closing it (§5.3) and can still send
+ * the command, and an agent too old to know it answers `unsupported`, which
+ * the route turns into "update this node by hand: `subshell update`".
  */
-export const MIN_AGENT_VERSION = "0.7.0";
+export const MIN_AGENT_VERSION = "0.9.0";
 
 /**
  * Whether an agent reporting `version` may connect.
