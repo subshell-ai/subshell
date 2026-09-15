@@ -27,10 +27,19 @@ test.describe("instance plugins", () => {
     return page.locator("div.rounded-lg", { has: page.getByText("Installed", { exact: true }) });
   }
 
-  /** The pi row within it — the name span is the only exact "pi" in the row. */
+  /**
+   * The pi row within it — the name span is the only exact "pi" in the row
+   * (the id line reads `pi · vX · drives pi`, which is not an exact match).
+   *
+   * Keyed on `div.contents`, the class the row wrapper carries since the card
+   * became a headerless table: the wrapper DRAWS nothing, so its cells are the
+   * grid's own children and share the column tracks. It therefore has no
+   * bounding box — assert on descendants, never on the row itself, or a
+   * visibility check fails on a row that is plainly on screen.
+   */
   function piRow(page: import("@playwright/test").Page) {
     return installedCard(page)
-      .locator("div.space-y-2")
+      .locator("div.contents")
       .filter({ has: page.getByText("pi", { exact: true }) });
   }
 

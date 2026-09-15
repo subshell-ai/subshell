@@ -40,21 +40,48 @@ export function InstalledPluginsCard({
       </CardHeader>
       <CardContent className="space-y-3">
         {plugins.length === 0 && <p className="text-muted-foreground text-sm">Nothing installed yet.</p>}
-        {plugins.map((p) => (
-          <div key={p.id} className="space-y-2 rounded-lg border p-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <PluginIcon pluginId={p.id} name={p.name} className="size-8" />
-              <div className="min-w-0 flex-1">
-                <p className="font-strong">{p.name}</p>
-                <p className="text-detail text-muted-foreground">
-                  {[p.id, p.version ? `v${p.version}` : undefined, p.binary ? `drives ${p.binary}` : undefined]
-                    .filter((s): s is string => s !== undefined)
-                    .join(" · ")}
-                </p>
+        {/* A headerless table: ONE grid for the whole list, so the source
+            badge, the switch and Uninstall share their tracks and line up
+            down the card. Each row was its own bordered flex box before, and
+            `auto` sizes per CONTAINER — so every row placed its controls
+            wherever that row's own name and version left them, a different x
+            in every row. One grid with `auto` tracks sizes each column to its
+            widest cell, which is the alignment a table gives and per-row flex
+            containers cannot.
+
+            Rows are `display: contents` (the inner wrapper below): the row
+            element draws nothing, so its cells are the grid's own children.
+            That is also why every cell is ALWAYS rendered, even when empty —
+            a skipped cell would slide the rest of that row one column left.
+
+            Two columns below `sm`, four above: the badge, the switch and
+            Uninstall fall to a second line on a phone rather than crushing
+            the name. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+          {plugins.map((p, index) => (
+            <div key={p.id} className="contents">
+              {/* Spans the full width, so it starts its own grid row and
+                  cannot displace a cell: the rows carry no border of their
+                  own any more, and a rule between them is what keeps a
+                  multi-line row from reading as two. */}
+              {index > 0 && <div aria-hidden className="col-span-full border-t" />}
+              <div className="flex min-w-0 items-center gap-3">
+                <PluginIcon pluginId={p.id} name={p.name} className="size-8" />
+                <div className="min-w-0">
+                  <p className="truncate font-strong">{p.name}</p>
+                  <p className="truncate text-detail text-muted-foreground">
+                    {[p.id, p.version ? `v${p.version}` : undefined, p.binary ? `drives ${p.binary}` : undefined]
+                      .filter((s): s is string => s !== undefined)
+                      .join(" · ")}
+                  </p>
+                </div>
               </div>
-              <Badge variant={p.builtIn ? "muted" : "outline"}>{p.builtIn ? "this build" : "npm"}</Badge>
+              <Badge variant={p.builtIn ? "muted" : "outline"} className="justify-self-start">
+                {p.builtIn ? "this build" : "npm"}
+              </Badge>
               {canManage ? (
                 <Switch
+                  className="justify-self-start"
                   checked={p.enabled}
                   aria-label={`${p.name} enabled`}
                   disabled={setEnabled.isPending}
@@ -78,21 +105,28 @@ export function InstalledPluginsCard({
                   }
                 />
               ) : (
-                <Badge variant={p.enabled ? "success" : "warning"}>{p.enabled ? "enabled" : "disabled"}</Badge>
+                <Badge variant={p.enabled ? "success" : "warning"} className="justify-self-start">
+                  {p.enabled ? "enabled" : "disabled"}
+                </Badge>
               )}
-              {canManage && (
-                <Button variant="ghost" size="sm" onClick={() => onUninstall(p)}>
+              {/* Always a cell, even for a reader who manages nothing — an
+                  omitted one would pull this row's earlier cells rightwards
+                  out of their columns. */}
+              {canManage ? (
+                <Button variant="ghost" size="sm" className="justify-self-end" onClick={() => onUninstall(p)}>
                   Uninstall {p.name}
                 </Button>
+              ) : (
+                <span />
               )}
+              {p.description && <p className="col-span-full text-detail text-muted-foreground">{p.description}</p>}
+              {/* A broken install keeps its row precisely so it can say this;
+                  every launch of it fails, and the operator needs to know why. */}
+              {p.broken && <p className="col-span-full text-destructive text-detail">Not loaded: {p.broken}</p>}
+              {rowErrors[p.id] && <p className="col-span-full text-destructive text-detail">{rowErrors[p.id]}</p>}
             </div>
-            {p.description && <p className="text-detail text-muted-foreground">{p.description}</p>}
-            {/* A broken install keeps its row precisely so it can say this;
-                every launch of it fails, and the operator needs to know why. */}
-            {p.broken && <p className="text-destructive text-detail">Not loaded: {p.broken}</p>}
-            {rowErrors[p.id] && <p className="text-destructive text-detail">{rowErrors[p.id]}</p>}
-          </div>
-        ))}
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
