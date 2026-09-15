@@ -5,20 +5,28 @@
  * **Why this one thing is shared when the rest of the two service modules is
  * not.** `apps/server/api/src/service.ts` and `apps/node/agent/src/service.ts`
  * are deliberate ports of each other — sync against async — and that
- * duplication is a decision, not an accident: each owns its own PLATFORM
+ * duplication is a decision, not an accident: each owns its own platform
  * logic, and a shared layer over two callers would be an abstraction over a
- * guess. Two pieces of this feature are not platform logic, though, and both
- * are places where a divergence would be silent rather than loud:
+ * guess.
  *
- * - **{@link lingerFromProbe} parses another program's error text.** A regex
- *   over `loginctl`'s wording is brittle by nature; the day it needs
- *   correcting, correcting one copy leaves the other quietly answering wrong
- *   on exactly the headless machine this feature exists for.
- * - **{@link lingerVerdict} is user-facing copy that has to read identically
- *   on two CLIs.** `subshell service status` and `subshell-server service
- *   status` answer the same question about the same mechanism; two spellings
- *   of it is the kind of drift nobody notices and everybody has to
- *   reconcile later.
+ * The line is NOT "parsing versus platform logic", which would sweep in
+ * `parseLaunchctlPrint` and `killModeFromUnitText` and commit the next person
+ * to a migration nobody asked for. It is this:
+ *
+ * > **One fact rendered to a HUMAN on two CLIs, which must agree** — shared.
+ * > **A reader whose output feeds each port's own state machine** — ported.
+ *
+ * `parseLaunchctlPrint` is the second kind: its output never reaches a user,
+ * and the two ports could legitimately diverge on it tomorrow. These two are
+ * the first kind, and both are places where a divergence would be silent
+ * rather than loud:
+ *
+ * - **{@link lingerFromProbe} decides a fact both `service status` commands
+ *   print.** Its regex over `loginctl`'s error wording is brittle by nature,
+ *   and the day it needs correcting, correcting one copy leaves the other
+ *   quietly answering wrong on exactly the headless machine this exists for.
+ * - **{@link lingerVerdict} IS that rendering.** Two spellings of one answer
+ *   is the kind of drift nobody notices and everybody reconciles later.
  *
  * Everything else about the probe — when to run it, what to do with the
  * answer, how to spawn — stays with each port.
@@ -95,6 +103,13 @@ export function lingerFromProbe(res: LingerProbeResult): boolean | null {
  * answer" and "we never asked, because the service manager itself had already
  * failed" — naming a tool that was never run sends someone to debug the wrong
  * thing.
+ *
+ * **These strings are shareable only because none of them names a product.**
+ * `loginctl` is the same program on both hosts, and the lines AROUND this one
+ * correctly differ — `subshell service install` against `subshell-server
+ * service install`. If this ever has to name the binary it belongs to, it
+ * stops being one string and goes back to each port rather than growing a
+ * parameter.
  *
  * @param linger - the fact, or `null` when it could not be established
  * @returns the text after `survives logout      = `

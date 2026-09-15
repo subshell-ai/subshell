@@ -255,17 +255,18 @@ unreachable bus is the real `null`. logind is addressed by UID because
 uid with no passwd entry, which is the ordinary container shape.
 
 **Two pieces of the linger probe are SHARED with the server's twin rather than
-ported**, and the line between them is worth stating because everything else
-in this module is a deliberate duplicate. `lingerProbeArgv` and
-`lingerFromProbe` (and the CLI's `lingerVerdict` string) come from
-`@internal/subshell-protocol`. Each port still owns its own PLATFORM logic —
-`killModeFromUnitText`, `parseLaunchctlPrint`, when to ask, what to do with the
-answer — because that is what the duplication decision is about. But
-`lingerFromProbe` parses ANOTHER PROGRAM'S ERROR TEXT with a regex, and
-`lingerVerdict` is user-facing copy that has to read identically on two CLIs.
-Those are the two places where a divergence would be silent rather than loud,
-and silent-and-wrong on a headless machine is the exact failure this fact
-exists to prevent.
+ported**, and the line is worth stating precisely, because everything else in
+this module is a deliberate duplicate. `lingerProbeArgv`, `lingerFromProbe` and
+the CLI's `lingerVerdict` string come from `@internal/subshell-protocol`. The
+criterion is **one fact rendered to a HUMAN on two CLIs, which must agree** —
+not "parsing versus platform logic", which would sweep in `parseLaunchctlPrint`
+and `killModeFromUnitText` and commit the next person to a migration nobody
+asked for. Those two feed each port's own state machine, never a user, and the
+two sides could legitimately diverge on them tomorrow. `survives logout` is the
+other kind: both `service status` commands print it, its regex over
+`loginctl`'s error wording is brittle by nature, and correcting one copy would
+leave the other quietly wrong on exactly the headless machine the fact exists
+for. When to ask and what to do with the answer stay here.
 
 `queryService`/`controlService` (ported from `apps/server/api/src/service.ts`,
 2026-09-05 — async here, since every seam in this module is) are what
