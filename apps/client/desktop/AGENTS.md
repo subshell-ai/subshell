@@ -337,6 +337,74 @@ here. (`src-tauri/src/tray.rs` is the ICON — builder, menu, ids;
 `desktop-core`'s `tray.rs` is the different question of whether an icon is
 drawn on this desktop at all.)
 
+## Installing the bundled agent is a TRANSACTION, not a copy
+
+**`node_install_agent` has two paths, and the split is whether there is an
+installed CLI to ask** (spec 2026-09-15 § 7.1):
+
+- **A REPLACE of the managed copy** (`probe.managed` — the binary this machine
+  actually runs IS `~/.local/bin/subshell`) runs
+  `<installed> update --from <staged sidecar> --yes --no-restart --json`. The
+  agent has no database, so this buys less than it does on the server side:
+  `<binary>.previous`, the `update-pending.json` marker, and the version probe
+  that refuses a file which cannot say what it is. It is still the same code
+  on every path, which is the point.
+- **A first install** keeps `sidecar::install_bundled`: there is no installed
+  CLI to run.
+
+Two things went away with the stop, and neither was a loss:
+
+- **The service is no longer stopped**, so `stop_note` and `with_stop_output`
+  are gone. They existed because `install_bundled` writes the file the daemon
+  is executing; the CLI's swap is a `rename(2)` a running daemon does not
+  notice, so there is nothing left for them to warn about. The deliberate
+  no-restart is unchanged — `--no-restart` says it, and the screen still tells
+  the person to start it.
+- **The flags are a CONTRACT, held in one place.**
+  `desktop-core`'s `cli_update::update_args` spells them for both apps, and its
+  tests pin the exact list; `update_argv` here is pinned against it, so this
+  app can never spell one of them itself.
+
+**An agent older than the `update` verb cannot be replaced this way**, and that
+is deliberate rather than handled: a silent fall-back to the plain copy would
+be the one update path with nothing behind it.
+
+## Updating the app itself
+
+`src-tauri/src/app_update.rs` and the `app-update` screen — a near-twin of
+`apps/server/desktop`'s, which documents the design once; read it there. What
+differs here is only what is `tauri`-typed: the tag prefix
+(`desktop-client-v`), the progress event (`node-app-update-progress`), the two
+command names (`node_check_app_update` / `node_install_app_update`, both
+`node`-window-only), and the screen, which is a React component rather than a
+DOM render. Everything with no `tauri` type in it — the endpoint, the tag
+parse, the semver pick, the manifest URL, the 24-hour schedule — is
+`desktop-core`'s `release_feed`, shared.
+
+Two facts specific to this app:
+
+- **The node agent is NOT touched by an app update.** Replacing this app
+  replaces the agent it BUNDLES, which is a source to install FROM and is on
+  no rung of the resolution ladder — so a running `subshell` daemon keeps
+  running `~/.local/bin/subshell` until someone presses Update on the
+  Connected screen. The screen says so.
+- **The signing key is the SAME one `apps/server/desktop` pins**, because the
+  two apps are one publisher and a public key is the publisher's identity
+  rather than the app's. One `bunx tauri signer generate -w
+  ~/.tauri/subshell-desktop.key`, the `.pub` contents committed as
+  `plugins.updater.pubkey` in BOTH `tauri.conf.json` files, and two repo
+  secrets: `TAURI_SIGNING_PRIVATE_KEY` (the key file's **CONTENTS**, not a
+  path — measured 2026-09-15, tauri 2.11 ignores the `_PATH` spelling) and
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. **The `.key` in your password manager
+  IS the backup, and losing it means every already-installed app can never
+  auto-update again** — a new key is a new publisher to those installs, and
+  the only way back is a hand download.
+
+Local cost, same as the other app: because the pubkey is configured and
+`bundle.createUpdaterArtifacts` is on, **`bun run compile` needs
+`TAURI_SIGNING_PRIVATE_KEY` set**. `tauri dev` bundles nothing and is
+unaffected.
+
 ## The IPC boundary
 
 `permissions/desktop.toml` is the app's ACL manifest and it is load-bearing **by

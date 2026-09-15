@@ -326,6 +326,42 @@ describe("the assistant's IPC contract", () => {
     expect(grantedCommands("wizard.json").has("desktop_open_system_settings")).toBe(true);
   });
 
+  it("keeps updating the APP on the bundled page alone", () => {
+    // Two commands, both `wizard`-only (spec 2026-09-15 § 7.2). The check
+    // looks harmless — one GET, nothing changed — and it still does not go on
+    // `main`, because its sibling REPLACES THE APPLICATION and granting the
+    // pair separately would be a distinction the ACL cannot express: a page
+    // holding the check has no reason to hold it, since the dashboard reaches
+    // this screen by NAME through `desktop_open_assistant`, which it already
+    // has. `main`'s count above is what makes that concrete; this says WHICH
+    // two commands must never move.
+    const wizard = grantedCommands("wizard.json");
+    expect(wizard.has("desktop_check_app_update")).toBe(true);
+    expect(wizard.has("desktop_install_app_update")).toBe(true);
+    const main = grantedCommands("main.json");
+    expect(main.has("desktop_check_app_update")).toBe(false);
+    expect(main.has("desktop_install_app_update")).toBe(false);
+  });
+
+  it("keeps the app installer to NO arguments, so a page names no release", () => {
+    // The whole reason this command can exist behind a single press: the
+    // release to install is re-resolved in Rust, so the page asks for "the
+    // newest" and can never name a URL, a tag or a file. A parameter added
+    // later would make it a different command with the same name, and no ACL
+    // assertion in this file would see it.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    for (const name of ["desktop_check_app_update", "desktop_install_app_update"]) {
+      const signature = rust.slice(rust.indexOf(`pub async fn ${name}(`));
+      const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+      const names = params
+        .split(",")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => line.split(":")[0]?.trim());
+      expect(names, `${name} takes more than an AppHandle`).toEqual(["app"]);
+    }
+  });
+
   it("keeps the assistant's dialog surface to open alone", () => {
     // `pickBinary`'s file dialog is the page's only native popup. `ask` was
     // the console's — its update and restart confirmations — and both of those

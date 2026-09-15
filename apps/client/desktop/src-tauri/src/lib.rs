@@ -13,6 +13,7 @@
 //! security boundary.
 
 mod agent_bin;
+mod app_update;
 mod control;
 mod reset;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
@@ -145,6 +146,12 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // Updating THIS APP (spec 2026-09-15 § 7.2). The plugin's own
+        // `endpoints` config is deliberately empty: this repository publishes
+        // four components under four tag prefixes, so there is no one static
+        // manifest to point at, and `app_update.rs` resolves the right release
+        // before handing the plugin exactly one URL.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::PlanePin::new())
         .manage(windows::PendingScreen::new())
@@ -164,6 +171,8 @@ pub fn run() {
             control::node_open_plane,
             control::node_open_plane_url,
             control::desktop_open_in_browser,
+            control::node_check_app_update,
+            control::node_install_app_update,
             reset::node_arm_reset,
             reset::node_reset,
         ])
@@ -212,6 +221,11 @@ pub fn run() {
             if let Err(err) = tray::build(&handle) {
                 eprintln!("subshell-node: could not create the tray icon: {err}");
             }
+            // At most once a day, in the background, and it opens NOTHING: the
+            // only thing it changes is the tray item's label (spec § 7.2, and
+            // § 14 — automatic updates are explicitly not this design). After
+            // the tray, so the item it labels exists.
+            app_update::check_on_launch(&handle);
             // Which window LEADS says what this install is. An address already
             // settled — chosen here before, or enrolled from the CLI — means a
             // client whose job is the plane; anything else means a machine that

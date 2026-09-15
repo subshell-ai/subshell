@@ -101,6 +101,27 @@ pub struct Settings {
     /// existed needs — a zoom of `0.0` is what a bare `f64` default would
     /// have handed them.
     pub zoom: f64,
+    /// When this app last asked the release source whether a newer app exists,
+    /// as an RFC 3339 timestamp.
+    ///
+    /// The whole of the launch check's rate limit (spec 2026-09-15 § 7.2):
+    /// each app checks ONCE on launch and only when this is more than 24 hours
+    /// old. Persisted rather than held in memory because the window it guards
+    /// is per LAUNCH — an app someone quits and reopens eight times in an
+    /// afternoon would otherwise ask eight times, which is a poll with extra
+    /// steps.
+    ///
+    /// Absent means "never checked", which is what makes a fresh install check
+    /// on its first launch.
+    pub last_update_check_at: Option<String>,
+    /// The newest app version that check found, when it found a newer one.
+    ///
+    /// Stored beside the timestamp rather than re-derived, because the tray
+    /// item it suffixes ("Check for Updates… (0.7.0 available)") is built
+    /// before any check runs on a launch that is inside the 24-hour window.
+    /// Cleared by a check that finds nothing newer — a suffix naming a version
+    /// the person already installed is worse than none.
+    pub last_update_version: Option<String>,
     /// Who runs the server on this machine (Subshell Server only).
     ///
     /// A PREFERENCE, and the disk outranks it: a unit or plist that exists
@@ -148,6 +169,8 @@ impl Default for Settings {
             plane_url: None,
             onboarded: false,
             zoom: ZOOM_DEFAULT,
+            last_update_check_at: None,
+            last_update_version: None,
             supervision: Supervision::Service,
         }
     }
@@ -260,6 +283,8 @@ mod tests {
             plane_url: Some("https://subshell.example.com".into()),
             onboarded: true,
             zoom: 1.25,
+            last_update_check_at: Some("2026-09-15T10:00:00Z".into()),
+            last_update_version: Some("0.7.0".into()),
             supervision: Supervision::App,
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
@@ -268,6 +293,18 @@ mod tests {
         assert_eq!(back.plane_url.as_deref(), Some("https://subshell.example.com"));
         assert!(back.onboarded);
         assert_eq!(back.zoom, 1.25);
+        assert_eq!(back.last_update_check_at.as_deref(), Some("2026-09-15T10:00:00Z"));
+        assert_eq!(back.last_update_version.as_deref(), Some("0.7.0"));
+    }
+
+    // A settings file written before the launch update check existed must read
+    // as "never checked", so an upgraded app asks once rather than waiting a
+    // day for a timestamp that is not there.
+    #[test]
+    fn an_absent_update_check_reads_as_never() {
+        let s: Settings = serde_json::from_str(r#"{"closeToTray":true,"onboarded":true}"#).unwrap();
+        assert_eq!(s.last_update_check_at, None);
+        assert_eq!(s.last_update_version, None);
     }
 
     // A settings file written before text size existed must open at normal

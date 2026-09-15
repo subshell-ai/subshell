@@ -31,6 +31,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { AboutScreen } from "@/components/assistant/about-screen";
+import { AppUpdateScreen } from "@/components/assistant/app-update-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
 import { ConnectedScreen } from "@/components/assistant/connected-screen";
 import { EnrollScreen } from "@/components/assistant/enroll-screen";
@@ -69,14 +70,17 @@ export function App() {
     void ipc
       .nodePendingScreen()
       .then((pending) => {
-        if (pending === "about") setOverride("about");
+        if (pending === "about" || pending === "app-update") setOverride(pending);
       })
       .catch(() => {
         // An older Rust half knows no such command; nothing was requested that
         // this page can honour.
       });
     const unlisten = listen<string>("desktop-screen", (event) => {
-      if (event.payload === "about") setOverride("about");
+      // Two names now, and an id this build does not know is still IGNORED
+      // rather than thrown — that is what lets a menu item and this page ship
+      // independently.
+      if (event.payload === "about" || event.payload === "app-update") setOverride(event.payload);
     });
     return () => {
       // Both halves swallow: a subscription that never came up has nothing to
@@ -191,10 +195,13 @@ export function App() {
             setOverride("enroll");
           }}
           onReset={() => setOverride("reset")}
+          onCheckAppUpdate={() => setOverride("app-update")}
         />
       );
     case "about":
       return <AboutScreen shell={shell} probe={probe} onClose={() => setOverride(null)} />;
+    case "app-update":
+      return <AppUpdateScreen shell={shell} onClose={() => setOverride(null)} />;
     case "reset":
       return (
         <ResetScreen shell={shell} {...facts} runner={runner} busy={runner.busy} onCancel={() => setOverride(null)} />

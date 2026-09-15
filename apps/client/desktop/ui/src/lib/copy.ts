@@ -63,14 +63,27 @@ export const ENROLL_NOTES: readonly string[] = [
 ];
 
 /**
+ * Which platform this bundled page is running on.
+ *
+ * The user agent, because this page has no `platform` on its probe — the
+ * Rust side reports the AGENT's state, and nothing in that report is about the
+ * operating system as such. Read once and named, so the two places that need
+ * it read one expression: a second inline regex is how two surfaces come to
+ * disagree about which machine they are on.
+ *
+ * It gates only genuine platform FACTS — which tmux installer to name, and
+ * that a Linux app update raises a polkit prompt — never voice. One word for
+ * where you are, on both platforms (`node-assistant-state.ts`).
+ */
+export const IS_MACOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
+
+/**
  * The install command for this machine, named in the hint so the advice is
  * one keystroke from action. The same two installers `commands/tmux-install.ts`
  * offers interactively, and the same pair the server console shows beside its
  * disabled buttons.
  */
-export const TMUX_INSTALL_CMD = /Macintosh|Mac OS X/.test(navigator.userAgent)
-  ? "brew install tmux"
-  : "sudo apt-get install tmux";
+export const TMUX_INSTALL_CMD = IS_MACOS ? "brew install tmux" : "sudo apt-get install tmux";
 
 /**
  * The tmux sentence for the screen that is about to need it, or nothing.

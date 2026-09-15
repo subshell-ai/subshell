@@ -27,6 +27,8 @@
     "allow-desktop-about",
     "allow-desktop-open-web",
     "allow-desktop-request-notifications",
-    "allow-desktop-open-system-settings"
+    "allow-desktop-open-system-settings",
+    "allow-desktop-check-app-update",
+    "allow-desktop-install-app-update"
   ]
 }

@@ -13,12 +13,14 @@
 //! even paint the "Working…" state it set before calling.
 
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
 use subshell_desktop_core::permissions::{self, Permission};
 use subshell_desktop_core::proc::{run, run_streaming, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
@@ -826,28 +828,56 @@ pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<Acti
     install_server_now(&settings)
 }
 
+/// How long a delegated `update --from` may take.
+///
+/// Longer than [`ACTION_TIMEOUT`] because this one call does what three used
+/// to: copy ~110 MB, probe the copy's `version`, and `VACUUM INTO` a database
+/// that has no upper bound on its size. The plain copy it replaces had no
+/// deadline at all (it was `fs::copy`), so a 90-second budget would be a new
+/// way for a large instance to fail.
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// `desktop_install_server`'s body, reachable without a command context.
 ///
 /// `desktop_setup` runs this same act as the first step of the chain, and the
 /// chain calls the plain function rather than another command's wrapper: the
 /// command layer stays argument-poor routing, and the one-press path can
 /// never drift from the button that runs the act alone.
+///
+/// **Two paths, decided by whether there is an installed CLI to ask** (spec
+/// 2026-09-15 § 7.1):
+///
+/// - **A REPLACE of the managed copy** — `probe.managed`, i.e. the binary this
+///   machine actually runs IS `~/.local/bin/subshell-server` — goes through
+///   that binary's own `update --from`. What that buys is the whole reason the
+///   verb exists: the database is backed up, `pending.json` is written,
+///   `<binary>.previous` is kept, and the NEW binary either completes the
+///   transaction at boot or reverts it. Before this, the desktop replace was
+///   the one update path on the machine with no backup behind it.
+/// - **A first install** — nothing resolved, or what resolved is not the copy
+///   this app owns — keeps [`sidecar::install_bundled`]. There is no installed
+///   CLI to run, and writing a file where none was is not a transaction.
+///
+/// The old `stop_first` closure went with the first path, not with the second:
+/// it only ever fired when `probe.managed` was true, and the CLI's swap is a
+/// `rename(2)` that a running process does not notice. The restart stays the
+/// UI's second step, which is what `--no-restart` is for.
+///
+/// **A server older than the `update` verb cannot be replaced this way**, and
+/// that is deliberate rather than handled: a silent fall-back to the plain
+/// copy would skip the backup while reporting success, which is the one
+/// outcome worse than the CLI's own usage error. See this app's `AGENTS.md`.
 fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref(), settings.get().supervision);
-    // Only tear down a service we are actually replacing. Stopping one that
-    // points somewhere else would be an outage for no upgrade.
-    let stop_target = probe
-        .managed
-        .then(|| server_cmd(&probe.server, &["service", "stop"]))
-        .flatten();
-    let stop = || {
-        if let Some(cmd) = stop_target {
-            let _ = run(&cmd, ACTION_TIMEOUT);
-        }
-    };
-    match sidecar::install_bundled(&SERVER_SIDECAR, version.as_deref(), stop)? {
+    if probe.managed {
+        let Some(staged) = sidecar::bundled_path(&SERVER_SIDECAR) else {
+            return Err("this build ships no server binary".into());
+        };
+        return Ok(delegate_update(&probe.server, &staged));
+    }
+    match sidecar::install_bundled(&SERVER_SIDECAR, version.as_deref(), || {})? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no server binary".into()),
         sidecar::InstallOutcome::UpToDate => Ok(ActionResult {
             ok: true,
@@ -865,6 +895,77 @@ fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> 
             })
         }
     }
+}
+
+/// The delegated update's whole command line: the resolved server, then the
+/// flags [`cli_update::update_args`] owns.
+///
+/// Split out so the argv is testable without running anything — the flags are
+/// a contract with the CLI (see `desktop-core`'s `cli_update`), and this app
+/// must never spell one of them itself.
+fn update_argv(server: &Option<ServerBinary>, staged: &Path) -> Option<Vec<String>> {
+    let mut argv = server.as_ref()?.argv.clone();
+    argv.extend(cli_update::update_args(staged));
+    Some(argv)
+}
+
+/// Run the installed server's own `update --from <staged sidecar>`.
+///
+/// The CLI's words reach the screen verbatim — this adds exactly one sentence,
+/// built from the `--json` tail, naming what moved and where the backup went
+/// (`cli_update::update_summary`). The versions come from the CLI rather than
+/// from this app's probe on purpose: `from` is what WAS installed, and the
+/// probe that knew it may be seconds stale by the time the swap happens.
+///
+/// A run with no JSON tail is not a failure. "Already at 0.7.0." exits 0 and
+/// prints prose, and the screen shows that prose.
+fn delegate_update(server: &Option<ServerBinary>, staged: &Path) -> ActionResult {
+    let Some(argv) = update_argv(server, staged) else {
+        return ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "no installed subshell-server to update".into(),
+        };
+    };
+    let result = ActionResult::from(run(&argv, UPDATE_TIMEOUT));
+    let Some(report) = cli_update::parse_update_report(&result.stdout) else {
+        return result;
+    };
+    let summary = cli_update::update_summary(&report, "server");
+    ActionResult {
+        stdout: match result.stdout.trim() {
+            "" => summary,
+            existing => format!("{existing}\n\n{summary}"),
+        },
+        ..result
+    }
+}
+
+/// Ask the release source whether a newer **Subshell Server app** exists.
+///
+/// Read-only and assistant-only. Read-only because it fetches one JSON list
+/// and asks the updater plugin to verify one manifest; assistant-only because
+/// its sibling below installs, and granting the pair separately would be a
+/// distinction the ACL cannot see — the dashboard reaches this screen by NAME
+/// (`desktop_open_assistant({ screen: "app-update" })`), which is the same
+/// deep link Update and Reset already use and costs `main` no new command.
+#[tauri::command(async)]
+pub async fn desktop_check_app_update(app: AppHandle) -> Result<crate::app_update::AppUpdateCheck, String> {
+    crate::app_update::check_app_update(&app).await
+}
+
+/// Download, verify, install and relaunch into the newest app.
+///
+/// **Takes no argument.** The version to install is re-resolved here rather
+/// than carried back from the page — the same shape every other command in
+/// this file keeps, and the reason this one can be granted at all: a page can
+/// ask for "the newest", never for a URL.
+///
+/// It does not return on success: `app.restart()` is `-> !`.
+#[tauri::command(async)]
+pub async fn desktop_install_app_update(app: AppHandle) -> Result<(), String> {
+    let _guard = ActionGuard::new();
+    crate::app_update::install_app_update(&app).await
 }
 
 /// The whole first-run chain, behind one consented press.
@@ -2785,6 +2886,38 @@ mod tests {
         };
         p.decide();
         assert_eq!(p.server_choice, ServerChoice::UpgradeAvailable);
+    }
+
+    // The replace path hands the STAGED sidecar to the INSTALLED server, and
+    // the flags come from the shared contract rather than from here. A flag
+    // spelled locally is how the two apps come to ask their CLIs for different
+    // things — and `--no-restart` going missing would hand the restart to the
+    // CLI on a machine where only this app can take it (app supervision).
+    #[test]
+    fn the_delegated_argv_is_the_installed_binary_plus_the_shared_flags() {
+        let server = Some(ServerBinary {
+            argv: vec!["/home/u/.local/bin/subshell-server".into()],
+            source: server_bin::ServerSource::LocalBin,
+            version: Some("1.8.0".into()),
+        });
+        let staged =
+            std::path::PathBuf::from("/Applications/Subshell Server.app/Contents/MacOS/subshell-server-bundled");
+        let argv = update_argv(&server, &staged).expect("an argv");
+        assert_eq!(
+            argv.first().map(String::as_str),
+            Some("/home/u/.local/bin/subshell-server")
+        );
+        assert_eq!(&argv[1..], &cli_update::update_args(&staged)[..]);
+        assert!(argv.contains(&"--no-restart".to_string()));
+        assert!(argv.contains(&"--yes".to_string()));
+        assert!(argv.contains(&"--json".to_string()));
+    }
+
+    // Nothing resolved means nothing to run `update` — the caller answers with
+    // a refusal rather than spawning `update` as a bare word on the PATH.
+    #[test]
+    fn nothing_resolved_builds_no_command() {
+        assert!(update_argv(&None, &std::path::PathBuf::from("/x")).is_none());
     }
 
     /// The dev override replaces the ADDRESS, never the readiness check.

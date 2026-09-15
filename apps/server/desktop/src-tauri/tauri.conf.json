@@ -17,8 +17,14 @@
       "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:5178 http://localhost:5178; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_ME_WITH_THE_SUBSHELL_DESKTOP_MINISIGN_PUBLIC_KEY"
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/subshell-server-bundled"
     ],

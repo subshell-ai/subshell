@@ -77,6 +77,17 @@ case "$TRIPLE" in
   *) fail "unknown triple '$TRIPLE'" ;;
 esac
 
+# The UPDATER artifact for this triple (spec 2026-09-15 § 8). macOS ships a
+# tarball of the `.app` beside the image the human downloads; Linux's update
+# package IS the `.deb`, handed to dpkg by the plugin. So there is a second
+# file on one platform and not on the other, and the manifest has to name
+# whichever it is.
+case "$TRIPLE" in
+  linux-x64) UPDATER_ASSET="$ARTIFACT" ;;
+  darwin-arm64) UPDATER_ASSET="${DMG%.dmg}.app.tar.gz" ;;
+esac
+MANIFEST="latest.${TRIPLE}.json"
+
 echo "smoke: $APP $TRIPLE — expecting $ARTIFACT"
 [ -f "$DIST/$ARTIFACT" ] || fail "missing artifact $DIST/$ARTIFACT"
 [ -f "$DIST/$ARTIFACT.sha256" ] || fail "missing digest sidecar for $ARTIFACT"
@@ -89,6 +100,34 @@ else
   ACTUAL="$(shasum -a 256 "$DIST/$ARTIFACT" | cut -d' ' -f1)"
 fi
 [ "$EXPECTED" = "$ACTUAL" ] || fail "digest mismatch: sidecar says $EXPECTED, file is $ACTUAL"
+
+# The updater half. Every failure it catches has the SAME symptom on a user's
+# machine — an installed app that says "no updates" forever — and none of them
+# is an error anywhere in the pipeline, which is exactly why they are asserted
+# here rather than discovered later.
+echo "smoke: checking the updater manifest and its artifact"
+[ -f "$DIST/$MANIFEST" ] || fail "missing $MANIFEST (did the release script write the shard manifest?)"
+[ -f "$DIST/$UPDATER_ASSET" ] || fail "missing updater artifact $UPDATER_ASSET"
+[ -f "$DIST/$UPDATER_ASSET.sha256" ] || fail "missing digest sidecar for $UPDATER_ASSET"
+
+# The manifest must name a file that EXISTS, under the name it will be
+# published as. A manifest naming the bundler's own spelling — or a name the
+# rename step changed afterwards — downloads a 404 on every machine.
+grep -q "/$UPDATER_ASSET\"" "$DIST/$MANIFEST" \
+  || { echo "--- $MANIFEST ---" >&2; cat "$DIST/$MANIFEST" >&2; fail "$MANIFEST does not name $UPDATER_ASSET"; }
+# And a SIGNATURE that is actually there: an empty one publishes cleanly and is
+# refused by every installed app.
+grep -q '"signature": *"[^"]' "$DIST/$MANIFEST" || fail "$MANIFEST carries an empty signature"
+# Tauri's own platform spelling, not this repo's. A manifest keyed
+# `darwin-arm64` parses, uploads, and then matches nothing.
+case "$TRIPLE" in
+  linux-x64) PLATFORM_KEY="linux-x86_64" ;;
+  darwin-arm64) PLATFORM_KEY="darwin-aarch64" ;;
+esac
+grep -q "\"$PLATFORM_KEY\"" "$DIST/$MANIFEST" || fail "$MANIFEST does not key this platform as $PLATFORM_KEY"
+# The version in it must be the one being cut, or the plugin compares an
+# installed app against the wrong number.
+grep -q "\"version\": *\"$VERSION\"" "$DIST/$MANIFEST" || fail "$MANIFEST is not version $VERSION"
 
 # The sidecar must be the real thing, not the stub the Rust CI job stages.
 check_sidecar_runs() {

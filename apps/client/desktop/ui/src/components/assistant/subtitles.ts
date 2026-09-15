@@ -73,5 +73,10 @@ export function subtitleFor(
       return "Delete this node's configuration, its key and its data. Nothing else on this computer is touched.";
     case "about":
       return "What this app is, which versions are running, and under what terms.";
+    case "app-update":
+      // Deliberately says nothing about whether one exists: the answer is a
+      // NETWORK read the screen itself makes, and a subtitle that claimed
+      // either way would be drawn before anything had been asked.
+      return "Whether a newer Subshell Client is published, and installing it.";
   }
 }

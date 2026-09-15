@@ -14,9 +14,11 @@ import {
 } from "@internal/subshell-protocol";
 import {
   assertBundleSet,
+  assertUpdaterPubkey,
   bundleArtifact,
   bundleKind,
   collectArtifact,
+  collectUpdaterArtifact,
   DESKTOP_RELEASE_DIR_ENV,
   type DesktopReleaseDeps,
   hostTarget,
@@ -24,6 +26,8 @@ import {
   SIDECAR_DIR,
   stageSidecar,
   tauriBuildArgs,
+  UPDATER_PUBKEY_PLACEHOLDER,
+  updaterSource,
 } from "../release.js";
 
 /**
@@ -47,6 +51,8 @@ function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean; listing?: s
   const moves: [string, string][] = [];
   const logs: string[] = [];
   const listed: string[] = [];
+  const reads: string[] = [];
+  const writes: [string, string][] = [];
   const { built = true, listing = [], ...rest } = over;
   const deps: DesktopReleaseDeps = {
     run: async (argv, cwd, env) => {
@@ -66,11 +72,19 @@ function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean; listing?: s
       listed.push(dir);
       return listing;
     },
+    // The updater `.sig`, whose bytes travel INLINE in `latest.<triple>.json`.
+    read: async (p) => {
+      reads.push(p);
+      return "untrusted comment: signature from tauri secret key\nSIGNATURE\n";
+    },
+    write: async (p, text) => {
+      writes.push([p, text]);
+    },
     runCapture: async () => ({ code: 0, output: "" }),
     log: (l) => logs.push(l),
     ...rest,
   };
-  return { deps, runs, removed, moves, logs, listed };
+  return { deps, runs, removed, moves, logs, listed, reads, writes };
 }
 
 describe("stageSidecar", () => {
@@ -148,8 +162,12 @@ describe("stageSidecar", () => {
 
 describe("bundle selection", () => {
   test("each target names one bundler, one output directory and one extension", () => {
+    // `app,dmg`, not `dmg` — MEASURED 2026-09-15: with `dmg` alone the
+    // bundler emits no updater artifact and then deletes the `.app` it built
+    // the image from. `dir` stays `dmg`, because the image is still the one
+    // thing published under this repo's name.
     expect(bundleKind("darwin-arm64")).toEqual({
-      bundles: "dmg",
+      bundles: "app,dmg",
       dir: "dmg",
       suffix: ".dmg",
       intermediates: ["macos", "share"],
@@ -323,6 +341,124 @@ describe("collectArtifact", () => {
     const many = stub({ listing: ["One.dmg", "Two.dmg"] });
     await expect(collectArtifact(many.deps, ROOT, "darwin-arm64", "1.2.3")).rejects.toThrow(/expected exactly one/);
     expect(many.runs).toEqual([]);
+  });
+});
+
+describe("the updater artifacts (spec 2026-09-15 § 8)", () => {
+  const ROOT = "/build/bundle";
+
+  // MEASURED 2026-09-15 (tauri-cli 2.11, macOS): the updater tarball lands in
+  // `bundle/macos/`, beside the `.app` and NOT beside the `.dmg`, named after
+  // `productName` with its space — so this path must be built from the product
+  // name, not from the published (space-free) one.
+  test("looks where the bundler actually writes", () => {
+    expect(updaterSource(ROOT, "darwin-arm64", DESKTOP_SERVER_PRODUCT, "ignored.deb")).toBe(
+      `${ROOT}/macos/Subshell Server.app.tar.gz`,
+    );
+    // Linux's updater artifact IS the published `.deb`, already renamed by
+    // `collectArtifact` — there is no second file.
+    expect(updaterSource(ROOT, "linux-x64", DESKTOP_SERVER_PRODUCT, "subshell-server-desktop_1.2.3_amd64.deb")).toBe(
+      `${ROOT}/deb/subshell-server-desktop_1.2.3_amd64.deb`,
+    );
+  });
+
+  test("publishes the tarball under this repo's name and reads its signature inline", async () => {
+    const s = stub();
+    const dmg = `${ROOT}/dmg/${desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "darwin-arm64", "1.2.3")}`;
+    const got = await collectUpdaterArtifact(s.deps, ROOT, "darwin-arm64", "1.2.3", dmg);
+    expect(got.path).toBe(`${ROOT}/macos/Subshell-Server-Desktop-1.2.3-darwin-arm64.app.tar.gz`);
+    expect(got.path).not.toContain(" ");
+    // The signature travels INLINE in latest.json; a `.sig` beside the
+    // artifact would be an asset nothing reads.
+    expect(s.reads).toEqual([`${ROOT}/macos/Subshell Server.app.tar.gz.sig`]);
+    expect(got.signature).toContain("SIGNATURE");
+    expect(s.moves).toEqual([[`${ROOT}/macos/Subshell Server.app.tar.gz`, got.path]]);
+  });
+
+  // The `.deb` is both the published bundle and the update package, so nothing
+  // is renamed and nothing is published twice.
+  test("leaves the .deb where it is", async () => {
+    const s = stub();
+    const deb = `${ROOT}/deb/${desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")}`;
+    const got = await collectUpdaterArtifact(s.deps, ROOT, "linux-x64", "1.2.3", deb);
+    expect(got.path).toBe(deb);
+    expect(s.moves).toEqual([]);
+  });
+
+  // § 12.4 is unmeasured for Linux (the `.deb.sig` question needs the Linux
+  // bundler), so the pipeline does not depend on the answer: no `.sig` means
+  // sign it. An UNSIGNED updater artifact is one every installed app refuses,
+  // which reads as "there are no updates" and is discovered by nobody.
+  test("signs the package itself when the bundler emitted no .sig", async () => {
+    let asked = 0;
+    const s = stub({
+      exists: (p) => {
+        // The artifact is there; its signature is not.
+        if (p.endsWith(".sig")) {
+          asked += 1;
+          return false;
+        }
+        return true;
+      },
+    });
+    const deb = `${ROOT}/deb/${desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")}`;
+    await collectUpdaterArtifact(s.deps, ROOT, "linux-x64", "1.2.3", deb);
+    expect(asked).toBeGreaterThan(0);
+    expect(s.runs.at(-1)?.argv).toEqual(["./node_modules/.bin/tauri", "signer", "sign", "-f", "-", deb]);
+  });
+
+  test("refuses when the bundler wrote no updater artifact at all", async () => {
+    const s = stub({ exists: () => false });
+    const dmg = `${ROOT}/dmg/x.dmg`;
+    await expect(collectUpdaterArtifact(s.deps, ROOT, "darwin-arm64", "1.2.3", dmg)).rejects.toThrow(
+      /createUpdaterArtifacts/,
+    );
+  });
+
+  test("refuses an empty signature rather than publishing one nothing accepts", async () => {
+    const s = stub({ read: async () => "   \n" });
+    const deb = `${ROOT}/deb/${desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")}`;
+    await expect(collectUpdaterArtifact(s.deps, ROOT, "linux-x64", "1.2.3", deb)).rejects.toThrow(/is empty/);
+  });
+});
+
+describe("the updater public key", () => {
+  const CONF_TEXT = readFileSync(join(import.meta.dir, "../../../src-tauri/tauri.conf.json"), "utf8");
+
+  // The committed value is a PLACEHOLDER until the operator generates the
+  // keypair. This test does not demand the real one — that would fail every
+  // checkout — it pins that the guard SEES the placeholder, which is what
+  // stops a cut from shipping a manifest signed by a key nobody holds.
+  test("is refused by the release guard while it is the placeholder", () => {
+    expect(CONF_TEXT).toContain(UPDATER_PUBKEY_PLACEHOLDER);
+    expect(() => assertUpdaterPubkey(CONF_TEXT)).toThrow(/tauri signer generate/);
+    expect(() => assertUpdaterPubkey('{"plugins":{"updater":{"pubkey":"dW50cnVzdGVk…"}}}')).not.toThrow();
+  });
+
+  // The message has to name the two SECRETS as well as the command, because
+  // the private half is what CI needs and the measured trap is its shape: on
+  // tauri 2.11 only TAURI_SIGNING_PRIVATE_KEY (the file's CONTENTS) is read,
+  // and TAURI_SIGNING_PRIVATE_KEY_PATH is ignored.
+  test("says exactly what the operator has to do", () => {
+    try {
+      assertUpdaterPubkey(CONF_TEXT);
+      throw new Error("expected a refusal");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).toContain("bunx tauri signer generate");
+      expect(message).toContain("TAURI_SIGNING_PRIVATE_KEY");
+      expect(message).toContain("TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
+      expect(message).toContain("CONTENTS");
+    }
+  });
+
+  // `createUpdaterArtifacts` is what makes the bundler emit the tarball and
+  // the `.sig` at all. Off, the release publishes a `latest.json` naming files
+  // that do not exist — and nothing else fails.
+  test("is paired with createUpdaterArtifacts", () => {
+    const conf = JSON.parse(CONF_TEXT);
+    expect(conf.bundle.createUpdaterArtifacts).toBe(true);
+    expect(typeof conf.plugins.updater.pubkey).toBe("string");
   });
 });
 

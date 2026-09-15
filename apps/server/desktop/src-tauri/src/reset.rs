@@ -52,6 +52,14 @@ pub enum Screen {
     Reset,
     /// The bundled server is newer than the installed one (spec § 5.3).
     Update,
+    /// A newer **Subshell Server app** is published (spec 2026-09-15 § 7.2).
+    ///
+    /// Not to be confused with `Update`, which is about the SERVER this app
+    /// wraps. Two screens because they are two different acts on two different
+    /// things: one replaces `~/.local/bin/subshell-server` through that
+    /// binary's own `update --from`, this one replaces the `.app` and
+    /// relaunches.
+    AppUpdate,
     /// Who runs the server here, and whether it starts at login. Reached
     /// from recovery, where there is no dashboard; the dashboard has its own
     /// dialog and calls `desktop_set_supervision` directly.
@@ -70,18 +78,20 @@ impl Screen {
             Screen::Home => "home",
             Screen::Reset => "reset",
             Screen::Update => "update",
+            Screen::AppUpdate => "app-update",
             Screen::Supervision => "supervision",
             Screen::Permissions => "permissions",
         }
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Four accepted words;
+/// Parse the (untrusted, optional) `screen` argument. Five accepted words;
 /// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
         Some("reset") => Screen::Reset,
         Some("update") => Screen::Update,
+        Some("app-update") => Screen::AppUpdate,
         Some("supervision") => Screen::Supervision,
         Some("permissions") => Screen::Permissions,
         _ => Screen::Home,
@@ -960,7 +970,20 @@ mod tests {
         assert_eq!(parse_screen(Some("update".into())), Screen::Update);
         assert_eq!(parse_screen(Some("supervision".into())), Screen::Supervision);
         assert_eq!(parse_screen(Some("permissions".into())), Screen::Permissions);
+        assert_eq!(parse_screen(Some("app-update".into())), Screen::AppUpdate);
         assert_eq!(parse_screen(Some("/etc".into())), Screen::Home);
+    }
+
+    /// `update` and `app-update` are two screens about two different things —
+    /// the SERVER this app wraps, and the app itself — and the first is a
+    /// prefix of nothing but the second is a suffix of it. A parse that
+    /// matched loosely would send every app-update request to the server one,
+    /// which raises a screen offering to install a binary nobody asked about.
+    #[test]
+    fn the_two_update_screens_are_not_each_other() {
+        assert_ne!(Screen::Update, Screen::AppUpdate);
+        assert_eq!(parse_screen(Some("app-update".into())), Screen::AppUpdate);
+        assert_eq!(parse_screen(Some("update".into())), Screen::Update);
     }
 
     /// The word the PAGE branches on is `as_str`, and since the screen request
@@ -973,6 +996,7 @@ mod tests {
             Screen::Home,
             Screen::Reset,
             Screen::Update,
+            Screen::AppUpdate,
             Screen::Supervision,
             Screen::Permissions,
         ] {
@@ -980,6 +1004,7 @@ mod tests {
         }
         assert_eq!(Screen::Reset.as_str(), "reset");
         assert_eq!(Screen::Update.as_str(), "update");
+        assert_eq!(Screen::AppUpdate.as_str(), "app-update");
         assert_eq!(Screen::Supervision.as_str(), "supervision");
         assert_eq!(Screen::Permissions.as_str(), "permissions");
         assert_eq!(Screen::Home.as_str(), "home");

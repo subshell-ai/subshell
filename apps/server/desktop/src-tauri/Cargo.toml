@@ -23,6 +23,25 @@ tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-dialog = "2.7.3"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-opener = "2.5.5"
+# Updating the APP itself (spec 2026-09-15 § 7.2). It verifies a minisign
+# signature against the public key in `tauri.conf.json`, which is what makes
+# the release host able only to withhold an update, never to supply one.
+tauri-plugin-updater = "2.11.0"
+# The release LIST, which the updater plugin does not fetch: it wants one
+# static manifest URL, and this repository publishes four components under four
+# tag prefixes. Declared rather than leant on as the plugin's transitive dep —
+# a dependency you call is a dependency you name — and `rustls-tls` explicitly
+# for the same reason, so nothing here depends on feature unification. The
+# MINOR is pinned to the updater plugin's own, so cargo unifies them into one
+# copy rather than compiling and linking two whole HTTP stacks — and so is the
+# TLS feature: `rustls-no-provider` is what the plugin selects, and a different
+# one would resolve a second reqwest with a second rustls under it.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# The crypto provider `rustls-no-provider` deliberately does not choose. The
+# updater plugin installs ring lazily when IT builds a client; this app's own
+# client may be built first, so it installs the same one (see app_update.rs).
+# Same version and same feature as the plugin's, so this adds no crate.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

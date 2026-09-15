@@ -69,6 +69,39 @@ const BROWSER_ID: &str = "tray:browser";
 const NODE_ID: &str = "tray:node";
 const KEEP_ID: &str = "tray:keep";
 const ABOUT_ID: &str = "tray:about";
+/// "Check for Updates…" — this APP, not the node agent it wraps.
+const UPDATE_ID: &str = "tray:update";
+
+/// The "Check for Updates…" item, held so the launch check can relabel it.
+///
+/// A tray item is the whole of the launch check's OUTPUT (spec 2026-09-15
+/// § 7.2): no window opens on its own, no badge appears, nothing is
+/// downloaded. The item exists either way and is always pressable — a check
+/// someone asks for must work whether or not the background one has run, or
+/// the only way to look would be to wait a day.
+pub struct UpdateItem(MenuItem<Wry>);
+
+/// The item's label, with the version when the last check found one.
+///
+/// Pure, so the one thing a person reads about updates is testable without a
+/// tray, a menu or a display server.
+pub fn update_label(available: Option<&str>) -> String {
+    match available {
+        Some(version) if !version.is_empty() => format!("Check for Updates… ({version} available)"),
+        _ => "Check for Updates…".to_string(),
+    }
+}
+
+/// Relabel the tray item after a check.
+///
+/// Silent where there is no tray: on a desktop with no StatusNotifier host the
+/// icon is never drawn, and the node window's own screen is the route there.
+/// Failing loudly for a menu nobody can see would be noise.
+pub fn set_update_available(app: &AppHandle, version: Option<&str>) {
+    if let Some(item) = app.try_state::<UpdateItem>() {
+        let _ = item.0.set_text(update_label(version));
+    }
+}
 
 /// The "Keep Running in Menu Bar" check item, held so the menu handler can
 /// read the state muda has already toggled onto it.
@@ -122,12 +155,26 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // Present on both, because the tray is the one menu both platforms share
     // and a second platform branch buys nothing here.
     let about = MenuItem::with_id(app, ABOUT_ID, "About Subshell Client", true, None::<&str>)?;
+    // Seeded from what the LAST check found, because the launch check runs
+    // after this menu is built and may not run at all today — an item that
+    // only ever said "Check for Updates…" until a check happened would hide a
+    // waiting update for up to a day.
+    let update = MenuItem::with_id(
+        app,
+        UPDATE_ID,
+        update_label(app.state::<SettingsState>().get().last_update_version.as_deref()),
+        true,
+        None::<&str>,
+    )?;
+    app.manage(UpdateItem(update.clone()));
     let menu = Menu::with_items(
         app,
         &[
             &open,
             &browser,
             &node,
+            &PredefinedMenuItem::separator(app)?,
+            &update,
             &PredefinedMenuItem::separator(app)?,
             &text_size,
             &about,
@@ -177,6 +224,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             BROWSER_ID => crate::control::open_current_in_browser(app),
             NODE_ID => crate::windows::focus_node(app),
             ABOUT_ID => crate::windows::show_node_screen(app, "about"),
+            // Raises the node window AT the screen through the same route
+            // About takes, and performs no check itself: the screen's own
+            // first render asks, so there is one place that decides what
+            // "checking" looks like and one place that can fail.
+            UPDATE_ID => crate::windows::show_node_screen(app, "app-update"),
             KEEP_ID => set_close_to_tray(app),
             _ => {}
         })

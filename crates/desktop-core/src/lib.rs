@@ -10,9 +10,14 @@
 //!
 //! - [`browser`] — the one join a REMOTE page's argument reaches, and the
 //!   three refusals that keep it a path rather than a host.
+//! - [`cli_update`] — the argv that hands a bundled binary to the INSTALLED
+//!   CLI's own `update --from`, so the backup and the transaction behind an
+//!   update are the same code on the desktop path as on every other.
 //! - [`permissions`] — what macOS has allowed this app to do, and the bundle
 //!   guard that keeps asking from aborting a `tauri dev` process.
 //! - [`proc`] — two pipe deadlocks, in opposite directions.
+//! - [`release_feed`] — which release of THIS app is the newest, from the same
+//!   list every other component reads, picked by semver rather than by date.
 //! - [`shell_env`] — the PATH a `.app` does not inherit, and the unbounded
 //!   login-shell probe that discovers it.
 //! - [`version`] — comparing versions numerically instead of lexically.
@@ -64,9 +69,11 @@
 //! settings file has silently forgotten every preference they set.
 
 pub mod browser;
+pub mod cli_update;
 pub mod legal;
 pub mod permissions;
 pub mod proc;
+pub mod release_feed;
 pub mod reset_guards;
 pub mod settings;
 pub mod shell_env;

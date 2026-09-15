@@ -239,6 +239,40 @@ describe("the window that is granted one command", () => {
     expect(rust).toContain("subshell_desktop_core::browser::browser_url");
   });
 
+  it("keeps updating the APP on the bundled page alone", () => {
+    // Two commands, both `node`-only (spec 2026-09-15 § 7.2). The check looks
+    // harmless — one GET, nothing changed — and it still does not go on
+    // `main`, because its sibling REPLACES THE APPLICATION and the wildcard
+    // scope this window carries is exactly why nothing is added to it without
+    // an argument being made. The equality above already says `main` holds one
+    // permission; this says WHICH two must never move.
+    const nodeGrants = new Set(capabilityPermissions());
+    expect(nodeGrants.has("allow-node-check-app-update")).toBe(true);
+    expect(nodeGrants.has("allow-node-install-app-update")).toBe(true);
+    const mainGrants = main().permissions ?? [];
+    expect(mainGrants).not.toContain("allow-node-check-app-update");
+    expect(mainGrants).not.toContain("allow-node-install-app-update");
+  });
+
+  it("keeps the app-update commands to NO arguments, so a page names no release", () => {
+    // The whole reason they can be commands at all: the release to install is
+    // re-resolved in Rust, so the page asks for "the newest" and can never
+    // name a URL, a tag or a file. A parameter added later would make either
+    // one a different command with the same name, and no assertion above
+    // would see it.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    for (const name of ["node_check_app_update", "node_install_app_update"]) {
+      const signature = rust.slice(rust.indexOf(`pub async fn ${name}(`));
+      const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+      const names = params
+        .split(",")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => line.split(":")[0]?.trim());
+      expect(names, `${name} takes more than an AppHandle`).toEqual(["app"]);
+    }
+  });
+
   // The corollary, unchanged: everything the CLI surface needs goes to the
   // bundled page, locally.
   it("grants the node surface to the bundled node window, locally", () => {

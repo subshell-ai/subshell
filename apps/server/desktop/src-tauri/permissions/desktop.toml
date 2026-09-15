@@ -162,6 +162,16 @@ description = "Ask macOS for permission to post notifications. Assistant only: m
 commands.allow = ["desktop_request_notifications"]
 
 [[permission]]
+identifier = "allow-desktop-check-app-update"
+description = "Ask the project's release list whether a newer Subshell Server APP exists — not the server it wraps. Takes no argument, downloads nothing and changes nothing: one GET of a public JSON list, and one manifest the updater plugin verifies against the public key compiled into this build. Assistant only, because its sibling installs, and the dashboard reaches the same screen by NAME through desktop_open_assistant rather than by holding a command."
+commands.allow = ["desktop_check_app_update"]
+
+[[permission]]
+identifier = "allow-desktop-install-app-update"
+description = "Download, verify, install and relaunch into the newest Subshell Server app. Takes NO argument — the release is re-resolved here, so a page can ask for 'the newest' and never for a URL — and the bytes are refused unless they carry a minisign signature matching the public key in tauri.conf.json, which is what keeps the release host able only to withhold an update. On Linux it hands the .deb to dpkg behind a polkit prompt. Assistant only: this replaces the application."
+commands.allow = ["desktop_install_app_update"]
+
+[[permission]]
 identifier = "allow-desktop-open-system-settings"
 description = "Open ONE of three System Settings panes — Notifications, Files and Folders, Photos. A closed enum, never a URL, the same shape desktop_open_web keeps. Assistant only: a page able to pop a system pane on its own is a nuisance an XSS could pull, and every route here already goes through raising the assistant."
 commands.allow = ["desktop_open_system_settings"]

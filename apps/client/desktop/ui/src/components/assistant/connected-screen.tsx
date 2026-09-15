@@ -36,8 +36,9 @@ export function ConnectedScreen(props: {
   busy: boolean;
   onReenroll: () => void;
   onReset: () => void;
+  onCheckAppUpdate: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, commands, busy, onReenroll, onReset } = props;
+  const { shell, probe, settings, enrolledNode, output, commands, busy, onReenroll, onReset, onCheckAppUpdate } = props;
   const planeUrl = settings?.planeUrl ?? null;
   const nodeServerUrl = probe?.status?.serverUrl ?? null;
   const divergence = planeCoherence(planeUrl, nodeServerUrl);
@@ -308,6 +309,16 @@ export function ConnectedScreen(props: {
                 Rewrite the service definition
               </Button>
             )}
+            {/*
+             * The APP's own update, beside the AGENT's. Always offered rather
+             * than gated on a known update: whether one exists is a network
+             * read, and a row that appeared only after an answer would mean
+             * asking on the probe's clock — which is the background update
+             * check this design explicitly does not have.
+             */}
+            <Button variant="outline" size="sm" disabled={busy} onClick={onCheckAppUpdate}>
+              Check for app updates…
+            </Button>
             <Button variant="outline" size="sm" disabled={busy} onClick={onReenroll}>
               Re-enroll…
             </Button>

@@ -68,6 +68,40 @@ use subshell_desktop_core::tray::tray_support;
 /// whether it could be pressed needed the probe that now happens when it is.
 pub struct KeepItem(CheckMenuItem<Wry>);
 
+/// The "Check for Updates…" item, held so the launch check can relabel it.
+///
+/// A tray item is the whole of the launch check's OUTPUT (spec 2026-09-15
+/// § 7.2): no window opens on its own, no badge appears, nothing is
+/// downloaded. The item exists either way and is always pressable — a check
+/// someone asks for must work whether or not the background one has run, or
+/// the only way to look would be to wait a day.
+pub struct UpdateItem(MenuItem<Wry>);
+
+/// The tray's "Check for Updates…" id.
+const UPDATE_ID: &str = "tray:update";
+
+/// The item's label, with the version when the last check found one.
+///
+/// Pure, so the one thing a person reads about updates is testable without a
+/// tray, a menu or a display server.
+pub fn update_label(available: Option<&str>) -> String {
+    match available {
+        Some(version) if !version.is_empty() => format!("Check for Updates… ({version} available)"),
+        _ => "Check for Updates…".to_string(),
+    }
+}
+
+/// Relabel the tray item after a check.
+///
+/// Silent where there is no tray: on a desktop with no StatusNotifier host the
+/// icon is never drawn, and the assistant's own screen is the route there.
+/// Failing loudly for a menu nobody can see would be noise.
+pub fn set_update_available(app: &AppHandle, version: Option<&str>) {
+    if let Some(item) = app.try_state::<UpdateItem>() {
+        let _ = item.0.set_text(update_label(version));
+    }
+}
+
 /// The tray's "Open in Browser" id.
 ///
 /// Distinct from the menu bar's (`menu.rs`) ON PURPOSE, and the reason is the
@@ -107,11 +141,25 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // control plane's page cannot offer one either. On macOS it is a second
     // route to what the View menu already carries, which costs a submenu.
     let text_size = text_size_submenu(app)?;
+    // Seeded from what the LAST check found, because the launch check runs
+    // after this menu is built and may not run at all today — an item that
+    // only ever said "Check for Updates…" until a check happened would hide a
+    // waiting update for up to a day.
+    let update = MenuItem::with_id(
+        app,
+        UPDATE_ID,
+        update_label(app.state::<SettingsState>().get().last_update_version.as_deref()),
+        true,
+        None::<&str>,
+    )?;
+    app.manage(UpdateItem(update.clone()));
     let menu = Menu::with_items(
         app,
         &[
             &open,
             &browser,
+            &PredefinedMenuItem::separator(app)?,
+            &update,
             &PredefinedMenuItem::separator(app)?,
             &text_size,
             &PredefinedMenuItem::separator(app)?,
@@ -194,6 +242,13 @@ fn on_menu(app: &AppHandle, id: &str) {
         // program, and it works whether or not a window exists. `control`
         // reads the dashboard's own url for the path when there is one.
         BROWSER_ID => crate::control::open_current_in_browser(app),
+        // Raises the assistant AT the screen through the SAME route the
+        // dashboard's deep link takes, and performs no check itself: the
+        // screen's own first render asks, so there is one place that decides
+        // what "checking" looks like and one place that can fail.
+        UPDATE_ID => {
+            let _ = crate::reset::arm_and_raise(app, Some("app-update".into()));
+        }
         "tray:keep" => set_close_to_tray(app),
         // The TEXT SIZE items are deliberately absent. A menu event in Tauri
         // is global — the app-level handler in `lib.rs` sees this menu's items
