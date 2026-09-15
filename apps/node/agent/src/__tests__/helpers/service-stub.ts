@@ -87,10 +87,41 @@ export function showOut(over: Record<string, string> = {}): string {
     .join("\n");
 }
 
-/** A linux stub whose `systemctl show` answers with `over` merged in, and whose unit file exists. */
-export function linuxServiceStub(over: Record<string, string> = {}): Stub {
+/**
+ * What a stubbed `loginctl show-user … --property=Linger` answers.
+ *
+ * `notLoggedIn` is logind's own failure for a user it holds no record of — a
+ * real ANSWER (no session, so no linger), and the ordinary reply on a box
+ * nobody signs in to. `noBus` is the other failure shape, where nothing
+ * answered at all.
+ */
+export type LingerAnswer = "yes" | "no" | "absent" | "notLoggedIn" | "noBus";
+
+/** The scripted `loginctl` reply for one {@link LingerAnswer}. */
+export function lingerReply(answer: LingerAnswer): { code: number; out: string; err: string } {
+  if (answer === "yes" || answer === "no") return { code: 0, out: `Linger=${answer}\n`, err: "" };
+  // logind answered, but the property is not in the output — an unparseable
+  // reply rather than a `no`.
+  if (answer === "absent") return { code: 0, out: "Foo=bar\n", err: "" };
+  if (answer === "notLoggedIn")
+    return { code: 1, out: "", err: "Failed to get user: User ID 1000 is not logged in or lingering\n" };
+  return { code: 1, out: "", err: "Failed to connect to bus: No such file or directory\n" };
+}
+
+/**
+ * A linux stub whose `systemctl show` answers with `over` merged in, whose
+ * `loginctl` answers `linger` (default: this user lingers), and whose unit file
+ * exists.
+ */
+export function linuxServiceStub(
+  over: Record<string, string> = {},
+  { linger = "yes" }: { linger?: LingerAnswer } = {},
+): Stub {
   const s = serviceStub({
-    respond: (cmd) => (cmd.includes("show") ? { code: 0, out: showOut(over), err: "" } : { code: 0, out: "", err: "" }),
+    respond: (cmd) => {
+      if (cmd[0] === "loginctl") return lingerReply(linger);
+      return cmd.includes("show") ? { code: 0, out: showOut(over), err: "" } : { code: 0, out: "", err: "" };
+    },
   });
   s.files.set(UNIT, "[Service]\nKillMode=process\n");
   return s;

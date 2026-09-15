@@ -71,6 +71,7 @@ const supervised: NodeRuntimeReport = {
     state: "running",
     pid: 1,
     enabled: true,
+    linger: true,
     paneSafety: "keeps",
   },
   configPath: "/c",

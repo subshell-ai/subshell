@@ -227,6 +227,7 @@ describe("service commands (stubbed service manager)", () => {
       "detail",
       "enabled",
       "installed",
+      "linger",
       "logPath",
       "paneSafety",
       "pid",
@@ -238,6 +239,9 @@ describe("service commands (stubbed service manager)", () => {
       state: "running",
       pid: 4242,
       enabled: true,
+      // The stub's logind says this user lingers, so the unit comes back at
+      // BOOT rather than only at the next login.
+      linger: true,
       paneSafety: "keeps",
       // Linux: the unit redirects nothing — the journal holds the output, and
       // the CONSUMER says so instead of inventing a path.

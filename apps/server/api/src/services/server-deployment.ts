@@ -54,6 +54,12 @@ export interface DeploymentService {
   pid: number | null;
   /** Whether it starts at login. */
   enabled: boolean | null;
+  /**
+   * Linux: whether the OS user lingers, so an enabled unit comes back at BOOT
+   * rather than only at the next login. `null` on macOS, with nothing
+   * installed, and when logind did not answer.
+   */
+  linger: boolean | null;
   /** Whether stopping keeps live panes. */
   paneSafety: "keeps" | "kills" | "unknown";
   /** The launchd log file; null under systemd (the journal). */
@@ -401,6 +407,10 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
         // Nothing starts the app's child at login; the app itself starting at
         // login is a different feature, and the switch says so.
         enabled: false,
+        // Not `false`: the app's child is not a login-session service at all,
+        // so "does it survive logout" has no answer here rather than a
+        // negative one — whatever the host's own linger state happens to be.
+        linger: null,
         // Earned, not assumed: the supervisor signals the main pid only, so a
         // teardown leaves each subshell's tmux server running (spec § 4.2).
         paneSafety: "keeps",
@@ -420,6 +430,7 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
       state: service.state,
       pid: service.pid,
       enabled: service.enabled,
+      linger: service.linger ?? null,
       paneSafety: service.paneSafety ?? "unknown",
       logPath: service.logPath ?? null,
       // launchd names a file; per-user systemd logs to the journal, so the

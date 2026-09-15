@@ -206,6 +206,10 @@ export const NodeRuntimeSchema = t.Object({
     state: t.String({ description: "The manager's own word for the process state" }),
     pid: t.Nullable(t.Number(), { description: "The manager's main pid" }),
     enabled: t.Nullable(t.Boolean(), { description: "Whether it starts at login" }),
+    linger: t.Nullable(t.Boolean(), {
+      description:
+        "Linux: whether the node's OS user lingers, so an enabled unit comes back at boot rather than only when someone logs in; null on macOS, with nothing installed, and when logind did not answer",
+    }),
     paneSafety: t.Union([t.Literal("keeps"), t.Literal("kills"), t.Literal("unknown")], {
       description: "Whether a restart through that definition keeps live panes",
     }),

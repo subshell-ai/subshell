@@ -45,7 +45,7 @@ const VERBS: VerbSpec[] = [
     verb: "install",
     label: "Install service",
     describe: (name) =>
-      `Writes a service definition on ${name} and enables it, so the agent starts with the machine instead of only when someone runs it.`,
+      `Writes a service definition on ${name} and enables it, so the agent comes back on its own instead of only when someone runs it.`,
   },
   {
     verb: "stop",

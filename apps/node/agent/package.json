@@ -1,7 +1,7 @@
 {
   "name": "@internal/node",
   "description": "subshell \u2014 node client daemon: enrolls with the control plane and executes signed commands",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "Apache-2.0",
   "type": "module",
   "private": true,

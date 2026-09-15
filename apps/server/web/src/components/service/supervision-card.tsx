@@ -1,15 +1,87 @@
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { FactCard } from "@/components/admin-status/fact-list";
+import { REINSTALL_COMMAND } from "@/components/service/service-card";
 import { SupervisionDialog } from "@/components/service/supervision-dialog";
+import { Button } from "@/components/ui/button";
+import { CopyableValue } from "@/components/ui/copyable-value";
 import { Switch } from "@/components/ui/switch";
 import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { SetSupervision } from "@/hooks/use-set-supervision";
 import { isServerDesktop } from "@/lib/desktop";
-import { currentMode, loginDisabledReason, modeLabel, type SupervisionMode } from "@/lib/supervision";
+import {
+  currentMode,
+  LINGER_COMMAND,
+  loginDisabledReason,
+  modeLabel,
+  persistence,
+  type SupervisionMode,
+} from "@/lib/supervision";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 export { currentMode, loginDisabledReason, type SupervisionMode };
+
+/**
+ * What a browser is shown instead of the choice: one FACT, and a remedy only
+ * where the answer is unsatisfying.
+ *
+ * The sentence and the remedy it picks are `lib/supervision.ts`'s
+ * {@link persistence}; this function is only the words for a remedy on THIS
+ * page — a node's page answers the same model with a button instead of a
+ * command line.
+ *
+ * **There is no "off" direction here, deliberately.** Nobody on a headless
+ * box wants to disarm their own server from a web page, and the ways to do it
+ * (uninstalling, masking a unit) are acts that leave the server unreachable,
+ * which this dashboard does not carry. Arming it is a route
+ * (`POST /api/admin/server/autostart`) because it changes nothing about the
+ * running process.
+ */
+function PersistenceFacts({ view, autostart }: { view: ServerDeployment; autostart: ServerAutostart }) {
+  const service = view.service;
+  const { sentence, fix } = persistence(
+    {
+      manager: service.manager,
+      installed: service.installed,
+      enabled: service.enabled,
+      linger: service.linger,
+    },
+    "this machine",
+  );
+
+  return (
+    <FactCard title="How this server runs">
+      <p className="col-span-full text-sm">{sentence}</p>
+      {fix?.kind === "install" && (
+        <p className="col-span-full text-detail text-muted-foreground">
+          {/* No "there": the sentence above already named this machine, and a
+              page served BY that machine pointing away from it reads as
+              though the command belongs somewhere else. The node card, whose
+              reader really is elsewhere, is the one that says "there". */}
+          To have this machine start it, run <CopyableValue value={REINSTALL_COMMAND} label="Install command" />.
+        </p>
+      )}
+      {fix?.kind === "enable" && (
+        <div className="col-span-full space-y-1.5">
+          <Button variant="outline" disabled={autostart.pending} onClick={() => autostart.set(true)}>
+            Start automatically
+          </Button>
+          {autostart.error && <p className="text-destructive text-detail">{autostart.error}</p>}
+        </div>
+      )}
+      {fix?.kind === "linger" && (
+        <p className="col-span-full text-detail text-muted-foreground">
+          {/* Measured is logind saying the user does not linger — a fault with
+              a fix. Unmeasured is logind not answering at all, so the sentence
+              above asked the question rather than reporting one, and this
+              offers the same command without claiming anything was wrong. */}
+          {fix.measured ? "To keep it running after you log out:" : "If it needs to stay up with nobody logged in:"}{" "}
+          <CopyableValue value={LINGER_COMMAND} label="Lingering command" />
+        </p>
+      )}
+    </FactCard>
+  );
+}
 
 /**
  * **How this server runs** — the machine's supervision, as against the
@@ -19,10 +91,19 @@ export { currentMode, loginDisabledReason, type SupervisionMode };
  * supervises this machine from now on" are different kinds of act, and the
  * second arrived as a bare button with an ellipsis that named no alternative.
  *
- * **Both modes are always shown, in every client.** A browser on the LAN and
- * a phone cannot change this — only the app on that machine can — but they
- * can now learn what the machine is doing, which the old card never told
- * them.
+ * **Inside the app, the CHOICE. In a browser, one FACT and at most one fix.**
+ * This card was designed in the Subshell Server app and then widened to every
+ * client on a rule that both modes should be shown everywhere, disabled where
+ * they cannot be changed. On a headless Linux box — the ordinary deployment —
+ * that was wrong twice. It offered "With the Subshell Server app" to someone
+ * whose machine has no app, under a note sending them to it; and "Start at
+ * login" is a desktop question borrowed for a server, read as being about a
+ * desktop login, so an operator switches it off and loses the server at the
+ * next reboot — while the fact that actually decides survival there, whether
+ * the OS user LINGERS, was never on screen at all. So a choice now appears
+ * only where it can be made, and everyone else is answered the question they
+ * actually have: does this survive a reboot? See {@link PersistenceFacts} and
+ * `lib/supervision.ts`.
  *
  * **The act is not the server's to perform, and this is why the switch is a
  * Tauri command rather than a route.** Switching either way needs an actor
@@ -59,6 +140,13 @@ export function SupervisionCard({
   // move yet — it shows the machine, and the machine has not answered — so
   // this is the state that has to be visible instead of nothing.
   const settling = supervision.settling;
+
+  // **The browser branch, before any of the choice below is built.** A person
+  // reading this from a LAN browser or a phone cannot switch what supervises a
+  // machine they are not sitting at, and the radios offered them a mode ("with
+  // the Subshell Server app") their machine may have no app for. So they are
+  // answered the question they do have instead — see `PersistenceFacts`.
+  if (!desktop) return <PersistenceFacts view={view} autostart={autostart} />;
 
   /**
    * Ask for the other mode.
@@ -148,11 +236,6 @@ export function SupervisionCard({
         <p className="col-span-full text-detail text-muted-foreground">
           Neither: this server was started by hand, so nothing brings it back when it stops. Choosing an option above
           changes that.
-        </p>
-      )}
-      {!desktop && (
-        <p className="col-span-full text-detail text-muted-foreground">
-          Changing this is done in the Subshell Server app on that machine.
         </p>
       )}
       <SupervisionDialog

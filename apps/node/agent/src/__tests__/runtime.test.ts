@@ -7,6 +7,7 @@ const running = {
   state: "running",
   pid: 99,
   enabled: true,
+  linger: false,
   paneSafety: "keeps",
   detail: "",
   logPath: null,
@@ -30,6 +31,10 @@ describe("collectRuntime", () => {
     expect(r.startedAt).toBe("2026-09-12T10:00:00.000Z");
     expect(r.tmuxPath).toBe("/usr/bin/tmux");
     expect(r.binaryPath).toBe("/u/.local/bin/subshell");
+    // A distinct question from `enabled` above, and the one that decides
+    // whether this unit is there on a machine nobody logs in to.
+    expect(r.service.enabled).toBe(true);
+    expect(r.service.linger).toBe(false);
   });
 
   it("is not supervised under a different pid, and reports the log file on darwin", async () => {
@@ -47,7 +52,7 @@ describe("collectRuntime", () => {
     expect(r.logHint).toBeNull();
   });
 
-  it("degrades an absent paneSafety to unknown and names no manager off the two platforms", async () => {
+  it("degrades an absent paneSafety to unknown, an absent linger to null, and names no manager off the two platforms", async () => {
     const r = await collectRuntime({
       platform: "win32",
       pid: 5,
@@ -59,6 +64,9 @@ describe("collectRuntime", () => {
     });
     expect(r.service.manager).toBeNull();
     expect(r.service.paneSafety).toBe("unknown");
+    // The service read carried no `linger` key at all; the frame's field is
+    // required, so it must land as an explicit null rather than undefined.
+    expect(r.service.linger).toBeNull();
     expect(r.supervised).toBe(false);
     expect(r.logHint).toBeNull();
   });

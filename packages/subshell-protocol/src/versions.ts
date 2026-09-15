@@ -65,8 +65,13 @@ export function semverLt(a: string, b: string): boolean {
  * same way. An agent below this speaks no `set_maintenance`, so the plane
  * could set a flag that machine would never honour — the floor is what turns
  * that into "update the agent" instead of a launch that quietly proceeds.
+ *
+ * Raised to 0.7.0 with protocol 9 (`service.linger`), the same way. An agent
+ * below this reports no linger fact, and the surface that reads it would have
+ * to render "unknown" for a machine that simply predates the field — an
+ * answer indistinguishable from logind refusing to say.
  */
-export const MIN_AGENT_VERSION = "0.6.0";
+export const MIN_AGENT_VERSION = "0.7.0";
 
 /**
  * Whether an agent reporting `version` may connect.

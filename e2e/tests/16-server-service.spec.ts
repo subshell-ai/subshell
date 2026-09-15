@@ -104,48 +104,59 @@ test.describe("server service page", () => {
     expect(alive.ok()).toBe(true);
   });
 
-  test("the start-at-login switch says what the SERVER says, whatever this machine has", async ({ page }) => {
+  test("answers whether this server comes back, and never offers a switch a browser cannot mean", async ({ page }) => {
     // Deliberately not "nothing is installed". The stack is hand-spawned, but
     // it runs with the developer's own HOME, so whether a launchd plist or a
     // systemd unit exists is a property of the machine running the suite —
     // true on a laptop with Subshell Server installed, false in CI. Asserting
     // either would be a test that passes in one place and fails in the other.
     //
-    // What IS invariant is the thing that can actually regress: the switch
-    // must read the server's own answer rather than re-derive a rule of its
-    // own, and the server must refuse independently of what the UI drew.
+    // What IS invariant is the pair that can actually regress: this page is a
+    // BROWSER, so the choice must be absent, and whatever sentence it does
+    // draw must come from the server's own answer rather than from a rule the
+    // card re-derived.
     const view = (await (await page.request.get("/api/admin/server")).json()) as {
-      service: { installed: boolean; enabled: boolean | null; manager: string | null };
+      service: { installed: boolean; enabled: boolean | null; manager: string | null; linger: boolean | null };
     };
     await page.goto("/settings/service");
-    const login = page.getByRole("switch", { name: "Start at login" });
-    await expect(login).toBeVisible();
-    await expect(login).toHaveAttribute("aria-checked", String(view.service.enabled === true));
+    await expect(page.getByText("How this server runs")).toBeVisible();
 
-    const usable = view.service.manager !== "app" && view.service.installed && view.service.enabled !== null;
-    if (usable) {
-      await expect(login).not.toHaveAttribute("data-disabled", "");
-      // No click: on a machine that really has the service installed this
-      // would rewrite the developer's own login items.
-      return;
+    // The supervision CHOICE belongs to the Subshell Server app, which this is
+    // not. Both of these existed here until 2026-09-15 and both were dead
+    // controls: radios naming a mode this machine may have no app for, and a
+    // "Start at login" switch that reads as a desktop session on a server.
+    await expect(page.getByRole("radio")).toHaveCount(0);
+    await expect(page.getByRole("switch", { name: "Start at login" })).toHaveCount(0);
+
+    const service = view.service;
+    if (!service.installed) {
+      await expect(page.getByText("Started by hand. Nothing brings it back when it stops.")).toBeVisible();
+      await expect(page.getByText("subshell-server service install")).toBeVisible();
+    } else if (service.enabled === false) {
+      await expect(page.getByText("Will not come back after a reboot.")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Start automatically" })).toBeEnabled();
+    } else if (service.manager === "systemd" && service.enabled === true) {
+      // The whole point of the change, where the suite runs on Linux: an
+      // ENABLED unit still dies at logout unless the account lingers, so the
+      // page must distinguish the two rather than say "starts at login" and
+      // leave a headless operator believing their server is armed.
+      await expect(
+        page.getByText(
+          service.linger === true ? /without anyone logging in/ : /stops when you log out|If nobody logs in to/,
+        ),
+      ).toBeVisible();
+      if (service.linger !== true) await expect(page.getByText("loginctl enable-linger $USER")).toBeVisible();
     }
-    await expect(login).toHaveAttribute("data-disabled", "");
-    // These three alternatives are `loginDisabledReason`'s three refusals,
-    // VERBATIM. Two of them had already rotted — the copy became "open
-    // Subshell Server at login" and "The service manager did not say." while
-    // this still looked for "start the app at login" and "did not say
-    // whether" — and the test kept passing because CI lands on the first
-    // alternative. e2e is outside `bun run test` and the pre-push hook, so
-    // nothing else was going to say so. If the copy moves again, move it here.
-    await expect(
-      page.getByText(/No service is installed|open Subshell Server at login|The service manager did not say/),
-    ).toBeVisible();
-    // And the SERVER refuses too, not only the UI — the same shape as the
-    // restart guard above, and for the same reason: a disabled control is not
-    // a security boundary.
-    const res = await page.request.post("/api/admin/server/autostart", { data: { enabled: true } });
-    expect(res.status()).toBe(409);
-    expect(((await res.json()) as { code: string }).code).toBe("AUTOSTART_UNAVAILABLE");
+
+    // And the SERVER refuses independently of what the UI drew — the same
+    // shape as the restart guard above, and for the same reason: an absent
+    // control is not a security boundary.
+    const usable = service.manager !== "app" && service.installed && service.enabled !== null;
+    if (!usable) {
+      const res = await page.request.post("/api/admin/server/autostart", { data: { enabled: true } });
+      expect(res.status()).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("AUTOSTART_UNAVAILABLE");
+    }
   });
 
   test("renders environment-owned addresses read-only, and the others editable", async ({ page }) => {

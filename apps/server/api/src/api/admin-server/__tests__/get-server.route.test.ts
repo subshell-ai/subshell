@@ -49,6 +49,15 @@ describe("GET /api/admin/server", () => {
     expect(JSON.stringify(body)).not.toContain("BETTER_AUTH_SECRET=");
   });
 
+  // Nested inside `service`, so VIEW_KEYS above is untouched — but it must
+  // reach the wire, and as a real tri-state rather than an absent field.
+  it("carries the linger fact in the service block", async () => {
+    const res = await app.fetch(authedRequest("/api/admin/server", fx.adminCookie));
+    const body = (await res.json()) as { service: { linger?: boolean | null } };
+    expect(Object.keys(body.service)).toContain("linger");
+    expect([true, false, null]).toContain(body.service.linger ?? null);
+  });
+
   it("reports the log file the toggle governs, and its cap", async () => {
     const res = await app.fetch(authedRequest("/api/admin/server", fx.adminCookie));
     const body = (await res.json()) as {

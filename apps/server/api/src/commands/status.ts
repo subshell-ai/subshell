@@ -12,7 +12,7 @@ import {
   SUBSHELL_SERVER_DATA_DIR,
 } from "@/constants.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
-import { type ServiceState, serviceArtifactPath } from "@/service.js";
+import { type ServiceState, SYSTEMD_UNIT_NAME, serviceArtifactPath } from "@/service.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
 import { subshellLogDir } from "@/services/nodes/subshell-paths.js";
 import { serverLogPath } from "@/utils/log-file.js";
@@ -329,6 +329,22 @@ export function serviceStateLines(state: ServiceState): string[] {
     `state                = ${state.state}${state.pid !== null ? ` (pid ${state.pid})` : ""}`,
     `starts at login      = ${state.enabled === null ? "unknown" : state.enabled ? "yes" : "no"}`,
   ];
+  // Linux only, and only where a systemd definition is what we are describing:
+  // launchd has no lingering knob, so the line would be a question with no
+  // answer rather than an unknown one. "Starts at login" above is the enabled
+  // unit; this is whether a machine nobody logs into ever reaches that login.
+  if (state.definitionPath.endsWith(SYSTEMD_UNIT_NAME)) {
+    const linger =
+      state.linger === true
+        ? "yes (user lingers)"
+        : state.linger === false
+          ? "no: run `loginctl enable-linger $USER`"
+          : // NOT "loginctl did not answer": when `systemctl show` fails we
+            // never ask logind at all, and naming a tool we did not run
+            // sends someone to debug the wrong thing.
+            "unknown (could not be measured)";
+    lines.push(`survives logout      = ${linger}`);
+  }
   // The one line an operator cannot get out of systemctl/launchctl, and the
   // one that decides whether stopping or restarting here costs them their work.
   const pane =

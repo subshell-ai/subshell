@@ -53,6 +53,7 @@ function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {
       state: "running",
       pid: 511,
       enabled: true,
+      linger: true,
       paneSafety: "keeps",
     },
     configPath: "/u/.config/subshell/config.json",
@@ -86,6 +87,7 @@ function killing(): NodeRuntime["service"] {
     state: "running",
     pid: 511,
     enabled: true,
+    linger: true,
     paneSafety: "kills",
   };
 }
@@ -167,6 +169,29 @@ describe("NodeServiceCard", () => {
     renderServiceCard({ ...base, runtime: runtime({ service: killing() }) });
     fireEvent.click(verbButton("Restart"));
     await waitFor(() => expect(posted).toEqual([{ verb: "restart", force: true }]));
+  });
+
+  /**
+   * "…starts with the machine" was false on Linux: a `systemd --user` unit
+   * starts with the LOGIN unless its owner lingers, which is the exact
+   * confusion the Runtime card's "Comes back" fact exists to remove. The
+   * confirmation now says only what is true on both platforms.
+   */
+  it("promises what installing a definition actually buys, on both platforms", async () => {
+    const asked: string[] = [];
+    const previousConfirm = setConfirmHandler(async (request) => {
+      asked.push(request.description ?? "");
+      return false;
+    });
+    restore.push(() => {
+      setConfirmHandler(previousConfirm);
+    });
+
+    renderServiceCard({ ...base, runtime: runtime() });
+    fireEvent.click(verbButton("Install service"));
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]).toContain("comes back on its own");
+    expect(asked[0]).not.toContain("starts with the machine");
   });
 
   it("asks first, and sends nothing when the answer is no", async () => {

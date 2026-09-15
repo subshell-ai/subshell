@@ -57,6 +57,12 @@ export interface ServiceState {
   pid: number | null;
   /** Whether the definition starts at login, null when unknown */
   enabled: boolean | null;
+  /**
+   * Linux: whether the OS user lingers, so an enabled unit comes back at BOOT
+   * rather than only at login. `null` on macOS, with nothing installed, and
+   * when logind did not answer.
+   */
+  linger: boolean | null;
   /** Whether a restart keeps running subshells alive */
   paneSafety: PaneSafety;
   /** The manager's log file (macOS), null under systemd */

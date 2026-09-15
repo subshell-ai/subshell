@@ -1292,6 +1292,7 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
       state: "running",
       pid: process.pid,
       enabled: true,
+      linger: true,
       paneSafety: "keeps",
     },
     configPath: "/c",

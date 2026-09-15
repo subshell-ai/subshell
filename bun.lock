@@ -99,7 +99,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
         "@internal/backend-errors": "workspace:*",
         "@internal/mcp-core": "workspace:*",

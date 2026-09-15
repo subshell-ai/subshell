@@ -258,6 +258,10 @@ describe("dispatchCli — service install|uninstall", () => {
       home: mkdtempSync(join(tmpdir(), `subshell-svc-home-${process.pid}-`)),
       servicePath: "/usr/local/bin/subshell-server",
       argv1: "/repo/apps/server/api/src/index.ts",
+      // Deliberately a user who does NOT linger, so the hint below is asserted
+      // against a stated answer rather than against an empty stub reply.
+      respond: (cmd) =>
+        cmd[0] === "loginctl" ? { code: 0, out: "Linger=no\n", err: "" } : { code: 0, out: "", err: "" },
     });
     writeFileSync(join(dir, "config.env"), "SERVER_PORT=3080\n", { mode: 0o600 });
 
@@ -272,6 +276,7 @@ describe("dispatchCli — service install|uninstall", () => {
       ["systemctl", "--user", "is-system-running"],
       ["systemctl", "--user", "daemon-reload"],
       ["systemctl", "--user", "enable", "--now", "subshell-server.service"],
+      ["loginctl", "show-user", `${process.getuid?.() ?? 0}`, "--property=Linger"],
     ]);
     expect(out.join("\n")).toContain("loginctl enable-linger");
   });

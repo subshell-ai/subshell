@@ -94,6 +94,71 @@ describe("collectDeployment", () => {
 });
 
 /**
+ * `linger` — the Linux fact that decides whether a REBOOT brings the server
+ * back, as against `enabled`, which only says a login would.
+ */
+describe("collectDeployment — linger", () => {
+  const lingering = {
+    installed: true,
+    definitionPath: "/u/.config/systemd/user/subshell-server.service",
+    state: "running",
+    pid: 777,
+    enabled: true,
+    linger: true,
+    paneSafety: "keeps",
+    detail: "",
+    logPath: null,
+  } as const;
+
+  it("forwards what the service query answered", () => {
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 777,
+      applied: new Set(),
+      queryService: () => lingering as never,
+    });
+    expect(view.service.linger).toBe(true);
+    expect(
+      collectDeployment({
+        platform: "linux",
+        pid: 777,
+        applied: new Set(),
+        queryService: () => ({ ...lingering, linger: false }) as never,
+      }).service.linger,
+    ).toBe(false);
+  });
+
+  // The `?? null` in the manager branch, defended the way `paneSafety` is: a
+  // query that answered nothing must not reach the wire as `undefined`.
+  it("a fixture that carries no linger field at all is null, never undefined", () => {
+    const { linger: _omitted, ...withoutLinger } = lingering;
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 777,
+      applied: new Set(),
+      queryService: () => withoutLinger as never,
+    });
+    expect(view.service.linger).toBeNull();
+    expect("linger" in view.service).toBe(true);
+  });
+
+  // The app's child is not a login-session service at all, so the question has
+  // no answer here — not even the host's own, which is about a unit this
+  // deployment does not use.
+  it("is null under the app EVEN when the host itself lingers", () => {
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 4242,
+      applied: new Set(),
+      queryService: () => lingering as never,
+      appSupervised: () => true,
+    });
+    expect(view.service.manager).toBe("app");
+    expect(view.service.linger).toBeNull();
+  });
+});
+
+/**
  * The desktop app as a supervisor (spec 2026-09-12 server-supervision § 4.7).
  *
  * The app runs the server as a child when the operator asked for that instead

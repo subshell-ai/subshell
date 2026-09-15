@@ -1442,6 +1442,16 @@ running this server, or a manager that would not say. Switching who runs the
 server at all still has no route, for the original reason — the dashboard
 offers a door into the desktop assistant instead.
 
+**A browser now presses it in ONE direction only**, and that is a UI choice
+rather than a new rule: outside the Subshell Server app the page offers
+"Start automatically" where a service is installed but unarmed, and offers no
+way to disarm one. The route is unchanged and still takes `{ enabled: false }`
+from any admin cookie — the CLI and the app still send it — so nothing here is
+a control. It is an admission that the off direction has no honest caller in a
+browser: the reader is not at that machine, disarming it strands the server at
+the next reboot, and the label that used to offer it ("start at login") reads
+on a headless host as a question about a desktop session it does not have.
+
 ### One CLI-touching command reaches the loopback SPA window
 
 The Subshell Server app's `main` window is served content pinned to loopback,

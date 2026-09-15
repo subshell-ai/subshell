@@ -159,7 +159,10 @@ describe("parseNodeCommandBody", () => {
     // 8 is node maintenance: `ready.maintenance`, the `maintenance` event and
     // the `set_maintenance` command, so one flag can be set at either end and
     // reconciled by stamp when the two disagree.
-    expect(NODE_PROTOCOL_VERSION).toBe(8);
+    // 9 is `service.linger`: whether the agent's OS user lingers, which is
+    // what decides whether an enabled systemd --user unit survives a logout
+    // on a machine nobody logs in to.
+    expect(NODE_PROTOCOL_VERSION).toBe(9);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -469,6 +472,7 @@ describe("ready.runtime (additive)", () => {
       state: "running",
       pid: 42,
       enabled: true,
+      linger: true,
       paneSafety: "keeps",
     },
     configPath: "/u/.config/subshell/config.json",
@@ -499,6 +503,23 @@ describe("ready.runtime (additive)", () => {
     expect(parseNodeRuntimeReport({ ...runtime, binaryPath: 7 })).toBeNull();
     expect(parseNodeRuntimeReport({ ...runtime, logPath: null, logHint: null })).not.toBeNull();
     expect(parseNodeRuntimeReport(null)).toBeNull();
+  });
+
+  it("holds `linger` to the same strictness as every other service field", () => {
+    // STRICT, unlike `logging`: the version gate is exact-match, so an agent
+    // that omits this field is one the plane refused at connect. A tolerated
+    // absence would mean rendering "unknown" for a machine that merely
+    // predates the field — indistinguishable from logind declining to say,
+    // which is a different machine with a different fix.
+    expect(parseNodeRuntimeReport({ ...runtime, service: { ...runtime.service, linger: false } })?.service.linger).toBe(
+      false,
+    );
+    expect(parseNodeRuntimeReport({ ...runtime, service: { ...runtime.service, linger: null } })?.service.linger).toBe(
+      null,
+    );
+    expect(parseNodeRuntimeReport({ ...runtime, service: { ...runtime.service, linger: "yes" } })).toBeNull();
+    const { linger: _gone, ...withoutLinger } = runtime.service;
+    expect(parseNodeRuntimeReport({ ...runtime, service: withoutLinger })).toBeNull();
   });
 
   it("defaults a missing or malformed `logging` instead of rejecting the report", () => {

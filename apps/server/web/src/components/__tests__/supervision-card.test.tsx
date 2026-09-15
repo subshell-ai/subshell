@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { deploymentView, stubAutostart, stubSupervision } from "@/components/__tests__/helpers/deployment-view";
+import {
+  deploymentView,
+  linuxDeploymentView,
+  stubAutostart,
+  stubSupervision,
+} from "@/components/__tests__/helpers/deployment-view";
 import { SupervisionCard } from "@/components/service/supervision-card";
 import { resetDesktopShellForTests } from "@/lib/desktop";
 import { currentMode, loginDisabledReason } from "@/lib/supervision";
@@ -42,7 +47,6 @@ afterEach(() => {
 });
 
 const modes = () => screen.getAllByRole("radio") as HTMLInputElement[];
-const door = () => screen.queryByRole("button", { name: /Switch to/ });
 const loginSwitch = () => screen.getByRole("switch", { name: "Start at login" });
 const switchDisabled = () => loginSwitch().getAttribute("data-disabled") !== null;
 
@@ -162,17 +166,6 @@ describe("SupervisionCard", () => {
     const behind = screen.getAllByRole("radio", { hidden: true }) as HTMLInputElement[];
     expect(behind[0]?.checked).toBe(true);
     expect(behind[1]?.checked).toBe(false);
-  });
-
-  it("is read-only in a browser, and says where to change it", () => {
-    asShell(BROWSER);
-    render(<SupervisionCard view={deploymentView()} autostart={stubAutostart()} supervision={stubSupervision()} />);
-    // Every viewer learns the mode — that is the point of showing both — but
-    // only the machine's own app can change it, and a control that moves and
-    // can never be applied is a worse lie than one that does not move.
-    for (const radio of modes()) expect(radio.disabled).toBe(true);
-    expect(door()).toBeNull();
-    expect(screen.getByText(/Subshell Server app on that machine/)).toBeTruthy();
   });
 
   it("puts the login switch BELOW both modes, not between them", () => {
@@ -318,5 +311,105 @@ describe("SupervisionCard", () => {
       />,
     );
     expect(screen.getByText("unit is masked")).toBeTruthy();
+  });
+});
+
+/**
+ * The browser half is a different card, not a disabled copy of the app's one.
+ *
+ * It used to render both radios disabled under "Changing this is done in the
+ * Subshell Server app on that machine" — which offered a headless Linux
+ * operator a mode their machine has no app for, and told them to go and use
+ * it. What they get now is the one fact they came for.
+ */
+describe("SupervisionCard in a browser", () => {
+  const browser = (view = deploymentView(), autostart = stubAutostart()) =>
+    render(<SupervisionCard view={view} autostart={autostart} supervision={stubSupervision()} />);
+
+  it("offers no choice at all — neither the modes nor the login switch", () => {
+    asShell(BROWSER);
+    browser();
+    // Not disabled: absent. A control that can never be applied is noise, and
+    // "start at login" is the desktop question this card stopped asking here.
+    expect(screen.queryAllByRole("radio")).toEqual([]);
+    expect(screen.queryAllByRole("switch")).toEqual([]);
+  });
+
+  it("states the app's own answer without offering the app's controls", () => {
+    asShell(BROWSER);
+    const view = deploymentView();
+    view.service.manager = "app";
+    browser(view);
+    expect(screen.getByText(/quitting the app stops it/)).toBeTruthy();
+    expect(screen.queryAllByRole("button", { name: "Start automatically" })).toEqual([]);
+  });
+
+  it("says a lingering systemd user survives a reboot, and offers nothing", () => {
+    asShell(BROWSER);
+    browser(linuxDeploymentView({ enabled: true, linger: true }));
+    expect(screen.getByText(/without anyone logging in/)).toBeTruthy();
+    // The fix is for the machines that need it. Offering `loginctl` to a user
+    // who already lingers is an instruction to do what is already done.
+    expect(screen.queryByText(/loginctl/)).toBeNull();
+  });
+
+  it("names the logout trap on a systemd user who does not linger, with the command", () => {
+    asShell(BROWSER);
+    browser(linuxDeploymentView({ enabled: true, linger: false }));
+    // The fact that decides survival on Linux, and which no version of this
+    // card showed before: an enabled --user unit lives inside its owner's
+    // login session.
+    expect(screen.getByText(/stops when you log out/)).toBeTruthy();
+    expect(screen.getByText(/To keep it running after you log out/)).toBeTruthy();
+    expect(screen.getByText("loginctl enable-linger $USER")).toBeTruthy();
+  });
+
+  it("asks rather than accuses when logind never answered, and still offers the command", () => {
+    asShell(BROWSER);
+    browser(linuxDeploymentView({ enabled: true, linger: null }));
+    expect(screen.getByText(/needs lingering to stay up/)).toBeTruthy();
+    // `null` is "we could not measure" — a container, or no loginctl on PATH —
+    // so the remedy is offered as an answer to the question above rather than
+    // as a fault report.
+    expect(screen.getByText(/If it needs to stay up with nobody logged in:/)).toBeTruthy();
+    expect(screen.queryByText(/To keep it running after you log out/)).toBeNull();
+    expect(screen.getByText("loginctl enable-linger $USER")).toBeTruthy();
+  });
+
+  it("offers ONE button for a definition that will not come back, and presses through", () => {
+    asShell(BROWSER);
+    const autostart = stubAutostart();
+    browser(linuxDeploymentView({ enabled: false }), autostart);
+    expect(screen.getByText(/Will not come back after a reboot/)).toBeTruthy();
+    screen.getByRole("button", { name: "Start automatically" }).click();
+    // Only the arming direction exists here: nobody on a headless box disarms
+    // their own server from a web page, and doing it stays a CLI act.
+    expect(autostart.pressed).toEqual([true]);
+  });
+
+  it("locks that button while the change is in flight, and says why it failed", () => {
+    asShell(BROWSER);
+    browser(linuxDeploymentView({ enabled: false }), stubAutostart({ pending: true, error: "unit is masked" }));
+    expect((screen.getByRole("button", { name: "Start automatically" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("unit is masked")).toBeTruthy();
+  });
+
+  it("offers the install command when nothing is installed", () => {
+    asShell(BROWSER);
+    browser(linuxDeploymentView({ installed: false, enabled: null }));
+    expect(screen.getByText(/Nothing brings it back when it stops/)).toBeTruthy();
+    expect(screen.getByText("subshell-server service install")).toBeTruthy();
+    expect(screen.queryAllByRole("button", { name: "Start automatically" })).toEqual([]);
+  });
+
+  it("states a launchd agent's login lifetime and offers no remedy for it", () => {
+    asShell(BROWSER);
+    browser();
+    // A LaunchAgent's lifetime IS the login session by design; there is no
+    // linger equivalent to offer, and a Mac nobody logs in to runs no agents
+    // either way.
+    expect(screen.getByText(/Comes back when you log in to this machine/)).toBeTruthy();
+    expect(screen.queryByText(/loginctl/)).toBeNull();
+    expect(screen.queryAllByRole("button", { name: "Start automatically" })).toEqual([]);
   });
 });

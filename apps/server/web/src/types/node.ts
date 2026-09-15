@@ -210,6 +210,12 @@ export interface NodeRuntime {
     pid: number | null;
     /** Whether the definition starts at login, or null when unknown */
     enabled: boolean | null;
+    /**
+     * Linux: whether that machine's OS user lingers, so an enabled unit comes
+     * back at BOOT rather than only at login. `null` on macOS, with nothing
+     * installed, and when logind did not answer.
+     */
+    linger: boolean | null;
     /** Whether restarting through the definition keeps live panes alive */
     paneSafety: "keeps" | "kills" | "unknown";
   };

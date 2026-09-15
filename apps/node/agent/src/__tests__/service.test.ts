@@ -15,7 +15,9 @@ import {
 } from "../service.js";
 import {
   darwinServiceStub,
+  type LingerAnswer,
   LOG,
+  lingerReply,
   linuxServiceStub,
   PLIST,
   showOut,
@@ -23,6 +25,10 @@ import {
   TARGET,
   UNIT,
 } from "./helpers/service-stub.js";
+
+/** A linux install stub whose only scripted command is `loginctl`. */
+const installStub = (linger: LingerAnswer) =>
+  stub({ respond: (cmd) => (cmd[0] === "loginctl" ? lingerReply(linger) : { code: 0, out: "", err: "" }) });
 
 /**
  * Everything here runs against stub deps — no systemd, no launchd, no real fs
@@ -74,12 +80,36 @@ describe("installService — linux (systemd user unit)", () => {
     // never the tmux servers in its cgroup (spec: keep-panes, 2026-09-03).
     expect(unit).toInclude("KillMode=process");
 
+    // The linger question is asked AFTER the enable, and only then: an enabled
+    // unit that dies at logout is the thing the hint is about.
     expect(s.calls).toEqual([
       ["systemctl", "--user", "daemon-reload"],
       ["systemctl", "--user", "enable", "--now", "subshell.service"],
+      ["loginctl", "show-user", "1000", "--property=Linger"],
     ]);
+    // The default stub answers nothing parseable, i.e. `null` — unknown still
+    // prints the advice.
     expect(res.out).toInclude("loginctl enable-linger");
   });
+
+  test("the linger hint is skipped for a user who already lingers, and printed when they do not", async () => {
+    const lingering = await installService(installStub("yes").deps);
+    expect(lingering.code).toBe(0);
+    expect(lingering.out).toInclude("enabled and running");
+    expect(lingering.out).not.toInclude("enable-linger");
+
+    const notLingering = await installService(installStub("no").deps);
+    expect(notLingering.out).toInclude("loginctl enable-linger $USER");
+  });
+
+  // `false` and `null` both print: the advice is harmless when nobody could
+  // answer and load-bearing when the answer is no.
+  test.each<LingerAnswer>(["absent", "notLoggedIn", "noBus"])(
+    "an unhelpful loginctl (%s) still prints the hint",
+    async (answer) => {
+      expect((await installService(installStub(answer).deps)).out).toInclude("loginctl enable-linger");
+    },
+  );
 
   test("dev-form execLine: interpreter + resolved script path in ExecStart", async () => {
     const s = stub({ execPath: "/usr/local/bin/bun", argv1: "/repo/apps/node/agent/src/main.ts" });
@@ -131,11 +161,12 @@ describe("installService — macOS (launchd agent)", () => {
     // A bootout precedes EVERY bootstrap, including this one where no plist
     // was on disk: the file is only a proxy for "is this label loaded", and it
     // lies after a reset, which deletes the plist while the job is still in
-    // the domain.
+    // the domain. launchd has no linger concept, so nothing asks logind here.
     expect(s.calls).toEqual([
       ["launchctl", "bootout", "gui/1000/dev.subshell.client"],
       ["launchctl", "bootstrap", "gui/1000", PLIST],
     ]);
+    expect(res.out).not.toInclude("enable-linger");
   });
 
   /**
@@ -427,9 +458,12 @@ describe("queryService", () => {
     expect(s.calls).toEqual([]);
   });
 
-  test("linux: ONE systemctl show carries every property, KillMode included", async () => {
+  test("linux: ONE systemctl show carries every property, then logind is asked about linger", async () => {
     const s = linuxServiceStub();
     const state = await queryService(s.deps);
+    // The order is the contract: linger is only asked once systemd itself has
+    // answered, and logind is addressed by UID (`os.userInfo()` throws for a
+    // uid with no passwd entry, which is the ordinary container shape).
     expect(s.calls).toEqual([
       [
         "systemctl",
@@ -438,8 +472,59 @@ describe("queryService", () => {
         "subshell.service",
         "--property=ActiveState,SubState,UnitFileState,MainPID,KillMode",
       ],
+      ["loginctl", "show-user", "1000", "--property=Linger"],
     ]);
-    expect(state).toMatchObject({ installed: true, state: "running", pid: 4242, enabled: true, paneSafety: "keeps" });
+    expect(state).toMatchObject({
+      installed: true,
+      state: "running",
+      pid: 4242,
+      enabled: true,
+      linger: true,
+      paneSafety: "keeps",
+    });
+  });
+
+  // Linger is a property of the USER, not of this unit — so it is asked the
+  // same way whether or not the unit starts at login.
+  test("linux: the linger question is asked even for a disabled unit", async () => {
+    const s = linuxServiceStub({ UnitFileState: "disabled" }, { linger: "yes" });
+    const state = await queryService(s.deps);
+    expect(state.enabled).toBe(false);
+    expect(state.linger).toBe(true);
+  });
+
+  const LINGER_ANSWERS: [LingerAnswer, boolean | null][] = [
+    ["yes", true],
+    ["no", false],
+    // logind answering that it holds no record of this user: no session, so no
+    // linger. The normal reply on a machine nobody signs in to.
+    ["notLoggedIn", false],
+    // Nothing answered at all — not a measured `false`.
+    ["noBus", null],
+    ["absent", null],
+  ];
+  test.each(LINGER_ANSWERS)("linux: loginctl %s maps to linger %p", async (answer, expected) => {
+    expect((await queryService(linuxServiceStub({}, { linger: answer }).deps)).linger).toBe(expected);
+  });
+
+  test("linux: a failed systemctl show reports linger null and never spawns loginctl", async () => {
+    const s = stub({ respond: () => ({ code: 1, out: "", err: "Failed to connect to bus" }) });
+    s.files.set(UNIT, "[Service]\nKillMode=process\n");
+    const state = await queryService(s.deps);
+    expect(state.linger).toBeNull();
+    expect(s.calls.some((c) => c[0] === "loginctl")).toBe(false);
+  });
+
+  test("nothing installed: linger is null and no command runs at all", async () => {
+    const s = stub();
+    expect((await queryService(s.deps)).linger).toBeNull();
+    expect(s.calls).toEqual([]);
+  });
+
+  test("darwin: linger is null and loginctl is never spawned", async () => {
+    const s = darwinServiceStub();
+    expect((await queryService(s.deps)).linger).toBeNull();
+    expect(s.calls.some((c) => c[0] === "loginctl")).toBe(false);
   });
 
   // The whole reason KillMode is asked of systemd rather than grepped: a
@@ -698,8 +783,10 @@ describe("controlService", () => {
       expect(r.code).toBe(0);
       // The success line is the ONLY feedback the manager gives; pin it.
       expect(r.out.trim()).toBe(DONE[verb]);
-      expect(s.calls[1]).toEqual(["systemctl", "--user", verb, "subshell.service"]);
-      expect(s.calls).toHaveLength(2);
+      // The verb call is the LAST one: `controlService` reads the state first,
+      // which is a `systemctl show` and the linger question behind it.
+      expect(s.calls.at(-1)).toEqual(["systemctl", "--user", verb, "subshell.service"]);
+      expect(s.calls).toHaveLength(3);
     }
   });
 
@@ -748,7 +835,7 @@ describe("controlService", () => {
     const s = linuxServiceStub({ KillMode: "control-group" });
     const r = await controlService(s.deps, "restart", { force: true });
     expect(r.code).toBe(0);
-    expect(s.calls[1]).toEqual(["systemctl", "--user", "restart", "subshell.service"]);
+    expect(s.calls.at(-1)).toEqual(["systemctl", "--user", "restart", "subshell.service"]);
   });
 
   // stop is as lethal as restart, but refusing it would only push the operator
@@ -759,7 +846,7 @@ describe("controlService", () => {
     expect(r.code).toBe(0);
     expect(r.err).toContain("warning");
     expect(r.err).toContain("kills every running subshell");
-    expect(s.calls[1]).toEqual(["systemctl", "--user", "stop", "subshell.service"]);
+    expect(s.calls.at(-1)).toEqual(["systemctl", "--user", "stop", "subshell.service"]);
   });
 
   test("stop is silent when the definition is pane-safe", async () => {
@@ -929,6 +1016,26 @@ describe("serviceStateLines", () => {
     expect(lines).toContain("state                = running (pid 4242)");
     expect(lines).toContain("starts at login      = yes");
     expect(lines).toContain("teardown keeps panes = yes");
+  });
+
+  // "starts at login" and "survives logout" are two questions, and on a
+  // headless node the second is the one that decides whether the agent is there.
+  const LINGER_LINES: [LingerAnswer, string][] = [
+    ["yes", "survives logout      = yes (user lingers)"],
+    ["no", "survives logout      = no: run `loginctl enable-linger $USER`"],
+    ["noBus", "survives logout      = unknown (could not be measured)"],
+  ];
+  test.each(LINGER_LINES)("systemd: loginctl %s renders %p", async (answer, line) => {
+    const lines = serviceStateLines(await queryService(linuxServiceStub({}, { linger: answer }).deps));
+    expect(lines).toContain(line);
+    // Directly after the login line, which is the question it qualifies.
+    expect(lines.indexOf(line)).toBe(lines.findIndex((l) => l.startsWith("starts at login")) + 1);
+  });
+
+  test("launchd shows no linger line at all — the manager has no such knob", async () => {
+    const lines = serviceStateLines(await queryService(darwinServiceStub().deps)).join("\n");
+    expect(lines).toContain("starts at login      = yes");
+    expect(lines).not.toContain("survives logout");
   });
 
   // The line an operator cannot get out of systemctl, and the one that decides

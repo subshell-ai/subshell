@@ -276,11 +276,17 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
         `systemctl --user enable --now ${SYSTEMD_UNIT_NAME} failed (exit ${enable.code}): ` + `${cmdDetail(enable)}`,
       );
     }
+    // The unit is enabled, so it comes back at LOGIN — which on a machine
+    // nobody logs in to is never. Ask logind whether this user already lingers
+    // rather than printing the remedy at someone who has applied it. `null`
+    // (no loginctl, no bus) still prints: the advice costs nothing when the
+    // answer is unknown and is the whole point when it is `false`.
+    const linger = await queryLinger(deps);
     return {
       code: 0,
       out:
         `Installed ${path}; subshell is enabled and running.\n` +
-        "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n",
+        (linger === true ? "" : "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n"),
       err: "",
     };
   }
@@ -483,6 +489,20 @@ export interface ServiceState {
   /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad` OR `KeepAlive`). `null` when unknown. */
   enabled: boolean | null;
   /**
+   * Linux only: whether this machine's OS user LINGERS
+   * (`loginctl enable-linger`).
+   *
+   * An enabled `--user` unit comes back at LOGIN and dies at LOGOUT unless the
+   * user lingers, in which case it comes back at BOOT. That is a different
+   * question from {@link enabled} rather than a refinement of it, and on a
+   * headless node it is the one that decides whether the agent is there.
+   *
+   * `null` on macOS (launchd has no equivalent knob — a LaunchAgent's lifetime
+   * IS the login session by design), when nothing is installed, and when
+   * logind did not answer.
+   */
+  linger: boolean | null;
+  /**
    * launchd only: whether the job is BOOTSTRAPPED in `gui/<uid>` — the fact
    * `launchctl print` states by exiting 0 at all. It is NOT the run state: a
    * job can be loaded and idle (no pid), and while it stays loaded
@@ -601,6 +621,7 @@ export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
       state: "not-installed",
       pid: null,
       enabled: null,
+      linger: null,
       paneSafety: null,
       detail: `no per-user service manager on '${deps.platform}'`,
     };
@@ -613,12 +634,44 @@ export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
       state: "not-installed",
       pid: null,
       enabled: null,
+      linger: null,
       paneSafety: null,
       detail: "",
     };
   }
 
   return deps.platform === "linux" ? querySystemd(deps, definitionPath) : queryLaunchd(deps, definitionPath);
+}
+
+/**
+ * Whether the agent's OS user lingers, asked of logind.
+ *
+ * Addressed by UID rather than by name: {@link ServiceDeps} already carries
+ * `uid` (launchd's `gui/<uid>` domain needs it), there is no environment seam
+ * on this side to read `$USER` from, and `os.userInfo()` THROWS for a uid with
+ * no passwd entry — which is the ordinary shape of a container. logind accepts
+ * either spelling, so the uid costs nothing.
+ *
+ * Three answers, and the middle one is the interesting case:
+ *
+ * - exit 0 ⇒ whatever `Linger=` says (`yes`/`no`; anything else is `null`).
+ * - a failure whose output says "not logged in or lingering" is logind
+ *   ANSWERING: it holds no record of this user, so there is no session and no
+ *   linger — `false`, and the normal reply on a box nobody signs in to.
+ * - anything else (no `loginctl` at all, "Failed to connect to bus") is not an
+ *   answer, so `null` rather than a `false` nobody measured.
+ *
+ * @param deps - the service seams (`uid` and `runCmd` are what this uses)
+ * @returns the linger fact, or `null` when logind did not answer
+ */
+async function queryLinger(deps: ServiceDeps): Promise<boolean | null> {
+  const res = await deps.runCmd(["loginctl", "show-user", String(deps.uid), "--property=Linger"]);
+  if (res.code === 0) {
+    const value = parseShowProperties(res.out).Linger;
+    return value === "yes" ? true : value === "no" ? false : null;
+  }
+  if (/not logged in or lingering/i.test(`${res.out}${res.err}`)) return false;
+  return null;
 }
 
 async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<ServiceState> {
@@ -642,6 +695,9 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
       state: "unknown",
       pid: null,
       enabled: null,
+      // `systemctl show` itself did not answer, so nothing here is worth a
+      // second spawn: logind is asked only on the branch where systemd talked.
+      linger: null,
       // Degraded but better than nothing: the file cannot see drop-ins, so a
       // `keeps` here is weaker evidence than a `keeps` from `show`.
       paneSafety: text === null ? "unknown" : killModeFromUnitText(text),
@@ -665,6 +721,10 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
           ? "stopped"
           : "unknown";
   const killMode = (props.KillMode ?? "").toLowerCase();
+  // Asked whether or not the unit is enabled: linger is a property of the USER,
+  // not of this unit, so it is as true of a machine mid-install as of a running
+  // one — and an operator enabling the unit next wants the answer already.
+  const linger = await queryLinger(deps);
   return {
     installed: true,
     definitionPath,
@@ -673,6 +733,7 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
     pid: Number.isInteger(mainPid) && mainPid > 0 ? mainPid : null,
     // `enabled-runtime` starts at login too, for this boot.
     enabled: unitFileState === "" ? null : unitFileState.startsWith("enabled"),
+    linger,
     paneSafety: killMode === "" ? "unknown" : PANE_SPARING_KILL_MODES.has(killMode) ? "keeps" : "kills",
     detail: notes(
       active === "failed" ? `unit is failed (SubState=${props.SubState ?? "?"})` : null,
@@ -736,6 +797,9 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
         state: "unknown",
         pid: null,
         enabled,
+        // launchd has no linger equivalent: a LaunchAgent's lifetime IS the
+        // login session by design, so there is no fact here to report.
+        linger: null,
         loaded: false,
         paneSafety,
         detail: `launchctl print failed (exit ${res.code}): ${why || "no output"}`,
@@ -748,6 +812,7 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
       state: "stopped",
       pid: null,
       enabled,
+      linger: null,
       loaded: false,
       paneSafety,
       detail: "",
@@ -767,6 +832,7 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
     state: running ? "running" : "stopped",
     pid,
     enabled,
+    linger: null,
     loaded: true,
     paneSafety,
     detail: running || rawState === undefined ? "" : `launchd: ${rawState}`,
@@ -933,6 +999,23 @@ export function serviceStateLines(state: ServiceState): string[] {
     `state                = ${state.state}${state.pid !== null ? ` (pid ${state.pid})` : ""}`,
     `starts at login      = ${state.enabled === null ? "unknown" : state.enabled ? "yes" : "no"}`,
   ];
+  // Systemd only, and decided from the definition rather than from the
+  // platform: launchd has no linger concept, so a line about it on a mac would
+  // be a question the manager cannot be asked.
+  if (state.definitionPath.endsWith(SYSTEMD_UNIT_NAME)) {
+    lines.push(
+      `survives logout      = ${
+        state.linger === true
+          ? "yes (user lingers)"
+          : state.linger === false
+            ? "no: run `loginctl enable-linger $USER`"
+            : // NOT "loginctl did not answer": when `systemctl show` fails
+              // we never ask logind at all, and naming a tool we did not
+              // run sends someone to debug the wrong thing.
+              "unknown (could not be measured)"
+      }`,
+    );
+  }
   // The one line an operator cannot get out of systemctl/launchctl, and the
   // one that decides whether stopping or restarting here costs them every live
   // pane on this node.

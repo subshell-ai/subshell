@@ -832,14 +832,21 @@ describe("dispatchCli — service against a real definition on disk", () => {
     return home;
   }
 
-  /** collectingDeps plus a recording runCmd that answers `systemctl show` with `props`. */
-  function linuxDeps(home: string, props: Record<string, string>) {
+  /**
+   * collectingDeps plus a recording runCmd that answers `systemctl show` with
+   * `props` — and logind's `Linger` with `linger`, whose default (no line at
+   * all) is the "did not answer" shape.
+   */
+  function linuxDeps(home: string, props: Record<string, string>, linger: "yes" | "no" | null = null) {
     const calls: string[][] = [];
     const base = collectingDeps({
       platform: "linux",
       home,
       runCmd: (cmd) => {
         calls.push(cmd);
+        if (cmd[0] === "loginctl") {
+          return { code: 0, out: linger === null ? "" : `Linger=${linger}\n`, err: "" };
+        }
         if (cmd.includes("show")) {
           return {
             code: 0,
@@ -874,6 +881,41 @@ describe("dispatchCli — service against a real definition on disk", () => {
     expect(text).toContain("starts at login      = yes");
     expect(text).toContain("teardown keeps panes = yes");
     expect(exits).toEqual([0]);
+  });
+
+  /**
+   * "Starts at login" and "survives logout" are two questions, and on a
+   * headless box the second is the one that decides whether a reboot brings
+   * the server back. It is logind's answer, so it renders only for a systemd
+   * definition.
+   */
+  test("service status renders the linger verdict, all three ways", async () => {
+    const home = homeWithUnit("[Service]\nKillMode=process\n");
+
+    const lingering = linuxDeps(home, SAFE, "yes");
+    await dispatchCli(["service", "status"], lingering.deps);
+    expect(lingering.out.join("\n")).toContain("survives logout      = yes (user lingers)");
+
+    const notLingering = linuxDeps(home, SAFE, "no");
+    await dispatchCli(["service", "status"], notLingering.deps);
+    expect(notLingering.out.join("\n")).toContain("survives logout      = no: run `loginctl enable-linger $USER`");
+
+    const silent = linuxDeps(home, SAFE, null);
+    await dispatchCli(["service", "status"], silent.deps);
+    expect(silent.out.join("\n")).toContain("survives logout      = unknown (could not be measured)");
+  });
+
+  // launchd has no lingering knob — a LaunchAgent's lifetime IS the login
+  // session — so the line is absent rather than unknown.
+  test("a launchd definition shows no linger line at all", async () => {
+    const home = mkdtempSync(join(tmpdir(), `subshell-svc-plist-${process.pid}-`));
+    mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
+    writeFileSync(join(home, "Library", "LaunchAgents", "dev.subshell.server.plist"), "<plist/>");
+    const { deps, out } = collectingDeps({ platform: "darwin", home, runCmd: () => ({ code: 0, out: "", err: "" }) });
+    await dispatchCli(["service", "status"], deps);
+    const text = out.join("\n");
+    expect(text).toContain("definition installed");
+    expect(text).not.toContain("survives logout");
   });
 
   test("service status names a lethal definition in plain words", async () => {

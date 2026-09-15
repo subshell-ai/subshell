@@ -581,7 +581,7 @@ it, so never make a bare invocation mean anything else.
 | `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, plugin registry, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
 | `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
 | `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes` |
-| `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first). `--no-autostart` installs one that runs NOW but does not come back at login |
+| `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first). `--no-autostart` installs one that runs NOW but does not come back at login. On Linux it then asks logind whether the user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes — the hint used to print on every install, which told an operator who had already fixed this to go and fix it (`null`, i.e. no loginctl and no bus, still prints: unneeded advice is cheaper than a reboot that loses the server) |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
 | `service enable` / `service disable` | arm or disarm start-at-login, WITHOUT touching the running process. Linux: `systemctl --user enable\|disable` with no `--now` — that flag is the whole difference between a preference and an outage. macOS: the plist MOVES (below) |
 | `service status` | what the MANAGER reports — run state, pid, starts-at-login, and whether a teardown keeps live panes; `--json` for scripts. Always exits 0: a view must not make a caller distinguish "not running" from "the call failed" |
@@ -819,6 +819,33 @@ what makes `enable`/`disable` safe for a running server. `queryService` reads
 `enabled` from WHERE the definition is, `uninstall` removes both locations,
 and the control verbs bootstrap `state.definitionPath` rather than assuming
 the login path.
+
+**On Linux "starts at login" is only half the answer, and the missing half is
+`linger`.** A `systemd --user` unit runs inside its owner's login session: an
+enabled one comes back when that user logs IN and dies when they log out, so a
+headless box nobody logs into never starts it at all. `loginctl enable-linger
+$USER` is what decouples the two — after it, the same enabled unit comes back
+at BOOT with nobody logged in. The defect that closes is an operator who
+believed a server was armed because the only switch on screen said "start at
+login" and was on, and then rebooted the machine and lost it. `queryService`
+therefore reports a SEPARATE `linger` field beside `enabled` rather than
+folding one into the other: they are two independent facts, and it is asked
+regardless of `enabled`, on the `systemctl show` success branch only.
+
+The probe is `loginctl show-user <uid> --property=Linger`, by UID and never by
+username — `ServiceDeps` already carries a uid for the launchd domain target,
+and `os.userInfo()` THROWS for a uid with no passwd entry, which is the
+ordinary state of a container. Three answers, and the middle one is the one to
+get right: `Linger=yes|no` on a clean exit is logind's own word; a NON-ZERO
+exit whose output says the user is "not logged in or lingering" is ALSO logind
+answering — no session record means no session and no linger, so `false`, not
+unknown, and it is the normal reply for a service user on a box nobody logs
+into; anything else (no `loginctl` on PATH, no bus to connect to) is a question
+that never reached logind, so `null`. It is `null` on macOS too, and that is an
+absence of the question rather than an unknown answer: a LaunchAgent's lifetime
+IS the login session by design, so there is nothing there to be yes or no
+about. `service status` renders it as `survives logout` for a systemd
+definition and omits the line entirely for a launchd one.
 
 macOS: launchd agent `dev.subshell.server` →
 `~/Library/LaunchAgents/`, log `~/Library/Logs/subshell-server.log` (reported as

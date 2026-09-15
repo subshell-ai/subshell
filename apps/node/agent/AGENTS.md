@@ -204,14 +204,15 @@ Three more things about it are deliberate:
 deliberately does NOT (a deleted config is the de-facto unenroll — an enabled
 unit must stay removable). Linux: `~/.config/systemd/user/subshell.service`
 (`Restart=always`) + `systemctl --user enable --now`; success prints the
-linger hint (`loginctl enable-linger $USER` keeps the daemon across logout).
-macOS: `~/Library/LaunchAgents/dev.subshell.client.plist` (KeepAlive, log at
-`~/Library/Logs/subshell.log`) + `launchctl bootstrap gui/<uid>`. The plist
-carries `AssociatedBundleIdentifiers=[dev.subshell.client]` so System Settings
-→ Login Items labels the job **Subshell Client** with the app's icon instead
-of the signing organization — the label and the association are the ONE
-protocol constant `DESKTOP_CLIENT_BUNDLE_ID`, which is also Subshell Client's
-own bundle id (the app's tests pin it; `LAUNCHD_LABEL` is that same constant).
+`loginctl enable-linger $USER` hint UNLESS this user already lingers (see
+below). macOS: `~/Library/LaunchAgents/dev.subshell.client.plist` (KeepAlive,
+log at `~/Library/Logs/subshell.log`) + `launchctl bootstrap gui/<uid>`. The
+plist carries `AssociatedBundleIdentifiers=[dev.subshell.client]` so System
+Settings → Login Items labels the job **Subshell Client** with the app's icon
+instead of the signing organization — the label and the association are the
+ONE protocol constant `DESKTOP_CLIENT_BUNDLE_ID`, which is also Subshell
+Client's own bundle id (the app's tests pin it; `LAUNCHD_LABEL` is that same
+constant).
 `service status` also reports `logPath` (that file on macOS, `null` on Linux —
 the unit redirects nothing and the journal holds the output), so a GUI reveals
 what the plist names instead of re-deriving a platform path. `AGENT_LOG_HINT`
@@ -227,6 +228,31 @@ is still found when the service manager — which starts units with a stock PATH
 runs the daemon; spaced paths are quoted in the systemd `ExecStart=`.
 Everything is DI'd through `ServiceDeps` (`src/service.ts`) so tests pin the
 exact unit/plist text and command sequences without touching systemd.
+
+**`linger` is a second question about starting, not a sharper answer to the
+first.** A `systemd --user` unit runs inside its owner's LOGIN SESSION, so
+`enabled` buys a unit that comes back when somebody signs in and dies when they
+sign out — and most nodes are machines nobody ever signs in to, where that is
+an agent which is simply not there. `loginctl enable-linger` is what gives the
+account a session at BOOT instead, and the defect this closes is that the agent
+only ever mentioned it once, on stdout, at install time, to a terminal with
+nobody at it. `ServiceState.linger` now carries the fact — `service status`,
+`--json`, and `ready.runtime.service.linger` (protocol 9), so the plane can
+say which of the two this machine is rather than advising every node in the
+abstract — and the human view prints it as `survives logout` directly under
+`starts at login`, because reading the two together is the whole point.
+
+`null` is reserved for "nobody answered", and two things that look like gaps
+are not. On macOS it is `null` and NOTHING is missing: a LaunchAgent's lifetime
+IS the login session by design, there is no knob, so the line is omitted rather
+than rendered as unknown. And a non-zero `loginctl` whose output says "not
+logged in or lingering" is an ANSWER of `false` — logind holds no record of
+this user, which means no session and no linger, and it is the ordinary reply
+on exactly the headless box this feature is for; reading it as unknown would
+blank the field precisely where it matters. A missing `loginctl` or an
+unreachable bus is the real `null`. logind is addressed by UID because
+`ServiceDeps` already carries one for launchd and `os.userInfo()` throws for a
+uid with no passwd entry, which is the ordinary container shape.
 
 `queryService`/`controlService` (ported from `apps/server/api/src/service.ts`,
 2026-09-05 — async here, since every seam in this module is) are what

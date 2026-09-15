@@ -495,8 +495,12 @@ security posture of a registry install is
 **Background service.** `subshell service install|uninstall`
 (`apps/node/agent/src/service.ts`) writes a systemd **user** unit or a launchd
 agent (`dev.subshell.client`), self-referencing the running executable (compiled
-binary or `bun <entry>` in dev); on Linux the post-install hint is
-`loginctl enable-linger` to survive logout. Harness facts come from the
+binary or `bun <entry>` in dev). On Linux the agent also asks logind whether
+this user LINGERS — an enabled `--user` unit dies at logout without it, which
+on a machine nobody logs in to means it never starts at all — and prints the
+`loginctl enable-linger` hint only when the answer is not yes. The fact rides
+`service status` and the node's runtime report, so the plane states it rather
+than advising every node in the abstract. Harness facts come from the
 plane, on request: detection is the `detect` command the control plane sends
 when someone asks (node-page load, Re-check, or a launch — spec 2026-09-10
 §4), cached server-side with its `checkedAt` stamp; the agent's

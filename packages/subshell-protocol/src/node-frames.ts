@@ -77,8 +77,16 @@ import type { JsonValue } from "./json.js";
  * process cannot talk to the running daemon: it writes a file, and the daemon
  * is what tells the plane. Additive, and breaking anyway — the gate is
  * exact-match.
+ *
+ * **8 → 9 is `service.linger`.** One Linux fact the report never carried:
+ * whether the agent's OS user lingers. A `systemd --user` unit that starts at
+ * login dies at LOGOUT unless it does, which on a headless node — a machine
+ * nobody logs in to — is the difference between an agent that is there and one
+ * that is not. The plane could only ever advise about it in the abstract; now
+ * it says which of the two this machine is. Additive, and breaking anyway,
+ * because the gate is exact-match.
  */
-export const NODE_PROTOCOL_VERSION = 8;
+export const NODE_PROTOCOL_VERSION = 9;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -201,6 +209,19 @@ export interface NodeRuntimeReport {
     pid: number | null;
     /** Whether the definition starts at login, or null when unknown. */
     enabled: boolean | null;
+    /**
+     * Linux only: whether this agent's OS user LINGERS
+     * (`loginctl enable-linger`).
+     *
+     * An enabled `--user` unit comes back at LOGIN and dies at LOGOUT unless
+     * the user lingers, in which case it comes back at BOOT with nobody
+     * logged in. That is the whole question on a headless node, and it is a
+     * different fact from {@link enabled} rather than a refinement of it.
+     *
+     * `null` on macOS (launchd has no such knob), when nothing is installed,
+     * and when logind did not answer.
+     */
+    linger: boolean | null;
     /** Whether restarting through the definition keeps live panes alive. */
     paneSafety: "keeps" | "kills" | "unknown";
   };
@@ -270,6 +291,7 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
     !isStr(s.state) ||
     !(s.pid === null || isInt(s.pid)) ||
     !(s.enabled === null || isBool(s.enabled)) ||
+    !(s.linger === null || isBool(s.linger)) ||
     paneSafety === undefined ||
     !isStr(value.configPath) ||
     !isStr(value.agentLogPath) ||
@@ -297,6 +319,7 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
       state: s.state,
       pid: s.pid,
       enabled: s.enabled,
+      linger: s.linger,
       paneSafety,
     },
     configPath: value.configPath,

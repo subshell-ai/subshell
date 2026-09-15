@@ -2,35 +2,52 @@ import type { JSX } from "react";
 import { Fact, FactCard } from "@/components/admin-status/fact-list";
 import { Badge } from "@/components/ui/badge";
 import { CopyableValue } from "@/components/ui/copyable-value";
+import { LINGER_COMMAND, type PersistenceFix, persistence } from "@/lib/supervision";
 import type { NodeDetail, NodeRuntime } from "@/types/node";
 
-/** Who is running the agent, and since when. */
+/**
+ * Who is running the agent, and since when.
+ *
+ * No "starts at login" tail: whether this machine brings the agent back is its
+ * own fact now, stated in full one row down. Carrying both put a hint on this
+ * line about what the other line answers — and the hint was the half that was
+ * wrong on Linux.
+ */
 export function supervisionLine(runtime: NodeRuntime): string {
   if (!runtime.supervised) return "Not supervised";
   const manager = runtime.service.manager ?? "a service manager";
   const pid = runtime.service.pid === null ? "" : ` (pid ${runtime.service.pid})`;
-  return `${manager}${pid}${runtime.service.enabled ? " · starts at login" : ""}`;
+  return `${manager}${pid}`;
 }
 
 /**
- * The part "starts at login" does not say, on systemd.
+ * What to do about a machine that will not bring the agent back.
  *
- * A `--user` unit runs inside the owner's login session, so it comes up at
- * login and goes down at LOGOUT — which on a headless box that nobody logs
- * into is the difference between an agent that is there and one that is not.
- * `loginctl enable-linger` is what decouples the two, and the agent's own
- * install prints that advice... to a terminal, on a machine most people never
- * open a terminal on. This card is the only surface a headless node's owner
- * sees, so the caveat belongs here too.
- *
- * launchd has no equivalent knob and needs no note: a LaunchAgent's lifetime
- * is the GUI session by design, and a machine with no one logged in is not
- * running one either way.
+ * Two shapes, because the two remedies live in different places. Lingering is
+ * a command in a shell ON that machine, so it is offered copyably; installing
+ * or arming a definition has no node route at all, and the honest thing is to
+ * point at the button one card down rather than to imply this page could do it.
  */
-export function lingerNote(runtime: NodeRuntime): string | null {
-  if (!runtime.supervised || runtime.service.enabled !== true) return null;
-  if (runtime.service.manager !== "systemd") return null;
-  return "Starting at login is not the same as staying up after logout: a systemd user service stops when its owner logs out. `loginctl enable-linger` on that machine keeps it running.";
+function FixLine({ fix }: { fix: PersistenceFix }): JSX.Element {
+  if (fix.kind === "linger") {
+    return (
+      <span className="mt-1 block text-detail text-muted-foreground">
+        {fix.measured
+          ? "To keep it running after you log out:"
+          : // logind never answered — a container, or no loginctl on PATH — so
+            // this is a condition on the remedy rather than a fault to report.
+            // The sentence above already asked the question; restating it here
+            // would be the card saying the same thing twice.
+            "If it needs to stay up with nobody logged in:"}{" "}
+        <CopyableValue value={LINGER_COMMAND} label="Linger command" />
+      </span>
+    );
+  }
+  return (
+    <span className="mt-1 block text-detail text-muted-foreground">
+      Install service below writes a definition and enables it.
+    </span>
+  );
 }
 
 /**
@@ -46,6 +63,15 @@ export function lingerNote(runtime: NodeRuntime): string | null {
  * config and log live, whether tmux was found — and it reaches its owner here,
  * from any browser.
  *
+ * **"Comes back" is measured, not advised.** The agent reports `linger`, so
+ * this card says which of the two a systemd machine IS rather than explaining
+ * both and leaving the reader to work out which one is theirs. The sentences
+ * come from `lib/supervision.ts`, shared with the server's own Service page, so
+ * the two surfaces answer one question — will this still be running after a
+ * reboot, or after I log out? — in one voice. launchd carries no such fact and
+ * none is missing: a LaunchAgent's lifetime IS the login session by design,
+ * there is no knob, and a Mac nobody logs in to runs no agents either way.
+ *
  * It renders nothing without a report, which is also the whole access rule:
  * the server attaches `runtime` only for an online agent node whose viewer can
  * configure it, so there is no gate to re-derive on this side.
@@ -56,14 +82,26 @@ export function NodeRuntimeCard({ node }: { node: NodeDetail }): JSX.Element | n
   if (!runtime) return null;
 
   const kills = runtime.service.paneSafety !== "keeps";
-  const linger = lingerNote(runtime);
+  // Named with the node's OWN name, so the sentences that must name a machine
+  // read "…if nobody logs in to blade-01" — this is a page about a machine the
+  // reader is not sitting at, where "this machine" would be the wrong one.
+  const comesBack = persistence(
+    {
+      manager: runtime.service.manager,
+      installed: runtime.service.installed,
+      enabled: runtime.service.enabled,
+      linger: runtime.service.linger,
+    },
+    node.name,
+  );
 
   return (
     <FactCard title="Runtime">
       <Fact label="Up since">{new Date(runtime.startedAt).toLocaleString()}</Fact>
-      <Fact label="Supervised by">
-        {supervisionLine(runtime)}
-        {linger && <span className="mt-1 block text-detail text-muted-foreground">{linger}</span>}
+      <Fact label="Supervised by">{supervisionLine(runtime)}</Fact>
+      <Fact label="Comes back">
+        {comesBack.sentence}
+        {comesBack.fix && <FixLine fix={comesBack.fix} />}
       </Fact>
       <Fact label="tmux">
         {runtime.tmuxPath ? (

@@ -498,11 +498,17 @@ export function installService(deps: ServiceDeps, opts: { autostart?: boolean } 
         `${argv.slice(0, -1).join(" ")} ${SYSTEMD_UNIT_NAME} failed (exit ${enable.code}): ` + `${cmdDetail(enable)}`,
       );
     }
+    // The hint used to print unconditionally, which told operators who had
+    // ALREADY run `enable-linger` to go and run it. Ask logind instead, now
+    // that the unit is in place, and say it only when the answer is not yes —
+    // `null` (no loginctl, no bus) still prints, since advice nobody needs is
+    // cheaper than a reboot that loses the server.
+    const linger = queryLinger(deps);
     return {
       code: 0,
       out:
         `Installed ${path}; subshell-server is ${autostart ? "enabled and running" : "running (not enabled at login)"}.\n` +
-        "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n",
+        (linger === true ? "" : "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n"),
       err: "",
     };
   }
@@ -762,6 +768,21 @@ export interface ServiceState {
    */
   enabled: boolean | null;
   /**
+   * Linux only: whether this machine's OS user LINGERS
+   * (`loginctl enable-linger`).
+   *
+   * An enabled `--user` unit comes back at LOGIN and dies at LOGOUT unless the
+   * user lingers, in which case it comes back at BOOT. That is a different
+   * question from {@link enabled} rather than a refinement of it, and on a
+   * headless server it is the one that decides whether a reboot brings the
+   * server back.
+   *
+   * `null` on macOS (launchd has no equivalent knob — a LaunchAgent's lifetime
+   * IS the login session by design), when nothing is installed, and when
+   * logind did not answer.
+   */
+  linger: boolean | null;
+  /**
    * launchd only: whether the job is BOOTSTRAPPED in `gui/<uid>` — the fact
    * `launchctl print` states by exiting 0 at all. It is NOT the run state: a
    * job can be loaded and idle (no pid), and while it stays loaded
@@ -874,6 +895,7 @@ export function queryService(deps: ServiceDeps): ServiceState {
       state: "not-installed",
       pid: null,
       enabled: null,
+      linger: null,
       paneSafety: null,
       detail: `no per-user service manager on '${deps.platform}'`,
     };
@@ -885,6 +907,7 @@ export function queryService(deps: ServiceDeps): ServiceState {
       state: "not-installed",
       pid: null,
       enabled: null,
+      linger: null,
       paneSafety: null,
       // The log location is where logs would live once installed — and where
       // an uninstalled-but-once-installed service's logs STILL are. The UI
@@ -896,6 +919,33 @@ export function queryService(deps: ServiceDeps): ServiceState {
   }
 
   return deps.platform === "linux" ? querySystemd(deps, definitionPath) : queryLaunchd(deps, definitionPath);
+}
+
+/**
+ * Does this machine's OS user linger? (`loginctl show-user <uid> --property=Linger`)
+ *
+ * Asked by UID rather than by name: {@link ServiceDeps} already carries one for
+ * the launchd domain target, and `os.userInfo()` THROWS for a uid with no
+ * passwd entry, which is the ordinary state of a container.
+ *
+ * Three answers, and the middle one is the interesting one:
+ * - `Linger=yes|no` on a clean exit is logind's own word.
+ * - A non-zero exit whose output says the user is "not logged in or lingering"
+ *   is ALSO logind answering: no record of this user means no session and no
+ *   linger, which is the normal state of a service user on a box nobody logs
+ *   into. `false`, not "unknown".
+ * - Anything else — no `loginctl` on PATH (127), no bus to connect to — is a
+ *   question that was never asked, so `null`.
+ *
+ * Never throws: the caller is a read-only state query.
+ */
+function queryLinger(deps: ServiceDeps): boolean | null {
+  const res = deps.runCmd(["loginctl", "show-user", String(deps.uid), "--property=Linger"]);
+  if (res.code !== 0) {
+    return /not logged in or lingering/i.test(`${res.out}${res.err}`) ? false : null;
+  }
+  const value = parseShowProperties(res.out).Linger;
+  return value === "yes" ? true : value === "no" ? false : null;
 }
 
 function querySystemd(deps: ServiceDeps, definitionPath: string): ServiceState {
@@ -918,6 +968,9 @@ function querySystemd(deps: ServiceDeps, definitionPath: string): ServiceState {
       state: "unknown",
       pid: null,
       enabled: null,
+      // `systemctl show` failed, so this branch asks logind nothing either:
+      // the linger question belongs to a host whose manager answered.
+      linger: null,
       // Degraded but better than nothing: the file cannot see drop-ins, so a
       // `keeps` here is weaker evidence than a `keeps` from `show`.
       paneSafety: text === null ? "unknown" : killModeFromUnitText(text),
@@ -949,6 +1002,10 @@ function querySystemd(deps: ServiceDeps, definitionPath: string): ServiceState {
     pid: Number.isInteger(mainPid) && mainPid > 0 ? mainPid : null,
     // `enabled-runtime` starts at login too, for this boot.
     enabled: unitFileState === "" ? null : unitFileState.startsWith("enabled"),
+    // Asked regardless of `enabled`: a unit that is not enabled at all still
+    // has a lingering-or-not user behind it, and the two facts compose rather
+    // than one qualifying the other.
+    linger: queryLinger(deps),
     paneSafety: killMode === "" ? "unknown" : PANE_SPARING_KILL_MODES.has(killMode) ? "keeps" : "kills",
     logPath: null, // journald owns the log on systemd; see ServiceState.logPath
     detail: notes(
@@ -992,6 +1049,7 @@ function queryLaunchd(deps: ServiceDeps, definitionPath: string): ServiceState {
         state: "unknown",
         pid: null,
         enabled,
+        linger: null,
         loaded: false,
         paneSafety,
         logPath,
@@ -1004,6 +1062,7 @@ function queryLaunchd(deps: ServiceDeps, definitionPath: string): ServiceState {
       state: "stopped",
       pid: null,
       enabled,
+      linger: null,
       loaded: false,
       paneSafety,
       logPath,
@@ -1024,6 +1083,9 @@ function queryLaunchd(deps: ServiceDeps, definitionPath: string): ServiceState {
     state: running ? "running" : "stopped",
     pid,
     enabled,
+    // launchd has no lingering concept: a LaunchAgent's lifetime IS the login
+    // session by design, so there is nothing here to be yes or no about.
+    linger: null,
     loaded: true,
     paneSafety,
     logPath,

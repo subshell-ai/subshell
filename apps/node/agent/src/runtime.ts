@@ -66,6 +66,9 @@ export async function collectRuntime(deps: RuntimeDeps = {}): Promise<NodeRuntim
       state: service.state,
       pid: service.pid,
       enabled: service.enabled,
+      // Defended like `paneSafety` beside it: a stubbed or older `ServiceState`
+      // may carry no such key, and the frame's field is required.
+      linger: service.linger ?? null,
       paneSafety: service.paneSafety ?? "unknown",
     },
     configPath: deps.configPath ?? configPath(),

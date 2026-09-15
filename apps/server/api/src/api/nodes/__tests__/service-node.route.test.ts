@@ -51,6 +51,10 @@ const runtime: NodeRuntimeReport = {
     state: "running",
     pid: 1,
     enabled: true,
+    // Enabled but NOT lingering: the pair that reads "comes back at login,
+    // not at boot" — the interesting case, and the one the round-trip below
+    // proves survives the schema.
+    linger: false,
     paneSafety: "keeps",
   },
   configPath: "/c/config.json",

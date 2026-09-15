@@ -47,6 +47,7 @@ export function deploymentView(over: Partial<ServerDeployment["settings"]> = {})
       state: "running",
       pid: 1,
       enabled: true,
+      linger: null,
       paneSafety: "keeps",
       logPath: "/l",
       logHint: null,
@@ -60,6 +61,29 @@ export function deploymentView(over: Partial<ServerDeployment["settings"]> = {})
     platform: "darwin",
     generatedAt: "2026-09-12T10:00:00.000Z",
   };
+}
+
+/**
+ * The same view as an ordinary headless LINUX host — the deployment the base
+ * fixture (darwin, launchd) is least like, and the one whose persistence
+ * answer depends on a fact macOS does not have: whether the OS user lingers.
+ *
+ * @param over - service fields to replace, `linger` above all
+ */
+export function linuxDeploymentView(over: Partial<ServerDeployment["service"]> = {}): ServerDeployment {
+  const view = deploymentView();
+  view.platform = "linux";
+  view.service = {
+    ...view.service,
+    manager: "systemd",
+    // systemd writes to the journal, so there is no file to name — the same
+    // shape the route reports on Linux.
+    logPath: null,
+    logHint: "journalctl --user -u subshell-server",
+    linger: false,
+    ...over,
+  };
+  return view;
 }
 
 /** A restart handle that is idle and does nothing — for cards that only render it. */
