@@ -208,6 +208,30 @@ describe("restoreDatabase", () => {
     expect(count(dbPath)).toBe(3);
   });
 
+  it("leaves the live database intact when the copy itself fails", () => {
+    seed(7).close();
+    // A restore that cannot write its replacement must not have destroyed the
+    // thing it was replacing. `revertUpdate` CATCHES this throw and carries on
+    // to put the old binary back, so a database deleted here would be booted
+    // over: SQLite CREATES the missing file, the migrator builds an empty
+    // schema, and an instance with zero users opens registration to anyone.
+    //
+    // A directory passes `existsSync` and then fails `copyFileSync` with
+    // EISDIR, which is the cheap stand-in for the realistic cause — ENOSPC on
+    // a host that has just written an ~80 MB binary and a full snapshot. It
+    // discriminates: deleting the target before copying leaves no database
+    // here, and this assertion is what catches that.
+    const notAFile = join(work, "backup-that-is-a-directory");
+    mkdirSync(notAFile, { recursive: true });
+
+    expect(() => restoreDatabase(notAFile, dbPath)).toThrow();
+
+    expect(existsSync(dbPath)).toBe(true);
+    expect(count(dbPath)).toBe(7);
+    // No half-written staging file is left behind for the next restore to trip on.
+    expect(readdirSync(work).filter((f) => f.includes(".restore-"))).toHaveLength(0);
+  });
+
   it("leaves nothing else in the backups directory", async () => {
     seed(2).close();
     const backup = await backupDatabase({ reason: "manual", databasePath: dbPath, dir });

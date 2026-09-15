@@ -30,7 +30,7 @@
  *   disagrees with itself.
  */
 import { Database } from "bun:sqlite";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { DATABASE_PATH, SUBSHELL_DB_BACKUPS_KEEP, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -253,15 +253,43 @@ function prune(dir: string, keep: number): string[] {
  * stopped. Restoring under a live handle would leave that handle holding a
  * deleted inode and writing into nothing.
  *
- * The `-wal` and `-shm` sidecars are deleted first. They belong to the file
- * being replaced, and a WAL left beside a restored main file is a database
- * that disagrees with itself: SQLite would replay transactions the snapshot
- * never had.
+ * The `-wal` and `-shm` sidecars are deleted as part of the swap. They belong
+ * to the file being replaced, and a WAL left beside a restored main file is a
+ * database that disagrees with itself: SQLite would replay transactions the
+ * snapshot never had.
+ *
+ * Either the whole restore happens or none of it does — see the staging
+ * comment in the body for why a half-done one is worse than a failed one.
  */
 export function restoreDatabase(backupPath: string, databasePath: string = DATABASE_PATH): void {
   if (!existsSync(backupPath)) throw new Error(`the backup ${backupPath} is not there`);
-  for (const sidecar of ["-wal", "-shm"]) rmSync(`${databasePath}${sidecar}`, { force: true });
-  rmSync(databasePath, { force: true });
-  copyFileSync(backupPath, databasePath);
-  chmodSync(databasePath, 0o600);
+
+  // STAGE BESIDE THE TARGET, THEN RENAME. Never `rmSync(databasePath)` before
+  // the replacement bytes are on disk: the caller that matters here is
+  // `revertUpdate`, which CATCHES a restore failure and carries on to put the
+  // old binary back. So a copy that dies midway — `ENOSPC` is the realistic
+  // one, since a revert follows an ~80 MB binary and a full snapshot onto a
+  // host already short of room — would leave no database at all, and the old
+  // binary would then boot on a hole: `new Database(path)` CREATES the file,
+  // the migrator builds an empty schema, and the instance comes up with zero
+  // users. An empty instance opens registration (the no-users carve-out in
+  // `services/registration-gate.ts`), so the failure mode is not "lost data
+  // plus a log line", it is a reachable server anyone can claim.
+  //
+  // `rename(2)` within one directory is atomic and replaces the destination,
+  // so the live file survives untouched until the moment it is superseded.
+  const staged = `${databasePath}.restore-${process.pid}`;
+  try {
+    copyFileSync(backupPath, staged);
+    chmodSync(staged, 0o600);
+    // The sidecars belong to the file being replaced, and a WAL left beside a
+    // restored main file is a database that disagrees with itself. They go
+    // only once the replacement is staged and the swap cannot fail for want
+    // of disk.
+    for (const sidecar of ["-wal", "-shm"]) rmSync(`${databasePath}${sidecar}`, { force: true });
+    renameSync(staged, databasePath);
+  } catch (error) {
+    rmSync(staged, { force: true });
+    throw error;
+  }
 }
