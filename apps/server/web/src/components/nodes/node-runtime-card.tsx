@@ -29,25 +29,36 @@ export function supervisionLine(runtime: NodeRuntime): string {
  * point at the button one card down rather than to imply this page could do it.
  */
 function FixLine({ fix }: { fix: PersistenceFix }): JSX.Element {
-  if (fix.kind === "linger") {
-    return (
-      <span className="mt-1 block text-detail text-muted-foreground">
-        {fix.measured
-          ? "To keep it running after you log out:"
-          : // logind never answered — a container, or no loginctl on PATH — so
-            // this is a condition on the remedy rather than a fault to report.
-            // The sentence above already asked the question; restating it here
-            // would be the card saying the same thing twice.
-            "If it needs to stay up with nobody logged in:"}{" "}
-        <CopyableValue value={LINGER_COMMAND} label="Linger command" />
-      </span>
-    );
+  // A `switch` with an exhaustive default rather than an `if` and a
+  // fall-through: the install sentence is right for the two remedies that
+  // exist beside lingering today, and silently wrong for a third one added
+  // later. This way a new `PersistenceFix` kind fails the build here.
+  switch (fix.kind) {
+    case "linger":
+      return (
+        <span className="mt-1 block text-detail text-muted-foreground">
+          {fix.measured
+            ? "To keep it running after you log out:"
+            : // logind never answered — a container, or no loginctl on PATH — so
+              // this is a condition on the remedy rather than a fault to report.
+              // The sentence above already asked the question; restating it here
+              // would be the card saying the same thing twice.
+              "If it needs to stay up with nobody logged in:"}{" "}
+          <CopyableValue value={LINGER_COMMAND} label="Linger command" />
+        </span>
+      );
+    case "install":
+    case "enable":
+      return (
+        <span className="mt-1 block text-detail text-muted-foreground">
+          Install service below writes a definition and enables it.
+        </span>
+      );
+    default: {
+      const unhandled: never = fix;
+      return <>{String(unhandled)}</>;
+    }
   }
-  return (
-    <span className="mt-1 block text-detail text-muted-foreground">
-      Install service below writes a definition and enables it.
-    </span>
-  );
 }
 
 /**

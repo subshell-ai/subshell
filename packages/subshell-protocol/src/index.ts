@@ -37,6 +37,15 @@ export {
   PRODUCT_NAME,
   PRODUCT_URL,
 } from "./legal.js";
+// NOTE: release-artifacts.ts (node: builtins) is intentionally NOT re-exported
+// here — this barrel is imported by apps/client/mobile through Metro, which cannot
+// resolve `node:*`. Consumers import "@internal/subshell-protocol/release-artifacts".
+export {
+  type LingerProbeResult,
+  lingerFromProbe,
+  lingerProbeArgv,
+  lingerVerdict,
+} from "./linger.js";
 export {
   type DetectSpecWire,
   HARNESS_BINARY_PLACEHOLDER,
@@ -155,8 +164,5 @@ export {
   type SizingPolicy,
   type ViewerCapacity,
 } from "./shared-geometry.js";
-// NOTE: release-artifacts.ts (node: builtins) is intentionally NOT re-exported
-// here — this barrel is imported by apps/client/mobile through Metro, which cannot
-// resolve `node:*`. Consumers import "@internal/subshell-protocol/release-artifacts".
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { agentVersionSupported, MIN_AGENT_VERSION, semverLt } from "./versions.js";

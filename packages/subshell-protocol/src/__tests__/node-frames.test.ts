@@ -12,6 +12,7 @@ import {
   parseNodeEvent,
   parseNodeRuntimeReport,
 } from "../node-frames.js";
+import { MIN_AGENT_VERSION } from "../versions.js";
 
 const launchCmd = {
   type: "launch",
@@ -625,10 +626,13 @@ describe("set_server_url command", () => {
   });
 });
 
-describe("maintenance (protocol 8)", () => {
+// Named for the bump that INTRODUCED these frames rather than the current one.
+// The fixture's agent version tracks the live floor so it never reads as a
+// build that could not connect — nothing here asserts against either number.
+describe("maintenance (arrived at protocol 8)", () => {
   const base = {
     type: "ready",
-    agentVersion: "0.6.0",
+    agentVersion: MIN_AGENT_VERSION,
     protocolVersion: NODE_PROTOCOL_VERSION,
     os: "linux",
     arch: "x64",

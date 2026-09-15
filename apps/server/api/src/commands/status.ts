@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
-import { DEFAULT_DATABASE_PATH, NODE_TARGETS } from "@internal/subshell-protocol";
+import { DEFAULT_DATABASE_PATH, lingerVerdict, NODE_TARGETS } from "@internal/subshell-protocol";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
 import {
@@ -334,16 +334,10 @@ export function serviceStateLines(state: ServiceState): string[] {
   // answer rather than an unknown one. "Starts at login" above is the enabled
   // unit; this is whether a machine nobody logs into ever reaches that login.
   if (state.definitionPath.endsWith(SYSTEMD_UNIT_NAME)) {
-    const linger =
-      state.linger === true
-        ? "yes (user lingers)"
-        : state.linger === false
-          ? "no: run `loginctl enable-linger $USER`"
-          : // NOT "loginctl did not answer": when `systemctl show` fails we
-            // never ask logind at all, and naming a tool we did not run
-            // sends someone to debug the wrong thing.
-            "unknown (could not be measured)";
-    lines.push(`survives logout      = ${linger}`);
+    // Shared with the agent's own `service status`, which answers the same
+    // question about the same mechanism: two spellings of it is the kind of
+    // drift nobody notices and everybody reconciles later.
+    lines.push(`survives logout      = ${lingerVerdict(state.linger)}`);
   }
   // The one line an operator cannot get out of systemctl/launchctl, and the
   // one that decides whether stopping or restarting here costs them their work.

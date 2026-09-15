@@ -53,9 +53,12 @@ describe("GET /api/admin/server", () => {
   // reach the wire, and as a real tri-state rather than an absent field.
   it("carries the linger fact in the service block", async () => {
     const res = await app.fetch(authedRequest("/api/admin/server", fx.adminCookie));
-    const body = (await res.json()) as { service: { linger?: boolean | null } };
+    // Typed as PRESENT, and the key assertion is what proves the cast: an
+    // optional type plus a `?? null` would have let an absent field satisfy
+    // the tri-state check, which is the one thing this test exists to catch.
+    const body = (await res.json()) as { service: { linger: boolean | null } };
     expect(Object.keys(body.service)).toContain("linger");
-    expect([true, false, null]).toContain(body.service.linger ?? null);
+    expect([true, false, null]).toContain(body.service.linger);
   });
 
   it("reports the log file the toggle governs, and its cap", async () => {

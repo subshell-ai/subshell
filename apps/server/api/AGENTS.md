@@ -832,6 +832,15 @@ therefore reports a SEPARATE `linger` field beside `enabled` rather than
 folding one into the other: they are two independent facts, and it is asked
 regardless of `enabled`, on the `systemctl show` success branch only.
 
+**The probe's argv and its answer-mapping are SHARED with the agent's twin of
+this module**, in `@internal/subshell-protocol`, and that is the one exception
+to the ports-are-duplicates rule. Each side still owns its platform logic and
+its call sites; what is shared is `lingerFromProbe`, which parses ANOTHER
+PROGRAM'S error text with a regex, and `lingerVerdict`, the `service status`
+string that has to read identically on both CLIs. Those two are where a
+divergence would be silent rather than loud — and silent-and-wrong on a
+headless host is precisely what this fact exists to prevent.
+
 The probe is `loginctl show-user <uid> --property=Linger`, by UID and never by
 username — `ServiceDeps` already carries a uid for the launchd domain target,
 and `os.userInfo()` THROWS for a uid with no passwd entry, which is the

@@ -96,8 +96,8 @@ The agent's first frame is `ready`:
 ```jsonc
 {
   "type": "ready",
-  "agentVersion": "0.5.0",
-  "protocolVersion": 7,
+  "agentVersion": "0.7.0",
+  "protocolVersion": 9,
   "os": "darwin",              // linux | darwin | unknown
   "arch": "arm64",
   "hostname": "mac-mini",
@@ -129,14 +129,14 @@ the names. They are asked by name on the `detect` round trip (§5).
 The identity is persisted **before** either gate below, so a refused agent still
 shows its version on the Nodes page instead of being invisible.
 
-**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.5.0`) is the
+**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.7.0`) is the
 operator-facing statement "this server needs subshell >= X". It runs first
 precisely because it is the gate an operator can *act* on, and the close reason
 names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `8`) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `9`) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -407,14 +407,24 @@ Two numbers, changed on different schedules:
   event reports a flip the machine made, and `set_maintenance` carries the
   plane's. The event exists because a CLI process cannot talk to the running
   daemon: `subshell maintenance` writes a file, and the daemon is what tells
-  the plane. Old numbers from the retired sequence do not recur here (their
-  history is in git).
+  the plane. **8 → 9 is `service.linger`**: one Linux fact the runtime report
+  never carried — whether the agent's OS user lingers. A `systemd --user` unit
+  that starts at login dies at LOGOUT unless it does, which on a headless node,
+  a machine nobody logs in to, is the difference between an agent that is there
+  and one that is not. The plane could previously only advise about it in the
+  abstract; now it says which of the two a given machine is. Additive, and
+  breaking anyway, because the gate is exact-match. Old numbers from the
+  retired sequence do not recur here (their history is in git).
 - **`MIN_AGENT_VERSION`** — bump when the server needs newer agent *behaviour*
   that the frames alone do not express, and in the same commit as a protocol
   bump so the refusal an operator sees names a version that exists. Currently
-  `0.6.0`, raised with protocol 8 alongside the agent package's own hand-raise
-  to the same number. An agent below it speaks no `set_maintenance`, so the
-  plane could set a flag that machine would never honour — the floor turns that
+  `0.7.0`, raised with protocol 9 alongside the agent package's own hand-raise
+  to the same number. The 0.6.0 floor before it went with protocol 8: an agent
+  below THAT spoke no `set_maintenance`, so the plane could set a flag the
+  machine would never honour. This one is the same shape — an agent below 0.7.0
+  reports no `linger`, and a surface reading it would have to render "unknown"
+  for a machine that merely predates the field, which is indistinguishable from
+  logind declining to answer and has a different remedy. The floor turns both
   into "update the agent" instead of a launch that quietly proceeds.
 
 An exact-match protocol was chosen over a compatibility window on purpose. A

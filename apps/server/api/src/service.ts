@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { DESKTOP_SERVER_BUNDLE_ID } from "@internal/subshell-protocol";
+import { DESKTOP_SERVER_BUNDLE_ID, lingerFromProbe, lingerProbeArgv } from "@internal/subshell-protocol";
 import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
 
 /**
@@ -924,28 +924,18 @@ export function queryService(deps: ServiceDeps): ServiceState {
 /**
  * Does this machine's OS user linger? (`loginctl show-user <uid> --property=Linger`)
  *
- * Asked by UID rather than by name: {@link ServiceDeps} already carries one for
- * the launchd domain target, and `os.userInfo()` THROWS for a uid with no
- * passwd entry, which is the ordinary state of a container.
- *
- * Three answers, and the middle one is the interesting one:
- * - `Linger=yes|no` on a clean exit is logind's own word.
- * - A non-zero exit whose output says the user is "not logged in or lingering"
- *   is ALSO logind answering: no record of this user means no session and no
- *   linger, which is the normal state of a service user on a box nobody logs
- *   into. `false`, not "unknown".
- * - Anything else — no `loginctl` on PATH (127), no bus to connect to — is a
- *   question that was never asked, so `null`.
+ * The argv and the three-way reading of the result come from
+ * `@internal/subshell-protocol`, SHARED with the agent's twin of this module
+ * rather than ported into it like everything else here. The reason is narrow:
+ * that reading includes a regex over `loginctl`'s own error wording, and the
+ * day it needs correcting, correcting one copy would leave the other quietly
+ * answering wrong on exactly the headless machine this fact exists for. WHEN
+ * to ask, and what to do with the answer, stay here.
  *
  * Never throws: the caller is a read-only state query.
  */
 function queryLinger(deps: ServiceDeps): boolean | null {
-  const res = deps.runCmd(["loginctl", "show-user", String(deps.uid), "--property=Linger"]);
-  if (res.code !== 0) {
-    return /not logged in or lingering/i.test(`${res.out}${res.err}`) ? false : null;
-  }
-  const value = parseShowProperties(res.out).Linger;
-  return value === "yes" ? true : value === "no" ? false : null;
+  return lingerFromProbe(deps.runCmd(lingerProbeArgv(deps.uid)));
 }
 
 function querySystemd(deps: ServiceDeps, definitionPath: string): ServiceState {

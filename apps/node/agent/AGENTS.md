@@ -254,6 +254,19 @@ unreachable bus is the real `null`. logind is addressed by UID because
 `ServiceDeps` already carries one for launchd and `os.userInfo()` throws for a
 uid with no passwd entry, which is the ordinary container shape.
 
+**Two pieces of the linger probe are SHARED with the server's twin rather than
+ported**, and the line between them is worth stating because everything else
+in this module is a deliberate duplicate. `lingerProbeArgv` and
+`lingerFromProbe` (and the CLI's `lingerVerdict` string) come from
+`@internal/subshell-protocol`. Each port still owns its own PLATFORM logic —
+`killModeFromUnitText`, `parseLaunchctlPrint`, when to ask, what to do with the
+answer — because that is what the duplication decision is about. But
+`lingerFromProbe` parses ANOTHER PROGRAM'S ERROR TEXT with a regex, and
+`lingerVerdict` is user-facing copy that has to read identically on two CLIs.
+Those are the two places where a divergence would be silent rather than loud,
+and silent-and-wrong on a headless machine is the exact failure this fact
+exists to prevent.
+
 `queryService`/`controlService` (ported from `apps/server/api/src/service.ts`,
 2026-09-05 — async here, since every seam in this module is) are what
 `service status|start|stop|restart` run on. Two platform facts they encode:

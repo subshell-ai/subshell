@@ -1,7 +1,7 @@
 import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { DESKTOP_CLIENT_BUNDLE_ID } from "@internal/subshell-protocol";
+import { DESKTOP_CLIENT_BUNDLE_ID, lingerFromProbe, lingerProbeArgv, lingerVerdict } from "@internal/subshell-protocol";
 import type { CliResult } from "./cli.js";
 import { selfInvocation } from "./self-invoke.js";
 
@@ -646,32 +646,19 @@ export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
 /**
  * Whether the agent's OS user lingers, asked of logind.
  *
- * Addressed by UID rather than by name: {@link ServiceDeps} already carries
- * `uid` (launchd's `gui/<uid>` domain needs it), there is no environment seam
- * on this side to read `$USER` from, and `os.userInfo()` THROWS for a uid with
- * no passwd entry — which is the ordinary shape of a container. logind accepts
- * either spelling, so the uid costs nothing.
- *
- * Three answers, and the middle one is the interesting case:
- *
- * - exit 0 ⇒ whatever `Linger=` says (`yes`/`no`; anything else is `null`).
- * - a failure whose output says "not logged in or lingering" is logind
- *   ANSWERING: it holds no record of this user, so there is no session and no
- *   linger — `false`, and the normal reply on a box nobody signs in to.
- * - anything else (no `loginctl` at all, "Failed to connect to bus") is not an
- *   answer, so `null` rather than a `false` nobody measured.
+ * The argv and the three-way reading of the result come from
+ * `@internal/subshell-protocol`, SHARED with the server's twin of this module
+ * rather than ported into it like everything else here. The reason is narrow:
+ * that reading includes a regex over `loginctl`'s own error wording, and the
+ * day it needs correcting, correcting one copy would leave the other quietly
+ * answering wrong on exactly the headless machine this fact exists for. WHEN
+ * to ask, and what to do with the answer, stay here.
  *
  * @param deps - the service seams (`uid` and `runCmd` are what this uses)
  * @returns the linger fact, or `null` when logind did not answer
  */
 async function queryLinger(deps: ServiceDeps): Promise<boolean | null> {
-  const res = await deps.runCmd(["loginctl", "show-user", String(deps.uid), "--property=Linger"]);
-  if (res.code === 0) {
-    const value = parseShowProperties(res.out).Linger;
-    return value === "yes" ? true : value === "no" ? false : null;
-  }
-  if (/not logged in or lingering/i.test(`${res.out}${res.err}`)) return false;
-  return null;
+  return lingerFromProbe(await deps.runCmd(lingerProbeArgv(deps.uid)));
 }
 
 async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<ServiceState> {
@@ -1003,18 +990,10 @@ export function serviceStateLines(state: ServiceState): string[] {
   // platform: launchd has no linger concept, so a line about it on a mac would
   // be a question the manager cannot be asked.
   if (state.definitionPath.endsWith(SYSTEMD_UNIT_NAME)) {
-    lines.push(
-      `survives logout      = ${
-        state.linger === true
-          ? "yes (user lingers)"
-          : state.linger === false
-            ? "no: run `loginctl enable-linger $USER`"
-            : // NOT "loginctl did not answer": when `systemctl show` fails
-              // we never ask logind at all, and naming a tool we did not
-              // run sends someone to debug the wrong thing.
-              "unknown (could not be measured)"
-      }`,
-    );
+    // Shared with the server's own `service status`, which answers the same
+    // question about the same mechanism: two spellings of it is the kind of
+    // drift nobody notices and everybody reconciles later.
+    lines.push(`survives logout      = ${lingerVerdict(state.linger)}`);
   }
   // The one line an operator cannot get out of systemctl/launchctl, and the
   // one that decides whether stopping or restarting here costs them every live

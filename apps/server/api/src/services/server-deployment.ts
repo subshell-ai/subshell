@@ -277,10 +277,11 @@ let memo: { view: DeploymentView; at: number } | null = null;
 /**
  * Build the whole § 3.1 view. READS ONLY — but not cheap, and worse than
  * "not cheap": `collectStatus` runs `netstat -an -p tcp` through
- * `Bun.spawnSync` and `queryService` spawns the service manager the same way.
- * Bun is single-threaded, so each of those is a WHOLE-PROCESS stall — it does
- * not slow the poller down, it stops every terminal WebSocket frame and every
- * other API request for its duration.
+ * `Bun.spawnSync` and `queryService` spawns the service manager the same way —
+ * and on Linux it spawns TWICE, since a systemd host is also asked `loginctl`
+ * for the linger fact. Bun is single-threaded, so each of those is a
+ * WHOLE-PROCESS stall — it does not slow the poller down, it stops every
+ * terminal WebSocket frame and every other API request for its duration.
  *
  * That is why this memoizes. The Service page is the one an admin leaves
  * open, the tab count is unbounded, and it polls every 5 s; without a memo,

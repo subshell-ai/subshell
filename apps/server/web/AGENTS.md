@@ -222,8 +222,9 @@ a node's Runtime card asks the identical question about a machine that is
 never the one serving this page, so the two answer it in one voice. It returns
 a sentence plus a `PersistenceFix` discriminated union and NOT the remedy's
 copy, because what "install it" looks like differs per surface — the server
-page copies a command, a node page points at the Install service button above
-it — and a model that shipped the words would be answering a question it
+page copies a command, a node page points at the Install service button below
+it (the Runtime card renders first) — and a model that shipped the words
+would be answering a question it
 cannot see. `machine` is a parameter for the same reason: "this machine" on
 the Service page, the node's own name on a node's.
 
@@ -246,8 +247,14 @@ and on a box nobody logs in to the first one is worth nothing. The agent and
 the server both measure it now (`service.linger`, `null` on macOS where a
 LaunchAgent's lifetime IS the login session and no such knob is missing), which
 is what lets the browser state which machine you have instead of explaining
-both cases at everyone. The in-app radios are unchanged by this: someone
-sitting at that machine logs in to it by definition.
+both cases at everyone. The in-app radios are unchanged by this, and that is a
+DECISION rather than an oversight: the Subshell Server app is the one surface
+that measures `linger` and does not show it. Someone sitting at that machine
+logs in to it by definition, which answers the reboot half — it does NOT
+answer the logout half, and on Linux that half is real even there. What makes
+it tolerable is that this surface never claimed otherwise: it offers a choice
+about who runs the server, not a promise about how long it lasts. Revisit it
+if the app ever ships for a machine its owner does not sit at.
 
 **The act cannot be a route, and the reason is specific rather than the usual
 one.** Switching needs an actor that outlives the server: going to app mode
