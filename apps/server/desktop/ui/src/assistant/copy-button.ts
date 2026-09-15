@@ -10,10 +10,12 @@
  * that affordance, so the same gesture looks the same in both halves of the
  * product (operator's call, 2026-09-14). The page's CSP allows no remote
  * images, so the two glyphs are inline SVG rather than a sprite or a font.
+ *
+ * **The flash is page state** (`lib/copy-flash.ts`), not this element's. The
+ * assistant rebuilds its content every 1500 ms and this button with it, so a
+ * tick living only in the DOM survived a random fraction of its 1600 ms.
  */
-
-/** How long the copied/failed state stays before the button returns to rest. */
-const FLASH_MS = 1600;
+import { FLASH_MS, type FlashState, readFlash, setFlash } from "../lib/copy-flash";
 
 /** lucide `copy` and `check`, drawn with the same attributes lucide-react emits. */
 const ICON = {
@@ -36,41 +38,60 @@ function svg(shape: keyof typeof ICON): string {
  * says nothing to a screen reader. A failure is SHOWN as well as announced:
  * the clipboard can be refused, and a button that flashed nothing would read
  * as a press that did not register.
+ *
+ * Never disabled, by construction rather than by an opt-out: copy buttons are
+ * built here and not through the screens' `button()` helper, which is what the
+ * screen-wide busy state reaches. That is the behaviour the tmux warning wants
+ * anyway — its whole moment is "an action is refused until you install
+ * something", and being unable to copy the fix while a re-probe is in flight
+ * would be the worst possible timing.
+ *
  * @param getText - The text to copy, read when the button is pressed
+ * @param opts.key - This button's flash slot, stable across renders of the
+ *   same button and distinct from every other button's. The command being
+ *   copied is usually the right one.
  * @param opts.label - What is being copied, for the accessible name
- * @param opts.always - Opt out of the screen-wide busy disable
  */
-export function copyButton(getText: () => string, opts: { label?: string; always?: boolean } = {}): HTMLButtonElement {
+export function copyButton(getText: () => string, opts: { key: string; label?: string }): HTMLButtonElement {
   const what = opts.label ?? "command";
   const copy = document.createElement("button");
   copy.type = "button";
   copy.className = "copy-button";
-  copy.dataset.state = "idle";
-  copy.innerHTML = svg("copy");
-  copy.setAttribute("aria-label", `Copy ${what}`);
-  // Copying is most apt precisely while something else is in flight, so some
-  // callers keep it live through a re-probe.
-  if (opts.always === true) copy.dataset.always = "1";
 
-  const rest = (): void => {
-    copy.dataset.state = "idle";
-    copy.innerHTML = svg("copy");
-    copy.setAttribute("aria-label", `Copy ${what}`);
+  const paint = (state: FlashState): void => {
+    copy.dataset.state = state;
+    // The failed state keeps the copy glyph — there is no lucide mark for "try
+    // again" that reads as anything but a second action — so the announcement
+    // is what distinguishes it, which is why the label is set on every path.
+    copy.innerHTML = svg(state === "copied" ? "check" : "copy");
+    copy.setAttribute(
+      "aria-label",
+      state === "copied" ? `${what} copied` : state === "failed" ? `Could not copy ${what}` : `Copy ${what}`,
+    );
   };
+
+  // Built mid-flash: a render landed between the press and the rest, so this
+  // element takes over the tick the discarded one was showing, for the time it
+  // had left rather than for a fresh 1600 ms.
+  const start = readFlash(opts.key);
+  paint(start.state);
+  if (start.state !== "idle") setTimeout(() => paint(readFlash(opts.key).state), start.remaining);
+
   copy.addEventListener("click", () => {
     navigator.clipboard
       .writeText(getText())
       .then(() => {
-        copy.dataset.state = "copied";
-        copy.innerHTML = svg("check");
-        copy.setAttribute("aria-label", `${what} copied`);
+        setFlash(opts.key, "copied");
+        paint("copied");
       })
       .catch(() => {
-        copy.dataset.state = "failed";
-        copy.setAttribute("aria-label", `Could not copy ${what}`);
+        setFlash(opts.key, "failed");
+        paint("failed");
       })
       .finally(() => {
-        setTimeout(rest, FLASH_MS);
+        // Re-read rather than resting blindly: a second press during the flash
+        // moved the deadline, and this timer must not cut the newer one short.
+        setTimeout(() => paint(readFlash(opts.key).state), FLASH_MS);
       });
   });
   return copy;

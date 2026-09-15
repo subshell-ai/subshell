@@ -28,6 +28,14 @@
 # hundred concurrent calls from interleaving a half-uninstall is
 # `ActionGuard::try_new`. See `capabilities/main.json`.
 #
+# The FIFTH, `desktop_open_in_browser`, is the harmless kind, and the reason it
+# is harmless is its argument rather than its name: it takes a PATH, refuses
+# anything that could be a host (`subshell_desktop_core::browser`), and joins
+# it onto the window's own loopback origin. So the worst it does is open a page
+# of the very server the page is already running in, in the person's own
+# browser — something they can do by typing the address. It touches no CLI, no
+# config, no service and no file.
+#
 # The SIXTH, `desktop_permissions`, is the newest of the harmless ones
 # (2026-09-14) and the first added since this count was written down. It takes
 # NO argument, runs no program, reads no path and changes nothing: it answers
@@ -40,14 +48,6 @@
 # permissions and nothing to act on; requesting a permission and opening a
 # System Settings pane stay off this window entirely. The written argument is
 # spec 2026-09-14 § 7, as this file's own rule requires before the number moves.
-#
-# The FIFTH, `desktop_open_in_browser`, is the harmless kind, and the reason it
-# is harmless is its argument rather than its name: it takes a PATH, refuses
-# anything that could be a host (`subshell_desktop_core::browser`), and joins
-# it onto the window's own loopback origin. So the worst it does is open a page
-# of the very server the page is already running in, in the person's own
-# browser — something they can do by typing the address. It touches no CLI, no
-# config, no service and no file.
 
 "$schema" = "schemas/schema.json"
 

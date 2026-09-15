@@ -152,10 +152,64 @@ describe("the files row", () => {
     expect(row(probe({ supervision: "app" }), "files").detail).not.toContain("subshell-server");
   });
 
-  it("is a later moment, with nothing to press now", () => {
+  it("is a later moment, and says so without claiming a state it cannot read", () => {
     expect(row(probe(), "files").suffix).toBe("Asked later");
-    expect(row(probe(), "files").action).toBeNull();
     expect(row(probe(), "files").state).toBe("pending");
+  });
+
+  it("always offers System Settings, because its state can never say when to", () => {
+    // The dashboard raises this screen as the fix for a folder it could not
+    // list, and this row's answer is unreadable by construction — so a button
+    // gated on `denied` would be a button that never appears, and Fix… would
+    // land on four lines of prose. Opening the pane always does something.
+    for (const state of ALL) {
+      const r = row(probe({ notificationPermission: state, photosPermission: state }), "files");
+      expect(r.action, state).toBe("open-settings");
+      expect(r.pane, state).toBe("files-and-folders");
+    }
+  });
+
+  it("offers the same button under either supervision", () => {
+    // Which process raises the prompt changes the SENTENCE, never the way back.
+    for (const supervision of ["service", "app"] as const) {
+      expect(row(probe({ supervision }), "files").pane, supervision).toBe("files-and-folders");
+    }
+  });
+});
+
+/**
+ * Every row this screen is raised AS THE FIX for has something to press, in
+ * the state the dashboard raises it in. This is the whole-screen version of
+ * the rule each row states for itself: the notices in the SPA
+ * (`components/desktop/permission-notice.tsx`) name three panes, and a Fix…
+ * button that lands on a row with no control is a dead end that reads as a
+ * broken app.
+ */
+describe("no notice dead-ends here", () => {
+  it("gives the notifications row a control in both states the dashboard notices", () => {
+    // `notifications-card.tsx` renders a notice on `denied` AND on
+    // `not-determined` ("macOS has not been asked yet").
+    expect(row(probe({ notificationPermission: "not-determined" }), "notifications").action).toBe("allow");
+    expect(row(probe({ notificationPermission: "denied" }), "notifications").action).toBe("open-settings");
+  });
+
+  it("gives the photos row a control in the state the overlay notices", () => {
+    expect(row(probe({ photosPermission: "denied" }), "photos").action).toBe("open-settings");
+  });
+
+  it("gives the files row one whatever this machine says", () => {
+    expect(row(probe(), "files").action).toBe("open-settings");
+  });
+
+  it("names a pane on every row that offers to open one", () => {
+    for (const notifications of ALL) {
+      for (const photos of ALL) {
+        for (const r of permissionRows(probe({ notificationPermission: notifications, photosPermission: photos }))) {
+          if (r.action === "open-settings") expect(r.pane, r.id).not.toBeNull();
+          else expect(r.pane, r.id).toBeNull();
+        }
+      }
+    }
   });
 });
 

@@ -48,20 +48,21 @@ export function buildTmuxWarning(host: AssistantHost, install: () => unknown): T
   // and a blank console). A click happens long after evaluation.
   installButton.addEventListener("click", () => install());
   const code = document.createElement("code");
-  // Opted OUT of the busy-disable: the warning's whole moment is "an action
-  // is refused until you install something" — being unable to copy the fix
-  // while a re-probe is in flight is the worst possible timing. Copies what is
-  // SHOWN, so the code line and the clipboard cannot disagree.
-  const copy = copyButton(() => code.textContent ?? "", { label: "install command", always: true });
+  // Copies what is SHOWN, so the code line and the clipboard cannot disagree.
+  // A fixed flash key rather than the command: this warning is built once and
+  // `applyPlan` rewrites the line under it, so keying on the text would move
+  // the slot mid-flash the first time a plan changed.
+  const copy = copyButton(() => code.textContent ?? "", { key: "tmux-install", label: "install command" });
   // Reading, not running: the no-Homebrew plan needs somewhere to go, and
   // spec §6.1 names this page. A button calling a Rust command that holds the
   // URL itself, so no URL is a value that crosses the IPC boundary — the same
-  // rule `desktop_open_path` follows. Opted out of the busy-disable like
-  // Copy: reading the docs is most apt while something else is in flight.
+  // rule `desktop_open_path` follows. Built here rather than through the
+  // screens' `button()`, so the screen-wide busy state never reaches it —
+  // which is what this and Copy both want: reading the docs, and copying the
+  // fix, are most apt precisely while something else is in flight.
   const docs = document.createElement("button");
   docs.type = "button";
   docs.textContent = "Read the docs";
-  docs.dataset.always = "1";
   docs.addEventListener("click", () => {
     ipc.openTmuxDocs().catch((err: unknown) => host.fail(err));
   });

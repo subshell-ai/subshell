@@ -48,8 +48,8 @@ and Reset use), in the order a first run meets them:
 | Row | Label | Detail (what and why) | Right-hand side |
 |---|---|---|---|
 | notifications | Notifications | Tells you when an agent is waiting for you. Asked now, if you allow it. | state + action (§3.1) |
-| files | Files and Folders | The directory picker lists your home folder. macOS asks per folder — Desktop, Documents, Downloads — the first time. Asked when you browse. | "Asked later" |
-| photos | Photos | Attaching an image to an agent can read your Photos library if you pick from there. Asked when you attach one. | state (§3.1 words; no Allow button — the system asks in context) |
+| files | Files and Folders | The directory picker lists your home folder. macOS asks per folder — Desktop, Documents, Downloads — the first time. Asked when you browse. | "Asked later" + **Open System Settings** → `files-and-folders`, in every state (§3.1) |
+| photos | Photos | Attaching an image to an agent can read your Photos library if you pick from there. Asked when you attach one. | state (§3.1 words; no Allow button — the system asks in context) + **Open System Settings** → `photos` once `denied` |
 | login | Background Items | Starting at login adds Subshell Server to Login Items, and macOS shows a banner saying so. Nothing to allow. | "Not a permission" |
 
 The `files` row's attribution depends on supervision: under the launchd service the prompt names
@@ -73,6 +73,23 @@ usual `busy`. The result lands through the next probe, not a return value the pa
 
 Bar: Back (to tmux), **Continue** (always live). No text beside Continue — the row carries its
 own state, per the rule this app keeps.
+
+**Every row a §5 notice sends someone to has a control when they arrive.** The rule above —
+a button only where pressing it does something — is about the ALLOW button, which macOS makes
+inert after the first ask. Opening a System Settings pane is never inert: the pane exists
+whether or not the question has been asked. Read the two as one rule and the screen dead-ends,
+which is what shipped and what the review caught (2026-09-14):
+
+| row | notice that raises this screen | control on arrival |
+|---|---|---|
+| notifications | `denied`, and `not-determined` ("macOS has not been asked yet") | Open System Settings / **Allow notifications** |
+| files | "Blocked by macOS" on a folder the picker could not list — **any state**, since nothing here can read one | **Open System Settings** → `files-and-folders`, unconditionally |
+| photos | Photos blocked, on the terminal's drop overlay | Open System Settings → `photos` |
+
+The `files` row is the load-bearing case, and its own §3 note is the reason: its state is
+unreadable by construction (asking means the `readdir` that fires the prompt), so a button
+gated on `denied` is a button that never renders. `SettingsPane::FilesAndFolders` existing,
+granted and never sent was the tell.
 
 ### 3.2 As a requested screen
 

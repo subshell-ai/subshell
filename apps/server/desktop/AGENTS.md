@@ -504,6 +504,30 @@ attribution sentence is for. The row model is pure
 (`ui/src/lib/permissions-model.ts`): every `Permission` value to a glyph state,
 a suffix and an action, and which pane each row opens.
 
+**Every row the dashboard sends someone to has something to press when they
+arrive**, and that is a SECOND rule beside "a button only where pressing it
+does something" — read as one rule, they produce the dead end this screen
+shipped with (review, 2026-09-14). The two are about different buttons: macOS
+asks once, so **Allow** is inert after the first answer and is offered only
+while the state is `not-determined`; **Open System Settings** is never inert,
+because the pane is there whether or not the question has been asked. So the
+`files` row offers it in EVERY state — its own state is unreadable by
+construction, so a button gated on `denied` would render never, while the
+picker's "Blocked by macOS" notice raises this screen as the fix regardless.
+`SettingsPane::FilesAndFolders` being defined, granted and sent by nothing was
+the tell. `photos` offers it once denied, which is the state its notice fires
+in.
+
+**The three enums that cross as WORDS are pinned to Rust's own spelling** —
+`WebTarget` and `SettingsPane` (`control.rs`), `Permission` (`desktop-core`) —
+by `ui/src/__tests__/wire-names.test.ts`, which derives the serde wire names
+from each enum body and compares them against `lib/ipc.ts`'s unions and the
+SPA's hand-written `types/permissions.ts` mirror. The test was born from
+`MacPorts` going across as `mac-ports`; `Permission` is the worse case it now
+also covers, because it travels TOWARD the page — a drifted word there is not
+a refusal with a message but an `undefined` falling out of an exhaustive
+switch, rendering a blank row with no error anywhere.
+
 ## Commands
 
 ```bash
@@ -709,6 +733,7 @@ ui/
 │   ├── assistant/      # the screen modules, each taking an AssistantHost
 │   │   ├── host.ts     #   the contract, plus el() and errText()
 │   │   ├── logs.ts     #   renderTail() and renderOutput(), for the Show Details panes
+│   │   ├── copy-button.ts   # the one Copy affordance; its flash lives in lib/copy-flash.ts
 │   │   ├── tmux-warning.ts  # the amber gate explanation — a FACTORY
 │   │   └── reset-view.ts    # the Reset screen, which replaces the frame
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
@@ -718,8 +743,11 @@ ui/
 │   │   ├── installers.ts     # the pure install plans
 │   │   ├── wizard-state.ts   # screensFor, dots, recoveryTitle/Action, RESET_LABEL, the checklist
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
+│   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
+│   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
 │   │   └── reset.ts          # the reset screen's pure decisions: rows, refusal, arming
-│   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model, reset, ipc-acl, tauri-config
+│   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model,
+│                       # permissions-model, copy-flash, reset, wire-names, ipc-acl, tauri-config
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
@@ -728,7 +756,7 @@ lives: anything with a contract rather than a rendering goes in `lib/`, where
 it is testable without a webview. Everything under `ui/src/assistant/` holds
 only the DOM.
 
-Three things about that arrangement are load-bearing:
+Four things about that arrangement are load-bearing:
 
 - **No module under `assistant/` imports `wizard.ts`.** They take an
   `AssistantHost` (`probe`, `busy`, `setBusy`, `render`, `refresh`, `fail`,
@@ -743,6 +771,20 @@ Three things about that arrangement are load-bearing:
   needed one per gated surface because two sections rendered at once; here the
   element is re-appended by every render, and one created per render would
   throw away a half-finished Copy.
+- **A Copy button's flash is PAGE state** (`lib/copy-flash.ts`), which is the
+  third time this app has had to move something out of an element the render
+  rebuilds — after `Show Details` and the reset screen's step rows. The flash
+  lasts 1600 ms and the poll renders every 1500, so a tick living in the DOM
+  survived a uniformly random 0–1500 ms of it: pressed, seen, gone, with
+  nothing wrong and nothing to notice. The slot is keyed by a string the
+  CALLER owns — the element is the thing that does not survive — and expires
+  by TIMESTAMP rather than by a timer having fired, since the timer belongs to
+  whichever button has already been discarded. Copy buttons are also the one
+  affordance here that is never disabled, and by construction rather than by
+  an opt-out: they are not built through the screens' `button()`, which is
+  what the busy state reaches. (A `data-always` opt-out existed for the
+  console's sweep, which read it; the sweep went with the console and the
+  attribute outlived its only reader by three months.)
 - **`lib/recovery-model.ts` exists so the recovery screen's WORDS are
   testable.** Its subtitle and its facts were the console's step table and
   Details list — DOM, in a render that needs a webview, which is why neither

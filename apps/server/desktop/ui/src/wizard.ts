@@ -490,7 +490,9 @@ function manualRouteSteps(route: ManualRoute): HTMLElement {
   line.className = "manual-command";
   line.append(
     text("span", route.command, "code-line"),
-    copyButton(() => route.command, { label: `the ${route.name} command` }),
+    // The command is the flash slot: this panel is rebuilt by every render,
+    // and one route's tick must not appear on the other's button.
+    copyButton(() => route.command, { key: route.command, label: `the ${route.name} command` }),
   );
   panel.append(line);
   return panel;

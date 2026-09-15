@@ -14,11 +14,22 @@
  *   Continue and no row nags. The screen prepares; the recovery path (a denied
  *   row's Open System Settings, reachable forever afterwards) is what exists
  *   for changing your mind.
- * - **A button is offered only where pressing it does something.** macOS asks
- *   once, so "Allow" appears only while the state is `not-determined` and
- *   System Settings only once it is `denied`. Anything else is a control that
- *   silently no-ops, which teaches people that this screen's controls are
- *   decoration.
+ * - **A button is offered only where pressing it does something** — which is
+ *   not the same as "only where a state is bad". macOS asks once, so "Allow"
+ *   appears only while the state is `not-determined`: anything else there is a
+ *   control that silently no-ops, which teaches people that this screen's
+ *   controls are decoration. Opening a System Settings pane, on the other
+ *   hand, ALWAYS does something — the pane is there whether or not the
+ *   question has been asked — so it is offered wherever this screen is the
+ *   answer to a person's problem.
+ *
+ * That second half is why the `files` row carries a button in every state. The
+ * dashboard raises this screen as the fix for "Blocked by macOS" on a folder
+ * it could not list (spec § 5), and that row's state is UNREADABLE by
+ * construction — so a row that offered a button only when denied would offer
+ * one never, and a person sent here by the notice would land on four lines of
+ * prose with nothing to press. A dead end at the end of a Fix… button is
+ * worse than no button at all.
  */
 import type { Permission, Probe, SettingsPane } from "./ipc";
 
@@ -143,11 +154,14 @@ export function permissionRows(probe: Probe, requesting = false): PermissionRow[
       detail: `The directory picker lists your home folder. macOS asks the first time you open Desktop, Documents or Downloads, and that prompt names ${asker}.`,
       // Unreadable by design: asking would mean a `readdir` of each folder
       // under home, which is the exact act that fires the prompt. So this row
-      // says when, and never what.
+      // says when, and never what — the suffix is a moment, not a state.
       state: "pending",
       suffix: "Asked later",
-      action: null,
-      pane: null,
+      // Always, precisely BECAUSE the state is unreadable: this is the row the
+      // dashboard's "Blocked by macOS" sends people to, and the pane it opens
+      // is where a refusal is undone whether or not macOS has asked yet.
+      action: "open-settings",
+      pane: "files-and-folders",
     },
     {
       id: "photos",

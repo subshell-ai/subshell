@@ -103,6 +103,17 @@ export function createResetView(host: AssistantHost): ResetView {
     (el("reset-run") as HTMLButtonElement).disabled = host.busy() || !(why === null && armed(typed, host_name));
     el("reset-run").textContent = host.busy() ? "Resetting…" : resetRunLabel;
     el("reset-run").dataset.armed = String(armed(typed, host_name));
+    // Cancel goes with it, on the SAME predicate, and the reason is what the
+    // action row now sits under. Beside the hostname box it meant "never
+    // mind" — the only thing there to abandon was a half-typed name. Under
+    // the meter it reads as "cancel this reset", which is the one thing it
+    // cannot do: it is `hide()` + `host.close()`, so a press would leave the
+    // chain stopping services and deleting directories in Rust with the
+    // window that was reporting it gone. Nothing on the progress pane may
+    // offer an act the chain cannot honour. `busy` ends on every exit path
+    // the run handler has, so a half-run gets Cancel back beside Retry, where
+    // leaving really is a choice.
+    (el("reset-cancel") as HTMLButtonElement).disabled = host.busy();
     renderPhase();
     renderSteps();
     // The reason, beside the control it disables. Only for a REFUSAL: "you
