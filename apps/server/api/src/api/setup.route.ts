@@ -11,6 +11,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
+import { hasAnyUser } from "@/services/registration-gate.js";
 
 const SetupStatusSchema = t.Object({
   needsSetup: t.Boolean({ description: "True until the first user is registered" }),
@@ -50,10 +51,13 @@ export function setHasUsersProbeForTests(fn: (() => Promise<boolean>) | null): v
 }
 
 async function realHasUsers(): Promise<boolean> {
-  // `user_meta` is the instance's "a user exists" truth, and the boot log asks
-  // the same question — one counter, so the wizard's gate and the line telling
-  // an operator to open it cannot answer differently.
-  return (await new UserMetaRepository(db).countUsers()) > 0;
+  // `hasAnyUser` is the ONE counter — the registration gate and the boot
+  // handoff line ask it too, so the wizard's gate, the door it opens and the
+  // line telling an operator to go there cannot answer differently. It counts
+  // real ACCOUNTS rather than `user_meta` rows, which is what keeps this
+  // public window from reopening on an instance whose role side-table lost a
+  // row (see the repository's docstring).
+  return await hasAnyUser(db);
 }
 
 let hasUsersProbe: () => Promise<boolean> = realHasUsers;

@@ -32,7 +32,6 @@ import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { startServer } from "@/server.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
@@ -44,6 +43,7 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
+import { hasAnyUser } from "@/services/registration-gate.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { BANNER_GROUP, getLogger } from "@/utils/logger.js";
 import { banner } from "@/banner.js";
@@ -149,11 +149,12 @@ async function bootServer(): Promise<void> {
   // is working perfectly looked exactly like one that is broken. Printed
   // AFTER the listening lines so the address above and the URL here read as
   // one instruction, and only while it is true — the count is the same
-  // `user_meta` truth `GET /api/setup/status` answers with, so this line and
-  // the wizard cannot disagree. Best-effort: a count that fails is not a
-  // reason to refuse a boot that has already succeeded.
+  // `hasAnyUser` truth `GET /api/setup/status` and the registration gate
+  // answer with, so this line and the wizard cannot disagree. Best-effort: a
+  // count that fails is not a reason to refuse a boot that has already
+  // succeeded.
   try {
-    if ((await new UserMetaRepository(db).countUsers()) === 0) {
+    if (!(await hasAnyUser(db))) {
       getLogger().info(`No account yet. Open ${APP_BASE_URL}/setup to create the admin account.`);
     }
   } catch (err) {

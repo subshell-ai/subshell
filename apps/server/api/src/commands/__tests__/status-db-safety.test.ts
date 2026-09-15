@@ -41,8 +41,8 @@ describe("status never reads a database outside the temp dir under test", () => 
     const dir = mkdtempSync(join(tmpdir(), "status-db-real-"));
     const dbPath = join(dir, "subshell.db");
     const db = new Database(dbPath, { create: true });
-    db.run("CREATE TABLE user_meta (id TEXT PRIMARY KEY)");
-    db.run("INSERT INTO user_meta (id) VALUES ('u1')");
+    db.run(`CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE)`);
+    db.run(`INSERT INTO "user" (id, email) VALUES ('u1', 'u1@subshell.local')`);
     db.close();
 
     const view = statusFor(dbPath);

@@ -1,4 +1,5 @@
 import type { Kysely } from "kysely";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { Database } from "@/db/types/index.js";
 
 /** The `settings` row; absent has a meaning of its own — see below. */
@@ -85,14 +86,18 @@ export function registrationDecision(stored: string | undefined, hasUsers: boole
 /**
  * Whether anybody has registered yet.
  *
- * `user_meta` is the instance's "a user exists" truth — the same row set
- * `GET /api/setup/status` counts for `hasUsers`, so the first-run window and
- * this gate open and close together rather than by two different measures.
+ * ONE counter — {@link UsersRepository.countRealAccounts} — shared with
+ * `GET /api/setup/status`'s `hasUsers` and the boot handoff line, so the
+ * first-run window, the line telling an operator to open it, and this gate
+ * cannot answer differently.
+ *
+ * It counts ACCOUNTS, not `user_meta` rows. That table is a role side-table
+ * written by a separate hook and it diverges from `user` in practice (the
+ * system service account has no meta row at all); a user row whose meta row
+ * is missing used to read here as an empty instance, which reopens
+ * registration on an instance that has real accounts. The repository's
+ * docstring carries the full accounting.
  */
 export async function hasAnyUser(db: Kysely<Database>): Promise<boolean> {
-  const row = await db
-    .selectFrom("userMeta")
-    .select((eb) => eb.fn.countAll().as("count"))
-    .executeTakeFirstOrThrow();
-  return Number(row.count) > 0;
+  return (await new UsersRepository(db).countRealAccounts()) > 0;
 }

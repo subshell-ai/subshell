@@ -1,4 +1,5 @@
 import { sql } from "kysely";
+import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { UserRole } from "@/db/types/user-role.js";
 
@@ -159,5 +160,34 @@ export class UsersRepository extends BaseRepository {
       await sql`DELETE FROM session WHERE userId = ${userId}`.execute(trx);
       return Number(revoked.rows[0]?.n ?? 0);
     });
+  }
+
+  /**
+   * How many REAL accounts exist: every `user` row except the service one.
+   *
+   * This is the instance's "has anybody registered yet" truth, and it is
+   * counted off `user` rather than `user_meta` deliberately. `user_meta` is a
+   * ROLE side-table, written by a separate better-auth `after` hook, and the
+   * two already disagree on any instance that has ever minted a system API
+   * key: `ensureSystemUser` INSERTs straight into `user` and creates no meta
+   * row. A user whose meta row is missing for any other reason — the hook not
+   * reached, the app database not yet injected — would then read as "nobody
+   * has registered", which silently REOPENS registration and makes the
+   * first-run `/api/setup/*` window public again on an instance that has real
+   * accounts. Counting the accounts themselves cannot drift that way.
+   *
+   * The service account is excluded because no credential row exists for it
+   * and it can never sign in, so it is not somebody having registered —
+   * counting it would close the door before anyone walked through it and
+   * brick a fresh install. Same `email !== SYSTEM_USER_EMAIL` rule
+   * `users.route.ts` already applies to decide manageability.
+   */
+  async countRealAccounts(): Promise<number> {
+    // Raw sql for better-auth's table, like every other read here; the
+    // CamelCasePlugin leaves these physical names untouched.
+    const { rows } = await sql<{ n: number }>`
+      SELECT count(*) AS n FROM user WHERE email <> ${SYSTEM_USER_EMAIL}
+    `.execute(this.db);
+    return Number(rows[0]?.n ?? 0);
   }
 }

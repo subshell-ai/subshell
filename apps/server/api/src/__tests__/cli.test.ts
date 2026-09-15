@@ -990,15 +990,22 @@ describe("dispatchCli — service against a real definition on disk", () => {
  */
 describe("dispatchCli — status says whether an admin account exists", () => {
   /**
-   * Write a database with a `user_meta` table holding `rows` accounts, in WAL
-   * mode — which is what the server leaves behind, and the case the obvious
-   * implementation gets wrong.
+   * Write a database with better-auth's `user` table holding `rows` accounts,
+   * in WAL mode — which is what the server leaves behind, and the case the
+   * obvious implementation gets wrong.
+   *
+   * The service account is seeded too, because the probe must not count it:
+   * an instance that has minted a system API key has a `user` row and still
+   * nobody who can sign in.
    */
   function seedDb(path: string, rows: number): void {
     const db = new Database(path, { create: true });
     db.run("PRAGMA journal_mode = WAL");
-    db.run("CREATE TABLE user_meta (user_id TEXT PRIMARY KEY, role TEXT NOT NULL)");
-    for (let i = 0; i < rows; i++) db.run("INSERT INTO user_meta (user_id, role) VALUES (?, 'admin')", [`u${i}`]);
+    db.run(`CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE)`);
+    db.run(`INSERT INTO "user" (id, email) VALUES ('sys', 'system@subshell.local')`);
+    for (let i = 0; i < rows; i++) {
+      db.run(`INSERT INTO "user" (id, email) VALUES (?, ?)`, [`u${i}`, `u${i}@subshell.local`]);
+    }
     db.close();
   }
 

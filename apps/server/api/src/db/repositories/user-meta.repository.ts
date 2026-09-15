@@ -220,12 +220,4 @@ export class UserMetaRepository extends BaseRepository {
       .onConflict((oc) => oc.column("userId").doUpdateSet({ terminalReplayLines: lines }))
       .execute();
   }
-
-  async countUsers(): Promise<number> {
-    const row = await this.db
-      .selectFrom("userMeta")
-      .select((eb) => eb.fn.countAll().as("count"))
-      .executeTakeFirstOrThrow();
-    return Number(row.count);
-  }
 }

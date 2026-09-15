@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { DEFAULT_DATABASE_PATH, lingerVerdict, NODE_TARGETS } from "@internal/subshell-protocol";
+import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
 import {
@@ -252,7 +253,13 @@ function countAccounts(path: string): number | null {
     let db: Database | undefined;
     try {
       db = new Database(path, mode);
-      const row = db.query("SELECT count(*) AS n FROM user_meta").get() as { n: number } | null;
+      // The accounts themselves, never the `user_meta` role side-table, and
+      // never the service account — the same rule `UsersRepository
+      // .countRealAccounts` applies, so `setup: complete` here and the boot
+      // handoff line cannot disagree about whether an admin exists.
+      const row = db.query(`SELECT count(*) AS n FROM "user" WHERE email <> ?`).get(SYSTEM_USER_EMAIL) as {
+        n: number;
+      } | null;
       return row === null ? null : Number(row.n);
     } catch {
       return null;

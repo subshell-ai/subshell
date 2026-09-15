@@ -227,10 +227,12 @@ describe("settings repository", () => {
 });
 
 describe("user meta repository", () => {
-  it("assigns admin to the first user and counts users", async () => {
-    expect(await repos.userMeta.countUsers()).toBe(0);
+  it("round-trips a role", async () => {
+    // Deliberately NOT a user count. "Has anybody registered" is answered by
+    // `UsersRepository.countRealAccounts` off the `user` table — this side
+    // table holds roles, and a second counter over it is exactly the drift
+    // that reopened registration on an instance with accounts.
     await repos.userMeta.upsert({ userId: "u1", role: "admin" });
     expect(await repos.userMeta.getRole("u1")).toBe("admin");
-    expect(await repos.userMeta.countUsers()).toBe(1);
   });
 });
