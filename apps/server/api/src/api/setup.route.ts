@@ -14,8 +14,14 @@ import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/
 import { hasAnyUser } from "@/services/registration-gate.js";
 
 const SetupStatusSchema = t.Object({
-  needsSetup: t.Boolean({ description: "True until the first user is registered" }),
-  hasUsers: t.Boolean({ description: "Whether any user exists" }),
+  // These descriptions reach OpenAPI and the generated SDK on the instance's
+  // one always-public route, so they are read outside this repo: say what the
+  // counter actually counts. The `system` service account is not an account
+  // anybody can sign in as, and it exists from a server's very first boot.
+  needsSetup: t.Boolean({
+    description: "True until the first account is registered (the service account does not count)",
+  }),
+  hasUsers: t.Boolean({ description: "Whether any account exists other than the internal service account" }),
 });
 
 /**
