@@ -3,7 +3,6 @@ import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { AddressesCard } from "@/components/service/addresses-card";
 import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
-import { LocationsCard } from "@/components/service/locations-card";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
 import { SupervisionCard } from "@/components/service/supervision-card";
@@ -19,7 +18,8 @@ export const Route = createFileRoute("/settings_/service")({ component: ServiceP
 
 /**
  * Server Settings → Service: where this server listens, who supervises it,
- * where it writes, and what it logged (spec 2026-09-12 § 4.1).
+ * and what it logged (spec 2026-09-12 § 4.1; the Locations card moved to
+ * `/settings/status` in spec 2026-09-14, where the read-only facts live).
  *
  * Called Service rather than Server because the control-plane host's own node
  * row is named "Server" by default, and because every card here is about the
@@ -55,10 +55,7 @@ function ServicePage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader
-        title="Service"
-        subtitle="Where this server listens, who supervises it, where it writes, and what it logged."
-      />
+      <PageHeader title="Service" subtitle="Where this server listens, who supervises it, and what it logged." />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           {error && (
@@ -88,7 +85,6 @@ function ServicePage() {
               <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />
               <SupervisionCard view={view} autostart={autostart} supervision={supervision} />
               <AddressesCard view={view} restart={restart} />
-              <LocationsCard view={view} />
               <ServerLogCard view={view} enabled={isAdmin} />
             </>
           )}

@@ -12,11 +12,17 @@ function PathFact({ label, value }: { label: string; value: string | null }) {
 }
 
 /**
- * Everything this server reads or writes, by path (spec 2026-09-12 § 4.3).
+ * Everything this server reads or writes, by path (spec 2026-09-12 § 4.3,
+ * moved to the Status page by spec 2026-09-14).
  *
- * Read-only on purpose. The database path in particular is settable by the
- * CLI and not by this page: moving it from a web form is a footgun with no
- * undo, so the page shows where it is and stops there.
+ * Read-only on purpose — which is why it lives on Status rather than Service:
+ * it carries no act, and Status is where an admin sees what the instance
+ * currently IS. The database path in particular is settable by the CLI and
+ * not by this page: moving it from a web form is a footgun with no undo, so
+ * the page shows where it is and stops there.
+ *
+ * `CopyableValue` stays imported from `components/service/`: four Service
+ * cards import it from there, so the card moved and the affordance did not.
  */
 export function LocationsCard({ view }: { view: ServerDeployment }) {
   return (

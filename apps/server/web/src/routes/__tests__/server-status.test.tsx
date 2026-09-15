@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import type { AdminStatus } from "@/hooks/use-admin-status";
 import { Route } from "@/routes/settings_.status";
+import type { ServerDeployment } from "@/types/server-deployment";
 
 /** A healthy instance; each test overrides only what it is about. */
 const HEALTHY: AdminStatus = {
@@ -49,7 +51,19 @@ interface Call {
   url: string;
 }
 
-function mockFetch(status: AdminStatus | null, viewerIsAdmin: boolean) {
+/**
+ * Both of the page's reads, each failable on its own: `admin/status` is the
+ * instance, `admin/server` is the deployment view the Locations card needs.
+ *
+ * @param status - the instance status, or null to 403 that route
+ * @param viewerIsAdmin - what `/api/settings/public` reports
+ * @param deployment - the deployment view, or null to 403 that route
+ */
+function mockFetch(
+  status: AdminStatus | null,
+  viewerIsAdmin: boolean,
+  deployment: ServerDeployment | null = deploymentView(),
+) {
   const calls: Call[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
@@ -61,6 +75,10 @@ function mockFetch(status: AdminStatus | null, viewerIsAdmin: boolean) {
     if (url.pathname === "/api/admin/status") {
       if (status === null) return Promise.resolve(new Response("forbidden", { status: 403 }));
       return Promise.resolve(new Response(JSON.stringify(status)));
+    }
+    if (url.pathname === "/api/admin/server") {
+      if (deployment === null) return Promise.resolve(new Response("forbidden", { status: 403 }));
+      return Promise.resolve(new Response(JSON.stringify(deployment)));
     }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
@@ -114,6 +132,7 @@ describe("Server status page", () => {
       renderPage();
       await waitFor(() => expect(screen.getByText(/for instance admins/)).toBeDefined());
       expect(calls.some((c) => c.url === "/api/admin/status")).toBe(false);
+      expect(calls.some((c) => c.url === "/api/admin/server")).toBe(false);
     } finally {
       restore();
     }
@@ -170,6 +189,48 @@ describe("Server status page", () => {
       renderPage();
       await waitFor(() => expect(screen.getByText(/subshells cannot launch on the server/)).toBeDefined());
       expect(screen.getByText(/creating a subshell will fail/)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders the Locations card from the deployment view", async () => {
+    // The paths live only on `GET /api/admin/server`; this page mounts that
+    // read beside admin/status precisely so the card can be here.
+    const { restore } = mockFetch(HEALTHY, true);
+    try {
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Locations")).toBeDefined());
+      expect(screen.getByText("/c/config.env")).toBeDefined();
+      expect(screen.getByText("/c")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("states the database SIZE in Runtime, and the path only in Locations", async () => {
+    // The two cards share a page now, so the path stated twice — once
+    // copyable, once not — was the duplication this move removed.
+    const { restore } = mockFetch(HEALTHY, true);
+    try {
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Database size")).toBeDefined());
+      expect(screen.getByText("2.0 MiB")).toBeDefined();
+      expect(screen.queryByText(/\/var\/lib\/subshell\/subshell\.db/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the instance cards when only the deployment read fails", async () => {
+    // Two routes, two failures: one must not take the other's cards down.
+    const { restore } = mockFetch(HEALTHY, true, null);
+    try {
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Could not load this server's deployment.")).toBeDefined());
+      expect(screen.getByText("Runtime")).toBeDefined();
+      expect(screen.queryByText("Locations")).toBeNull();
+      expect(screen.queryByText("Could not load the instance status.")).toBeNull();
     } finally {
       restore();
     }

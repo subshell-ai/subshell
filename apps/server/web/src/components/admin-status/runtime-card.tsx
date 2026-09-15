@@ -42,9 +42,9 @@ export function RuntimeCard({ status }: { status: AdminStatus }) {
       <Fact label="Listening on" mono wide>
         {runtime.listenHost}:{runtime.listenPort} · base URL {runtime.appBaseUrl}
       </Fact>
-      <Fact label="Database" mono wide>
-        {runtime.databasePath} ({formatBytes(runtime.databaseBytes)})
-      </Fact>
+      {/* Size only: the path is stated once, copyably, by the Locations card
+          on this same page (spec 2026-09-14 § 2.2). */}
+      <Fact label="Database size">{formatBytes(runtime.databaseBytes)}</Fact>
       <Fact label="tmux" mono wide>
         {runtime.tmuxPath ?? <Badge variant="warning">not found: subshells cannot launch on the server</Badge>}
       </Fact>

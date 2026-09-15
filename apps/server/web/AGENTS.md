@@ -78,7 +78,14 @@ for someone else got less help than the person creating their own.
 `components/admin-status/`, data in `hooks/use-admin-status.ts`) is the model
 for the gate the others copy: server-derived `viewerIsAdmin`, with `undefined`
 counting as NOT admin — the query is `enabled`-gated on it so a non-admin
-mount fires no doomed 403. `/settings/audit` is the same shape
+mount fires no doomed 403. It reads TWO routes: `GET /api/admin/status` for
+the instance, and `GET /api/admin/server` for the **Locations** card, which
+moved here from `/settings/service` on 2026-09-14 because it is the one
+Service card carrying no act (the paths live only in the deployment view, so
+the page mounts `useServerDeployment` beside `useAdminStatus`). The two fail
+independently, so each has its own banner and Retry, and neither failure
+hides the other's cards; the Runtime card states the database SIZE only,
+since Locations states the path once, copyably. `/settings/audit` is the same shape
 (`components/settings/audit-trail-card.tsx`), with the route owning the gate
 so the card's query can be unconditional; its `staleTime: 0` is load-bearing,
 since mounting the page is now the only thing that refreshes the trail.
