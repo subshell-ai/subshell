@@ -1436,7 +1436,7 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/�
     return { binary, previous };
   }
 
-  test("a frame from the plane settles it: `.previous` and the marker are dropped", async () => {
+  test("a verified non-update command settles it: `.previous` and the marker are dropped", async () => {
     // The plane pushes `set_allowed_dirs` on every accepted `ready`
     // (`services/nodes/allowed-dirs-sync.ts`), so in production this is the
     // path that always runs — the timer beside it is a belt, and it is
@@ -1444,14 +1444,42 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/�
     const h = await startDaemon();
     await waitForReady(h);
     const { binary, previous } = stageTransaction(h.config.dataDir);
-    // Anything at all counts, which is why this sends garbage: a frame the
-    // daemon then DROPS is still a frame the plane chose to send, and only a
-    // plane that accepted this binary sends anything.
-    h.plane.socket?.send("not a command");
+    // A VERIFIED command, not any frame: a held plane sends `update` and
+    // nothing else, so "anything at all" cannot be the signal. Verification
+    // is what proves this plane is talking TO this binary.
+    await signAndSend(h, { type: "set_allowed_dirs", dirs: [] });
     const deadline = Date.now() + 2000;
     while (existsSync(previous) && Date.now() < deadline) await sleep(10);
     expect(existsSync(previous)).toBe(false);
     expect(existsSync(join(h.config.dataDir, "update-pending.json"))).toBe(false);
+    expect(readFileSync(binary, "utf8")).toBe("NEW");
+  });
+
+  test("an `update` command does NOT settle it — that frame is what a HELD plane sends", async () => {
+    // The bug this pins: a plane that REFUSED this binary holds the socket and
+    // sends exactly one thing, the `update` that rescues the machine. Settling
+    // on it dropped `.previous` and the marker BEFORE the rescue ran, so a
+    // rescue that then failed left nothing to roll back to and the 4406 ten
+    // minutes later stranded the node on the incompatible binary.
+    const h = await startDaemon();
+    await waitForReady(h);
+    const { binary, previous } = stageTransaction(h.config.dataDir);
+
+    // A deliberately unreachable source, so the update FAILS the way a
+    // forgotten token or a moved artifact would.
+    await signAndSend(h, {
+      type: "update",
+      version: "9.9.9",
+      url: "http://127.0.0.1:1/subshell-node-cli-linux-x64",
+      sha256: "0".repeat(64),
+    });
+    const deadline = Date.now() + 5000;
+    while (eventsAs(h, "result").length === 0 && Date.now() < deadline) await sleep(10);
+
+    // The rescue failed, and the transaction it was sent to rescue is STILL
+    // open: the rollback path has something to put back.
+    expect(existsSync(previous)).toBe(true);
+    expect(existsSync(join(h.config.dataDir, "update-pending.json"))).toBe(true);
     expect(readFileSync(binary, "utf8")).toBe("NEW");
   });
 

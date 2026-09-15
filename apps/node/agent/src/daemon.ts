@@ -626,6 +626,27 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       }
       return;
     }
+    // THE TRANSACTION SETTLES HERE, on a VERIFIED command that is not
+    // `update` — not on "any inbound frame", which is where it used to be and
+    // which is false for exactly the case it matters in.
+    //
+    // A held socket (spec §5.3) is a plane that REFUSED this binary, and the
+    // one thing it sends such a node is the `update` command that rescues it.
+    // Settling on that frame dropped `<binary>.previous` and the marker before
+    // the rescue had run, so a rescue that then failed — a 401 from a token
+    // the plane forgot across its own restart is the commonest cause, but a
+    // digest mismatch or an unwritable directory do it too — left the machine
+    // on the incompatible binary with nothing to roll back to. `revertAfterRefusal`
+    // finds no marker at the 4406 ten minutes later, and someone walks to the
+    // machine.
+    //
+    // A verified NON-update command still proves what the old check was
+    // reaching for: this plane is talking TO this binary, not about to refuse
+    // it. An accepted node that is simply sent nothing settles on
+    // `UPDATE_ACCEPTED_MS` instead, which is the belt that already exists and
+    // is deliberately longer than the plane's hold budget.
+    if (outcome.claims.cmd.type !== "update") markUpdateAccepted();
+
     // SERIAL executor (spec §3.4): verify happened just now, but EXECUTION
     // queues behind every earlier verified command — arrival order across the
     // whole daemon life, never interleaved (a slow `launch` cannot let a
@@ -736,9 +757,9 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         }, inventoryMs);
         inventory.unref?.(); // a background push must never hold the daemon (or a test process) open
         // The quiet half of "the plane accepted this binary" — a belt under
-        // the frame check below, and deliberately LONGER than the plane's
-        // hold budget, since an open socket no longer proves acceptance on its
-        // own. See UPDATE_ACCEPTED_MS.
+        // the verified-command check in `onFrame`, and deliberately LONGER
+        // than the plane's hold budget, since an open socket no longer proves
+        // acceptance on its own. See UPDATE_ACCEPTED_MS.
         acceptedTimer = setTimeout(markUpdateAccepted, UPDATE_ACCEPTED_MS);
         acceptedTimer.unref?.();
       });
@@ -768,12 +789,6 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       // waiting for its turn.
       let frameChain: Promise<void> = Promise.resolve();
       ws.addEventListener("message", (ev) => {
-        // BEFORE `admitFrame`, and deliberately: any frame at all proves the
-        // plane is talking to this binary rather than about to refuse it, and
-        // that is the whole question the update transaction is waiting on. A
-        // frame this daemon then drops as oversize or unparseable is still a
-        // frame the plane chose to send.
-        markUpdateAccepted();
         const frame = admitFrame(ev.data);
         if (frame === null) return;
         frameChain = frameChain
