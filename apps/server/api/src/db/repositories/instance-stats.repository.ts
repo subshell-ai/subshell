@@ -57,10 +57,16 @@ export class InstanceStatsRepository extends BaseRepository {
   }
 
   /**
-   * Users by role, in ONE grouped pass. `user_meta` holds one row per user, so
-   * the total here is the roster size; a user whose meta row is somehow absent
-   * would be under-counted, which is the same basis every other role check in
-   * the app already uses.
+   * Users by role, in ONE grouped pass.
+   *
+   * `user_meta` is the right table HERE, and it is no longer the basis the
+   * rest of the app counts on: "has anybody registered" moved to
+   * {@link UsersRepository.countRealAccounts}, over the accounts themselves,
+   * because a user with no meta row read there as an empty instance. This is
+   * a different question — a ROLES breakdown, which only a meta row can
+   * answer — so a user missing one is under-counted, and the service account
+   * is absent for the same structural reason (it has no meta row and holds no
+   * role). Both are correct for a card about who administers this instance.
    */
   private async countUsersByRole(): Promise<{ total: number; admins: number }> {
     const rows = await this.db

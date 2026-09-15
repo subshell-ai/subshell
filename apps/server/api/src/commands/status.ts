@@ -204,6 +204,17 @@ function withinTmp(path: string): boolean {
 }
 
 /**
+ * Whether `name` is a table in this database.
+ *
+ * Asked instead of letting a query throw, because "that table does not exist"
+ * and "this file is unreadable" are different answers and only one of them is
+ * worth alarming an operator about.
+ */
+function tableExists(db: Database, name: string): boolean {
+  return db.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== null;
+}
+
+/**
  * Count accounts in the database at `path`, without ever throwing.
  *
  * Opened INSIDE `collectStatus` rather than through the app's own Kysely
@@ -253,6 +264,22 @@ function countAccounts(path: string): number | null {
     let db: Database | undefined;
     try {
       db = new Database(path, mode);
+      // A database whose better-auth tables are not there YET is a READABLE
+      // database with no accounts, not an unreadable one — and the difference
+      // is the whole rendering: `null` prints as "database present but
+      // unreadable", which sends someone looking for disk corruption.
+      //
+      // The shape is narrow but it is the one an operator running `status`
+      // is most likely to be standing in: the old query read `user_meta`
+      // (app migration 0001) and answered 0 here, while this one reads
+      // better-auth's `user`, created one line later in `index.ts` by
+      // `runAuthMigrations`. A boot that died between those two lines would
+      // otherwise throw and be reported as corruption.
+      //
+      // The app's own migration ledger tells the two apart: present means
+      // this IS a subshell database, mid-setup; absent means some other file
+      // this command should not be guessing about.
+      if (!tableExists(db, "user")) return tableExists(db, "kysely_migration") ? 0 : null;
       // The accounts themselves, never the `user_meta` role side-table, and
       // never the service account — the same rule `UsersRepository
       // .countRealAccounts` applies, so `setup: complete` here and the boot
