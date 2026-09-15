@@ -1,6 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { UserRowActions } from "@/components/users/user-row-actions";
 import { useCurrentUser } from "@/lib/auth";
+import { cn } from "@/lib/utils";
+import { asUserRole, USER_ROLE_LABELS } from "@/types/user-role";
 
 /** One account on the instance, as `GET /api/users` returns it. */
 export interface UserRow {
@@ -21,6 +23,12 @@ export interface UserRow {
    * Optional for a payload cached before the field existed.
    */
   manageable?: boolean;
+  /**
+   * The account is locked out: it cannot sign in and holds no sessions.
+   * Optional for a payload cached before the field existed, which reads as
+   * enabled — the state every account was in before this could be set.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -38,12 +46,12 @@ export function UsersTable({
 }: {
   /** Every account, in the order the server listed them */
   users: readonly UserRow[];
-  /** A role or password changed — refetch the roster */
+  /** A role, password or disabled flag changed — refetch the roster */
   onChanged: () => void;
 }) {
-  // Own id, so the row for yourself offers a role control but no password
-  // reset — that path lives under Account, where the current password is
-  // required.
+  // Own id, so the row for yourself offers a label instead of controls: every
+  // one of them is a way to remove your own administration, and an instance
+  // need not have a second admin to put it back.
   const { data: currentUser } = useCurrentUser();
 
   return (
@@ -61,12 +69,22 @@ export function UsersTable({
         <tbody>
           {users.map((u) => (
             <tr key={u.id} className="border-b align-middle last:border-0">
-              <td className="py-2 pr-4">{u.name}</td>
-              <td className="py-2 pr-4">{u.email}</td>
+              {/* A disabled account is dimmed as well as badged: the badge is
+                  what states it, the dimming is what makes a locked-out row
+                  legible while scanning the column of names. */}
+              <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.name}</td>
+              <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.email}</td>
               <td className="py-2 pr-4">
-                <Badge variant={u.role === "admin" ? "success" : "secondary"} className="inline-flex items-center">
-                  {u.role ?? "user"}
-                </Badge>
+                {/* `Badge` renders a div, so the wrapper is one too. */}
+                <div className="flex flex-wrap items-center gap-1">
+                  {/* The role badge keeps saying the role even when the
+                      account is disabled — a disabled admin IS an admin, and
+                      one badge cannot answer both questions. */}
+                  <Badge variant={asUserRole(u.role) === "admin" ? "success" : "secondary"}>
+                    {USER_ROLE_LABELS[asUserRole(u.role)]}
+                  </Badge>
+                  {u.disabled && <Badge variant="warning">Disabled</Badge>}
+                </div>
               </td>
               <td className="py-2 pr-4 text-muted-foreground">
                 {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}

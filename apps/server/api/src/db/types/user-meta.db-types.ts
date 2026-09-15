@@ -24,13 +24,23 @@ export interface UserMetaTable {
    * Spec 2026-09-03 close-vocabulary design.
    */
   terminalReplayLines: Generated<number | null>;
+  /**
+   * 1 = the account is DISABLED: better-auth refuses to mint a session for it
+   * and `authGuard` rejects its bearer keys, so it cannot authenticate at all.
+   * `Generated` mirrors the column's `NOT NULL DEFAULT 0`, and an absent
+   * `user_meta` row reads the same way — enabled. Inverting that would lock
+   * every pre-existing account out on upgrade.
+   */
+  disabled: Generated<number>;
 }
 
 /**
- * Insert shape. `notifyEnabled` is optional so registration (which knows only
- * id + role) stays valid; an omitted value takes the DB default (1 = on).
+ * Insert shape. `notifyEnabled` and `disabled` are optional so registration
+ * (which knows only id + role) stays valid; an omitted value takes the DB
+ * default (1 = notifications on, 0 = not disabled).
  */
-export type NewUserMeta = Omit<UserMetaTable, "notifyEnabled" | "terminalReplayLines"> & {
+export type NewUserMeta = Omit<UserMetaTable, "notifyEnabled" | "terminalReplayLines" | "disabled"> & {
   notifyEnabled?: number;
   terminalReplayLines?: number | null;
+  disabled?: number;
 };

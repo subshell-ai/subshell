@@ -21,8 +21,11 @@ describe("/api/subshells/:id/shares", () => {
   const aliceEmail = `sc-alice-${crypto.randomUUID()}@subshell.local`;
   const bobEmail = `sc-bob-${crypto.randomUUID()}@subshell.local`;
   const carolEmail = `sc-carol-${crypto.randomUUID()}@subshell.local`;
+  /** Bob's chosen display name, deliberately unlike his address. */
+  const bobName = "Bob Ortiz";
   let aliceId: string;
   let bobId: string;
+  let carolId: string;
   let aliceCookie: string;
   let bobCookie: string;
   let carolCookie: string;
@@ -30,10 +33,19 @@ describe("/api/subshells/:id/shares", () => {
   const created = ["s_own"];
   const createdKeys: string[] = [];
 
-  async function mkUser(email: string): Promise<string> {
+  /**
+   * `name` defaults to the EMAIL for callers that do not care, but the two
+   * grantees below deliberately differ: Bob has a real display name, Carol
+   * has none. `displayNamesByIds` resolves
+   * `COALESCE(NULLIF(name, ''), email)`, and with every fixture mirroring its
+   * email into its name both halves of that expression return the same
+   * string — so the branch that prefers a chosen name and the branch that
+   * falls back to the address become indistinguishable.
+   */
+  async function mkUser(email: string, name = email): Promise<string> {
     return await new UsersRepository(db).createUser({
       email,
-      name: email,
+      name,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
@@ -42,8 +54,9 @@ describe("/api/subshells/:id/shares", () => {
   beforeAll(async () => {
     await setupAuthTables();
     aliceId = await mkUser(aliceEmail);
-    bobId = await mkUser(bobEmail);
-    await mkUser(carolEmail);
+    bobId = await mkUser(bobEmail, bobName);
+    // Carol has NO display name — the fallback case.
+    carolId = await mkUser(carolEmail, "");
     aliceCookie = await signIn(aliceEmail, pw);
     bobCookie = await signIn(bobEmail, pw);
     carolCookie = await signIn(carolEmail, pw);
@@ -100,11 +113,27 @@ describe("/api/subshells/:id/shares", () => {
     expect(everyone?.granteeName).toBe("Everyone");
     expect(everyone?.permission).toBe("view");
     const bob = body.shares.find((s) => s.granteeUserId === bobId);
-    expect(bob?.granteeName).toBe(bobEmail);
+    // The chosen name, NOT the address: a grantee row is what the owner reads
+    // to decide whether the right person is on the list.
+    expect(bob?.granteeName).toBe(bobName);
+    expect(bob?.granteeName).not.toBe(bobEmail);
     expect(bob?.permission).toBe("edit");
 
     const got = (await (await req("GET", "/s_own/shares", { cookie: aliceCookie })).json()) as { shares: ShareRow[] };
     expect(got.shares).toHaveLength(2);
+  });
+
+  it("falls back to the email for a grantee with no display name", async () => {
+    // The other half of `COALESCE(NULLIF(name, ''), email)`. Without a fixture
+    // whose name is empty, nothing here would fail if the fallback were
+    // dropped.
+    const put = await req("PUT", "/s_own/shares", {
+      cookie: aliceCookie,
+      body: { shares: [{ granteeUserId: carolId, permission: "view" }] },
+    });
+    expect(put.status).toBe(200);
+    const body = (await put.json()) as { shares: ShareRow[] };
+    expect(body.shares.find((s) => s.granteeUserId === carolId)?.granteeName).toBe(carolEmail);
   });
 
   it("a second PUT replaces the set (a grant not listed is removed)", async () => {

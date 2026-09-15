@@ -6,6 +6,7 @@ import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
+import { accountDisabled } from "@/services/account-status.js";
 
 /** How the request authenticated — drives permission and admin policy. */
 export type GuardActor = "cookie" | "system-key" | "subshell-key";
@@ -89,9 +90,9 @@ async function deriveFromApiKey(bearer: string) {
 
 /**
  * True when `bearer` is a credential THIS instance issues — exactly the
- * accept-set of {@link deriveFromApiKey} (and therefore of {@link authGuard}):
- * a subshell-kind key linked to its subshell row's `apiKeyId`, or a key owned
- * by the `system` user. Conditionally-authenticated routes (the setup harness
+ * accept-set of {@link authGuard}: a subshell-kind key linked to its subshell
+ * row's `apiKeyId`, or a key owned by the `system` user, in either case
+ * belonging to an account that is not disabled. Conditionally-authenticated routes (the setup harness
  * endpoints, which must stay public during the first-run window) classify
  * bearer keys through this instead of re-deriving a weaker check, so a key
  * the guard 401s can never 200 anywhere else (security audit 2026-08, final
@@ -100,12 +101,43 @@ async function deriveFromApiKey(bearer: string) {
  */
 export async function isIssuedCredential(bearer: string): Promise<boolean> {
   try {
-    await deriveFromApiKey(bearer);
-    return true;
+    const derived = await deriveFromApiKey(bearer);
+    // The guard rejects a disabled account's credentials, so this must too —
+    // the whole point of the function is that its accept-set IS the guard's.
+    return !(await accountDisabled(db, derived.user.id));
   } catch (err) {
     if (err instanceof UnauthorizedError) return false;
     throw err;
   }
+}
+
+/**
+ * Resolves the request's credential to a principal, or throws 401.
+ *
+ * Split out of {@link authGuard}'s derive so the account-disabled check below
+ * applies to BOTH branches from one place: a rule written once per path is a
+ * rule that eventually holds on only one of them.
+ */
+async function resolvePrincipal(request: Request) {
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  // A session cookie that is present but invalid 401s outright — the
+  // bearer path is never tried underneath it (credential precedence the
+  // security audit pinned).
+  if (extractSessionToken(cookieHeader)) {
+    const result = await resolveCookieSession(cookieHeader);
+    if (!result) throw new UnauthorizedError();
+    return {
+      user: result.user as User,
+      session: result.session as Session,
+      principal: `user:${result.user.id}`,
+      actor: "cookie" as const,
+      apiKeyId: null,
+      apiKeyPermissions: null,
+    };
+  }
+  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!bearer) throw new UnauthorizedError();
+  return await deriveFromApiKey(bearer);
 }
 
 /**
@@ -116,6 +148,14 @@ export async function isIssuedCredential(bearer: string): Promise<boolean> {
  * 2. `Authorization: Bearer <api-key>` (MCP clients / scripts) — verified via
  *    the @better-auth/api-key plugin; see {@link deriveFromApiKey}.
  *
+ * A DISABLED account is unauthenticated on both paths (401, never 403 — the
+ * credential is simply not one this instance honours any more). The cookie
+ * half is nearly redundant, since disabling revokes every session the user
+ * holds; the BEARER half is not, and it is the reason this lives in the guard
+ * at all: a subshell running when its owner was disabled still holds a valid
+ * key, and without this check that key keeps working, which would make
+ * "disabled" untrue of the account.
+ *
  * Injects { user, principal, actor, apiKeyId, apiKeyPermissions } into route
  * context. `session` exists only on the cookie path.
  */
@@ -123,25 +163,10 @@ export const authGuard = new Elysia({ name: "auth-guard" })
   // The handler throws UnauthorizedError when not authenticated; Elysia turns
   // it into a 401. Route context then always has { user, ... }.
   .derive({ as: "scoped" }, async ({ request }) => {
-    const cookieHeader = request.headers.get("cookie") ?? "";
-    // A session cookie that is present but invalid 401s outright — the
-    // bearer path is never tried underneath it (credential precedence the
-    // security audit pinned).
-    if (extractSessionToken(cookieHeader)) {
-      const result = await resolveCookieSession(cookieHeader);
-      if (!result) throw new UnauthorizedError();
-      return {
-        user: result.user as User,
-        session: result.session as Session,
-        principal: `user:${result.user.id}`,
-        actor: "cookie" as const,
-        apiKeyId: null,
-        apiKeyPermissions: null,
-      };
-    }
-    const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
-    if (!bearer) throw new UnauthorizedError();
-    return deriveFromApiKey(bearer);
+    const resolved = await resolvePrincipal(request);
+    // One indexed lookup by primary key, on every authenticated request.
+    if (await accountDisabled(db, resolved.user.id)) throw new UnauthorizedError();
+    return resolved;
   })
   .as("scoped");
 

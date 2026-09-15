@@ -66,6 +66,14 @@ interface SetupMocks {
   installPending?: boolean;
 }
 
+/**
+ * Bodies the stubbed better-auth sign-up endpoint received, in order.
+ *
+ * Module-level rather than per-render because `routeFetch` is the only place
+ * that endpoint is answered; cleared in `afterEach` with the router itself.
+ */
+const signUpBodies: unknown[] = [];
+
 function routeFetch(opts: SetupMocks): void {
   // Set once an install POST succeeds, so the following harness refetch (the
   // mutation's onSettled invalidation) reports the row as installed — the
@@ -84,6 +92,7 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify(withInstall)));
     }
     if (path === "/api/auth/sign-up/email") {
+      if (init?.body !== undefined) signUpBodies.push(JSON.parse(String(init.body)));
       return Promise.resolve(new Response(JSON.stringify({ user: { id: "u1", name: "Ada" } })));
     }
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes: opts.nodes ?? [] })));
@@ -221,6 +230,32 @@ async function renderSetup(opts: SetupMocks, upto: 0 | 1 | 2) {
 afterEach(() => {
   cleanup();
   setFetchRouter(null);
+  signUpBodies.length = 0;
+});
+
+/**
+ * First run is the one account-creation path that does NOT go through
+ * `POST /api/users`, which trims the display name server-side — this screen
+ * registers through better-auth, which stores what it is handed. So the
+ * client-side `normalizeNewAccount` is the only thing standing between
+ * `"  Ada  "` and a roster row with the spaces in it, and the wizard used to
+ * send both fields raw while the Add user dialog trimmed them.
+ */
+describe("setup wizard: what registration submits", () => {
+  it("trims the name and email, and leaves the password exactly as typed", async () => {
+    await renderSetup({}, 0);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "  Ada  " } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: " ada@example.com " } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: " correct-horse-battery " } });
+    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: " correct-horse-battery " } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
+    await waitFor(() => expect(signUpBodies.length).toBe(1));
+    expect(signUpBodies[0]).toMatchObject({
+      name: "Ada",
+      email: "ada@example.com",
+      password: " correct-horse-battery ",
+    });
+  });
 });
 
 describe("setup wizard: the agent step is optional", () => {

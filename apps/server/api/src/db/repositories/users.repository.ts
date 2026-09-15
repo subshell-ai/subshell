@@ -16,6 +16,12 @@ export interface UserWithRole {
   role: string | null;
   /** ISO 8601 timestamp of the user row creation */
   createdAt: string | null;
+  /**
+   * True when the account is disabled and cannot authenticate. A user with no
+   * `user_meta` row is ENABLED, and that rule is applied HERE (in SQL) rather
+   * than left for each consumer to re-derive from a nullable column.
+   */
+  disabled: boolean;
 }
 
 /**
@@ -38,13 +44,16 @@ export class UsersRepository extends BaseRepository {
     // better-auth's `user` table stores createdAt in camelCase; `user_meta`
     // is the app's snake_case table. raw sql fragments bypass the
     // CamelCasePlugin, so each reference spells its own dialect.
-    const { rows } = await sql<UserWithRole>`
-      SELECT u.id, u.email, u.name, m.role, u."createdAt" AS createdAt
+    const { rows } = await sql<Omit<UserWithRole, "disabled"> & { disabled: number }>`
+      SELECT u.id, u.email, u.name, m.role, u."createdAt" AS createdAt,
+             COALESCE(m.disabled, 0) AS disabled
       FROM user u
       LEFT JOIN user_meta m ON m.user_id = u.id
       ORDER BY u."createdAt" DESC
     `.execute(this.db);
-    return rows;
+    // SQLite has no boolean; the 0/1 becomes one at this boundary so nothing
+    // downstream has to know that, or that a missing row means enabled.
+    return rows.map((row) => ({ ...row, disabled: row.disabled !== 0 }));
   }
 
   /**

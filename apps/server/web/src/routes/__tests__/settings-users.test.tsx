@@ -21,6 +21,9 @@ import { setFetchRouter } from "@/test-setup";
  */
 const SYSTEM_ID = "sys-1";
 const MEMBER_ID = "mem-1";
+/** The signed-in admin's own id — what the better-auth session below answers. */
+const VIEWER_ID = "me";
+const DISABLED_ID = "dis-1";
 
 function roster() {
   return {
@@ -35,6 +38,23 @@ function roster() {
         manageable: false,
       },
       { id: MEMBER_ID, name: "Dana", email: "dana@example.com", role: "user", createdAt: null, manageable: true },
+      {
+        id: VIEWER_ID,
+        name: "You",
+        email: "you@example.com",
+        role: "admin",
+        createdAt: null,
+        manageable: true,
+      },
+      {
+        id: DISABLED_ID,
+        name: "Cleo",
+        email: "cleo@example.com",
+        role: "admin",
+        createdAt: null,
+        manageable: true,
+        disabled: true,
+      },
     ],
   };
 }
@@ -60,7 +80,7 @@ function mockFetch(viewerIsAdmin: boolean) {
     }
     if (url.pathname === "/api/users") return Promise.resolve(new Response(JSON.stringify(roster())));
     // The table also asks better-auth who the viewer is.
-    return Promise.resolve(new Response(JSON.stringify({ user: { id: "me" } })));
+    return Promise.resolve(new Response(JSON.stringify({ user: { id: VIEWER_ID } })));
   });
   return { calls, restore: () => setFetchRouter(null) };
 }
@@ -127,6 +147,33 @@ describe("/settings/users page", () => {
       await waitFor(() => expect(screen.getByText("system@subshell.local")).toBeDefined());
       expect(screen.getByText("Service account")).toBeDefined();
       expect(screen.queryByRole("combobox", { name: "Role for system@subshell.local" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("marks a disabled account without hiding what it is", async () => {
+    // A disabled admin still reads as an admin — the badge says the role, the
+    // indicator says whether they can sign in, and neither answers for the
+    // other.
+    const { restore } = mockFetch(true);
+    try {
+      renderPage();
+      await waitFor(() => expect(screen.getByText("cleo@example.com")).toBeDefined());
+      expect(screen.getByText("Disabled")).toBeDefined();
+      expect(screen.getByRole("button", { name: "Enable" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("gives the viewer's own row a label instead of controls", async () => {
+    const { restore } = mockFetch(true);
+    try {
+      renderPage();
+      await waitFor(() => expect(screen.getByText("you@example.com")).toBeDefined());
+      expect(screen.getByText("Your account")).toBeDefined();
+      expect(screen.queryByRole("combobox", { name: "Role for you@example.com" })).toBeNull();
     } finally {
       restore();
     }

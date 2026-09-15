@@ -57,7 +57,12 @@ credential kinds:
 
 Admin-gated routes (`/api/users`, `/api/system-keys`, `/api/admin/status`, the
 `/api/admin/server` group, …) **reject bearer keys** (403): machine credentials can
-never manage the instance.
+never manage the instance. That names the WRITES on those paths. `GET
+/api/users` is the exception worth stating: the roster read is instance-wide
+by design — it is what lets the sharing picker name people — so any signed-in
+caller and any bearer credential, a running subshell's own token included,
+reads every account's email, display name, role and disabled state
+(`docs/security.md` §3).
 
 **An admin reconfigures and restarts the server from the dashboard** (spec
 2026-09-12): `PATCH /api/admin/server/config` rewrites config.env (port, bind

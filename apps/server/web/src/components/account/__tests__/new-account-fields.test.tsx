@@ -5,6 +5,7 @@ import {
   NewAccountFields,
   type NewAccountValue,
   newAccountComplete,
+  normalizeNewAccount,
 } from "@/components/account/new-account-fields";
 import { PASSWORD_REQUIREMENT } from "@/lib/password";
 
@@ -55,6 +56,39 @@ describe("newAccountComplete", () => {
 
   it("is true once everything is typed and consistent", () => {
     expect(newAccountComplete(FULL)).toBe(true);
+  });
+});
+
+/**
+ * The value a caller SUBMITS, as distinct from the value it holds.
+ *
+ * It exists because the two callers disagreed: the Add user dialog trimmed on
+ * its way out and the setup wizard sent both fields raw to better-auth, so a
+ * name typed with spaces survived first run with them. One exported helper is
+ * the fix, and the passwords staying untouched is the part worth pinning —
+ * a trailing space is a character of the secret, and trimming it would create
+ * a password nobody can sign in with.
+ */
+describe("normalizeNewAccount", () => {
+  it("trims the name and the email", () => {
+    expect(normalizeNewAccount({ ...FULL, name: "  Ada  ", email: "  ada@example.com " })).toEqual({
+      ...FULL,
+      name: "Ada",
+      email: "ada@example.com",
+    });
+  });
+
+  it("leaves both passwords exactly as typed", () => {
+    const padded = { ...FULL, password: " hunter2-hunter2 ", confirmPassword: " hunter2-hunter2 " };
+    const normalized = normalizeNewAccount(padded);
+    expect(normalized.password).toBe(" hunter2-hunter2 ");
+    expect(normalized.confirmPassword).toBe(" hunter2-hunter2 ");
+  });
+
+  it("returns a new object rather than editing the caller's state", () => {
+    const held = { ...FULL, name: "  Ada  " };
+    normalizeNewAccount(held);
+    expect(held.name).toBe("  Ada  ");
   });
 });
 

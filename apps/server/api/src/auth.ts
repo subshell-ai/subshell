@@ -4,7 +4,9 @@ import { betterAuth } from "better-auth";
 import { sql } from "kysely";
 import { authDatabase } from "@/auth/database.js";
 import { APP_BASE_URL, AUTH_SECRET, TRUSTED_ORIGINS } from "@/constants.js";
+import { accountDisabled } from "@/services/account-status.js";
 import { registrationOpen } from "@/services/registration-gate.js";
+import { normalizeUserName } from "@/services/user-name.js";
 
 /**
  * The raw better-auth options, exported for `runAuthMigrations`:
@@ -75,15 +77,41 @@ export const AUTH_OPTIONS = {
   databaseHooks: {
     user: {
       create: {
-        before: async () => {
+        before: async (newUser: { name?: string }) => {
           // Registration gate: once the app is set up, the admin can close it.
           if (!(await registrationAllowed())) {
             return false;
           }
-          return undefined;
+          // ...and the display name is normalized HERE because this is the one
+          // seam every sign-up shares. The first-run wizard calls
+          // `signUp.email` directly, so `POST /api/users`'s own normalizer
+          // never sees the very first admin's name — and that name is rendered
+          // to every other user as a share grantee label and reaches log
+          // lines. better-auth 1.7.1 merges a returned `{ data }` over the row
+          // it was about to write (`db/with-hooks.mjs`), which is what makes a
+          // rewrite possible at all; `false` still aborts, so the gate above
+          // is unaffected.
+          const name = normalizeUserName(newUser.name ?? "");
+          // Nothing printable becomes "" rather than a refusal: a refusal here
+          // is a failed first run, and "" is the value `displayNamesByIds`
+          // already reads as "no chosen name" and renders as the address.
+          if (name === newUser.name) return undefined;
+          return { data: { name } };
         },
         after: async (createdUser) => {
           await promoteFirstUserToAdmin(createdUser.id);
+        },
+      },
+    },
+    session: {
+      create: {
+        before: async (session: { userId: string }) => {
+          // A disabled account may not authenticate. The hook sits on SESSION
+          // creation rather than on the email sign-in endpoint because every
+          // credential kind mints a session here — password and passkey
+          // alike — so one refusal covers both, and whatever is added next.
+          if (await signInAllowed(session.userId)) return undefined;
+          return false;
         },
       },
     },
@@ -147,6 +175,22 @@ export function setAuthPolicyDb(db: import("kysely").Kysely<import("@/db/types/i
 async function registrationAllowed(): Promise<boolean> {
   if (!appDb) return true;
   return await registrationOpen(appDb);
+}
+
+/**
+ * Whether this user may be given a session at all.
+ *
+ * Delegates to `services/account-status.ts`, which `authGuard` reads through
+ * as well — this hook closes the door on new sessions, the guard closes it on
+ * credentials already issued, and a second reading of the row is how the two
+ * come to disagree.
+ *
+ * `!appDb` is before the database is wired, which is only ever during boot;
+ * allowing there matches what the registration gate does with the same gap.
+ */
+async function signInAllowed(userId: string): Promise<boolean> {
+  if (!appDb) return true;
+  return !(await accountDisabled(appDb, userId));
 }
 
 /**

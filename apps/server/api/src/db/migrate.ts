@@ -29,6 +29,7 @@ import * as dropNodePluginsMigration from "@/db/migrations/0026-drop-node-plugin
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as presetNameUniqueMigration from "@/db/migrations/0028-preset-name-unique.js";
 import * as workspaceDraftsMigration from "@/db/migrations/0029-workspace-drafts.js";
+import * as userDisabledMigration from "@/db/migrations/0030-user-disabled.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -75,6 +76,9 @@ export async function runMigrations(): Promise<void> {
           // Unsaved workspaces: a `draft` flag, and the unique name index goes
           // partial so drafts may collide freely (spec 2026-09-14 §1).
           "0029-workspace-drafts": workspaceDraftsMigration,
+          // An admin may disable an account: `user_meta.disabled`, 0 =
+          // enabled, which is also what an absent row reads as.
+          "0030-user-disabled": userDisabledMigration,
         };
       },
     },

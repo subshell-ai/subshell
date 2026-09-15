@@ -194,6 +194,12 @@ Two hard rules on top:
   **off**. A subshell's own token can therefore act only on its owner's
   subshells — never a foreign one, never one merely shared with its owner.
 
+**The roster READ is not admin-gated, and it carries display names.** Writes to
+`/api/users` are cookie-admin; `GET /api/users` is deliberately instance-wide —
+it is what lets the sharing picker name people — so any signed-in caller and
+any bearer credential, a running subshell's own token included, reads every
+account's email, **display name** (added 2026-09-14), role and disabled state.
+
 ### `GET /api/admin/status`
 
 The widest single read in the system: versions, host paths, the resolved MCP

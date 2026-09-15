@@ -8,14 +8,37 @@ test.use({ storageState: ADMIN_STATE });
  * `ipad-landscape` = 1194x834, touch (desktop shell + dock). */
 const isPhone = () => test.info().project.name === "mobile";
 
+/** Horizontal overflow of the document, in px (<= 1 is the rounding floor). */
+const overflowOf = (page: import("@playwright/test").Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+
 test("no horizontal overflow on the main routes", async ({ page }) => {
   // /subshells/does-not-exist renders the not-running panel — a real mobile
   // layout surface, not just an empty route.
   for (const path of ["/", "/workspaces", "/settings", "/account", "/settings/users", "/subshells/does-not-exist"]) {
     await page.goto(path);
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    const overflow = await overflowOf(page);
     expect(overflow, `${path} overflows by ${overflow}px`).toBeLessThanOrEqual(1);
   }
+});
+
+test("the Add user dialog fits at phone width", async ({ page }) => {
+  // The create form used to be an inline card on the roster page, covered by
+  // the walk above — the 2026-08-30 mobile spec built its responsive
+  // behaviour BECAUSE it overflowed. On 2026-09-14 it moved behind a dialog,
+  // which a route walk never opens, so that assertion silently began covering
+  // an empty page. Measure it open.
+  //
+  // Dismissed with Escape and never submitted: the suite shares one database
+  // (spec 01 creates this admin), and a user created here would outlive the
+  // spec and show up in everyone else's roster.
+  await page.goto("/settings/users");
+  await page.getByRole("button", { name: "Add user" }).click();
+  await expect(page.getByRole("heading", { name: "Add user" })).toBeVisible();
+  const overflow = await overflowOf(page);
+  expect(overflow, `the Add user dialog overflows by ${overflow}px`).toBeLessThanOrEqual(1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Add user" })).toHaveCount(0);
 });
 
 test("shell chrome follows the 1024px rule", async ({ page }) => {

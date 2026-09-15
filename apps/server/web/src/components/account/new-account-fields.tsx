@@ -20,18 +20,38 @@ export interface NewAccountValue {
 export const EMPTY_NEW_ACCOUNT: NewAccountValue = { name: "", email: "", password: "", confirmPassword: "" };
 
 /**
+ * What a caller should actually SUBMIT: the same value with name and email
+ * trimmed, passwords untouched.
+ *
+ * It lives here rather than at each call site because the two callers
+ * disagreed about it — the Add user dialog trimmed on the way out and setup
+ * sent both fields raw, so `"  Ada  "` was stored with its spaces through
+ * first run alone. `POST /api/users` normalizes the name server-side, but the
+ * setup screen registers through better-auth rather than that route, so this
+ * is the only thing covering first run.
+ *
+ * Passwords are left exactly as typed: a leading or trailing space is a
+ * character of the secret, and trimming one would create a password nobody
+ * can sign in with.
+ */
+export function normalizeNewAccount(value: NewAccountValue): NewAccountValue {
+  return { ...value, name: value.name.trim(), email: value.email.trim() };
+}
+
+/**
  * Whether the form may be submitted: name and email present, password long
  * enough, confirmation matching.
  *
- * Name and email are TRIMMED here because a run of spaces satisfies a
+ * Name and email are checked TRIMMED because a run of spaces satisfies a
  * `required` attribute and an HTML `minLength`, and the server trims them
  * before storing — so without this the only thing standing between a person
  * and an account called " " is a round trip that comes back 400.
  */
 export function newAccountComplete(value: NewAccountValue): boolean {
+  const normalized = normalizeNewAccount(value);
   return (
-    value.name.trim().length > 0 &&
-    value.email.trim().length > 0 &&
+    normalized.name.length > 0 &&
+    normalized.email.length > 0 &&
     !passwordTooShort(value.password) &&
     value.confirmPassword === value.password
   );

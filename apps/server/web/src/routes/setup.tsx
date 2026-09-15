@@ -6,6 +6,7 @@ import {
   NewAccountFields,
   type NewAccountValue,
   newAccountComplete,
+  normalizeNewAccount,
 } from "@/components/account/new-account-fields";
 import { ErrorBanner } from "@/components/error-banner";
 import { AgentRow } from "@/components/setup/agent-row";
@@ -124,10 +125,16 @@ function SetupPage() {
     setBusy(true);
     setRegError(null);
     try {
+      // The same normalization the Add user dialog submits with. It matters
+      // more here than there: `POST /api/users` trims the name server-side,
+      // and this screen does not go through that route — better-auth stores
+      // what it is handed, so first run is the one path where a name typed
+      // with spaces keeps them.
+      const submitted = normalizeNewAccount(account);
       const { error: signUpError } = await authClient.signUp.email({
-        name: account.name,
-        email: account.email,
-        password: account.password,
+        name: submitted.name,
+        email: submitted.email,
+        password: submitted.password,
       });
       if (signUpError) {
         setRegError(signUpError.message ?? "Registration failed");

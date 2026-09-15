@@ -8,6 +8,7 @@ import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { DEFAULT_USER_ROLE, USER_ROLES } from "@/db/types/user-role.js";
 import { audit } from "@/services/audit.js";
+import { checkUserName, USER_NAME_MAX } from "@/services/user-name.js";
 
 const UserRowSchema = t.Object({
   id: t.String({ description: "User id" }),
@@ -15,6 +16,10 @@ const UserRowSchema = t.Object({
   name: t.String({ description: "Display name" }),
   role: t.Union([t.String(), t.Null()], { description: "App role (admin/user) or null when no user_meta row" }),
   createdAt: t.Union([t.String(), t.Null()], { description: "ISO 8601 creation timestamp" }),
+  disabled: t.Boolean({
+    description:
+      "True when the account is disabled: it cannot sign in and every credential it holds is refused. A user with no user_meta row is enabled",
+  }),
   manageable: t.Boolean({
     description:
       "False for the `system` service account, whose role and password an admin may not change. Server-derived so the UI never renders a control that is guaranteed to be refused, and never has to hardcode the service account's address",
@@ -24,7 +29,7 @@ const UserRowSchema = t.Object({
 const CreateUserBodySchema = t.Object({
   name: t.String({
     description:
-      "Display name for the new account. Trimmed and required in the handler rather than by a schema `minLength`, which would accept a run of spaces",
+      "Display name for the new account. Control characters are stripped, whitespace collapsed, and the result must be 1-64 characters. Enforced in the handler rather than by schema bounds, which would both accept a run of spaces and echo a rejected value back (see MIN_PASSWORD_LENGTH)",
   }),
   email: t.String({ description: "Email address for the new credential account" }),
   password: t.String({
@@ -79,17 +84,26 @@ function assertPasswordLength(password: string): void {
 }
 
 /**
- * Trims the submitted display name and refuses an empty result.
+ * Cleans the submitted display name and refuses an empty or over-long result
+ * WITHOUT naming it.
  *
- * In the handler for the same reason the password bound is: a schema
- * `minLength: 1` would both accept `"   "` and, on a failure, put the
+ * In the handler for the same reason the password bound is: schema
+ * `minLength`/`maxLength` would both accept `"   "` and, on a failure, put the
  * offending value in the message `error-handler.plugin.ts` copies into the
- * response body.
+ * response body. The name is not the admin's private label — it is rendered
+ * to everyone a subshell is shared with and it reaches log lines — so it goes
+ * through the same normalizer node names and the instance name do; the rule
+ * itself lives in `services/user-name.ts`, which the sign-up hook shares.
  */
 function requireName(name: string): string {
-  const trimmed = name.trim();
-  if (trimmed.length === 0) throw new UsersError("bad_request", "Name is required.", 400);
-  return trimmed;
+  const result = checkUserName(name);
+  if (result.ok) return result.name;
+  if (result.reason === "too_long") {
+    throw new UsersError("bad_request", `Name must be at most ${USER_NAME_MAX} characters.`, 400);
+  }
+  // Copy unchanged from when this only trimmed: a name made entirely of
+  // control characters is still an admin who has not supplied one.
+  throw new UsersError("bad_request", "Name is required.", 400);
 }
 
 const RoleSchema = t.Union(
@@ -119,6 +133,20 @@ const PasswordResponseSchema = t.Object({
   email: t.String({ description: "User email" }),
   sessionsRevoked: t.Number({
     description: "How many of that user's sessions were signed out; a reset always evicts every one of them",
+  }),
+});
+
+const DisabledBodySchema = t.Object({
+  disabled: t.Boolean({ description: "True to disable the account, false to re-enable it" }),
+});
+
+const DisabledResponseSchema = t.Object({
+  id: t.String({ description: "User id" }),
+  email: t.String({ description: "User email" }),
+  disabled: t.Boolean({ description: "The account's state after the change" }),
+  sessionsRevoked: t.Number({
+    description:
+      "How many of that user's sessions were signed out. A disable always evicts every one of them; re-enabling revokes nothing, so this is 0",
   }),
 });
 
@@ -188,6 +216,19 @@ const adminOnly = new Elysia()
     "/:id/role",
     async ({ params, body, user }) => {
       const target = await requireManageableUser(params.id);
+      // An admin may not change their OWN role, even to the role they already
+      // hold — so this sits BEFORE the no-op early return below. Unlike the
+      // password case there is no self-service path to point at: an admin who
+      // removes their own administration by accident cannot undo it, and on a
+      // single-admin instance nobody else can either. Another admin has to do
+      // it.
+      if (target.id === user.id) {
+        throw new UsersError(
+          "bad_request",
+          "You cannot change your own role. Another admin has to do it for you.",
+          400,
+        );
+      }
       const meta = new UserMetaRepository(db);
       const from = (await meta.getRole(target.id)) ?? DEFAULT_USER_ROLE;
       // A no-op write would still land an audit row reading `from === to`,
@@ -220,7 +261,7 @@ const adminOnly = new Elysia()
         operationId: "setUserRole",
         tags: ["users"],
         description:
-          "Changes a user's role (admin only, cookie session). Refuses with 409 when it would remove the last admin. Self-demotion is allowed while another admin remains",
+          "Changes a user's role (admin only, cookie session). Refuses with 409 when it would remove the last admin, and with 400 on self — an admin cannot change their own role, another admin has to",
       },
     },
   )
@@ -264,6 +305,55 @@ const adminOnly = new Elysia()
         tags: ["users"],
         description:
           "Sets another user's password and signs out all of their sessions (admin only, cookie session). Refuses on self; use Account, which requires the current password",
+      },
+    },
+  )
+  .patch(
+    "/:id/disabled",
+    async ({ params, body, user }) => {
+      const target = await requireManageableUser(params.id);
+      // Same rule as the self-role refusal, for the same reason: disabling
+      // yourself signs you out immediately, and only another admin could
+      // reverse it — on a single-admin instance, nobody could.
+      if (target.id === user.id) {
+        throw new UsersError(
+          "bad_request",
+          "You cannot disable your own account. Another admin has to do it for you.",
+          400,
+        );
+      }
+      // The guard is inside the repository because the count, the flag write
+      // and the session revocation must be one transaction — see setDisabled.
+      const result = await new UserMetaRepository(db).setDisabled(target.id, body.disabled);
+      if (!result.ok) {
+        throw new UsersError(
+          "conflict",
+          "This is the only admin who can still sign in. Promote or re-enable someone else first, or the instance would be left with nobody who can administer it.",
+        );
+      }
+      await audit({
+        actorUserId: user.id,
+        action: "user.disabled_change",
+        targetType: "user",
+        targetId: target.id,
+        metadataJson: JSON.stringify({ email: target.email, disabled: body.disabled }),
+      });
+      return {
+        id: target.id,
+        email: target.email,
+        disabled: body.disabled,
+        sessionsRevoked: result.sessionsRevoked,
+      } as const;
+    },
+    {
+      params: t.Object({ id: t.String({ description: "User id to disable or re-enable" }) }),
+      body: DisabledBodySchema,
+      response: DisabledResponseSchema,
+      detail: {
+        operationId: "setUserDisabled",
+        tags: ["users"],
+        description:
+          "Disables or re-enables a user (admin only, cookie session). A disabled account cannot sign in and every credential it holds is refused; disabling signs out all of its sessions. Refuses with 400 on self and with 409 when it would disable the last admin who can still sign in. Re-enabling is never refused",
       },
     },
   )

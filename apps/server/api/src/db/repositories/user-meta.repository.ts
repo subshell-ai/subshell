@@ -1,6 +1,14 @@
+import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { NewUserMeta } from "@/db/types/user-meta.db-types.js";
 import type { UserRole } from "@/db/types/user-role.js";
+
+/**
+ * The outcome of {@link UserMetaRepository.setDisabled}: either the write
+ * landed and says how many sessions it cut, or it was refused because the
+ * target is the only admin who can still sign in.
+ */
+export type SetDisabledResult = { ok: true; sessionsRevoked: number } | { ok: false; reason: "last_admin" };
 
 /**
  * Repository for extra user metadata (roles). The first user to register
@@ -66,6 +74,84 @@ export class UserMetaRepository extends BaseRepository {
         .onConflict((oc) => oc.column("userId").doUpdateSet({ role }))
         .execute();
       return true;
+    });
+  }
+
+  /**
+   * Whether this account is disabled. An absent `user_meta` row reads as
+   * ENABLED, like the column's own default — a user minted before the column
+   * existed must not be locked out by an upgrade.
+   *
+   * On the hot path: `authGuard` asks this on every authenticated request, so
+   * it stays one indexed lookup by primary key.
+   *
+   * @param userId - better-auth user id
+   */
+  async isDisabled(userId: string): Promise<boolean> {
+    const row = await this.db.selectFrom("userMeta").select("disabled").where("userId", "=", userId).executeTakeFirst();
+    return (row?.disabled ?? 0) !== 0;
+  }
+
+  /**
+   * Disables or re-enables an account, revoking every session it holds when
+   * it is disabled.
+   *
+   * The count, the flag write and the revocation are ONE transaction, for the
+   * two reasons the neighbouring guards have:
+   *
+   * - a disable that leaves live cookies behind does nothing — the point of
+   *   the flag is that the account stops authenticating, and someone already
+   *   holding a session would keep working until it expired;
+   * - two concurrent disables of the last two enabled admins must not both
+   *   read "2" and both pass, which would leave an instance nobody can
+   *   administer. The guard counts admins who are ENABLED, since a disabled
+   *   admin cannot administer anything. Same dialect argument as
+   *   {@link setRole}: `bun:sqlite` is synchronous over one shared
+   *   connection, so these transactions serialize in practice.
+   *
+   * Re-enabling is never refused: it can only widen access, and undoing a
+   * disable has to stay possible unconditionally.
+   *
+   * Upserts for the same reason {@link setNotifyEnabled} does — a user whose
+   * `user_meta` row was never created still has to be disableable; `role`
+   * is only used when the row is being created and matches the DB default.
+   *
+   * @returns the sessions cut, or a refusal naming the last-enabled-admin rule
+   */
+  async setDisabled(userId: string, disabled: boolean): Promise<SetDisabledResult> {
+    const flag = disabled ? 1 : 0;
+    return await this.db.transaction().execute(async (trx) => {
+      if (disabled) {
+        const current = await trx
+          .selectFrom("userMeta")
+          .select(["role", "disabled"])
+          .where("userId", "=", userId)
+          .executeTakeFirst();
+        // Only disabling an admin who can still sign in removes an
+        // administrator; re-disabling one who is already disabled changes
+        // nothing and must not be refused.
+        if (current?.role === "admin" && current.disabled === 0) {
+          const { admins } = await trx
+            .selectFrom("userMeta")
+            .select((eb) => eb.fn.countAll<number>().as("admins"))
+            .where("role", "=", "admin")
+            .where("disabled", "=", 0)
+            .executeTakeFirstOrThrow();
+          if (Number(admins) <= 1) return { ok: false, reason: "last_admin" } as const;
+        }
+      }
+      await trx
+        .insertInto("userMeta")
+        .values({ userId, role: "user", disabled: flag })
+        .onConflict((oc) => oc.column("userId").doUpdateSet({ disabled: flag }))
+        .execute();
+      if (!disabled) return { ok: true, sessionsRevoked: 0 } as const;
+      // better-auth's `session` table is outside the typed Database, so raw
+      // sql with its literal camelCase column — the same shape
+      // `UsersRepository.setPassword` uses for exactly this revocation.
+      const counted = await sql<{ n: number }>`SELECT COUNT(*) AS n FROM session WHERE userId = ${userId}`.execute(trx);
+      await sql`DELETE FROM session WHERE userId = ${userId}`.execute(trx);
+      return { ok: true, sessionsRevoked: Number(counted.rows[0]?.n ?? 0) } as const;
     });
   }
 

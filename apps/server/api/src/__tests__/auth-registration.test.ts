@@ -42,12 +42,18 @@ function newEmail(): string {
   return e;
 }
 
-async function signUpEmail(email: string): Promise<{ user: { id: string } }> {
+async function signUpEmail(email: string, name = email): Promise<{ user: { id: string } }> {
   const res = (await getAuth().api.signUpEmail({
-    body: { name: email, email, password: "registration-pass-1" },
+    body: { name, email, password: "registration-pass-1" },
   })) as unknown as { user: { id: string } };
   if (res?.user?.id) createdUserIds.push(res.user.id);
   return res;
+}
+
+/** The `user.name` actually written, read past the CamelCasePlugin. */
+async function storedName(email: string): Promise<string | undefined> {
+  const { rows } = await sql<{ name: string }>`SELECT name FROM user WHERE email = ${email}`.execute(db);
+  return rows[0]?.name;
 }
 
 async function roleFor(userId: string): Promise<string | null> {
@@ -194,5 +200,42 @@ describe("registration gate fails closed (F6a)", () => {
     await setRegistrationSetting("true");
     const r = await signUpEmail(newEmail());
     expect(r.user.id).toBeTruthy();
+  });
+});
+
+/**
+ * The display name a person types at FIRST RUN never passes through
+ * `POST /api/users` — the setup wizard calls better-auth's own
+ * `signUp.email` — so the route's normalizer does not cover it. The
+ * `user.create.before` hook does, because it is the one seam every sign-up
+ * shares.
+ */
+describe("display names are normalized on the sign-up path", () => {
+  it("strips control characters and collapses whitespace before the row is written", async () => {
+    await setRegistrationSetting("true");
+    const email = newEmail();
+    await signUpEmail(email, "  Ada\r\n Love\u0007lace  ");
+    expect(await storedName(email)).toBe("Ada Love lace");
+  });
+
+  it("caps an over-long name instead of refusing the very first account", async () => {
+    // The asymmetry with the admin route is deliberate: there an admin is
+    // typing into a form and can be told to shorten it, here a refusal would
+    // land as a failed first run with no account and no way to make one.
+    await setRegistrationSetting("true");
+    const email = newEmail();
+    await signUpEmail(email, "Z".repeat(200));
+    expect(await storedName(email)).toBe("Z".repeat(64));
+  });
+
+  it("stores an unprintable name as empty, which renders as the email", async () => {
+    // `displayNamesByIds` prefers a real name and falls back to the address
+    // (`COALESCE(NULLIF(name, ''), email)`), so "" is the one value that means
+    // "this person has no chosen name" — the right answer here, and better
+    // than storing the control characters that were typed.
+    await setRegistrationSetting("true");
+    const email = newEmail();
+    await signUpEmail(email, "\r\n\t");
+    expect(await storedName(email)).toBe("");
   });
 });
