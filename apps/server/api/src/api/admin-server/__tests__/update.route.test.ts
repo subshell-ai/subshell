@@ -188,13 +188,17 @@ describe("POST /api/admin/server/update", () => {
   });
 
   it("202 with from/to, and an audit row naming the admin BEFORE the job", async () => {
+    // Rows audited by the test above land in the same millisecond as this
+    // one, and `listLatest` orders by time — so find the row THIS request
+    // wrote, never "the first server.update".
+    const seen = new Set((await new AuditRepository(db).listLatest(50)).map((e) => e.id));
     const res = await app.fetch(post(fx.adminCookie, {}));
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ started: true, from: SERVER_VERSION, to: "99.0.0" });
     expect(started).toEqual([{ to: "99.0.0", forced: false }]);
 
-    const events = await new AuditRepository(db).listLatest(5);
-    const row = events.find((e) => e.action === "server.update");
+    const events = await new AuditRepository(db).listLatest(50);
+    const row = events.find((e) => e.action === "server.update" && !seen.has(e.id));
     expect(row).toBeDefined();
     // The START carries the actor; the boot-time COMPLETION audits again with
     // actor null, so the pair reads as "who asked" then "what happened".
