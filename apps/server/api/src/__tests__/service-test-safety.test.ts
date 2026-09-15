@@ -46,3 +46,63 @@ describe("DEFAULT_DEPS write guard under NODE_ENV=test", () => {
     expect(deps.fileExists(target)).toBe(true);
   });
 });
+
+/**
+ * The write guard alone was not enough, which is the whole reason this second
+ * one exists: `uninstallService` runs `systemctl --user disable --now` — and on
+ * darwin `launchctl bootout` — BEFORE it removes the definition. On the real
+ * deps a test would therefore stop and disable the operator's own live server
+ * and only then be refused at the write. Found in review, 2026-09-15.
+ */
+describe("DEFAULT_DEPS manager-command guard under NODE_ENV=test", () => {
+  const deps = () =>
+    DEFAULT_DEPS({
+      platform: process.platform,
+      home: "/Users/somebody",
+      uid: 501,
+      servicePath: "/usr/local/bin/subshell-server",
+      argv1: "/repo/src/index.ts",
+      configDir: "/Users/somebody/.config/subshell-server",
+    } as Parameters<typeof DEFAULT_DEPS>[0]);
+
+  test("refuses the exact command uninstall runs before it reaches the write guard", () => {
+    expect(() => deps().runCmd(["systemctl", "--user", "disable", "--now", "subshell-server.service"])).toThrow(
+      /refusing to run/,
+    );
+  });
+
+  test("refuses launchctl bootout, which stops a running server on darwin", () => {
+    expect(() => deps().runCmd(["launchctl", "bootout", "gui/501/dev.subshell.server"])).toThrow(/refusing to run/);
+  });
+
+  test.each([
+    ["systemctl", ["systemctl", "--user", "enable", "--now", "subshell-server.service"]],
+    ["daemon-reload", ["systemctl", "--user", "daemon-reload"]],
+    ["start", ["systemctl", "--user", "start", "subshell-server.service"]],
+    ["kickstart", ["launchctl", "kickstart", "-k", "gui/501/dev.subshell.server"]],
+    ["bootstrap", ["launchctl", "bootstrap", "gui/501", "/tmp/x.plist"]],
+  ])("refuses %s", (_label, cmd) => {
+    expect(() => deps().runCmd(cmd as string[])).toThrow(/refusing to run/);
+  });
+
+  test("ALLOWS read-only probes — the allowlist must not break queryService", () => {
+    // These actually spawn. They may fail (no systemctl on macOS) but must not
+    // be REFUSED — a guard that blocked them would break every status path.
+    for (const cmd of [
+      ["systemctl", "--user", "is-system-running"],
+      ["systemctl", "--user", "show", "subshell-server.service", "-p", "KillMode"],
+      ["launchctl", "print", "gui/501/dev.subshell.server"],
+    ]) {
+      expect(() => deps().runCmd(cmd)).not.toThrow();
+    }
+  });
+
+  test("ignores commands that are not the service manager", () => {
+    // `plutil`, the loginctl linger probe and the spawn-guard suite's own
+    // arbitrary commands must pass through untouched.
+    expect(() => deps().runCmd(["/bin/sh", "-c", "exit 0"])).not.toThrow();
+    expect(() =>
+      deps().runCmd(["plutil", "-extract", "AbandonProcessGroup", "raw", "-o", "-", "/tmp/x.plist"]),
+    ).not.toThrow();
+  });
+});

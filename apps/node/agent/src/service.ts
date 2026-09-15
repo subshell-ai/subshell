@@ -433,6 +433,56 @@ function assertWritableUnderTest(path: string): void {
   );
 }
 
+/**
+ * Refuse a REAL service-manager MUTATION while a test suite is running.
+ *
+ * {@link assertWritableUnderTest} closed the write, and that was not enough:
+ * `uninstallService` runs `systemctl --user disable --now` (and on darwin
+ * `launchctl bootout`) BEFORE it removes the definition, so a test on the real
+ * deps would stop and disable this machine's own agent and only then meet the
+ * write guard. Those verbs do not merely edit a file — they take a running
+ * agent down, and with it every pane it supervises.
+ *
+ * It is an ALLOWLIST of read-only verbs rather than a denylist of destructive
+ * ones, so a mutating verb added later is refused by default. Only `systemctl`
+ * and `launchctl` are inspected: `plutil`, the `loginctl` linger probe and the
+ * arbitrary commands `DEFAULT_DEPS.runCmd`'s own suite drives are not manager
+ * mutations and pass through untouched.
+ *
+ * MUST be called OUTSIDE `runCmd`'s try/catch, which turns a throw into
+ * `{ code: 127, err: "spawn failed" }` and would disguise this as a missing
+ * service manager.
+ *
+ * @param cmd - the argv about to be spawned for real
+ * @throws when a test runner would mutate this machine's service manager
+ */
+function assertManagerCommandUnderTest(cmd: readonly string[]): void {
+  if (process.env.NODE_ENV !== "test" && process.env.SUBSHELL_TEST_MODE !== "1") return;
+  const program = basename(cmd[0] ?? "");
+  if (program !== "systemctl" && program !== "launchctl") return;
+  const verb = cmd.slice(1).find((arg) => !arg.startsWith("-"));
+  const READ_ONLY = new Set([
+    "show",
+    "status",
+    "cat",
+    "is-enabled",
+    "is-active",
+    "is-failed",
+    "is-system-running",
+    "list-units",
+    "list-unit-files",
+    "print",
+    "print-disabled",
+    "list",
+    "blame",
+  ]);
+  if (verb !== undefined && READ_ONLY.has(verb)) return;
+  throw new Error(
+    `refusing to run \`${cmd.join(" ")}\` while NODE_ENV=test — it would change this machine's ` +
+      "service manager. Inject a runCmd stub for this test.",
+  );
+}
+
 export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
   return {
     platform: process.platform,
@@ -442,6 +492,9 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
     argv1: process.argv[1] ?? "",
     hasConfig,
     async runCmd(cmd) {
+      // OUTSIDE the try: the catch below would turn this refusal into a
+      // `spawn failed` 127 and hide it as a missing manager binary.
+      assertManagerCommandUnderTest(cmd);
       try {
         const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
         const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);

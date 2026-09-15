@@ -1316,11 +1316,67 @@ function assertWritableUnderTest(path: string): void {
   );
 }
 
+/**
+ * Refuse a REAL service-manager MUTATION while a test suite is running.
+ *
+ * {@link assertWritableUnderTest} closed the write, and that was not enough:
+ * `uninstallService` runs `systemctl --user disable --now` (and on darwin
+ * `launchctl bootout`) BEFORE it removes the definition, so a test on the real
+ * deps would stop and disable the operator's own live service and only then
+ * meet the write guard. `disable --now` and `bootout` do not merely edit a
+ * file — they take a running server down.
+ *
+ * It is an ALLOWLIST of read-only verbs rather than a denylist of destructive
+ * ones, so a mutating verb added later is refused by default instead of
+ * silently permitted. Only `systemctl` and `launchctl` are inspected at all:
+ * `plutil`, `loginctl show-user` and the arbitrary commands the spawn-guard
+ * suite drives are not manager mutations and pass through untouched.
+ *
+ * The verb is the first argument that is not a flag, which reads both shapes
+ * (`systemctl --user <verb> <unit>` and `launchctl <verb> <target>`).
+ *
+ * MUST be called OUTSIDE `runCmd`'s try/catch: that block turns a throw into
+ * `{ code: 127, err: "spawn failed" }`, which would disguise this refusal as a
+ * missing service manager.
+ *
+ * @param cmd - the argv about to be spawned for real
+ * @throws when a test runner would mutate this machine's service manager
+ */
+function assertManagerCommandUnderTest(cmd: readonly string[]): void {
+  if (process.env.NODE_ENV !== "test" && process.env.SUBSHELL_TEST_MODE !== "1") return;
+  const program = basename(cmd[0] ?? "");
+  if (program !== "systemctl" && program !== "launchctl") return;
+  const verb = cmd.slice(1).find((arg) => !arg.startsWith("-"));
+  const READ_ONLY = new Set([
+    "show",
+    "status",
+    "cat",
+    "is-enabled",
+    "is-active",
+    "is-failed",
+    "is-system-running",
+    "list-units",
+    "list-unit-files",
+    "print",
+    "print-disabled",
+    "list",
+    "blame",
+  ]);
+  if (verb !== undefined && READ_ONLY.has(verb)) return;
+  throw new Error(
+    `refusing to run \`${cmd.join(" ")}\` while NODE_ENV=test — it would change this machine's ` +
+      "service manager. Inject a runCmd stub for this test.",
+  );
+}
+
 export function DEFAULT_DEPS(seed: ServiceSeed): ServiceDeps {
   return {
     ...seed,
     hasConfig: () => existsSync(join(seed.configDir, "config.env")),
     runCmd(cmd) {
+      // OUTSIDE the try: the catch below would turn this refusal into a
+      // `spawn failed` 127 and hide it as a missing manager binary.
+      assertManagerCommandUnderTest(cmd);
       try {
         const res = Bun.spawnSync({ cmd, stdout: "pipe", stderr: "pipe" });
         // A signal-killed/never-started child has exitCode null — treat it as

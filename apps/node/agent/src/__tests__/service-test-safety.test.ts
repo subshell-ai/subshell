@@ -35,3 +35,39 @@ describe("DEFAULT_DEPS write guard under NODE_ENV=test", () => {
     expect(await deps().fileExists(target)).toBe(true);
   });
 });
+
+/**
+ * The write guard alone was not enough: `uninstallService` runs `systemctl
+ * --user disable --now` — and on darwin `launchctl bootout` — BEFORE removing
+ * the definition, so a test on the real deps would stop this machine's own
+ * agent, and every pane it supervises, before ever meeting the write guard.
+ * Found in review, 2026-09-15.
+ */
+describe("DEFAULT_DEPS manager-command guard under NODE_ENV=test", () => {
+  const deps = () => DEFAULT_DEPS(async () => true);
+
+  test("refuses the exact command uninstall runs before it reaches the write guard", async () => {
+    await expect(deps().runCmd(["systemctl", "--user", "disable", "--now", "subshell.service"])).rejects.toThrow(
+      /refusing to run/,
+    );
+  });
+
+  test("refuses launchctl bootout, which stops a running agent on darwin", async () => {
+    await expect(deps().runCmd(["launchctl", "bootout", "gui/501/dev.subshell.client"])).rejects.toThrow(
+      /refusing to run/,
+    );
+  });
+
+  test("refuses enable --now, which install runs", async () => {
+    await expect(deps().runCmd(["systemctl", "--user", "enable", "--now", "subshell.service"])).rejects.toThrow(
+      /refusing to run/,
+    );
+  });
+
+  test("ALLOWS read-only probes and non-manager commands", async () => {
+    // A guard that blocked these would break queryService and the spawn-guard
+    // suite. They may FAIL (no systemctl here) but must not be refused.
+    await expect(deps().runCmd(["launchctl", "print", "gui/501/dev.subshell.client"])).resolves.toBeDefined();
+    await expect(deps().runCmd(["/bin/sh", "-c", "exit 0"])).resolves.toEqual({ code: 0, out: "", err: "" });
+  });
+});
