@@ -39,6 +39,7 @@
     "lint:design:report": "bun scripts/design-tokens.ts --report",
     "test": "turbo run test --continue --",
     "test:scripts": "bun test ./scripts/__tests__/",
+    "test:cli": "bash scripts/cli-e2e/run.sh",
     "test:e2e": "turbo run test:e2e",
     "test:e2e:install": "turbo run install-browsers",
     "release:node": "bun run --cwd apps/node/agent compile:release",

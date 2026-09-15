@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# End-to-end headless test: server CLI init -> boot -> first admin -> setup key
+# -> node CLI setup -> node online. Temp dirs only, port 31999, never :3080.
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SRV="$ROOT/apps/server/api/dist/subshell-server"
+NODE="$ROOT/apps/node/agent/dist/subshell"
+PORT=31999
+BASE="http://127.0.0.1:$PORT"
+W=$(mktemp -d /tmp/ss-e2e-XXXX)
+export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
+export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
+mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR"
+JAR="$W/cookies"
+SRVPID=""; AGENTPID=""
+cleanup() {
+  # A `fail` used to exit before the kill at the bottom, orphaning a server
+  # that then held the port and made the NEXT run fail somewhere else
+  # entirely. Kill from a trap so every exit path tears down.
+  [ -n "$AGENTPID" ] && kill "$AGENTPID" 2>/dev/null
+  [ -n "$SRVPID" ] && kill "$SRVPID" 2>/dev/null
+  for p in $(lsof -nP -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+}
+trap cleanup EXIT
+fail() { echo "FAIL: $*"; exit 1; }
+ok()   { echo "  ok: $*"; }
+
+echo "== 1. init (headless, non-interactive)"
+OUT=$("$SRV" init --yes --no-service --port $PORT --host 127.0.0.1 --base-url "$BASE" 2>&1) || fail "init exit $?"
+echo "$OUT" | grep -q "/setup in a browser to create the admin account" || fail "init printed no handoff line"
+ok "init wrote config and printed the handoff"
+
+echo "== 2. status before boot"
+"$SRV" status 2>&1 | grep -q "setup *= database not created yet" || fail "status did not report a missing database"
+ok "status says the database does not exist yet"
+
+echo "== 3. boot"
+"$SRV" > "$W/server.log" 2>&1 &
+SRVPID=$!
+for i in $(seq 1 60); do
+  curl -sf "$BASE/api/setup/status" >/dev/null 2>&1 && break
+  sleep 0.5
+done
+curl -sf "$BASE/api/setup/status" >/dev/null || { cat "$W/server.log"; fail "server never answered"; }
+ok "server answering on $PORT"
+grep -q "No account yet" "$W/server.log" || fail "boot log did not name /setup"
+ok "boot log told the operator where to create the account"
+
+echo "== 4. status with a database but no users"
+"$SRV" status 2>&1 | grep -q "no admin account yet" || fail "status did not report a missing admin"
+ok "status says no admin account yet"
+
+echo "== 5. first admin via the public first-run window"
+curl -sf -c "$JAR" -X POST "$BASE/api/auth/sign-up/email" -H 'content-type: application/json' \
+  -d '{"email":"a@b.test","password":"correct-horse-battery","name":"Admin"}' -o "$W/signup.json" \
+  || { cat "$W/signup.json" 2>/dev/null; fail "sign-up failed"; }
+ok "admin account created"
+curl -sf "$BASE/api/setup/status" | grep -q '"needsSetup":false' || fail "needsSetup still true"
+ok "setup window closed"
+
+echo "== 6. status after the account exists"
+"$SRV" status 2>&1 | grep -q "setup *= admin account exists" || fail "status did not see the admin"
+ok "status says the admin account exists"
+
+echo "== 6b. sign in (a sign-up need not mint a session)"
+curl -s -c "$JAR" -X POST "$BASE/api/auth/sign-in/email" -H 'content-type: application/json' \
+  -d '{"email":"a@b.test","password":"correct-horse-battery"}' -o "$W/signin.json" -w '%{http_code}\n' > "$W/signin.code"
+ok "sign-in HTTP $(cat "$W/signin.code")"
+
+echo "== 7. mint a node setup key (admin cookie)"
+curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" -H 'content-type: application/json' -d '{"label":"e2e"}' \
+  -o "$W/key.json" -w '%{http_code}\n' > "$W/key.code"
+KEY=$(sed -n 's/.*"key":"\([^"]*\)".*/\1/p' "$W/key.json")
+[ -n "$KEY" ] || { echo "HTTP $(cat "$W/key.code")"; head -c 400 "$W/key.json"; echo; fail "no setup key minted"; }
+ok "setup key minted"
+
+echo "== 8. node CLI: subshell setup"
+export SUBSHELL_CONFIG_HOME="$W/node-config"
+mkdir -p "$SUBSHELL_CONFIG_HOME"
+OUT=$("$NODE" setup --server "$BASE" --key "$KEY" --name e2e-node --data-dir "$W/node-data" --no-service 2>&1) || { echo "$OUT"; fail "setup exit $?"; }
+echo "$OUT" | grep -q "/nodes" || fail "setup printed no next step naming the nodes page"
+echo "$OUT" | grep -qi "subshell run" && fail "setup still recommends the foreground run"
+ok "setup enrolled and named the nodes page"
+
+echo "== 9. run the agent and confirm it comes online"
+"$NODE" run > "$W/agent.log" 2>&1 &
+AGENTPID=$!
+ONLINE=no
+for i in $(seq 1 40); do
+  if curl -sf -b "$JAR" "$BASE/api/nodes" | grep -q '"status":"online"'; then ONLINE=yes; break; fi
+  sleep 0.5
+done
+[ "$ONLINE" = yes ] || { tail -20 "$W/agent.log"; fail "node never came online"; }
+ok "node is online on the control plane"
+
+echo "== 10. node status"
+"$NODE" status 2>&1 | head -2
+
+kill $AGENTPID $SRVPID 2>/dev/null
+wait $AGENTPID $SRVPID 2>/dev/null
+echo
+echo "ALL CLI E2E CHECKS PASSED"
+echo "workdir: $W"

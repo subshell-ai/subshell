@@ -47,6 +47,23 @@ broken doctest in a file you just edited. Measured on 2026-09-15. The remedy is
 whose toolchain the licence gate does not cover. A link failure the probe does
 not recognise is reported verbatim rather than blamed on the licence.
 
+## The CLI end-to-end suite
+
+```bash
+bun run test:cli     # compiles both binaries, then drives them as an operator does
+```
+
+Not part of `bun run test` (it compiles ~150 MB of binaries and takes a
+minute). Run it when you touch `init`, `configure`, `status`, `service`, the
+node `setup`/`enroll` verbs, or the rendered `install.sh` — it is the only
+thing that answers whether those work COMPILED. `bun run test` stubs every
+service seam, and `e2e/` boots the server from source, so a bundler dropping a
+module, a prompt that hangs without a TTY, or a handoff line nobody prints are
+invisible to both.
+
+It uses temp dirs, a throwaway `HOME` and ports 31998/31999, and never touches
+`~/.config/subshell-server` or `:3080`.
+
 ## `lint` vs `lint:check`
 
 - `bun run lint` runs biome with `--write --unsafe`: it **fixes** what it can and rarely reports a failure. Use it while working.
