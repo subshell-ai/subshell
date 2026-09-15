@@ -225,6 +225,13 @@ async function cap(
 ): Promise<string> {
   const chunks: Uint8Array[] = [];
   let size = 0;
+  // Every byte the child produced, counted whether or not it was KEPT. `size`
+  // stops at the cap, so it can only ever report "we filled up", never "there
+  // was more" - and a pipe hands over power-of-two sized reads against a
+  // power-of-two cap, so landing EXACTLY on it is the common case rather than
+  // the rare one. Counting arrivals separately is what makes the marker below
+  // fire on that boundary instead of dropping 130 KB in silence.
+  let seen = 0;
   // Only assembled when someone is listening: the accumulate-and-return
   // contract above is unchanged for every caller that passes no sink.
   const decoder = onLine ? new TextDecoder() : null;
@@ -233,9 +240,12 @@ async function cap(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (value !== undefined && size < OUTPUT_CAP) {
-        chunks.push(value);
-        size += value.byteLength;
+      if (value !== undefined) {
+        seen += value.byteLength;
+        if (size < OUTPUT_CAP) {
+          chunks.push(value);
+          size += value.byteLength;
+        }
       }
       if (decoder && onLine && value !== undefined) {
         // Chunks are not lines: a read can split one mid-word or carry
@@ -261,5 +271,5 @@ async function cap(
   // dies mid-sentence has usually said the most useful thing it will say.
   if (onLine && pending.trim() !== "") onLine(stripAnsi(pending));
   const text = stripAnsi(new TextDecoder().decode(Buffer.concat(chunks))).slice(0, OUTPUT_CAP);
-  return size > OUTPUT_CAP ? `${text}\n[truncated]` : text;
+  return seen > OUTPUT_CAP ? `${text}\n[truncated]` : text;
 }

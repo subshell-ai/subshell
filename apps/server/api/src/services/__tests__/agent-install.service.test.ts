@@ -96,6 +96,20 @@ describe("installBuiltInAgent", () => {
     expect(r.output.length).toBeLessThan(70_000);
     expect(r.output).toContain("[truncated]");
   });
+  it("says it truncated even when the output lands exactly on the cap", async () => {
+    // The cap is 64 KiB and a pipe hands over power-of-two sized reads, so
+    // "one byte past the limit" is the rare case and "exactly at it" is the
+    // common one. Writing exactly OUTPUT_CAP bytes, pausing, then writing
+    // more makes that boundary deterministic on every platform: the reader
+    // drains the first 65536 bytes before the rest exists, whatever the
+    // chunk granularity. Counting only what is KEPT stalls at the cap, so
+    // the marker never fires and 134 KB vanishes silently.
+    const r = await installBuiltInAgent(
+      "pi",
+      deps("head -c 65536 /dev/zero | tr '\\0' a; sleep 0.2; head -c 100000 /dev/zero | tr '\\0' b"),
+    );
+    expect(r.output).toContain("[truncated]");
+  });
   it("hands the installer an allowlist, not this process's environment", async () => {
     // Pins both halves of installerEnv's rule: a variable this process holds
     // (a stand-in for BETTER_AUTH_SECRET / the database path) must not reach
