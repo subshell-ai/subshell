@@ -13,6 +13,7 @@ import {
   runMaintenance,
 } from "./maintenance-cli.js";
 import { runAgentMcp } from "./mcp/main.js";
+import { selfInvokePrefix } from "./self-invoke.js";
 import {
   controlService,
   DEFAULT_DEPS,
@@ -25,6 +26,16 @@ import {
   uninstallService,
 } from "./service.js";
 import { type ConfirmFn, promptConfirm, runSetup } from "./setup.js";
+import {
+  applyUpdate,
+  failedMarkerPath,
+  pendingMarkerPath,
+  probeFileVersion,
+  readMarker,
+  resolveNodeRelease,
+  rollbackUpdate,
+  type UpdateFailure,
+} from "./update.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
@@ -72,6 +83,14 @@ usage:
   subshell maintenance off [--json]     put it back in service
   subshell maintenance status [--json]  what this machine's mirror says
   subshell status [--json] [--probe]
+  subshell update [--check] [--to <version>] [--from <file>] [--force] [--yes]
+                  [--json] [--no-restart]
+                          replace this agent's own binary with a newer one and
+                          restart into it. --check only says what is available.
+                          --from installs a local file instead of downloading.
+                          --force overrides the live-pane restart refusal.
+  subshell update --rollback [--yes] [--json]
+                          put <binary>.previous back, if an update left one
   subshell version        (also --version, -v)
   subshell license        print the copyright and licence and exit
   subshell mcp            (stdio MCP server for a subshell pane, internal)
@@ -93,6 +112,7 @@ const COMMANDS = new Set([
   "service",
   "setup",
   "status",
+  "update",
   "version",
 ]);
 /**
@@ -159,6 +179,11 @@ const FLAGS: Record<string, boolean> = {
   "--force": false,
   "--yes": false,
   "--no-service": false,
+  "--check": false,
+  "--to": true,
+  "--from": true,
+  "--no-restart": false,
+  "--rollback": false,
 };
 /** Every flag any subtoken of `command` accepts — the union {@link SUBCOMMAND_FLAGS} narrows. */
 const subcommandFlagUnion = (command: string): string[] => [
@@ -185,6 +210,10 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // of, so accepting it there would read as meaningful.
   setup: ["--server", "--key", "--name", "--data-dir", "--no-service", "--yes", "--json"],
   status: ["--json", "--probe"],
+  // No subtoken table: `--rollback` is a FLAG rather than a `subshell update
+  // rollback` subcommand, because it is the same verb pointed backwards and a
+  // subcommand would invite `update rollback --to 0.8.0`, which means nothing.
+  update: ["--check", "--to", "--from", "--force", "--yes", "--json", "--no-restart", "--rollback"],
   version: [],
 };
 
@@ -528,6 +557,124 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           err: "",
         };
       }
+      case "update": {
+        // The one verb here that is async for a reason beyond house style: it
+        // reaches the network and it swaps a file. `subshell-server update` is
+        // the same shape and `AGENTS.md` names both as exceptions.
+        const cfg = await loadConfig();
+        const sdeps = deps.service ?? DEFAULT_DEPS(configExists);
+        const json = parsed.flags.json === "1";
+
+        if (parsed.flags.rollback === "1") {
+          // --rollback is exclusive: every other flag names something about
+          // going FORWARD, so accepting one beside it would read as meaningful.
+          for (const flag of ["check", "to", "from", "noRestart"]) {
+            if (parsed.flags[flag] !== undefined) {
+              throw new UsageError(
+                `--rollback cannot be combined with --${flag === "noRestart" ? "no-restart" : flag}`,
+              );
+            }
+          }
+          const { binary, to } = await rollbackUpdate(cfg.dataDir);
+          const line = `rolled back to ${to} at ${binary}`;
+          const restart = await controlService(sdeps, "restart", { force: parsed.flags.force === "1" });
+          const note =
+            restart.code === 0 ? "restarted the agent" : "restart it where you started it to run the previous version";
+          if (json)
+            return { code: 0, out: `${JSON.stringify({ rolledBack: true, binary, to, note }, null, 2)}\n`, err: "" };
+          return { code: 0, out: `${line}\n${note}\n`, err: "" };
+        }
+
+        if (parsed.flags.from !== undefined && parsed.flags.to !== undefined) {
+          throw new UsageError(
+            "--from installs a file you name; --to picks a published release — use one or the other",
+          );
+        }
+
+        // Where the bytes come from, and what version they claim to be. A
+        // local file is asked directly (there is no digest to check on a path
+        // an operator named); a release is resolved from the list.
+        let offer: { version: string; source: Parameters<typeof applyUpdate>[0]["source"]; where: string };
+        if (parsed.flags.from !== undefined) {
+          const path = parsed.flags.from;
+          offer = {
+            version: await probeFileVersion(path),
+            source: { kind: "file", path },
+            where: path,
+          };
+        } else {
+          const release = await resolveNodeRelease(parsed.flags.to);
+          offer = {
+            version: release.version,
+            source: { kind: "url", url: release.url, sha256: release.sha256 },
+            where: release.tag,
+          };
+        }
+
+        // THE LINE THAT NAMES THE SHARPER ANSWER. This CLI holds no REST
+        // credential (a node key does nothing there — security §5.5), so it
+        // cannot ask its own plane which agent version that plane can talk to.
+        // Saying so beats installing the newest and being closed 4406.
+        const planeHint =
+          parsed.flags.from === undefined
+            ? "your control plane's Settings → Updates shows the version it can talk to; --to picks one\n"
+            : "";
+
+        if (parsed.flags.check === "1") {
+          const available = offer.version !== AGENT_VERSION;
+          if (json) {
+            const body = { installed: AGENT_VERSION, latest: offer.version, updateAvailable: available };
+            return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
+          }
+          const line = available
+            ? `subshell ${offer.version} is available (${offer.where}); this agent is ${AGENT_VERSION}`
+            : `subshell ${AGENT_VERSION} is the newest available`;
+          return { code: 0, out: `${line}\n${planeHint}`, err: "" };
+        }
+
+        if (offer.version === AGENT_VERSION) {
+          const line = `already at subshell ${AGENT_VERSION}`;
+          if (json) {
+            return {
+              code: 0,
+              out: `${JSON.stringify({ from: AGENT_VERSION, to: AGENT_VERSION, changed: false }, null, 2)}\n`,
+              err: "",
+            };
+          }
+          return { code: 0, out: `${line}\n`, err: "" };
+        }
+
+        // No prompt, the same shape `maintenance on` and `service restart
+        // --force` have: this CLI asks nothing, so `--yes` is accepted (a
+        // caller scripting the same line everywhere should not have to strip
+        // it) and confirmation is the operator having typed the verb.
+        const applied = await applyUpdate({
+          source: offer.source,
+          version: offer.version,
+          force: parsed.flags.force === "1",
+          restart: parsed.flags.noRestart !== "1",
+          origin: "cli",
+          dataDir: cfg.dataDir,
+          restartService: (force) => controlService(sdeps, "restart", { force }),
+        });
+        if (json) {
+          const body = {
+            from: applied.from,
+            to: applied.to,
+            changed: true,
+            binary: applied.binary,
+            restarted: applied.restarted,
+            ...(applied.note ? { note: applied.note } : {}),
+          };
+          return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
+        }
+        const lines = [`installed subshell ${applied.to} at ${applied.binary} (was ${applied.from})`];
+        if (applied.restarted) lines.push("restarted the agent; it will reconnect on the new version");
+        else if (parsed.flags.noRestart === "1")
+          lines.push("not restarted (--no-restart); restart it to run the new version");
+        else lines.push(applied.note ?? "restart it where you started it to run the new version");
+        return { code: 0, out: `${lines.join("\n")}\n`, err: "" };
+      }
       case "status": {
         // NON-DESTRUCTIVE by default (fix wave 1): a live `daemon.lock` (pid alive, same
         // nodeId) answers ONLINE locally — the plane is never dialed. A stale lock (dead
@@ -584,6 +731,15 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             `Pass --probe to ask the control plane instead; a probe KICKS a remote agent!)`;
         }
         if (parsed.flags.json) {
+          // The update transaction's state, for the same reason `paths` is
+          // here: a caller (the desktop app, a script, a person mid-incident)
+          // should read what THIS binary knows rather than derive it. A
+          // `pending` marker under a running agent means a swap happened and
+          // the plane has not yet accepted or refused it; `lastFailure` is the
+          // rollback that already happened, and it survives until the next
+          // update so the reason is still on screen an hour later.
+          const pending = await readMarker(pendingMarkerPath(cfg.dataDir));
+          const lastFailure = await readMarker<UpdateFailure>(failedMarkerPath(cfg.dataDir));
           const body = {
             nodeId: cfg.nodeId,
             serverUrl: cfg.serverUrl,
@@ -594,7 +750,16 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             // What a reset deletes, named by the CLI rather than guessed by a caller
             // (the server-reset rule, spec §5.1) — a property of the loaded config,
             // not of liveness, so it is present here whether `online` is true or not.
-            paths: { configFile: configPath(), lockFile: lockPath(), dataDir: cfg.dataDir },
+            paths: {
+              configFile: configPath(),
+              lockFile: lockPath(),
+              dataDir: cfg.dataDir,
+              // The file `update` replaces. `selfInvokePrefix().args` being
+              // non-empty means an interpreter is running a script, where
+              // there is no single binary to name — null, not a guess.
+              binary: selfInvokePrefix().args.length > 0 ? null : selfInvokePrefix().command,
+            },
+            update: { pending, lastFailure },
           };
           return { code: online ? 0 : 1, out: `${JSON.stringify(body, null, 2)}\n`, err: errOut };
         }

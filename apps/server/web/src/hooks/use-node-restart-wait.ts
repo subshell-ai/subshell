@@ -15,6 +15,19 @@ export interface NodeRestartWait {
   waiting: boolean;
   /** Start waiting, against the `startedAt` the page held before the press */
   begin: (startedAtBefore: string | undefined) => void;
+  /**
+   * Start waiting for a HELD node to come back LIVE (spec 2026-09-15 §5.3).
+   *
+   * A separate entry point rather than a flag, because the two waits have
+   * nothing in common but their timers. A held agent's `ready` never passed
+   * the gates, so the plane holds no `runtime` for it and there is no
+   * `startedAt` to compare — the wait that `begin` runs would sit until its
+   * timeout on every successful update of exactly the machines this feature
+   * exists for. What it watches instead is the state change itself: `held`
+   * going null AND `status` going online, which together mean an agent
+   * connected and was accepted.
+   */
+  beginHeld: () => void;
   /** Return to idle and stop waiting */
   reset: () => void;
 }
@@ -73,6 +86,14 @@ export function useNodeRestartWait(id: string): NodeRestartWait {
   const [outcome, setOutcome] = useState<RestartWaitOutcome>("idle");
   const began = useRef(0);
   const before = useRef<string | undefined>(undefined);
+  /**
+   * Which of the two "it came back" tests this wait is running.
+   *
+   * A ref rather than state: it is read inside the polling effect and must not
+   * be part of what re-runs it. `begin`/`beginHeld` set it in the same tick
+   * they flip `outcome`, which is the only thing the effect depends on.
+   */
+  const heldWait = useRef(false);
 
   useEffect(() => {
     if (outcome !== "waiting") return;
@@ -83,11 +104,14 @@ export function useNodeRestartWait(id: string): NodeRestartWait {
       if (cancelled) return;
       try {
         const detail = await apiFetch<NodeDetail>(`/api/nodes/${id}`);
-        if (
-          detail.status === "online" &&
-          detail.runtime &&
-          isNewAgentProcess(before.current, detail.runtime.startedAt)
-        ) {
+        // A held node has no `runtime` to compare a `startedAt` against — its
+        // `ready` never passed the gates — so the test is the state change:
+        // no longer held AND online means an agent connected and was accepted.
+        // The ordinary restart's test is unchanged.
+        const back = heldWait.current
+          ? detail.held === null && detail.status === "online"
+          : detail.status === "online" && detail.runtime && isNewAgentProcess(before.current, detail.runtime.startedAt);
+        if (back) {
           if (cancelled) return;
           setOutcome("back");
           void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
@@ -115,7 +139,14 @@ export function useNodeRestartWait(id: string): NodeRestartWait {
     outcome,
     waiting: outcome === "waiting",
     begin: (startedAtBefore: string | undefined) => {
+      heldWait.current = false;
       before.current = startedAtBefore;
+      began.current = Date.now();
+      setOutcome("waiting");
+    },
+    beginHeld: () => {
+      heldWait.current = true;
+      before.current = undefined;
       began.current = Date.now();
       setOutcome("waiting");
     },

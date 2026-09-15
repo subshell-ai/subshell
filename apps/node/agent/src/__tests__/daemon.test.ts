@@ -1414,3 +1414,77 @@ describe("maintenance (spec 2026-09-14 §4.3)", () => {
     expect(off).toMatchObject({ on: false, changedAt: "2026-09-14T12:00:00.000Z" });
   });
 });
+
+describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/§5.2)", () => {
+  /** Write a pending marker as `applyUpdate` would, plus the `.previous` it names. */
+  function stageTransaction(dataDir: string): { binary: string; previous: string } {
+    const binary = join(dataDir, "subshell");
+    const previous = `${binary}.previous`;
+    writeFileSync(binary, "NEW");
+    writeFileSync(previous, "OLD");
+    writeFileSync(
+      join(dataDir, "update-pending.json"),
+      JSON.stringify({
+        from: "0.8.0",
+        to: "9.9.9",
+        binary,
+        previousBinary: previous,
+        startedAt: "2026-09-15T00:00:00.000Z",
+        origin: "plane",
+      }),
+    );
+    return { binary, previous };
+  }
+
+  test("a frame from the plane settles it: `.previous` and the marker are dropped", async () => {
+    // The plane pushes `set_allowed_dirs` on every accepted `ready`
+    // (`services/nodes/allowed-dirs-sync.ts`), so in production this is the
+    // path that always runs — the timer beside it is a belt, and it is
+    // deliberately LONGER than the plane's ten-minute hold budget.
+    const h = await startDaemon();
+    await waitForReady(h);
+    const { binary, previous } = stageTransaction(h.config.dataDir);
+    // Anything at all counts, which is why this sends garbage: a frame the
+    // daemon then DROPS is still a frame the plane chose to send, and only a
+    // plane that accepted this binary sends anything.
+    h.plane.socket?.send("not a command");
+    const deadline = Date.now() + 2000;
+    while (existsSync(previous) && Date.now() < deadline) await sleep(10);
+    expect(existsSync(previous)).toBe(false);
+    expect(existsSync(join(h.config.dataDir, "update-pending.json"))).toBe(false);
+    expect(readFileSync(binary, "utf8")).toBe("NEW");
+  });
+
+  test("close 4406 with a pending marker ROLLS BACK, records the failure, and exits 1", async () => {
+    const h = await startDaemon();
+    await waitForReady(h);
+    const { binary, previous } = stageTransaction(h.config.dataDir);
+    h.plane.socket?.close(4406, "protocol v11 required (this node speaks v10)");
+    const deadline = Date.now() + 2000;
+    while (h.exits.length === 0 && Date.now() < deadline) await sleep(5);
+    expect(h.exits).toEqual([1]);
+    // The previous binary is back where the service manager will find it.
+    expect(readFileSync(binary, "utf8")).toBe("OLD");
+    expect(existsSync(previous)).toBe(false);
+    expect(existsSync(join(h.config.dataDir, "update-pending.json"))).toBe(false);
+    const failed = JSON.parse(readFileSync(join(h.config.dataDir, "update-failed.json"), "utf8")) as {
+      to: string;
+      reason: string;
+    };
+    expect(failed.to).toBe("9.9.9");
+    expect(failed.reason).toContain("protocol v11");
+  });
+
+  test("close 4406 WITHOUT a marker touches nothing — it is the ordinary too-old refusal", async () => {
+    // A plane refusing an agent nobody just updated is the commonest 4406 by
+    // far. Inventing a swap there would move files for an update that never
+    // happened.
+    const h = await startDaemon();
+    await waitForReady(h);
+    h.plane.socket?.close(4406, "subshell 0.9.0 or newer required (this node is 0.8.0)");
+    const deadline = Date.now() + 2000;
+    while (h.exits.length === 0 && Date.now() < deadline) await sleep(5);
+    expect(h.exits).toEqual([1]);
+    expect(existsSync(join(h.config.dataDir, "update-failed.json"))).toBe(false);
+  });
+});

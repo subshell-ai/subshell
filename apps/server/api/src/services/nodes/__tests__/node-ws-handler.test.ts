@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
   MIN_AGENT_VERSION,
+  NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
@@ -10,7 +11,15 @@ import { HttpError } from "@/api/auth-guard.js";
 import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 import { resetNodeEventsForTests, setNodeLifecycleHooks } from "../node-events.js";
-import { getLive, type NodeConnection, resetNodeRegistryForTests } from "../node-registry.js";
+import {
+  getHeld,
+  getLive,
+  isNodeOffline,
+  listHeld,
+  listOnline,
+  type NodeConnection,
+  resetNodeRegistryForTests,
+} from "../node-registry.js";
 import { NodeRpcError } from "../node-rpc.js";
 import {
   authenticateNodeUpgrade,
@@ -349,72 +358,160 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(plain).not.toHaveProperty("env");
   });
 
-  it("ready with a foreign protocol → recorded FIRST, then close 4406", async () => {
+  it("ready with a foreign protocol → recorded FIRST, then HELD rather than closed", async () => {
+    // The refusal is unchanged; what changed (spec 2026-09-15 §5.3) is that
+    // the socket stays open for one command instead of being dropped.
     const h = makeHarness();
     const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: 999 }));
     expect(h.ready).toHaveLength(1); // persisted so the UI can say "agent too old"
-    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
+    expect(ws.closed).toHaveLength(0);
+    expect(getHeld("n1")).toMatchObject({ reason: "protocol-mismatch", protocolVersion: 999 });
+    // And OFFLINE for everything else: it left the live registry, so the
+    // blessed liveness predicate is unmoved by the hold existing.
+    expect(getLive("n1")).toBeUndefined();
+    expect(isNodeOffline("n1")).toBe(true);
+    expect(listOnline()).not.toContain("n1");
   });
 
-  it("ready at the agent floor → accepted", async () => {
+  it("writes the row back to OFFLINE, because applyReady set it online and nothing closes now", async () => {
+    // The line the hold cannot do without. `applyReady` flips `status` to
+    // online — deliberately, it is what persists the identity a page needs —
+    // and before the hold the close path projected `offline` a moment later.
+    // A held socket never closes, so without this the row reads online for a
+    // machine no command can reach.
     const h = makeHarness();
     const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
+    expect(h.statuses).toEqual([{ id: "n1", status: "offline" }]);
+  });
+
+  it("ready at the agent floor → accepted, and nothing is held", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: MIN_AGENT_VERSION }));
     expect(ws.closed).toHaveLength(0);
+    expect(getHeld("n1")).toBeUndefined();
+    expect(getLive("n1")).toBeDefined();
   });
 
-  it("refuses an agent below the floor, and the reason names BOTH versions", async () => {
-    // The whole point of the floor over a bare protocol number: the operator
-    // is told what to install and what they are running. A message naming
-    // neither is a support ticket.
+  it("holds an agent below the floor, recording BOTH versions for the page", async () => {
+    // The floor's whole point over a bare protocol number: the operator is
+    // told what to install and what they are running. That now reaches them
+    // through `listHeld`/the node view rather than only through a close
+    // reason nobody sees until they read the agent's own log.
     const h = makeHarness();
     const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
-    expect(ws.closed).toHaveLength(1);
-    expect(ws.closed[0].code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
-    expect(ws.closed[0].reason).toContain(MIN_AGENT_VERSION);
-    expect(ws.closed[0].reason).toContain("0.0.1");
+    expect(ws.closed).toHaveLength(0);
+    expect(getHeld("n1")).toMatchObject({ reason: "below-floor", agentVersion: "0.0.1" });
+    expect(listHeld()).toEqual([
+      expect.objectContaining({ nodeId: "n1", reason: "below-floor", agentVersion: "0.0.1", os: "linux", arch: "x64" }),
+    ]);
   });
 
-  it("refuses an agent that cannot say what version it is", async () => {
+  it("holds an agent that cannot say what version it is", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "" }));
-    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
-    expect(ws.closed[0]?.reason).toContain("unversioned");
+    expect(getHeld("n1")).toMatchObject({ reason: "below-floor", agentVersion: "" });
   });
 
-  it("keeps the protocol check as a backstop, with a reason that says so", async () => {
+  it("keeps the protocol check as a backstop, in BOTH directions", async () => {
     // Unreachable if the floor is set right — an agent above the floor ships
     // the current protocol — so this fires only when the floor itself is
-    // wrong, and the message has to distinguish that from the floor refusal.
-    const h = makeHarness();
-    const ws = fakeSocket("n1");
-    await handleNodeMessage(
-      h.deps,
-      ws,
-      readyFrame({ agentVersion: "99.0.0", protocolVersion: NODE_PROTOCOL_VERSION + 1 }),
-    );
-    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
-    expect(ws.closed[0]?.reason).toContain(`v${NODE_PROTOCOL_VERSION}`);
+    // wrong. Both directions matter: a `>=` slipping into the comparison
+    // would let a behind-protocol agent through with a green suite.
+    for (const protocolVersion of [NODE_PROTOCOL_VERSION + 1, NODE_PROTOCOL_VERSION - 1]) {
+      resetNodeRegistryForTests();
+      const h = makeHarness();
+      const ws = fakeSocket("n1");
+      handleNodeOpen(ws);
+      await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "99.0.0", protocolVersion }));
+      expect(ws.closed).toHaveLength(0);
+      expect(getHeld("n1")).toMatchObject({ reason: "protocol-mismatch", protocolVersion });
+    }
   });
 
-  it("the backstop refuses an agent BEHIND the protocol too, not just ahead of it", async () => {
-    // The direction the previous suite covered and the rewrite dropped: a
-    // version-current agent speaking an older protocol. It is the case the
-    // node detail page's "agent too old" chip is driven by, and without it a
-    // `>=` slipping into the comparison would let a behind-protocol agent
-    // through with a green suite.
+  it("closes 4406 the old way when there is no connection record to hold", async () => {
+    // A socket that never went through `open` has nothing to put in the held
+    // map. Refusing it the old way is better than leaving it attached to
+    // nothing, and the reason string is the one the agent relays to its log.
+    resetNodeRegistryForTests(); // the backstop loop above leaves n1 held
+    const h = makeHarness();
+    const ws = fakeSocket("n1"); // deliberately NOT opened
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
+    expect(ws.closed[0]?.reason).toContain(MIN_AGENT_VERSION);
+    expect(ws.closed[0]?.reason).toContain("0.0.1");
+    expect(getHeld("n1")).toBeUndefined();
+  });
+
+  it("drops EVERY frame from a held socket except `result`", async () => {
+    // A held agent speaks a protocol this server does not, so its claims are
+    // about a contract the two ends do not share. It keeps sending them — its
+    // heartbeat does not know it is being ignored — and dropping them costs
+    // one map probe. The `result` exception is the whole point of holding.
     const h = makeHarness();
     const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
+    const readyCount = h.ready.length;
+
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ type: "heartbeat", ts: "now" }));
     await handleNodeMessage(
       h.deps,
       ws,
-      readyFrame({ agentVersion: "99.0.0", protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
+      JSON.stringify({ type: "inventory", ts: "now", harnesses: [{ harnessId: "claude", installed: true }] }),
     );
-    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
-    expect(ws.closed[0]?.reason).toContain(`v${NODE_PROTOCOL_VERSION}`);
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      JSON.stringify({ type: "maintenance", on: true, changedAt: "2026-09-15T00:00:00.000Z" }),
+    );
+    // The RECONNECT `ready` lands here too, and must not re-run applyReady —
+    // that would flip the row back to online for an unreachable machine.
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
+    expect(h.touched).toEqual([]);
+    expect(h.inventories).toEqual([]);
+    expect(h.ready).toHaveLength(readyCount);
+
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ type: "result", ref: "j1", ok: true }));
+    expect(h.results).toHaveLength(1);
+    expect(h.results[0]?.conn).toBe(getHeld("n1")?.conn as NodeConnection);
+  });
+
+  it("a second socket for the same node supersedes the held one", async () => {
+    // Newest-wins is the same rule whichever map the socket is in, and the
+    // commonest way it fires is the good one: an agent that was just updated
+    // dialing back on the new binary.
+    const h = makeHarness();
+    const first = fakeSocket("n1");
+    handleNodeOpen(first);
+    await handleNodeMessage(h.deps, first, readyFrame({ agentVersion: "0.0.1" }));
+    expect(getHeld("n1")).toBeDefined();
+
+    const second = fakeSocket("n1");
+    handleNodeOpen(second);
+    expect(first.closed[0]?.code).toBe(NODE_CLOSE_SUPERSEDED);
+    expect(getHeld("n1")).toBeUndefined();
+    await handleNodeMessage(h.deps, second, readyFrame());
+    expect(getLive("n1")).toBeDefined();
+  });
+
+  it("releases the held entry when its socket closes", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(ws);
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
+    expect(getHeld("n1")).toBeDefined();
+    await handleNodeClose(h.deps, ws);
+    expect(getHeld("n1")).toBeUndefined();
   });
 
   it("heartbeat → touch only", async () => {

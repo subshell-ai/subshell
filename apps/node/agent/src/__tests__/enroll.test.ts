@@ -438,11 +438,20 @@ test("status --json names the paths a reset would delete, even while offline", a
   const parsed = JSON.parse(res.out) as Record<string, unknown>;
   const cfg = await loadConfig();
 
-  expect(parsed.paths).toEqual({ configFile: configPath(), lockFile: lockPath(), dataDir: cfg.dataDir });
-  const paths = parsed.paths as Record<string, string>;
-  expect(isAbsolute(paths.configFile)).toBe(true);
-  expect(isAbsolute(paths.lockFile)).toBe(true);
-  expect(isAbsolute(paths.dataDir)).toBe(true);
+  // `binary` (spec 2026-09-15 §5.2) is the file `subshell update` replaces,
+  // and it is deliberately NOT part of the reset's deletion set — it is the
+  // installed CLI, not this node's state. `null` here because the suite runs
+  // under an interpreter, where there is no single binary to name.
+  expect(parsed.paths).toEqual({
+    configFile: configPath(),
+    lockFile: lockPath(),
+    dataDir: cfg.dataDir,
+    binary: null,
+  });
+  const paths = parsed.paths as Record<string, string | null>;
+  expect(isAbsolute(paths.configFile as string)).toBe(true);
+  expect(isAbsolute(paths.lockFile as string)).toBe(true);
+  expect(isAbsolute(paths.dataDir as string)).toBe(true);
   expect(JSON.stringify(parsed)).not.toInclude(CANNED.nodeKey);
 });
 

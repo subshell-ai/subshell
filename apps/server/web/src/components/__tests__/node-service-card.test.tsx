@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NodeServiceCard } from "@/components/nodes/node-service-card";
 import { setConfirmHandler } from "@/lib/confirm";
@@ -40,6 +47,7 @@ const base: NodeDetail = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  held: null,
 };
 
 function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {
@@ -67,13 +75,33 @@ function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {
   };
 }
 
-function renderServiceCard(node: NodeDetail): void {
+/**
+ * Renders inside a throwaway router: the card's pointer to Settings → Updates
+ * is a `<Link>`, which needs router context.
+ */
+async function renderServiceCard(node: NodeDetail): Promise<void> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <QueryClientProvider client={client}>
-      <NodeServiceCard node={node} />
-    </QueryClientProvider>,
-  );
+  const rootRoute = createRootRoute();
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => (
+      <QueryClientProvider client={client}>
+        <NodeServiceCard node={node} />
+      </QueryClientProvider>
+    ),
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  // The router mounts its route asynchronously: load it first, then let the
+  // provider commit, so the synchronous queries that follow see the card (or,
+  // for a node without a runtime report, see that there is none).
+  await router.load();
+  render(<RouterProvider router={router} />);
+  await waitFor(() => expect(router.state.status).toBe("idle"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 const verbButton = (label: string) => screen.getByRole("button", { name: label }) as HTMLButtonElement;
@@ -93,13 +121,13 @@ function killing(): NodeRuntime["service"] {
 }
 
 describe("NodeServiceCard", () => {
-  it("renders nothing without a runtime report", () => {
-    renderServiceCard(base);
+  it("renders nothing without a runtime report", async () => {
+    await renderServiceCard(base);
     expect(screen.queryByText("Service")).toBeNull();
   });
 
-  it("offers every verb, and disables Restart with the reason when not supervised", () => {
-    renderServiceCard({ ...base, runtime: runtime({ supervised: false }) });
+  it("offers every verb, and disables Restart with the reason when not supervised", async () => {
+    await renderServiceCard({ ...base, runtime: runtime({ supervised: false }) });
     for (const label of ["Restart", "Start", "Stop", "Install service", "Uninstall service"]) {
       expect(verbButton(label)).toBeTruthy();
     }
@@ -112,8 +140,8 @@ describe("NodeServiceCard", () => {
    * `edit` grantee is trusted to interrupt a machine, not to take it off the
    * instance until someone walks to it.
    */
-  it("disables stop and uninstall for anyone but the owner", () => {
-    renderServiceCard({ ...base, access: "edit", runtime: runtime() });
+  it("disables stop and uninstall for anyone but the owner", async () => {
+    await renderServiceCard({ ...base, access: "edit", runtime: runtime() });
     expect(verbButton("Stop").disabled).toBe(true);
     expect(verbButton("Uninstall service").disabled).toBe(true);
     // The reachable verbs stay available to the same grantee.
@@ -138,7 +166,7 @@ describe("NodeServiceCard", () => {
 
     // A definition that WOULD kill panes — so `force` would be sent for a
     // destructive verb, and must still not be for this one.
-    renderServiceCard({ ...base, runtime: runtime({ service: killing() }) });
+    await renderServiceCard({ ...base, runtime: runtime({ service: killing() }) });
     fireEvent.click(verbButton("Start"));
     await waitFor(() => expect(posted).toEqual([{ verb: "start" }]));
   });
@@ -166,7 +194,7 @@ describe("NodeServiceCard", () => {
     // The warning a person reads lives in the CONFIRMATION now, not on the
     // card — so what this pins is the wire: a pane-killing definition means
     // `force`, and nothing else does.
-    renderServiceCard({ ...base, runtime: runtime({ service: killing() }) });
+    await renderServiceCard({ ...base, runtime: runtime({ service: killing() }) });
     fireEvent.click(verbButton("Restart"));
     await waitFor(() => expect(posted).toEqual([{ verb: "restart", force: true }]));
   });
@@ -187,7 +215,7 @@ describe("NodeServiceCard", () => {
       setConfirmHandler(previousConfirm);
     });
 
-    renderServiceCard({ ...base, runtime: runtime() });
+    await renderServiceCard({ ...base, runtime: runtime() });
     fireEvent.click(verbButton("Install service"));
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(asked[0]).toContain("comes back on its own");
@@ -210,7 +238,7 @@ describe("NodeServiceCard", () => {
       setConfirmHandler(previousConfirm);
     });
 
-    renderServiceCard({ ...base, runtime: runtime() });
+    await renderServiceCard({ ...base, runtime: runtime() });
     fireEvent.click(verbButton("Restart"));
     await waitFor(() => expect(verbButton("Restart").disabled).toBe(false));
     expect(posted).toEqual([]);

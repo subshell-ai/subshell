@@ -2,10 +2,14 @@ import { describe, expect, it } from "bun:test";
 import {
   HARNESS_BINARY_PLACEHOLDER,
   NODE_PROTOCOL_VERSION,
+  NODE_RESULT_DIGEST_MISMATCH,
+  NODE_RESULT_DOWNLOAD_FAILED,
   NODE_RESULT_KILLS_PANES,
   NODE_RESULT_MAINTENANCE,
   NODE_RESULT_NO_SERVICE,
+  NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_NOT_SUPERVISED,
+  NODE_RESULT_VERSION_MISMATCH,
   NODE_SERVICE_DESTRUCTIVE,
   NODE_SERVICE_VERBS,
   parseNodeCommandBody,
@@ -163,7 +167,10 @@ describe("parseNodeCommandBody", () => {
     // 9 is `service.linger`: whether the agent's OS user lingers, which is
     // what decides whether an enabled systemd --user unit survives a logout
     // on a machine nobody logs in to.
-    expect(NODE_PROTOCOL_VERSION).toBe(9);
+    // 10 is the `update` command: the plane hands an agent a version, a URL
+    // and a digest and it replaces its own binary — the one command that
+    // crosses a protocol boundary, which is why its shape is frozen.
+    expect(NODE_PROTOCOL_VERSION).toBe(10);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -685,5 +692,73 @@ describe("maintenance (arrived at protocol 8)", () => {
     // The plane compares `NodeRpcError.detail` to this exact string to map a
     // refused launch onto its 409. A prefixed or reworded message is a 500.
     expect(NODE_RESULT_MAINTENANCE).toBe("in maintenance");
+  });
+});
+
+describe("update command (protocol 10, spec 2026-09-15 §5.1)", () => {
+  it("pins the wire shape as a LITERAL, because this one is frozen across protocol bumps", () => {
+    // Every other command travels between two ends that agreed on
+    // NODE_PROTOCOL_VERSION, so renaming a field there costs a version number
+    // and nothing else. `update` is the one the plane sends to an agent whose
+    // protocol it does NOT share (§5.3 holds such a socket precisely so this
+    // can reach it), so the parser below must keep accepting exactly these
+    // four names forever. Written as a literal object rather than built from
+    // constants: a test that derived the shape from the same source as the
+    // code could not see a rename at all.
+    const wire = {
+      type: "update",
+      version: "0.9.0",
+      url: "https://plane.example/api/downloads/node/linux-x64?update_token=nut_abc",
+      sha256: "a".repeat(64),
+      force: true,
+    };
+    expect(parseNodeCommandBody(wire)).toEqual({
+      type: "update",
+      version: "0.9.0",
+      url: "https://plane.example/api/downloads/node/linux-x64?update_token=nut_abc",
+      sha256: "a".repeat(64),
+      force: true,
+    });
+  });
+
+  it("omits force when it was not sent, rather than defaulting it", () => {
+    const parsed = parseNodeCommandBody({
+      type: "update",
+      version: "0.9.0",
+      url: "https://plane.example/x",
+      sha256: "b".repeat(64),
+    });
+    expect(parsed).toEqual({
+      type: "update",
+      version: "0.9.0",
+      url: "https://plane.example/x",
+      sha256: "b".repeat(64),
+    });
+    expect(parsed && "force" in parsed).toBe(false);
+  });
+
+  it("refuses a frame missing or mistyping any of the three required fields", () => {
+    const ok = { type: "update", version: "0.9.0", url: "https://p/x", sha256: "c".repeat(64) };
+    expect(parseNodeCommandBody({ ...ok, version: undefined })).toBeNull();
+    expect(parseNodeCommandBody({ ...ok, url: undefined })).toBeNull();
+    expect(parseNodeCommandBody({ ...ok, sha256: undefined })).toBeNull();
+    // Empty strings are refused too: an empty url is not a url, and an empty
+    // digest would make the verify step trivially unsatisfiable rather than
+    // skipped — refuse it where it is cheap to say why.
+    expect(parseNodeCommandBody({ ...ok, version: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...ok, url: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...ok, sha256: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...ok, version: 9 })).toBeNull();
+    expect(parseNodeCommandBody({ ...ok, force: "yes" })).toBeNull();
+  });
+
+  it("names every refusal the plane matches by equality", () => {
+    // Same rule as NODE_RESULT_MAINTENANCE above: the route compares
+    // `NodeRpcError.detail` to these exact strings to pick its 409 code, so a
+    // reworded constant is a 500 naming nothing an operator can act on.
+    expect(NODE_RESULT_NOT_COMPILED).toBe("not a compiled agent");
+    expect(NODE_RESULT_DOWNLOAD_FAILED).toBe("download failed");
+    expect(NODE_RESULT_DIGEST_MISMATCH).toBe("digest mismatch");
+    expect(NODE_RESULT_VERSION_MISMATCH).toBe("installed binary reports a different version");
   });
 });

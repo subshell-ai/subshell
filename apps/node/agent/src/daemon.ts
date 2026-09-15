@@ -29,6 +29,7 @@ import { log } from "./log.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
+import { completeUpdate, revertAfterRefusal } from "./update.js";
 import { AGENT_VERSION } from "./version.js";
 
 /**
@@ -58,6 +59,34 @@ import { AGENT_VERSION } from "./version.js";
  */
 /** Steady-state heartbeat period (spec §5.3). */
 export const HEARTBEAT_MS = 15_000;
+
+/**
+ * How long an open socket with nothing on it counts as the plane ACCEPTING a
+ * freshly installed binary (spec 2026-09-15 §5.1).
+ *
+ * **The spec said 30 seconds and that is wrong, because §5.3 changed what an
+ * open socket means.** Its reasoning was that a refusal is immediate, so a
+ * socket still open after 30 s has passed the gates. That was true when a
+ * refused agent was CLOSED. It is not true now: a refused agent is HELD — the
+ * socket stays open indefinitely and the 4406 arrives only after the plane's
+ * ten-minute idle budget. At 30 s the two rules together delete `.previous`
+ * on exactly the machine that is about to need it, and the rollback ten
+ * minutes later finds nothing to restore.
+ *
+ * So the number is above the plane's `HELD_IDLE_MS`, and it must stay above
+ * it: the only thing that separates "accepted and quiet" from "held" is which
+ * of the two events lands first.
+ *
+ * In practice the timer is a belt and never the buckle. The plane pushes
+ * `set_allowed_dirs` on EVERY accepted `ready`
+ * (`services/nodes/allowed-dirs-sync.ts`, unconditional — an empty list is a
+ * real push), so an accepted agent receives a frame within milliseconds and
+ * settles the transaction there. What the timer covers is a plane that stops
+ * doing that; the cost of it never firing is a stale ~70 MB `.previous` until
+ * the next update overwrites it, against the cost of it firing too early,
+ * which is the rollback.
+ */
+export const UPDATE_ACCEPTED_MS = 15 * 60 * 1000;
 
 /**
  * Periodic `inventory` push period — the "every 5 min" leg of spec §7
@@ -426,6 +455,30 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
 
   let socket: WsLike | undefined;
   let shuttingDown = false;
+  /**
+   * Has this process already settled the update transaction, either way?
+   *
+   * PER-PROCESS, not per-connection: the transaction belongs to the binary
+   * that booted, and a reconnect is not a second chance to decide it. The flag
+   * is also what keeps `completeUpdate` — a file read — off the reconnect path
+   * of a long-lived daemon that was never updated at all.
+   */
+  let updateSettled = false;
+  /**
+   * The plane accepted this binary (see {@link UPDATE_ACCEPTED_MS}): finish
+   * the transaction by dropping `<binary>.previous` and the marker.
+   *
+   * Fire-and-forget with a catch-log, like every other best-effort disk touch
+   * in this loop: leaving a stale `.previous` behind costs ~70 MB and nothing
+   * else, and it must never cost the connection.
+   */
+  const markUpdateAccepted = (): void => {
+    if (updateSettled) return;
+    updateSettled = true;
+    void completeUpdate(config.dataDir).catch((err: unknown) => {
+      log(`could not clear the update marker: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
   // No socket attached (we are between connections / inside the backoff sleep)? Setting
   // the flag is enough: the sliced sleep notices it within 250 ms and the loop exits 0
   // BEFORE dialing again — the first Ctrl-C always wins.
@@ -598,12 +651,14 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       currentWs = ws; // the ctx.ws seam routes executor events here while this connection lives
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       let inventory: ReturnType<typeof setInterval> | undefined;
+      let acceptedTimer: ReturnType<typeof setTimeout> | undefined;
       let settled = false;
       const finish = (close: WsClose): void => {
         if (settled) return;
         settled = true;
         if (heartbeat !== undefined) clearInterval(heartbeat);
         if (inventory !== undefined) clearInterval(inventory);
+        if (acceptedTimer !== undefined) clearTimeout(acceptedTimer);
         if (socket === ws) socket = undefined;
         if (currentWs === ws) currentWs = undefined;
         // Tails push into the socket that just died — stop every pump before
@@ -680,6 +735,12 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
           void pushInventory("periodic inventory push failed");
         }, inventoryMs);
         inventory.unref?.(); // a background push must never hold the daemon (or a test process) open
+        // The quiet half of "the plane accepted this binary" — a belt under
+        // the frame check below, and deliberately LONGER than the plane's
+        // hold budget, since an open socket no longer proves acceptance on its
+        // own. See UPDATE_ACCEPTED_MS.
+        acceptedTimer = setTimeout(markUpdateAccepted, UPDATE_ACCEPTED_MS);
+        acceptedTimer.unref?.();
       });
       // SERIAL FRAME HANDLER, and the serialization is not a nicety.
       //
@@ -707,6 +768,12 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
       // waiting for its turn.
       let frameChain: Promise<void> = Promise.resolve();
       ws.addEventListener("message", (ev) => {
+        // BEFORE `admitFrame`, and deliberately: any frame at all proves the
+        // plane is talking to this binary rather than about to refuse it, and
+        // that is the whole question the update transaction is waiting on. A
+        // frame this daemon then drops as oversize or unparseable is still a
+        // frame the plane chose to send.
+        markUpdateAccepted();
         const frame = admitFrame(ev.data);
         if (frame === null) return;
         frameChain = frameChain
@@ -735,7 +802,26 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         stop(1);
       }
       if (close.code === NODE_CLOSE_UPDATE_REQUIRED) {
+        // THE NODE'S WHOLE ROLLBACK (spec 2026-09-15 §5.2 step 5). A plane
+        // that refuses a binary this machine installed seconds ago has said
+        // the only thing that matters — that version cannot talk to it — so
+        // `<binary>.previous` goes back and the exit below hands the manager
+        // the version that worked. Without a pending marker this does nothing
+        // and the log line beneath is the behaviour this code always had: a
+        // plane refusing an agent nobody just updated is the ordinary "your
+        // node is too old" case, and swapping files there would be inventing
+        // a rollback for an update that never happened.
+        updateSettled = true;
+        const reverted = await revertAfterRefusal(config.dataDir, close.reason || "the control plane refused it").catch(
+          (err: unknown) => {
+            log(`could not roll the update back: ${err instanceof Error ? err.message : String(err)}`);
+            return null;
+          },
+        );
         log(updateRequiredMessage(close.reason));
+        if (reverted) {
+          log(`restored subshell ${reverted.from}; the service manager will bring it back`);
+        }
         stop(1);
       }
       const delay = backoffDelay(attempt++, rand);

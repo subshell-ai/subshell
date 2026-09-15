@@ -233,9 +233,9 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       const manager = new SubshellManagerService({
         subshells: subshellsRepo,
         presets: presetsRepo,
-        sendNode: (nodeId, cmd, timeoutMs) => {
+        sendNode: (nodeId, cmd, options) => {
           probeSends.push(cmd);
-          return sendCommand(nodeId, cmd, timeoutMs); // delegate — the re-attach sweep below still fires
+          return sendCommand(nodeId, cmd, options); // delegate — the re-attach sweep below still fires
         },
       });
       await manager.reconcile(userId);

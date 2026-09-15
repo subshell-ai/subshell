@@ -32,6 +32,7 @@ function node(over: Partial<Node> = {}): Node {
     maintenance: false,
     maintenanceAt: null,
     maintenanceSource: null,
+    held: null,
     ...over,
   };
 }

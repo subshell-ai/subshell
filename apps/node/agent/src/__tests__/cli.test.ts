@@ -710,3 +710,95 @@ describe("maintenance verb", () => {
     expect((await run(["frobnicate"])).err).toInclude("subshell maintenance");
   });
 });
+
+describe("update verb (spec 2026-09-15 §5.2)", () => {
+  test("takes its flags, and no subtoken — --rollback is a flag, not a subcommand", () => {
+    // A `subshell update rollback` subcommand would invite `update rollback
+    // --to 0.8.0`, which means nothing. As a flag it is plainly the same verb
+    // pointed backwards, and the mutual exclusions below say so.
+    expect(parseArgs(["update"])).toEqual({ command: "update", flags: {} });
+    expect(parseArgs(["update", "--check"])).toEqual({ command: "update", flags: { check: "1" } });
+    expect(parseArgs(["update", "--to", "0.9.1"]).flags.to).toBe("0.9.1");
+    expect(parseArgs(["update", "--from", "/tmp/subshell"]).flags.from).toBe("/tmp/subshell");
+    expect(parseArgs(["update", "--no-restart"]).flags.noRestart).toBe("1");
+    expect(parseArgs(["update", "--rollback", "--yes"]).flags.rollback).toBe("1");
+  });
+
+  test("rejects flags that belong to other verbs", () => {
+    expect(() => parseArgs(["update", "--probe"])).toThrow(/not valid for 'update'/);
+    expect(() => parseArgs(["update", "--server", "http://x"])).toThrow(/not valid for 'update'/);
+    // And the new flags are refused everywhere they mean nothing.
+    expect(() => parseArgs(["status", "--rollback"])).toThrow(/not valid for 'status'/);
+    expect(() => parseArgs(["service", "restart", "--to", "1"])).toThrow(/not valid for 'service'/);
+  });
+
+  test("--rollback refuses to be combined with a forward flag", async () => {
+    newHome();
+    // Usage, not a runtime failure: the two describe opposite directions, and
+    // silently ignoring one would install a version while reporting a rollback.
+    await saveConfig({
+      serverUrl: "http://localhost:1",
+      nodeId: "n1",
+      nodeKey: "k",
+      controlPublicKey: "{}",
+      dataDir: mkdtempSync(join(tmpdir(), "subshell-cli-update-")),
+      name: "n",
+    });
+    const res = await run(["update", "--rollback", "--to", "0.9.1"]);
+    expect(res.code).toBe(2);
+    expect(res.err).toMatch(/--rollback cannot be combined with --to/);
+  });
+
+  test("--from and --to together are a usage error", async () => {
+    newHome();
+    await saveConfig({
+      serverUrl: "http://localhost:1",
+      nodeId: "n1",
+      nodeKey: "k",
+      controlPublicKey: "{}",
+      dataDir: mkdtempSync(join(tmpdir(), "subshell-cli-update-")),
+      name: "n",
+    });
+    const res = await run(["update", "--from", "/tmp/x", "--to", "0.9.1"]);
+    expect(res.code).toBe(2);
+    expect(res.err).toMatch(/use one or the other/);
+  });
+
+  test("with no config, exit 1 pointing at enroll", async () => {
+    // The markers live in the enrolled data dir, so a machine that was never
+    // enrolled has nowhere to record a transaction — the same first move
+    // `maintenance` makes.
+    newHome();
+    const res = await run(["update", "--check"]);
+    expect(res.code).toBe(1);
+    expect(res.err).toMatch(/enroll/i);
+  });
+
+  test("--check refuses when the release source is disabled, pointing at --from", async () => {
+    newHome();
+    await saveConfig({
+      serverUrl: "http://localhost:1",
+      nodeId: "n1",
+      nodeKey: "k",
+      controlPublicKey: "{}",
+      dataDir: mkdtempSync(join(tmpdir(), "subshell-cli-update-")),
+      name: "n",
+    });
+    const before = process.env.SUBSHELL_RELEASE_URL;
+    process.env.SUBSHELL_RELEASE_URL = "";
+    try {
+      const res = await run(["update", "--check"]);
+      expect(res.code).toBe(1);
+      expect(res.err).toMatch(/--from/);
+    } finally {
+      if (before === undefined) delete process.env.SUBSHELL_RELEASE_URL;
+      else process.env.SUBSHELL_RELEASE_URL = before;
+    }
+  });
+
+  test("usage lists the verb and its rollback form", async () => {
+    const err = (await run(["frobnicate"])).err;
+    expect(err).toInclude("subshell update");
+    expect(err).toInclude("--rollback");
+  });
+});

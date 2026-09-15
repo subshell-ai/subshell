@@ -4,7 +4,7 @@ import { ReleaseRefSchema, ServerUpdateViewSchema } from "@/api/admin-server/sch
 import { requireAdmin } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { isNodeOffline } from "@/services/nodes/node-registry.js";
+import { isNodeOffline, listHeld } from "@/services/nodes/node-registry.js";
 import { compatibleNodeRelease, releaseSourceUrl, resolveReleases } from "@/services/releases.js";
 import { collectServerUpdateView, type ReleaseRef, releaseRef } from "@/services/server-update.js";
 
@@ -33,30 +33,16 @@ export interface HeldRow {
 }
 
 /**
- * Test seams, and the ONE place Phase C's held map is read.
- *
- * `getHeldRows` answers `[]` on this branch because the held map does not
- * exist yet: a node below the floor is still CLOSED 4406 today, so nothing can
- * be held and the honest answer is that none is.
+ * Test seams, and the ONE place the registry's held map is read (spec
+ * 2026-09-15 §5.3): a node the plane refused for its version or protocol is
+ * held open for exactly the `update` command, and this is where the page
+ * learns which rows those are.
  *
  * @internal
  */
 export const adminUpdatesSeams = {
-  // TODO(phase-c): wire `listHeld()` from `services/nodes/node-registry.ts`
-  // here — one import line. The shape is this module's `HeldRow`, which is the
-  // one the two phases agreed on.
-  getHeldRows: (): HeldRow[] => [],
+  getHeldRows: (): HeldRow[] => listHeld(),
 };
-
-/**
- * Why no node can be updated from here yet.
- *
- * Phase C is what builds the other half — the signed `update` command, the
- * single-use download token, and the held socket that makes a refused agent
- * reachable for exactly this one verb. Until it lands, every row says so
- * rather than offering a button that 404s.
- */
-const NODE_UPDATE_NOT_BUILT = "updating a node from here is not available in this build yet";
 
 const NodeUpdateRowSchema = t.Object({
   id: t.String({ description: "Node id" }),
@@ -175,7 +161,7 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
         online,
         held: heldRow === null ? null : { reason: heldRow.reason },
         updateAvailable: rels.node !== null && agentVersion !== null && semverLt(agentVersion, rels.node.version),
-        canUpdate: { ok: false, reason: canUpdateReason(rels, target, online, heldRow !== null) },
+        canUpdate: canUpdate(rels, target, online, heldRow !== null),
       };
     });
 
@@ -203,21 +189,23 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
 );
 
 /**
- * The most USEFUL reason a row cannot be updated, not merely the first.
+ * Whether a row's Update button may be pressed, and when not, the most USEFUL
+ * reason rather than merely the first.
  *
  * A node that is offline AND on an unpublished platform is told about the
  * platform: reconnecting is something a person may be about to do, and being
  * told "offline" and then, a minute later, "no artifact for this machine" is
- * two trips to learn one fact.
+ * two trips to learn one fact. A HELD node counts as reachable — being held
+ * is precisely being reachable for this one verb.
  */
-function canUpdateReason(
+function canUpdate(
   rels: { node: ReleaseRef | null; nodeReason: string | null },
   target: string | null,
   online: boolean,
   isHeld: boolean,
-): string {
-  if (rels.node === null) return rels.nodeReason ?? "no node release can be offered";
-  if (target === null) return "no agent binary is published for this machine's platform";
-  if (!online && !isHeld) return "this node is offline";
-  return NODE_UPDATE_NOT_BUILT;
+): { ok: true; reason: null } | { ok: false; reason: string } {
+  if (rels.node === null) return { ok: false, reason: rels.nodeReason ?? "no node release can be offered" };
+  if (target === null) return { ok: false, reason: "no agent binary is published for this machine's platform" };
+  if (!online && !isHeld) return { ok: false, reason: "this node is offline" };
+  return { ok: true, reason: null };
 }

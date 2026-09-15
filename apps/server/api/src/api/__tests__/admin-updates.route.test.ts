@@ -134,7 +134,7 @@ describe("GET /api/admin/updates", () => {
     expect(row?.target).toBe("linux-arm64");
   });
 
-  it("offers no node update yet, and says why on every row", async () => {
+  it("offers no node update while the release source is off, and says why on every row", async () => {
     await agent({ name: `upd-reason-${crypto.randomUUID()}`, version: "0.8.0" });
     for (const row of (await read(fx.adminCookie)).nodes.rows) {
       expect(row.canUpdate.ok).toBe(false);

@@ -17,6 +17,7 @@ import { setNodeAllowedDirsRoute } from "@/api/nodes/set-node-allowed-dirs.route
 import { setNodeMaintenanceRoute } from "@/api/nodes/set-node-maintenance.route.js";
 import { setNodeServerUrlRoute } from "@/api/nodes/set-node-server-url.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
+import { updateNodeRoute } from "@/api/nodes/update-node.route.js";
 
 /**
  * `/api/nodes` — one Elysia instance per endpoint (the subshells-directory
@@ -49,4 +50,5 @@ export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
   .use(serviceNodeRoute)
   .use(nodeLogsRoute)
   .use(nodeLoggingRoute)
-  .use(setNodeServerUrlRoute);
+  .use(setNodeServerUrlRoute)
+  .use(updateNodeRoute);

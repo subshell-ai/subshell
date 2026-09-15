@@ -22,6 +22,7 @@ import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { mintUpdateToken, resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
 import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
@@ -67,6 +68,13 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     if (opts.cookie) headers.set("cookie", `better-auth.session_token=${opts.cookie}`);
     const q = opts.key ? `?setup_key=${encodeURIComponent(opts.key)}` : "";
     return app.fetch(new Request(`http://localhost:3080/api/downloads${path}${q}`, { headers }));
+  }
+
+  /** GET a downloads path with an `?update_token=` instead. */
+  async function dlToken(path: string, token: string): Promise<Response> {
+    return app.fetch(
+      new Request(`http://localhost:3080/api/downloads${path}?update_token=${encodeURIComponent(token)}`),
+    );
   }
 
   async function mkKey(ttlMs?: number): Promise<string> {
@@ -178,6 +186,41 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(FIXTURE);
     expect(res.headers.get("content-type")).toContain("application/octet-stream");
     expect(res.headers.get("content-disposition")).toContain(`subshell-node-cli-${TARGET}`);
+  });
+
+  it("a fresh update token → 200 with the fixture bytes, and it is CONSUMED", async () => {
+    // The third credential (spec 2026-09-15 §5.3), and the only one here that
+    // is spent by the download. A setup key has a second job afterwards (the
+    // enroll), so peeking is right for it; an update token has exactly one.
+    resetUpdateTokensForTests();
+    const token = mintUpdateToken("n1", TARGET);
+    const ok = await dlToken(`/node/${TARGET}`, token);
+    expect(ok.status).toBe(200);
+    expect(new Uint8Array(await ok.arrayBuffer())).toEqual(FIXTURE);
+    // Once. A replayed link buys nothing.
+    expect((await dlToken(`/node/${TARGET}`, token)).status).toBe(401);
+  });
+
+  it("an update token minted for ANOTHER target → 401", async () => {
+    // The narrowing that makes this credential worth minting: it buys ONE file.
+    resetUpdateTokensForTests();
+    const token = mintUpdateToken("n1", "darwin-arm64");
+    expect((await dlToken(`/node/${TARGET}`, token)).status).toBe(401);
+  });
+
+  it("an update token is NOT spendable on the .sha256 route", async () => {
+    // The agent already has the digest — it rides in the `update` command —
+    // so spending a single-use token on 65 bytes would leave nothing for the
+    // binary the command exists to fetch.
+    resetUpdateTokensForTests();
+    const token = mintUpdateToken("n1", TARGET);
+    expect((await dlToken(`/node/${TARGET}.sha256`, token)).status).toBe(401);
+    // And it was not burned by the refusal: the binary still works.
+    expect((await dlToken(`/node/${TARGET}`, token)).status).toBe(200);
+  });
+
+  it("a bogus update token → 401", async () => {
+    expect((await dlToken(`/node/${TARGET}`, "nut_nope")).status).toBe(401);
   });
 
   it("cookie session → 200 (no setup key needed)", async () => {

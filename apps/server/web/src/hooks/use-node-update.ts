@@ -9,6 +9,13 @@ export interface NodeUpdateStarted {
   from: string;
   /** The version it is installing. */
   to: string;
+  /**
+   * The download URL the node was given, WITHOUT its single-use token. Echoed
+   * because it is built from this server's `APP_BASE_URL` — the same base the
+   * enroll script bakes, with the same loopback trap — so a page can warn
+   * when a remote machine has been told to fetch from `127.0.0.1`.
+   */
+  url: string;
 }
 
 /** What {@link useNodeUpdate} hands the Nodes card. */
@@ -27,11 +34,15 @@ export interface NodeUpdate {
  * `POST /api/nodes/:id/update` — replace one node's agent binary (spec
  * 2026-09-15 §5.3).
  *
- * **The route is Phase C's and does not exist yet.** This hook is written
- * against its URL and its body so that landing it is a matter of flipping
- * `canUpdate.ok` on the rows, not of writing the client half then. Until then
- * every row's button is disabled with `canUpdate.reason`, so nothing here is
- * reachable from the page.
+ * **This is the action a HELD node exists for.** An agent the server refuses
+ * for its version or protocol is no longer dropped — its socket is held open
+ * for this one command — so `node.held` being non-null is precisely when this
+ * is both possible and the only thing that helps. It also works on an online
+ * node that is simply behind. `local` is a 400: the host updates with the
+ * server. 409s carry the refusal: `NODE_OFFLINE`, `NODE_UPDATE_UNAVAILABLE`,
+ * `NODE_AGENT_TOO_OLD` (remedy: `subshell update` at that machine),
+ * `NODE_NOT_SUPERVISED`, `NODE_RESTART_KILLS_PANES` (`force` overrides) and
+ * `NODE_UPDATE_FAILED` — on which the node's binary is untouched.
  *
  * It rejects rather than swallowing, because the caller is a SEQUENCE: "Update
  * all" stops at the first failure and names the node, and a hook that resolved

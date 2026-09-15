@@ -51,7 +51,7 @@ export function nodeRow(over: Partial<NodeUpdateRow> = {}): NodeUpdateRow {
     online: true,
     held: null,
     updateAvailable: false,
-    canUpdate: { ok: false, reason: "updating a node from here is not available in this build yet" },
+    canUpdate: { ok: false, reason: "this node is offline" },
     ...over,
   };
 }

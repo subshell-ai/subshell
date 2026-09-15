@@ -148,7 +148,7 @@ export async function exploreNodeDirectory(
 
   let data: unknown;
   try {
-    data = await sendCommand(nodeId, { type: "fs_ls", path }, FS_LS_TIMEOUT_MS);
+    data = await sendCommand(nodeId, { type: "fs_ls", path }, { timeoutMs: FS_LS_TIMEOUT_MS });
   } catch (err) {
     if (err instanceof NodeRpcError) rethrowRemoteBrowseError(err); // never returns
     throw err;
