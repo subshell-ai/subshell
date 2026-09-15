@@ -279,7 +279,7 @@ function nodeViewBase(
     canManage: nodeCanManageFor(row.kind, access, isAdmin),
     // The SAME helper the launch gate calls, for the same reason `canManage`
     // shares one: the picker must not re-derive a rule the server enforces.
-    canLaunch: nodeCanLaunchOn(row.kind, access, granted),
+    canLaunch: nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1),
     capabilities: parseCapabilities(row.capabilities),
   };
 }

@@ -326,6 +326,16 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // This is the reconciliation: an owner may have changed the rules while
       // this node was offline, and nothing else would ever tell it.
       pushAllowedDirsBestEffort(nodeId);
+      // Maintenance is the other half of that reconciliation and the harder
+      // one, because it travels BOTH ways: the machine may have been flipped
+      // at the keyboard while it was offline, and so may the row. The hook
+      // decides by stamp and writes the winner. Awaited — the row must refuse
+      // launches before this frame is done — while the expensive part (a kill
+      // per running subshell) is voided inside the hook so it cannot stall
+      // this socket's queue.
+      const hooks = getNodeLifecycleHooks();
+      if (hooks) await hooks.onMaintenance(nodeId, event.maintenance);
+      else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile maintenance`);
       return;
     }
     case "heartbeat":
@@ -372,6 +382,16 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // reconcile hooks — a routine no-op, so debug-drop (the `output` unknown-
       // subId rule), not warn: a reconnecting fleet must not spam the log.
       else logger.debug(`node ws: subshells_report (${event.subshells.length}) with no lifecycle hook`);
+      return;
+    }
+    case "maintenance": {
+      const hooks = getNodeLifecycleHooks();
+      // Somebody ran `subshell maintenance on|off` at the machine. Same hook
+      // as `ready`, on purpose: a flip reported mid-session and a flip
+      // discovered at connect are the same disagreement, and one reconciler
+      // is what keeps them from answering differently.
+      if (hooks) await hooks.onMaintenance(nodeId, { on: event.on, changedAt: event.changedAt });
+      else logger.warn(`node ws: maintenance from ${nodeId} with no lifecycle hook`);
       return;
     }
     case "result": {

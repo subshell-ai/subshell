@@ -210,21 +210,21 @@ describe("loadNodeAccess", () => {
 describe("nodeCanLaunchOn", () => {
   it("ignores the admin boost on the control-plane host", () => {
     // Admin, no grant left: `access` is the boost, `granted` is the truth.
-    expect(nodeCanLaunchOn("local", "edit", "none")).toBe(false);
+    expect(nodeCanLaunchOn("local", "edit", "none", false)).toBe(false);
     // The same admin on an AGENT node keeps the boost — this rule is `local`'s
     // alone, and nothing about sharing someone else's machine changed.
-    expect(nodeCanLaunchOn("agent", "edit", "none")).toBe(true);
+    expect(nodeCanLaunchOn("agent", "edit", "none", false)).toBe(true);
   });
 
   it("lets a real grant launch on the host, at any level", () => {
     for (const granted of ["view", "edit", "owner"] as const) {
-      expect(nodeCanLaunchOn("local", "edit", granted)).toBe(true);
+      expect(nodeCanLaunchOn("local", "edit", granted, false)).toBe(true);
     }
   });
 
   it("refuses a viewer with no access at all, on either kind", () => {
-    expect(nodeCanLaunchOn("local", "none", "none")).toBe(false);
-    expect(nodeCanLaunchOn("agent", "none", "none")).toBe(false);
+    expect(nodeCanLaunchOn("local", "none", "none", false)).toBe(false);
+    expect(nodeCanLaunchOn("agent", "none", "none", false)).toBe(false);
   });
 
   // A non-admin's two readings are the same value, so the rule cannot change
@@ -232,8 +232,32 @@ describe("nodeCanLaunchOn", () => {
   it("changes nothing for a viewer who was never boosted", () => {
     for (const kind of ["local", "agent"] as const) {
       for (const a of ["none", "view", "edit", "owner"] as const) {
-        expect(nodeCanLaunchOn(kind, a, a)).toBe(nodeCanLaunch(a));
+        expect(nodeCanLaunchOn(kind, a, a, false)).toBe(nodeCanLaunch(a));
       }
     }
+  });
+
+  /**
+   * Maintenance is a property of the MACHINE, so it applies to every reading
+   * of every access level on both kinds — decision 1 of spec 2026-09-14: in a
+   * window nobody launches, owner, admins and grantees alike, and `local`
+   * means the identical thing.
+   */
+  it("refuses every access level on both kinds while the node is in maintenance", () => {
+    for (const kind of ["local", "agent"] as const) {
+      for (const access of ["none", "view", "edit", "owner"] as const) {
+        for (const granted of ["none", "view", "edit", "owner"] as const) {
+          expect(nodeCanLaunchOn(kind, access, granted, true)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("ANDs: the owner of a node they hold outright is refused in a window and allowed out of one", () => {
+    expect(nodeCanLaunchOn("agent", "owner", "owner", true)).toBe(false);
+    expect(nodeCanLaunchOn("agent", "owner", "owner", false)).toBe(true);
+    // …and a `local` that IS granted still loses to the flag.
+    expect(nodeCanLaunchOn("local", "edit", "edit", true)).toBe(false);
+    expect(nodeCanLaunchOn("local", "edit", "edit", false)).toBe(true);
   });
 });

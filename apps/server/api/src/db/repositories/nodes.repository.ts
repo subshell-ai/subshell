@@ -1,5 +1,6 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
-import type { NewNode, NodeStatus, NodeTable } from "@/db/types/nodes.db-types.js";
+import type { MaintenanceSource, NewNode, NodeStatus, NodeTable } from "@/db/types/nodes.db-types.js";
+import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 
 /** Fields a `ready` frame carries about the machine behind a node (spec §5.3). */
 export type NodeReadyReport = {
@@ -48,6 +49,12 @@ export class NodesRepository extends BaseRepository {
         capabilities: input.capabilities ?? null,
         inventoryJson: input.inventoryJson ?? null,
         inventoryAt: input.inventoryAt ?? null,
+        // A new node launches. `0` is the column default (migration 0031) and
+        // the reading every pre-column row gets; mirroring it here keeps the
+        // read-back complete rather than typed-but-unset.
+        maintenance: input.maintenance ?? 0,
+        maintenanceAt: input.maintenanceAt ?? null,
+        maintenanceSource: input.maintenanceSource ?? null,
         createdAt: input.createdAt ?? now,
         updatedAt: now,
       })
@@ -138,6 +145,63 @@ export class NodesRepository extends BaseRepository {
       .updateTable("nodes")
       .set({ inventoryJson, inventoryAt: now, updatedAt: now })
       .where("id", "=", id)
+      .execute();
+  }
+
+  /**
+   * Write the maintenance flag and the stamp that decides a disagreement
+   * (spec 2026-09-14 §5.2).
+   *
+   * All three fields move together, always: a flag without its stamp cannot
+   * be reconciled against the node's copy (every comparison would read as
+   * "the plane never wrote one"), and a stamp without its source leaves the
+   * page unable to say which end declared the window. The caller supplies
+   * `changedAt` rather than this method stamping `now` — an ADOPTED value is
+   * a fact about the node's write, and re-stamping it here would make the
+   * relay outrank the decision it was carrying.
+   */
+  async setMaintenance(
+    id: string,
+    state: {
+      /** True = this node accepts no new subshells. */
+      on: boolean;
+      /** ISO 8601 of the write that produced `on` — never re-stamped on relay. */
+      changedAt: string;
+      /** Which end wrote it. */
+      source: MaintenanceSource;
+    },
+  ): Promise<NodeTable | undefined> {
+    return await this.db
+      .updateTable("nodes")
+      .set({
+        maintenance: state.on ? 1 : 0,
+        maintenanceAt: state.changedAt,
+        maintenanceSource: state.source,
+        updatedAt: new Date().toISOString(),
+      })
+      .where("id", "=", id)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  /**
+   * The unfinished subshells on one node, as FULL rows.
+   *
+   * {@link countRunningSubshells} answers the delete guard's question ("is
+   * anything still here"); entering maintenance has to ACT on each one, and
+   * every step of that act is row-scoped: the terminate path is owner-keyed
+   * (a node-wide stop must pass each row's own `userId`, never the actor's,
+   * or the guard silently skips everybody else's work) and the pane kill
+   * needs the row's `tmuxSocket`. Same `running` reading as the count: parked
+   * auto-restart rows (`running, alive: 0`) are work that has not ended, and
+   * leaving them would let the sweep respawn a pane on a node in maintenance.
+   */
+  async listRunningForNode(nodeId: string): Promise<SubshellTable[]> {
+    return await this.db
+      .selectFrom("subshells")
+      .selectAll()
+      .where("nodeId", "=", nodeId)
+      .where("status", "=", "running")
       .execute();
   }
 

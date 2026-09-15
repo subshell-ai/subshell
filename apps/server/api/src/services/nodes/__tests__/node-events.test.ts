@@ -240,6 +240,7 @@ describe("exit / subshells_report → lifecycle hooks (spec §3.3)", () => {
         seen.push([nodeId, subshellId, exitCode, at]);
       },
       onSubshellsReport: () => {},
+      onMaintenance: () => {},
     });
     const h = makeHarness();
     const ws = fakeSocket("n1");
@@ -264,6 +265,7 @@ describe("exit / subshells_report → lifecycle hooks (spec §3.3)", () => {
     const seen: { nodeId: string; report: unknown }[] = [];
     setNodeLifecycleHooks({
       onExit: () => {},
+      onMaintenance: () => {},
       onSubshellsReport: (nodeId, report) => {
         seen.push({ nodeId, report });
       },

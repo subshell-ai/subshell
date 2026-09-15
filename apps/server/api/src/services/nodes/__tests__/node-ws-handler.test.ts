@@ -9,6 +9,7 @@ import {
 import { HttpError } from "@/api/auth-guard.js";
 import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
+import { resetNodeEventsForTests, setNodeLifecycleHooks } from "../node-events.js";
 import { getLive, type NodeConnection, resetNodeRegistryForTests } from "../node-registry.js";
 import { NodeRpcError } from "../node-rpc.js";
 import {
@@ -229,6 +230,87 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // this commit; its removal from {@link NodeWsDeps} is itself the pin that
     // `ready` cannot pull anymore, whatever a future frame handler grows.
     expect(ws.closed).toHaveLength(0);
+  });
+
+  /**
+   * Maintenance reaches the service layer through the lifecycle HOOK, not
+   * through a wider node-repository `Pick` — which is what keeps every fake
+   * in this file satisfiable by hand. Both frames that can carry it call the
+   * same hook: a flip discovered at connect and one reported mid-session are
+   * the same disagreement, and one reconciler is what stops them answering
+   * differently.
+   */
+  describe("maintenance → the lifecycle hook (spec 2026-09-14 §5.3)", () => {
+    /** Install a recording hook and return both the log and the uninstaller. */
+    function recordMaintenance(): { seen: [string, unknown][]; off: () => void } {
+      const seen: [string, unknown][] = [];
+      setNodeLifecycleHooks({
+        onExit: () => {},
+        onSubshellsReport: () => {},
+        onMaintenance: (nodeId, reported) => {
+          seen.push([nodeId, reported]);
+        },
+      });
+      return { seen, off: () => resetNodeEventsForTests() };
+    }
+
+    it("a ready CARRYING maintenance reconciles it", async () => {
+      const { seen, off } = recordMaintenance();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(
+          h.deps,
+          fakeSocket("n1"),
+          JSON.stringify(readyFrame({ maintenance: { on: true, changedAt: "2026-09-14T10:00:00.000Z" } })),
+        );
+        expect(seen).toEqual([["n1", { on: true, changedAt: "2026-09-14T10:00:00.000Z" }]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("a ready WITHOUT it still reconciles — 'the node has no file' is a fact, not a silence", async () => {
+      // The plane may hold a window this machine never learned about (flipped
+      // while it was offline, or its data dir wiped). Skipping the hook when
+      // the field is absent would leave those two copies apart forever.
+      const { seen, off } = recordMaintenance();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+        expect(seen).toEqual([["n1", undefined]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("the maintenance EVENT reaches the same hook, under the SOCKET's nodeId", async () => {
+      const { seen, off } = recordMaintenance();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(
+          h.deps,
+          fakeSocket("n1"),
+          JSON.stringify({ type: "maintenance", on: false, changedAt: "2026-09-14T11:00:00.000Z" }),
+        );
+        expect(seen).toEqual([["n1", { on: false, changedAt: "2026-09-14T11:00:00.000Z" }]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("a ready whose maintenance field is malformed keeps the ready and drops the field", async () => {
+      // The lenient parse (protocol §3): an agent's bad optional must not cost
+      // the plane the machine's identity, which is what `ready` is for.
+      const { seen, off } = recordMaintenance();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame({ maintenance: { on: "yes" } })));
+        expect(h.ready).toHaveLength(1);
+        expect(seen).toEqual([["n1", undefined]]);
+      } finally {
+        off();
+      }
+    });
   });
 
   it("ready stashes homeDir and selfInvoke on the live facts; env is NOT a ready field", async () => {

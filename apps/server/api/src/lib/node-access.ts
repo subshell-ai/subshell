@@ -65,11 +65,27 @@ export function resolveNodeAccess(
  * gets — a node the viewer can see on the Nodes page must not answer "not
  * found" here.
  *
+ * **Maintenance is ANDed in on every kind** (spec 2026-09-14). It is a
+ * property of the machine rather than of anyone's grants: shares answer WHO
+ * may launch, maintenance answers WHETHER anyone may, and in a window nobody
+ * launches — owner, admins and grantees alike, with `local` meaning exactly
+ * the same thing. It is a REQUIRED argument rather than an optional one so
+ * that every call site fails to compile until it has passed the row's flag; a
+ * defaulted parameter would have let a new caller inherit "not in
+ * maintenance" silently, which is the one wrong answer this gate can give.
+ *
  * @param kind - the node's kind; only `local` reads `granted`
  * @param access - the viewer's resolved access, admin boost included
  * @param granted - the same resolution with `isAdmin` false
+ * @param maintenance - whether the node row's maintenance flag is set
  */
-export function nodeCanLaunchOn(kind: NodeKind, access: NodeAccess, granted: NodeAccess): boolean {
+export function nodeCanLaunchOn(
+  kind: NodeKind,
+  access: NodeAccess,
+  granted: NodeAccess,
+  maintenance: boolean,
+): boolean {
+  if (maintenance) return false;
   return kind === "local" ? nodeCanLaunch(granted) : nodeCanLaunch(access);
 }
 

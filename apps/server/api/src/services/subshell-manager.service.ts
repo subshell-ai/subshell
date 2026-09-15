@@ -1,6 +1,6 @@
 import { unlinkSync } from "node:fs";
 import { hostname } from "node:os";
-import { stripAnsi } from "@internal/backend-errors";
+import { BackendErrorCodes, stripAnsi, throwApiError } from "@internal/backend-errors";
 import {
   allHarnesses,
   getHarness,
@@ -438,6 +438,36 @@ export class SubshellManagerService {
       throw err;
     }
 
+    // Post-spawn re-read, the create-path twin of `#reviveRow`'s conditional
+    // revival — which create never had. The row is written BEFORE the spawn,
+    // so anything that retires rows in bulk between the two (a maintenance
+    // window opening, which stops every running row on the node, or a plain
+    // terminate) leaves a LIVE pane under a `terminated` row: the reconcile
+    // sweep only walks `running` rows, so nothing would ever find it again.
+    // Kill what we just started rather than return a success the database
+    // contradicts.
+    const settled = await this.#subshells.findById(id);
+    if (settled?.status !== "running") {
+      logger.warn(`subshell ${id} was retired during launch; killing the orphan pane and revoking its token`);
+      try {
+        await launcher.killSubshell(socket, id);
+      } catch {
+        // kill is best-effort; the token rollback below must still run
+      }
+      await this.#revokeTokenOrUnlink(id);
+      // A 409, not the 500 a bare Error would produce: losing this race is a
+      // legitimate concurrent act (a maintenance window, a terminate) rather
+      // than a fault, and the caller's remedy is to try again. The cause is
+      // deliberately NOT named — this path cannot tell a maintenance flip from
+      // an ordinary terminate, and guessing would put the wrong reason in
+      // front of whoever reads it.
+      throwApiError({
+        code: BackendErrorCodes.SUBSHELL_STOPPED_WHILE_STARTING,
+        message: "The subshell was stopped while it was starting",
+        doNotLog: true,
+      });
+    }
+
     logger.info(`subshell created: ${id} (${subshellName}) harness=${harnessId} cwd=${realPath} node=${targetNode}`);
     // Audit trail: best-effort sink (default app-wide recorder), never throws.
     await this.#audit({
@@ -721,6 +751,29 @@ export class SubshellManagerService {
   }
 
   /**
+   * Terminate one subshell because its NODE entered maintenance
+   * (spec 2026-09-14 §5.2).
+   *
+   * {@link terminateSubshell} plus a push, and the push is the whole reason
+   * this exists as a second method rather than a flag: that path is
+   * deliberately silent because the operator clicked it, and here they did
+   * not. A node owner's window stops subshells belonging to everyone the node
+   * was shared with — people who cannot see the node, did not act, and would
+   * otherwise find a dead pane with no account of why.
+   *
+   * The row's OWN `userId` is passed through, never an actor's: the terminate
+   * path is owner-keyed and would silently skip every row but the caller's.
+   * Void-fired push, like {@link #notifyDeath} — a slow or throwing sink must
+   * not stall a loop that is holding up a node's whole maintenance window.
+   *
+   * @param row - the running row to stop, freshly read
+   */
+  async terminateForMaintenance(row: SubshellTable): Promise<void> {
+    await this.terminateSubshell(row.userId, row.id);
+    void this.#notify(row.id, "maintenance");
+  }
+
+  /**
    * Permanently deletes a subshell: kills its tmux tree if it is running,
    * removes the DB row, and unlinks the per-subshell output log. Returns false
    * if not found/not owner.
@@ -827,6 +880,17 @@ export class SubshellManagerService {
       // the next tick; the node coming back is what unblocks the restart.
       if (isNodeOffline(fresh.nodeId)) {
         logger.debug(`subshell ${fresh.id}: auto-restart deferred: node "${fresh.nodeId}" has no live connection`);
+        return false;
+      }
+      // A node in maintenance takes NO new work, and a sweep respawning a
+      // pane there would undo the stop the window just performed — silently,
+      // minutes later, on a machine somebody is standing at. Deferred rather
+      // than given up on: the row keeps its backoff schedule and revives on
+      // its own once the window ends, which is why the card promises the
+      // opposite (an opted-in row does not come back by itself) only for the
+      // rows maintenance TERMINATED — those are no longer `running` at all.
+      if ((await getRequestlessContext().repos.nodes.findById(fresh.nodeId))?.maintenance === 1) {
+        logger.debug(`subshell ${fresh.id}: auto-restart deferred: node "${fresh.nodeId}" is in maintenance`);
         return false;
       }
       // A restart IS a new subshell, so it obeys the same rule the create

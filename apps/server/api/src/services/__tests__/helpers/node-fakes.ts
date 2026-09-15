@@ -30,6 +30,14 @@ export class FakeNodeLauncher implements NodeLauncher {
   alive = true;
   /** When set, `killSubshell` throws it instead of recording (terminate-path tests). */
   killError: Error | undefined;
+  /**
+   * When set, `launch` throws it instead of recording the plan — the node
+   * REFUSING a launch, as against failing to reach it. Refusals carry a
+   * verbatim `NodeRpcError.detail` the service boundary maps by equality, so
+   * a test needs a seam that throws the real error class rather than one that
+   * merely fails.
+   */
+  launchError: Error | undefined;
   revokes = 0;
 
   constructor(readonly testDir: string) {}
@@ -41,6 +49,7 @@ export class FakeNodeLauncher implements NodeLauncher {
     return "/bin/stub";
   }
   async launch(plan: LaunchPlan): Promise<void> {
+    if (this.launchError) throw this.launchError;
     this.plans.push(plan);
   }
   async terminate(): Promise<void> {}

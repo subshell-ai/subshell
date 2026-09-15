@@ -71,6 +71,7 @@ const KIND_COPY: Record<NotifyKind, string> = {
   exited: "A subshell exited",
   crashed: "A subshell crashed, auto-restarting",
   crashed_final: "A subshell crashed",
+  maintenance: "A subshell was stopped for node maintenance",
 };
 
 /**

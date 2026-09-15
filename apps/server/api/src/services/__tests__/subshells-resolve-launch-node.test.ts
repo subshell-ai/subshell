@@ -176,6 +176,102 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   });
 });
 
+/**
+ * Maintenance is a property of the MACHINE, so it applies to every viewer of
+ * every node (spec 2026-09-14 decision 1) and it is answered BEFORE liveness
+ * and before the share reading — those two send a person to check a network
+ * or to ask for a grant, and neither would change anything.
+ */
+describe("resolveLaunchNode — maintenance", () => {
+  it("refuses the node's own OWNER with 409 NODE_IN_MAINTENANCE", async () => {
+    const node = await mkAgent(ownerId);
+    await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
+    const off = online(node);
+    try {
+      const err = await grab(() =>
+        resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
+      );
+      expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_IN_MAINTENANCE);
+      expect((err as ApiError).statusCode).toBe(409);
+    } finally {
+      off();
+    }
+  });
+
+  it("refuses an ADMIN too — the instance-wide edit boost does not outrank a window", async () => {
+    const node = await mkAgent(otherId);
+    await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
+    const off = online(node);
+    try {
+      const err = await grab(() =>
+        resolveLaunchNode({ userId: adminId, machineActor: false, requestedNodeId: node }, deps),
+      );
+      expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_IN_MAINTENANCE);
+    } finally {
+      off();
+    }
+  });
+
+  it("answers maintenance BEFORE offline, so an unreachable machine says the actionable thing", async () => {
+    const node = await mkAgent(ownerId);
+    await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
+    // No live socket at all: without the ordering this would be NODE_OFFLINE,
+    // sending the owner to check a network rather than to end the window.
+    const err = await grab(() =>
+      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
+    );
+    expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_IN_MAINTENANCE);
+  });
+
+  it("keeps the 404 first: an INVISIBLE node in maintenance still says nothing about existing", async () => {
+    const node = await mkAgent(otherId);
+    await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
+    const err = await grab(() =>
+      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
+    );
+    expect(statusOf(err)).toBe(404);
+  });
+
+  it("launches again the moment the window ends", async () => {
+    const node = await mkAgent(ownerId);
+    await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
+    await deps.nodes.setMaintenance(node, { on: false, changedAt: new Date().toISOString(), source: "plane" });
+    const off = online(node);
+    try {
+      expect(await resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps)).toEqual({
+        nodeId: node,
+      });
+    } finally {
+      off();
+    }
+  });
+
+  it("`local` in maintenance refuses an explicit launch and SKIPS the implicit step", async () => {
+    const before = await deps.nodes.findById(LOCAL_NODE_ID);
+    await deps.nodes.setMaintenance(LOCAL_NODE_ID, {
+      on: true,
+      changedAt: new Date().toISOString(),
+      source: "plane",
+    });
+    try {
+      const explicit = await grab(() =>
+        resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: LOCAL_NODE_ID }, deps),
+      );
+      expect(apiErr(explicit).code).toBe(BackendErrorCodes.NODE_IN_MAINTENANCE);
+      // Step 2 declines silently and falls through to step 3, which has
+      // nothing to offer — never a silent relocation, never the host itself.
+      const implicit = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: false }, deps));
+      expect(apiErr(implicit).code).toBe(BackendErrorCodes.NODE_REQUIRED);
+    } finally {
+      await deps.nodes.setMaintenance(LOCAL_NODE_ID, {
+        on: before?.maintenance === 1,
+        changedAt: before?.maintenanceAt ?? new Date().toISOString(),
+        source: "plane",
+      });
+    }
+  });
+});
+
 describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)", () => {
   it("nothing requested + the local switch ON → local (today's behavior preserved)", async () => {
     expect(await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps)).toEqual({
@@ -222,6 +318,23 @@ describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)",
     } finally {
       offA();
       offB();
+      await deps.shares.replaceForNode(LOCAL_NODE_ID, [{ granteeUserId: null, permission: "edit" }], systemId);
+    }
+  });
+
+  it("step 3 never auto-picks a node in maintenance, even as the only online one", async () => {
+    // The dangerous case: an implicit launch silently relocating onto a
+    // machine whose owner took it out of service. Step 3 never reaches
+    // `nodeCanLaunchOn`, so the flag is filtered by hand there.
+    const node = await mkAgent(ownerId);
+    await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
+    await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
+    const off = online(node);
+    try {
+      const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: false }, deps));
+      expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_REQUIRED);
+    } finally {
+      off();
       await deps.shares.replaceForNode(LOCAL_NODE_ID, [{ granteeUserId: null, permission: "edit" }], systemId);
     }
   });

@@ -25,10 +25,14 @@ import { logger } from "@/utils/logger.js";
  * What happened to a subshell. The wire contract with the hooks and the
  * watcher. `crashed_final` is backend-internal (the reconcile sweep only):
  * it marks a crash whose auto-restart backoff is exhausted, so the copy must
- * not promise a restart. It is deliberately NOT part of the `/attention`
- * route's body union — hooks can only report `turn_complete`/`needs_attention`.
+ * not promise a restart. `maintenance` is backend-internal for the same
+ * reason and one more: it says somebody ELSE's act stopped this subshell — a
+ * node owner opening a maintenance window, which is the one death an owner
+ * cannot explain from their own screen. Both are deliberately NOT part of the
+ * `/attention` route's body union — hooks can only report
+ * `turn_complete`/`needs_attention`.
  */
-export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final";
+export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final" | "maintenance";
 
 const BODY: Record<NotifyKind, string> = {
   turn_complete: "Done, waiting for you",
@@ -36,6 +40,7 @@ const BODY: Record<NotifyKind, string> = {
   exited: "Subshell exited",
   crashed: "Crashed, auto-restarting",
   crashed_final: "Crashed",
+  maintenance: "Stopped for node maintenance",
 };
 
 /**

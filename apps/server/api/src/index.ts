@@ -27,6 +27,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { startServer } from "@/server.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
+import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
@@ -149,6 +150,10 @@ async function bootServer(): Promise<void> {
   setNodeLifecycleHooks({
     onExit: (nodeId, subshellId, exitCode, at) => manager.applyRemoteExit(nodeId, subshellId, exitCode, at),
     onSubshellsReport: (nodeId, report) => manager.applySubshellsReport(nodeId, report),
+    // Maintenance is a node-level act rather than a subshell one, so it does
+    // not route through the manager: the hook hands the machine's own copy to
+    // the one module that reconciles the two (spec 2026-09-14 §5.2).
+    onMaintenance: (nodeId, reported) => reconcileMaintenance(nodeId, reported),
   });
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).

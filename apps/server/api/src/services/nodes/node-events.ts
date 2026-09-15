@@ -1,4 +1,4 @@
-import type { NodeEvent } from "@internal/subshell-protocol";
+import type { NodeEvent, NodeMaintenanceWire } from "@internal/subshell-protocol";
 
 /**
  * The backend event plane for `/ws/node` (spec 2026-08-31 §3.3, phase 2).
@@ -82,6 +82,21 @@ export interface NodeLifecycleHooks {
     nodeId: string,
     report: Extract<NodeEvent, { type: "subshells_report" }>["subshells"],
   ): Promise<void> | void;
+  /**
+   * The machine's own copy of its maintenance state (spec 2026-09-14) — from
+   * `ready.maintenance` at connect, or from the `maintenance` event when
+   * somebody flipped it at the keyboard.
+   *
+   * A HOOK rather than a widening of the WS handler's node-repository `Pick`:
+   * reconciling is a four-step act (decide, write, stop, push) that belongs to
+   * the service layer, and the handler's repo slice is deliberately narrow
+   * enough for every test fake to satisfy by hand.
+   *
+   * @param nodeId - the SOCKET's authenticated identity, never a frame's claim
+   * @param reported - the machine's copy, or undefined when it reported none
+   *   (no file there, or a malformed `ready` field the lenient parser dropped)
+   */
+  onMaintenance(nodeId: string, reported: NodeMaintenanceWire | undefined): Promise<void> | void;
 }
 
 let lifecycleHooks: NodeLifecycleHooks | undefined;

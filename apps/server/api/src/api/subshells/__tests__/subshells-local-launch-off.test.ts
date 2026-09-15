@@ -112,7 +112,14 @@ describe("launching on the server, switched off", () => {
     await setLocalLaunch(false);
     const res = await post({ harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { message: string }).message).toMatch(/switched off/i);
+    // The copy says what is now true of this state and nothing more. It used
+    // to read "launching on the server is switched off", which since
+    // spec 2026-09-14 names the OTHER switch: maintenance is what turns
+    // launching off, and this one is the share set being narrowed to named
+    // people. Pointing someone at the wrong control is worse than saying less.
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/granted launch access/i);
+    expect(body.message).not.toMatch(/maintenance/i);
   });
 
   it("still shows the node to the admin, and still lets them manage it", async () => {

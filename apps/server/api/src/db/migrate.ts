@@ -30,6 +30,7 @@ import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as presetNameUniqueMigration from "@/db/migrations/0028-preset-name-unique.js";
 import * as workspaceDraftsMigration from "@/db/migrations/0029-workspace-drafts.js";
 import * as userDisabledMigration from "@/db/migrations/0030-user-disabled.js";
+import * as nodeMaintenanceMigration from "@/db/migrations/0031-node-maintenance.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -79,6 +80,9 @@ export async function runMigrations(): Promise<void> {
           // An admin may disable an account: `user_meta.disabled`, 0 =
           // enabled, which is also what an absent row reads as.
           "0030-user-disabled": userDisabledMigration,
+          // Node maintenance: the flag that answers WHETHER anyone may launch
+          // on a node, beside the shares that answer who (spec 2026-09-14).
+          "0031-node-maintenance": nodeMaintenanceMigration,
         };
       },
     },

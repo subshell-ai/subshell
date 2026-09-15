@@ -4,6 +4,18 @@ export type NodeStatus = "online" | "offline";
 export type NodeKind = "local" | "agent";
 
 /**
+ * Which end wrote the maintenance value that currently stands
+ * (spec 2026-09-14 §2). Not a permission and not a preference: the state is
+ * ONE flag settable from either end, and this records where the standing
+ * write came from so a person reading the node page learns whether someone
+ * at the keyboard declared the window or someone in a browser did.
+ */
+export type MaintenanceSource = "plane" | "node";
+
+/** Runtime list of {@link MaintenanceSource} — one edit site for both readings. */
+export const MAINTENANCE_SOURCES: readonly MaintenanceSource[] = ["plane", "node"];
+
+/**
  * The control-plane host row id (spec 2026-08-31 §2). Single home —
  * repositories AND services import it from this type file (a repository must
  * never import from services/).
@@ -52,6 +64,22 @@ export interface NodeTable {
   inventoryJson: string | null;
   /** ISO 8601 when inventoryJson was captured */
   inventoryAt: string | null;
+  /**
+   * 1 = this node accepts no new subshells (spec 2026-09-14). Composes by AND
+   * with the shares: shares say who may launch, this says whether anyone may.
+   * 0 for every node that never entered a window — including every row that
+   * predates the column.
+   */
+  maintenance: number;
+  /**
+   * ISO 8601 of the write that produced {@link maintenance}, or null when no
+   * window was ever declared. The plane and the machine hold independent
+   * copies and either may be written while the other is unreachable, so this
+   * stamp — not the flag — is what decides a disagreement on reconnect.
+   */
+  maintenanceAt: string | null;
+  /** Which end wrote the standing value ({@link MaintenanceSource}); null when none has. */
+  maintenanceSource: MaintenanceSource | null;
   /** ISO 8601 creation time */
   createdAt: string;
   /** ISO 8601 last update time */

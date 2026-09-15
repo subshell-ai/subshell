@@ -57,6 +57,13 @@ export enum BackendErrorCodes {
   RESTART_KILLS_PANES = "RESTART_KILLS_PANES",
   /** `POST /api/admin/server/restart`: this server is not running under a service manager, so exiting would stop it. */
   RESTART_UNAVAILABLE = "RESTART_UNAVAILABLE",
+  /**
+   * `POST /api/subshells`: the row was retired between its INSERT and its
+   * spawn — a maintenance window opening on that node, or a plain terminate.
+   * A lost race with a legitimate concurrent act, not a fault: the pane is
+   * killed and the row stays retired, and the caller may simply try again.
+   */
+  SUBSHELL_STOPPED_WHILE_STARTING = "SUBSHELL_STOPPED_WHILE_STARTING",
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
   SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
   SETUP_KEY_INVALID = "SETUP_KEY_INVALID",
@@ -121,6 +128,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_IN_MAINTENANCE]: {
     message: "Node is in maintenance",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SUBSHELL_STOPPED_WHILE_STARTING]: {
+    message: "The subshell was stopped while it was starting",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NO_SERVICE]: {

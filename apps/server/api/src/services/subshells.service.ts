@@ -1,5 +1,6 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { getHarness } from "@internal/pane-runtime";
+import { NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
@@ -11,6 +12,7 @@ import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } f
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSubshellLogTail, SubshellManagerService } from "@/services/subshell-manager.service.js";
@@ -56,17 +58,44 @@ class SubshellError extends Error {
 }
 
 /**
- * Map an offline-flavored manager throw onto the structured 409 NODE_OFFLINE
- * of spec §5.6 (the pane may still be running on the node — the row is the
- * UI's truth again). Every other error keeps whatever mapping it had: the
- * rethrow rides the global handler unchanged.
- * @throws ApiError 409 NODE_OFFLINE (doNotLog — an expected 4xx class)
+ * Map a node-flavored manager throw onto the structured 409 it deserves.
+ * Every other error keeps whatever mapping it had: the rethrow rides the
+ * global handler unchanged.
+ *
+ * Two refusals travel this way:
+ *
+ * - **Offline** (spec §5.6) — the pane may still be running on the node, so
+ *   the row is the UI's truth again rather than an error.
+ * - **Maintenance** (spec 2026-09-14 §5.1) — the MACHINE refused the launch
+ *   because its own file says it is out of service. The plane gates this
+ *   itself from the node row, so reaching here means the node knew first: a
+ *   window opened at the keyboard, in the gap before the agent's `maintenance`
+ *   event converged the row. Without this branch that window answers 500,
+ *   which reads as a broken server rather than as the setting somebody just
+ *   changed. Compared against `detail` — the agent's `error` string VERBATIM
+ *   — and by equality, never by substring-matching the sentence
+ *   `NodeRpcError` wraps it in.
+ *
+ * Shared by create, restart and the log tail. A log tail can never see the
+ * maintenance refusal (only `launch` is refused in a window), so the sharing
+ * costs the third caller nothing and keeps one mapper instead of two that
+ * drift.
+ *
+ * @throws ApiError 409 NODE_OFFLINE / 409 NODE_IN_MAINTENANCE (doNotLog — both
+ *         are expected 4xx classes)
  */
-function rethrowUnlessNodeOffline(err: unknown): never {
+function rethrowLaunchRefusal(err: unknown): never {
   if (isNodeOfflineError(err)) {
     throwApiError({
       code: BackendErrorCodes.NODE_OFFLINE,
       message: "The subshell's node has no live agent connection; it may still be running the subshell there",
+      doNotLog: true,
+    });
+  }
+  if (err instanceof NodeRpcError && err.code === "failed" && err.detail === NODE_RESULT_MAINTENANCE) {
+    throwApiError({
+      code: BackendErrorCodes.NODE_IN_MAINTENANCE,
+      message: "That node is in maintenance and is accepting no new subshells",
       doNotLog: true,
     });
   }
@@ -79,21 +108,27 @@ function rethrowUnlessNodeOffline(err: unknown): never {
  * relocated:
  *
  * 1. `requestedNodeId` (body) — gate it: row absent OR invisible ⇒ 404, so
- *    the id is never an existence oracle (spec §2). VISIBLE BUT UNLAUNCHABLE
+ *    the id is never an existence oracle (spec §2). IN MAINTENANCE ⇒ 409
+ *    NODE_IN_MAINTENANCE — nobody launches in a window, owner, admin and
+ *    grantee alike (spec 2026-09-14 decision 1). VISIBLE BUT UNLAUNCHABLE
  *    ⇒ 403: since 2026-09-12 that state exists for exactly one row, the
- *    control-plane host with launching switched off, which an admin still
+ *    control-plane host narrowed to named people, which an admin still
  *    sees because seeing it is how they switch it back on. The 404 above runs
  *    FIRST, so the 403 can only ever name a node already on the caller's own
  *    Nodes page. An AGENT node with no live connection ⇒ 409 NODE_OFFLINE.
- * 2. `local` when its own access check grants launch — today's default, and
- *    the disable-switch (an admin deleting local's Everyone row turns this
- *    step off for EVERYONE, admins included: `nodeCanLaunchOn` reads the
- *    granted access there, never the admin boost, or the one person who can
- *    throw the switch would be the one person it does not apply to).
- * 3. Auto-pick: exactly one ONLINE agent among the caller's candidates —
- *    `findAccessible` for a browser actor, `listByOwner` for a bearer. Zero
- *    or several ⇒ 400 NODE_REQUIRED ("pick one"; the spec's single-online
- *    auto-pick is read literally — two online nodes is NOT a choice).
+ * 2. `local` when its own access check grants launch AND it is not in
+ *    maintenance — today's default, and the two switches on it (an admin
+ *    deleting local's Everyone row turns this step off for EVERYONE, admins
+ *    included: `nodeCanLaunchOn` reads the granted access there, never the
+ *    admin boost, or the one person who can throw the switch would be the one
+ *    person it does not apply to).
+ * 3. Auto-pick: exactly one ONLINE agent among the caller's candidates that is
+ *    not in maintenance — `findAccessible` for a browser actor, `listByOwner`
+ *    for a bearer. Zero or several ⇒ 400 NODE_REQUIRED ("pick one"; the spec's
+ *    single-online auto-pick is read literally — two online nodes is NOT a
+ *    choice). This step never reaches `nodeCanLaunchOn`, so the flag is
+ *    filtered here by hand: an implicit launch must never relocate onto a
+ *    machine whose owner took it out of service.
  *
  * The preset pin died with spec 2026-09-13 §2.3 — a preset never names a
  * node, so "where" is the body, then the host, then the lone online agent.
@@ -135,15 +170,32 @@ export async function resolveLaunchNode(
     if (!row || !nodeCanLaunch(access)) {
       throw new SubshellCreateError("node_not_found", "Node not found", 404);
     }
-    // The ONE visible-but-unlaunchable node (spec 2026-09-12): launching on
-    // the control-plane host is off, and this viewer only reaches it through
-    // the admin boost. A 403 rather than the 404 above — they can see this
-    // node on the Nodes page, and "not found" about a row on their screen
-    // reads as a bug rather than as a setting.
-    if (!nodeCanLaunchOn(row.kind, access, granted)) {
+    // Maintenance BEFORE the share reading and before liveness, because it is
+    // the only one of the three the caller can do something about and the
+    // only one that is true of everybody: a window refuses the owner, every
+    // admin and every grantee alike, `local` included. Saying "offline"
+    // about a machine whose owner deliberately took it out of service sends
+    // someone to check a network; saying "no launch access" invites them to
+    // ask for a share that would change nothing.
+    //
+    // It is stated here rather than left to `nodeCanLaunchOn` below — which
+    // ANDs the same flag — so the refusal carries its own code and message.
+    if (row.maintenance === 1) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_IN_MAINTENANCE,
+        message: `${row.name} is in maintenance and is accepting no new subshells`,
+        doNotLog: true,
+      });
+    }
+    // The ONE visible-but-unlaunchable node (spec 2026-09-12): the
+    // control-plane host is narrowed to named people, and this viewer only
+    // reaches it through the admin boost. A 403 rather than the 404 above —
+    // they can see this node on the Nodes page, and "not found" about a row
+    // on their screen reads as a bug rather than as a setting.
+    if (!nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1)) {
       throw new SubshellCreateError(
         "node_launch_disabled",
-        "Launching on the server is switched off; turn it back on from the server's node page, or pick a node",
+        `No one is granted launch access on ${row.name}. Share it with Everyone or with specific people to allow launching.`,
         403,
       );
     }
@@ -159,16 +211,27 @@ export async function resolveLaunchNode(
 
   if (requestedNodeId) return gate(requestedNodeId);
 
-  // Step 2: the control-plane host, via the same gate (its seeded Everyone/
-  // edit share is the launch switch; its absence relocates to step 3).
+  // Step 2: the control-plane host (its seeded Everyone/edit share is the
+  // launch grant and its maintenance flag the switch; either missing
+  // relocates to step 3). An IMPLICIT local launch is deliberately silent
+  // about both: the caller named no node, so there is nothing to explain yet
+  // — step 3 answers, or NODE_REQUIRED does.
   const local = await loadNodeAccess(deps, userId, LOCAL_NODE_ID, { allowAdminAndShares: !machineActor });
-  if (local.row && nodeCanLaunch(local.access) && nodeCanLaunchOn(local.row.kind, local.access, local.granted)) {
+  if (
+    local.row &&
+    nodeCanLaunch(local.access) &&
+    nodeCanLaunchOn(local.row.kind, local.access, local.granted, local.row.maintenance === 1)
+  ) {
     return { nodeId: LOCAL_NODE_ID };
   }
 
-  // Step 3: single-online-agent auto-pick over the actor's candidate set.
+  // Step 3: single-online-agent auto-pick over the actor's candidate set. The
+  // maintenance filter is spelled out because this step never reaches
+  // `nodeCanLaunchOn` — an implicit launch must not relocate onto a machine
+  // its owner took out of service, and "the only online node" is exactly
+  // where that would happen unnoticed.
   const candidates = machineActor ? await deps.nodes.listByOwner(userId) : await deps.nodes.findAccessible(userId);
-  const online = candidates.filter((n) => n.kind === "agent" && getLive(n.id));
+  const online = candidates.filter((n) => n.kind === "agent" && n.maintenance !== 1 && getLive(n.id));
   if (online.length === 1) return { nodeId: online[0].id };
   throwApiError({
     code: BackendErrorCodes.NODE_REQUIRED,
@@ -313,7 +376,7 @@ export class SubshellsService extends BaseService {
         // operator can mute an individual subshell with its bell.
         notify: true,
       })
-      .catch(rethrowUnlessNodeOffline);
+      .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from
     // real use — scoped to the node the subshell actually launched on, so a
     // remote machine's paths never surface in the local picker (and vice
@@ -438,7 +501,7 @@ export class SubshellsService extends BaseService {
     // Spec §6.5: the tail reads from the node that owns the pane — an
     // agent-node row goes through its RemoteLauncher (`log_read` window),
     // whose offline throw maps onto §5.6 exactly like create/restart.
-    return await readSubshellLogTail(id, row.nodeId).catch(rethrowUnlessNodeOffline);
+    return await readSubshellLogTail(id, row.nodeId).catch(rethrowLaunchRefusal);
   }
 
   /**
@@ -578,7 +641,21 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
-    const revived = await this.#manager.restartSubshell(row.userId, id).catch(rethrowUnlessNodeOffline);
+    // A restart IS a launch, and this path never touches `resolveLaunchNode`
+    // — the node was decided when the subshell was created. So the
+    // maintenance gate is asserted here, or "restart" would be the one way to
+    // start a pane on a machine that is refusing them. On an AGENT node the
+    // node's own fail-closed file would refuse it a second time; on `local`
+    // there is no agent and no file, so THIS is the only gate that exists.
+    const node = await this.repos.nodes.findById(row.nodeId);
+    if (node?.maintenance === 1) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_IN_MAINTENANCE,
+        message: `${node.name} is in maintenance and is accepting no new subshells`,
+        doNotLog: true,
+      });
+    }
+    const revived = await this.#manager.restartSubshell(row.userId, id).catch(rethrowLaunchRefusal);
     if (!revived) {
       throw new SubshellError("not_found", "Subshell not found");
     }
