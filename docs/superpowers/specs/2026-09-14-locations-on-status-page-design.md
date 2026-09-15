@@ -125,6 +125,14 @@ the absence of a card is not worth a test file.
 - `apps/server/web/AGENTS.md`: wherever it lists the Service page's cards or
   the Status page's, reflect the move (the implementer greps for
   `Locations`, `LocationsCard`, `where it writes`).
+  **Correction (review, 2026-09-14):** that grep was scoped to documentation
+  and missed `e2e/tests/16-server-service.spec.ts`, which asserted the card's
+  title and one of its rows on the page the card left. The local verification
+  set cannot catch this — the Playwright suite is deliberately not part of
+  `bun run test` — so all four commands passed while CI would have failed.
+  **A spec that moves a rendered element greps `e2e/tests/` for its visible
+  STRINGS, not only its symbol names**, since an end-to-end assertion names
+  what a person reads and never imports what it checks.
 - `2026-09-12-management-in-the-dashboard-design.md` is a historical design
   and is not edited; this file amends it.
 - Changeset: `@internal/server`, **patch** — "The Locations card (config
