@@ -54,13 +54,25 @@ signed-in-only — which writes each `/api/events` frame into
 by opening another EventSource.
 
 **The admin surface is six pages behind one collapsible group** (spec
-2026-09-11 grouped-navigation): General (`/settings`), Users, API keys,
-Plugins, Status and Audit log, listed in the rail under **Server Settings**
-and gated as a WHOLE — a member's rail lists none of them, `/users` included,
-though that route stays reachable by URL for everyone because the sharing
-picker reads the same roster. Two of the six are read-only: `/settings` is
-where an admin CHANGES the instance, while Status and `/settings/audit` are
-where they see what it currently IS and what has happened to it.
+2026-09-11 grouped-navigation): General (`/settings`), Users
+(`/settings/users`), API keys, Plugins, Status and Audit log, listed in the
+rail under **Server Settings** and gated as a WHOLE — a member's rail lists
+none of them, and none of them renders for a member who types the URL. The
+roster page moved INTO the namespace on 2026-09-14 and lost its read-only
+member view with it: the roster exists so the sharing picker can name people,
+and that reads `GET /api/users`, which is still instance-wide. Two of the six
+are read-only: `/settings` is where an admin CHANGES the instance, while
+Status and `/settings/audit` are where they see what it currently IS and what
+has happened to it.
+
+**There is ONE new-account form.** `components/account/new-account-fields.tsx`
+renders the four fields (name, email, password, confirmation) plus the two
+rules that make them usable — the password requirement stated before it is
+broken, and a mismatch reported only once the confirm box is left — and both
+callers use it: the first-run wizard's first screen and the Add user dialog on
+`/settings/users`, which adds only the Role select that setup has no use for.
+The admin's form used to be a thinner copy, so the person creating an account
+for someone else got less help than the person creating their own.
 
 `routes/settings_.status.tsx` (`/settings/status`, components in
 `components/admin-status/`, data in `hooks/use-admin-status.ts`) is the model

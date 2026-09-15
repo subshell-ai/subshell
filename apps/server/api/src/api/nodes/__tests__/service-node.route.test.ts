@@ -87,8 +87,18 @@ describe("/api/nodes service + runtime", () => {
   beforeAll(async () => {
     await setupAuthTables();
     const users = new UsersRepository(db);
-    aliceId = await users.createUser({ email: emails.alice, passwordHash: await hashPassword(pw), role: "user" });
-    carolId = await users.createUser({ email: emails.carol, passwordHash: await hashPassword(pw), role: "user" });
+    aliceId = await users.createUser({
+      email: emails.alice,
+      name: emails.alice,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    carolId = await users.createUser({
+      email: emails.carol,
+      name: emails.carol,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     aliceCookie = await signIn(emails.alice, pw);
     carolCookie = await signIn(emails.carol, pw);
     await ensureLocalNode(db);

@@ -50,8 +50,18 @@ describe("subshell uploads route", () => {
     const users = new UsersRepository(db);
     ownerEmail = `upowner-${crypto.randomUUID()}@subshell.local`;
     otherEmail = `upother-${crypto.randomUUID()}@subshell.local`;
-    ownerId = await users.createUser({ email: ownerEmail, passwordHash: await hashPassword(password), role: "user" });
-    otherId = await users.createUser({ email: otherEmail, passwordHash: await hashPassword(password), role: "user" });
+    ownerId = await users.createUser({
+      email: ownerEmail,
+      name: ownerEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    otherId = await users.createUser({
+      email: otherEmail,
+      name: otherEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
     ownerToken = await signIn(ownerEmail, password);
     otherToken = await signIn(otherEmail, password);
   });

@@ -100,9 +100,15 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     process.env.PI_PATH = "/definitely/not/here/pi";
     await setupAuthTables();
     await ensureLocalNode(db);
-    userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     otherId = await new UsersRepository(db).createUser({
       email: otherEmail,
+      name: otherEmail,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
@@ -595,7 +601,12 @@ describe("POST /api/subshells/:id/restart onto an offline node (spec §5.6)", ()
   beforeAll(async () => {
     await setupAuthTables();
     await ensureLocalNode(db);
-    userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     cookie = await signIn(email, pw);
   });
 

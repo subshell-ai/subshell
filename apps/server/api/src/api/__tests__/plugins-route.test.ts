@@ -129,11 +129,13 @@ describe("/api/plugins", () => {
     });
     aliceId = await new UsersRepository(db).createUser({
       email: emails.alice,
+      name: emails.alice,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
     adminId = await new UsersRepository(db).createUser({
       email: emails.admin,
+      name: emails.admin,
       passwordHash: await hashPassword(pw),
       role: "admin",
     });

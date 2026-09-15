@@ -22,6 +22,7 @@ describe("GET /api/subshells/summary", () => {
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
@@ -77,6 +78,7 @@ describe("GET /api/subshells/summary", () => {
     const otherEmail = `summary-other-${crypto.randomUUID()}@subshell.local`;
     const otherId = await new UsersRepository(db).createUser({
       email: otherEmail,
+      name: otherEmail,
       passwordHash: await hashPassword(pw),
       role: "user",
     });

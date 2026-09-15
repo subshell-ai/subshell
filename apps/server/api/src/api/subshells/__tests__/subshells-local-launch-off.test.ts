@@ -59,6 +59,7 @@ describe("launching on the server, switched off", () => {
     await setupAuthTables();
     adminId = await new UsersRepository(db).createUser({
       email: adminEmail,
+      name: adminEmail,
       passwordHash: await hashPassword(pw),
       role: "admin",
     });

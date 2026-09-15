@@ -22,6 +22,7 @@ describe("passkey plugin (server)", () => {
     email = `passkey-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });

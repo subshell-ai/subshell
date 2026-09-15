@@ -10,6 +10,8 @@ export interface UserWithRole {
   id: string;
   /** User email address (unique) */
   email: string;
+  /** Display name, chosen at account creation (better-auth's `user.name`) */
+  name: string;
   /** App role: "admin" | "user" | null when no user_meta row exists */
   role: string | null;
   /** ISO 8601 timestamp of the user row creation */
@@ -37,7 +39,7 @@ export class UsersRepository extends BaseRepository {
     // is the app's snake_case table. raw sql fragments bypass the
     // CamelCasePlugin, so each reference spells its own dialect.
     const { rows } = await sql<UserWithRole>`
-      SELECT u.id, u.email, m.role, u."createdAt" AS createdAt
+      SELECT u.id, u.email, u.name, m.role, u."createdAt" AS createdAt
       FROM user u
       LEFT JOIN user_meta m ON m.user_id = u.id
       ORDER BY u."createdAt" DESC
@@ -66,19 +68,25 @@ export class UsersRepository extends BaseRepository {
    * Creates a credential account user (mirrors better-auth's own registration
    * insert shape): a `user` row, a `credential` `account` row with the hashed
    * password, and the app `user_meta` role row.
-   * @param input - Email, hashed password (use `hashPassword` from `better-auth/crypto`) and role
+   *
+   * `name` is written to `user.name` verbatim — the caller decides what a
+   * person is called, and is expected to have trimmed it. It used to be the
+   * email, because nothing asked for a name; every account-creating surface
+   * asks now, so there is no fallback to drift back into.
+   *
+   * @param input - Display name, email, hashed password (use `hashPassword` from `better-auth/crypto`) and role
    * @returns The new user's id
    * @throws On duplicate email (the `user.email` unique constraint fires a raw
    * SQLite error; callers map it to a 409)
    */
-  async createUser(input: { email: string; passwordHash: string; role: UserRole }): Promise<string> {
+  async createUser(input: { name: string; email: string; passwordHash: string; role: UserRole }): Promise<string> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     // user id doubles as the credential accountId (issuer local:credential),
     // matching what better-auth itself writes on sign-up.
     await sql`
       INSERT INTO user (id, name, email, emailVerified, image, createdAt, updatedAt)
-      VALUES (${id}, ${input.email}, ${input.email}, 0, NULL, ${now}, ${now})
+      VALUES (${id}, ${input.name}, ${input.email}, 0, NULL, ${now}, ${now})
     `.execute(this.db);
     await sql`
       INSERT INTO account (id, issuer, accountId, providerId, userId, password, createdAt, updatedAt)

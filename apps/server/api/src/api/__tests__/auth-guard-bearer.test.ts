@@ -69,8 +69,13 @@ describe("authGuard bearer path", () => {
   beforeAll(async () => {
     await setupAuthTables();
     const users = new UsersRepository(db);
-    userId = await users.createUser({ email, passwordHash: await hashPassword(password), role: "user" });
-    adminId = await users.createUser({ email: adminEmail, passwordHash: await hashPassword(password), role: "admin" });
+    userId = await users.createUser({ email, name: email, passwordHash: await hashPassword(password), role: "user" });
+    adminId = await users.createUser({
+      email: adminEmail,
+      name: adminEmail,
+      passwordHash: await hashPassword(password),
+      role: "admin",
+    });
     plainToken = await signIn(email, password);
   });
 

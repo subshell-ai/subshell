@@ -60,8 +60,18 @@ describe("channels route", () => {
   beforeAll(async () => {
     await setupAuthTables();
     const users = new UsersRepository(db);
-    alice = await users.createUser({ email: aliceEmail, passwordHash: await hashPassword(pw), role: "user" });
-    bob = await users.createUser({ email: bobEmail, passwordHash: await hashPassword(pw), role: "user" });
+    alice = await users.createUser({
+      email: aliceEmail,
+      name: aliceEmail,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    bob = await users.createUser({
+      email: bobEmail,
+      name: bobEmail,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     aliceToken = await signIn(aliceEmail, pw);
     bobToken = await signIn(bobEmail, pw);
   });

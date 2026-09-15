@@ -25,6 +25,7 @@ describe("authGuard cookie path", () => {
     email = `cookie-${crypto.randomUUID()}@subshell.local`;
     _userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });

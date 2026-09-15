@@ -97,6 +97,7 @@ beforeAll(async () => {
   aliceEmail = `acme-launch-${crypto.randomUUID()}@subshell.local`;
   aliceId = await new UsersRepository(db).createUser({
     email: aliceEmail,
+    name: aliceEmail,
     passwordHash: await hashPassword("acme-launch-1"),
     role: "user",
   });

@@ -1,6 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import {
+  EMPTY_NEW_ACCOUNT,
+  NewAccountFields,
+  type NewAccountValue,
+  newAccountComplete,
+} from "@/components/account/new-account-fields";
 import { ErrorBanner } from "@/components/error-banner";
 import { AgentRow } from "@/components/setup/agent-row";
 import { SetupAssistant } from "@/components/setup/setup-assistant";
@@ -11,8 +17,6 @@ import {
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/new-subshell-form";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { useInstallAgent } from "@/hooks/use-install-agent";
@@ -20,9 +24,7 @@ import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
-import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -39,12 +41,10 @@ function SetupPage() {
   });
   const [step, setStep] = useState(0);
 
-  // Registration (better-auth sign-up)
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [confirmTouched, setConfirmTouched] = useState(false);
+  // Registration (better-auth sign-up). The fields are the shared
+  // `NewAccountFields` — the same form the admin's Add user dialog renders —
+  // so this screen holds one value and none of the rules about it.
+  const [account, setAccount] = useState<NewAccountValue>(EMPTY_NEW_ACCOUNT);
   const [regError, setRegError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -124,7 +124,11 @@ function SetupPage() {
     setBusy(true);
     setRegError(null);
     try {
-      const { error: signUpError } = await authClient.signUp.email({ name, email, password });
+      const { error: signUpError } = await authClient.signUp.email({
+        name: account.name,
+        email: account.email,
+        password: account.password,
+      });
       if (signUpError) {
         setRegError(signUpError.message ?? "Registration failed");
         return;
@@ -201,7 +205,7 @@ function SetupPage() {
         primary={{
           label: "Create Account",
           onClick: () => void register(),
-          disabled: busy || !name || !email || passwordTooShort(password) || confirmPassword !== password,
+          disabled: busy || !newAccountComplete(account),
           pending: busy,
           pendingLabel: "Creating account…",
         }}
@@ -213,56 +217,7 @@ function SetupPage() {
             void register();
           }}
         >
-          <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
-            <Input id="name" required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              required
-              minLength={MIN_PASSWORD_LENGTH}
-              aria-describedby="password-requirement"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            {/* The requirement, stated BEFORE it is broken. Create Account is
-                disabled until it is met, and with nothing here that button was
-                simply grey with no way to learn why. It goes red only once
-                something has been typed — red under an empty box is telling
-                someone off for not having started. */}
-            <p
-              id="password-requirement"
-              className={cn(
-                "text-detail",
-                password.length > 0 && passwordTooShort(password) ? "text-destructive" : "text-muted-foreground",
-              )}
-            >
-              {PASSWORD_REQUIREMENT}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password-confirm">Confirm password</Label>
-            <Input
-              id="password-confirm"
-              type="password"
-              required
-              minLength={MIN_PASSWORD_LENGTH}
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              onBlur={() => setConfirmTouched(true)}
-            />
-          </div>
-          {confirmTouched && confirmPassword !== password && (
-            <p className="text-destructive text-detail">Passwords do not match</p>
-          )}
+          <NewAccountFields value={account} onChange={setAccount} autoFocus />
           {regError && <p className="text-destructive text-sm">{regError}</p>}
         </form>
       </SetupAssistant>

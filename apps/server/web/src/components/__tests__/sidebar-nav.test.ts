@@ -7,7 +7,7 @@ import { groupOpen, isNavGroup, visibleNavEntries, visibleNavItems } from "@/com
  */
 const GROUP_PAGES = [
   "/settings",
-  "/users",
+  "/settings/users",
   "/settings/api-keys",
   "/settings/plugins",
   "/settings/service",
@@ -26,10 +26,6 @@ describe("visibleNavItems", () => {
     for (const flag of [false, undefined]) {
       const paths = visibleNavItems(flag).map((i) => i.to);
       for (const page of GROUP_PAGES) expect(paths).not.toContain(page);
-      // /users is in that list now, which reverses what this test asserted
-      // before 2026-09-11: a member reaches the roster through the sharing
-      // dialog, and the route still renders for them by URL. What went away
-      // is only the rail entry.
       expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets"]);
     }
   });

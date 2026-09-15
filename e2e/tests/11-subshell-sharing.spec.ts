@@ -18,7 +18,10 @@ test("sharing: view is read-only, edit manages, private subshells are invisible"
   test.setTimeout(120_000);
   const admin = await browser.newContext({ storageState: ADMIN_STATE });
 
-  const member = { email: `share-${Date.now()}@subshell.test`, password: PASSWORD, role: "user" };
+  const email = `share-${Date.now()}@subshell.test`;
+  // name === email so the sharing dialog's labels (which prefer a real name)
+  // read exactly as they did before the route learned about names.
+  const member = { email, name: email, password: PASSWORD, role: "user" };
   const created = await admin.request.post("/api/users", { data: member });
   expect(created.ok(), await created.text()).toBe(true);
 

@@ -31,6 +31,7 @@ describe("notifications route", () => {
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });

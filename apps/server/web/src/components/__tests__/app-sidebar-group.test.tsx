@@ -67,9 +67,10 @@ function renderRail(initialPath: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
   // Every path the rail links to must exist, or clicking a child throws.
-  const paths = ["/", "/workspaces", "/nodes", "/presets", "/settings", "/users"];
+  const paths = ["/", "/workspaces", "/nodes", "/presets", "/settings"];
   const children = paths.map((path) => createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
   for (const path of [
+    "/settings/users",
     "/settings/api-keys",
     "/settings/plugins",
     "/settings/service",

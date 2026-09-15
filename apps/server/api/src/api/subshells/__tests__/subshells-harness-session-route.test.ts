@@ -32,7 +32,12 @@ describe("POST /api/subshells/:id/harness-session (self-only)", () => {
 
   beforeAll(async () => {
     await setupAuthTables();
-    userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     ownerCookie = await signIn(email, pw);
   });
 

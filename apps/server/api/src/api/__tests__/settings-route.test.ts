@@ -60,11 +60,13 @@ describe("settings routes (admin cookie only)", () => {
     const users = new UsersRepository(db);
     adminId = await users.createUser({
       email: adminEmail,
+      name: adminEmail,
       passwordHash: await hashPassword(adminPassword),
       role: "admin",
     });
     nonAdminId = await users.createUser({
       email: nonAdminEmail,
+      name: nonAdminEmail,
       passwordHash: await hashPassword(nonAdminPassword),
       role: "user",
     });
@@ -486,6 +488,7 @@ describe("/api/settings/terminal-history (per-user, cookie only)", () => {
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
@@ -539,6 +542,7 @@ describe("/api/settings/terminal-history (per-user, cookie only)", () => {
     const otherEmail = `term-hist-other-${crypto.randomUUID()}@subshell.local`;
     const otherId = await new UsersRepository(db).createUser({
       email: otherEmail,
+      name: otherEmail,
       passwordHash: await hashPassword(pw),
       role: "user",
     });

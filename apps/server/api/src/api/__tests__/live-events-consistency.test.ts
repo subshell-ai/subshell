@@ -62,8 +62,18 @@ describe("SSE events feed matches the REST list (one cache, two producers)", () 
   beforeAll(async () => {
     await setupAuthTables();
     const users = new UsersRepository(db);
-    ownerId = await users.createUser({ email: ownerEmail, passwordHash: await hashPassword(password), role: "user" });
-    adminId = await users.createUser({ email: adminEmail, passwordHash: await hashPassword(password), role: "admin" });
+    ownerId = await users.createUser({
+      email: ownerEmail,
+      name: ownerEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    adminId = await users.createUser({
+      email: adminEmail,
+      name: adminEmail,
+      passwordHash: await hashPassword(password),
+      role: "admin",
+    });
     adminCookie = await signIn(adminEmail, password);
 
     const id = crypto.randomUUID();

@@ -23,7 +23,12 @@ describe("PATCH /api/subshells/:id/name", () => {
 
   beforeAll(async () => {
     await setupAuthTables();
-    userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     token = await signIn(email, pw);
   });
 

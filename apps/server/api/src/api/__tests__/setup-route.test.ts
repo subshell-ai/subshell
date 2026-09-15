@@ -163,6 +163,7 @@ describe("/api/setup/harnesses conditional auth", () => {
     beforeAll(async () => {
       userId = await new UsersRepository(db).createUser({
         email,
+        name: email,
         passwordHash: await hashPassword(password),
         role: "user",
       });
@@ -171,6 +172,7 @@ describe("/api/setup/harnesses conditional auth", () => {
       // roles to tell the refusal from the grant.
       await new UsersRepository(db).createUser({
         email: adminEmail,
+        name: adminEmail,
         passwordHash: await hashPassword(password),
         role: "admin",
       });

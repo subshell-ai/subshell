@@ -40,11 +40,13 @@ describe("users-admin + audit routes", () => {
     nonAdminEmail = `user-${crypto.randomUUID()}@subshell.local`;
     adminId = await usersRepo.createUser({
       email: adminEmail,
+      name: adminEmail,
       passwordHash: await hashPassword(adminPassword),
       role: "admin",
     });
     const nonAdminId = await usersRepo.createUser({
       email: nonAdminEmail,
+      name: nonAdminEmail,
       passwordHash: await hashPassword(nonAdminPassword),
       role: "user",
     });
@@ -102,6 +104,7 @@ describe("users-admin + audit routes", () => {
       authedRequest("/api/users", token, {
         method: "POST",
         body: JSON.stringify({
+          name: "Member Post",
           email: `member-post-${crypto.randomUUID()}@subshell.local`,
           password: "member-pass-123",
           role: "user",
@@ -132,14 +135,28 @@ describe("users-admin + audit routes", () => {
     const res = await usersRoutes.fetch(
       authedRequest("/api/users", token, {
         method: "POST",
-        body: JSON.stringify({ email, password, role: "user" }),
+        body: JSON.stringify({ name: "  Ada Lovelace  ", email, password, role: "user" }),
       }),
     );
     expect(res.status).toBe(200);
-    const created = (await res.json()) as { id: string; email: string; role: string; createdAt: string };
+    const created = (await res.json()) as {
+      id: string;
+      email: string;
+      name: string;
+      role: string;
+      createdAt: string;
+    };
     expect(created.id).toBeTruthy();
     expect(created.email).toBe(email);
     expect(created.role).toBe("user");
+    // The name is trimmed on the way in and comes back on the way out.
+    expect(created.name).toBe("Ada Lovelace");
+
+    // ...and the roster carries the same name, so the page that created the
+    // account and the page that lists it agree.
+    const roster = await usersRoutes.fetch(authedRequest("/api/users", token));
+    const rosterBody = (await roster.json()) as { users: Array<{ email: string; name: string }> };
+    expect(rosterBody.users.find((u) => u.email === email)?.name).toBe("Ada Lovelace");
 
     // The user_meta row carries the role and the credential account hashes the password.
     const meta = await db.selectFrom("userMeta").select("role").where("userId", "=", created.id).executeTakeFirst();
@@ -159,7 +176,7 @@ describe("users-admin + audit routes", () => {
     const dup = await usersRoutes.fetch(
       authedRequest("/api/users", token, {
         method: "POST",
-        body: JSON.stringify({ email, password, role: "user" }),
+        body: JSON.stringify({ name: "Ada Again", email, password, role: "user" }),
       }),
     );
     expect(dup.status).toBe(409);
@@ -167,6 +184,32 @@ describe("users-admin + audit routes", () => {
     // Cleanup: user row (cascades account/session) + user_meta row.
     await db.deleteFrom("userMeta").where("userId", "=", created.id).execute();
     await deleteUserByEmailOrId(email);
+  });
+
+  it("a blank name is refused (400) and the refusal never echoes the password", async () => {
+    const token = await signIn(adminEmail, adminPassword);
+    const email = `blank-name-${crypto.randomUUID()}@subshell.local`;
+    // A password long enough to pass `assertPasswordLength`, so the ONLY thing
+    // wrong with this request is the name.
+    const password = "blank-name-pass-123";
+    const res = await usersRoutes.fetch(
+      authedRequest("/api/users", token, {
+        method: "POST",
+        body: JSON.stringify({ name: "   ", email, password, role: "user" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    // Checked in the handler rather than by a schema `minLength`, for the same
+    // reason the password bound is: Elysia puts the offending VALUE in a schema
+    // failure, and this route's contract is that a rejection quotes nothing the
+    // caller typed as a credential.
+    const raw = await res.text();
+    expect(raw).not.toContain(password);
+    expect(raw).toContain("Name is required.");
+
+    // Nothing was written.
+    const rows = await usersRepo.listWithRoles();
+    expect(rows.find((r) => r.email === email)).toBeUndefined();
   });
 
   it("audit repo records events and the admin audit endpoint lists them (403 for non-admin)", async () => {

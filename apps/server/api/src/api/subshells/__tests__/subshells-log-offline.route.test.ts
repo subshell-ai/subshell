@@ -32,7 +32,12 @@ describe("GET /api/subshells/:id/log onto an offline node (spec §5.6)", () => {
   beforeAll(async () => {
     await setupAuthTables();
     resetNodeRegistryForTests(); // the node must have NO live connection
-    userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     cookie = await signIn(email, pw);
     await new NodesRepository(db).create({ id: nodeId, ownerUserId: userId, name: `logoff-${nodeId}`, kind: "agent" });
     await new SubshellsRepository(db).create({

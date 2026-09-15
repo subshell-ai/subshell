@@ -47,6 +47,7 @@ describe("local folder picker under an allowlist", () => {
     // they are the one defining the rules.)
     await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });

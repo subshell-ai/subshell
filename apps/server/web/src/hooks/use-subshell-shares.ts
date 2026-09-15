@@ -56,7 +56,14 @@ export function useSetShares(id: string) {
 export interface RosterUser {
   /** better-auth user id */
   id: string;
-  /** Email address (used as the display label — the roster carries no name) */
+  /** Display name, asked for at creation (spec 2026-09-14 §1) */
+  name: string;
+  /**
+   * Email address, and the picker's display label — deliberately still the
+   * email now that a name exists beside it: two people can share a name and
+   * a share is a grant to exactly one account, so the label has to be the
+   * identity rather than the friendlier string.
+   */
   email: string;
 }
 

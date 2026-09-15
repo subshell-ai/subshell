@@ -61,6 +61,7 @@ describe("files explore ?node (remote folder picker)", () => {
     nodes = new NodesRepository(db);
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });

@@ -67,6 +67,7 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
 
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });
@@ -74,6 +75,7 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
 
     await new UsersRepository(db).createUser({
       email: adminEmail,
+      name: adminEmail,
       passwordHash: await hashPassword(password),
       role: "admin",
     });

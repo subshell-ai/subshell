@@ -122,11 +122,13 @@ describe("/api/nodes harness state + recheck", () => {
     await setupAuthTables();
     aliceId = await new UsersRepository(db).createUser({
       email: emails.alice,
+      name: emails.alice,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
     carolId = await new UsersRepository(db).createUser({
       email: emails.carol,
+      name: emails.carol,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
@@ -136,6 +138,7 @@ describe("/api/nodes harness state + recheck", () => {
     // reads the host view, so the suite needs one.
     await new UsersRepository(db).createUser({
       email: emails.admin,
+      name: emails.admin,
       passwordHash: await hashPassword(pw),
       role: "admin",
     });

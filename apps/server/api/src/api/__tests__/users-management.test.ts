@@ -45,7 +45,7 @@ describe("admin user management", () => {
   const meta = new UserMetaRepository(db);
 
   async function mkUser(email: string, role: "admin" | "user"): Promise<string> {
-    return await users.createUser({ email, passwordHash: await hashPassword(pw), role });
+    return await users.createUser({ email, name: email, passwordHash: await hashPassword(pw), role });
   }
 
   beforeAll(async () => {
@@ -241,6 +241,7 @@ describe("admin user management", () => {
       // therefore the same echo; fixed with it.
       const rejected = "tiny";
       const res = await req("POST", "/", adminCookie, {
+        name: "Um New",
         email: `um-new-${crypto.randomUUID()}@subshell.local`,
         password: rejected,
         role: "user",

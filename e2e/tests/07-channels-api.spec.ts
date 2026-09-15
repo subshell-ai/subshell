@@ -25,7 +25,7 @@ async function makePerson(
   email: string,
 ): Promise<Person> {
   const password = "e2e-channel-pass-1";
-  const created = await request.post("/api/users", { data: { email, password, role: "user" } });
+  const created = await request.post("/api/users", { data: { email, name: email, password, role: "user" } });
   expect(created.ok(), `create user ${email}`).toBeTruthy();
 
   // Empty storageState on purpose: playwright.request.newContext INHERITS the

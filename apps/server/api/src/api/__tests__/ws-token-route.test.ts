@@ -44,6 +44,7 @@ describe("ws-token route (cookie only)", () => {
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });

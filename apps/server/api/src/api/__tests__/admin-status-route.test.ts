@@ -58,11 +58,13 @@ describe("GET /api/admin/status", () => {
     const users = new UsersRepository(db);
     adminId = await users.createUser({
       email: adminEmail,
+      name: adminEmail,
       passwordHash: await hashPassword(adminPassword),
       role: "admin",
     });
     nonAdminId = await users.createUser({
       email: nonAdminEmail,
+      name: nonAdminEmail,
       passwordHash: await hashPassword(nonAdminPassword),
       role: "user",
     });

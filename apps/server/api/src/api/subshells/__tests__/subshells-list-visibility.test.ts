@@ -25,7 +25,12 @@ describe("GET /api/subshells visibility + access", () => {
   const created: string[] = [];
 
   async function mkUser(email: string): Promise<string> {
-    return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    return await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
   }
 
   async function ownSubshell(id: string, userId: string): Promise<void> {

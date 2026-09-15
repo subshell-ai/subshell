@@ -34,7 +34,12 @@ describe("node allowed-dirs route", () => {
   const NODE = `n-ad-${crypto.randomUUID()}`;
 
   async function mkUser(email: string): Promise<string> {
-    return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    return await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
   }
 
   beforeAll(async () => {
@@ -49,6 +54,7 @@ describe("node allowed-dirs route", () => {
     // resolution cases below need one.
     await new UsersRepository(db).createUser({
       email: adminEmail,
+      name: adminEmail,
       passwordHash: await hashPassword(pw),
       role: "admin",
     });

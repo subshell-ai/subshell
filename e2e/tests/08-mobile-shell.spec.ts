@@ -11,7 +11,7 @@ const isPhone = () => test.info().project.name === "mobile";
 test("no horizontal overflow on the main routes", async ({ page }) => {
   // /subshells/does-not-exist renders the not-running panel — a real mobile
   // layout surface, not just an empty route.
-  for (const path of ["/", "/workspaces", "/settings", "/account", "/users", "/subshells/does-not-exist"]) {
+  for (const path of ["/", "/workspaces", "/settings", "/account", "/settings/users", "/subshells/does-not-exist"]) {
     await page.goto(path);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, `${path} overflows by ${overflow}px`).toBeLessThanOrEqual(1);

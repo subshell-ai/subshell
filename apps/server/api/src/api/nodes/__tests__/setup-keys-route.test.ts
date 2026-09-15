@@ -43,7 +43,7 @@ describe("/api/nodes/setup-keys", () => {
   const repo = new NodeSetupKeysRepository(db);
 
   async function mkUser(email: string, role: "user" | "admin" = "user"): Promise<string> {
-    return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role });
+    return await new UsersRepository(db).createUser({ email, name: email, passwordHash: await hashPassword(pw), role });
   }
 
   beforeAll(async () => {

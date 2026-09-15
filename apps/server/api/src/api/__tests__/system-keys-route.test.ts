@@ -26,8 +26,13 @@ describe("system keys route", () => {
   beforeAll(async () => {
     await setupAuthTables();
     const users = new UsersRepository(db);
-    adminId = await users.createUser({ email: adminEmail, passwordHash: await hashPassword(pw), role: "admin" });
-    await users.createUser({ email: userEmail, passwordHash: await hashPassword(pw), role: "user" });
+    adminId = await users.createUser({
+      email: adminEmail,
+      name: adminEmail,
+      passwordHash: await hashPassword(pw),
+      role: "admin",
+    });
+    await users.createUser({ email: userEmail, name: userEmail, passwordHash: await hashPassword(pw), role: "user" });
     adminToken = await signIn(adminEmail, pw);
     plainToken = await signIn(userEmail, pw);
   });

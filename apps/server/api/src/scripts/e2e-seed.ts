@@ -34,6 +34,7 @@ async function create(): Promise<void> {
   const users = new UsersRepository(db);
   const userId = await users.createUser({
     email: `e2e-${crypto.randomUUID().slice(0, 8)}@subshell.local`,
+    name: "e2e admin",
     passwordHash: await hashPassword("e2e-pass-1234"),
     role: "admin",
   });

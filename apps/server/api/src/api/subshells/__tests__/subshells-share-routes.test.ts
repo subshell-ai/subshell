@@ -31,7 +31,12 @@ describe("/api/subshells/:id/shares", () => {
   const createdKeys: string[] = [];
 
   async function mkUser(email: string): Promise<string> {
-    return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    return await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
   }
 
   beforeAll(async () => {

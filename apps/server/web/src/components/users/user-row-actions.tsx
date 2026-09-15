@@ -16,7 +16,7 @@ import { PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import type { UserRole } from "@/types/user-role";
 
 /**
- * Per-user admin controls on `/users`: reassign the role, and reset the
+ * Per-user admin controls on `/settings/users`: reassign the role, and reset the
  * password.
  *
  * Both are server-gated (`requireAdmin`, cookie-only); these controls render

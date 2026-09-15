@@ -57,7 +57,7 @@ describe("emergency admin login (SUBSHELL_EMERGENCY_PASSWORD)", () => {
 
   async function makeUser(role: "admin" | "user", password: string): Promise<string> {
     const email = `emergency-${role}-${crypto.randomUUID()}@subshell.local`;
-    await repo.createUser({ email, passwordHash: await hashPassword(password), role });
+    await repo.createUser({ email, name: email, passwordHash: await hashPassword(password), role });
     created.push({ email });
     return email;
   }

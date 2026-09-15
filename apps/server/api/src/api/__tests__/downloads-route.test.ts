@@ -80,6 +80,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     writeFileSync(fixturePath, FIXTURE);
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
@@ -624,6 +625,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
     _userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(pw),
       role: "user",
     });

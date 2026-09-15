@@ -86,6 +86,7 @@ describe("preset write routes (cookie only) + env name validation", () => {
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });
@@ -336,6 +337,7 @@ describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
     await setupAuthTables();
     ownerId = await new UsersRepository(db).createUser({
       email: ownerEmail,
+      name: ownerEmail,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
@@ -570,6 +572,7 @@ describe("preset availability is the instance store (list + create)", () => {
     await setupAuthTables();
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });

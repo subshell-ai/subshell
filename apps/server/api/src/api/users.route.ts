@@ -12,6 +12,7 @@ import { audit } from "@/services/audit.js";
 const UserRowSchema = t.Object({
   id: t.String({ description: "User id" }),
   email: t.String({ description: "User email" }),
+  name: t.String({ description: "Display name" }),
   role: t.Union([t.String(), t.Null()], { description: "App role (admin/user) or null when no user_meta row" }),
   createdAt: t.Union([t.String(), t.Null()], { description: "ISO 8601 creation timestamp" }),
   manageable: t.Boolean({
@@ -21,6 +22,10 @@ const UserRowSchema = t.Object({
 });
 
 const CreateUserBodySchema = t.Object({
+  name: t.String({
+    description:
+      "Display name for the new account. Trimmed and required in the handler rather than by a schema `minLength`, which would accept a run of spaces",
+  }),
   email: t.String({ description: "Email address for the new credential account" }),
   password: t.String({
     description:
@@ -35,6 +40,7 @@ const CreateUserBodySchema = t.Object({
 const CreateUserResponseSchema = t.Object({
   id: t.String({ description: "New user id" }),
   email: t.String({ description: "New user email" }),
+  name: t.String({ description: "Display name" }),
   role: t.String({ description: "Assigned role" }),
   createdAt: t.String({ description: "ISO 8601 creation timestamp" }),
 });
@@ -70,6 +76,20 @@ function assertPasswordLength(password: string): void {
   if (password.length < MIN_PASSWORD_LENGTH) {
     throw new UsersError("bad_request", `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`, 400);
   }
+}
+
+/**
+ * Trims the submitted display name and refuses an empty result.
+ *
+ * In the handler for the same reason the password bound is: a schema
+ * `minLength: 1` would both accept `"   "` and, on a failure, put the
+ * offending value in the message `error-handler.plugin.ts` copies into the
+ * response body.
+ */
+function requireName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) throw new UsersError("bad_request", "Name is required.", 400);
+  return trimmed;
 }
 
 const RoleSchema = t.Union(
@@ -130,13 +150,14 @@ const adminOnly = new Elysia()
   .post(
     "/",
     async ({ body, user }) => {
+      const name = requireName(body.name);
       assertPasswordLength(body.password);
       const repo = new UsersRepository(db);
       const email = body.email.trim().toLowerCase();
       const passwordHash = await hashPassword(body.password);
       let id: string;
       try {
-        id = await repo.createUser({ email, passwordHash, role: body.role });
+        id = await repo.createUser({ name, email, passwordHash, role: body.role });
       } catch (err) {
         if (err instanceof Error && err.message.includes("UNIQUE") && err.message.includes("user.email")) {
           throw new UsersError("conflict", "Email already registered");
@@ -151,7 +172,7 @@ const adminOnly = new Elysia()
         targetId: id,
         metadataJson: JSON.stringify({ email }),
       });
-      return { id, email, role: body.role, createdAt: new Date().toISOString() } as const;
+      return { id, email, name, role: body.role, createdAt: new Date().toISOString() } as const;
     },
     {
       body: CreateUserBodySchema,

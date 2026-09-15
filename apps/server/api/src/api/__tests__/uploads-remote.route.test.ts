@@ -136,6 +136,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     ownerEmail = `uprem-${crypto.randomUUID()}@subshell.local`;
     ownerId = await new UsersRepository(db).createUser({
       email: ownerEmail,
+      name: ownerEmail,
       passwordHash: await hashPassword(password),
       role: "user",
     });

@@ -27,11 +27,15 @@ test("signed-out deep-link round-trips through /login?redirect", async ({ page }
   await expect(page).toHaveURL(/\/workspaces$/);
 });
 
-test("members see the roster but no management UI", async ({ browser }) => {
+test("members are turned away from the roster page", async ({ browser }) => {
   // Admin mints the member through the API (admin context closes right after).
   const adminCtx = await browser.newContext({ storageState: ADMIN_STATE });
+  const memberEmail = `member-${Date.now()}@subshell.test`;
   const member = {
-    email: `member-${Date.now()}@subshell.test`,
+    email: memberEmail,
+    // The name is the email on purpose: `displayNamesByIds` prefers a real
+    // name, so a distinct one here would change every label this suite reads.
+    name: memberEmail,
     password: "member-pass-123",
     role: "user",
   } as const;
@@ -43,11 +47,11 @@ test("members see the roster but no management UI", async ({ browser }) => {
   // CardTitle renders a plain <div>, so getByRole("heading", …) selectors
   // could never match anything — the absence assertions passed structurally.)
   const adminPage = await adminCtx.newPage();
-  await adminPage.goto("/users");
+  await adminPage.goto("/settings/users");
   await expect(adminPage.getByRole("button", { name: "Add user" })).toBeVisible();
-  // The audit trail left /users for its own page under the Server Settings
-  // group (spec 2026-09-11 grouped-navigation §4.4), so the control that
-  // proves this selector can match has to follow it there.
+  // The audit trail left the roster page for one of its own under the Server
+  // Settings group (spec 2026-09-11 grouped-navigation §4.4), so the control
+  // that proves this selector can match has to follow it there.
   await adminPage.goto("/settings/audit");
   await expect(adminPage.getByText("Latest subshell lifecycle")).toBeVisible();
   await adminCtx.close();
@@ -60,12 +64,16 @@ test("members see the roster but no management UI", async ({ browser }) => {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
 
-  await page.goto("/users");
+  // The roster became an admin page (spec 2026-09-14): a member gets the
+  // guidance sentence every other admin page gives them, and no table at all.
+  // The roster API is unchanged — it is what the sharing picker reads — but
+  // this page is no longer the way to it.
+  await page.goto("/settings/users");
   await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
-  // The roster is real: the member's own row is there.
-  await expect(page.getByRole("cell", { name: member.email })).toBeVisible();
+  await expect(page.getByText("The user list is for instance admins")).toBeVisible();
+  await expect(page.getByRole("cell", { name: member.email })).toHaveCount(0);
   // Management is invisible, not just disabled. Selectors target real
-  // elements (the gated submit button, the audit CardDescription), not
+  // elements (the gated header button, the audit CardDescription), not
   // headings — CardTitle renders a <div>, so heading-role queries would be
   // vacuously true. The admin positive control above pins non-vacuity.
   await expect(page.getByRole("button", { name: "Add user" })).toHaveCount(0);
@@ -81,7 +89,7 @@ test("members see the roster but no management UI", async ({ browser }) => {
 
   // And unreachable: the API keeps enforcing, not just the UI hiding.
   const post = await ctx.request.post("/api/users", {
-    data: { email: `sneaky-${Date.now()}@subshell.test`, password: "sneaky-pass-123", role: "user" },
+    data: { name: "Sneaky", email: `sneaky-${Date.now()}@subshell.test`, password: "sneaky-pass-123", role: "user" },
   });
   expect(post.status()).toBe(403);
 

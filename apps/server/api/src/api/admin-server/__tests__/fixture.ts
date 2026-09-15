@@ -35,11 +35,13 @@ export async function setupAdminServerFixture(prefix: string): Promise<AdminServ
   const userEmail = `${prefix}-user-${crypto.randomUUID()}@subshell.local`;
   const adminId = await users.createUser({
     email: adminEmail,
+    name: adminEmail,
     passwordHash: await hashPassword("srv-admin-pass-1"),
     role: "admin",
   });
   const userId = await users.createUser({
     email: userEmail,
+    name: userEmail,
     passwordHash: await hashPassword("srv-user-pass-1"),
     role: "user",
   });

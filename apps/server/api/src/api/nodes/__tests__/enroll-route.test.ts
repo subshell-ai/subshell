@@ -50,6 +50,7 @@ describe("/api/nodes/enroll", () => {
     await setupAuthTables();
     aliceId = await new UsersRepository(db).createUser({
       email: aliceEmail,
+      name: aliceEmail,
       passwordHash: await hashPassword(pw),
       role: "user",
     });

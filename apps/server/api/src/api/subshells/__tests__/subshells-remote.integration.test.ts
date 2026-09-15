@@ -121,7 +121,12 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
   beforeAll(async () => {
     await setupAuthTables();
     await ensureLocalNode(db);
-    userId = await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
     cookie = await signIn(email, pw);
     presetId = await seedPreset(presetsRepo, { userId, name: "it-preset" });
     nodeId = crypto.randomUUID();

@@ -95,7 +95,7 @@ const NAV_ENTRIES: NavEntry[] = [
       // ServerCog above so the plain gear can stay on General and Server stays
       // on Nodes — three related icons, three different things.
       { to: "/settings", label: "General", icon: Settings, short: "Gen" },
-      { to: "/users", label: "Users", icon: Users, short: "Users" },
+      { to: "/settings/users", label: "Users", icon: Users, short: "Users" },
       { to: "/settings/api-keys", label: "API keys", icon: KeyRound, short: "Keys" },
       { to: "/settings/plugins", label: "Plugins", icon: Puzzle, short: "Plug" },
       // "Service", not "Server": the control-plane host's own node row is
@@ -127,7 +127,7 @@ export function visibleNavEntries(isAdmin: boolean | undefined): readonly NavEnt
  * **Nothing in the app calls this — the tests are its only consumers**, and
  * that is deliberate rather than dead code left behind. The rail renders from
  * the TREE, but the question the tests need to ask is about pages ("can a
- * member reach /users from here?"), which a tree makes them walk. Keeping the
+ * member reach /settings/users from here?"), which a tree makes them walk. Keeping the
  * flat view as the tested surface is also what let the group land without
  * rewriting the assertions that predate it.
  */

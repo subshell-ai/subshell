@@ -31,12 +31,14 @@ describe("devices route", () => {
     await setupAuthTables(); // runs the REAL migrations — device_tokens exists via the 0015 map entry
     userId = await new UsersRepository(db).createUser({
       email,
+      name: email,
       passwordHash: await hashPassword(password),
       role: "user",
     });
     cookie = await signIn(email, password);
     otherUserId = await new UsersRepository(db).createUser({
       email: otherEmail,
+      name: otherEmail,
       passwordHash: await hashPassword(password),
       role: "user",
     });

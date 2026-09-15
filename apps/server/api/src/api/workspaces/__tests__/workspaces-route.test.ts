@@ -52,8 +52,18 @@ describe("workspaces route", () => {
     const repo = new UsersRepository(db);
     ownerEmail = `wsowner-${crypto.randomUUID()}@subshell.local`;
     otherEmail = `wsother-${crypto.randomUUID()}@subshell.local`;
-    ownerId = await repo.createUser({ email: ownerEmail, passwordHash: await hashPassword(password), role: "user" });
-    otherId = await repo.createUser({ email: otherEmail, passwordHash: await hashPassword(password), role: "user" });
+    ownerId = await repo.createUser({
+      email: ownerEmail,
+      name: ownerEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    otherId = await repo.createUser({
+      email: otherEmail,
+      name: otherEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
   });
 
   beforeEach(async () => {

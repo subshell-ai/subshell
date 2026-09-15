@@ -47,7 +47,7 @@ function online(nodeId: string, capabilities = ["mcp"]): () => void {
 async function mkUser(role: "admin" | "user"): Promise<string> {
   const email = `rl-${crypto.randomUUID()}@subshell.local`;
   emails.push(email);
-  return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role });
+  return await new UsersRepository(db).createUser({ email, name: email, passwordHash: await hashPassword(pw), role });
 }
 
 async function mkAgent(ownerUserId: string): Promise<string> {

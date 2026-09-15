@@ -18,7 +18,6 @@ import { Route as PreferencesRouteImport } from './routes/preferences'
 import { Route as PresetsRouteImport } from './routes/presets'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
-import { Route as UsersRouteImport } from './routes/users'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
@@ -27,6 +26,7 @@ import { Route as SettingsAuditRouteImport } from './routes/settings_.audit'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
 import { Route as SettingsServiceRouteImport } from './routes/settings_.service'
 import { Route as SettingsStatusRouteImport } from './routes/settings_.status'
+import { Route as SettingsUsersRouteImport } from './routes/settings_.users'
 import { Route as SubshellsIdRouteImport } from './routes/subshells_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
 import { Route as NodesIdConfigRouteImport } from './routes/nodes_.$id.config'
@@ -78,11 +78,6 @@ const SetupRoute = SetupRouteImport.update({
   path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const UsersRoute = UsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const WorkspacesRoute = WorkspacesRouteImport.update({
   id: '/workspaces',
   path: '/workspaces',
@@ -123,6 +118,11 @@ const SettingsStatusRoute = SettingsStatusRouteImport.update({
   path: '/settings/status',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsUsersRoute = SettingsUsersRouteImport.update({
+  id: '/settings_/users',
+  path: '/settings/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SubshellsIdRoute = SubshellsIdRouteImport.update({
   id: '/subshells_/$id',
   path: '/subshells/$id',
@@ -159,7 +159,6 @@ export interface FileRoutesByFullPath {
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
-  '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRouteWithChildren
   '/presets/$id': typeof PresetsIdRoute
@@ -168,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
   '/settings/status': typeof SettingsStatusRoute
+  '/settings/users': typeof SettingsUsersRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
   '/nodes/$id/config': typeof NodesIdConfigRoute
@@ -184,7 +184,6 @@ export interface FileRoutesByTo {
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
-  '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRouteWithChildren
   '/presets/$id': typeof PresetsIdRoute
@@ -193,6 +192,7 @@ export interface FileRoutesByTo {
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
   '/settings/status': typeof SettingsStatusRoute
+  '/settings/users': typeof SettingsUsersRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
   '/nodes/$id/config': typeof NodesIdConfigRoute
@@ -210,7 +210,6 @@ export interface FileRoutesById {
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
-  '/users': typeof UsersRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes_/$id': typeof NodesIdRouteWithChildren
   '/presets_/$id': typeof PresetsIdRoute
@@ -219,6 +218,7 @@ export interface FileRoutesById {
   '/settings_/plugins': typeof SettingsPluginsRoute
   '/settings_/service': typeof SettingsServiceRoute
   '/settings_/status': typeof SettingsStatusRoute
+  '/settings_/users': typeof SettingsUsersRoute
   '/subshells_/$id': typeof SubshellsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
   '/nodes_/$id/config': typeof NodesIdConfigRoute
@@ -237,7 +237,6 @@ export interface FileRouteTypes {
     | '/presets'
     | '/settings'
     | '/setup'
-    | '/users'
     | '/workspaces'
     | '/nodes/$id'
     | '/presets/$id'
@@ -246,6 +245,7 @@ export interface FileRouteTypes {
     | '/settings/plugins'
     | '/settings/service'
     | '/settings/status'
+    | '/settings/users'
     | '/subshells/$id'
     | '/workspaces/$id'
     | '/nodes/$id/config'
@@ -262,7 +262,6 @@ export interface FileRouteTypes {
     | '/presets'
     | '/settings'
     | '/setup'
-    | '/users'
     | '/workspaces'
     | '/nodes/$id'
     | '/presets/$id'
@@ -271,6 +270,7 @@ export interface FileRouteTypes {
     | '/settings/plugins'
     | '/settings/service'
     | '/settings/status'
+    | '/settings/users'
     | '/subshells/$id'
     | '/workspaces/$id'
     | '/nodes/$id/config'
@@ -287,7 +287,6 @@ export interface FileRouteTypes {
     | '/presets'
     | '/settings'
     | '/setup'
-    | '/users'
     | '/workspaces'
     | '/nodes_/$id'
     | '/presets_/$id'
@@ -296,6 +295,7 @@ export interface FileRouteTypes {
     | '/settings_/plugins'
     | '/settings_/service'
     | '/settings_/status'
+    | '/settings_/users'
     | '/subshells_/$id'
     | '/workspaces_/$id'
     | '/nodes_/$id/config'
@@ -313,7 +313,6 @@ export interface RootRouteChildren {
   PresetsRoute: typeof PresetsRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
-  UsersRoute: typeof UsersRoute
   WorkspacesRoute: typeof WorkspacesRoute
   NodesIdRoute: typeof NodesIdRouteWithChildren
   PresetsIdRoute: typeof PresetsIdRoute
@@ -322,6 +321,7 @@ export interface RootRouteChildren {
   SettingsPluginsRoute: typeof SettingsPluginsRoute
   SettingsServiceRoute: typeof SettingsServiceRoute
   SettingsStatusRoute: typeof SettingsStatusRoute
+  SettingsUsersRoute: typeof SettingsUsersRoute
   SubshellsIdRoute: typeof SubshellsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
 }
@@ -391,13 +391,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/users': {
-      id: '/users'
-      path: '/users'
-      fullPath: '/users'
-      preLoaderRoute: typeof UsersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/workspaces': {
       id: '/workspaces'
       path: '/workspaces'
@@ -452,6 +445,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/status'
       fullPath: '/settings/status'
       preLoaderRoute: typeof SettingsStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings_/users': {
+      id: '/settings_/users'
+      path: '/settings/users'
+      fullPath: '/settings/users'
+      preLoaderRoute: typeof SettingsUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/subshells_/$id': {
@@ -517,7 +517,6 @@ const rootRouteChildren: RootRouteChildren = {
   PresetsRoute: PresetsRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
-  UsersRoute: UsersRoute,
   WorkspacesRoute: WorkspacesRoute,
   NodesIdRoute: NodesIdRouteWithChildren,
   PresetsIdRoute: PresetsIdRoute,
@@ -526,6 +525,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsPluginsRoute: SettingsPluginsRoute,
   SettingsServiceRoute: SettingsServiceRoute,
   SettingsStatusRoute: SettingsStatusRoute,
+  SettingsUsersRoute: SettingsUsersRoute,
   SubshellsIdRoute: SubshellsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,
 }

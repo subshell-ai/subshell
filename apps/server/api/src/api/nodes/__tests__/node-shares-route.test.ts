@@ -46,16 +46,19 @@ describe("/api/nodes/:id/shares", () => {
     await setupAuthTables();
     aliceId = await new UsersRepository(db).createUser({
       email: emails.alice,
+      name: emails.alice,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
     bobId = await new UsersRepository(db).createUser({
       email: emails.bob,
+      name: emails.bob,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
     await new UsersRepository(db).createUser({
       email: emails.root,
+      name: emails.root,
       passwordHash: await hashPassword(pw),
       role: "admin",
     });

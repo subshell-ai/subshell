@@ -62,12 +62,14 @@ describe("subshells attention + notify routes", () => {
     await setupAuthTables();
     ownerId = await new UsersRepository(db).createUser({
       email: ownerEmail,
+      name: ownerEmail,
       passwordHash: await hashPassword(password),
       role: "user",
     });
     ownerCookie = await signIn(ownerEmail, password);
     await new UsersRepository(db).createUser({
       email: foreignEmail,
+      name: foreignEmail,
       passwordHash: await hashPassword(password),
       role: "user",
     });

@@ -29,7 +29,12 @@ describe("subshell sharing — access matrix over routes", () => {
   const created: string[] = [];
 
   async function mkUser(email: string): Promise<string> {
-    return await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(pw), role: "user" });
+    return await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
   }
   async function ownSubshell(id: string): Promise<void> {
     created.push(id);
@@ -162,6 +167,7 @@ describe("subshell sharing — access matrix over routes", () => {
     const adminEmail = `sm-admin-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({
       email: adminEmail,
+      name: adminEmail,
       passwordHash: await hashPassword(pw),
       role: "admin",
     });

@@ -52,7 +52,12 @@ describe("harness install/uninstall", () => {
     // ADMIN: installing and removing plugins on this host is an admin act, the
     // same as through `POST /api/nodes/local/plugins`. A non-admin's refusal
     // is pinned in setup-route.test.ts.
-    await new UsersRepository(db).createUser({ email, passwordHash: await hashPassword(password), role: "admin" });
+    await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(password),
+      role: "admin",
+    });
     token = await signIn(email, password);
   });
 
