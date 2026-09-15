@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostReleaseTarget, releaseAssetNames } from "@internal/subshell-protocol";
+import { backupsDir } from "@/services/db-backup.js";
 import type { ResolvedRelease } from "@/services/releases.js";
 import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import {
@@ -316,5 +317,31 @@ describe("collectServerUpdateView", () => {
     );
     const view = await collectServerUpdateView();
     expect(view.canApply.reasons).toContain("an update is already in progress");
+  });
+
+  /**
+   * The card's whole claim about backups is "the newest one is from THEN", and
+   * it is the sentence an operator reads before pressing a button that
+   * migrates their database. `listBackups` answers newest-first — the order
+   * `prune` slices the tail off and the order `status --json` reads `[0]`
+   * from — and reading the tail here reported the OLDEST snapshot instead, so
+   * on a host with the default five the card said the database was last backed
+   * up four updates ago. Two files is the smallest case that can tell the two
+   * readings apart.
+   */
+  it("names the NEWEST snapshot as the latest backup, not the oldest", async () => {
+    const backups = backupsDir();
+    mkdirSync(backups, { recursive: true, mode: 0o700 });
+    const oldest = join(backups, "subshell-v0.6.0-20260101-000000.db");
+    const newest = join(backups, "subshell-v0.7.0-20260915-120000.db");
+    writeFileSync(oldest, "old", { mode: 0o600 });
+    writeFileSync(newest, "new", { mode: 0o600 });
+
+    const view = await collectServerUpdateView();
+    expect(view.backups.count).toBe(2);
+    expect(view.backups.latest?.path).toBe(newest);
+
+    rmSync(oldest, { force: true });
+    rmSync(newest, { force: true });
   });
 });
