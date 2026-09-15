@@ -615,9 +615,25 @@ jobs:
           NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          # The UPDATER's signing key (spec 2026-09-15 § 7.2, § 8). ONE keypair
+          # for both apps — they are one publisher — and the value is the key
+          # FILE'S CONTENTS, not a path: measured 2026-09-15, tauri 2.11 reads
+          # `TAURI_SIGNING_PRIVATE_KEY` and ignores
+          # `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`'s path-shaped sibling entirely.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           mkdir -p "$DEST"
+
+          # Missing signing secrets fail the shard LOUDLY, exactly like the
+          # notary ones and for the same reason: an unsigned (or unsignable)
+          # updater artifact is one NO installed app will accept, so publishing
+          # it is publishing a lie — and the symptom on a user's machine is
+          # silence, not an error. The PASSWORD is not checked for emptiness:
+          # a key generated with no passphrase legitimately carries "".
+          [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] \
+            || { echo "missing TAURI_SIGNING_PRIVATE_KEY secret (the updater signing key's CONTENTS)"; exit 1; }
 
           command -v cargo >/dev/null || { echo "no cargo on this runner/image"; exit 1; }
           cargo --version; rustc --version
@@ -827,7 +843,8 @@ jobs:
           pattern: ${{ matrix.app }}-*
           path: dist
 
-      # Solely to read the CHANGELOG: releases used to publish with an EMPTY
+      # Solely to read the CHANGELOG (and, for the desktop apps, to run the
+      # updater-manifest merge below): releases used to publish with an EMPTY
       # body, so the one page a user lands on to ask "what changed in 1.6.0?"
       # answered with a bare asset list. The prose already exists — changesets
       # wrote it at version time — it just never travelled to the release.
@@ -889,6 +906,45 @@ jobs:
           esac
           ls -la legal
 
+      # `latest.json` — the ONE document `tauri-plugin-updater` reads, and the
+      # only asset no single build shard could have written: each shard builds
+      # one platform and writes `latest.<triple>.json` beside its bundle, and
+      # this is the first moment they exist together.
+      #
+      # Its output lands ABOVE the per-shard directories, so the asset glob
+      # below would not reach it — it is listed explicitly. The merge REFUSES
+      # (and fails the release) on shards that disagree on the version, a
+      # platform claimed twice, or an entry with no signature: each of those
+      # would publish a manifest every installed app quietly rejects, which
+      # reads as "there are no updates" and is discovered by nobody.
+      - name: Use bun
+        if: startsWith(matrix.app, 'desktop-')
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Merge the updater manifests
+        if: startsWith(matrix.app, 'desktop-')
+        run: bun repo/scripts/merge-updater-manifests.ts dist --out updater
+
+      # The asset list, computed rather than written, because `latest.json`
+      # belongs to the two desktop components only — and
+      # `fail_on_unmatched_files: true` (which is what catches a shard that
+      # uploaded nothing) would otherwise fail every CLI release over a file
+      # those releases correctly do not have.
+      - id: assets
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          {
+            echo "files<<ASSETS_EOF"
+            echo "dist/$APP-*/*"
+            echo "legal/*"
+            case "$APP" in desktop-*) echo "updater/latest.json" ;; esac
+            echo "ASSETS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       # Draft first: a failed upload never ships a live release.
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -897,9 +953,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: true
           body_path: ${{ steps.notes.outputs.path }}
-          files: |
-            dist/${{ matrix.app }}-*/*
-            legal/*
+          files: ${{ steps.assets.outputs.files }}
           fail_on_unmatched_files: true
 
       # Same tag + draft omitted = update the existing draft and publish it

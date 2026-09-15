@@ -5,6 +5,7 @@
 // is per-window chrome rather than a system bar so there is no Linux menu to
 // carry it. Gated at the MODULE rather than left to its call site, because
 // clippy on Linux is then right to call the whole thing dead code.
+mod app_update;
 #[cfg(target_os = "macos")]
 mod bridge;
 mod control;
@@ -137,6 +138,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        // Updating THIS APP (spec 2026-09-15 § 7.2). The plugin's own
+        // `endpoints` config is deliberately empty: this repository publishes
+        // four components under four tag prefixes, so there is no one static
+        // manifest to point at, and `app_update.rs` resolves the right release
+        // before handing the plugin exactly one URL.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState::new(SETTINGS_PATHS))
         .manage(windows::ShellReady::new())
         // The reset's stashed plan and screen request live HERE, not on any
@@ -168,6 +175,8 @@ pub fn run() {
             control::desktop_permissions,
             control::desktop_request_notifications,
             control::desktop_open_system_settings,
+            control::desktop_check_app_update,
+            control::desktop_install_app_update,
         ])
         .on_window_event(|window, event| {
             // The assistant's page can no longer hear an event once its window
@@ -220,6 +229,11 @@ pub fn run() {
             if let Err(err) = tray::build(&handle) {
                 eprintln!("subshell: could not create the tray icon: {err}");
             }
+            // At most once a day, in the background, and it opens NOTHING: the
+            // only thing it changes is the tray item's label (spec § 7.2, and
+            // § 14 — automatic updates are explicitly not this design). After
+            // the tray, so the item it labels exists.
+            app_update::check_on_launch(&handle);
             // Boot looks before it leaps: the probe marks what it proves
             // (control::boot_probe -> mark_onboarded), and the WINDOW CHOICE
             // is made from the fresh answer, never the stored flag. A machine

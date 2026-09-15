@@ -34,6 +34,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
 use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::reset_guards::machine_hostname;
@@ -648,22 +649,6 @@ pub fn install_refusal(bundled: Option<&str>, installed: Option<&str>) -> Option
     ))
 }
 
-/// What to say about the service this install took down, if it took one down.
-fn stop_note(stop: Option<&Run>) -> &'static str {
-    match stop {
-        None => "",
-        // Say that the service is down, because this is the one action that
-        // stops it without being asked to.
-        Some(r) if r.ok() => " The service was stopped so the file could be replaced — start it again.",
-        // The copy goes ahead whatever the stop did, so the honest report is
-        // that the file changed underneath a daemon still running the old one.
-        Some(_) => {
-            " The service could NOT be stopped and the file was replaced anyway — what is running is still the old \
-             agent until it is restarted."
-        }
-    }
-}
-
 /// Two blocks of CLI output in the order they happened.
 fn joined(first: &str, second: &str) -> String {
     let (a, b) = (first.trim(), second.trim());
@@ -674,29 +659,36 @@ fn joined(first: &str, second: &str) -> String {
     }
 }
 
-/// Fold the stop's own words into the install's result.
+/// How long a delegated `update --from` may take.
 ///
-/// The stop is a CLI invocation with things to say: "subshell stopped." when it
-/// worked, and — the one that matters — the pane warning when the installed
-/// definition predates the pane-sparing directive, which is the sentence naming
-/// every subshell it just took down. Discarding it made this the one action
-/// that could end every pane on the machine and print nothing about it.
-fn with_stop_output(result: ActionResult, stop: Option<Run>) -> ActionResult {
-    let Some(stop) = stop else { return result };
-    let stop = ActionResult::from(stop);
-    ActionResult {
-        // A stop that failed leaves the manager running the binary that was
-        // just replaced, so the machine is not in the state the success line
-        // describes — a failure, whatever the copy managed to do.
-        ok: result.ok && stop.ok,
-        stdout: joined(&stop.stdout, &result.stdout),
-        stderr: joined(&stop.stderr, &result.stderr),
-    }
-}
+/// Longer than [`ACTION_TIMEOUT`] because this one call copies ~110 MB and
+/// then probes the copy's `version`. The plain copy it replaces had no
+/// deadline at all (it was `fs::copy`), so a 90-second budget would be a new
+/// way for a slow disk to fail.
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Materialise the bundled agent at `~/.local/bin/subshell`.
-#[tauri::command(async)]
-pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+///
+/// **Two paths, decided by whether there is an installed CLI to ask** (spec
+/// 2026-09-15 § 7.1):
+///
+/// - **A REPLACE of the managed copy** — `probe.managed`, i.e. the binary this
+///   machine actually runs IS `~/.local/bin/subshell` — goes through that
+///   binary's own `update --from`. The agent has no database, so what the verb
+///   buys here is narrower than on the server: `<binary>.previous`, the
+///   `update-pending.json` marker, and the version probe that refuses a file
+///   which cannot say what it is. It is still the same code on every path,
+///   which is the point.
+/// - **A first install** keeps [`sidecar::install_bundled`]: there is no
+///   installed CLI to run, and writing a file where none was is not a
+///   transaction.
+///
+/// **The service is no longer stopped on the replace path, and nothing is
+/// started.** The CLI's swap is a `rename(2)` a running daemon does not
+/// notice, so the stop that `install_bundled` needed (and the pane warning it
+/// carried) has nothing left to protect. `--no-restart` keeps the deliberate
+/// no-restart this command has always had: the screen says to start it.
+fn install_agent_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref());
@@ -706,49 +698,60 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
     ) {
         return Ok(ActionResult::refused(reason));
     }
-    // Only tear the service down when we are actually replacing the binary it
-    // runs. Stopping one that points somewhere else would end every subshell's
-    // supervision on this machine for no upgrade at all.
-    //
-    // `stop`, never `restart --force`: the CLI's own pane guard is what decides
-    // what a teardown costs — it warns rather than refusing on `stop`, and the
-    // warning is the only thing that will say which panes went down — which is
-    // why this goes through the CLI rather than through systemctl.
-    let stop_target = probe
-        .managed
-        .then(|| {
-            agent_cmd(
-                probe.agent.as_ref(),
-                &AgentCommand::Service {
-                    verb: ServiceCommand::Stop,
-                    force: false,
-                },
-            )
-        })
-        .flatten();
-    // KEPT, not discarded: see `with_stop_output`.
-    let mut stopped: Option<Run> = None;
-    let outcome = sidecar::install_bundled(&AGENT_SIDECAR, version.as_deref(), || {
-        if let Some(cmd) = stop_target {
-            stopped = Some(run(&cmd, ACTION_TIMEOUT));
-        }
-    })?;
-    match outcome {
+    if probe.managed {
+        let Some(staged) = sidecar::bundled_path(&AGENT_SIDECAR) else {
+            return Err("this build ships no subshell agent".into());
+        };
+        return Ok(delegate_update(probe.agent.as_ref(), &staged));
+    }
+    match sidecar::install_bundled(&AGENT_SIDECAR, version.as_deref(), || {})? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
-        // Nothing was stopped on this path: `install_bundled` answers before it
-        // calls the stop at all.
         sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled agent is already installed.")),
         sidecar::InstallOutcome::Installed => {
             let where_ = sidecar::install_path(&AGENT_SIDECAR)
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
-            let note = stop_note(stopped.as_ref());
-            Ok(with_stop_output(
-                ActionResult::said(format!("Installed subshell to {where_}.{note}")),
-                stopped,
-            ))
+            Ok(ActionResult::said(format!("Installed subshell to {where_}.")))
         }
     }
+}
+
+/// The delegated update's whole command line: the resolved agent, then the
+/// flags [`cli_update::update_args`] owns.
+///
+/// Split out so the argv is testable without running anything — the flags are
+/// a contract with the CLI (see `desktop-core`'s `cli_update`), and this app
+/// must never spell one of them itself.
+fn update_argv(agent: Option<&AgentBinary>, staged: &Path) -> Option<Vec<String>> {
+    let mut argv = agent?.argv.clone();
+    argv.extend(cli_update::update_args(staged));
+    Some(argv)
+}
+
+/// Run the installed agent's own `update --from <staged sidecar>`.
+///
+/// The CLI's words reach the screen verbatim — this adds exactly one sentence
+/// built from the `--json` tail, naming what moved
+/// (`cli_update::update_summary`). A run with no JSON tail is not a failure:
+/// "Already at 0.9.0." exits 0 and prints prose, and the screen shows it.
+fn delegate_update(agent: Option<&AgentBinary>, staged: &Path) -> ActionResult {
+    let Some(argv) = update_argv(agent, staged) else {
+        return ActionResult::refused("no installed subshell agent to update");
+    };
+    let result = ActionResult::from(run(&argv, UPDATE_TIMEOUT));
+    let Some(report) = cli_update::parse_update_report(&result.stdout) else {
+        return result;
+    };
+    let summary = cli_update::update_summary(&report, "agent");
+    ActionResult {
+        stdout: joined(&result.stdout, &summary),
+        ..result
+    }
+}
+
+#[tauri::command(async)]
+pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+    install_agent_now(&settings)
 }
 
 /// One `service` verb, straight through. The agent decides whether to refuse —
@@ -1487,6 +1490,29 @@ pub fn node_pending_screen(app: AppHandle) -> Option<String> {
     crate::windows::take_pending_screen(&app)
 }
 
+/// Ask the release source whether a newer **Subshell Client app** exists.
+///
+/// Read-only and node-window-only. Read-only because it fetches one JSON list
+/// and asks the updater plugin to verify one manifest; node-window-only for
+/// the same reason every other `node_*` command is — the plane's window is a
+/// control plane's own page, and it holds one command that opens a browser.
+#[tauri::command(async)]
+pub async fn node_check_app_update(app: AppHandle) -> Result<crate::app_update::AppUpdateCheck, String> {
+    crate::app_update::check_app_update(&app).await
+}
+
+/// Download, verify, install and relaunch into the newest app.
+///
+/// **Takes no argument.** The version to install is re-resolved here rather
+/// than carried back from the page — the same shape every other command in
+/// this file keeps: the page names an intent, never a path, a URL or a host.
+///
+/// It does not return on success: `app.restart()` is `-> !`.
+#[tauri::command(async)]
+pub async fn node_install_app_update(app: AppHandle) -> Result<(), String> {
+    crate::app_update::install_app_update(&app).await
+}
+
 /// Reveal one of a fixed set of the app's own directories or files.
 #[tauri::command(async)]
 pub fn node_open_path(app: AppHandle, target: OpenTarget) -> Result<(), String> {
@@ -1911,13 +1937,32 @@ mod probe_tests {
 mod install_policy_tests {
     use super::*;
 
-    fn run_with(code: Option<i32>, stdout: &str, stderr: &str) -> Run {
-        Run {
-            code,
-            stdout: stdout.into(),
-            stderr: stderr.into(),
-            timed_out: false,
-        }
+    // The replace path hands the STAGED sidecar to the INSTALLED agent, and
+    // the flags come from the shared contract rather than from here. A flag
+    // spelled locally is how the two apps come to ask their CLIs for different
+    // things — and `--no-restart` going missing is the one that would start
+    // restarting a daemon this command has deliberately never restarted.
+    #[test]
+    fn the_delegated_argv_is_the_installed_binary_plus_the_shared_flags() {
+        let agent = AgentBinary {
+            argv: vec!["/home/u/.local/bin/subshell".into()],
+            source: crate::agent_bin::AgentSource::LocalBin,
+            version: Some("0.8.0".into()),
+        };
+        let staged = PathBuf::from("/Applications/Subshell Client.app/Contents/MacOS/subshell-node-bundled");
+        let argv = update_argv(Some(&agent), &staged).expect("an argv");
+        assert_eq!(argv.first().map(String::as_str), Some("/home/u/.local/bin/subshell"));
+        assert_eq!(&argv[1..], &cli_update::update_args(&staged)[..]);
+        assert!(argv.contains(&"--no-restart".to_string()));
+        assert!(argv.contains(&"--yes".to_string()));
+        assert!(argv.contains(&"--json".to_string()));
+    }
+
+    // Nothing resolved means nothing to run `update` — the caller answers with
+    // a refusal rather than spawning `update` as a bare word on the PATH.
+    #[test]
+    fn nothing_resolved_builds_no_command() {
+        assert!(update_argv(None, &PathBuf::from("/x")).is_none());
     }
 
     // The invariant `agent_bin` states in its own words: a newer installed
@@ -1981,82 +2026,6 @@ mod install_policy_tests {
             p.agent.as_ref().and_then(|a| a.version.as_deref())
         )
         .is_some());
-    }
-
-    // The one action that stops the service without being asked to. On a stale
-    // definition that stop is what ends every pane on the machine, and the
-    // CLI's warning is the only thing that says so.
-    #[test]
-    fn the_stops_own_words_reach_the_page() {
-        let warning = "subshell: warning: /Users/u/Library/LaunchAgents/dev.subshell.client.plist predates \
-                       AbandonProcessGroup=true, so stop kills every running subshell's tmux server";
-        let result = with_stop_output(
-            ActionResult::said("Installed subshell to /home/u/.local/bin/subshell."),
-            Some(run_with(Some(0), "subshell stopped.", warning)),
-        );
-        assert!(result.ok);
-        assert!(
-            result.stderr.contains("kills every running subshell"),
-            "{}",
-            result.stderr
-        );
-        assert!(result.stdout.contains("subshell stopped."), "{}", result.stdout);
-        assert!(result.stdout.contains("Installed subshell"), "{}", result.stdout);
-    }
-
-    // A stop that failed leaves the manager running the file that was just
-    // replaced: the success line describes a machine this one is not.
-    #[test]
-    fn a_failed_stop_makes_the_whole_install_a_failure() {
-        let result = with_stop_output(
-            ActionResult::said("Installed subshell to /home/u/.local/bin/subshell."),
-            Some(run_with(
-                Some(1),
-                "",
-                "systemctl --user stop subshell.service failed (exit 1): no such unit",
-            )),
-        );
-        assert!(!result.ok);
-        assert!(result.stderr.contains("no such unit"), "{}", result.stderr);
-    }
-
-    // A silent failure — a deadline or a spawn error — still has to say
-    // something, or the install reads as clean.
-    #[test]
-    fn a_stop_that_said_nothing_still_reports_itself() {
-        let result = with_stop_output(
-            ActionResult::said("Installed."),
-            Some(Run {
-                code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                timed_out: true,
-            }),
-        );
-        assert!(!result.ok);
-        assert_eq!(result.stderr, "timed out");
-    }
-
-    // Nothing was stopped (an unmanaged agent, or nothing installed), so
-    // nothing is claimed about a service.
-    #[test]
-    fn with_no_stop_the_result_is_untouched() {
-        let result = with_stop_output(ActionResult::said("Installed."), None);
-        assert!(result.ok);
-        assert_eq!(result.stdout, "Installed.");
-        assert_eq!(result.stderr, "");
-        assert_eq!(stop_note(None), "");
-    }
-
-    // The note describes what actually happened to the service, not what the
-    // app intended: "start it again" over a stop that failed sends the user to
-    // a button that will report the service is already running.
-    #[test]
-    fn the_note_follows_the_stop_that_actually_ran() {
-        assert!(stop_note(Some(&run_with(Some(0), "subshell stopped.", ""))).contains("start it again"));
-        let failed = stop_note(Some(&run_with(Some(1), "", "boom")));
-        assert!(failed.contains("could NOT be stopped"), "{failed}");
-        assert!(!failed.contains("start it again"), "{failed}");
     }
 
     #[test]
@@ -2533,6 +2502,11 @@ mod path_tests {
             onboarded: false,
             // Read by the menus, never by the page — see the key-set test below.
             zoom: 1.0,
+            // Read by the TRAY (the "Check for Updates…" label) and by the
+            // launch check's own 24-hour gate, never by the page: the app
+            // update is a screen a person asks for, not a fact on the probe.
+            last_update_check_at: None,
+            last_update_version: None,
             // Subshell Server's own: who runs the control plane there. This
             // app has a node agent with its own service and no such mode, so
             // it shares the struct and ignores the field, exactly as the

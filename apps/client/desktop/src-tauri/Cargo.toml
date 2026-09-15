@@ -25,6 +25,21 @@ subshell-desktop-core = { path = "../../../../crates/desktop-core" }
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-dialog = "2.7.3"
 tauri-plugin-opener = "2.5.5"
+# Updating the APP itself (spec 2026-09-15 § 7.2). It verifies a minisign
+# signature against the public key in `tauri.conf.json` — the SAME key
+# `apps/server/desktop` pins, because the two apps are one publisher.
+tauri-plugin-updater = "2.11.0"
+# The release LIST, which the updater plugin does not fetch: it wants one
+# static manifest URL, and this repository publishes four components under four
+# tag prefixes. Declared rather than leant on as the plugin's transitive dep —
+# a dependency you call is a dependency you name — with the plugin's own minor
+# and its own TLS feature, so cargo resolves ONE reqwest rather than two whole
+# HTTP stacks.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# The crypto provider `rustls-no-provider` deliberately does not choose. The
+# updater plugin installs ring lazily when IT builds a client; this app's own
+# client may be built first, so it installs the same one (see app_update.rs).
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

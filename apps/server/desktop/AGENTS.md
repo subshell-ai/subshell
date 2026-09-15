@@ -133,7 +133,14 @@ screen it did not recognise, which then bounced the user back to the dashboard
 they had just pressed a button on. Adding a screen means the Rust enum and
 that list; there is no third place to forget.
 
-**Update Server**, **Reset** and **How Your Server Runs** are never in `screensFor`'s list. They are
+**Two screens say "update", and they are about different things.** *Update
+Server* replaces `~/.local/bin/subshell-server`; *Update Subshell Server*
+(`app-update`) replaces the `.app` or the `.deb` this page is running inside
+and relaunches. Both can be waiting at once, they cost different amounts, and
+the enum keeps them apart (`Screen::Update` vs `Screen::AppUpdate`,
+`"update"` vs `"app-update"`) — see "Updating the app itself" below.
+
+**Update Server**, **Update Subshell Server**, **Reset** and **How Your Server Runs** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
 `reset::Screen` enum (`home` | `reset` | `update` | `supervision`) — which is what lets either
 appear over a first run as readily as over a recovery without either family
@@ -244,6 +251,104 @@ To check the rest by hand — none of it has automated coverage:
    no dashboard recoverable from the tray.
 3. The door both ways from the dashboard's Service page, and the login switch
    on a machine that really has a service installed.
+
+## Installing the bundled server is a TRANSACTION, not a copy
+
+**`desktop_install_server` has two paths, and the split is whether there is an
+installed CLI to ask** (spec 2026-09-15 § 7.1):
+
+- **A REPLACE of the managed copy** (`probe.managed` — the binary this machine
+  actually runs IS `~/.local/bin/subshell-server`) runs
+  `<installed> update --from <staged sidecar> --yes --no-restart --json`. What
+  that buys is the whole reason the verb exists: the database is backed up,
+  `pending.json` is written, `<binary>.previous` is kept, and the NEW binary
+  either completes the transaction at boot or reverts it. Before this, the
+  desktop replace was the one update path on the machine with no backup behind
+  it and nothing to roll back to.
+- **A first install** keeps `sidecar::install_bundled`. There is no installed
+  CLI to run, and writing a file where none was is not a transaction.
+
+Three details that are not obvious from the diff:
+
+- **The flags are a CONTRACT, held in one place.** `desktop-core`'s
+  `cli_update::update_args` spells them for both apps, and its tests pin the
+  exact list. `--yes` because the consent happened on the screen that named the
+  versions; `--no-restart` because only the app can take the restart in app
+  supervision mode, and because the node app deliberately never restarts.
+- **The old `stop_first` closure is gone, and nothing lost a guarantee.** It
+  only ever fired when `probe.managed` was true — exactly the path that now
+  goes through the CLI — and the CLI's swap is a `rename(2)` a running process
+  does not notice.
+- **A server older than the `update` verb cannot be replaced this way**, and
+  that is deliberate rather than handled. The CLI answers its own usage error
+  and the screen shows it. A silent fall-back to `install_bundled` would skip
+  the backup while reporting success, which is the one outcome worse than a
+  confusing error — and there are no installs old enough for this to matter
+  that are not also a reinstall away from fixed.
+
+## Updating the app itself
+
+`src-tauri/src/app_update.rs`, `tauri-plugin-updater`, and the `app-update`
+screen (spec 2026-09-15 § 7.2). Four things carry the weight:
+
+- **The plugin is pointed at ONE release, chosen here.** It wants a static
+  manifest URL, and this repository publishes four components under four tag
+  prefixes — so `check_app_update` reads the same release LIST every other
+  component reads (`desktop-core`'s `release_feed`, whose `RELEASE_API` is
+  held equal to `packages/subshell-protocol/src/releases.ts`'s
+  `DEFAULT_RELEASE_API` by an `include_str!` test), picks the newest
+  `desktop-server-v*` by SEMVER, and only then sets
+  `endpoints([<that release>/latest.json])`. `SUBSHELL_RELEASE_URL` repoints
+  the list; an EMPTY value turns the whole thing off, the same air-gapped
+  answer the server has.
+- **The trust is a compiled-in public key**, so a compromised release host can
+  WITHHOLD an update and cannot supply one. That is strictly stronger than the
+  CLI path, where the digest and the bytes come from the same source.
+- **The launch check is once a day and opens nothing.** `settings.json`'s
+  `lastUpdateCheckAt` / `lastUpdateVersion` are the whole mechanism
+  (`release_feed::due_for_check`); the only output is the tray item's suffix.
+  A window that appeared on its own because a release was cut is the automatic
+  update this design explicitly does not have (spec § 14).
+- **The check does NOT ride the 1500 ms poll.** Every other fact on the
+  assistant is a probe of this machine; this one is a third party. The screen
+  asks on its first render and on Check Again, and nothing else.
+
+**Both commands are `wizard`-only**, and the check is there too even though it
+looks harmless: its sibling replaces the application, and the dashboard reaches
+this screen by NAME (`desktop_open_assistant({ screen: "app-update" })`) — a
+grant it already has. Neither takes an argument, which is the whole of the
+case for granting them: the release is re-resolved in Rust, so the page asks
+for "the newest" and can never name a URL. `ipc-acl.test.ts` pins both facts.
+
+**The signing key is the operator's, and losing it is unrecoverable.** One
+keypair for BOTH desktop apps — they are one publisher, and a public key is
+the publisher's identity rather than the app's:
+
+```bash
+bunx tauri signer generate -w ~/.tauri/subshell-desktop.key
+```
+
+The `.pub` contents go into `plugins.updater.pubkey` in BOTH apps'
+`tauri.conf.json`, replacing the committed
+`REPLACE_ME_WITH_THE_SUBSHELL_DESKTOP_MINISIGN_PUBLIC_KEY` placeholder (which
+`assertUpdaterPubkey` in `src/scripts/release.ts` refuses a cut over). The
+private half goes into two repo secrets:
+
+| secret | value |
+|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | the key file's **CONTENTS**, not a path — measured 2026-09-15, tauri 2.11 ignores `TAURI_SIGNING_PRIVATE_KEY_PATH` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the passphrase, or `""` |
+
+**The `.key` in your password manager IS the backup**, exactly as the `.p12`
+is. **Losing it means every already-installed app can never auto-update
+again** — a new key is a new publisher as far as those installs are concerned,
+and the only way back is for every user to download the app by hand.
+
+One local cost, worth knowing before it surprises you: because the pubkey is
+configured and `bundle.createUpdaterArtifacts` is on, **`bun run compile`
+needs `TAURI_SIGNING_PRIVATE_KEY` set** — tauri refuses with "A public key has
+been found, but no private key". Generate a throwaway key for local bundling;
+`tauri dev` is unaffected, because it bundles nothing.
 
 ## Resetting the machine
 
@@ -866,7 +971,7 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the eighteen its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, open a System Settings pane — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
+| `wizard` | the twenty its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
 `main`'s first five are chosen for what they cannot do: raise a window, drop

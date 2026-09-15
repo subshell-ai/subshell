@@ -35,7 +35,7 @@ import {
   fieldProblems,
 } from "./lib/config-form";
 import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
-import type { About, ActionResult, LogTail, Probe } from "./lib/ipc";
+import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { permissionRows } from "./lib/permissions-model";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
@@ -146,6 +146,20 @@ let requestingNotifications = false;
  * read leaves this null and the disclosure simply omits the block.
  */
 let about: About | null = null;
+/**
+ * The app-update screen's own state, which is a NETWORK read and therefore
+ * not on the 1500 ms poll.
+ *
+ * Every other fact this page shows comes from `desktop_probe`, which reads
+ * this machine. This one asks the project's release list, and re-asking it
+ * twice a second would be the background update check the design explicitly
+ * does not have (spec § 14). So the check runs on the screen's first render
+ * and on Check Again, and its answer lives here across the renders in between.
+ */
+let appUpdate: AppUpdateCheck | null = null;
+let appUpdateState: "idle" | "checking" | "installing" = "idle";
+/** The download's own last line, from the plugin's progress events. */
+let appUpdateProgress = "";
 const form: FormValues = effectiveForm(undefined);
 const explicit: ExplicitMap = {};
 /** The two supervision boxes on the setup screen; reset with the form. */
@@ -742,6 +756,13 @@ function renderRecovery(p: Probe): void {
   // door from, and switching to app mode is one of the few things that can
   // get such a machine running again.
   content.append(button("Change how it runs…", () => go("supervision"), "linkish"));
+  // Also reachable here, for the same reason: the dashboard is the ordinary
+  // door to the app's own update and a machine on this screen has no
+  // dashboard. It is always offered rather than gated on a known update —
+  // nothing on THIS page knows whether one exists until the screen behind it
+  // asks, and a row that appeared only after an answer nobody had asked for
+  // would mean checking on the poll.
+  content.append(button("Check for app updates…", () => go("app-update"), "linkish"));
   content.append(detailsDisclosure());
   // The ellipsis stays: it correctly says a screen follows rather than an act.
   el("bar-left").append(button(`${RESET_LABEL}…`, () => void openReset(), "ghost"));
@@ -901,6 +922,130 @@ function renderUpdate(p: Probe): void {
     ),
   );
   el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
+}
+
+/**
+ * Ask Rust whether a newer app exists, and re-render around the answer.
+ *
+ * @param force - a press of Check Again rather than the screen opening. It
+ *   re-asks where a cached answer already exists; without it the screen's own
+ *   first render would re-ask on every render, which is the poll this screen
+ *   exists to stay off.
+ */
+async function runAppUpdateCheck(force: boolean): Promise<void> {
+  if (appUpdateState !== "idle") return;
+  if (appUpdate !== null && !force) return;
+  appUpdateState = "checking";
+  render();
+  try {
+    appUpdate = await ipc.checkAppUpdate();
+  } catch (err) {
+    // An `Err` here is the plugin refusing — a build with no public key, a
+    // malformed endpoint — not "there is no update", which arrives as a
+    // `reason`. It belongs on the problem line like every other refusal.
+    setProblem(err);
+    appUpdate = null;
+  } finally {
+    appUpdateState = "idle";
+    render();
+  }
+}
+
+/**
+ * Download, verify, install and relaunch.
+ *
+ * Does not resolve on success: the app restarts out from under this page. A
+ * rejection is therefore always a real failure, which is why the `catch` puts
+ * it on the problem line rather than treating it as a state to render.
+ */
+async function startAppUpdate(): Promise<void> {
+  if (appUpdateState !== "idle") return;
+  appUpdateState = "installing";
+  appUpdateProgress = "Starting the download…";
+  render();
+  try {
+    await ipc.installAppUpdate();
+  } catch (err) {
+    setProblem(err);
+    appUpdateState = "idle";
+    appUpdateProgress = "";
+    render();
+  }
+}
+
+/**
+ * **Update Subshell Server** — the APP, not the server it wraps.
+ *
+ * The screen beside `renderUpdate`, and the two are deliberately separate:
+ * that one replaces `~/.local/bin/subshell-server` through that binary's own
+ * `update --from`, this one replaces the `.app` (or the `.deb`) and relaunches.
+ * A person who has both offers waiting is being asked about two different
+ * things on two different days, and one screen doing both could not say which
+ * button costs a restart of what.
+ *
+ * Reached from the tray's **Check for Updates…**, from the recovery screen's
+ * footer, and from the SPA's Updates page
+ * (`desktop_open_assistant({ screen: "app-update" })` — a screen name, and
+ * zero new grants on `main`).
+ *
+ * **It asks on first render, not on the poll.** Every other screen here is
+ * drawn from a probe that re-reads this machine twice a second; this one is a
+ * network call to a third party, and polling it would be the background update
+ * check the design explicitly does not have (spec § 14).
+ */
+function renderAppUpdate(): void {
+  const current = appUpdate?.current ?? "";
+  setFrame(
+    "none",
+    "Update Subshell Server",
+    appUpdateState === "checking"
+      ? "Checking for a newer version of this app…"
+      : appUpdate?.latest
+        ? `${here()} runs Subshell Server ${current}; ${appUpdate.latest} is available.`
+        : appUpdate?.reason
+          ? "This app could not check for updates."
+          : `${here()} runs Subshell Server ${current} — the newest release.`,
+  );
+  const content = el("content");
+  if (appUpdateState === "checking") {
+    content.append(text("p", "Reading the project's release list.", "hint"));
+  } else if (appUpdate?.reason) {
+    // A reason is not an error banner: an air-gapped install and a source that
+    // would not answer are ordinary states, and this screen's own subtitle has
+    // already said the app could not check. The reason is the detail under it.
+    content.append(text("p", appUpdate.reason, "hint"));
+  } else if (appUpdate?.latest) {
+    if (appUpdateProgress !== "") content.append(text("p", appUpdateProgress, "hint"));
+    content.append(
+      text(
+        "p",
+        "The update is downloaded, its signature is checked against the key built into this app, and then " +
+          "Subshell Server restarts. The server itself keeps running throughout, and so do open subshells.",
+        "hint",
+      ),
+    );
+    // Linux installs through dpkg, which raises a system password sheet. A
+    // sheet nobody was told about reads as malware, which is the whole reason
+    // this sentence is here and is platform-branched — a genuine difference in
+    // what the user has to DO, not in voice.
+    if (probe?.platform === "linux") {
+      content.append(
+        text("p", "Linux installs the package with dpkg, so your system will ask for your password.", "hint"),
+      );
+    }
+    content.append(
+      button(
+        appUpdateState === "installing" ? "Installing…" : `Download and Install ${appUpdate.latest}`,
+        () => void startAppUpdate(),
+        "primary big",
+        appUpdateState === "installing",
+      ),
+    );
+  }
+  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  if (appUpdateState !== "installing") {
+    el("bar-right").append(button("Check Again", () => void runAppUpdateCheck(true), "ghost"));
+  }
 }
 
 /**
@@ -1454,6 +1599,15 @@ function render(): void {
     // macOS, and it is the wrong one to show over a screen nobody stepped to.
     clearDots();
     if (screen === "update") renderUpdate(p);
+    if (screen === "app-update") {
+      // The check is kicked off from the render rather than from the routing,
+      // because both doors — the tray item and the SPA's deep link — arrive
+      // through `screen`, and a second place that started it is a second place
+      // to forget. `runAppUpdateCheck(false)` is a no-op once an answer
+      // exists, so the poll's re-renders cost nothing.
+      void runAppUpdateCheck(false);
+      renderAppUpdate();
+    }
     if (screen === "supervision") renderSupervision(p);
     if (screen === "permissions") renderPermissions(p, true);
     return;
@@ -1586,6 +1740,20 @@ void listen<string>("desktop-install-line", (event) => {
 void listen<{ step: string; state: string }>("desktop-reset-step", (event) =>
   resetView.applyStep(event.payload.step, event.payload.state),
 );
+// The app download's own progress. A ~100 MB bundle over a domestic link is
+// tens of seconds of a dead button otherwise, which reads as a hang — the same
+// report that put a meter on the reset chain.
+//
+// `total` is null where the release host sent no Content-Length, which is a
+// real case: the line then counts megabytes rather than claiming a percentage
+// it cannot compute.
+void listen<{ received: number; total: number | null }>("desktop-app-update-progress", (event) => {
+  const { received, total } = event.payload;
+  const mb = (n: number) => (n / 1_000_000).toFixed(1);
+  appUpdateProgress =
+    total === null ? `Downloading… ${mb(received)} MB` : `Downloading… ${mb(received)} of ${mb(total)} MB`;
+  render();
+});
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) return;

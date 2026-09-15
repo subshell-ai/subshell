@@ -15,7 +15,15 @@
 import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
 
 /** The assistant's screens. One decision each (spec § 6.4). */
-export type NodeScreenId = "connect" | "install-agent" | "enroll" | "service" | "connected" | "reset" | "about";
+export type NodeScreenId =
+  | "connect"
+  | "install-agent"
+  | "enroll"
+  | "service"
+  | "connected"
+  | "reset"
+  | "about"
+  | "app-update";
 
 /**
  * A screen the USER chose rather than one the machine implies.
@@ -25,8 +33,13 @@ export type NodeScreenId = "connect" | "install-agent" | "enroll" | "service" | 
  * the permanent colophon under every screen was removed (operator's call,
  * 2026-09-12): what this app is and under what terms is something a person
  * ASKS for, not something that sits under the question being asked.
+ *
+ * `app-update` joined them on 2026-09-15 for the same reason and one more: it
+ * is the only screen here whose facts come from the NETWORK rather than from
+ * this machine, so no probe could imply it even in principle. Reached from the
+ * tray's "Check for Updates…" and from the Connected screen's disclosure.
  */
-export type NodeUserScreen = "enroll" | "reset" | "about";
+export type NodeUserScreen = "enroll" | "reset" | "about" | "app-update";
 
 /**
  * Which screen this machine sees.
@@ -132,6 +145,12 @@ export function screenTitle(screen: NodeScreenId, probe: Probe | undefined): str
       return "Reset this client";
     case "about":
       return "About Subshell Client";
+    case "app-update":
+      // The APP, not the node agent it wraps. Both can be out of date at once
+      // and they are updated by different acts — one replaces this
+      // application, the other replaces `~/.local/bin/subshell` through that
+      // binary's own `update --from` — so the two never share a title.
+      return "Update Subshell Client";
   }
 }
 

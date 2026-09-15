@@ -279,10 +279,16 @@ describe("prereqState", () => {
  */
 describe("screens entered by request", () => {
   it("names all of them, and none is in the list of a machine that can ask", () => {
-    // Four now. "How Your Server Runs" joined them in 2026-09-12 and
-    // "What macOS Will Ask" on 2026-09-14, and the two are different kinds of
-    // member — which is the thing this test now has to say out loud.
-    expect([...REQUESTED_SCREENS].sort()).toEqual(["permissions", "reset", "supervision", "update"]);
+    // Five now. "How Your Server Runs" joined them in 2026-09-12, "What macOS
+    // Will Ask" on 2026-09-14 and "Update Subshell Server" (the APP) on
+    // 2026-09-15 — and they are different kinds of member, which is the thing
+    // this test has to say out loud.
+    //
+    // `update` and `app-update` sit beside each other here and are about two
+    // different things: `update` replaces the SERVER this app wraps,
+    // `app-update` replaces the app. Both must be present, and the sorted
+    // comparison is what makes dropping either one loud.
+    expect([...REQUESTED_SCREENS].sort()).toEqual(["app-update", "permissions", "reset", "supervision", "update"]);
     const ready = virgin({ next: "ready", onboarded: true });
     for (const requested of REQUESTED_SCREENS) {
       // The property that matters is about the machine that can ASK: a
@@ -316,6 +322,7 @@ describe("screens entered by request", () => {
     expect(screensFor(ready, true)).toEqual([]);
     expect(isRequestedScreen("reset")).toBe(true);
     expect(isRequestedScreen("update")).toBe(true);
+    expect(isRequestedScreen("app-update")).toBe(true);
     expect(isRequestedScreen("supervision")).toBe(true);
   });
 

@@ -45,6 +45,19 @@ describe("screenTitle", () => {
     expect(screenTitle("service", probe("stopped"))).toBe("The Node Service Is Stopped");
     expect(screenTitle("service", probe("no-service"))).toBe("Start the Node Service");
     expect(screenTitle("connected", undefined)).toBe("This Machine Is a Node");
+    expect(screenTitle("about", undefined)).toBe("About Subshell Client");
+    expect(screenTitle("app-update", undefined)).toBe("Update Subshell Client");
+  });
+
+  it("never lets the APP's update and the AGENT's share a word", () => {
+    // Two things on this machine can be out of date at once, and they are
+    // replaced by different acts that cost different amounts: this screen
+    // replaces the APPLICATION and relaunches it, while the Connected screen's
+    // "Update the agent to X" replaces `~/.local/bin/subshell` through that
+    // binary's own `update --from` and leaves the app alone. A title that said
+    // only "Update" would be the one place a person could not tell which.
+    expect(screenTitle("app-update", undefined)).toContain("Subshell Client");
+    expect(screenTitle("app-update", undefined)).not.toContain("agent");
   });
 
   it("names the product rather than the computer, identically on both platforms", () => {

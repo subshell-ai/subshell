@@ -28,7 +28,16 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
  * whether {@link screensFor} already holds the screen, which is false exactly
  * when the request came from outside.
  */
-export type ScreenId = "welcome" | "tmux" | "permissions" | "setup" | "recovery" | "update" | "reset" | "supervision";
+export type ScreenId =
+  | "welcome"
+  | "tmux"
+  | "permissions"
+  | "setup"
+  | "recovery"
+  | "update"
+  | "app-update"
+  | "reset"
+  | "supervision";
 
 /**
  * The first run, in order — and every position a dot can take.
@@ -143,7 +152,7 @@ export function prereqState(probe: Probe): PrereqState {
  * detection notices. The two never collide — a machine that can request it is
  * onboarded, and an onboarded machine's list is `recovery` or nothing.
  */
-export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision", "permissions"];
+export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "app-update", "reset", "supervision", "permissions"];
 
 /**
  * Whether this screen was asked for rather than implied by the probe.

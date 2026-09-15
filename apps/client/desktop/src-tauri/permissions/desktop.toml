@@ -101,6 +101,16 @@ description = "Open ONE of three fixed pages in the system browser: the product'
 commands.allow = ["node_open_web"]
 
 [[permission]]
+identifier = "allow-node-check-app-update"
+description = "Ask the project's release list whether a newer Subshell Client APP exists — not the node agent it wraps. Takes no argument, downloads nothing and changes nothing: one GET of a public JSON list, and one manifest the updater plugin verifies against the public key compiled into this build. The bundled page only, like every node verb."
+commands.allow = ["node_check_app_update"]
+
+[[permission]]
+identifier = "allow-node-install-app-update"
+description = "Download, verify, install and relaunch into the newest Subshell Client app. Takes NO argument — the release is re-resolved in Rust, so the page asks for 'the newest' and never for a URL — and the bytes are refused unless they carry a minisign signature matching the public key in tauri.conf.json, which is what keeps the release host able only to withhold an update. On Linux it hands the .deb to dpkg behind a polkit prompt. It replaces the APPLICATION and leaves the installed node agent alone: the bundled agent is a source to install from, never a rung of the resolution ladder."
+commands.allow = ["node_install_app_update"]
+
+[[permission]]
 identifier = "allow-desktop-open-in-browser"
 description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is the one permission in this file that is NOT a node verb: it is granted to `main` — the plane's own page — and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters — crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
 commands.allow = ["desktop_open_in_browser"]

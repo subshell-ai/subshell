@@ -25,6 +25,8 @@
     "allow-node-open-plane-url",
     "allow-node-pending-screen",
     "allow-node-about",
-    "allow-node-open-web"
+    "allow-node-open-web",
+    "allow-node-check-app-update",
+    "allow-node-install-app-update"
   ]
 }

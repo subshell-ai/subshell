@@ -327,6 +327,50 @@ export const about = (): Promise<About> => invoke<About>("desktop_about");
 export const openWeb = (target: WebTarget): Promise<void> => invoke<void>("desktop_open_web", { target });
 
 /**
+ * What an app-update check found. `AppUpdateCheck` in `app_update.rs`.
+ *
+ * `latest` and `reason` are not two ways of saying the same thing. `latest`
+ * absent with no `reason` is "this app is the newest published one"; `latest`
+ * absent WITH one is "we could not tell, and here is why" — an air-gapped
+ * install, a source that would not answer, a release with no manifest for this
+ * platform. A screen that flattened the two would say "up to date" to a
+ * machine that has not been able to check since it was installed.
+ */
+export interface AppUpdateCheck {
+  /** This app's own version */
+  current: string;
+  /** The newest published version, only when it is newer than `current` */
+  latest: string | null;
+  /** The release page, for the "what changed" link */
+  notes: string | null;
+  /** Why there is no `latest`, when that is not simply "up to date" */
+  reason: string | null;
+}
+
+/**
+ * Ask the project's release list whether a newer **Subshell Server app**
+ * exists — the `.app` or the `.deb`, not the server it wraps.
+ *
+ * Downloads nothing and changes nothing. Never rejects for "there is no
+ * update": an air-gapped install and an unreachable source arrive as `reason`,
+ * because both are ordinary states of a machine and an error banner over
+ * either teaches people to ignore the banner.
+ */
+export const checkAppUpdate = (): Promise<AppUpdateCheck> => invoke<AppUpdateCheck>("desktop_check_app_update");
+
+/**
+ * Install the newest app and relaunch into it.
+ *
+ * **Takes no argument**, which is what lets it be a command at all: the
+ * release is re-resolved in Rust, so this page asks for "the newest" and never
+ * names a URL. The bytes are refused unless they carry a minisign signature
+ * matching the public key compiled into this build.
+ *
+ * It does not resolve on success — the app restarts.
+ */
+export const installAppUpdate = (): Promise<void> => invoke<void>("desktop_install_app_update");
+
+/**
  * Ask macOS for permission to post notifications, and answer where that left
  * things.
  *
