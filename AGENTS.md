@@ -868,7 +868,10 @@ which is why they share their own smoke, parameterized by app id.
   dies if `TAURI_SIGNING_PRIVATE_KEY` is unset, and `release.ts` refuses
   outright while the committed pubkey is still the `REPLACE_ME_…` placeholder.
   Publishing an unsigned updater artifact would be publishing a lie — every
-  installed app refuses it.
+  installed app refuses it. `apps/server/desktop/AGENTS.md` carries the rest,
+  including the one local cost: with the pubkey configured, `bun run compile`
+  in either desktop app needs a private key set (a throwaway is fine);
+  `tauri dev` bundles nothing and is unaffected.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=all` (or
   `app=server|node|desktop-server|desktop-client`, optional
