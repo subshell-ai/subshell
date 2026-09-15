@@ -29,6 +29,15 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await expect(piRow).toBeVisible();
   await expect(piRow.getByText(/Detected/)).toBeVisible();
 
+  // tmux is pinned above the agents (spec 2026-09-15 §5.1). It is what every
+  // local pane launches through, and before this the browser wizard said so
+  // nowhere — the tmux screen lived only in the native Subshell Server
+  // assistant, which a headless install never sees. This suite needs a real
+  // tmux server to run at all, so the found state is the one to assert.
+  const tmuxRow = page.getByRole("listitem", { name: "tmux", exact: true });
+  await expect(tmuxRow).toBeVisible();
+  await expect(tmuxRow.getByText("Detected")).toBeVisible();
+
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Step 3/3 — the launch step arrives filled in (Task 6's defaults), but

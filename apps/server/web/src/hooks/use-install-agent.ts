@@ -21,9 +21,9 @@ export interface AgentInstallResult {
  * `line` arrives while the installer runs; exactly one `done` or `error` ends
  * it. A stream that ends with NEITHER is a failure too — see below.
  */
-type InstallFrame =
+type InstallFrame<TDone> =
   | { type: "line"; text: string }
-  | ({ type: "done" } & AgentInstallResult)
+  | ({ type: "done" } & TDone)
   | { type: "error"; message: string };
 
 /**
@@ -99,20 +99,27 @@ export const STALLED_MESSAGE =
  * Exported for its own tests: the three endings that matter are a clean
  * `done`, a body that stops mid-flight, and a body that simply never speaks
  * again, and the last one is the defect this function exists to bound.
+ * The `done` frame's PAYLOAD is the type parameter, because two routes stream
+ * this same protocol and end it with different facts — the agent installer
+ * with a re-probed harness row, the tmux installer with a re-probed binary
+ * path. Everything this function actually decides (the frame protocol, the
+ * stall bound, the ended-without-saying failure) is the same for both, and a
+ * second copy of it would be a second place for those to drift.
+ *
  * @param body - The response body to read
  * @param onLine - Called with each `line` frame's text as it arrives
  * @param stallMs - Silence allowed before giving up
  */
-export async function readInstallStream(
+export async function readInstallStream<TDone = AgentInstallResult>(
   body: ReadableStream<Uint8Array>,
   onLine?: (line: string) => void,
   stallMs: number = INSTALL_STALL_MS,
-): Promise<AgentInstallResult> {
+): Promise<TDone> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let pending = "";
-  let done: AgentInstallResult | undefined;
-  const handle = (frame: InstallFrame) => {
+  let done: TDone | undefined;
+  const handle = (frame: InstallFrame<TDone>) => {
     if (frame.type === "line") onLine?.(frame.text);
     else if (frame.type === "done") done = frame;
     else throw new ApiError(500, frame.message);
@@ -137,9 +144,9 @@ export async function readInstallStream(
       pending += decoder.decode(chunk.value, { stream: true });
       const lines = pending.split("\n");
       pending = lines.pop() ?? "";
-      for (const line of lines) if (line.trim() !== "") handle(JSON.parse(line) as InstallFrame);
+      for (const line of lines) if (line.trim() !== "") handle(JSON.parse(line) as InstallFrame<TDone>);
     }
-    if (pending.trim() !== "") handle(JSON.parse(pending) as InstallFrame);
+    if (pending.trim() !== "") handle(JSON.parse(pending) as InstallFrame<TDone>);
   } finally {
     // Let go of the body either way. On the stall path this is what releases
     // the connection the page has given up on.

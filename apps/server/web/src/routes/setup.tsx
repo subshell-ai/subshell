@@ -11,6 +11,7 @@ import {
 import { ErrorBanner } from "@/components/error-banner";
 import { AgentRow } from "@/components/setup/agent-row";
 import { SetupAssistant } from "@/components/setup/setup-assistant";
+import { TmuxRow } from "@/components/setup/tmux-row";
 import {
   canSubmit,
   emptyNewSubshellForm,
@@ -18,9 +19,11 @@ import {
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/new-subshell-form";
 import { Button } from "@/components/ui/button";
+import { useAdminStatus } from "@/hooks/use-admin-status";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { useInstallAgent } from "@/hooks/use-install-agent";
+import { useInstallTmux } from "@/hooks/use-install-tmux";
 import { apiFetch, errMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
@@ -88,6 +91,48 @@ function SetupPage() {
           output: install.data.output,
         }
       : undefined;
+  /**
+   * tmux on the control-plane host, and the installer for it.
+   *
+   * Detection rides the admin status read rather than a route of its own —
+   * step 0 created the admin account, so a cookie exists by the time this
+   * screen mounts, and `runtime.tmuxPath` is the same fact Settings → Status
+   * shows. Enabled from step 1 for that reason: on step 0 there is no session
+   * and the request would 403.
+   */
+  const { data: adminStatus } = useAdminStatus(step >= 1);
+  const [tmuxLine, setTmuxLine] = useState<string | undefined>(undefined);
+  const installTmux = useInstallTmux((line) => {
+    // Blank lines are spacing in an installer's output, not progress; showing
+    // one would blank the only thing on screen that was saying anything.
+    if (line.trim() !== "") setTmuxLine(line);
+  });
+  /**
+   * The last tmux install attempt's failure, or undefined when it worked.
+   *
+   * THREE failures, not two. The call itself failing and a command that ran
+   * and exited non-zero are the same pair the agent rows have — but a package
+   * manager can also exit ZERO having installed into a directory this server
+   * process cannot see, which is exactly what the CLI's own offer re-probes
+   * for. Reporting that as success would leave the row saying "Not found"
+   * under a green install with nothing explaining the contradiction.
+   */
+  const tmuxFailure = installTmux.error
+    ? { message: errMessage(installTmux.error, "Couldn't install tmux.") }
+    : installTmux.data && !installTmux.data.ok
+      ? {
+          message:
+            installTmux.data.exitCode === null
+              ? "The installer could not be started."
+              : `The installer exited with code ${installTmux.data.exitCode}.`,
+          output: installTmux.data.output,
+        }
+      : installTmux.data && installTmux.data.tmuxPath === null
+        ? {
+            message: "The installer finished, but tmux is still not on this server's PATH.",
+            output: installTmux.data.output,
+          }
+        : undefined;
   const {
     data: harnesses,
     isLoading: harnessesLoading,
@@ -243,7 +288,11 @@ function SetupPage() {
         // failure on a screen nobody was looking at any more, and the next
         // step's agent list was already stale — so the press waits, and the
         // bar says what for (operator report, 2026-09-14).
-        primary={{ label: "Continue", onClick: () => setStep(2), disabled: busy || install.isPending }}
+        primary={{
+          label: "Continue",
+          onClick: () => setStep(2),
+          disabled: busy || install.isPending || installTmux.isPending,
+        }}
       >
         {harnessesLoading && <p className="text-muted-foreground text-sm">Checking {here}…</p>}
         {harnessesError && (
@@ -263,6 +312,19 @@ function SetupPage() {
           />
         )}
         <ul>
+          {/* Pinned above the agents, and deliberately in the same list: the
+              question is the same one — what is on this machine — and tmux is
+              the one answer that decides whether anything can launch here at
+              all. It never blocks Continue; the launch step refuses honestly
+              on its own. */}
+          <TmuxRow
+            tmuxPath={adminStatus?.runtime.tmuxPath}
+            os={adminStatus?.runtime.os}
+            onInstall={() => installTmux.mutate()}
+            installing={installTmux.isPending}
+            progress={tmuxLine}
+            failure={installTmux.isPending ? undefined : tmuxFailure}
+          />
           {agents.map((h) => (
             <AgentRow
               key={h.id}

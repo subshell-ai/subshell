@@ -159,10 +159,35 @@ const AdminStatusSchema = t.Object({
  * endpoint POLLS. Every open admin tab would otherwise re-run a full PATH scan
  * every 15 s on the loop that also serves terminal frames. `staticSource()` is
  * memoised at boot for exactly this reason; these follow it.
+ *
+ * "In any way that matters" acquired an exception on 2026-09-15: the setup
+ * wizard can now INSTALL tmux (`POST /api/setup/tmux/install`), which is this
+ * process changing the very fact it memoised. That route calls
+ * {@link invalidateDeployFacts} when the installer exits — without it, a host
+ * that just gained tmux would keep reporting `tmuxPath: null` for the life of
+ * the process, on the page an operator opens to check the install worked.
  */
 let deployFacts: { tmuxPath: string | null; mcpEntrypoint: string | null; mcpSource: string | null } | null = null;
 
-function resolveDeployFacts(): NonNullable<typeof deployFacts> {
+/**
+ * Drops the memo so the next read re-probes.
+ *
+ * The narrow reason it exists is above: something in THIS process changed a
+ * fact the memo assumed fixed. It is cheap and idempotent — a caller that is
+ * unsure should call it.
+ */
+export function invalidateDeployFacts(): void {
+  deployFacts = null;
+}
+
+/**
+ * The memoised deploy facts, probing on first use.
+ *
+ * Exported so the invalidation above is testable at all: the memo's only
+ * observable property is object IDENTITY across two reads, and a test that
+ * could not take that identity would be asserting a re-probe it cannot see.
+ */
+export function resolveDeployFacts(): NonNullable<typeof deployFacts> {
   if (deployFacts) return deployFacts;
   const mcp = probeMcpLaunch();
   deployFacts = {

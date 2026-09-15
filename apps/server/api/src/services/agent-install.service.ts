@@ -107,20 +107,6 @@ const defaultDeps: AgentInstallDeps = {
 const inFlight = new Set<string>();
 
 /**
- * Runs a built-in agent CLI's own installer on this host, as this process's
- * OS user (spec 2026-09-11 § 7). The command comes from the plugin manifest
- * compiled into THIS binary — the id is the only input a caller supplies, so
- * what may run is changed by editing this repo, never by anything a request
- * sends. `stdin: "ignore"` because there is no TTY behind this call: an
- * installer that prompts must hang to the timeout rather than block forever
- * waiting on input nobody will give it. Output is captured and capped but
- * never logged, since an installer's stdout can legitimately carry a token
- * or path a user typed into their own shell profile moments earlier. The
- * child's environment is an allowlist ({@link installerEnv}), not this
- * process's own — the control plane holds `BETTER_AUTH_SECRET` and the
- * database path, which a vendor's install script has no business reading.
- */
-/**
  * The refusal {@link installBuiltInAgent} would raise before running anything,
  * or undefined when it would proceed.
  *
@@ -146,6 +132,14 @@ export async function refuseInstall(
   return undefined;
 }
 
+/**
+ * Runs a built-in agent CLI's own installer on this host, as this process's
+ * OS user (spec 2026-09-11 § 7). The command comes from the plugin manifest
+ * compiled into THIS binary — the id is the only input a caller supplies, so
+ * what may run is changed by editing this repo, never by anything a request
+ * sends. How it runs — the allowlisted environment, the cap, the deadline —
+ * is {@link runInstaller}'s.
+ */
 export async function installBuiltInAgent(
   id: string,
   deps: AgentInstallDeps = defaultDeps,
@@ -156,52 +150,96 @@ export async function installBuiltInAgent(
   if (command.trim() === "") throw new AgentInstallRefused(`"${id}" has nothing to install`, 400);
   if (inFlight.has(id)) throw new AgentInstallRefused(`"${id}" is already being installed`, 409);
   inFlight.add(id);
-  const started = Date.now();
   try {
-    const path = [...(process.env.PATH ?? "").split(":"), ...(await deps.extraPath())].filter(Boolean);
-    const proc = Bun.spawn(["sh", "-c", command], {
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: installerEnv([...new Set(path)].join(":")),
+    // A plugin's install hint is a SHELL LINE (`curl … | bash`), so it is run
+    // through `sh -c`. Callers with a fixed argv — the tmux installer — hand
+    // {@link runInstaller} the argv directly and never grow a shell.
+    return await runInstaller(["sh", "-c", command], {
+      timeoutMs: deps.timeoutMs,
+      extraPath: deps.extraPath,
+      onLine,
     });
-    // Readers are acquired up front (rather than inside `cap`) so the timeout
-    // callback can cancel THEM. A stream already locked by `cap`'s own read
-    // loop refuses `stream.cancel()` outright (`TypeError: Cannot cancel a
-    // locked ReadableStream`, measured) - the reader that holds the lock is
-    // the only thing that can cancel it from here.
-    const stdoutReader = proc.stdout.getReader();
-    const stderrReader = proc.stderr.getReader();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      proc.kill();
-      // Killing `sh` is not enough for a pipeline: `curl … | bash` gives `sh` two
-      // children that hold their own copies of fd 1 and fd 2, so the pipe never
-      // reaches EOF and the reads below would wait for an orphan rather than for
-      // the deadline. Cancel the reads instead; what was captured up to here is
-      // what we report. The orphaned component can still outlive us - the cost of
-      // not putting the child in its own process group - but the CALL returns, so
-      // `inFlight` clears and this id is installable again.
-      void stdoutReader.cancel().catch(() => {});
-      void stderrReader.cancel().catch(() => {});
-    }, deps.timeoutMs);
-    try {
-      const [stdout, stderr] = await Promise.all([cap(stdoutReader, onLine), cap(stderrReader, onLine)]);
-      const exitCode = await proc.exited;
-      const output = [
-        stdout,
-        stderr,
-        timedOut ? `[installer timed out after ${deps.timeoutMs} ms; it may still be running]` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      return { ok: exitCode === 0 && !timedOut, exitCode, output, durationMs: Date.now() - started };
-    } finally {
-      clearTimeout(timer);
-    }
   } finally {
     inFlight.delete(id);
+  }
+}
+
+/** What {@link runInstaller} needs from its caller. */
+export interface InstallerRunOptions {
+  /** Deadline for the whole run; what was captured up to it is what gets reported. */
+  timeoutMs: number;
+  /** Directories to append to PATH: a service-run server carries only its baked PATH. */
+  extraPath: () => Promise<string[]>;
+  /** Called with each line the installer prints, ANSI already stripped. */
+  onLine?: (line: string) => void;
+}
+
+/**
+ * Runs one installer argv to completion under the allowlisted environment,
+ * streaming its output a line at a time.
+ *
+ * The argv is the CALLER's — this function decides nothing about what runs,
+ * only how. Both callers supply something fixed by this repo rather than by a
+ * request: a built-in plugin's compiled-in install hint, or the tmux table in
+ * `commands/tmux-install.ts`.
+ *
+ * `stdin: "ignore"` because there is no TTY behind this call: an installer
+ * that prompts must hang to the timeout rather than block forever waiting on
+ * input nobody will give it. (The tmux route refuses a `sudo`-prefixed argv
+ * outright for exactly that reason, rather than discovering it here ten
+ * minutes later.) Output is captured and capped but never logged, since an
+ * installer's stdout can legitimately carry a token or path a user typed into
+ * their own shell profile moments earlier. The child's environment is an
+ * allowlist ({@link installerEnv}), not this process's own — the control plane
+ * holds `BETTER_AUTH_SECRET` and the database path, which a vendor's install
+ * script has no business reading.
+ */
+export async function runInstaller(
+  argv: readonly string[],
+  { timeoutMs, extraPath, onLine }: InstallerRunOptions,
+): Promise<AgentInstallResult> {
+  const started = Date.now();
+  const path = [...(process.env.PATH ?? "").split(":"), ...(await extraPath())].filter(Boolean);
+  const proc = Bun.spawn([...argv], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: installerEnv([...new Set(path)].join(":")),
+  });
+  // Readers are acquired up front (rather than inside `cap`) so the timeout
+  // callback can cancel THEM. A stream already locked by `cap`'s own read
+  // loop refuses `stream.cancel()` outright (`TypeError: Cannot cancel a
+  // locked ReadableStream`, measured) - the reader that holds the lock is
+  // the only thing that can cancel it from here.
+  const stdoutReader = proc.stdout.getReader();
+  const stderrReader = proc.stderr.getReader();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+    // Killing `sh` is not enough for a pipeline: `curl … | bash` gives `sh` two
+    // children that hold their own copies of fd 1 and fd 2, so the pipe never
+    // reaches EOF and the reads below would wait for an orphan rather than for
+    // the deadline. Cancel the reads instead; what was captured up to here is
+    // what we report. The orphaned component can still outlive us - the cost of
+    // not putting the child in its own process group - but the CALL returns, so
+    // the caller's single-flight slot clears and this is installable again.
+    void stdoutReader.cancel().catch(() => {});
+    void stderrReader.cancel().catch(() => {});
+  }, timeoutMs);
+  try {
+    const [stdout, stderr] = await Promise.all([cap(stdoutReader, onLine), cap(stderrReader, onLine)]);
+    const exitCode = await proc.exited;
+    const output = [
+      stdout,
+      stderr,
+      timedOut ? `[installer timed out after ${timeoutMs} ms; it may still be running]` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return { ok: exitCode === 0 && !timedOut, exitCode, output, durationMs: Date.now() - started };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -212,7 +250,7 @@ export async function installBuiltInAgent(
  * exits, which would turn a capacity limit into a hang.
  *
  * On the timeout path the caller cancels this same reader out from under the
- * loop (see {@link installBuiltInAgent}) because a pipeline's orphaned
+ * loop (see {@link runInstaller}) because a pipeline's orphaned
  * children can hold the pipe open past the deadline. A cancelled read rejects
  * rather than reporting `done`, so the loop is wrapped: on that rejection we
  * return whatever was captured before the cancellation instead of throwing,

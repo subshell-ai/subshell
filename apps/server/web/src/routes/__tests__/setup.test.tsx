@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetDesktopShellForTests } from "@/lib/desktop";
 import { setFetchRouter } from "@/test-setup";
 import type { HarnessInfo } from "@/types/harness";
@@ -64,6 +64,16 @@ interface SetupMocks {
   install?: { status: number; body: unknown };
   /** True = the install POST never settles, so the mutation stays pending. */
   installPending?: boolean;
+  /**
+   * What GET /api/admin/status reports for `runtime.tmuxPath` — the tmux row's
+   * whole detection. `undefined` here means "found", since that is the state
+   * of a host the wizard has nothing to say about.
+   */
+  tmuxPath?: string | null;
+  /** What GET /api/admin/status reports for `runtime.os`, which decides the command shown. */
+  os?: string;
+  /** What POST /api/setup/tmux/install answers */
+  tmuxInstall?: { status: number; body: unknown };
 }
 
 /**
@@ -79,6 +89,8 @@ function routeFetch(opts: SetupMocks): void {
   // mutation's onSettled invalidation) reports the row as installed — the
   // way the real backend re-probes rather than replaying a fixed list.
   let installedId: string | null = null;
+  /** Set once a tmux install succeeds — see the `/api/admin/status` branch. */
+  let installedTmux: string | null = null;
   setFetchRouter((input, init) => {
     const url = new URL(String(input), "http://localhost");
     const path = url.pathname;
@@ -94,6 +106,24 @@ function routeFetch(opts: SetupMocks): void {
     if (path === "/api/auth/sign-up/email") {
       if (init?.body !== undefined) signUpBodies.push(JSON.parse(String(init.body)));
       return Promise.resolve(new Response(JSON.stringify({ user: { id: "u1", name: "Ada" } })));
+    }
+    if (path === "/api/admin/status") {
+      // Only the two fields the wizard reads. The real body is much wider and
+      // has its own suite; mirroring it here would be a second fixture to keep
+      // in step with a schema this page does not care about.
+      const tmuxPath = installedTmux ?? (opts.tmuxPath === undefined ? "/usr/bin/tmux" : opts.tmuxPath);
+      return Promise.resolve(new Response(JSON.stringify({ runtime: { tmuxPath, os: opts.os ?? "darwin" } })));
+    }
+    if (path === "/api/setup/tmux/install" && method === "POST") {
+      const res = opts.tmuxInstall ?? {
+        status: 200,
+        body: { ok: true, exitCode: 0, output: "done", durationMs: 12, tmuxPath: "/opt/homebrew/bin/tmux" },
+      };
+      // Same trick the agent installer's stub uses: a successful run changes
+      // what the NEXT detection read answers, the way a re-probe would, rather
+      // than replaying a fixed fact.
+      if (res.status === 200) installedTmux = "/opt/homebrew/bin/tmux";
+      return Promise.resolve(new Response(JSON.stringify(res.body), { status: res.status }));
     }
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes: opts.nodes ?? [] })));
     if (path === "/api/plugins") return Promise.resolve(new Response(JSON.stringify({ plugins: opts.plugins ?? [] })));
@@ -319,6 +349,68 @@ describe("setup wizard: the agent step is optional", () => {
     await settle();
     const row = screen.getByRole("listitem", { name: "Claude Code" });
     await waitFor(() => expect(row.textContent).toContain("Detected · v1.0.0"));
+  });
+});
+
+/**
+ * The tmux row (spec 2026-09-15 § 5.1).
+ *
+ * The defect it closes is that the browser wizard had no tmux step at all —
+ * the screen existed only in the native Subshell Server assistant, so a
+ * headless install discovered that every launch fails, or never found out.
+ * tmux is what every local pane runs inside.
+ */
+describe("setup wizard: the tmux row", () => {
+  it("pins tmux above the agents and reports a host that has it", async () => {
+    await renderSetup({}, 1);
+    const rows = screen.getAllByRole("listitem");
+    expect(rows[0]?.getAttribute("aria-label")).toBe("tmux");
+    expect(rows[0]?.textContent).toContain("Detected");
+    // A settled fact says nothing more: no command to run, nothing to press.
+    // Scoped to the row — Claude Code is absent in the default fixture and
+    // carries an Install button of its own.
+    expect(within(rows[0] as HTMLElement).queryByRole("button", { name: "Install" })).toBeNull();
+  });
+
+  it("says what a missing tmux costs and never blocks Continue", async () => {
+    await renderSetup({ tmuxPath: null }, 1);
+    const row = screen.getByRole("listitem", { name: "tmux" });
+    expect(row.textContent).toContain("Subshells cannot launch on this machine");
+    // The launch step refuses honestly on its own, and a wizard that traps
+    // someone behind a package manager is worse than one that told them.
+    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("installs tmux on macOS and flips the row to Detected", async () => {
+    await renderSetup({ tmuxPath: null, os: "darwin" }, 1);
+    fireEvent.click(within(screen.getByRole("listitem", { name: "tmux" })).getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(screen.getByRole("listitem", { name: "tmux" }).textContent).toContain("Detected"));
+  });
+
+  it("shows the Linux command to copy and offers no button for it", async () => {
+    // The server has no terminal to answer sudo's password prompt, so the
+    // route 409s a privileged installer. A button here would always fail.
+    await renderSetup({ tmuxPath: null, os: "linux" }, 1);
+    const row = screen.getByRole("listitem", { name: "tmux" });
+    expect(row.textContent).toContain("sudo apt-get install -y tmux");
+    expect(within(row).queryByRole("button", { name: "Install" })).toBeNull();
+  });
+
+  it("reports a refused install without pretending tmux arrived", async () => {
+    await renderSetup(
+      {
+        tmuxPath: null,
+        os: "darwin",
+        tmuxInstall: { status: 409, body: { message: "No supported package manager was found on this host." } },
+      },
+      1,
+    );
+    fireEvent.click(within(screen.getByRole("listitem", { name: "tmux" })).getByRole("button", { name: "Install" }));
+    await waitFor(() =>
+      expect(screen.getByRole("listitem", { name: "tmux" }).textContent).toContain(
+        "No supported package manager was found on this host.",
+      ),
+    );
   });
 });
 
