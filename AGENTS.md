@@ -772,11 +772,17 @@ which is why they share their own smoke, parameterized by app id.
   compatible with me" WITHOUT downloading a binary — a release without one is
   treated as unknown and is not offered to nodes, which is true of every cut
   before 2026-09-15.
-  **Each desktop release carries three more**, for the apps' self-update
+  **Each desktop release carries more**, for the apps' self-update
   (§7.2): the updater package (`…​.app.tar.gz` on macOS, the `.deb` itself on
-  Linux), its minisign `.sig`, and `latest.json` — the updater plugin's static
-  manifest, merged from the shards' `latest.<triple>.json` by a step in the
-  publish job. macOS therefore bundles **`app,dmg`, not `dmg`**: the `.app` is
+  Linux), `latest.json` — the updater plugin's static manifest, merged from
+  the shards' `latest.<triple>.json` by a step in the publish job — and those
+  per-triple `latest.<triple>.json` files themselves, which the shard glob
+  (`dist/$APP-*/*`) sweeps up alongside everything else a shard produced.
+  **The minisign `.sig` is NOT published, and that is deliberate**: the
+  signature travels INLINE in `latest.json`, which is the only document
+  `tauri-plugin-updater` ever reads, so a `.sig` beside the artifact would be
+  an asset nothing consumes. `release.ts` says so at the point it reads the
+  file. macOS bundles **`app,dmg`, not `dmg`**: the `.app` is
   the updater-enabled target, and asking for `dmg` alone makes tauri refuse
   with "requested to create updater artifacts but no updater-enabled targets
   were built". The `.app` and `share/` directories a DMG build also fills stay
