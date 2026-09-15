@@ -1724,6 +1724,16 @@ what makes 0600 true rather than a hope. Five are kept by default; an operator
 who wants fewer bytes on disk sets `SUBSHELL_DB_BACKUPS_KEEP`, and `0` keeps
 them forever. `subshell-server backup` takes one by hand.
 
+Note which paths now write one. The desktop app's "install the bundled server"
+offer used to copy a file into place; when the outcome is a REPLACE of a
+managed install it now runs `<installed> update --from <sidecar> --yes
+--no-restart --json` instead, so it takes the backup and writes the marker like
+every other path. That is a safety gain and a disclosure change in the same
+motion: a machine whose owner only ever presses a button in a GUI now
+accumulates full copies of its database on disk, bounded by
+`SUBSHELL_DB_BACKUPS_KEEP` and by nothing else. The FIRST install still copies
+the sidecar — there is no installed CLI to run yet, and nothing to back up.
+
 **Rollback restores a database from before the update.** Anything written
 between the snapshot and the failed boot is lost — in practice nothing, since
 the backup is taken with the old server still serving and the swap follows
