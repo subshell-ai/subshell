@@ -595,7 +595,7 @@ it, and the offer now runs the transaction.
 
 ### 7.2 The apps update themselves — `tauri-plugin-updater`
 
-- **Signing.** Operator, once: `bunx tauri signer generate -w ~/.tauri/subshell-desktop.key`
+- **Signing.** Operator, once: `bunx @tauri-apps/cli signer generate -w ~/.tauri/subshell-desktop.key`
   — ONE keypair for both apps (they are one publisher; the pubkey is
   identity of the publisher, not the app). Repo secrets
   `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`;

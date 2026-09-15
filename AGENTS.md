@@ -854,7 +854,7 @@ which is why they share their own smoke, parameterized by app id.
 - **Updater signing (both desktop shards)** — a SECOND keypair, unrelated to
   the Apple one, and the thing an installed app checks before it replaces
   itself. Operator, once:
-  `bunx tauri signer generate -w ~/.tauri/subshell-desktop.key`. **ONE keypair
+  `bunx @tauri-apps/cli signer generate -w ~/.tauri/subshell-desktop.key`. **ONE keypair
   for both apps** — they are one publisher, and the pubkey is the publisher's
   identity rather than the app's. Commit the `.pub` contents as
   `plugins.updater.pubkey` in BOTH `tauri.conf.json`s, and set two repo

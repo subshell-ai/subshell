@@ -412,7 +412,7 @@ Two facts specific to this app:
   Connected screen. The screen says so.
 - **The signing key is the SAME one `apps/server/desktop` pins**, because the
   two apps are one publisher and a public key is the publisher's identity
-  rather than the app's. One `bunx tauri signer generate -w
+  rather than the app's. One `bunx @tauri-apps/cli signer generate -w
   ~/.tauri/subshell-desktop.key`, the `.pub` contents committed as
   `plugins.updater.pubkey` in BOTH `tauri.conf.json` files, and two repo
   secrets: `TAURI_SIGNING_PRIVATE_KEY` (the key file's **CONTENTS**, not a

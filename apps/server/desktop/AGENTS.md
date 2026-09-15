@@ -343,8 +343,12 @@ keypair for BOTH desktop apps — they are one publisher, and a public key is
 the publisher's identity rather than the app's:
 
 ```bash
-bunx tauri signer generate -w ~/.tauri/subshell-desktop.key
+bunx @tauri-apps/cli signer generate -w ~/.tauri/subshell-desktop.key
 ```
+
+`@tauri-apps/cli` by name, not `tauri`: from outside a desktop app directory
+`bunx tauri` falls through to npm's retired v1 CLI, which depends on `sharp`
+and fails compiling libvips on arm64 macOS (measured 2026-09-15).
 
 The `.pub` contents go into `plugins.updater.pubkey` in BOTH apps'
 `tauri.conf.json`, replacing the committed
