@@ -69,7 +69,7 @@ export function NoLaunchTargets({ local, onNavigate }: { local: Node | null; onN
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void navigate({ to: "/nodes/$id", params: { id: local.id } })}
+            onClick={() => leaveFor(() => void navigate({ to: "/nodes/$id", params: { id: local.id } }))}
           >
             Enable on {hostName}
           </Button>
