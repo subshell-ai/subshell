@@ -796,6 +796,58 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
     }
   });
 
+  /**
+   * A fake agent binary that answers `<path> version` with whatever version it
+   * was built for — which is all `probeFileVersion` reads, so it is all a
+   * `--from` offer needs to be believed.
+   */
+  const fakeAgent = (version: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-cli-fake-"));
+    const path = join(dir, "subshell");
+    writeFileSync(path, `#!/bin/sh\necho "subshell ${version} (node protocol 10)"\n`, { mode: 0o755 });
+    return path;
+  };
+
+  const enrolled = async () => {
+    newHome();
+    await saveConfig({
+      serverUrl: "http://localhost:1",
+      nodeId: "n1",
+      nodeKey: "k",
+      controlPublicKey: "{}",
+      dataDir: mkdtempSync(join(tmpdir(), "subshell-cli-update-")),
+      name: "n",
+    });
+  };
+
+  /**
+   * The comparison is SEMVER, and `!==` is not the same question.
+   *
+   * It bites in an ordinary state rather than a contrived one: `MIN_AGENT_VERSION`
+   * and this package are bumped in the SAME commit as a protocol change, so
+   * between that commit and the matching `node-v*` cut the newest published
+   * release is genuinely older than the running agent. Under `!==` that read
+   * as "available", and a bare `subshell update` then downloaded ~70 MB,
+   * swapped the binary, restarted, and was held by the plane's own version
+   * floor — the exact state the update exists to get a machine out of.
+   */
+  test("--check calls an OLDER offer unavailable rather than merely different", async () => {
+    await enrolled();
+    const res = await run(["update", "--check", "--from", fakeAgent("0.0.1"), "--json"]);
+    expect(res.code).toBe(0);
+    const body = JSON.parse(res.out) as { installed: string; latest: string; updateAvailable: boolean };
+    expect(body.latest).toBe("0.0.1");
+    expect(body.updateAvailable).toBe(false);
+  });
+
+  test("refuses to install a version older than the running one without --force", async () => {
+    await enrolled();
+    const res = await run(["update", "--from", fakeAgent("0.0.1"), "--yes", "--no-restart"]);
+    expect(res.code).toBe(1);
+    expect(res.err).toMatch(/older than the running/);
+    expect(res.err).toMatch(/--force/);
+  });
+
   test("usage lists the verb and its rollback form", async () => {
     const err = (await run(["frobnicate"])).err;
     expect(err).toInclude("subshell update");

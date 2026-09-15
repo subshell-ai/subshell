@@ -207,6 +207,35 @@ export async function resolveAgentBinary(): Promise<{ binary: string; dir: strin
 }
 
 /**
+ * The download URL with its query string removed, for putting in a message.
+ *
+ * **The query carries a live credential.** The plane bakes a single-use
+ * `?update_token=nut_…` into the URL it sends (spec §5.3), and every refusal
+ * below names the URL it was working on — which is right, since "which address
+ * could not be reached" is the whole diagnosis. But those sentences travel:
+ * the executor logs one into `<configHome>/logs/agent.log`, which any node
+ * owner or `edit` grantee reads over HTTP, and a token in a log file outlives
+ * the ten minutes that were supposed to bound it.
+ *
+ * So the address is kept and the credential is dropped, here, at the ONE place
+ * these sentences are built — rather than at each place one might be printed,
+ * which is the arrangement that eventually misses one.
+ */
+export function redactUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    // Not a URL we can parse is not a URL we can redact: say nothing rather
+    // than echo something that might carry a token after a `?` we did not
+    // understand.
+    return "the download url";
+  }
+}
+
+/**
  * Download to `<dir>/<basename>.download-<pid>`, hashing as the bytes arrive.
  *
  * Streamed rather than buffered for the obvious reason (the artifact is ~70 MB
@@ -214,19 +243,23 @@ export async function resolveAgentBinary(): Promise<{ binary: string; dir: strin
  * unverified is ever on disk longer than the transfer. A mismatch deletes the
  * partial file before throwing — the check is what makes the later `chmod +x`
  * sound, so there must be nothing left for a confused hand to run.
+ *
+ * Every refusal names {@link redactUrl}'s answer, never the URL as given: the
+ * query string is a single-use credential and these sentences are logged.
  */
 async function download(url: string, expected: string, dest: string): Promise<void> {
+  const shown = redactUrl(url);
   let response: Response;
   try {
     response = await fetch(url);
   } catch (err) {
     throw new UpdateRefused(
       NODE_RESULT_DOWNLOAD_FAILED,
-      `${url} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
+      `${shown} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   if (!response.ok || response.body === null) {
-    throw new UpdateRefused(NODE_RESULT_DOWNLOAD_FAILED, `${url} answered ${response.status}`);
+    throw new UpdateRefused(NODE_RESULT_DOWNLOAD_FAILED, `${shown} answered ${response.status}`);
   }
   const sink = Bun.file(dest).writer();
   const hasher = new Bun.CryptoHasher("sha256");
@@ -248,7 +281,7 @@ async function download(url: string, expected: string, dest: string): Promise<vo
     await rm(dest, { force: true }).catch(() => {});
     throw new UpdateRefused(
       NODE_RESULT_DOWNLOAD_FAILED,
-      `${url} failed mid-transfer: ${err instanceof Error ? err.message : String(err)}`,
+      `${shown} failed mid-transfer: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   const actual = hasher.digest("hex");
@@ -256,7 +289,7 @@ async function download(url: string, expected: string, dest: string): Promise<vo
     await rm(dest, { force: true }).catch(() => {});
     throw new UpdateRefused(
       NODE_RESULT_DIGEST_MISMATCH,
-      `${url} did not match the published digest (expected ${expected}, got ${actual})`,
+      `${shown} did not match the published digest (expected ${expected}, got ${actual})`,
     );
   }
 }
@@ -480,7 +513,11 @@ export async function rollbackUpdate(dataDir: string): Promise<{ binary: string;
   }
   const marker =
     (await readMarker(pendingMarkerPath(dataDir))) ?? (await readMarker<UpdateFailure>(failedMarkerPath(dataDir)));
-  await rm(binary, { force: true });
+  // ONE rename, no `rm` in front of it. `rename(2)` replaces an existing
+  // destination atomically, so unlinking first buys nothing and opens exactly
+  // the window this module's own comments call the one outcome nothing can
+  // recover: an interruption between the two left a machine with no agent
+  // binary at all and no `.previous` either.
   await rename(previous, binary);
   await rm(pendingMarkerPath(dataDir), { force: true }).catch(() => {});
   return { binary, to: marker?.from ?? "the previous version" };

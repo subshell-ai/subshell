@@ -1,4 +1,5 @@
 import { NODE_RESULT_KILLS_PANES, NODE_RESULT_NOT_SUPERVISED } from "@internal/subshell-protocol";
+import { log } from "../log.js";
 import { applyUpdate, UpdateRefused } from "../update.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
@@ -59,8 +60,22 @@ export async function execUpdate(ctx: CommandContext, cmd: Cmd<"update">): Promi
   } catch (err) {
     // The wire constant, never the sentence: the plane maps
     // `NodeRpcError.detail` by equality, so a helpful message here becomes a
-    // 500 naming nothing. The sentence is in the agent's own log already.
-    if (err instanceof UpdateRefused) return { ok: false, error: err.detail };
+    // 409 naming nothing.
+    //
+    // Which means the SENTENCE has nowhere else to go, and it is the only
+    // thing that says WHY. `download-failed` reaches the admin as "that node
+    // could not download the new binary"; whether that was a 401 from a token
+    // the plane had already forgotten, a 404, or a connection refused is
+    // knowable only here. So it is logged on the machine it happened on,
+    // where the node's owner can read it (`GET /api/nodes/:id/logs`). The
+    // sentence is safe to log because `applyUpdate` builds it from
+    // `redactUrl` — the query string it would otherwise carry is the
+    // single-use `nut_…` token, which must not outlive the ten minutes that
+    // bound it by sitting in a log file.
+    if (err instanceof UpdateRefused) {
+      log(`update refused (${err.detail}): ${err.message}`);
+      return { ok: false, error: err.detail };
+    }
     throw err;
   }
 

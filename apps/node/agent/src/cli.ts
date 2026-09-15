@@ -1,5 +1,5 @@
 import { ATTENTION_KINDS, REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
-import { licenseNotice, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { licenseNotice, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshell-protocol";
 import { type AgentConfig, configPath, loadConfig } from "./config.js";
 import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
@@ -88,7 +88,8 @@ usage:
                           replace this agent's own binary with a newer one and
                           restart into it. --check only says what is available.
                           --from installs a local file instead of downloading.
-                          --force overrides the live-pane restart refusal.
+                          --force allows a downgrade, and overrides the
+                          live-pane restart refusal.
   subshell update --rollback [--yes] [--json]
                           put <binary>.previous back, if an update left one
   subshell version        (also --version, -v)
@@ -621,7 +622,16 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             : "";
 
         if (parsed.flags.check === "1") {
-          const available = offer.version !== AGENT_VERSION;
+          // SEMVER, not `!==`. The two answers differ exactly when the offer
+          // is OLDER, and that is not a hypothetical: `MIN_AGENT_VERSION` and
+          // this package are bumped in the same commit as a protocol change,
+          // so between that commit and the matching `node-v*` cut the newest
+          // published release IS older than the running agent. `!==` called
+          // that "available" and a bare `subshell update` then downloaded
+          // ~70 MB, swapped, restarted, and was held by the plane's own floor.
+          // `subshell-server update` has always compared this way
+          // (`commands/update.ts`); this is the half that had not.
+          const available = semverLt(AGENT_VERSION, offer.version);
           if (json) {
             const body = { installed: AGENT_VERSION, latest: offer.version, updateAvailable: available };
             return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
@@ -642,6 +652,19 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             };
           }
           return { code: 0, out: `${line}\n`, err: "" };
+        }
+
+        // NEVER BACKWARDS by accident — the other half of the semver compare
+        // above. An operator who means it says `--force`, the same word and
+        // the same refusal `subshell-server update` uses; it is deliberately
+        // not a silent no-op, because `--from <an older build>` is a real
+        // thing to want and only the person holding the file knows why.
+        if (semverLt(offer.version, AGENT_VERSION) && parsed.flags.force !== "1") {
+          return {
+            code: 1,
+            out: "",
+            err: `subshell: ${offer.version} is older than the running ${AGENT_VERSION}; pass --force to install it anyway\n`,
+          };
         }
 
         // No prompt, the same shape `maintenance on` and `service restart
