@@ -28,6 +28,7 @@ import {
   wsUrlFor,
 } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
+import { writeMaintenance } from "../maintenance.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
@@ -1324,5 +1325,57 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
     expect(res).toMatchObject({ ok: false, error: "not supervised" });
     await sleep(400); // past RESTART_EXIT_DELAY_MS: nothing may have exited
     expect(h.exits).toEqual([]);
+  });
+});
+
+describe("maintenance (spec 2026-09-14 §4.3)", () => {
+  const STAMP = "2026-09-14T10:00:00.000Z";
+
+  test("ready OMITS the field when this machine has no mirror file", async () => {
+    // Absent is a distinct answer from `{on:false}` on the wire: it tells the
+    // plane the node has nothing to reconcile against, so the plane's own row
+    // wins rather than tying with a stamp the node never wrote.
+    const h = await startDaemon();
+    const ready = await waitForReady(h);
+    expect(ready as Record<string, unknown>).not.toHaveProperty("maintenance");
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  test("ready carries the mirror's state on the connect that follows a write", async () => {
+    const h = await startDaemon();
+    await waitForReady(h);
+    writeMaintenance(h.config.dataDir, { on: true, changedAt: STAMP });
+    // A non-terminal close reconnects (rand 0 → immediate), which is the only
+    // moment `ready` is rebuilt.
+    closeAllSockets(h.plane, 1001, "server restart");
+    await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+    const second = eventsAs(h, "ready")[1];
+    expect(second).toMatchObject({ maintenance: { on: true, changedAt: STAMP } });
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  test("a flip after connect lands as ONE maintenance event on the next heartbeat tick", async () => {
+    // The belt for a flip with no running panes: nothing dies, so the
+    // reportDeath path never runs and the heartbeat is the only thing left
+    // that notices.
+    const h = await startDaemon({ heartbeatMs: 30 });
+    await waitForReady(h);
+    expect(count(h, (e) => e.type === "maintenance")).toBe(0);
+    writeMaintenance(h.config.dataDir, { on: true, changedAt: STAMP });
+    const ev = await waitFor(h, (e) => e.type === "maintenance", "maintenance event");
+    expect(ev).toMatchObject({ type: "maintenance", on: true, changedAt: STAMP });
+    await sleep(150); // ~5 more ticks: the memo must stop it repeating
+    expect(count(h, (e) => e.type === "maintenance")).toBe(1);
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  test("a second flip is reported again — the memo tracks the value, not the fact of having reported", async () => {
+    const h = await startDaemon({ heartbeatMs: 30 });
+    await waitForReady(h);
+    writeMaintenance(h.config.dataDir, { on: true, changedAt: STAMP });
+    await waitFor(h, (e) => e.type === "maintenance" && e.on, "first flip");
+    writeMaintenance(h.config.dataDir, { on: false, changedAt: "2026-09-14T12:00:00.000Z" });
+    const off = await waitFor(h, (e) => e.type === "maintenance" && !e.on, "second flip");
+    expect(off).toMatchObject({ on: false, changedAt: "2026-09-14T12:00:00.000Z" });
   });
 });

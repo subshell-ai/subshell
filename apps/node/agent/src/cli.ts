@@ -5,6 +5,13 @@ import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, lockPath, readLock } from "./lock.js";
+import {
+  defaultMaintenanceDeps,
+  isMaintenanceSub,
+  MAINTENANCE_SUBS,
+  type MaintenanceDeps,
+  runMaintenance,
+} from "./maintenance-cli.js";
 import { runAgentMcp } from "./mcp/main.js";
 import {
   controlService,
@@ -50,6 +57,12 @@ usage:
   subshell service install|uninstall   (systemd user unit / launchd agent)
   subshell service status [--json]     (what the service manager reports)
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
+  subshell maintenance on [--yes] [--json]
+                          take this node out of service: it answers everything
+                          else, launches nothing, and STOPS every subshell
+                          running here (listed first; --yes is the confirmation)
+  subshell maintenance off [--json]     put it back in service
+  subshell maintenance status [--json]  what this machine's mirror says
   subshell status [--json] [--probe]
   subshell version        (also --version, -v)
   subshell license        print the copyright and licence and exit
@@ -61,7 +74,18 @@ usage:
 /** Malformed invocation → usage text, exit 2. */
 class UsageError extends Error {}
 
-const COMMANDS = new Set(["configure", "enroll", "license", "mcp", "report", "run", "service", "status", "version"]);
+const COMMANDS = new Set([
+  "configure",
+  "enroll",
+  "license",
+  "maintenance",
+  "mcp",
+  "report",
+  "run",
+  "service",
+  "status",
+  "version",
+]);
 /**
  * Bare flags accepted IN THE COMMAND SLOT. argv[0] is the command here, so
  * `subshell --version` would otherwise die as `unknown command '--version'`
@@ -81,6 +105,9 @@ const COMMAND_ALIASES: Record<string, string> = {
  */
 const SUBCOMMANDS: Record<string, string[]> = {
   service: ["install", "uninstall", "status", ...SERVICE_VERBS],
+  // Spread for the same reason: a subtoken added in maintenance-cli.ts must
+  // not be silently unreachable from the parser that admits it.
+  maintenance: [...MAINTENANCE_SUBS],
   // Spread from mcp-core so the CLI cannot accept a verb the reporter does not
   // implement — or refuse one it does.
   report: [...REPORT_VERBS],
@@ -107,6 +134,10 @@ const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[]>> = {
  */
 const SUBCOMMAND_FLAGS: Record<string, Record<string, string[]>> = {
   service: { status: ["--json"], restart: ["--force"] },
+  // `--yes` overrides ONE refusal, the live-pane one `on` raises; `off` and
+  // `status` have nothing to confirm, so accepting it there would read as
+  // meaningful.
+  maintenance: { on: ["--yes", "--json"], off: ["--json"], status: ["--json"] },
 };
 /** Known flag → does it take a value? */
 const FLAGS: Record<string, boolean> = {
@@ -117,6 +148,7 @@ const FLAGS: Record<string, boolean> = {
   "--json": false,
   "--probe": false,
   "--force": false,
+  "--yes": false,
 };
 /** Every flag any subtoken of `command` accepts — the union {@link SUBCOMMAND_FLAGS} narrows. */
 const subcommandFlagUnion = (command: string): string[] => [
@@ -130,6 +162,8 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   configure: ["--server", "--json"],
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
   license: [],
+  // Derived, never hand-listed — see `service` below.
+  maintenance: subcommandFlagUnion("maintenance"),
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
   report: [], // same pane-env contract; a hook's command line is built by the control plane, never typed
   run: [],
@@ -262,6 +296,12 @@ function assertSubcommandFlags(command: string, sub: string, used: string[]): vo
 export interface RunDeps {
   /** Service-manager + filesystem seams for `service` (default: {@link DEFAULT_DEPS}). */
   service?: ServiceDeps;
+  /**
+   * tmux/meta/clock seams for `maintenance` (default: built over the enrolled
+   * data dir). `maintenance on` kills panes, so the tests that pin WHAT it
+   * kills must not need a tmux server on the host running them.
+   */
+  maintenance?: MaintenanceDeps;
 }
 
 /**
@@ -350,6 +390,21 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           return await controlService(sdeps, parsed.sub, { force: parsed.flags.force === "1" });
         }
         throw new UsageError(`unknown service subcommand '${parsed.sub ?? ""}'`);
+      }
+      case "maintenance": {
+        // Config first: the mirror lives in the enrolled data dir, so a node
+        // that was never enrolled has nowhere to put the flag — loadConfig's
+        // own message is the one that points at `enroll`.
+        const cfg = await loadConfig();
+        if (parsed.sub === undefined || !isMaintenanceSub(parsed.sub)) {
+          throw new UsageError(`unknown maintenance subcommand '${parsed.sub ?? ""}'`);
+        }
+        return await runMaintenance(
+          cfg.dataDir,
+          parsed.sub,
+          { yes: parsed.flags.yes === "1", json: parsed.flags.json === "1" },
+          deps.maintenance ?? defaultMaintenanceDeps(cfg.dataDir),
+        );
       }
       case "enroll": {
         const server = parsed.flags.server;

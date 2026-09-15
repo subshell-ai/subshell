@@ -8,6 +8,7 @@ import {
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
+  type NodeMaintenanceWire,
   type NodeRuntimeReport,
   SeqTracker,
   verifyCommand,
@@ -15,7 +16,7 @@ import {
 import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
-import { buildSubshellsReport } from "./commands/report.js";
+import { buildSubshellsReport, maybeReportMaintenance } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
@@ -25,6 +26,7 @@ import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
+import { readMaintenance } from "./maintenance.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
@@ -239,7 +241,11 @@ export function updateRequiredMessage(reason: string | undefined): string {
     : `the control plane refused this agent (close 4406); a newer subshell is required; exiting`;
 }
 
-function readyEvent(config: AgentConfig, runtime: NodeRuntimeReport | null): Extract<NodeEvent, { type: "ready" }> {
+function readyEvent(
+  config: AgentConfig,
+  runtime: NodeRuntimeReport | null,
+  maintenance: NodeMaintenanceWire | undefined,
+): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
     agentVersion: AGENT_VERSION,
@@ -277,6 +283,14 @@ function readyEvent(config: AgentConfig, runtime: NodeRuntimeReport | null): Ext
     // Omitted rather than nulled when the read failed: the field is optional
     // on the wire and the plane simply shows no card.
     ...(runtime ? { runtime } : {}),
+    // This machine's maintenance mirror (spec 2026-09-14 §4.3). OMITTED, never
+    // null-valued, when there is no file to report: absence means "this node
+    // has no stamp of its own", which is what lets the plane's row win
+    // outright instead of tying with a value nobody wrote. An unreadable file
+    // is omitted too — it refuses launches here (maintenance.ts) and the plane
+    // then repairs it from its own record, which is the only way that file
+    // gets fixed.
+    ...(maintenance ? { maintenance } : {}),
   };
 }
 
@@ -610,7 +624,14 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         // there is no mid. (The census chain below and the ready send stay
         // LINEAR on purpose: `ready` before `subshells_report` before the
         // inventory push is pinned order.)
-        send(ws, readyEvent(config, runtime));
+        // Read SYNCHRONOUSLY, like everything else in `ready`: the frame must
+        // leave in the same turn the open fired, and seeding the memo from the
+        // same read is what stops the first heartbeat repeating what `ready`
+        // just said. Re-seeded per connection, because a new socket has told
+        // the plane nothing.
+        const mirror = readMaintenance(config.dataDir);
+        ctx.lastReportedMaintenance = mirror.kind === "state" ? mirror.state : undefined;
+        send(ws, readyEvent(config, runtime, ctx.lastReportedMaintenance));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
@@ -645,6 +666,11 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         heartbeat = setInterval(() => {
           send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString() });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
+          // The BELT for a maintenance flip (spec 2026-09-14 §4.3). The other
+          // report path rides the deaths a flip causes, which reports nothing
+          // when the machine had no panes running — the commonest case for
+          // `subshell maintenance off`, where there is nothing to die at all.
+          maybeReportMaintenance(ctx);
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed

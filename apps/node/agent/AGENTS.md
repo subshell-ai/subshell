@@ -103,6 +103,15 @@ subshell service status [--json]   # what the service MANAGER reports; always ex
 subshell service start|stop         # drive an installed service; never installs one
 subshell service restart [--force]  # --force overrides the refusal to restart a
                                      # definition that would SIGKILL live panes
+subshell maintenance on [--yes]    # take this node out of service (spec 2026-09-14):
+                                     # it keeps answering every other command and
+                                     # launches nothing. `on` STOPS every subshell
+                                     # running here — so without --yes it lists them
+                                     # (name · id · cwd), refuses with exit 1 and
+                                     # writes NOTHING. No prompt: `run()` is pure,
+                                     # the same shape `service restart --force` has
+subshell maintenance off           # back in service
+subshell maintenance status [--json] # what THIS machine's mirror says; always exits 0
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running agent — warned loudly
 subshell mcp                       # stdio MCP server for a subshell pane (internal;
@@ -246,6 +255,54 @@ and proceeds (refusing would only push the operator to `systemctl`, which warns
 about nothing), and both fail CLOSED on an unreadable definition. `service
 status` reports it as `teardown keeps panes`.
 
+## Maintenance (`src/maintenance.ts`, spec 2026-09-14)
+
+One flag, `<dataDir>/maintenance.json` = `{ on, changedAt }`, meaning "this
+machine stays enrolled and answers everything, but takes no new subshells". It
+is settable from either end — the plane's `set_maintenance` command and this
+machine's own `subshell maintenance` verb — and the two copies are reconciled
+on reconnect by the NEWER `changedAt`, which is why every writer here stores
+the stamp it was GIVEN and never re-stamps a value it is merely relaying.
+
+**Its own file, not a field in `config.json`.** `config.json` is snapshotted at
+daemon boot, so a value there would not reach a running daemon until it
+restarted — and the point of the CLI verb is that the person at the keyboard
+flips it under a live agent. It is also the node key's only home, and a value
+flipped several times a day does not belong in the file whose every rewrite
+risks the machine's credential.
+
+**The read is fail-CLOSED, deliberately unlike `allowed-dirs.json` beside it.**
+An unreadable allowlist widens the node to unrestricted, because that list is a
+restriction an owner opts into and a disk hiccup must not brick every launch.
+Here it inverts: a refusal that fails open is not a refusal, so an unreadable
+file refuses every launch and `maintenance status` says exactly that instead of
+reporting a tidy "off". An ABSENT file is the third answer and is not
+fail-closed — a node that was never told anything behaves as it always did.
+Absence also travels differently from `{ on: false }`: `ready` omits the field
+entirely, so the plane's own row wins outright rather than tying with a stamp
+nobody wrote.
+
+**The reporting ORDER is load-bearing.** `maybeReportMaintenance` runs inside
+`reportDeath` BEFORE the `exit` frame, not only on the heartbeat. The plane
+serialises frames per socket, so the flag landing ahead of the first death is
+the difference between "the operator took this machine down" and N crashes the
+plane pushes as failures and tries to auto-restart onto a node that refuses
+launches. The heartbeat call is the belt for the other case — a flip with no
+panes running, where nothing dies to carry it. Anything that reorders
+`report.ts` has to re-check this.
+
+The refusal a launch answers with is the BARE `NODE_RESULT_MAINTENANCE`
+constant: the plane compares `detail` by equality, so a suffix — however
+helpful — reads there as an ordinary launch failure. The event that rides with
+it is what lets the plane converge from a refusal it did not expect; an
+unreadable file sends none, because a machine cannot report a stamp it could
+not read.
+
+The CLI's `on` never forgets a meta record for a pane it kills. With no daemon
+running those records are the only thing the reconnect census can report;
+dropping one would leave the plane holding a `running` row with nothing on this
+machine able to contradict it.
+
 ## What `ready` reports about this process (`src/runtime.ts`)
 
 `ready.runtime` (spec 2026-09-12 §6.1) answers "how is this agent running" —
@@ -331,7 +388,8 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   silently rotated), `allowed-dirs.json` (the pushed
   directory allowlist, 0600 — fail-OPEN on a corrupt read, deliberately unlike
   `identity.json`'s fail-closed quarantine: the list is a restriction an owner
-  opts into, not an authentication decision),
+  opts into, not an authentication decision), `maintenance.json`
+  (`{ on, changedAt }`, 0600, atomic temp+rename, read fail-CLOSED — see below),
   `subshells/<id>.meta.json` + `<id>.log` per supervised
   subshell (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`

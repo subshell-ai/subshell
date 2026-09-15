@@ -1,5 +1,6 @@
-import type { NodeEvent } from "@internal/subshell-protocol";
+import type { NodeEvent, NodeMaintenanceWire } from "@internal/subshell-protocol";
 import { log } from "../log.js";
+import { readMaintenance } from "../maintenance.js";
 import type { CommandContext, WatcherRegistration } from "./context.js";
 
 /**
@@ -32,6 +33,43 @@ export const EXIT_WATCH_INTERVAL_MS = 2_000;
  * both rc=1 from one CLI call, only stderr differs.
  */
 export const NODE_EXIT_UNREACHABLE_TICKS = 2;
+
+/**
+ * Announce one maintenance state to the plane and remember having done so.
+ *
+ * The memo update is not bookkeeping: it is what makes the next heartbeat
+ * tick — and the next death — silent about a value the plane already holds.
+ *
+ * @param ctx - the daemon's command context (owns the socket seam and the memo)
+ * @param state - the mirror's state, sent verbatim (never re-stamped here)
+ */
+export function reportMaintenance(ctx: CommandContext, state: NodeMaintenanceWire): void {
+  ctx.ws.send({ type: "maintenance", on: state.on, changedAt: state.changedAt });
+  ctx.lastReportedMaintenance = state;
+}
+
+/**
+ * Report the maintenance mirror IF it has moved since this connection last
+ * spoke about it (spec 2026-09-14 §4.3).
+ *
+ * It lives here, beside {@link reportDeath}, because the ordering between the
+ * two frames is the whole feature and should be readable in one file rather
+ * than inferred from two.
+ *
+ * Only a parsed state is reportable. An absent file has no stamp to send, and
+ * an unreadable one has none either — inventing one would hand the plane a
+ * value to reconcile against that nobody wrote (the launch gate still refuses
+ * on it; see maintenance.ts).
+ *
+ * @param ctx - the daemon's command context
+ */
+export function maybeReportMaintenance(ctx: CommandContext): void {
+  const read = readMaintenance(ctx.config.dataDir);
+  if (read.kind !== "state") return;
+  const last = ctx.lastReportedMaintenance;
+  if (last?.on === read.state.on && last.changedAt === read.state.changedAt) return;
+  reportMaintenance(ctx, read.state);
+}
 
 /** Stop the shared tick if one is running (idempotent). */
 function stopLoop(ctx: CommandContext): void {
@@ -203,6 +241,13 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
   // this reads null — the same shape a dead server always produced.)
   const exitCode = (await ctx.tmux.paneExitCode(socket, subshellId)) ?? null;
   ctx.watchers.delete(subshellId); // stop-first: at most one event per registration
+  // LOAD-BEARING ORDER (spec 2026-09-14 §4.3): the flag goes out BEFORE the
+  // death it explains. The plane serialises frames per socket, so a
+  // `maintenance` frame ahead of the first `exit` is the difference between
+  // "the operator took this machine down" and N crashes the plane would push
+  // as failures and try to auto-restart onto a node that refuses launches.
+  // Cheap to re-read per death: the memo means only the first one sends.
+  maybeReportMaintenance(ctx);
   ctx.ws.send({ type: "exit", subshellId, exitCode, at: new Date(ctx.nowMs()).toISOString() });
   await ctx.meta.forget(subshellId);
   // Post-await re-check: a relaunch that armed a fresh registration

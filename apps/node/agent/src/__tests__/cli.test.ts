@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { parseArgs, run } from "../cli.js";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseArgs, type RunDeps, run } from "../cli.js";
 import { saveConfig } from "../config.js";
+import { maintenancePath, readMaintenance, writeMaintenance } from "../maintenance.js";
+import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
 import { darwinServiceStub, LOG, linuxServiceStub, serviceStub, TARGET, UNIT } from "./helpers/service-stub.js";
 
@@ -433,5 +438,228 @@ describe("plugin is gone from the CLI (inversion §6)", () => {
     // accepted no-ops.
     expect(() => parseArgs(["status", "extra"])).toThrow(/unknown flag 'extra'/);
     expect(() => parseArgs(["service", "install", "extra"])).toThrow(/service install takes no argument/);
+  });
+});
+
+/**
+ * `subshell maintenance on|off|status` (spec 2026-09-14 §4.5) — the operator's
+ * half of the flag, driven against stubbed tmux/meta seams so no test needs a
+ * tmux server. The plane's half is `set_maintenance`
+ * (`commands-maintenance.test.ts`).
+ */
+describe("maintenance verb", () => {
+  const A = "aaaaaaaa-1111-4111-8111-111111111111";
+  const B = "bbbbbbbb-2222-4222-8222-222222222222";
+  const NOW = "2026-09-14T10:00:00.000Z";
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  /** An enrolled config over a fresh data dir, plus stub deps and the kill recorder. */
+  async function enrolled(alive: string[] = []): Promise<{
+    dataDir: string;
+    deps: RunDeps;
+    killed: Array<{ socket: string; id: string }>;
+    meta: SubshellMetaStore;
+  }> {
+    newHome();
+    const dataDir = mkdtempSync(join(tmpdir(), "subshell-cli-maint-"));
+    dirs.push(dataDir);
+    await saveConfig({
+      serverUrl: "http://localhost:3080",
+      nodeId: "11111111-2222-3333-4444-555555555555",
+      nodeKey: "subshell_secret_never_printed",
+      controlPublicKey: '{"kty":"EC","crv":"P-256"}',
+      dataDir,
+      name: "workstation",
+    });
+    const meta = new SubshellMetaStore(dataDir);
+    const aliveSet = new Set(alive);
+    const killed: Array<{ socket: string; id: string }> = [];
+    return {
+      dataDir,
+      meta,
+      killed,
+      deps: {
+        maintenance: {
+          meta,
+          tmux: {
+            hasSubshell: async (_socket: string, id: string) => aliveSet.has(id),
+            killSubshell: (socket: string, id: string) => {
+              killed.push({ socket, id });
+              aliveSet.delete(id);
+            },
+          },
+          now: () => Date.parse(NOW),
+        },
+      },
+    };
+  }
+
+  /** Record one launched subshell exactly as a launch would have. */
+  async function record(meta: SubshellMetaStore, id: string, name: string, cwd: string): Promise<void> {
+    await meta.record({ subshellId: id, cwd, socket: `sock-${name}`, harnessId: "claude-code", name, startedAt: NOW });
+  }
+
+  test("`on` with live panes and no --yes refuses, names them, and writes NOTHING", async () => {
+    const { dataDir, deps, meta, killed } = await enrolled([A, B]);
+    await record(meta, A, "alpha", "/work/alpha");
+    await record(meta, B, "beta", "/work/beta");
+
+    const res = await run(["maintenance", "on"], deps);
+
+    expect(res.code).toBe(1);
+    expect(res.out).toBe("");
+    expect(res.err).toInclude("--yes");
+    for (const [name, id, cwd] of [
+      ["alpha", A, "/work/alpha"],
+      ["beta", B, "/work/beta"],
+    ]) {
+      expect(res.err).toInclude(name);
+      expect(res.err).toInclude(id);
+      expect(res.err).toInclude(cwd);
+    }
+    // The refusal is total: nothing stopped, and no flag anyone would have to
+    // undo. (A written flag with the panes still up is the worst of both.)
+    expect(killed).toEqual([]);
+    expect(readMaintenance(dataDir)).toEqual({ kind: "absent" });
+  });
+
+  test("`on --yes` writes the flag FIRST, then stops every live pane", async () => {
+    const { dataDir, deps, meta, killed } = await enrolled([A, B]);
+    await record(meta, A, "alpha", "/work/alpha");
+    await record(meta, B, "beta", "/work/beta");
+
+    const res = await run(["maintenance", "on", "--yes"], deps);
+
+    expect(res.code).toBe(0);
+    expect(readMaintenance(dataDir)).toEqual({ kind: "state", state: { on: true, changedAt: NOW } });
+    expect(killed).toEqual([
+      { socket: "sock-alpha", id: A },
+      { socket: "sock-beta", id: B },
+    ]);
+    expect(res.out).toInclude("2");
+  });
+
+  test("`on --yes` leaves the meta records alone — with no daemon they ARE the census", async () => {
+    // A kill without a record is a pane the reconnect census cannot report,
+    // so the plane would keep the row `running` forever with nothing to
+    // contradict it.
+    const { dataDir, deps, meta } = await enrolled([A]);
+    await record(meta, A, "alpha", "/work/alpha");
+
+    await run(["maintenance", "on", "--yes"], deps);
+
+    expect(existsSync(join(dataDir, "subshells", `${A}.meta.json`))).toBe(true);
+    expect(await meta.list()).toHaveLength(1);
+  });
+
+  test("`on` needs no --yes when nothing is running", async () => {
+    const { dataDir, deps, meta, killed } = await enrolled([]);
+    await record(meta, A, "alpha", "/work/alpha"); // recorded but dead: nothing to stop
+    const res = await run(["maintenance", "on"], deps);
+    expect(res.code).toBe(0);
+    expect(killed).toEqual([]);
+    expect(readMaintenance(dataDir)).toEqual({ kind: "state", state: { on: true, changedAt: NOW } });
+  });
+
+  test("`on --yes --json` reports the stamp and exactly what it stopped", async () => {
+    const { deps, meta } = await enrolled([A]);
+    await record(meta, A, "alpha", "/work/alpha");
+    const res = await run(["maintenance", "on", "--yes", "--json"], deps);
+    expect(res.code).toBe(0);
+    expect(JSON.parse(res.out)).toEqual({ on: true, changedAt: NOW, stopped: [A] });
+  });
+
+  test("`off` writes the flag and says when the plane will learn of it", async () => {
+    const { dataDir, deps } = await enrolled();
+    writeMaintenance(dataDir, { on: true, changedAt: "2026-09-13T00:00:00.000Z" });
+
+    const res = await run(["maintenance", "off"], deps);
+
+    expect(res.code).toBe(0);
+    expect(readMaintenance(dataDir)).toEqual({ kind: "state", state: { on: false, changedAt: NOW } });
+    expect(res.out).toMatch(/15 seconds|next connect/);
+  });
+
+  test("`off` REPAIRS an unreadable mirror — the only way out of the fail-closed state", async () => {
+    // Fail-closed means a corrupt file refuses every launch, so the escape
+    // hatch has to be a test rather than a paragraph: `off` never reads before
+    // writing, and the write is a wholesale replace, so the corrupt bytes are
+    // gone and the gate passes again.
+    const { dataDir, deps } = await enrolled();
+    writeFileSync(maintenancePath(dataDir), "{not json");
+    expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable" });
+
+    const res = await run(["maintenance", "off"], deps);
+
+    expect(res.code).toBe(0);
+    expect(readMaintenance(dataDir)).toEqual({ kind: "state", state: { on: false, changedAt: NOW } });
+  });
+
+  test("the refusal stays TEXT under --json — the exit code is the contract, not stdout", async () => {
+    const { dataDir, deps, meta, killed } = await enrolled([A]);
+    await record(meta, A, "alpha", "/work/alpha");
+
+    const res = await run(["maintenance", "on", "--json"], deps);
+
+    expect(res.code).toBe(1);
+    // Nothing on stdout at all: a caller that got code 1 must not be parsing
+    // it, and half a JSON document would invite exactly that.
+    expect(res.out).toBe("");
+    expect(res.err).toInclude("--yes");
+    expect(res.err).toInclude(A);
+    expect(killed).toEqual([]);
+    expect(readMaintenance(dataDir)).toEqual({ kind: "absent" });
+  });
+
+  test("`status` reports each of the three file states, and never exits non-zero", async () => {
+    const { dataDir, deps } = await enrolled();
+
+    const absent = await run(["maintenance", "status", "--json"], deps);
+    expect(absent.code).toBe(0);
+    expect(JSON.parse(absent.out)).toEqual({ on: false, changedAt: null, file: "absent" });
+
+    writeMaintenance(dataDir, { on: true, changedAt: NOW });
+    const on = await run(["maintenance", "status", "--json"], deps);
+    expect(on.code).toBe(0);
+    expect(JSON.parse(on.out)).toEqual({ on: true, changedAt: NOW, file: "present" });
+    expect((await run(["maintenance", "status"], deps)).out).toInclude(NOW);
+
+    writeFileSync(maintenancePath(dataDir), "{not json");
+    const broken = await run(["maintenance", "status", "--json"], deps);
+    expect(broken.code).toBe(0);
+    // Fail-closed, and the view says so rather than reporting a tidy "off".
+    expect(JSON.parse(broken.out)).toEqual({ on: true, changedAt: null, file: "unreadable" });
+    expect((await run(["maintenance", "status"], deps)).out).toMatch(/unreadable/);
+  });
+
+  test("with no config, exit 1 pointing at enroll", async () => {
+    newHome();
+    const res = await run(["maintenance", "status"]);
+    expect(res.code).toBe(1);
+    expect(res.err).toMatch(/enroll/i);
+  });
+
+  test("subtoken and flag placement are usage errors (exit 2)", async () => {
+    expect(() => parseArgs(["maintenance"])).toThrow(/maintenance requires on or off or status/);
+    expect(() => parseArgs(["maintenance", "drain"])).toThrow(/unknown maintenance subcommand 'drain'/);
+    // --yes only overrides `on`'s refusal; nothing else has one to override.
+    expect(() => parseArgs(["maintenance", "off", "--yes"])).toThrow(/not valid for 'maintenance off'/);
+    expect(() => parseArgs(["maintenance", "status", "--yes"])).toThrow(/not valid for 'maintenance status'/);
+    expect(parseArgs(["maintenance", "on", "--yes", "--json"])).toEqual({
+      command: "maintenance",
+      sub: "on",
+      flags: { yes: "1", json: "1" },
+    });
+    const res = await run(["maintenance", "drain"]);
+    expect(res.code).toBe(2);
+    expect(res.err).toInclude(USAGE_MARKER);
+  });
+
+  test("usage lists the verb", async () => {
+    expect((await run(["frobnicate"])).err).toInclude("subshell maintenance");
   });
 });

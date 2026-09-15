@@ -1,13 +1,14 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { assembleHarnessCommand, enforceMode, findBinary, type PresetDefinition } from "@internal/pane-runtime";
-import { HARNESS_BINARY_PLACEHOLDER } from "@internal/subshell-protocol";
+import { HARNESS_BINARY_PLACEHOLDER, NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { log } from "../log.js";
+import { readMaintenance } from "../maintenance.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
-import { startExitWatcher } from "./report.js";
+import { reportMaintenance, startExitWatcher } from "./report.js";
 
 /**
  * The `launch` executor (spec 2026-08-31 §6.4/§7) — the agent-side twin of
@@ -47,6 +48,26 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // malformed id and every path below interpolates it — never touch fs or
   // tmux with an id the control plane could not have minted.
   if (!isSubshellId(cmd.subshellId)) return { ok: false, error: "invalid subshell id" };
+
+  // Maintenance (spec 2026-09-14 §4.2), ahead of the allowlist: this machine
+  // was taken out of service, so WHICH directory was asked for is not the
+  // question. The node enforces it from its own file rather than trusting the
+  // plane's gate — defence in depth for the same reason the allowlist is
+  // here, plus the plain race that the plane may not have learned yet.
+  //
+  // The event is what makes a refusal CONVERGE: the plane writes its row from
+  // a stamp the node reported, never from one it invented for a refusal it
+  // did not expect. An unreadable file has no stamp, so it refuses silently —
+  // the machine cannot tell the plane a value it could not read.
+  //
+  // The error is the BARE constant: the plane compares `detail` by equality,
+  // and a suffix (however helpful) reads there as an ordinary launch failure.
+  const maintenance = readMaintenance(ctx.config.dataDir);
+  if (maintenance.kind === "state" && maintenance.state.on) {
+    reportMaintenance(ctx, maintenance.state);
+    return { ok: false, error: NODE_RESULT_MAINTENANCE };
+  }
+  if (maintenance.kind === "unreadable") return { ok: false, error: NODE_RESULT_MAINTENANCE };
 
   // The node's OWN allowlist, checked before anything is resolved or spawned.
   // Signed commands prove who asked, never whether the directory is permitted

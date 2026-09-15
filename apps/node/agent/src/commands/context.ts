@@ -1,5 +1,11 @@
 import type { TmuxRunner } from "@internal/pane-runtime";
-import type { JsonValue, NodeCommandBody, NodeEvent, NodeRuntimeReport } from "@internal/subshell-protocol";
+import type {
+  JsonValue,
+  NodeCommandBody,
+  NodeEvent,
+  NodeMaintenanceWire,
+  NodeRuntimeReport,
+} from "@internal/subshell-protocol";
 import type { AgentConfig } from "../config.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
@@ -120,6 +126,22 @@ export interface CommandContext {
    * restart rather than a stop.
    */
   runtime: NodeRuntimeReport | null;
+  /**
+   * The `{ on, changedAt }` this connection last told the plane about, or
+   * undefined when it has said nothing (no mirror file at connect, or a
+   * mirror it could not read).
+   *
+   * It exists so the machine reports CHANGES rather than state: a heartbeat
+   * that re-sent the flag every 15 s would be a write on the plane every 15 s,
+   * each one a candidate for reconciliation against the plane's own stamp.
+   * Seeded from the same read that built `ready` — the frame has already said
+   * this, so the first heartbeat must not say it again — and re-seeded on
+   * every connect, since a new socket has told the plane nothing.
+   *
+   * `set_maintenance` sets it to what it wrote, which is what stops the node
+   * from echoing the plane's own write back at it one tick later.
+   */
+  lastReportedMaintenance?: NodeMaintenanceWire;
   /**
    * Ask the daemon to exit 0 AFTER the current result frame is sent. The
    * executor cannot exit itself: the daemon is the only sender of `result`,
