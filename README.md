@@ -198,13 +198,20 @@ just executes.
 
 1. **Settings → Nodes → Add node** renders a one-liner carrying a single-use
    setup key (24 h expiry, hashed at rest, revocable).
-2. Run it on the target machine. It downloads the `subshell` agent, verifies the
-   published `.sha256` before the first `chmod +x`, enrols, and can install
-   itself as a background service (`subshell service install` — systemd user
-   unit on Linux, launchd agent on macOS).
+2. Run it on the target machine. It checks for **tmux** (a node without it
+   accepts no launches), downloads the `subshell` agent to `~/.local/bin`,
+   verifies the published `.sha256` before the first `chmod +x`, enrols, and
+   then asks whether to install a background service that starts at login —
+   a systemd user unit on Linux, a launchd agent on macOS. Answer no, or set
+   `SUBSHELL_NO_SERVICE=1`, and `subshell service install` does it later.
 3. The node appears online. Opening its page (or pressing Re-check) has the
    control plane probe it for the harness binaries this instance offers —
    then launch subshells on it like any other host.
+
+The same three steps are one verb if you already have the binary:
+`subshell setup --server <url> --key <nsk_…>`. On Linux, keep the agent alive
+across logout with `sudo loginctl enable-linger $USER`; the installer measures
+this and says so only when it is missing.
 
 Points worth knowing before you enrol one:
 
@@ -225,16 +232,54 @@ Points worth knowing before you enrol one:
 Architecture detail: [`docs/architecture.md` §9](docs/architecture.md#9-nodes-remote-execution-hosts).
 The agent itself: [`apps/node/agent/AGENTS.md`](apps/node/agent/AGENTS.md).
 
-## Install from a release binary
+## Headless install (no desktop app)
 
-The control plane ships as one self-contained binary per platform, with the SPA
-embedded — no Bun, no checkout, no `apps/server/web/dist` on the host. Assets live
-on GitHub Releases under `server-vX.Y.Z` as `subshell-server-cli-<triple>`
-(`linux-x64`, `linux-arm64`, `darwin-arm64`; darwin builds are signed and
-notarized) and under `node-vX.Y.Z` as `subshell-node-cli-<triple>` for the node
-agent (`linux|darwin × x64|arm64`). The `cli` in an asset name says it is the
-bare binary rather than the desktop app that wraps it; you rename it to
-`subshell-server` (or `subshell`) on install, as below.
+One command installs the control plane, writes its config, offers to run it in
+the background, and tells you where to create the first account:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
+```
+
+It detects your platform, downloads the matching `subshell-server-cli-<triple>`
+from the newest `server-v*` release, **verifies the published `.sha256` before
+the first `chmod +x`**, installs to `~/.local/bin/subshell-server`, and runs
+`init`. Set `SUBSHELL_SERVER_PORT`, `SUBSHELL_SERVER_HOST`,
+`SUBSHELL_SERVER_BASE_URL` or `SUBSHELL_SERVER_TRUSTED_ORIGINS` to answer ahead
+of time, and `SUBSHELL_NO_SERVICE=1` to skip the service question.
+
+`init` asks one question — whether to run the server in the background and start
+it at login (default yes) — and ends by naming the address to open:
+
+```
+Open http://localhost:3080/setup in a browser to create the admin account.
+```
+
+**Open it promptly.** The setup endpoints are public until the first account
+exists, which is what lets you create it; on a LAN that window is a race, and
+it closes the moment someone walks through it.
+
+Then the browser takes over: create the admin account, add an agent CLI, and
+start your first subshell.
+
+### Browsing from another machine
+
+The default bind is `0.0.0.0`, so the server is reachable on the LAN — but a
+browser's `Origin` still has to be on a **static allowlist**, deliberately not
+"whatever host the request claims" (that is the DNS-rebinding hole the list
+exists to close). Sign-in from an address the instance does not know answers
+**403 "Invalid origin"**, which names nothing on its own. Name the address you
+actually browse from:
+
+```bash
+subshell-server configure --trusted-origins http://192.168.1.5:3080
+subshell-server service restart
+```
+
+`init` warns about this at write time when it applies, and the dashboard's
+Settings → Service → Addresses card edits the same key later.
+
+### Doing it by hand
 
 ```bash
 gh release download server-vX.Y.Z -p 'subshell-server-cli-darwin-arm64*'
@@ -246,17 +291,60 @@ printf '%s  %s\n' "$(cat subshell-server-cli-darwin-arm64.sha256)" \
 
 install -m755 subshell-server-cli-darwin-arm64 ~/.local/bin/subshell-server
 
-subshell-server init              # config home (0700), auth secret, port/host/db
-subshell-server service install   # systemd user unit / launchd agent
+subshell-server init              # config home (0700), auth secret, port/host/db, service
 subshell-server status            # what this host WOULD boot with — reads only
 ```
+
+The control plane ships as one self-contained binary per platform with the SPA
+embedded — no Bun, no checkout, no `apps/server/web/dist` on the host. Assets
+live on GitHub Releases under `server-vX.Y.Z` as `subshell-server-cli-<triple>`
+(`linux-x64`, `linux-arm64`, `darwin-arm64`; darwin builds are signed and
+notarized) and under `node-vX.Y.Z` as `subshell-node-cli-<triple>` for the node
+agent. The `cli` in an asset name says it is the bare binary rather than the
+desktop app that wraps it; you rename it to `subshell-server` (or `subshell`) on
+install, as above.
 
 `status` is the first thing to run when something looks wrong: it prints the
 config.env path, the layer each setting came from (masking the secret), tmux
 presence, the resolved MCP entrypoint and which rung answered, port liveness,
-and whether a service definition is on disk. Config lives in
-`~/.config/subshell-server/config.env` (0600); precedence is **process env >
-config.env > `.env` > built-in defaults**.
+whether a service definition is on disk, and **whether the admin account has
+been created yet**. Config lives in `~/.config/subshell-server/config.env`
+(0600); precedence is **process env > config.env > `.env` > built-in defaults**.
+
+### Running it as a service
+
+`init` offers this, and it is also a verb of its own — a systemd **user** service
+on Linux, a launchd agent on macOS. No sudo is involved:
+
+```bash
+subshell-server service install    # write + enable the unit / agent
+subshell-server service status     # what the manager reports (--json for scripts)
+subshell-server service start|stop|restart
+subshell-server service enable|disable   # start at login, without touching the running process
+subshell-server service uninstall
+```
+
+On Linux a user service dies at logout unless the account lingers, which is the
+difference between "comes back when you log in" and "comes back after a reboot
+with nobody logged in". The installer measures it and prints the fix only when
+it is missing:
+
+```bash
+sudo loginctl enable-linger $USER
+```
+
+Settings → Service says the same thing in the dashboard, so a headless host can
+be checked from a browser later.
+
+From a checkout, the same CLI is the entry point — `src/index.ts` is both the
+boot entry and the CLI, and the generated unit records the interpreter plus the
+resolved script path:
+
+```bash
+bunx turbo build
+bun apps/server/api/src/index.ts init
+bun apps/server/api/src/index.ts service install
+```
 
 Cutting a release is a workflow dispatch, never a hand-made tag —
 `gh workflow run release.yml -f app=all`. See root
@@ -267,10 +355,28 @@ Cutting a release is a workflow dispatch, never a hand-made tag —
 ```bash
 turbo build          # builds frontend/dist + server/dist
 DATABASE_PATH=./data/subshell.db HOST=0.0.0.0 NODE_ENV=production \
+  APP_BASE_URL=https://subshell.example.com \
+  BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
   bun run --cwd apps/server/api prod
 ```
 
 The backend serves the built SPA at `/` plus the API, WebSocket and `/docs`.
+
+Three things this form needs that a desktop or `init`-provisioned install gets
+for free:
+
+- **`BETTER_AUTH_SECRET` is mandatory here.** `NODE_ENV=production` refuses to
+  boot on the built-in placeholder. `init` generates one; a hand-rolled
+  deployment that skips `init` has to supply it, and must keep the SAME value
+  across restarts or every session is invalidated.
+- **`APP_BASE_URL` is the address you browse**, and it is also better-auth's
+  passkey rpID — so changing it later stops existing passkeys working on the
+  old address. Add any OTHER name a browser uses to `TRUSTED_ORIGINS`, or
+  sign-in answers 403 "Invalid origin".
+- **A hand-run server cannot restart itself.** The dashboard's Restart button
+  requires the service manager to report *this* pid, which a bare `bun run` or
+  a container never satisfies; it stays greyed out by design. Everything else
+  on Settings → Service works.
 
 ## Docker
 
@@ -311,47 +417,19 @@ docker compose up -d         # http://localhost:3080
 
 ### Host service (no Docker)
 
-Run the control plane as a systemd **user** service (or a launchd agent on
-macOS) so it starts at boot — the panes then get native host tools instead of a
-container's package set. No sudo is involved; on Linux the one-time
-`sudo loginctl enable-linger $USER` keeps user services running without a login,
-and the installer prints the hint.
+Running the control plane as a systemd **user** service or launchd agent is
+covered under [Headless install](#running-it-as-a-service) — the panes then get
+native host tools instead of a container's package set. What follows is the part
+that only matters once one is installed.
 
-From a release binary — the usual case, and the one that needs no checkout:
-
-```bash
-subshell-server init              # config home (0700), auth secret, port/host/db
-subshell-server service install   # write + enable the unit / agent
-subshell-server status            # what this host would boot with
-```
-
-From a checkout, the same CLI is the entry point — `src/index.ts` is both the
-boot entry and the CLI, and the generated unit records the interpreter plus the
-resolved script path:
-
-```bash
-bunx turbo build
-bun apps/server/api/src/index.ts init
-bun apps/server/api/src/index.ts service install
-```
-
-The CLI drives it from there, on both platforms:
-
-```bash
-subshell-server service status    # what the manager reports (--json for scripts)
-subshell-server service start
-subshell-server service stop      # the definition stays installed
-subshell-server service restart
-```
-
-`systemctl --user` / `launchctl` still work if you prefer them, with one
-caveat that is the reason these verbs exist: each local subshell's tmux server
-is a **child** of the service, so a definition written before 2026-09-03 takes
-every running subshell down with it — on **stop** as much as on restart, since
-a restart is a stop followed by a start. The CLI is the only thing that says
-so. `service restart` refuses on such a host (`--force` overrides), `service
-stop` warns and proceeds, and `service status` reports the fact up front as
-`teardown keeps panes`. A bare `systemctl --user stop` tells you nothing.
+`systemctl --user` / `launchctl` still work if you prefer them, with one caveat
+that is the reason the CLI verbs exist: each local subshell's tmux server is a
+**child** of the service, so a definition written before 2026-09-03 takes every
+running subshell down with it — on **stop** as much as on restart, since a
+restart is a stop followed by a start. The CLI is the only thing that says so.
+`service restart` refuses on such a host (`--force` overrides), `service stop`
+warns and proceeds, and `service status` reports the fact up front as `teardown
+keeps panes`. A bare `systemctl --user stop` tells you nothing.
 
 On Linux the check asks systemd for the **effective** `KillMode`, so a drop-in
 under `subshell-server.service.d/` is seen; on macOS it reads

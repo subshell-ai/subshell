@@ -76,6 +76,16 @@ an `enroll`, not a `configure`.
 ## CLI (`src/cli.ts` — hand-rolled parser, no flag library)
 
 ```
+subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
+               [--no-service] [--yes] [--json]
+                                   # THE HEADLESS ENTRY POINT (spec 2026-09-15): tmux
+                                   # preflight, then `enroll`, then ONE question — run in
+                                   # the background and start at login? — defaulting to
+                                   # yes, then the same installService the service verb
+                                   # calls, then a line naming the node's page. What the
+                                   # rendered install.sh invokes. `enroll` stays a
+                                   # primitive beneath it for anyone composing their own
+                                   # flow; this is the one a person runs.
 subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
                                    # --json prints {nodeId,serverUrl,name,dataDir,configPath}
                                    # (never the nodeKey) so a GUI need not scrape the human line
@@ -108,8 +118,11 @@ subshell maintenance on [--yes]    # take this node out of service (spec 2026-09
                                      # launches nothing. `on` STOPS every subshell
                                      # running here — so without --yes it lists them
                                      # (name · id · cwd), refuses with exit 1 and
-                                     # writes NOTHING. No prompt: `run()` is pure,
-                                     # the same shape `service restart --force` has
+                                     # writes NOTHING. No prompt HERE — `maintenance`
+                                     # asks nothing, the same shape `service restart
+                                     # --force` has. (`run()` as a whole is no longer
+                                     # promptless: `setup` asks one question through
+                                     # RunDeps.prompt, injected by tests.)
 subshell maintenance off           # back in service
 subshell maintenance status [--json] # what THIS machine's mirror says; always exits 0
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and

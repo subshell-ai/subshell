@@ -578,10 +578,10 @@ it, so never make a bare invocation mean anything else.
 | Command | |
 | --- | --- |
 | `version` | print `subshell-server <version>` and exit |
-| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, plugin registry, port liveness, service definition on disk; reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
-| `init` | first run: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), then the configure flow |
-| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes` |
-| `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first). `--no-autostart` installs one that runs NOW but does not come back at login. On Linux it then asks logind whether the user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes — the hint used to print on every install, which told an operator who had already fixed this to go and fix it (`null`, i.e. no loginctl and no bus, still prints: unneeded advice is cheaper than a reboot that loses the server) |
+| `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, plugin registry, port liveness, service definition on disk, and `setup` — whether the first admin account exists, so the one command an operator is told to run when something looks wrong can answer the first question they have. Reading that counts users out of the database, which is why it opens read-only and FALLS BACK to read-write with `create: false`: SQLite cannot read a WAL database without a writable `-shm` beside it, so on any instance whose sidecars are gone (a restored backup, a cleanly closed copy) a read-only open succeeds and the first query throws. It still never creates a database. Reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
+| `init` | first run, and THE headless entry point (spec 2026-09-15): config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), the configure flow, then ONE question — run in the background and start at login? — defaulting to yes and installing through the same `installService` the service verb calls, then the handoff line naming `<APP_BASE_URL>/setup`. `--no-service` skips the install, `--service` is its explicit opposite, and `--yes`/a non-TTY take the default. **The desktop app passes `--no-service`** (`control.rs` `init_args`): it installs the service itself with its own autostart checkbox, so a question here would re-ask what the assistant already answered. A CANCELLED service question is "not that part", not a failed init — config.env is already written and `init` is idempotent — so it exits 0 and still prints the handoff; a FAILED install fails init and prints none |
+| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes`. Its `applyConfig` carries three address warnings, and the third (spec 2026-09-15) is the LAN-bind trap: `HOST=0.0.0.0` + a loopback base URL + an empty `TRUSTED_ORIGINS` is the configuration whose only symptom is a 403 "Invalid origin" naming nothing. The validator is SHARED with the dashboard's Addresses card, so the CLI and the browser cannot disagree about when this is wrong |
+| `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first). `--no-autostart` installs one that runs NOW but does not come back at login. On Linux it then asks logind whether the user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes — the hint used to print on every install, which told an operator who had already fixed this to go and fix it (`null`, i.e. no loginctl and no bus, still prints: unneeded advice is cheaper than a reboot that loses the server). Run ALONE it also prints the `/setup` handoff, from the same helper `init` uses so the two cannot drift |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
 | `service enable` / `service disable` | arm or disarm start-at-login, WITHOUT touching the running process. Linux: `systemctl --user enable\|disable` with no `--now` — that flag is the whole difference between a preference and an outage. macOS: the plist MOVES (below) |
 | `service status` | what the MANAGER reports — run state, pid, starts-at-login, and whether a teardown keeps live panes; `--json` for scripts. Always exits 0: a view must not make a caller distinguish "not running" from "the call failed" |
@@ -592,9 +592,23 @@ it, so never make a bare invocation mean anything else.
 An unknown word exits 1 with usage. **Sync-exit design** (house style for
 the quick commands, no longer the safety mechanism): a handled command
 should run to completion and `process.exit` SYNCHRONOUSLY inside
-`dispatchCli` — sync fs, `readSync(0, …)` prompts (not readline),
-`Bun.spawnSync` for the service manager. `mcp` is deliberately the
-exception: it is long-running by design and suspends in its stdio loop.
+`dispatchCli` — sync fs, `Bun.spawnSync` for the service manager. There are
+now THREE exceptions rather than one: `mcp`, long-running by design and
+suspended in its stdio loop, plus `init` and `configure`, which became async
+when their prompts moved to `@clack/prompts` (spec 2026-09-15) — a promise-based
+library cannot be driven by `readSync(0, …)`.
+
+That is allowed precisely BECAUSE sync-exit is not the safety mechanism, and
+the two things that are stay intact and tested: the entry graph is IO-free at
+import, and `isCliEngaged()` flips synchronously at subcommand recognition, so
+a suspended command cannot boot the server underneath it.
+
+**The tmux offer keeps a SEPARATE synchronous prompt seam**, and that is a known
+divergence rather than an oversight. Its preflight is shared with
+`installService`, which returns a `CliResult` rather than a promise and cannot
+await; making it async ripples through every service caller to change one y/n
+from a clack text box into a clack confirm. Worth doing deliberately or not at
+all — do not "fix" half of it.
 What makes ANY suspension safe is not the exit style but two tested
 invariants: the entry graph is IO-free AT IMPORT (lazy `getAuth()` — no
 module opens SQLite or binds a port merely by being evaluated, pinned by

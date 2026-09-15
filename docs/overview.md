@@ -36,7 +36,7 @@ browser ──•── /                   Elysia serves built frontend (SPA)
 | Runtime | **Bun** exclusively (monorepo via turbo workspaces) |
 | Database | **SQLite via `bun:sqlite`** — no native-module deps; Kysely `Dialect` from `kysely-bun-sqlite-dialect`. Every handle opens through `apps/server/api/src/db/open-database.ts`, which applies `PRAGMA foreign_keys = ON` — the `workspace_panes` cascades depend on it |
 | Subshells | **tmux-backed, detachable** (survive browser close; tmux >= 3.2, per README); pipe-pane → per-subshell log file. tmux 3.6 additionally exposes `#{pane_dead_status}`, which is how a crashed pane's exit code is read — on older tmux that read degrades to `null`, never to an error |
-| Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide **read-only**; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
+| Auth | **better-auth** (email/password); HttpOnly cookie; first user becomes admin; registration gate. Signed-out visitors are guarded to a chrome-free `/login` (first run goes to `/setup` instead). The user roster is instance-wide; management (create, audit) is cookie-admin-only. Machine paths: bearer API keys via `@better-auth/api-key` — per-subshell tokens (revoked on death) + admin-managed system keys; admin surfaces are cookie-only |
 | Cross-subshell comms | **E2EE channels + `subshell mcp`**: durable append-only log (no queue), per-recipient sealed envelopes (jose, ECDH-ES+A256GCM) the server cannot read; cursor reads with long-poll; agents manage subshells/channels through 13 MCP tools (6 channel, 7 subshell) |
 | Terminal | **xterm 6** (fit/webgl/serialize/search addons); dark-only shadcn/ui (Base UI) theme — the old Radix tree was migrated 2026-08-30 (`apps/server/web/.migration/`) |
 | Harnesses | **Plugin packages** the control plane loads (spec 2026-09-10): installed into the instance store at Settings → Plugins, admin-only; a node executes the plane-built argv and holds nothing plugin-shaped. The contract is `@subshell-ai/plugin-api` (`packages/plugin-api`); six plugins ship in `packages/plugins/*`: claude-code, opencode & codex (MCP auto-registered per subshell), hermes & pi (one-time manual registration, steps shown in the preset editor), and terminal (a plain shell, no agent CLI) |
@@ -179,8 +179,11 @@ day the next cut lands.)
   installer (systemd user unit / launchd agent).
 - **Distribution** — `subshell-server` ships as one self-contained binary per
   triple with the SPA embedded and its own `mcp` subcommand, plus a CLI
-  (`version｜status｜init｜configure｜service install｜uninstall`); the node agent
-  ships as four. Both are cut by `.github/workflows/release.yml` under
+  (`version｜license｜status｜init｜configure｜service
+  install｜uninstall｜enable｜disable｜status｜start｜stop｜restart｜mcp｜report`),
+  and an `install-server.sh` one-liner that downloads, verifies and runs `init`;
+  the node agent ships as four and carries a `setup` verb that enrols and
+  offers to install its service in one command. Both are cut by `.github/workflows/release.yml` under
   `server-vX.Y.Z` / `node-vX.Y.Z`, darwin artifacts signed + notarized.
 - **Admin** — `/settings/status` renders the whole instance in one read
   (versions, host paths, resolved MCP entrypoint, counts, security posture),
