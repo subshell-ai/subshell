@@ -105,36 +105,54 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
           </p>
         )}
 
-        {harnesses.map((h) => (
-          <div key={h.harnessId} className="space-y-1">
-            <div className="flex flex-wrap items-center gap-3">
+        {/* A headerless table: ONE grid for every row, so the four columns
+            share their tracks and line up down the card. Each row was its own
+            flex before, where the name took the slack and pushed the rest
+            right — which put every row's badge at a different place, since the
+            version strings are different widths. `auto` tracks size to the
+            widest cell, which is the alignment a table gives and a row of
+            flex items cannot.
+
+            Rows are `display: contents` (see the fragment's inner wrapper):
+            the row element itself draws nothing, so its cells are the grid's
+            own children. That is also why every cell is ALWAYS rendered, even
+            empty — a skipped cell would slide the rest of that row one column
+            left.
+
+            Two columns below `sm`, four above: version and checked-at fall to
+            a second line on a phone rather than crushing the name. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+          {harnesses.map((h) => (
+            <div key={h.harnessId} className="contents">
               {/* Named by the node view itself: every row carries the display
                   name from the instance store's manifest (spec 2026-09-10
                   follow-ups), so the page needs no second registry read and a
                   registry-installed plugin is named exactly like a built-in. */}
-              <PluginIcon pluginId={h.harnessId} name={h.name} />
-              <span className="min-w-0 flex-1 truncate font-strong">{h.name}</span>
+              <div className="flex min-w-0 items-center gap-3">
+                <PluginIcon pluginId={h.harnessId} name={h.name} />
+                <span className="truncate font-strong">{h.name}</span>
+              </div>
               {/* The badge is the detection answer: whether the program this
                   plugin drives was found on this machine. `no-binary` reads
                   ready because a plugin that declares no program is not one
                   whose program is missing. */}
-              <Badge variant={badgeVariant(h)}>{badgeLabel(h)}</Badge>
-              {h.version && <span className="font-mono text-detail text-muted-foreground">{h.version}</span>}
-              {checkedAtLabel(h.checkedAt) && (
-                <span className="text-detail text-muted-foreground">{checkedAtLabel(h.checkedAt)}</span>
+              <Badge variant={badgeVariant(h)} className="justify-self-start">
+                {badgeLabel(h)}
+              </Badge>
+              <span className="font-mono text-detail text-muted-foreground">{h.version ?? ""}</span>
+              <span className="text-detail text-muted-foreground">{checkedAtLabel(h.checkedAt) ?? ""}</span>
+              {h.reason === "override-invalid" && (
+                <p className="col-span-full text-detail text-muted-foreground">
+                  An environment variable overrides where this program is looked for, and it doesn't point at an
+                  executable file on this node.
+                </p>
+              )}
+              {h.reason === "no-binary" && (
+                <p className="col-span-full text-detail text-muted-foreground">No separate program is needed here.</p>
               )}
             </div>
-            {h.reason === "override-invalid" && (
-              <p className="text-detail text-muted-foreground">
-                An environment variable overrides where this program is looked for, and it doesn't point at an
-                executable file on this node.
-              </p>
-            )}
-            {h.reason === "no-binary" && (
-              <p className="text-detail text-muted-foreground">No separate program is needed here.</p>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
