@@ -591,6 +591,18 @@ if (import.meta.main) {
     process.exit(1);
   }
 
+  // `tauri dev` compiles Rust, so it needs a C toolchain that links. On a Mac
+  // whose Xcode licence is unaccepted it does not, and cargo reports that as a
+  // note buried under an error naming a source file. Refuse here, by name,
+  // BEFORE the minutes spent building a sidecar that cannot be linked anyway.
+  // The probe is a script rather than a function because `rust:check` needs the
+  // identical answer and two spellings of one check is how they come to differ.
+  const toolchain = Bun.spawnSync([join(REPO_ROOT, "scripts", "macos-toolchain-preflight.sh")], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if (toolchain.exitCode !== 0) process.exit(toolchain.exitCode ?? 1);
+
   const staged = join(REPO_ROOT, "apps", app.dir, "src-tauri", "binaries", desktopSidecarFileName(app.sidecar, target));
 
   const stagedAt = isStaged(staged) ? statSync(staged).mtimeMs : null;

@@ -38,6 +38,15 @@ This was added after a hand-written import block failed `cargo fmt --check` on
 both desktop shards in CI — caught by neither `cargo check` nor clippy, and a
 full CI round trip to discover something a local command finds in seconds.
 
+**On macOS it refuses early when `cc` cannot link** (`scripts/macos-toolchain-preflight.sh`,
+shared with the `tauri dev` launchers). An unaccepted Xcode licence stops every
+cargo build, and cargo reports that as a `note:` about a hundred lines above an
+error naming a SOURCE FILE — so a machine that cannot link anything reads as one
+broken doctest in a file you just edited. Measured on 2026-09-15. The remedy is
+`sudo xcodebuild -license`, or `export DEVELOPER_DIR=/Library/Developer/CommandLineTools`,
+whose toolchain the licence gate does not cover. A link failure the probe does
+not recognise is reported verbatim rather than blamed on the licence.
+
 ## `lint` vs `lint:check`
 
 - `bun run lint` runs biome with `--write --unsafe`: it **fixes** what it can and rarely reports a failure. Use it while working.

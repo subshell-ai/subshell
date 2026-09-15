@@ -23,6 +23,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Before any cargo runs: on a Mac whose Xcode licence is unaccepted, `cc`
+# cannot link, and cargo buries that under an error naming a source file. Same
+# bug class as the one in this file's header — a prerequisite whose failure
+# names something else — so it is refused here instead of diagnosed there.
+"$ROOT/scripts/macos-toolchain-preflight.sh"
+
 TRIPLE="$(rustc --print host-tuple)"
 
 # dir : sidecar stem. The same pairing lives in test.yml's matrix and in each
