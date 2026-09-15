@@ -382,12 +382,18 @@ export function setupRows(
  * a login choice such a server will refuse would be a checkbox that silently
  * does nothing, so the surfaces that depend on those verbs say why instead.
  *
- * No GitHub release of the server has carried the verbs yet (the last cut was
- * `server-v0.2.0`; 0.3.0 and 0.4.0 were npm-only version bumps), so this names
- * the release that WILL: 0.5.0, the next server minor. The test beside it
- * (`wizard-state.test.ts`) turns red the moment a server bump moves past it.
+ * No GitHub release of the server has carried the verbs yet, so this names the
+ * release that WILL. It was 0.5.0; that version was never cut, the package
+ * moved to 0.6.0 with the headless-setup work, and 0.6.0 is now the first
+ * release an operator can actually install. Nobody is excluded by the move,
+ * precisely because 0.5.0 never shipped.
+ *
+ * The test beside it (`wizard-state.test.ts`) turns red the moment a server
+ * bump moves past it — which is what caught this one, in CI, on the commit
+ * that merged the version PR. Bumping it is a RELEASE step: do it when the
+ * server's package version changes, not before.
  */
-export const MIN_AUTOSTART_SERVER_VERSION = "0.5.0";
+export const MIN_AUTOSTART_SERVER_VERSION = "0.6.0";
 
 /** Whether the resolved server is new enough to control start-at-login. */
 export function autostartSupported(probe: Probe): boolean {

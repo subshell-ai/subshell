@@ -444,7 +444,14 @@ describe("autostartSupported", () => {
   });
 
   it("accepts the version it shipped in, and anything after", () => {
-    for (const version of [MIN_AUTOSTART_SERVER_VERSION, "0.5.1", "1.0.0"]) {
+    // The "after" case is DERIVED from the constant, not a literal. It used to
+    // be "0.5.1", which stopped being newer the moment the constant moved to
+    // 0.6.0 — a second red test for one release step, in CI, after the first
+    // had already been fixed (2026-09-15).
+    const [maj, min, patch] = MIN_AUTOSTART_SERVER_VERSION.split(".").map((n) => Number.parseInt(n, 10));
+    const onePatchNewer = `${maj}.${min}.${(patch ?? 0) + 1}`;
+    const oneMajorNewer = `${(maj ?? 0) + 1}.0.0`;
+    for (const version of [MIN_AUTOSTART_SERVER_VERSION, onePatchNewer, oneMajorNewer]) {
       expect(autostartSupported(virgin({ server: { argv: ["/x"], source: "path", version } }))).toBe(true);
     }
   });
