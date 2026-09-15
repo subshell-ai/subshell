@@ -26,12 +26,19 @@ PORT=31997
 BASE="http://127.0.0.1:$PORT"
 W=$(mktemp -d /tmp/ss-upd-XXXX)
 SRVPID=""
+# The version bump below is a WORKING-TREE edit, so it is restored on every
+# exit path — from a COPY of the file's bytes rather than with `git checkout`.
+# The difference matters in this repo: several sessions share one checkout, and
+# `git checkout -- <path>` would also discard an uncommitted edit somebody else
+# was holding in that file. A byte-for-byte restore puts back exactly what was
+# there, committed or not.
+PKG="$API/package.json"
+PKG_BACKUP="$(mktemp /tmp/ss-upd-pkg-XXXX)"
+cp "$PKG" "$PKG_BACKUP"
 cleanup() {
   [ -n "$SRVPID" ] && kill "$SRVPID" 2>/dev/null
   for p in $(lsof -nP -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
-  # The version bump is a WORKING-TREE edit; restore it on every exit path,
-  # the way the release pipeline restores its embed stubs.
-  git -C "$ROOT" checkout -- apps/server/api/package.json 2>/dev/null
+  [ -f "$PKG_BACKUP" ] && cp "$PKG_BACKUP" "$PKG" && rm -f "$PKG_BACKUP"
 }
 trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
@@ -68,7 +75,7 @@ bun -e "
 # test is about the update, so it builds what the repo builds.
 (cd "$API" && bun build --compile --target=bun --bytecode --minify --sourcemap ./src/index.ts \
    --outfile "$W/next-subshell-server" >/dev/null) || fail "could not build the $NEXT binary"
-git -C "$ROOT" checkout -- apps/server/api/package.json
+cp "$PKG_BACKUP" "$PKG"
 "$W/next-subshell-server" version | grep -q "subshell-server $NEXT" || fail "the new binary does not report $NEXT"
 ok "built $NEXT"
 

@@ -167,6 +167,29 @@ describe("the merge", () => {
   it("refuses an empty set", () => {
     expect(() => mergeUpdaterManifests([])).toThrow("no latest");
   });
+
+  /**
+   * A PARTIAL manifest is the failure this module exists to prevent, and it is
+   * the only one that publishes cleanly.
+   *
+   * One platform missing is not an error anywhere: the document is valid, the
+   * release uploads, and every installed app on the other platform asks for
+   * updates forever and is told there are none. Half the fleet works
+   * perfectly, which is precisely how it would go unnoticed. The publish job's
+   * `needs: [plan, build]` already fails the release when a shard dies, so
+   * this is the second lock on that door — and the one that is in the file
+   * somebody reads when it happens anyway.
+   */
+  it("refuses a merged set that is missing an expected platform", () => {
+    const only = [shard("darwin-arm64", DESKTOP_SERVER_PRODUCT, "desktop-server-v0.7.0")];
+    expect(() => mergeUpdaterManifests(only, ["darwin-aarch64", "linux-x86_64"])).toThrow(/missing linux-x86_64/);
+    // …and says what the consequence would have been, because "missing" alone
+    // reads as a detail rather than as a reason to stop a release.
+    expect(() => mergeUpdaterManifests(only, ["darwin-aarch64", "linux-x86_64"])).toThrow(/no updates/);
+    // With nothing expected it still merges — the pure function stays usable
+    // by a caller that means to merge one.
+    expect(Object.keys(mergeUpdaterManifests(only).platforms)).toEqual(["darwin-aarch64"]);
+  });
 });
 
 describe("parsing a shard file", () => {
@@ -234,6 +257,22 @@ describe("finding the shards on disk", () => {
         JSON.stringify(shard("linux-x64", DESKTOP_SERVER_PRODUCT, "desktop-server-v0.7.0")),
       );
       expect(findShardManifests(root).map((p) => p.split("/").pop())).toEqual(["latest.linux-x64.json"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // The CLI half of the rule above: the script that CI runs expects every
+  // DESKTOP_TARGETS platform, so a directory holding one shard stops the
+  // release rather than publishing a manifest half the fleet cannot use.
+  it("refuses a directory that holds only one platform's shard", () => {
+    const root = mkdtempSync(join(tmpdir(), "subshell-updater-"));
+    try {
+      writeFileSync(
+        join(root, "latest.linux-x64.json"),
+        JSON.stringify(shard("linux-x64", DESKTOP_SERVER_PRODUCT, "desktop-server-v0.7.0")),
+      );
+      expect(() => mergeFrom(findShardManifests(root))).toThrow(/missing darwin-aarch64/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

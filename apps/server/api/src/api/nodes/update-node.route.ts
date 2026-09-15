@@ -279,6 +279,28 @@ export const updateNodeRoute = new Elysia()
         );
       } catch (err) {
         if (err instanceof NodeRpcError) {
+          // A TIMEOUT is the one failure that may not be one. Every other
+          // refusal here is the agent SAYING it did nothing; a timeout is the
+          // agent saying nothing at all, and this command's deadline is five
+          // minutes because it contains a ~70 MB download — so a node whose
+          // link is slower than that installs the binary, restarts, and comes
+          // back on the new version while this request answers 409. Without
+          // this row a real binary replacement would have no audit trail and
+          // an error on the admin's screen.
+          //
+          // Its own action name, not `node.update`, because the two are
+          // different claims: one says a node was updated, this one says
+          // nobody knows. The reader is a person asking "why is that machine
+          // on a version nothing recorded".
+          if (err.code === "timeout") {
+            await audit({
+              actorUserId: user.id,
+              action: "node.update.unknown",
+              targetType: "node",
+              targetId: gate.row.id,
+              metadataJson: JSON.stringify({ from, to: release.version, forced: body.force === true }),
+            });
+          }
           const refusal = refusalFor(err, paneSafety);
           return status(409, apiErrorBody({ code: refusal.code, message: refusal.message }));
         }

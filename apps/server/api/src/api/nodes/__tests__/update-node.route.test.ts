@@ -26,7 +26,7 @@ import {
   type NodeSocket,
   resetNodeRegistryForTests,
 } from "@/services/nodes/node-registry.js";
-import { resolveResult } from "@/services/nodes/node-rpc.js";
+import { failConnPendings, resolveResult } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
 import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
@@ -414,6 +414,59 @@ describe("POST /api/nodes/:id/update", () => {
     const rows = await new AuditRepository(db).listLatest(20);
     const row = rows.find((r) => r.action === "node.update" && r.targetId === id);
     expect(JSON.parse(row?.metadataJson ?? "{}").forced).toBe(true);
+  });
+
+  /**
+   * A TIMEOUT is the one failure that may not be one, and it leaves a row of
+   * its own.
+   *
+   * Every other refusal here is the agent SAYING it did nothing. A timeout is
+   * the agent saying nothing at all — and this command's deadline contains a
+   * ~70 MB download, so a node on a slow link installs the binary, restarts,
+   * and comes back on the new version while this request answers 409. Without
+   * the row, a real binary replacement would have no audit trail and an error
+   * on the admin's screen; with it, "why is that machine on a version nothing
+   * recorded" has an answer.
+   *
+   * Its own action name, because `node.update` and "nobody knows" are two
+   * different claims and a reader must not have to guess which one a row is.
+   */
+  it("records node.update.unknown when the agent never answers", async () => {
+    useFakeRelease();
+    const id = await mkAgent();
+    const sock = goOnline(id);
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    const resP = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "update command on the wire");
+    // The deadline firing, without waiting five real minutes for it.
+    expect(failConnPendings(record, "timeout", "the node did not answer in time")).toBe(1);
+    const res = await resP;
+    expect(res.status).toBe(409);
+
+    const rows = await new AuditRepository(db).listLatest(20);
+    expect(rows.find((r) => r.action === "node.update" && r.targetId === id)).toBeUndefined();
+    const unknown = rows.find((r) => r.action === "node.update.unknown" && r.targetId === id);
+    expect(unknown).toBeDefined();
+    expect(JSON.parse(unknown?.metadataJson ?? "{}")).toEqual({
+      from: "0.8.0",
+      to: RELEASE_VERSION,
+      forced: false,
+    });
+    // And no token in it, like every other row this route writes.
+    expect(unknown?.metadataJson ?? "").not.toContain("nut_");
+  });
+
+  it("writes NO unknown row for a refusal the agent actually spoke", async () => {
+    // The distinction the extra action name exists to keep: an agent that said
+    // "not supervised" did nothing, and a row claiming its state is unknown
+    // would be worse than no row at all.
+    useFakeRelease();
+    const id = await mkAgent();
+    const { res } = await updateWithAnswer(id, aliceCookie, {}, { ok: false, error: NODE_RESULT_NOT_SUPERVISED });
+    expect(res.status).toBe(409);
+    const rows = await new AuditRepository(db).listLatest(20);
+    expect(rows.find((r) => r.action === "node.update.unknown" && r.targetId === id)).toBeUndefined();
   });
 
   // ── every refusal the AGENT raises, mapped by `detail` equality ──────────

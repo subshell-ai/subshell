@@ -159,8 +159,21 @@ export function buildShardManifest(input: {
  * `pub_date` and `notes` come from the FIRST shard, which is why the version
  * check is the one that matters: with one version there is one release, one
  * page and one moment.
+ *
+ * @param expected - every platform key the merged document must carry
+ *   ({@link DESKTOP_TARGETS} through {@link updaterPlatformKey}). Omitting it
+ *   checks only that SOMETHING survived, which is what the merge did at first
+ *   and is not enough: a manifest naming one of two platforms publishes
+ *   cleanly and tells the other platform's installed apps "no updates"
+ *   forever, which is the exact silent failure this module exists to prevent.
+ *   The publish job's `needs: [plan, build]` already means a missing shard
+ *   fails the release before this runs, so this is the second lock on the
+ *   same door rather than the only one.
  */
-export function mergeUpdaterManifests(shards: readonly UpdaterManifest[]): UpdaterManifest {
+export function mergeUpdaterManifests(
+  shards: readonly UpdaterManifest[],
+  expected?: readonly string[],
+): UpdaterManifest {
   if (shards.length === 0) throw new Error("no latest.<triple>.json files to merge");
   const [first, ...rest] = shards as [UpdaterManifest, ...UpdaterManifest[]];
   const platforms: Record<string, UpdaterPlatform> = {};
@@ -174,6 +187,12 @@ export function mergeUpdaterManifests(shards: readonly UpdaterManifest[]): Updat
     }
   }
   if (Object.keys(platforms).length === 0) throw new Error("the merged manifest names no platform");
+  const missing = (expected ?? []).filter((key) => platforms[key] === undefined);
+  if (missing.length > 0) {
+    throw new Error(
+      `the merged manifest is missing ${missing.join(", ")} — publishing it would tell those platforms' installed apps there are no updates`,
+    );
+  }
   return { version: first.version, notes: first.notes, pub_date: first.pub_date, platforms };
 }
 

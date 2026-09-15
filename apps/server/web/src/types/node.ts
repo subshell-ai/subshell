@@ -5,6 +5,7 @@
  * wire exactly; the list route returns `{ nodes: Node[] }`, the detail route
  * adds `shares` for config-capable viewers.
  */
+import type { HeldReason } from "./updates";
 
 /** The caller's effective access to a node (viewer-relative; "none" never has a view). */
 export type NodeAccess = "owner" | "edit" | "view";
@@ -160,8 +161,14 @@ export interface Node {
 
 /** Why a node's agent is held rather than live. */
 export interface NodeHeld {
-  /** Which gate refused it: its version, or the wire protocol it speaks */
-  reason: "below-floor" | "protocol-mismatch";
+  /**
+   * Which gate refused it: its version, or the wire protocol it speaks.
+   *
+   * The union lives in `types/updates.ts` beside the card that renders its
+   * copy — one definition, so a third reason added to the backend cannot be
+   * half-known here.
+   */
+  reason: HeldReason;
   /** The version reported on the socket being held */
   agentVersion: string;
 }

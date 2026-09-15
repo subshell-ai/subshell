@@ -28,10 +28,15 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AGENT="$ROOT/apps/node/agent"
 W=$(mktemp -d /tmp/ss-nupd-XXXX)
+# The version bump below is a WORKING-TREE edit, restored on every exit path
+# from a COPY of the file's bytes rather than with `git checkout` — several
+# sessions share one checkout here, and `git checkout -- <path>` would also
+# discard an uncommitted edit somebody else was holding in that file.
+PKG="$AGENT/package.json"
+PKG_BACKUP="$(mktemp /tmp/ss-nupd-pkg-XXXX)"
+cp "$PKG" "$PKG_BACKUP"
 cleanup() {
-  # The version bump is a WORKING-TREE edit; restore it on every exit path,
-  # the way server-update.sh and the release pipeline restore theirs.
-  git -C "$ROOT" checkout -- apps/node/agent/package.json 2>/dev/null
+  [ -f "$PKG_BACKUP" ] && cp "$PKG_BACKUP" "$PKG" && rm -f "$PKG_BACKUP"
 }
 trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
@@ -64,7 +69,7 @@ bun -e "
 # load-bearing rather than tidy.
 (cd "$AGENT" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
    --outfile "$W/next-subshell" >/dev/null) || fail "could not build the $NEXT binary"
-git -C "$ROOT" checkout -- apps/node/agent/package.json
+cp "$PKG_BACKUP" "$PKG"
 "$W/next-subshell" version | grep -q "subshell $NEXT" || fail "the new binary does not report $NEXT"
 ok "built $NEXT"
 
