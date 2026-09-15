@@ -2,7 +2,7 @@ import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { type InstancePluginRow, useSetPluginEnabled } from "@/hooks/use-instance-plugins";
 import { errMessage } from "@/lib/api";
@@ -32,11 +32,12 @@ export function InstalledPluginsCard({
 
   return (
     <Card>
+      {/* No description: the page header already says what this list is and
+          that acting on it is instance-wide. The two sibling cards' captions
+          each say where THEIR bytes come from, which this list does per row
+          with its source badge. */}
       <CardHeader>
         <CardTitle>Installed</CardTitle>
-        <CardDescription>
-          What this control plane offers its nodes. The bytes live on the control plane, so one install arms every node.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {plugins.length === 0 && <p className="text-muted-foreground text-sm">Nothing installed yet.</p>}

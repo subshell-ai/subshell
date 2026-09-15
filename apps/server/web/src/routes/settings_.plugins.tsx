@@ -41,7 +41,7 @@ function InstancePluginsPage() {
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader
         title="Plugins"
-        subtitle="What this control plane offers every node. Installs, disables and uninstalls here are instance-wide."
+        subtitle="Plugins live on the control plane, so installing, disabling and uninstalling here apply to every node. A node can launch one only where the CLI it drives is installed."
       />
       {error && (
         <ErrorBanner
