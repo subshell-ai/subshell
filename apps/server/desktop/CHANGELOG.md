@@ -1,5 +1,26 @@
 # @internal/desktop-server
 
+## 0.6.0
+
+### Minor Changes
+
+- [`fac6d2c`](https://github.com/subshell-ai/subshell/commit/fac6d2cfcd3bc7db39a24692f5f213f67e93f4af) Thanks [@theogravity](https://github.com/theogravity)! - The first run on a Mac now says what macOS will ask and why — Notifications,
+  Files and Folders, Photos, and the Background Items banner — requests the one
+  the app owns, and never blocks on the answer. A permission that is missing is
+  named at the moment it bites: a banner when a "waiting for you" notification
+  could not post, a notice when the image picker opens with Photos blocked, and
+  "Blocked by macOS" in the directory picker when the server cannot list a
+  folder. Each carries a **Fix…** that opens the assistant, where a declined
+  permission offers **Open System Settings**. Preferences → Notifications shows
+  the live macOS state.
+
+### Patch Changes
+
+- [`152bdb5`](https://github.com/subshell-ai/subshell/commit/152bdb5da7dfc483e0c1032ecb4c03b1ce76f33b) Thanks [@theogravity](https://github.com/theogravity)! - The first-run assistant passes `--no-service` to `subshell-server init`, which
+  now offers to install the service itself. The app keeps installing it with its
+  own autostart choice, so nothing about the assistant changes; without the flag
+  it would ask a question the assistant had already answered.
+
 ## 0.5.0
 
 ### Minor Changes

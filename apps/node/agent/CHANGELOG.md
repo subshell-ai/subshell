@@ -1,5 +1,90 @@
 # @internal/node
 
+## 0.8.0
+
+### Minor Changes
+
+- [`152bdb5`](https://github.com/subshell-ai/subshell/commit/152bdb5da7dfc483e0c1032ecb4c03b1ce76f33b) Thanks [@theogravity](https://github.com/theogravity)! - `subshell setup` is the whole enrollment in one command: it checks tmux, enrols
+  the machine, then asks whether to run the agent in the background and start it
+  at login (default yes, `--no-service` to skip), and ends by naming the node's
+  page on the control plane.
+  
+  The installer one-liner now invokes it, installs to `~/.local/bin/subshell`
+  rather than the directory you happened to run `curl` from, checks tmux before
+  downloading, and reattaches the terminal so the question can be answered from a
+  piped install. It no longer ends by recommending `subshell run`, a foreground
+  process that dies with the SSH session and was the only next step the product
+  ever offered.
+  
+  `enroll` remains the primitive underneath, and its closing line — like the
+  offline line in `status` — now names the service verbs before `run`.
+
+### Patch Changes
+
+- [`5cfcd19`](https://github.com/subshell-ai/subshell/commit/5cfcd19e7c59b5222a4ddc3b210edf5a413eaea4) Thanks [@theogravity](https://github.com/theogravity)! - Nodes can be taken out of service without being unenrolled.
+  
+  Until now the only way to stop subshells landing on a machine was to remove
+  someone's access to it, which meant the control-plane host had a switch nobody
+  else did — and that switch was really share surgery wearing a toggle's clothes.
+  There was no way at all to say "this machine is busy being worked on, send it
+  nothing for an hour."
+  
+  **Maintenance** is that, on every node including the server's own. A node in
+  maintenance stays enrolled and keeps answering everything else — service
+  control, logs, detection, restart, config — and simply takes no new subshells.
+  Turning it on stops the subshells already running there, so the confirmation
+  names how many and warns that their owners are told; those owners get a push
+  saying the machine went into maintenance rather than a crash notice.
+  
+  It can be set from either end. In the browser it is a switch on the node's page
+  and an item in the Nodes list menu, owner-only (an admin for the server's own
+  host). At the machine it is `subshell maintenance on|off|status` — useful when
+  you are already at the keyboard, and the only option when the plane cannot
+  reach the node. Whichever end moved last wins, and the node's page says which
+  one it was.
+  
+  A node in maintenance stays visible in the launch picker, greyed and labelled,
+  rather than disappearing: it is a machine with a reason and a way back, and one
+  that vanishes just looks lost. Trying to launch there anyway now says the node
+  is in maintenance instead of failing with a server error.
+
+- [`44b3f8f`](https://github.com/subshell-ai/subshell/commit/44b3f8fe612be94cd35fc034199ea1599d00f5e8) Thanks [@theogravity](https://github.com/theogravity)! - The Service page answers "will this survive a reboot?" instead of offering a switch.
+  
+  Server Settings → Service was designed inside the Subshell Server app and then
+  shown to every browser, which put a choice on screen that most machines cannot
+  make: a headless Linux box was offered "With the Subshell Server app", disabled,
+  under a note telling you to go change it in an app that machine does not have.
+  And the control beneath it, **Start at login**, asked the wrong question. It
+  reads as being about a desktop login; an operator who does not want a GUI thing
+  switches it off and discovers at the next reboot that their server is gone.
+  
+  Worse, on Linux that switch was never the whole answer. A `systemd --user`
+  service runs inside its owner's login session, so an *enabled* unit still stops
+  the moment that user logs out — unless the account **lingers**. The fix is one
+  command, `loginctl enable-linger $USER`, and nothing in the app had ever told
+  you whether your machine needed it. The installer printed the advice once, to a
+  terminal, on a machine most people never open a terminal on.
+  
+  So in a browser the card now states one fact — *comes back after a reboot,
+  without anyone logging in* / *comes back when you log in, and stops when you log
+  out* / *will not come back after a reboot* — and offers a remedy only when the
+  answer is unsatisfying: the lingering command, a **Start automatically** button,
+  or the install command. Lingering is now measured rather than guessed at, so the
+  page says which machine you have instead of explaining both. Inside the Subshell
+  Server app nothing changes: there the choice is real, the vocabulary is native,
+  and the radios, the confirmation dialog and the login switch all stay.
+  
+  A node's Runtime card answers the same question in the same words, with the
+  caveat it used to print for every Linux node replaced by that machine's own
+  answer. `subshell service status` and `subshell-server service status` report
+  it too, and the installer now mentions lingering only when you actually need it.
+  
+  Enrolled nodes have to be updated for this one. Reporting the fact needed a new
+  field on the wire, so the node protocol steps to 9 and the minimum agent version
+  to 0.7.0 — an older agent is refused at connect, as at every previous bump. Cut
+  and publish the `node-v0.7.x` release before anyone reaches for the enroll
+  download: until it exists the server has no agent binary it is willing to fetch.
+
 ## 0.5.2
 
 ### Patch Changes
