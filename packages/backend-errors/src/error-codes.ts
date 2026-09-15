@@ -31,6 +31,13 @@ export enum BackendErrorCodes {
   /** `POST /api/nodes/:id/restart`: the agent is not the process its service manager started, so exiting would not be a restart. */
   NODE_NO_SERVICE = "NODE_NO_SERVICE",
   NODE_NOT_SUPERVISED = "NODE_NOT_SUPERVISED",
+  /**
+   * The node is in maintenance, so it takes no new subshells (spec
+   * 2026-09-14). Raised by the launch gate from the plane's own record, and
+   * also by mapping the agent's `in maintenance` refusal — the machine can
+   * know before the plane does, since either end may set the flag.
+   */
+  NODE_IN_MAINTENANCE = "NODE_IN_MAINTENANCE",
   NODE_OFFLINE = "NODE_OFFLINE",
   NODE_ONLINE = "NODE_ONLINE",
   /**
@@ -110,6 +117,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_OFFLINE]: {
     message: "Node is offline",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_IN_MAINTENANCE]: {
+    message: "Node is in maintenance",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NO_SERVICE]: {

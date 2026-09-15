@@ -3,6 +3,7 @@ import {
   HARNESS_BINARY_PLACEHOLDER,
   NODE_PROTOCOL_VERSION,
   NODE_RESULT_KILLS_PANES,
+  NODE_RESULT_MAINTENANCE,
   NODE_RESULT_NO_SERVICE,
   NODE_RESULT_NOT_SUPERVISED,
   NODE_SERVICE_DESTRUCTIVE,
@@ -153,7 +154,12 @@ describe("parseNodeCommandBody", () => {
     // server's has had, and this is the command that flips it. It reveals
     // nothing today — the agent writes no debug-level lines — which is the
     // point of putting the mechanism in ahead of them.)
-    expect(NODE_PROTOCOL_VERSION).toBe(7);
+    // 7 is the preset rename: `launch.profile` became `launch.preset`, wire
+    // names only.
+    // 8 is node maintenance: `ready.maintenance`, the `maintenance` event and
+    // the `set_maintenance` command, so one flag can be set at either end and
+    // reconciled by stamp when the two disagree.
+    expect(NODE_PROTOCOL_VERSION).toBe(8);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -595,5 +601,64 @@ describe("set_server_url command", () => {
     expect(parseNodeCommandBody({ type: "set_server_url", url: "" })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_server_url" })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_server_url", url: 1 })).toBeNull();
+  });
+});
+
+describe("maintenance (protocol 8)", () => {
+  const base = {
+    type: "ready",
+    agentVersion: "0.6.0",
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "h",
+    dataDir: "/d",
+    capabilities: [],
+  };
+  const state = { on: true, changedAt: "2026-09-14T10:00:00.000Z" };
+
+  it("carries the node's state on ready, and drops a malformed one without refusing the ready", () => {
+    // Lenient for the same reason `runtime` is: the rest of the frame is what
+    // brings the node online, and a node whose mirror file is nonsense must
+    // still connect — it is then reconciled from the plane's own record.
+    expect(parseNodeEvent({ ...base, maintenance: state })).toMatchObject({ type: "ready", maintenance: state });
+    expect(parseNodeEvent(base)).toMatchObject({ type: "ready" });
+    const bad = parseNodeEvent({ ...base, maintenance: { on: "yes" } });
+    expect(bad?.type).toBe("ready");
+    expect(bad && "maintenance" in bad ? bad.maintenance : undefined).toBeUndefined();
+  });
+
+  it("parses the standalone event strictly — it is the only carrier of a flip", () => {
+    // Strict where the `ready` field is lenient: this frame IS the change, so
+    // a malformed one dropped silently would leave the plane believing the
+    // opposite of what the machine is doing.
+    expect(parseNodeEvent({ type: "maintenance", ...state })).toEqual({ type: "maintenance", ...state });
+    expect(parseNodeEvent({ type: "maintenance", on: false, changedAt: state.changedAt })).toEqual({
+      type: "maintenance",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeEvent({ type: "maintenance", on: true })).toBeNull();
+    expect(parseNodeEvent({ type: "maintenance", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeEvent({ type: "maintenance", on: "yes", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeEvent({ type: "maintenance", on: true, changedAt: 5 })).toBeNull();
+  });
+
+  it("parses the set_maintenance command and refuses a partial one", () => {
+    expect(parseNodeCommandBody({ type: "set_maintenance", ...state })).toEqual({ type: "set_maintenance", ...state });
+    expect(parseNodeCommandBody({ type: "set_maintenance", on: false, changedAt: state.changedAt })).toEqual({
+      type: "set_maintenance",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeCommandBody({ type: "set_maintenance", on: true })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_maintenance", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_maintenance", on: 1, changedAt: state.changedAt })).toBeNull();
+  });
+
+  it("names the refusal the plane matches by equality", () => {
+    // The plane compares `NodeRpcError.detail` to this exact string to map a
+    // refused launch onto its 409. A prefixed or reworded message is a 500.
+    expect(NODE_RESULT_MAINTENANCE).toBe("in maintenance");
   });
 });

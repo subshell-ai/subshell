@@ -60,8 +60,13 @@ export function semverLt(a: string, b: string): boolean {
  * Raised to 0.5.0 with protocol 7 (the preset rename, spec 2026-09-13), the
  * same commit hand-raising `apps/node/agent/package.json` to 0.5.0 — the
  * rule above, followed.
+ *
+ * Raised to 0.6.0 with protocol 8 (node maintenance, spec 2026-09-14), the
+ * same way. An agent below this speaks no `set_maintenance`, so the plane
+ * could set a flag that machine would never honour — the floor is what turns
+ * that into "update the agent" instead of a launch that quietly proceeds.
  */
-export const MIN_AGENT_VERSION = "0.5.0";
+export const MIN_AGENT_VERSION = "0.6.0";
 
 /**
  * Whether an agent reporting `version` may connect.

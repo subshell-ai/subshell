@@ -67,8 +67,18 @@ import type { JsonValue } from "./json.js";
  * `PresetDefinitionWire`), and the plugin-report settings field becomes
  * `presetSettings`. Wire-shaped, not semantic: the same JSON under new names,
  * breaking because the gate is exact-match and the pair ships together.
+ *
+ * **7 → 8 is node maintenance (spec 2026-09-14).** One flag saying "this
+ * machine takes no new subshells", settable from the plane OR from the
+ * machine's own `subshell maintenance` verb — which is what puts three frames
+ * on the wire rather than one: `ready.maintenance` states the node's mirror at
+ * connect, the `maintenance` event reports a flip the machine made, and
+ * `set_maintenance` carries the plane's. The event exists because a CLI
+ * process cannot talk to the running daemon: it writes a file, and the daemon
+ * is what tells the plane. Additive, and breaking anyway — the gate is
+ * exact-match.
  */
-export const NODE_PROTOCOL_VERSION = 7;
+export const NODE_PROTOCOL_VERSION = 8;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -123,6 +133,18 @@ export const NODE_RESULT_KILLS_PANES = "kills panes";
  * answers 0, and an idempotent teardown is what a caller wants.
  */
 export const NODE_RESULT_NO_SERVICE = "no service definition";
+
+/**
+ * `result.error` from a `launch` the agent refused because that machine is in
+ * maintenance (spec 2026-09-14).
+ *
+ * The BARE string, never a prefixed one: the plane matches
+ * `NodeRpcError.detail` by equality to map this onto its own 409, and a detail
+ * it cannot match becomes a 500 naming nothing the operator can act on. That is
+ * why this differs in shape from the agent's `DIR_REFUSED_MESSAGE`, which
+ * appends the offending path for a human to read.
+ */
+export const NODE_RESULT_MAINTENANCE = "in maintenance";
 
 /**
  * The verbs a `service` command may carry, as a runtime list.
@@ -624,7 +646,51 @@ export type NodeCommandBody =
       type: "set_log_level";
       /** True = debug-level lines reach the file; false = `info` and above. */
       debug: boolean;
+    }
+  | {
+      /**
+       * Write this node's maintenance mirror file (spec 2026-09-14).
+       *
+       * The plane's half of a two-way flag. It writes the file and nothing
+       * else — in particular it kills no panes, because a plane-side flip has
+       * already terminated every row it knew about through the ordinary
+       * per-subshell path, which does the bookkeeping (token revocation, audit,
+       * the owner's notification) that a blind kill on the machine would not.
+       *
+       * Carries the plane's own `changedAt` rather than letting the node stamp
+       * its own: both copies must end byte-identical, or the next reconnect
+       * reconciles two values that differ only because they were written at
+       * different instants.
+       */
+      type: "set_maintenance";
+      /** True = the node accepts no new subshells. */
+      on: boolean;
+      /** The plane's stamp for this value; stored verbatim. */
+      changedAt: string;
     };
+
+/**
+ * One node's maintenance state, as it travels in either direction.
+ *
+ * `changedAt` is the whole reconciliation protocol: the two sides hold
+ * independent copies, either may be written while the other is unreachable,
+ * and on reconnect the NEWER stamp wins (ties to the plane, which is the
+ * record). It is therefore a fact about the write, not a display string —
+ * never re-stamp a value you are merely relaying, or the relay outranks the
+ * decision it was carrying.
+ */
+export interface NodeMaintenanceWire {
+  /** True = this node accepts no new subshells. */
+  on: boolean;
+  /** ISO 8601 stamp of the write that produced this value. */
+  changedAt: string;
+}
+
+/** A {@link NodeMaintenanceWire}, or null when the value is not one. */
+export function parseNodeMaintenance(value: unknown): NodeMaintenanceWire | null {
+  if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
+  return { on: value.on, changedAt: value.changedAt };
+}
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
 /**
@@ -755,6 +821,31 @@ export type NodeEvent =
        * malformed — `parseNodeEvent` keeps the `ready` either way.
        */
       runtime?: NodeRuntimeReport;
+      /**
+       * This machine's maintenance mirror, as its file reads at connect (spec
+       * 2026-09-14). Absent means the node has no file, which reads as off.
+       *
+       * Dropped rather than fatal when malformed, like `runtime`: the rest of
+       * this frame is what brings the node online, and a node whose mirror is
+       * unreadable must still connect — the plane then reconciles it from its
+       * own record, which is the only way that file gets repaired.
+       */
+      maintenance?: NodeMaintenanceWire;
+    }
+  | {
+      /**
+       * The machine flipped its own maintenance state (spec 2026-09-14).
+       *
+       * Sent when the file on disk differs from what this connection last
+       * reported: after `subshell maintenance on|off` at the keyboard, and
+       * immediately before the deaths that flip causes, so the plane knows WHY
+       * the panes are about to disappear rather than reporting them as crashes.
+       */
+      type: "maintenance";
+      /** True = this node accepts no new subshells. */
+      on: boolean;
+      /** ISO 8601 stamp of the write on the machine. */
+      changedAt: string;
     }
   | {
       type: "inventory";
@@ -996,6 +1087,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return isStr(value.url) && value.url.length > 0 ? { type: "set_server_url", url: value.url } : null;
     case "set_log_level":
       return isBool(value.debug) ? { type: "set_log_level", debug: value.debug } : null;
+    case "set_maintenance": {
+      const state = parseNodeMaintenance(value);
+      return state ? { type: "set_maintenance", ...state } : null;
+    }
     default:
       return null;
   }
@@ -1035,13 +1130,19 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       ) {
         return null;
       }
-      // `runtime` is additive: a malformed one is dropped so the connection
-      // still comes up without the card, rather than refused.
-      const { runtime: rawRuntime, ...rest } = value as Record<string, unknown> & { runtime?: unknown };
+      // `runtime` and `maintenance` are additive: a malformed one is dropped
+      // so the connection still comes up without it, rather than refused.
+      const {
+        runtime: rawRuntime,
+        maintenance: rawMaintenance,
+        ...rest
+      } = value as Record<string, unknown> & { runtime?: unknown; maintenance?: unknown };
       const runtime = rawRuntime === undefined ? null : parseNodeRuntimeReport(rawRuntime);
+      const maintenance = rawMaintenance === undefined ? null : parseNodeMaintenance(rawMaintenance);
       return {
         ...(rest as unknown as Extract<NodeEvent, { type: "ready" }>),
         ...(runtime ? { runtime } : {}),
+        ...(maintenance ? { maintenance } : {}),
       };
     }
     case "inventory": {
@@ -1052,6 +1153,13 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         if ("binaryPath" in h && !isStr(h.binaryPath)) return null;
       }
       return value as unknown as NodeEvent;
+    }
+    case "maintenance": {
+      // Strict, unlike the `ready` field above: this frame IS the change, so a
+      // malformed one dropped quietly would leave the plane believing the
+      // opposite of what the machine is doing.
+      const state = parseNodeMaintenance(value);
+      return state ? { type: "maintenance", ...state } : null;
     }
     case "heartbeat":
       return isStr(value.ts) ? { type: "heartbeat", ts: value.ts } : null;
