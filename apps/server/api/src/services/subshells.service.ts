@@ -58,6 +58,18 @@ class SubshellError extends Error {
 }
 
 /**
+ * The maintenance refusal for a caller who may not be able to SEE the node.
+ *
+ * Subshell shares and node shares are independent axes, so an `edit` grantee
+ * on somebody else's subshell reaches the restart path holding no access at
+ * all to the machine it runs on — and every other refusal there is name-free
+ * for exactly that reason. The NAMED variant is correct and stays in
+ * `resolveLaunchNode`, which sits behind a visibility 404: a caller who got
+ * that far has the node on their screen already.
+ */
+const MAINTENANCE_REFUSAL = "That node is in maintenance and is accepting no new subshells";
+
+/**
  * Map a node-flavored manager throw onto the structured 409 it deserves.
  * Every other error keeps whatever mapping it had: the rethrow rides the
  * global handler unchanged.
@@ -95,7 +107,7 @@ function rethrowLaunchRefusal(err: unknown): never {
   if (err instanceof NodeRpcError && err.code === "failed" && err.detail === NODE_RESULT_MAINTENANCE) {
     throwApiError({
       code: BackendErrorCodes.NODE_IN_MAINTENANCE,
-      message: "That node is in maintenance and is accepting no new subshells",
+      message: MAINTENANCE_REFUSAL,
       doNotLog: true,
     });
   }
@@ -651,7 +663,7 @@ export class SubshellsService extends BaseService {
     if (node?.maintenance === 1) {
       throwApiError({
         code: BackendErrorCodes.NODE_IN_MAINTENANCE,
-        message: `${node.name} is in maintenance and is accepting no new subshells`,
+        message: MAINTENANCE_REFUSAL,
         doNotLog: true,
       });
     }

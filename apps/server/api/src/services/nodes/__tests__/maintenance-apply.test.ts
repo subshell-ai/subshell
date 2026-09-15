@@ -4,12 +4,15 @@ import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { reconcileMaintenance, setNodeMaintenance } from "@/services/nodes/maintenance.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { __setSenderForTests, type PushSender } from "@/services/notify.service.js";
+import { SubshellManagerService } from "@/services/subshell-manager.service.js";
+import { attachScriptedNode, ok } from "@/test-helpers/scripted-node.js";
 
 /**
  * `setNodeMaintenance` — the act itself (spec 2026-09-14 §5.2).
@@ -30,6 +33,12 @@ import { __setSenderForTests, type PushSender } from "@/services/notify.service.
 const nodes = new NodesRepository(db);
 const subshells = new SubshellsRepository(db);
 const subs = new NotificationsRepository(db);
+/**
+ * The same graph `applyMaintenanceEffects` builds its own manager from, so an
+ * `exit` frame applied here and the window's stop loop are acting on one set
+ * of rows — which is the whole question the ordering cases below ask.
+ */
+const manager = new SubshellManagerService({ subshells, presets: new PresetsRepository(db) });
 
 const pw = "maint-pass-1";
 const emails: string[] = [];
@@ -63,8 +72,13 @@ async function mkNode(ownerUserId: string): Promise<string> {
   return id;
 }
 
-/** A running subshell on `nodeId`, owned by `userId`, with its bell on. */
-async function mkSubshell(userId: string, nodeId: string): Promise<string> {
+/**
+ * A running subshell on `nodeId`, owned by `userId`, with its bell on.
+ * @param restartOnExit - 1 opts the row into auto-restart, which is what makes
+ *   its death read as `crashed` ("auto-restarting") anywhere the maintenance
+ *   flag is not consulted
+ */
+async function mkSubshell(userId: string, nodeId: string, restartOnExit: 0 | 1 = 0): Promise<string> {
   const id = crypto.randomUUID();
   await subshells.create({
     id,
@@ -77,6 +91,7 @@ async function mkSubshell(userId: string, nodeId: string): Promise<string> {
     nodeId,
     alive: 1,
     notify: 1,
+    restartOnExit,
     startedAt: new Date().toISOString(),
     lastOutputAt: new Date().toISOString(),
   });
@@ -350,5 +365,102 @@ describe("setNodeMaintenance — turning it off, and `local`", () => {
       actorUserId: ownerId,
     });
     expect((await nodes.findById(LOCAL_NODE_ID))?.maintenance).toBe(before?.maintenance ?? 0);
+  });
+});
+
+describe("one death, one push — whichever path gets there first (spec §4.3)", () => {
+  /**
+   * The agent sends `maintenance` BEFORE the `exit` frames that flag causes,
+   * and the plane processes a socket's frames in order — but the stop loop is
+   * deliberately NOT awaited inside the hook (it would stall every later frame
+   * from that node behind N kill round-trips). So the two paths meet on the
+   * same rows in an order nobody controls, and the guarantee has to hold in
+   * both: exactly one notification, and it says maintenance.
+   */
+  it("CLI-initiated: the flag lands first, and the death that follows is not a crash", async () => {
+    const nodeId = await mkNode(ownerId);
+    const id = await mkSubshell(ownerId, nodeId, 1);
+    await reconcileMaintenance(nodeId, { on: true, changedAt: new Date().toISOString() });
+    await manager.applyRemoteExit(nodeId, id, 0, new Date().toISOString());
+    await settle();
+    // One push. Two — a `crashed` promising a restart nobody will make,
+    // followed by the loop's `maintenance` — is what a voided loop racing the
+    // exit frame produced before either half knew about the other.
+    expect(pushes.map((p) => p.body)).toEqual(["Stopped for node maintenance"]);
+    expect((await subshells.findById(id))?.status).toBe("terminated");
+  });
+
+  it("plane-initiated: the loop stops a live row, and the late exit finds it retired", async () => {
+    const nodeId = await mkNode(ownerId);
+    const id = await mkSubshell(ownerId, nodeId, 1);
+    await setNodeMaintenance({
+      nodeId,
+      on: true,
+      changedAt: new Date().toISOString(),
+      source: "plane",
+      actorUserId: ownerId,
+    });
+    await settle();
+    // The pane died because the window killed it; the agent reports that
+    // death a moment later, and `applyRemoteExit` converges on "already gone".
+    await manager.applyRemoteExit(nodeId, id, 0, new Date().toISOString());
+    await settle();
+    expect(pushes.map((p) => p.body)).toEqual(["Stopped for node maintenance"]);
+  });
+});
+
+describe("a kill the node refuses does not abandon the rest of the window", () => {
+  it("stops the others, tells their owners, mirrors the flag, and audits both lists", async () => {
+    const nodeId = await mkNode(ownerId);
+    // First in the list, so a loop that rethrows never reaches the other two.
+    const stubborn = await mkSubshell(ownerId, nodeId);
+    const mine = await mkSubshell(ownerId, nodeId);
+    const theirs = await mkSubshell(otherId, nodeId);
+    const scripted = attachScriptedNode(nodeId, {
+      kill: (cmd) =>
+        cmd.type === "kill" && cmd.subshellId === stubborn ? new Error("tmux: pane is unkillable") : undefined,
+      set_maintenance: ok,
+    });
+    const changedAt = "2026-09-14T19:00:00.000Z";
+    try {
+      const { stopped, failed } = await setNodeMaintenance({
+        nodeId,
+        on: true,
+        changedAt,
+        source: "plane",
+        actorUserId: ownerId,
+      });
+      expect(stopped.sort()).toEqual([mine, theirs].sort());
+      // A failure reported as stopped is worse than the failure: the operator
+      // walks to the machine believing the panes are down.
+      expect(failed).toEqual([stubborn]);
+      await settle();
+      expect((await subshells.findById(mine))?.status).toBe("terminated");
+      expect((await subshells.findById(theirs))?.status).toBe("terminated");
+      // Untouched, not half-retired: the pane really is still up, and a row
+      // parked at `alive: 0` would be a live pane the sweep feels free to
+      // respawn beside once the window ends.
+      const survivor = await subshells.findById(stubborn);
+      expect(survivor?.status).toBe("running");
+      expect(survivor?.alive).toBe(1);
+      expect(pushes.map((p) => p.body).sort()).toEqual([
+        "Stopped for node maintenance",
+        "Stopped for node maintenance",
+      ]);
+      // The machine's own mirror, and the record of the act, both come AFTER
+      // the loop — so a rethrow took them with it.
+      expect(scripted.countOf("set_maintenance")).toBe(1);
+      const rows = await auditFor(nodeId, "node.maintenance.update");
+      expect(rows).toHaveLength(1);
+      expect(rows[0].meta).toEqual({
+        on: true,
+        source: "plane",
+        stopped: [mine, theirs],
+        failed: [stubborn],
+        changedAt,
+      });
+    } finally {
+      scripted.detach();
+    }
   });
 });

@@ -181,6 +181,21 @@ describe("maintenance refusals on /api/subshells", () => {
     expect((await bodyOf(res)).code).toBe("NODE_IN_MAINTENANCE");
   });
 
+  it("the restart refusal names no node, because this caller may not be able to see one", async () => {
+    // Subshell shares and node shares are independent axes: an `edit` grantee
+    // on somebody else's subshell reaches this line holding no access at all
+    // to the machine it runs on. Every other refusal on the restart path is
+    // name-free for that reason, and the NAMED variant lives in
+    // `resolveLaunchNode`, which sits behind a visibility 404.
+    const nodeId = await mkNode(true);
+    const id = await mkSubshell(nodeId);
+    const name = (await nodes.findById(nodeId))?.name ?? "";
+    const { message } = await bodyOf(await post(`/api/subshells/${id}/restart`));
+    expect(name).not.toBe("");
+    expect(message).not.toContain(name);
+    expect(message).toBe("That node is in maintenance and is accepting no new subshells");
+  });
+
   it("restart on `local` in maintenance → 409, the ONLY gate there is", async () => {
     // The control-plane host has no agent and therefore no fail-closed file
     // to refuse a second time. If this check were missing, restart would

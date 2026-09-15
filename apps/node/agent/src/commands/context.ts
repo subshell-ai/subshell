@@ -143,6 +143,19 @@ export interface CommandContext {
    */
   lastReportedMaintenance?: NodeMaintenanceWire;
   /**
+   * Whether this connection has already reported a mirror it could not
+   * rewrite (see `restoreMirrorFromMemo`).
+   *
+   * The restore is retried every tick — it costs one `writeFileSync` and
+   * succeeds the moment the disk comes back — but the LINE is capped at one
+   * per socket. At the 15 s heartbeat an ungated failure is four lines a
+   * minute against the agent's 200 KB log, which replaces the file about six
+   * times a day: on a machine that cannot write its own mirror, that discards
+   * exactly the log an operator needs. Seeded with
+   * {@link lastReportedMaintenance}, so a reconnect says it once more.
+   */
+  mirrorRestoreLogged?: boolean;
+  /**
    * Ask the daemon to exit 0 AFTER the current result frame is sent. The
    * executor cannot exit itself: the daemon is the only sender of `result`,
    * and a restart that never answered would read as a timeout on the plane.

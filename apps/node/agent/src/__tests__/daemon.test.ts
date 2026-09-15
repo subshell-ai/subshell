@@ -1,5 +1,14 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { TmuxRunner } from "@internal/pane-runtime";
@@ -28,7 +37,7 @@ import {
   wsUrlFor,
 } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
-import { writeMaintenance } from "../maintenance.js";
+import { maintenancePath, writeMaintenance } from "../maintenance.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
 import { AGENT_VERSION } from "../version.js";
@@ -1351,6 +1360,22 @@ describe("maintenance (spec 2026-09-14 §4.3)", () => {
     await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
     const second = eventsAs(h, "ready")[1];
     expect(second).toMatchObject({ maintenance: { on: true, changedAt: STAMP } });
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  test("ready carries an UNREADABLE mirror, stamped with the file's own mtime", async () => {
+    // A node that refuses every launch must say so. Reporting nothing left
+    // the plane showing it launchable with every create 409ing, and the file
+    // is only ever repaired by the plane pushing a clean one back.
+    const h = await startDaemon();
+    await waitForReady(h);
+    writeFileSync(maintenancePath(h.config.dataDir), "{not json");
+    closeAllSockets(h.plane, 1001, "server restart");
+    await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+    const second = eventsAs(h, "ready")[1];
+    expect(second).toMatchObject({
+      maintenance: { on: true, changedAt: statSync(maintenancePath(h.config.dataDir)).mtime.toISOString() },
+    });
     expect(h.plane.unparsed).toEqual([]);
   });
 

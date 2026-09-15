@@ -152,16 +152,39 @@ interface MaintenanceWrite {
   actorUserId: string | null;
 }
 
+/** What one maintenance write did to the subshells that were running on the node. */
+export interface MaintenanceEffects {
+  /** Ids this act actually retired — what the caller reports and the audit records. */
+  stopped: string[];
+  /**
+   * Ids whose kill the node refused, in the order they were tried. Never
+   * counted as stopped: a caller told a pane is down walks away from a machine
+   * that is still running it.
+   */
+  failed: string[];
+}
+
 /**
  * Stop what is running, tell the machine, and record it — everything that
  * follows the flag write. Split out so the reconcile path can perform it
  * WITHOUT holding up the socket's frame queue (see
  * {@link reconcileMaintenance}); the route awaits it, because it owes the
  * caller the count.
+ *
+ * ONE STUBBORN PANE MUST NOT ABANDON THE WINDOW. `terminateSubshell` rethrows
+ * every kill failure that is not an offline node, and the three steps that
+ * matter most all come after the loop — the remaining subshells, the push that
+ * writes the machine's own mirror, and the audit row that is the only record
+ * the act happened at all. A rethrow took every one of them with it, on a node
+ * already flagged and already refusing launches, which is the worst moment to
+ * stop half-way. So each row is isolated and the failures are carried out to
+ * the caller and into the audit metadata instead, where somebody can act on
+ * them.
  */
-async function applyMaintenanceEffects(write: MaintenanceWrite): Promise<{ stopped: string[] }> {
+async function applyMaintenanceEffects(write: MaintenanceWrite): Promise<MaintenanceEffects> {
   const { repos } = getRequestlessContext();
   const stopped: string[] = [];
+  const failed: string[] = [];
   if (write.on) {
     // Read AFTER the flag is written, which is what makes a concurrent flip
     // harmless: the second writer finds nothing left to stop rather than
@@ -172,8 +195,15 @@ async function applyMaintenanceEffects(write: MaintenanceWrite): Promise<{ stopp
       // Sequential, not `Promise.all`: each of these is a kill RPC to the
       // same node, and a node that is being taken out of service is the last
       // place to open N concurrent commands on one socket.
-      await manager.terminateForMaintenance(row);
-      stopped.push(row.id);
+      try {
+        await manager.terminateForMaintenance(row);
+        stopped.push(row.id);
+      } catch (err) {
+        failed.push(row.id);
+        logger
+          .withError(err)
+          .warn(`maintenance: subshell ${row.id} could not be stopped on node ${write.nodeId}; the window continues`);
+      }
     }
   }
   pushSetMaintenanceBestEffort(write.nodeId, { on: write.on, changedAt: write.changedAt });
@@ -186,10 +216,13 @@ async function applyMaintenanceEffects(write: MaintenanceWrite): Promise<{ stopp
       on: write.on,
       source: write.source,
       stopped,
+      // Absent when clean, never `[]`: a key that is there on every row stops
+      // being read, and this one is the exception worth reading.
+      ...(failed.length > 0 ? { failed } : {}),
       changedAt: write.changedAt,
     }),
   });
-  return { stopped };
+  return { stopped, failed };
 }
 
 /**
@@ -207,10 +240,12 @@ async function applyMaintenanceEffects(write: MaintenanceWrite): Promise<{ stopp
  * anyway), the push fails and is re-run at the node's next `ready`, and the
  * reconnect census best-effort-kills any pane that survived.
  *
- * @returns the ids stopped — the route audits and reports them, and "how many
- *   subshells did this take down" is the one number a person needs afterwards
+ * @returns what it stopped and what it could not — the route audits and
+ *   reports both, because "how many subshells did this take down" is the one
+ *   number a person needs afterwards and "which ones are still up" is the one
+ *   they need before walking to the machine
  */
-export async function setNodeMaintenance(write: MaintenanceWrite): Promise<{ stopped: string[] }> {
+export async function setNodeMaintenance(write: MaintenanceWrite): Promise<MaintenanceEffects> {
   const { repos } = getRequestlessContext();
   await repos.nodes.setMaintenance(write.nodeId, {
     on: write.on,

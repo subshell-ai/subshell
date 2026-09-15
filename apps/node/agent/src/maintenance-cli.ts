@@ -118,13 +118,27 @@ export async function runMaintenance(
       // plane holding a `running` row with nothing left on this machine able
       // to contradict it. Cleaning dead records is a running agent's job.
       deps.tmux.killSubshell(m.socket, m.subshellId);
+      // RE-PROBE, never assume. The kill is SYNCHRONOUS and swallows its own
+      // errors (it treats "already gone" as success), so a throw here is not
+      // a thing production can produce — which made the catch below dead code
+      // and every row an unconditional "stopped", including the ones still
+      // running. Asking the socket again is the only evidence there is.
+      if (await deps.tmux.hasSubshell(m.socket, m.subshellId)) {
+        failed.push(`  ${m.subshellId}: still running after kill`);
+        continue;
+      }
       stopped.push(m.subshellId);
     } catch (err) {
-      // One pane that will not die must not abandon the rest — and must not
-      // be reported as stopped either.
+      // One pane that will not die — or a probe that will not answer for it,
+      // which is not evidence of death either — must not abandon the rest,
+      // and must not be counted as stopped.
       failed.push(`  ${m.subshellId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  // Exit 0 either way: the flag is written and this machine IS in maintenance
+  // (it launches nothing), so a pane that outlived its kill is something to
+  // report, not a failure of the command. The list is the honest half —
+  // `stopped` holds only what the socket confirmed gone.
   const err = failed.length > 0 ? `subshell: could not stop ${failed.length}:\n${failed.join("\n")}\n` : "";
   if (opts.json) return { code: 0, out: `${JSON.stringify({ ...state, stopped }, null, 2)}\n`, err };
   return {
@@ -142,22 +156,30 @@ export async function runMaintenance(
 function status(dataDir: string, json: boolean): CliResult {
   const read = readMaintenance(dataDir);
   if (json) {
-    // `file` is what separates the two shapes that both read as off/on but
-    // travel differently: absent has no stamp to reconcile, unreadable has no
-    // stamp AND refuses launches.
+    // `file` is what separates the shapes that read alike but travel
+    // differently: absent has no stamp to reconcile, while unreadable refuses
+    // launches under a stamp nobody typed — the file's own mtime. That stamp
+    // is REPORTED here because it is what the plane is told (maintenance.ts),
+    // and a `null` beside a node page showing the mtime is two answers for
+    // one file, read by whoever is mid-incident comparing the two. `file`
+    // remains the discriminator that says where the stamp came from.
     const body =
       read.kind === "state"
         ? { on: read.state.on, changedAt: read.state.changedAt, file: "present" }
         : read.kind === "absent"
           ? { on: false, changedAt: null, file: "absent" }
-          : { on: true, changedAt: null, file: "unreadable" };
+          : { on: true, changedAt: read.changedAt ?? null, file: "unreadable" };
     return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
   }
   if (read.kind === "absent") return { code: 0, out: "maintenance: off (no maintenance file)\n", err: "" };
   if (read.kind === "unreadable") {
+    // `since` reads the same as the parsed line below, because it means the
+    // same thing to the plane: the stamp this node is reconciled on. What it
+    // is derived FROM is the rest of the sentence.
+    const since = read.changedAt ? `since ${read.changedAt}; ` : "";
     return {
       code: 0,
-      out: `maintenance: on (${maintenancePath(dataDir)} is unreadable — treated as on)\n`,
+      out: `maintenance: on (${since}${maintenancePath(dataDir)} is unreadable — treated as on)\n`,
       err: "",
     };
   }

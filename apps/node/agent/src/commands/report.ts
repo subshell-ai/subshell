@@ -1,6 +1,6 @@
 import type { NodeEvent, NodeMaintenanceWire } from "@internal/subshell-protocol";
 import { log } from "../log.js";
-import { readMaintenance } from "../maintenance.js";
+import { readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
 import type { CommandContext, WatcherRegistration } from "./context.js";
 
 /**
@@ -56,19 +56,93 @@ export function reportMaintenance(ctx: CommandContext, state: NodeMaintenanceWir
  * two frames is the whole feature and should be readable in one file rather
  * than inferred from two.
  *
- * Only a parsed state is reportable. An absent file has no stamp to send, and
- * an unreadable one has none either — inventing one would hand the plane a
- * value to reconcile against that nobody wrote (the launch gate still refuses
- * on it; see maintenance.ts).
+ * A parsed state and an UNREADABLE one are both reportable (the latter as the
+ * `on` it actually produces, stamped with the file's mtime — see
+ * maintenance.ts): a machine that refuses every launch while saying nothing
+ * leaves the plane holding a view that nothing on either side can repair.
+ *
+ * An absent file is the one answer with nothing to announce — and, if this
+ * connection has already reported a state, the one that gets REPAIRED rather
+ * than ignored; see below.
  *
  * @param ctx - the daemon's command context
  */
 export function maybeReportMaintenance(ctx: CommandContext): void {
   const read = readMaintenance(ctx.config.dataDir);
-  if (read.kind !== "state") return;
+  if (read.kind === "absent") {
+    restoreMirrorFromMemo(ctx);
+    return;
+  }
+  const state = reportableMaintenance(read);
+  if (!state) return;
   const last = ctx.lastReportedMaintenance;
-  if (last?.on === read.state.on && last.changedAt === read.state.changedAt) return;
-  reportMaintenance(ctx, read.state);
+  if (last?.on === state.on && last.changedAt === state.changedAt) return;
+  reportMaintenance(ctx, state);
+}
+
+/**
+ * Re-write a mirror that vanished UNDER a connection that had already reported
+ * one.
+ *
+ * The divergence it closes is silent and lasts the whole connection: the plane
+ * holds the `on` this socket sent it, the machine now reads "absent ⇒ off",
+ * and nothing reports the difference because an absent file has no stamp to
+ * send. The direction is safe (the plane refuses, which is the conservative
+ * half) but it is still two sides disagreeing until the next reconnect.
+ *
+ * Writing the MEMO invents nothing: it is, by definition, the last value this
+ * connection told the plane — the same value the plane's own push would
+ * restore at reconnect, applied now instead. Nothing is announced afterwards,
+ * because the plane already holds it.
+ *
+ * Only the ABSENT case. An unreadable file is reportable on its own terms now,
+ * and overwriting it would destroy the bytes an operator may want to look at.
+ * Hand-deleting this file is not a supported interface either way —
+ * `subshell maintenance off` is.
+ */
+function restoreMirrorFromMemo(ctx: CommandContext): void {
+  const last = ctx.lastReportedMaintenance;
+  if (!last) return; // nothing was ever reported: a node with no file is the default, not a gap
+  try {
+    writeMaintenance(ctx.config.dataDir, last);
+  } catch (err) {
+    // Log-only, like every other failure on this path: both callers are a
+    // heartbeat tick and a death report, and neither may die over a mirror.
+    //
+    // Retried every tick, ANNOUNCED once per connection. The write is cheap
+    // and self-limiting — it succeeds the instant the disk comes back — but a
+    // line per tick is four a minute, and the agent's log is one 200 KB file
+    // that is REPLACED when full: about six truncations a day, on precisely
+    // the machine whose log an operator is about to go read. One line per
+    // socket still says it, and a reconnect says it again.
+    if (ctx.mirrorRestoreLogged) return;
+    ctx.mirrorRestoreLogged = true;
+    log(`maintenance: could not restore the mirror: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Seed this connection's maintenance memo from the mirror on disk, and arm
+ * its companion warning flag.
+ *
+ * Called once per connect, immediately before `ready` — which carries the same
+ * value, so the first heartbeat must not repeat it — and again on every
+ * reconnect, because a new socket has told the plane nothing.
+ *
+ * The two fields are seeded HERE TOGETHER rather than at the call site
+ * because they are one piece of per-connection state: a reconnect that reset
+ * the memo and left {@link CommandContext.mirrorRestoreLogged} set would
+ * silence the next connection's only warning that this machine cannot write
+ * its own mirror.
+ *
+ * @param ctx - the daemon's command context
+ * @returns the value `ready` should carry, or undefined when there is nothing
+ * truthful to report
+ */
+export function seedMaintenanceMemo(ctx: CommandContext): NodeMaintenanceWire | undefined {
+  ctx.lastReportedMaintenance = reportableMaintenance(readMaintenance(ctx.config.dataDir));
+  ctx.mirrorRestoreLogged = false;
+  return ctx.lastReportedMaintenance;
 }
 
 /** Stop the shared tick if one is running (idempotent). */

@@ -31,6 +31,7 @@ import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import type { LaunchPlan } from "@/services/nodes/node-launcher.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import type { NotifyKind } from "@/services/notify.service.js";
 import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
 
 /**
@@ -76,14 +77,17 @@ class RacingLauncher extends FakeNodeLauncher {
   }
 }
 
-function makeManager(launcher: FakeNodeLauncher): SubshellManagerService {
+function makeManager(
+  launcher: FakeNodeLauncher,
+  notify: (subshellId: string, kind: NotifyKind) => Promise<void> = async () => {},
+): SubshellManagerService {
   return new SubshellManagerService({
     subshells: subshellsRepo,
     presets: presetsRepo,
     launcher,
     tokens,
     audit: async () => {},
-    notify: async () => {},
+    notify,
   });
 }
 
@@ -104,6 +108,26 @@ async function sharedNode(maintenance: boolean): Promise<string> {
     await sharedNodes.setMaintenance(id, { on: true, changedAt: new Date().toISOString(), source: "plane" });
   }
   return id;
+}
+
+/** A LIVE row (`running`, `alive: 1`) opted into auto-restart — what a death arrives on. */
+async function liveRow(nodeId: string): Promise<SubshellTable> {
+  const id = crypto.randomUUID();
+  await subshellsRepo.create({
+    id,
+    userId: "u1",
+    presetId,
+    harnessId: "claude-code",
+    name: "live",
+    workingDir: "/tmp",
+    tmuxSocket: `/tmp/sock-${id}`,
+    nodeId,
+    alive: 1,
+    restartOnExit: 1,
+    startedAt: new Date().toISOString(),
+    lastOutputAt: new Date().toISOString(),
+  });
+  return (await subshellsRepo.findById(id)) as SubshellTable;
 }
 
 /** A parked row (`running`, `alive: 0`) opted into auto-restart — what the sweep hands the guard. */
@@ -283,6 +307,58 @@ describe("a node refusing a launch", () => {
       // …and the row it had already written is rolled back, as for any other
       // spawn failure.
       expect(fake.kills).toHaveLength(1);
+    } finally {
+      off();
+    }
+  });
+});
+
+describe("the death push while the node is in maintenance", () => {
+  /** Every `(subshellId, kind)` the manager fired, in order. */
+  const recorder = (): { calls: [string, NotifyKind][]; notify: (id: string, kind: NotifyKind) => Promise<void> } => {
+    const calls: [string, NotifyKind][] = [];
+    return {
+      calls,
+      notify: async (id, kind) => {
+        calls.push([id, kind]);
+      },
+    };
+  };
+
+  it("says `maintenance`, never the `crashed` that promises a restart", async () => {
+    // The agent sends its `maintenance` event BEFORE the `exit` frames the
+    // window causes (spec §4.3), so the flag is already on the row when the
+    // death lands here. Reporting that death as a crash would promise an
+    // auto-restart that the guard two lines below is at this very moment
+    // refusing to make — and the node's own maintenance loop would then push
+    // a SECOND time about the same subshell.
+    const nodeId = await sharedNode(true);
+    const fake = new FakeNodeLauncher(testDir);
+    const sink = recorder();
+    const manager = makeManager(fake, sink.notify);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const row = await liveRow(nodeId);
+      await manager.applyRemoteExit(nodeId, row.id, 0, new Date().toISOString());
+      expect(sink.calls).toEqual([[row.id, "maintenance"]]);
+    } finally {
+      off();
+    }
+  });
+
+  it("keeps the ordinary kinds on a node nobody took out of service", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    const sink = recorder();
+    const manager = makeManager(fake, sink.notify);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const row = await liveRow(nodeId);
+      await manager.applyRemoteExit(nodeId, row.id, 1, new Date().toISOString());
+      // `crashed` is the honest word here for the reason it is the wrong one
+      // above: the sweep WILL pick this parked row up and respawn it, and on
+      // a node in maintenance the guard two describes up refuses to.
+      expect(sink.calls).toEqual([[row.id, "crashed"]]);
     } finally {
       off();
     }

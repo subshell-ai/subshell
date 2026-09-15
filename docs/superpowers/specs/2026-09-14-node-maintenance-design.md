@@ -168,7 +168,23 @@ Adds the three columns (`maintenance` default 0). `down` drops them. Registered 
 - Maintenance is a **new owner-only act with a blast radius beyond the owner**: it terminates subshells the node owner cannot see (any node share lets a grantee launch there; those subshells are private to them). The owner learns only a count; the grantee learns by push. This is sound on the trusted-network posture because whoever owns the node's OS user already owns every pane on it — and it is a real change from today, where nothing an owner did stopped a grantee's work. Contrast with `allow_node_enrollment`, which bounds only the future: maintenance is deliberately retroactive.
 - **The plane can end a maintenance window the operator started at the machine** (decision 5: one state, either end). State it plainly; the alternative (machine wins) was offered and declined.
 - **The node enforces independently** (fail-closed file read per launch), so a plane that believes maintenance is off still cannot launch there; convergence comes from the node's own event. This is defence in depth, not a second switch.
-- Clock skew: newer-stamp reconciliation with plane-wins ties and clamped future stamps; a skewed machine can flip the plane once per reconnect, never permanently.
+- **Symmetrically, a node can end a window the PLANE declared**, and that half
+  is the one worth stating: a machine chooses its own `changedAt`, so a
+  compromised one can always present a winning stamp and clear the flag at
+  will. This costs nothing, and the reason it costs nothing is the boundary to
+  keep in view — an attacker who can send that frame holds the node key, which
+  means they are the local OS user on that machine and already own every pane
+  the plane launches there, its files, and the bearer token in each pane's
+  argv. **Maintenance is a routing preference, not a quarantine**: decision 4
+  keeps every other command answering, so it was never a containment control
+  and must not be described as one. The levers that actually contain a suspect
+  machine — deleting the node, rotating or disabling its key, clearing its
+  shares — are cookie-gated and a node key reaches none of them.
+- Clock skew: newer-stamp reconciliation with plane-wins ties and clamped
+  future stamps. A skewed but honest machine can flip the plane once per
+  reconnect and never permanently; a machine that lies about its clock
+  deliberately is the case above, and is bounded by what a node key already
+  holds rather than by the stamp rule.
 - `ready` discloses one more fact (`maintenance`) to the plane; add it to the `ready` disclosure list in `docs/security.md` §"(protocol 8)".
 - The "no separate flag exists" sentences (`docs/security.md:598`, `security-context.md:408`, spec 2026-08-31 L31/L676) become false and are rewritten: shares = who, maintenance = whether.
 - Audit: `node.maintenance.update` from both origins (actor null for `node`), `stopped` ids in metadata; each stopped subshell also carries its own `subshell.terminate` row.

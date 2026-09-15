@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { maintenancePath, readMaintenance, writeMaintenance } from "../maintenance.js";
+import { maintenancePath, readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
 import { captureLogs } from "./helpers/capture-logs.js";
 
 /**
@@ -26,6 +26,11 @@ function freshDataDir(): string {
 afterEach(() => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+/** The mirror's own mtime, as the unreadable branch stamps it. */
+function mtimeOf(dataDir: string): string {
+  return statSync(maintenancePath(dataDir)).mtime.toISOString();
+}
 
 describe("persistence", () => {
   it("round-trips the exact stamp it was given", () => {
@@ -95,7 +100,7 @@ describe("reading is fail-CLOSED, unlike the allowlist beside it", () => {
     writeFileSync(maintenancePath(dataDir), "{not json");
     const cap = captureLogs();
     try {
-      expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable" });
+      expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable", changedAt: mtimeOf(dataDir) });
     } finally {
       cap.restore();
     }
@@ -110,7 +115,7 @@ describe("reading is fail-CLOSED, unlike the allowlist beside it", () => {
     writeFileSync(maintenancePath(dataDir), JSON.stringify({ on: true }));
     const cap = captureLogs();
     try {
-      expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable" });
+      expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable", changedAt: mtimeOf(dataDir) });
     } finally {
       cap.restore();
     }
@@ -121,9 +126,55 @@ describe("reading is fail-CLOSED, unlike the allowlist beside it", () => {
     writeFileSync(maintenancePath(dataDir), JSON.stringify({ on: "yes", changedAt: "2026-09-14T10:00:00.000Z" }));
     const cap = captureLogs();
     try {
-      expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable" });
+      expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable", changedAt: mtimeOf(dataDir) });
     } finally {
       cap.restore();
     }
+  });
+});
+
+describe("an unreadable mirror is reported as the state it produces", () => {
+  it("stamps it with the FILE'S OWN mtime — the one honest timestamp available", () => {
+    // `now` would be a stamp nobody wrote and a different one every read, so
+    // the memo would never suppress it and every heartbeat would re-announce
+    // the same broken file. The mtime is when that file last changed, which
+    // is the truth the plane is being asked to reconcile against.
+    const dataDir = freshDataDir();
+    writeFileSync(maintenancePath(dataDir), "{not json");
+    const cap = captureLogs();
+    try {
+      const read = readMaintenance(dataDir);
+      expect(read).toEqual({ kind: "unreadable", changedAt: mtimeOf(dataDir) });
+      expect(reportableMaintenance(read)).toEqual({ on: true, changedAt: mtimeOf(dataDir) });
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("stamps it the SAME on every read of an unchanged file", () => {
+    // Stability is the whole reason the stamp is the mtime: the memo compares
+    // by value, so a stamp that moved would flood the plane with one event per
+    // heartbeat for a file nobody is touching.
+    const dataDir = freshDataDir();
+    writeFileSync(maintenancePath(dataDir), "{not json");
+    const cap = captureLogs();
+    try {
+      expect(readMaintenance(dataDir)).toEqual(readMaintenance(dataDir));
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("sends NOTHING when the file could not even be statted", () => {
+    // The refusal stands (the gate reads `unreadable`, not the stamp), but
+    // there is no timestamp to report — and inventing one hands the plane a
+    // value to reconcile against that nobody wrote.
+    expect(reportableMaintenance({ kind: "unreadable" })).toBeUndefined();
+  });
+
+  it("sends nothing for an absent mirror, and the state verbatim for a parsed one", () => {
+    const state = { on: false, changedAt: "2026-09-14T10:00:00.000Z" };
+    expect(reportableMaintenance({ kind: "absent" })).toBeUndefined();
+    expect(reportableMaintenance({ kind: "state", state })).toBe(state);
   });
 });

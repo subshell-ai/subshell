@@ -16,7 +16,7 @@ import {
 import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
-import { buildSubshellsReport, maybeReportMaintenance } from "./commands/report.js";
+import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { AgentConfig } from "./config.js";
@@ -26,7 +26,6 @@ import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
-import { readMaintenance } from "./maintenance.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
@@ -286,10 +285,10 @@ function readyEvent(
     // This machine's maintenance mirror (spec 2026-09-14 §4.3). OMITTED, never
     // null-valued, when there is no file to report: absence means "this node
     // has no stamp of its own", which is what lets the plane's row win
-    // outright instead of tying with a value nobody wrote. An unreadable file
-    // is omitted too — it refuses launches here (maintenance.ts) and the plane
-    // then repairs it from its own record, which is the only way that file
-    // gets fixed.
+    // outright instead of tying with a value nobody wrote. An UNREADABLE file
+    // is carried, as the `on` it produces under its own mtime — it refuses
+    // every launch here, and a plane told nothing about that has no row to
+    // reconcile and no reason to push the clean file that repairs it.
     ...(maintenance ? { maintenance } : {}),
   };
 }
@@ -624,14 +623,10 @@ export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Pro
         // there is no mid. (The census chain below and the ready send stay
         // LINEAR on purpose: `ready` before `subshells_report` before the
         // inventory push is pinned order.)
-        // Read SYNCHRONOUSLY, like everything else in `ready`: the frame must
-        // leave in the same turn the open fired, and seeding the memo from the
-        // same read is what stops the first heartbeat repeating what `ready`
-        // just said. Re-seeded per connection, because a new socket has told
-        // the plane nothing.
-        const mirror = readMaintenance(config.dataDir);
-        ctx.lastReportedMaintenance = mirror.kind === "state" ? mirror.state : undefined;
-        send(ws, readyEvent(config, runtime, ctx.lastReportedMaintenance));
+        // The mirror is read SYNCHRONOUSLY too, and by the seeder itself: the
+        // value `ready` carries and the memo that stops the first heartbeat
+        // repeating it are one read, so they cannot disagree.
+        send(ws, readyEvent(config, runtime, seedMaintenanceMemo(ctx)));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs, type RunDeps, run } from "../cli.js";
@@ -458,7 +458,10 @@ describe("maintenance verb", () => {
   });
 
   /** An enrolled config over a fresh data dir, plus stub deps and the kill recorder. */
-  async function enrolled(alive: string[] = []): Promise<{
+  async function enrolled(
+    alive: string[] = [],
+    stubborn: string[] = [],
+  ): Promise<{
     dataDir: string;
     deps: RunDeps;
     killed: Array<{ socket: string; id: string }>;
@@ -477,6 +480,7 @@ describe("maintenance verb", () => {
     });
     const meta = new SubshellMetaStore(dataDir);
     const aliveSet = new Set(alive);
+    const stubbornSet = new Set(stubborn);
     const killed: Array<{ socket: string; id: string }> = [];
     return {
       dataDir,
@@ -488,8 +492,10 @@ describe("maintenance verb", () => {
           tmux: {
             hasSubshell: async (_socket: string, id: string) => aliveSet.has(id),
             killSubshell: (socket: string, id: string) => {
+              // Mirrors the real runner: SYNCHRONOUS and error-swallowing, so
+              // a pane that refuses to die returns just like one that died.
               killed.push({ socket, id });
-              aliveSet.delete(id);
+              if (!stubbornSet.has(id)) aliveSet.delete(id);
             },
           },
           now: () => Date.parse(NOW),
@@ -565,6 +571,36 @@ describe("maintenance verb", () => {
     expect(readMaintenance(dataDir)).toEqual({ kind: "state", state: { on: true, changedAt: NOW } });
   });
 
+  test("`on --yes` counts a pane as stopped only when the socket says it is gone", async () => {
+    // `killSubshell` is synchronous and swallows its own errors, so a
+    // try/catch around it can never fire: without a re-probe every row would
+    // be reported stopped, including the one still running. The flag is
+    // written either way — the machine IS in maintenance — so this is a
+    // report, not a failure, and the exit stays 0.
+    const { deps, meta } = await enrolled([A, B], [B]);
+    await record(meta, A, "alpha", "/work/alpha");
+    await record(meta, B, "beta", "/work/beta");
+
+    const res = await run(["maintenance", "on", "--yes"], deps);
+
+    expect(res.code).toBe(0);
+    expect(res.out).toInclude("1");
+    expect(res.err).toInclude(B);
+    expect(res.err).not.toInclude(A);
+  });
+
+  test("`on --yes --json` excludes a surviving pane from `stopped`", async () => {
+    const { deps, meta } = await enrolled([A, B], [B]);
+    await record(meta, A, "alpha", "/work/alpha");
+    await record(meta, B, "beta", "/work/beta");
+
+    const res = await run(["maintenance", "on", "--yes", "--json"], deps);
+
+    expect(res.code).toBe(0);
+    expect(JSON.parse(res.out)).toEqual({ on: true, changedAt: NOW, stopped: [A] });
+    expect(res.err).toInclude(B);
+  });
+
   test("`on --yes --json` reports the stamp and exactly what it stopped", async () => {
     const { deps, meta } = await enrolled([A]);
     await record(meta, A, "alpha", "/work/alpha");
@@ -591,7 +627,7 @@ describe("maintenance verb", () => {
     // gone and the gate passes again.
     const { dataDir, deps } = await enrolled();
     writeFileSync(maintenancePath(dataDir), "{not json");
-    expect(readMaintenance(dataDir)).toEqual({ kind: "unreadable" });
+    expect(readMaintenance(dataDir).kind).toBe("unreadable");
 
     const res = await run(["maintenance", "off"], deps);
 
@@ -632,8 +668,15 @@ describe("maintenance verb", () => {
     const broken = await run(["maintenance", "status", "--json"], deps);
     expect(broken.code).toBe(0);
     // Fail-closed, and the view says so rather than reporting a tidy "off".
-    expect(JSON.parse(broken.out)).toEqual({ on: true, changedAt: null, file: "unreadable" });
-    expect((await run(["maintenance", "status"], deps)).out).toMatch(/unreadable/);
+    // RE-BASED: `changedAt` was null here while the plane held the file's
+    // mtime — two answers for one file, read by the person most likely to be
+    // comparing this screen against the node page mid-incident. `file` stays
+    // the discriminator that says where the stamp came from.
+    const mtime = statSync(maintenancePath(dataDir)).mtime.toISOString();
+    expect(JSON.parse(broken.out)).toEqual({ on: true, changedAt: mtime, file: "unreadable" });
+    const brokenText = (await run(["maintenance", "status"], deps)).out;
+    expect(brokenText).toMatch(/unreadable/);
+    expect(brokenText).toInclude(mtime);
   });
 
   test("with no config, exit 1 pointing at enroll", async () => {

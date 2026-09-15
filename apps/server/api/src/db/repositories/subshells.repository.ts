@@ -182,6 +182,38 @@ export class SubshellsRepository extends BaseRepository {
   }
 
   /**
+   * CLAIM the alive→dead transition: applies the patch only while the row is
+   * still a LIVE running one, and answers whether this caller is the one that
+   * moved it.
+   *
+   * Two independent paths retire a live pane and each owes its owner exactly
+   * one notification — the death the agent reports as an `exit`, and the
+   * maintenance window that killed it — so "did I stop this" cannot be a read
+   * followed by a write: both would read `alive: 1`, both would write, and the
+   * owner gets told twice about one death. A single conditional statement is
+   * the only thing that can decide it, and losing it is the caller's cue to
+   * stay silent.
+   *
+   * The predicate is `alive` ALONE — a caller that also cares about `status`
+   * has already checked it (and a row that reached `terminated` had its
+   * `alive` cleared in the same act, so the two can only disagree on a row
+   * nothing in this codebase writes).
+   *
+   * @returns rows updated — 1 for the caller that performed the transition, 0
+   *   for everyone who arrived after it
+   */
+  async updateIfAlive(id: string, update: SubshellUpdate): Promise<number> {
+    const res = await this.db
+      .updateTable("subshells")
+      .set(update)
+      .where("id", "=", id)
+      .where("alive", "=", 1)
+      .executeTakeFirst();
+    const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
+    return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);
+  }
+
+  /**
    * Conditional park for a manual restart: flip the row to the parked shape
    * (`running` / `alive: 0`) ONLY while it still sits in the state the restart
    * observed. A terminate that lands after that read moved `status`/`alive`,

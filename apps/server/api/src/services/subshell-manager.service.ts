@@ -719,10 +719,18 @@ export class SubshellManagerService {
    * {@link applySubshellsReport}). Every other kill failure keeps the classic
    * semantics (throw, row untouched), and every other teardown step is
    * unchanged.
+   *
+   * @returns whether THIS call performed the alive→dead transition. A caller
+   *   that owes somebody a notification cannot decide that from a read: the
+   *   pane's own death may be travelling {@link applyRemoteExit} at the same
+   *   moment, both would see `alive: 1`, and the owner would be told twice
+   *   about one death. False also covers the rows this refuses outright
+   *   (absent, or not the caller's) and the parked ones that were already
+   *   dead.
    */
-  async terminateSubshell(userId: string, id: string): Promise<void> {
+  async terminateSubshell(userId: string, id: string): Promise<boolean> {
     const row = await this.#subshells.findById(id);
-    if (!row || row.userId !== userId) return;
+    if (!row || row.userId !== userId) return false;
     let killUnverified = false;
     if (row.tmuxSocket) {
       // Kill on the node the row lives on (row-based launcher, spec §6.3).
@@ -736,8 +744,12 @@ export class SubshellManagerService {
         );
       }
     }
+    // The claim comes after the kill and before the retire, which is the only
+    // placement that is both honest and useful: a kill that threw has written
+    // nothing (the classic semantics above), and once `status` is
+    // `terminated` there is no transition left to claim.
+    const stopped = (await this.#subshells.updateIfAlive(id, { alive: 0 })) > 0;
     await this.#subshells.markTerminated(id, new Date().toISOString());
-    await this.#subshells.update(id, { alive: 0 });
     // Teardown must finish even when the token store is down: a failed revoke
     // unlinks apiKeyId (guard 401s the key) so the audit event below still lands.
     await this.#revokeTokenOrUnlink(id);
@@ -748,6 +760,7 @@ export class SubshellManagerService {
       targetId: id,
       metadataJson: JSON.stringify({ name: row.name, ...(killUnverified ? { killUnverified: true } : {}) }),
     });
+    return stopped;
   }
 
   /**
@@ -766,11 +779,21 @@ export class SubshellManagerService {
    * Void-fired push, like {@link #notifyDeath} — a slow or throwing sink must
    * not stall a loop that is holding up a node's whole maintenance window.
    *
+   * It pushes only when it is the thing that STOPPED the subshell, and
+   * {@link terminateSubshell}'s claim decides that rather than a read. The
+   * agent sends its `maintenance` event before the `exit` frames the window
+   * causes, so the pane's own death may already have travelled
+   * {@link #applyDeath} — which pushes `maintenance` for the same reason — by
+   * the time this loop reaches the row. A row already retired is still
+   * terminated here (the bookkeeping is the point: token revoked, row marked,
+   * act audited) and simply not announced a second time. A parked row loses
+   * the claim too, which is right: nothing was running to stop, and its owner
+   * heard about that death when it happened.
+   *
    * @param row - the running row to stop, freshly read
    */
   async terminateForMaintenance(row: SubshellTable): Promise<void> {
-    await this.terminateSubshell(row.userId, row.id);
-    void this.#notify(row.id, "maintenance");
+    if (await this.terminateSubshell(row.userId, row.id)) void this.#notify(row.id, "maintenance");
   }
 
   /**
@@ -1047,8 +1070,21 @@ export class SubshellManagerService {
    * throwing or slow sink cannot stall the sweep (`notifySubshell` itself
    * already swallows everything; this is belt-and-braces for an injected
    * mock).
+   *
+   * A death on a node in MAINTENANCE is none of those words. The pane did not
+   * fail — somebody took the machine out of service, and the agent sends that
+   * event before the `exit` frames it causes (spec §4.3), so the flag is
+   * already on the row when this runs. `crashed` would promise an
+   * auto-restart that {@link maybeAutoRestart} is at that same moment refusing
+   * to make, and it would describe somebody else's deliberate act as a fault
+   * on the owner's own screen. The node row is read HERE, on the death path,
+   * so an instance where nothing is dying pays nothing for it.
    */
-  #notifyDeath(row: SubshellTable): void {
+  async #notifyDeath(row: SubshellTable): Promise<void> {
+    if ((await getRequestlessContext().repos.nodes.findById(row.nodeId))?.maintenance === 1) {
+      void this.#notify(row.id, "maintenance");
+      return;
+    }
     const kind: NotifyKind = row.restartOnExit === 1 ? (row.backoffCount >= 5 ? "crashed_final" : "crashed") : "exited";
     void this.#notify(row.id, kind);
   }
@@ -1085,9 +1121,15 @@ export class SubshellManagerService {
           // clears it again) so a subshell that never comes back carries a
           // truthful end time instead of lingering as a null-ended zombie.
           // `waiting_since` dies with the process — nobody is waiting anymore.
-          await this.#subshells.update(row.id, { alive: 0, endedAt: now, waitingSince: null });
-          logger.info(`subshell process absent (no socket): ${row.id}`);
-          this.#notifyDeath(row);
+          // CLAIMED, because `row` is this sweep's snapshot and a `local`
+          // maintenance window retiring the same rows is the one death path
+          // that never travels `applyRemoteExit`: without the claim the stale
+          // `alive === 1` above is enough to push a second time.
+          const claimed = await this.#subshells.updateIfAlive(row.id, { alive: 0, endedAt: now, waitingSince: null });
+          if (claimed > 0) {
+            logger.info(`subshell process absent (no socket): ${row.id}`);
+            await this.#notifyDeath(row);
+          }
         }
         continue;
       }
@@ -1247,10 +1289,20 @@ export class SubshellManagerService {
     // it isn't a running row anymore.
     if (fresh?.status !== "running") return;
     if (fresh.alive === 1) {
-      // `waiting_since` dies with the process — nobody is waiting anymore.
-      await this.#subshells.update(fresh.id, { alive: 0, exitCode, endedAt, waitingSince: null });
-      logger.info(`subshell crashed (exit=${exitCode ?? "?"}): ${fresh.id}`);
-      this.#notifyDeath(fresh);
+      // Claimed, not merely written: a maintenance window stopping this same
+      // pane is retiring the row from the other direction, and the owner is
+      // owed ONE account of the death. `waiting_since` dies with the process
+      // — nobody is waiting anymore.
+      const claimed = await this.#subshells.updateIfAlive(fresh.id, {
+        alive: 0,
+        exitCode,
+        endedAt,
+        waitingSince: null,
+      });
+      if (claimed > 0) {
+        logger.info(`subshell crashed (exit=${exitCode ?? "?"}): ${fresh.id}`);
+        await this.#notifyDeath(fresh);
+      }
     }
     // Auto-restart crashed subshells that opted in (exponential backoff);
     // a subshell that will never come back has its MCP token revoked here.

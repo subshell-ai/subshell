@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type NodeMaintenanceWire, parseNodeMaintenance } from "@internal/subshell-protocol";
 import { logger } from "./log.js";
@@ -31,6 +31,18 @@ import { logger } from "./log.js";
  * been told anything behaves exactly as it did before this existed. Absence
  * also travels differently from `{ on: false }` — the plane reconciles on
  * `changedAt`, and a node with no file has no stamp to reconcile with.
+ *
+ * **An unreadable file is REPORTED, as the state it actually produces.** It
+ * refuses every launch, so a node that reported nothing about it was a
+ * permanent disagreement rather than a self-repairing one: with no row of its
+ * own the plane has nothing to reconcile, so it keeps showing the node as
+ * launchable while every create against it 409s, and nothing on either side
+ * ever rewrites the file. Reported as `on`, the plane adopts it, the operator
+ * sees the node in maintenance, and turning it off in the browser pushes a
+ * clean `set_maintenance` — which is what actually repairs this machine. The
+ * stamp is the FILE'S OWN mtime: honest (it is when that file last changed)
+ * and, unlike `now`, STABLE, so the report memo suppresses the repeat instead
+ * of announcing the same broken file on every heartbeat.
  */
 
 /** File name inside the agent data dir. */
@@ -46,17 +58,21 @@ export function maintenancePath(dataDir: string): string {
  *
  * A bare `boolean` would collapse the two that differ: `absent` is reported to
  * the plane by OMITTING the `ready` field (the plane's own row then wins
- * outright), while `unreadable` refuses launches yet has no stamp to report at
- * all — sending one would hand the plane a value to reconcile against that
- * nobody wrote.
+ * outright), while `unreadable` is an ON this process cannot attribute to a
+ * stamp anyone wrote — so it carries the file's own mtime instead, and is
+ * silent only when even that could not be read.
  */
 export type MaintenanceRead =
   /** No file has ever been written here: off, and nothing to report. */
   | { kind: "absent" }
   /** The file parsed: this is the machine's half of the flag, verbatim. */
   | { kind: "state"; state: NodeMaintenanceWire }
-  /** The file exists but is not a state. Treated as ON; reported as nothing. */
-  | { kind: "unreadable" };
+  /** The file exists but is not a state: ON, reported under the file's mtime. */
+  | {
+      kind: "unreadable";
+      /** The file's mtime, ISO — absent only when the stat failed too, leaving nothing truthful to send. */
+      changedAt?: string;
+    };
 
 /**
  * Reads the mirror.
@@ -79,8 +95,45 @@ export function readMaintenance(dataDir: string): MaintenanceRead {
     return { kind: "state", state };
   } catch (err) {
     logger.withError(err).warn(`maintenance: ${file} unreadable; treating this node as IN MAINTENANCE`);
-    return { kind: "unreadable" };
+    // The mtime, never `now`: this answer refuses launches, so the plane has
+    // to hear about it, and the one timestamp available that nobody invented
+    // is when the file last changed. A fresh `now` per read would also defeat
+    // the report memo and put one frame on the wire per heartbeat, forever.
+    // A stat that fails in turn (the file went away between the two calls)
+    // leaves the stamp off: the refusal stands, and there is nothing to send.
+    const changedAt = mtimeOf(file);
+    return changedAt ? { kind: "unreadable", changedAt } : { kind: "unreadable" };
   }
+}
+
+/**
+ * A file's mtime as an ISO stamp. TOTAL — every caller is on a path where the
+ * answer is optional and a throw would cost the whole read.
+ */
+function mtimeOf(file: string): string | undefined {
+  try {
+    return statSync(file).mtime.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The wire value a read is worth announcing, or `undefined` when there is
+ * nothing truthful to say.
+ *
+ * Every reporting path goes through this so the three answers cannot be
+ * classified differently in three places: `ready`, the heartbeat memo check
+ * and the launch gate all owe the plane the same value for the same file.
+ *
+ * @param read - what {@link readMaintenance} answered
+ * @returns the `{ on, changedAt }` to send, or `undefined` for absent (the
+ * plane's own row wins outright) and for an unstamped unreadable
+ */
+export function reportableMaintenance(read: MaintenanceRead): NodeMaintenanceWire | undefined {
+  if (read.kind === "state") return read.state;
+  if (read.kind === "unreadable" && read.changedAt) return { on: true, changedAt: read.changedAt };
+  return undefined;
 }
 
 /**

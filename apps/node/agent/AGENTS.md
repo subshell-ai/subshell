@@ -294,14 +294,49 @@ panes running, where nothing dies to carry it. Anything that reorders
 The refusal a launch answers with is the BARE `NODE_RESULT_MAINTENANCE`
 constant: the plane compares `detail` by equality, so a suffix — however
 helpful — reads there as an ordinary launch failure. The event that rides with
-it is what lets the plane converge from a refusal it did not expect; an
-unreadable file sends none, because a machine cannot report a stamp it could
-not read.
+it is what lets the plane converge from a refusal it did not expect.
+
+**An unreadable file is REPORTED too, as the `on` it actually produces**, under
+the FILE'S OWN mtime. Reporting nothing there was a permanent disagreement in
+the common case of a node the plane never flagged: with no row of its own the
+plane has nothing to reconcile, so it keeps the node launchable while every
+create 409s, and neither side ever rewrites the file. Reported, the plane
+adopts it and the operator's "off" in the browser pushes a clean
+`set_maintenance` — which is the thing that actually repairs this machine. The
+mtime rather than `now` because it is the one timestamp nobody invented, and
+because it is STABLE: a fresh stamp per read would defeat the report memo and
+put one frame on the wire per heartbeat forever. Only a file this process could
+not even stat refuses silently — there is then nothing truthful to send.
+
+**A mirror DELETED under a live connection is rewritten from the memo.** The
+plane holds what this socket last told it and the machine now reads "absent ⇒
+off", and nothing reports the gap because absence has no stamp to send; the
+memo is by definition that agreed value, so writing it back restores what the
+plane's own reconnect push would have. Only for absence — an unreadable file is
+reportable on its own terms, and overwriting it would destroy evidence.
+Hand-deleting the file is not an interface; `subshell maintenance off` is.
+
+A restore that FAILS (a read-only disk, a path nothing can create) is retried
+every tick and logged ONCE per connection. The retry is cheap and succeeds the
+instant the disk returns; the line is capped because the heartbeat is 15 s, so
+an ungated failure writes four lines a minute into one 200 KB file that is
+REPLACED when full — about six truncations a day, discarding exactly the log
+an operator is going to read about this machine. `seedMaintenanceMemo` seeds
+that flag together with the memo, so a reconnect says it once more.
+
+`maintenance status` reports the mtime for an unreadable file too, with
+`file: "unreadable"` as the discriminator saying where the stamp came from: a
+`null` there beside a node page showing the mtime is two answers for one file,
+read by whoever is mid-incident comparing the two.
 
 The CLI's `on` never forgets a meta record for a pane it kills. With no daemon
 running those records are the only thing the reconnect census can report;
 dropping one would leave the plane holding a `running` row with nothing on this
-machine able to contradict it.
+machine able to contradict it. It also RE-PROBES after each kill rather than
+assuming it worked: `killSubshell` is synchronous and swallows its own errors,
+so `stopped` counts only what the socket confirmed gone and anything still
+alive is named on stderr. The exit stays 0 — the flag is written and the
+machine launches nothing either way.
 
 ## What `ready` reports about this process (`src/runtime.ts`)
 
