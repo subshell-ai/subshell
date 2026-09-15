@@ -13,6 +13,22 @@ If any of these fail, fix the issues before considering the task complete. Do no
 `pre-push` runs only the first two (types + lint) — CI owns the test suite. Run all three
 yourself before pushing anything you expect to be green on the first try.
 
+## Changes under `packages/` need a build
+
+```bash
+bunx turbo build
+```
+
+`verify-types`, `lint:check` and `test` all run against SOURCE and will pass
+while the workspace build is broken. The trap that catches people is
+`@internal/subshell-protocol`: **`apps/client/mobile` imports its barrel through
+Metro, which cannot resolve `node:*`**, so adding a node-builtin import to
+`src/index.ts` — directly or by re-exporting a module that has one — breaks the
+mobile build and NOTHING ELSE. All three local commands stay green and CI fails
+on a package you never opened. Node-only modules are subpath exports instead
+(`release-artifacts`, `service-test-safety`); `src/index.ts` says so at the
+export site. Measured 2026-09-15, twice in one run.
+
 ## Rust changes need a fourth command
 
 Those three commands do not touch Rust at all. If you changed anything under

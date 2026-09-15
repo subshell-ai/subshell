@@ -37,9 +37,13 @@ export {
   PRODUCT_NAME,
   PRODUCT_URL,
 } from "./legal.js";
-// NOTE: release-artifacts.ts (node: builtins) is intentionally NOT re-exported
-// here — this barrel is imported by apps/client/mobile through Metro, which cannot
-// resolve `node:*`. Consumers import "@internal/subshell-protocol/release-artifacts".
+// NOTE: release-artifacts.ts and service-test-safety.ts (node: builtins) are
+// intentionally NOT re-exported here — this barrel is imported by
+// apps/client/mobile through Metro, which cannot resolve `node:*`. Consumers
+// import "@internal/subshell-protocol/release-artifacts" and
+// ".../service-test-safety". Adding either to this barrel breaks the mobile
+// build and nothing else, so it fails in CI rather than locally; that is how
+// service-test-safety got here in the first place (2026-09-15).
 export {
   type LingerProbeResult,
   lingerFromProbe,
@@ -150,10 +154,6 @@ export {
   type ServerTarget,
   serverArtifactFileName,
 } from "./paths.js";
-export {
-  assertManagerCommandUnderTest,
-  assertServiceWriteUnderTest,
-} from "./service-test-safety.js";
 export {
   DEFAULT_GRID,
   DEFAULT_SIZING,

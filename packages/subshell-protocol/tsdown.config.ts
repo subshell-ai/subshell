@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/release-artifacts.ts"],
+  entry: ["src/index.ts", "src/release-artifacts.ts", "src/service-test-safety.ts"],
   outDir: "dist",
   format: ["esm"],
   sourcemap: false,

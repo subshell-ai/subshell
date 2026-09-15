@@ -1,14 +1,11 @@
 import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { DESKTOP_CLIENT_BUNDLE_ID, lingerFromProbe, lingerProbeArgv, lingerVerdict } from "@internal/subshell-protocol";
 import {
   assertManagerCommandUnderTest,
   assertServiceWriteUnderTest,
-  DESKTOP_CLIENT_BUNDLE_ID,
-  lingerFromProbe,
-  lingerProbeArgv,
-  lingerVerdict,
-} from "@internal/subshell-protocol";
+} from "@internal/subshell-protocol/service-test-safety";
 import type { CliResult } from "./cli.js";
 import { selfInvocation } from "./self-invoke.js";
 

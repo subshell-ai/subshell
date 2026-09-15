@@ -1,12 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { DESKTOP_SERVER_BUNDLE_ID, lingerFromProbe, lingerProbeArgv } from "@internal/subshell-protocol";
 import {
   assertManagerCommandUnderTest,
   assertServiceWriteUnderTest,
-  DESKTOP_SERVER_BUNDLE_ID,
-  lingerFromProbe,
-  lingerProbeArgv,
-} from "@internal/subshell-protocol";
+} from "@internal/subshell-protocol/service-test-safety";
 import { type TmuxOffer, tmuxPreflight } from "@/commands/configure.js";
 
 /**
