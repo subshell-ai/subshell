@@ -621,6 +621,12 @@ jobs:
           # `TAURI_SIGNING_PRIVATE_KEY` and ignores
           # `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`'s path-shaped sibling entirely.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # Keep this line even though the secret does NOT exist: the key was
+          # generated without a passphrase, and GitHub cannot store an empty
+          # secret. An absent secret expands to "", and an env var that is SET
+          # to "" is what the CLI accepts — measured 2026-09-15 with a
+          # throwaway key: "" signs; UNSET makes the CLI prompt on a terminal
+          # it does not have and fail with "Device not configured".
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
