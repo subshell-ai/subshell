@@ -404,7 +404,18 @@ describe("the updater artifacts (spec 2026-09-15 § 8)", () => {
     const deb = `${ROOT}/deb/${desktopArtifactFileName(DESKTOP_SERVER_PRODUCT, "linux-x64", "1.2.3")}`;
     await collectUpdaterArtifact(s.deps, ROOT, "linux-x64", "1.2.3", deb);
     expect(asked).toBeGreaterThan(0);
-    expect(s.runs.at(-1)?.argv).toEqual(["./node_modules/.bin/tauri", "signer", "sign", "-f", "-", deb]);
+    // NO key argument. `-f` is `--private-key-path`, not "read it from
+    // stdin", and release.yml exports `TAURI_SIGNING_PRIVATE_KEY` — which is
+    // the `-k/--private-key` env binding — so passing `-f` beside it makes
+    // clap refuse before anything is signed ("the argument
+    // '--private-key-path' cannot be used with '--private-key'", measured
+    // against this repo's own CLI on 2026-09-15). This is the ORDINARY Linux
+    // path: `deb` is not an updater-enabled target, so the bundler writes no
+    // `.deb.sig` and this branch runs on every Linux desktop cut. The
+    // assertion is a literal list because the bug it caught was an argument
+    // that looked right.
+    expect(s.runs.at(-1)?.argv).toEqual(["./node_modules/.bin/tauri", "signer", "sign", deb]);
+    expect(s.runs.at(-1)?.argv).not.toContain("-f");
   });
 
   test("refuses when the bundler wrote no updater artifact at all", async () => {

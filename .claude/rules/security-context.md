@@ -474,6 +474,34 @@ shares and subshell shares are two independent axes:
   pane-side credentials stay in the node's own environment, which the plane
   never sees. Full prose: `docs/security.md` §6, "Plugin installs from the
   registry".
+- **Updating is a new class of act on every surface** (spec 2026-09-15; full
+  accounting in `docs/security.md` §11.12). Three sentences to code by. **The
+  plane downloads and executes code from the release source** — the digest
+  comes from the same source as the bytes, so integrity is "these are the
+  bytes it served", authenticity is that host's TLS plus the repository's
+  access controls, and empty `SUBSHELL_RELEASE_URL` disables every one of
+  these paths; the desktop apps are the one exception, and stronger, because
+  `tauri-plugin-updater` checks a minisign signature against a pubkey compiled
+  into the app. **An admin installs code on the control-plane host from a
+  browser** (`POST /api/admin/server/update`, cookie-admin, bearer refused,
+  audited at the start with the actor and again at the completing boot with
+  actor null) — the URL comes from the release index and never from the
+  request body, and `version` only selects among published tags. **An `edit`
+  grantee replaces a node's binary** (`POST /api/nodes/:id/update`, the
+  `service restart` gate, `local` refused, audited `node.update`): the URL and
+  digest ride inside the SIGNED command, and the `nut_…` download token is
+  in-memory, hashed, single-use, ten minutes, bound to one node and one
+  target, refused on the `.sha256` routes — so "a node key can do nothing on
+  REST" stays true as written. A refused agent is now HELD rather than
+  dropped: offline for every purpose but `update`, every other frame dropped
+  unparsed, closed after ten minutes unused, superseded by a newer socket, and
+  closed by `disconnectNode` when the key is rotated or deleted. The backup an
+  update takes is the WHOLE database (0600 in a 0700 dir inside the data dir,
+  so the reset already covers it; five kept, `SUBSHELL_DB_BACKUPS_KEEP`), and
+  a failed boot restores it before putting the old binary back — an old binary
+  cannot boot on a newer database at all. `app-update` is one more name on the
+  existing closed screen enum and `main` gains no command in either desktop
+  app.
 - **Agent CLI installs are an admin act on the control-plane host** (spec
   2026-09-11 §7): `POST /api/setup/agents/:id/install` runs a BUILT-IN
   manifest's install command as the server's user; admin cookie only, never

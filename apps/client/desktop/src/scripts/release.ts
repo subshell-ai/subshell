@@ -393,7 +393,12 @@ export async function collectUpdaterArtifact(
   // publishing it would be publishing a lie.
   if (!deps.exists(`${source}.sig`)) {
     deps.log(`signing ${basename(source)} (the bundler emitted no .sig)…`);
-    const code = await deps.run(["./node_modules/.bin/tauri", "signer", "sign", "-f", "-", source], DESKTOP_DIR);
+    // NO KEY ARGUMENT — see the twin in `apps/server/desktop`. `tauri signer
+    // sign` reads the key from the ENVIRONMENT, `-f` is `--private-key-path`
+    // rather than "stdin", and passing it beside the exported
+    // `TAURI_SIGNING_PRIVATE_KEY` makes clap refuse before anything is signed.
+    // A key in argv would be `ps`-visible; the environment is where it belongs.
+    const code = await deps.run(["./node_modules/.bin/tauri", "signer", "sign", source], DESKTOP_DIR);
     if (code !== 0) throw new Error(`could not sign ${source} — nothing published`);
   }
   const signature = (await deps.read(`${source}.sig`)).trim();

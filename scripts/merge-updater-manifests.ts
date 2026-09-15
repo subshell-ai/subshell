@@ -21,18 +21,22 @@
  *
  * Exits non-zero on anything that would publish a manifest nobody can use: no
  * shards found, shards that disagree on the version, a platform claimed twice,
- * or an entry with no signature. All four are release-stopping by design — an
- * unusable manifest is indistinguishable, from an installed app, from "there
- * are no updates".
+ * an entry with no signature, or a PLATFORM MISSING from the merged set. All
+ * five are release-stopping by design — an unusable manifest is
+ * indistinguishable, from an installed app, from "there are no updates", and
+ * the last one is that failure for half the fleet with the other half working
+ * perfectly, which is how it would go unnoticed.
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { DESKTOP_TARGETS } from "../packages/subshell-protocol/src/paths.js";
 import {
   LATEST_MANIFEST_NAME,
   mergeUpdaterManifests,
   parseShardManifest,
   type UpdaterManifest,
+  updaterPlatformKey,
 } from "./updater-manifest.js";
 
 /**
@@ -66,10 +70,20 @@ export function findShardManifests(dir: string): string[] {
   return found;
 }
 
+/**
+ * Every platform key a merged manifest must carry.
+ *
+ * The publish job is per-app and both desktop apps build the same
+ * {@link DESKTOP_TARGETS}, so "all of them" is the same set either way. It is
+ * passed in rather than assumed inside the merge so the pure function stays
+ * usable by a test that merges one shard on purpose.
+ */
+const REQUIRED_PLATFORMS = DESKTOP_TARGETS.map(updaterPlatformKey);
+
 /** Read and merge, naming the file in any refusal. */
 export function mergeFrom(paths: readonly string[]): UpdaterManifest {
   const shards = paths.map((path) => parseShardManifest(readFileSync(path, "utf8"), basename(path)));
-  return mergeUpdaterManifests(shards);
+  return mergeUpdaterManifests(shards, REQUIRED_PLATFORMS);
 }
 
 function main(argv: readonly string[]): void {

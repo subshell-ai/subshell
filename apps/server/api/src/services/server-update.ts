@@ -395,8 +395,12 @@ export async function collectServerUpdateView(refresh = false): Promise<ServerUp
       dir: backupsDir(),
       keep: SUBSHELL_DB_BACKUPS_KEEP,
       count: backupFiles.length,
-      // `listBackups` is ordered by the name's own timestamp, oldest first.
-      latest: backupFiles[backupFiles.length - 1] ?? null,
+      // `listBackups` is ordered by the name's own timestamp, NEWEST FIRST —
+      // the same order `prune` slices off the tail of, and the same order
+      // `status --json` reads `[0]` from. Reading the tail here named the
+      // OLDEST snapshot as the latest, which on a host with five of them is a
+      // card saying the database was last backed up four updates ago.
+      latest: backupFiles[0] ?? null,
     },
   };
 }

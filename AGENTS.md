@@ -447,7 +447,7 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   `subshell-server-cli-<triple>` + `.sha256` to `SUBSHELL_SERVER_RELEASE_DIR`,
   default `<repo-root>/dist-server` — a local drop dir to scp/deploy; there is
   no data-dir ladder here. See `apps/server/api/AGENTS.md` ("Standalone binary & CLI") for the CLI
-  (`init`/`configure`/`status`/`service install|uninstall|status|start|stop|restart`)
+  (`init`/`configure`/`status`/`update`/`backup`/`service install|uninstall|status|start|stop|restart`)
   and config.env.
 
 ### Publishing the desktop apps
@@ -576,6 +576,47 @@ each app's `control.rs`, its binary-resolution ladder, and the whole
 tauri-typed window/tray/menu layer, because the two window models genuinely
 differ and an abstraction over one real consumer and one guess is worse than
 the duplication.
+
+### Updates: how an installation moves to the next version
+
+Spec `docs/superpowers/specs/2026-09-15-updates-design.md` (read §15
+"Amendments made while building" — several decisions changed during the work
+and the code, not §§1–14, is what shipped). Four facts worth holding before
+you touch any of it:
+
+- **Every component reads the SAME release list with the same pure code.**
+  `packages/subshell-protocol/src/releases.ts` picks the newest release of a
+  component off the tag list by semver — never by date, because four
+  components share one repository and "latest" is whichever was cut last —
+  and `apps/server/api/src/services/releases.ts` is the I/O half, one fetch
+  behind a 15-minute TTL. The URL is the only seam: `SUBSHELL_RELEASE_URL`
+  (which replaced `SUBSHELL_NODE_RELEASE_URL`; there is deliberately no
+  alias), **empty = air-gapped and every network path refuses by name**. If
+  `downloads.subshell.sh` ever exists it serves this JSON shape at that URL
+  and nothing else changes.
+- **Every install of a binary is a transaction the NEW binary completes at
+  boot.** Whoever swaps writes a marker and keeps the old file as
+  `.previous`; whoever boots either finishes it (migrations pass → audit,
+  delete both) or reverts it (restore the database backup, rename `.previous`
+  back, record the failure, exit 1 so the manager respawns the old version).
+  That is what makes the CLI path, the dashboard path and the desktop path
+  ONE implementation. The node does the same without the database half.
+- **Never write the installed binary by convention.** It is the file the
+  SERVICE DEFINITION names, else the one this process IS, else nothing —
+  `services/installed-binary.ts` on the server, `selfInvokePrefix()` on the
+  node. Writing `~/.local/bin/subshell-server` on a host whose unit points
+  elsewhere is an update that reports success and changes nothing.
+- **The database is backed up before every upgrade**, and that is not a
+  nicety: Kysely's migrator is forward-only and refuses names it does not
+  know, so an old binary cannot boot on a newer database at all. Putting the
+  old binary back without the snapshot is not a rollback.
+
+Where each half lives: `apps/server/api/AGENTS.md` ("Updating the server") for
+the four server modules, the measurements and `test:cli`'s `server-update.sh`;
+`apps/node/agent/AGENTS.md` ("Update") for the agent, the frozen `update`
+command shape and the 4406 revert; each desktop app's `AGENTS.md` for
+`tauri-plugin-updater`, `latest.json` and the `update --from` delegation;
+`docs/security.md` §11.12 for what all of it costs.
 
 ### Everything runs on GitHub-hosted runners
 
@@ -724,6 +765,22 @@ which is why they share their own smoke, parameterized by app id.
   `desktop-client-vX.Y.Z` carries `Subshell-Client-Desktop-<version>-darwin-arm64.dmg`
   and `subshell-client-desktop_<version>_amd64.deb`. Each with a
   `.sha256` — and no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
+  **Every release also carries `release-manifest.json`** (spec 2026-09-15 §3.2):
+  the component id, the version, `NODE_PROTOCOL_VERSION`, `MIN_AGENT_VERSION`
+  and the commit sha, written by each `release.ts` and shipped by the existing
+  `files:` glob. It exists so a control plane can answer "is this node release
+  compatible with me" WITHOUT downloading a binary — a release without one is
+  treated as unknown and is not offered to nodes, which is true of every cut
+  before 2026-09-15.
+  **Each desktop release carries three more**, for the apps' self-update
+  (§7.2): the updater package (`…​.app.tar.gz` on macOS, the `.deb` itself on
+  Linux), its minisign `.sig`, and `latest.json` — the updater plugin's static
+  manifest, merged from the shards' `latest.<triple>.json` by a step in the
+  publish job. macOS therefore bundles **`app,dmg`, not `dmg`**: the `.app` is
+  the updater-enabled target, and asking for `dmg` alone makes tauri refuse
+  with "requested to create updater artifacts but no updater-enabled targets
+  were built". The `.app` and `share/` directories a DMG build also fills stay
+  intermediates and are never published.
   Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a
   server-only or agent-only fix does not reach desktop users until the matching
   desktop cut, which is why a security-relevant release should be dispatched as
@@ -794,9 +851,30 @@ which is why they share their own smoke, parameterized by app id.
   had no backup. The `.p12` in your password manager IS the backup.) Missing
   secrets or a chain-less identity fail the shard loudly. Entitlements: Bun's
   JIT keys from `scripts/macos-entitlements.plist`.
+- **Updater signing (both desktop shards)** — a SECOND keypair, unrelated to
+  the Apple one, and the thing an installed app checks before it replaces
+  itself. Operator, once:
+  `bunx tauri signer generate -w ~/.tauri/subshell-desktop.key`. **ONE keypair
+  for both apps** — they are one publisher, and the pubkey is the publisher's
+  identity rather than the app's. Commit the `.pub` contents as
+  `plugins.updater.pubkey` in BOTH `tauri.conf.json`s, and set two repo
+  secrets: `TAURI_SIGNING_PRIVATE_KEY`, which holds **the key file's
+  CONTENTS, not a path** (measured 2026-09-15: tauri 2.11 does not read
+  `TAURI_SIGNING_PRIVATE_KEY_PATH`), and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+  The `.key` in your password manager IS the backup, exactly as the `.p12` is:
+  **losing it means every installed app can never auto-update again** — a new
+  key is a new publisher, and an app pinned to the old pubkey refuses
+  everything signed with it. Two refusals guard the cut, both loud: a shard
+  dies if `TAURI_SIGNING_PRIVATE_KEY` is unset, and `release.ts` refuses
+  outright while the committed pubkey is still the `REPLACE_ME_…` placeholder.
+  Publishing an unsigned updater artifact would be publishing a lie — every
+  installed app refuses it. `apps/server/desktop/AGENTS.md` carries the rest,
+  including the one local cost: with the pubkey configured, `bun run compile`
+  in either desktop app needs a private key set (a throwaway is fine);
+  `tauri dev` bundles nothing and is unaffected.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=all` (or
-  `app=server|client|desktop-server|desktop-client`, optional
+  `app=server|node|desktop-server|desktop-client`, optional
   `-f version=X.Y.Z`; blank = read `apps/<dir>/package.json`). `all` is the
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.

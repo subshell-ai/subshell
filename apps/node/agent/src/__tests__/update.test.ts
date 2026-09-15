@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { existsSync, statSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,7 @@ import {
   failedMarkerPath,
   pendingMarkerPath,
   readMarker,
+  redactUrl,
   releaseApiUrl,
   resolveAgentBinary,
   revertAfterRefusal,
@@ -145,6 +147,52 @@ describe("applyUpdate", () => {
     expect(await readMarker(pendingMarkerPath(dataDir))).toBeNull();
     const leftovers = [...new Bun.Glob("*.download-*").scanSync(binDir)];
     expect(leftovers).toEqual([]);
+  });
+
+  /**
+   * A refusal names the ADDRESS and never the credential.
+   *
+   * The plane bakes a single-use `?update_token=nut_…` into the URL it sends,
+   * and these sentences are logged on the node — into a file any node owner or
+   * `edit` grantee reads over HTTP. A token that reached it would outlive by
+   * hours the ten minutes that are supposed to bound it. The host and path
+   * stay, because "which address could not be reached" is the whole diagnosis.
+   */
+  it("keeps the download token out of every refusal it can raise", async () => {
+    const { binary, dataDir } = await installedAgent();
+    pretendInstalledAt(binary);
+    const artifact = serveArtifact("TAMPERED");
+    const withToken = `${artifact.url}?update_token=nut_SECRETVALUE`;
+    try {
+      const thrown: unknown = await applyUpdate({
+        source: { kind: "url", url: withToken, sha256: sha256("WHAT WAS PUBLISHED") },
+        version: "0.9.1",
+        restart: false,
+        origin: "plane",
+        dataDir,
+        probeVersion: async () => "0.9.1",
+      }).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(thrown).toBeInstanceOf(UpdateRefused);
+      const message = (thrown as UpdateRefused).message;
+      expect(message).not.toContain("nut_SECRETVALUE");
+      expect(message).not.toContain("update_token");
+      // …and still says WHERE, which is the point of naming the url at all.
+      expect(message).toContain(new URL(artifact.url).host);
+    } finally {
+      artifact.stop();
+    }
+  });
+
+  it("redacts a query string without losing the address, and refuses to guess at a non-url", () => {
+    expect(redactUrl("https://plane.example/api/downloads/node/linux-x64?update_token=nut_x#frag")).toBe(
+      "https://plane.example/api/downloads/node/linux-x64",
+    );
+    // Unparseable is not redactable: say nothing rather than echo bytes after
+    // a `?` this code did not understand.
+    expect(redactUrl("not a url at all?update_token=nut_x")).toBe("the download url");
   });
 
   it("refuses a URL that does not answer 200 without touching anything", async () => {
@@ -359,6 +407,39 @@ describe("rollbackUpdate", () => {
     expect(back.binary).toBe(binary);
     expect(back.to).toBe(applied.from);
     expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
+    // And nothing is left at `.previous`: one rename MOVED it.
+    expect(existsSync(`${binary}.previous`)).toBe(false);
+  });
+
+  /**
+   * The restore is ONE rename, never an unlink followed by one.
+   *
+   * `rename(2)` replaces an existing destination atomically, so the unlink
+   * bought nothing and opened the window this module's own comments call the
+   * one outcome nothing can recover: interrupted between the two, a machine
+   * has no agent binary at `binary` AND no `.previous` to put back. The
+   * observable proof is that the file never stops existing — asserted here by
+   * the destination's inode changing while a file is continuously present.
+   */
+  it("never unlinks the binary it is about to replace", async () => {
+    const { binary, root, dataDir } = await installedAgent();
+    pretendInstalledAt(binary);
+    const local = join(root, "next");
+    await writeFile(local, "REGRETTED");
+    await applyUpdate({
+      source: { kind: "file", path: local },
+      version: "0.9.7",
+      restart: false,
+      origin: "cli",
+      dataDir,
+      probeVersion: async () => "0.9.7",
+    });
+    const beforeIno = statSync(binary).ino;
+    const previousIno = statSync(`${binary}.previous`).ino;
+    await rollbackUpdate(dataDir);
+    // The destination path held a file throughout; what changed is WHICH file.
+    expect(statSync(binary).ino).toBe(previousIno);
+    expect(statSync(binary).ino).not.toBe(beforeIno);
   });
 });
 

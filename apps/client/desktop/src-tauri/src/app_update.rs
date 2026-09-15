@@ -274,7 +274,21 @@ pub fn check_on_launch(app: &AppHandle) {
             crate::tray::set_update_available(&handle, settings.get().last_update_version.as_deref());
             return;
         }
-        let found = check_app_update(&handle).await.ok().and_then(|c| c.latest);
+        // A check that could not REACH the source is not a check that found
+        // nothing, and `.ok()` cannot tell them apart: `check_app_update`
+        // deliberately returns `Ok` for an unreachable source and puts the
+        // cause in `reason`. Stamping the clock on that answer would suppress
+        // the next check for a day, and clearing `last_update_version` would
+        // drop the tray suffix for an update already found — one flaky launch
+        // hiding a real release until tomorrow.
+        let answered = check_app_update(&handle).await.ok().filter(|c| c.reason.is_none());
+        let Some(check) = answered else {
+            // Leave the stamp and the stored version exactly as they were, and
+            // keep showing whatever the last check that DID answer found.
+            crate::tray::set_update_available(&handle, settings.get().last_update_version.as_deref());
+            return;
+        };
+        let found = check.latest;
         let stamp = format_rfc3339(now_epoch_secs());
         let _ = settings.update(|s| {
             s.last_update_check_at = Some(stamp);
