@@ -80,6 +80,19 @@ invisible to both.
 It uses temp dirs, a throwaway `HOME` and ports 31998/31999, and never touches
 `~/.config/subshell-server` or `:3080`.
 
+**After a release cut**, run the post-cut check by hand:
+
+```bash
+bash scripts/cli-e2e/published-release.sh
+```
+
+It drives `install-server.sh` against the real GitHub release, boots the
+published binary, and enrols a node through the one-liner that server serves —
+covering the digest check, the embedded SPA, and the lazy fetch of the agent
+binary from the node release, none of which have a local equivalent. It needs
+the public internet and a published `server-v*`, which is why it is not in
+`test:cli`.
+
 ## `lint` vs `lint:check`
 
 - `bun run lint` runs biome with `--write --unsafe`: it **fixes** what it can and rarely reports a failure. Use it while working.
