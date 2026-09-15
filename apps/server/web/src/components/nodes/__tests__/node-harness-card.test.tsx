@@ -40,9 +40,42 @@ interface CardOpts {
   instanceHas?: string[];
   /** Status the POST to /recheck answers with (default 200 {ok:true}). */
   recheckStatus?: number;
+  /** Whether this viewer manages the node — on `local`, the server's word for "admin". */
+  canManage?: boolean;
+  /**
+   * Rows `GET /api/setup/harnesses` answers with. Defaults to the bait above;
+   * the install tests supply real ones, which is where the install COMMAND
+   * and the agent/terminal type come from (a node row carries neither).
+   */
+  infos?: unknown[];
+  /**
+   * NDJSON frames the install stream emits, in order. `null` inside the list
+   * means "stop here and hold the stream open", which is how the in-flight
+   * rendering is asserted without racing a close.
+   */
+  installFrames?: (string | null)[];
+}
+
+/** A `HarnessInfo` as `/api/setup/harnesses` sends it. */
+function info(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "claude",
+    name: "Claude",
+    type: "agent-harness",
+    binary: "claude",
+    envOverride: "",
+    description: "",
+    installed: false,
+    installedHere: true,
+    install: { command: "curl -fsSL https://example.test/install.sh | bash", docsUrl: "" },
+    ...over,
+  };
 }
 
 const NODE_ID = "agent1";
+
+/** The install route's terminal frame for a run that worked. */
+const DONE = { ok: true, exitCode: 0, output: "", harness: { id: "claude", installed: true } };
 
 function view(over: Partial<NodeDetail>): NodeDetail {
   return {
@@ -79,6 +112,7 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
   const data = view({
     kind: opts.kind ?? "agent",
     access: opts.access ?? "owner",
+    canManage: opts.canManage ?? true,
     inventoryStale: opts.inventoryStale ?? false,
     harnesses: (opts.harnesses ?? []).filter((h) => !opts.instanceHas || opts.instanceHas.includes(h.harnessId)),
   });
@@ -102,7 +136,29 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
     // Bait for the deleted catalog synthesis (see the header comment).
     if (url.pathname === "/api/setup/harnesses") {
       return Promise.resolve(
-        new Response(JSON.stringify([{ id: "gone", name: "Gone", description: "", binary: "gone" }])),
+        new Response(JSON.stringify(opts.infos ?? [{ id: "gone", name: "Gone", description: "", binary: "gone" }])),
+      );
+    }
+    const agentInstall = /^\/api\/setup\/agents\/([^/]+)\/install$/.exec(url.pathname);
+    if (agentInstall && method === "POST") {
+      const frames = opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              const encoder = new TextEncoder();
+              for (const frame of frames) {
+                // `null` holds the stream open: the reader has what came
+                // before it and is still waiting, which is the state the
+                // progress line describes.
+                if (frame === null) return;
+                controller.enqueue(encoder.encode(frame));
+              }
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "application/x-ndjson" } },
+        ),
       );
     }
     return Promise.resolve(new Response(JSON.stringify({})));
@@ -282,6 +338,134 @@ describe("NodeHarnessCard", () => {
     } finally {
       restore();
     }
+  });
+
+  describe("Install on this server (spec 2026-09-15 § 5.3)", () => {
+    /** `local` + a manager, with one agent CLI that is not here yet. */
+    const localOpts = {
+      kind: "local" as const,
+      canManage: true,
+      harnesses: [{ harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" as const }],
+      infos: [info()],
+    };
+
+    it("offers the install to an admin on the control-plane host, and names what it runs", async () => {
+      // The one entrance this route had was `/setup` step 2. Skip that screen
+      // and there was no way back to it, ever — which is the defect this
+      // second entrance closes.
+      const { restore } = await mount(localOpts);
+      try {
+        expect(await screen.findByRole("button", { name: "Install on this server" })).toBeDefined();
+        expect(screen.getByText(/curl -fsSL https:\/\/example\.test\/install\.sh \| bash/)).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("POSTs the install exactly once, to this harness's id", async () => {
+      const { calls, restore } = await mount(localOpts);
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install on this server" }));
+        await waitFor(() =>
+          expect(calls.some((c) => c.method === "POST" && c.url === "/api/setup/agents/claude/install")).toBe(true),
+        );
+        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/setup/agents/claude/install")).toHaveLength(
+          1,
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it("shows the installer's own last line while it runs", async () => {
+      const { restore } = await mount({
+        ...localOpts,
+        installFrames: [`${JSON.stringify({ type: "line", text: "downloading claude" })}\n`, null],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install on this server" }));
+        expect(await screen.findByText("downloading claude")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("reports a run that failed under the row that failed, with what it printed", async () => {
+      const { restore } = await mount({
+        ...localOpts,
+        installFrames: [
+          `${JSON.stringify({ type: "done", ok: false, exitCode: 2, output: "no such package", harness: { id: "claude", installed: false } })}\n`,
+        ],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install on this server" }));
+        expect(await screen.findByText(/exited with code 2/)).toBeDefined();
+        expect(screen.getByText("no such package")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers it on an enrolled node, whoever is looking", async () => {
+      // The route can only ever install on the control-plane host (spec
+      // 2026-09-11 § 11 puts remote installs out of scope), so offering it
+      // here would be a button that lies about which machine it changes.
+      const { restore } = await mount({ ...localOpts, kind: "agent" });
+      try {
+        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers it to a non-admin on the control-plane host", async () => {
+      // `canManage` on `local` IS the admin answer, server-derived — the
+      // same gate the route applies, rather than a second derivation of who
+      // is an admin on this side.
+      const { restore } = await mount({ ...localOpts, canManage: false, access: "edit" });
+      try {
+        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("offers nothing for a program that is already here", async () => {
+      const { restore } = await mount({
+        ...localOpts,
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("offers nothing for a plugin that drives no program, or one with no install command", async () => {
+      // `terminal` needs nothing installed, and the route 400s an id whose
+      // install command is empty — a button for either would always fail.
+      const { restore } = await mount({
+        ...localOpts,
+        harnesses: [
+          { harnessId: "terminal", name: "Terminal", installed: false, reason: "no-binary" as const },
+          { harnessId: "quiet", name: "Quiet", installed: false, reason: "not-on-path" as const },
+        ],
+        infos: [
+          info({ id: "terminal", name: "Terminal", type: "terminal" }),
+          info({ id: "quiet", name: "Quiet", install: { command: "  ", docsUrl: "" } }),
+        ],
+      });
+      try {
+        expect(await screen.findByText((c) => c === "Quiet")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
   });
 
   it("still explains a missing program and a bad override", async () => {

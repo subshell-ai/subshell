@@ -5,6 +5,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { InstanceNameCard } from "@/components/instance-name-card";
 import { PageHeader } from "@/components/page-header";
 import { ResetServerCard, resetCardVisible } from "@/components/settings/reset-card";
+import { SetupChecklistCard } from "@/components/settings/setup-checklist-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -111,6 +112,15 @@ function SettingsPage() {
           server-side gates remain the actual enforcement either way. */}
       {viewerIsAdmin === undefined ? null : viewerIsAdmin ? (
         <>
+          {/* FIRST, above everything this page is named for, and absent
+              entirely once there is nothing left to do (spec 2026-09-15
+              § 5.2). A headless operator arrives here with a running server
+              and no idea what is still missing; the cards below are all
+              things to CHANGE, and this is the one that says what needs
+              changing. It renders nothing on a finished instance, so the
+              page it heads is unchanged for everyone else. */}
+          <SetupChecklistCard />
+
           <InstanceNameCard />
 
           <Card>
