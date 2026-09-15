@@ -289,29 +289,93 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("sha256sum -c");
     expect(body).toContain("shasum -a 256 -c");
     // Branch-aware spellings (fix wave 1): $DEST holds the install path —
-    // ./subshell by default, $SUBSHELL_DATA_DIR/subshell when the knob is set.
+    // $HOME/.local/bin/subshell by default, $SUBSHELL_DATA_DIR/subshell when
+    // the knob is set.
     expect(body).toContain('chmod +x "$DEST"');
-    expect(body).toContain('"$DEST" enroll --server "$SERVER" --key "$KEY"');
-    expect(body).toContain('start the agent with:  \\"$DEST\\" run');
+    // The whole sequence is ONE verb now (spec 2026-09-15 §4.5). `enroll`
+    // alone left the operator with no running agent and nothing naming
+    // `service install`; `setup` asks about the service and installs it.
+    expect(body).toContain('"$DEST" setup --server "$SERVER" --key "$KEY"');
+    expect(body).not.toContain('"$DEST" enroll --server "$SERVER"');
+    // The foreground dead end is GONE: `subshell run` dies with the SSH
+    // session, so the script must not end by recommending it.
+    expect(body).not.toContain('"$DEST" run');
+    expect(body).not.toContain("start the agent with");
+    // Verify-before-chmod, still: the digest check is what makes a piped
+    // install sound, and nothing may become executable ahead of it.
+    expect(body.indexOf('$VERIFY "$TMP.sha256"')).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
+    expect(body.indexOf("$TARGET.sha256")).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
     expect(body).not.toContain("exit 2");
   });
 
-  it("install.sh SUBSHELL_DATA_DIR branch (text): set → relocated dest + umask-077 mkdir + --data-dir arg; unset → ./subshell + empty arg array", async () => {
+  it("install.sh checks tmux BEFORE the download, warns with the platform's command, and does not fail", async () => {
     const body = await (await install(await mkKey())).text();
-    // Env knob: `curl … | SUBSHELL_DATA_DIR=/opt/subshell bash`; UNSET keeps the
-    // historical CWD install and never passes --data-dir (fix wave 1).
+    // Learning tmux is missing from a launch that fails an hour later is the
+    // defect; learning it before a 70 MB download is the fix. It is a WARNING
+    // because `setup` refuses properly on its own, and a download is cheap
+    // next to an exit nobody can act on.
+    const tmuxAt = body.indexOf("command -v tmux");
+    expect(tmuxAt).toBeGreaterThan(-1);
+    expect(tmuxAt).toBeLessThan(body.indexOf("==> downloading subshell"));
+    expect(body).toContain("brew install tmux");
+    expect(body).toContain("sudo apt-get install tmux");
+    const block = body.slice(tmuxAt, body.indexOf("==> downloading subshell"));
+    expect(block).not.toContain("exit 1"); // a warning, never a refusal
+  });
+
+  it("install.sh reattaches /dev/tty so a piped install can answer setup's question", async () => {
+    const body = await (await install(await mkKey())).text();
+    // `curl … | bash` leaves stdin on a pipe that is already at EOF, so the
+    // service question would silently take its default with nobody able to
+    // say otherwise. The guard matters as much as the exec: a CI pipe has no
+    // /dev/tty, and under `set -e` an `&&` chain whose first test fails would
+    // abort the whole install — hence the `if` form.
+    expect(body).toContain("exec </dev/tty");
+    expect(body).toContain("if [ -t 1 ] && [ -r /dev/tty ]; then");
+    expect(body.indexOf("exec </dev/tty")).toBeLessThan(body.indexOf('"$DEST" setup'));
+  });
+
+  it("install.sh forwards SUBSHELL_NO_SERVICE as --no-service, and passes nothing when it is unset", async () => {
+    const body = await (await install(await mkKey())).text();
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
+    expect(body).toContain('if [ -n "${SUBSHELL_NO_SERVICE:-}" ]; then');
+    expect(body).toContain("SETUP_SERVICE_ARGS=(--no-service)");
+    expect(body).toContain("SETUP_SERVICE_ARGS=()");
+    // Guarded expansion, same `set -u` / bash 3.2 reason as the data-dir array.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
+    expect(body).toContain('${SETUP_SERVICE_ARGS[@]+"${SETUP_SERVICE_ARGS[@]}"}');
+  });
+
+  it("install.sh installs to ~/.local/bin and warns when that is off PATH", async () => {
+    const body = await (await install(await mkKey())).text();
+    // The CWD of a one-off curl is not a stable home for a binary a service
+    // definition will later name by absolute path — and it is the same path
+    // Subshell Client writes, so the two installs agree.
+    expect(body).toContain('BIN_DIR="$HOME/.local/bin"');
+    expect(body).toContain('mkdir -p "$BIN_DIR"');
+    expect(body).toContain('DEST="$BIN_DIR/subshell"');
+    expect(body).not.toContain('DEST="./subshell"');
+    expect(body).toContain('case ":$PATH:" in');
+    expect(body).toContain("is not on your PATH");
+    expect(body).toContain("export PATH=");
+  });
+
+  it("install.sh SUBSHELL_DATA_DIR branch (text): set → relocated dest + umask-077 mkdir + --data-dir arg; unset → ~/.local/bin + empty arg array", async () => {
+    const body = await (await install(await mkKey())).text();
+    // Env knob: `curl … | SUBSHELL_DATA_DIR=/opt/subshell bash`; UNSET installs
+    // to ~/.local/bin and never passes --data-dir (the agent keeps its own).
     // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
     expect(body).toContain('if [ -n "${SUBSHELL_DATA_DIR:-}" ]; then');
     expect(body).toContain('DATA_DIR="$SUBSHELL_DATA_DIR"');
     // Installer-created dirs are private (also on a shared /opt).
     expect(body).toContain('(umask 077; mkdir -p "$DATA_DIR")');
-    expect(body).toContain('DEST="$DATA_DIR/subshell"');
-    expect(body).toContain('ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real client flag (apps/node/agent/src/cli.ts)
-    // Default branch: CWD binary, NO --data-dir arg, guarded against `set -u`.
-    expect(body).toContain('DEST="./subshell"');
-    expect(body).toContain("ENROLL_DATA_DIR_ARGS=()");
+    expect(body).toContain('BIN_DIR="$DATA_DIR"');
+    expect(body).toContain('SETUP_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real agent flag (apps/node/agent/src/cli.ts)
+    // Default branch: ~/.local/bin, NO --data-dir arg, guarded against `set -u`.
+    expect(body).toContain('BIN_DIR="$HOME/.local/bin"');
+    expect(body).toContain("SETUP_DATA_DIR_ARGS=()");
     // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
-    expect(body).toContain('${ENROLL_DATA_DIR_ARGS[@]+"${ENROLL_DATA_DIR_ARGS[@]}"}');
+    expect(body).toContain('${SETUP_DATA_DIR_ARGS[@]+"${SETUP_DATA_DIR_ARGS[@]}"}');
     // One download/verify/chmod/enroll pipeline, parameterized by $DEST —
     // bytes land in a temp path and only REPLACE $DEST after the digest
     // passes, so a failed download can never clobber an installed binary.
@@ -319,7 +383,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain('mv -f "$TMP" "$DEST"');
     expect(body).not.toContain('--output "$DEST"');
     expect(body).toContain('chmod +x "$DEST"');
-    expect(body).toContain('start the agent with:  \\"$DEST\\" run'); // echo names the right path
+    expect(body).toContain('"$DEST" setup --server "$SERVER"'); // the one verb, parameterized by $DEST
   });
 
   /**
@@ -344,28 +408,39 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   })();
 
   it.skipIf(!BASH)(
-    "install.sh SUBSHELL_DATA_DIR branch EXECUTED (extracted block, inline bash): default → DEST=./subshell, enroll args WITHOUT --data-dir; set → relocated DEST + --data-dir + 0700 mkdir",
+    "install.sh SUBSHELL_DATA_DIR branch EXECUTED (extracted block, inline bash): default → DEST=$HOME/.local/bin/subshell, setup args WITHOUT --data-dir; set → relocated DEST + --data-dir + 0700 mkdir",
     async () => {
       // The rendered script contains BOTH branches, so text assertions cannot
       // show which one runs. Slice the real rendered block out of the body and
       // exec it inline (`bash -c`), reproducing the script's own enroll
       // expansion — the output IS the argv enroll would receive on each branch.
       const body = await (await install(await mkKey())).text();
-      const block = body.match(/^if \[ -n "\$\{SUBSHELL_DATA_DIR:-\}" \]; then[\s\S]*?^fi$/m)?.[0];
+      // The block now ends at the DEST assignment that follows both arms —
+      // BIN_DIR is what the branch picks, and $DEST is derived from it once.
+      const block = body.match(
+        /^if \[ -n "\$\{SUBSHELL_DATA_DIR:-\}" \]; then[\s\S]*?^DEST="\$BIN_DIR\/subshell"$/m,
+      )?.[0];
       expect(block).toBeDefined();
       const prog = [
         "set -euo pipefail",
         block as string,
         "printf '%s\\n' DEST=\"$DEST\"",
-        // The exact expansion the script's enroll line uses (pinned by the text test).
+        // The exact expansion the script's setup line uses (pinned by the text test).
         // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
-        "printf '%s\\n' enroll --server SRV --key KEY ${ENROLL_DATA_DIR_ARGS[@]+\"${ENROLL_DATA_DIR_ARGS[@]}\"}",
+        "printf '%s\\n' setup --server SRV --key KEY ${SETUP_DATA_DIR_ARGS[@]+\"${SETUP_DATA_DIR_ARGS[@]}\"}",
       ].join("\n");
 
       const work = mkdtempSync(join(tmpdir(), "subshell-branch-exec-"));
       try {
         function runBranch(extraEnv: Record<string, string>) {
-          const env: Record<string, string> = { ...(process.env as Record<string, string>), ...extraEnv };
+          // HOME is REDIRECTED into the temp tree: the default branch now
+          // mkdir -p's $HOME/.local/bin, and a test suite must never write
+          // into the developer's real home.
+          const env: Record<string, string> = {
+            ...(process.env as Record<string, string>),
+            HOME: join(work, "home"),
+            ...extraEnv,
+          };
           // The default run must see the knob GENUINELY unset, whatever the
           // machine running the suite happens to have exported.
           if (extraEnv.SUBSHELL_DATA_DIR === undefined) delete env.SUBSHELL_DATA_DIR;
@@ -375,10 +450,10 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           return proc.stdout.toString().trimEnd().split("\n");
         }
 
-        // ── default (env unset): pre-knob behavior — CWD dest, no --data-dir ──
+        // ── default (env unset): ~/.local/bin dest, no --data-dir ──
         const def = runBranch({});
-        expect(def).toContain("DEST=./subshell");
-        expect(def).toContain("enroll");
+        expect(def).toContain(`DEST=${join(work, "home", ".local", "bin")}/subshell`);
+        expect(def).toContain("setup");
         expect(def).not.toContain("--data-dir"); // the agent keeps its own default data dir
 
         // ── opt-in (env set): relocated dest, state follows the binary ──
@@ -397,7 +472,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   const HASH_TOOL = Bun.which("sha256sum") ?? Bun.which("shasum");
 
   it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC)(
-    "install.sh EXECUTED end-to-end with stub curl/uname: default → ./subshell in CWD and enroll WITHOUT --data-dir; SUBSHELL_DATA_DIR → relocated dest + --data-dir",
+    "install.sh EXECUTED end-to-end with stub curl/uname: default → ~/.local/bin/subshell and setup WITHOUT --data-dir; SUBSHELL_DATA_DIR → relocated dest + --data-dir; SUBSHELL_NO_SERVICE → --no-service",
     async () => {
       const key = await mkKey();
       const body = await (await install(key)).text();
@@ -439,32 +514,41 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         function runBranch(cwd: string, extraEnv: Record<string, string>) {
           mkdirSync(cwd, { recursive: true });
           const logPath = join(work, `enroll-${cwd.split("/").pop()}.log`);
+          // Every run gets its OWN throwaway HOME: the default branch installs
+          // into $HOME/.local/bin, and a suite that wrote into the developer's
+          // real home would be a genuine install nobody asked for.
+          const home = join(work, `home-${cwd.split("/").pop()}`);
           const env: Record<string, string> = {
             ...(process.env as Record<string, string>),
+            HOME: home,
             PATH: `${bin}:${process.env.PATH ?? ""}`,
             ENROLL_LOG: logPath,
             ...extraEnv,
           };
           if (extraEnv.SUBSHELL_DATA_DIR === undefined) delete env.SUBSHELL_DATA_DIR;
+          if (extraEnv.SUBSHELL_NO_SERVICE === undefined) delete env.SUBSHELL_NO_SERVICE;
           // `bash -c <body>` — exactly what `curl … | bash` hands the shell.
           const proc = Bun.spawnSync(["bash", "-c", body], { cwd, env });
           return {
+            home,
             exitCode: proc.exitCode,
             stderr: proc.stderr.toString(),
             args: existsSync(logPath) ? readFileSync(logPath, "utf8").trimEnd().split("\n") : [],
           };
         }
 
-        // ── default (env unset): the pre-knob behavior, exactly ──
+        // ── default (env unset): ~/.local/bin, one `setup` verb, no --data-dir ──
         const cwd1 = join(work, "cwd-default");
         const def = runBranch(cwd1, {});
         expect(def.exitCode).toBe(0); // stderr may carry the (expected) loopback WARNING
-        expect(def.args[0]).toBe("enroll");
+        expect(def.args[0]).toBe("setup"); // NOT enroll: the sequence is one verb
         expect(def.args).toContain("--key");
         expect(def.args).toContain(key);
         expect(def.args).not.toContain("--data-dir"); // the whole point: the agent keeps its own default data dir
-        expect(existsSync(join(cwd1, "subshell"))).toBe(true); // binary lands in the CWD
-        expect(existsSync(join(cwd1, "subshell.sha256"))).toBe(false); // sidecar cleaned up
+        expect(def.args).not.toContain("--no-service"); // unset knob forwards nothing
+        expect(existsSync(join(def.home, ".local", "bin", "subshell"))).toBe(true); // a stable path, not the curl's CWD
+        expect(existsSync(join(cwd1, "subshell"))).toBe(false);
+        expect(existsSync(join(def.home, ".local", "bin", "subshell.sha256"))).toBe(false); // sidecar cleaned up
 
         // ── opt-in (env set): relocated dest, state follows the binary ──
         const cwd2 = join(work, "cwd-relocated");
@@ -475,6 +559,13 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(opt.args[opt.args.indexOf("--data-dir") + 1]).toBe(dest);
         expect(existsSync(join(dest, "subshell"))).toBe(true);
         expect(existsSync(join(cwd2, "subshell"))).toBe(false); // nothing lands in the CWD
+
+        // ── SUBSHELL_NO_SERVICE: the scripted opt-out reaches the verb ──
+        const cwd3 = join(work, "cwd-no-service");
+        const noSvc = runBranch(cwd3, { SUBSHELL_NO_SERVICE: "1" });
+        expect(noSvc.exitCode).toBe(0);
+        expect(noSvc.args[0]).toBe("setup");
+        expect(noSvc.args).toContain("--no-service");
       } finally {
         rmSync(work, { recursive: true, force: true });
       }
@@ -522,22 +613,28 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         function runFailBranch(mode: string) {
           const cwd = join(work, `cwd-${mode}`);
           mkdirSync(cwd, { recursive: true });
+          // $DEST is ~/.local/bin/subshell now, so the pre-existing agent goes
+          // there — under a throwaway HOME, never the developer's own.
+          const home = join(work, `home-${mode}`);
+          const destDir = join(home, ".local", "bin");
+          mkdirSync(destDir, { recursive: true });
           // A WORKING agent already sits at $DEST — the whole contract of the
           // failure path is that it survives byte-intact.
-          writeFileSync(join(cwd, "subshell"), "WORKING-BINARY\n");
+          writeFileSync(join(destDir, "subshell"), "WORKING-BINARY\n");
           const proc = Bun.spawnSync(["bash", "-c", body], {
             cwd,
             env: {
               ...(process.env as Record<string, string>),
+              HOME: home,
               PATH: `${bin}:${process.env.PATH ?? ""}`,
               FAIL_MODE: mode,
             },
           });
           return {
-            cwd,
+            cwd: destDir,
             exitCode: proc.exitCode,
             stderr: proc.stderr.toString(),
-            survivor: readFileSync(join(cwd, "subshell"), "utf8"),
+            survivor: readFileSync(join(destDir, "subshell"), "utf8"),
           };
         }
 
@@ -554,6 +651,9 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         // …and it names the ASSET to copy. That name is the artifact name, so
         // it moves whenever the artifact does.
         expect(gone404.stderr).toContain("'subshell-node-cli-linux-x64' asset");
+        // …and the hand-install fallback names the SAME verb the script runs,
+        // so the two paths cannot recommend different things.
+        expect(gone404.stderr).toContain("subshell setup --server");
         expect(gone404.survivor).toBe("WORKING-BINARY\n");
         expect(existsSync(join(gone404.cwd, "subshell.part"))).toBe(false); // temp cleaned
 

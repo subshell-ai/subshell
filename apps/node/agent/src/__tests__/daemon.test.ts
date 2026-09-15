@@ -797,6 +797,15 @@ test("status --probe: explicit opt-in dials the plane with a loud stderr warning
   expect(off.code).toBe(1);
   expect(off.err).toBe("");
   expect(off.out).toInclude("OFFLINE");
+  // …and the remedy it names is the one that SURVIVES this terminal closing
+  // (spec 2026-09-15 §4.5). It used to offer `subshell run` alone, which is
+  // the foreground dead end; `run` stays named, after the service verbs.
+  expect(off.out).toInclude("subshell service start");
+  expect(off.out).toInclude("subshell service install");
+  // Backticked, because a bare "subshell run" also matches the line's own
+  // "no local subshell running" and would compare the wrong position.
+  expect(off.out.indexOf("service start")).toBeLessThan(off.out.indexOf("`subshell run`"));
+  expect(off.out).toInclude("a probe KICKS a remote agent"); // the warning is NOT dropped
   // Probe against a dead port → refusal is a clean offline, still labelled.
   await saveConfig({ ...h.config, serverUrl: "http://localhost:1" });
   const dead = await runCli(["status", "--probe", "--json"]);

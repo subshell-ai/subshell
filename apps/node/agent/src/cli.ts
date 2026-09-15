@@ -24,6 +24,7 @@ import {
   serviceStateLines,
   uninstallService,
 } from "./service.js";
+import { type PromptFn, promptConfirm, runSetup } from "./setup.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
@@ -47,7 +48,14 @@ export interface CliResult {
 const USAGE = `subshell: node agent daemon
 
 usage:
+  subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
+                 [--no-service] [--yes] [--json]
+                          the whole enrollment: checks tmux, enrolls, then offers
+                          to run the agent in the background and start it at
+                          login. --no-service skips that; --yes / a non-TTY take
+                          every default (the service one defaults to yes).
   subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
+                          enrollment ONLY — the primitive that setup composes
   subshell configure --server <url> [--json]
                           repoint an ALREADY-enrolled node at a different control
                           plane. Keeps this node's identity and spends no setup
@@ -83,6 +91,7 @@ const COMMANDS = new Set([
   "report",
   "run",
   "service",
+  "setup",
   "status",
   "version",
 ]);
@@ -149,6 +158,7 @@ const FLAGS: Record<string, boolean> = {
   "--probe": false,
   "--force": false,
   "--yes": false,
+  "--no-service": false,
 };
 /** Every flag any subtoken of `command` accepts — the union {@link SUBCOMMAND_FLAGS} narrows. */
 const subcommandFlagUnion = (command: string): string[] => [
@@ -170,6 +180,10 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // Derived, never hand-listed: the command-level check is the union and the
   // per-subtoken check below is what actually decides.
   service: subcommandFlagUnion("service"),
+  // enroll's flags plus the two that govern the step enroll does not have.
+  // `--no-service` lives ONLY here: `enroll` has no service step to opt out
+  // of, so accepting it there would read as meaningful.
+  setup: ["--server", "--key", "--name", "--data-dir", "--no-service", "--yes", "--json"],
   status: ["--json", "--probe"],
   version: [],
 };
@@ -302,6 +316,18 @@ export interface RunDeps {
    * kills must not need a tmux server on the host running them.
    */
   maintenance?: MaintenanceDeps;
+  /**
+   * How `setup` asks its one question (default: {@link promptConfirm}, a clack
+   * confirm). Tests inject a plain function, which is the whole point of the
+   * seam — nothing has to parse a rendered prompt to know what was asked.
+   */
+  prompt?: PromptFn;
+  /**
+   * Can anything answer a question? Default: `process.stdin.isTTY`. False
+   * takes every default IN SILENCE — a `curl … | bash` install and a CI
+   * runner must never see a prompt, let alone block on one.
+   */
+  interactive?: boolean;
 }
 
 /**
@@ -406,6 +432,34 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           deps.maintenance ?? defaultMaintenanceDeps(cfg.dataDir),
         );
       }
+      case "setup": {
+        // The composed enrollment (spec 2026-09-15 §4.5). Everything it does
+        // lives elsewhere — assertTmux, runEnroll, installService — because
+        // the defect was never a missing capability, only that nothing ran
+        // them in order or pointed at the next one.
+        const server = parsed.flags.server;
+        const key = parsed.flags.key;
+        const missing: string[] = [];
+        if (!server) missing.push("--server <url>");
+        if (!key) missing.push("--key <nsk_…>");
+        if (missing.length > 0) throw new UsageError(`setup requires ${missing.join(" and ")}`);
+        return await runSetup(
+          {
+            server,
+            setupKey: key,
+            name: parsed.flags.name,
+            dataDir: parsed.flags.dataDir,
+            noService: parsed.flags.noService === "1",
+            assumeYes: parsed.flags.yes === "1",
+            json: parsed.flags.json === "1",
+          },
+          {
+            service: deps.service ?? DEFAULT_DEPS(configExists),
+            prompt: deps.prompt ?? promptConfirm,
+            interactive: deps.interactive ?? Boolean(process.stdin.isTTY),
+          },
+        );
+      }
       case "enroll": {
         const server = parsed.flags.server;
         const key = parsed.flags.key;
@@ -432,7 +486,19 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           };
           return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
         }
-        return { code: 0, out: `Enrolled as ${enrolled.nodeId}. Next: subshell run\n`, err: "" };
+        // Names the BACKGROUND path first. The old line was
+        // "Next: subshell run", and `run` is a foreground daemon that dies
+        // with the SSH session that started it — so the one sentence this
+        // command had was pointing at the dead end. `run` stays named,
+        // because trying it in this terminal is a real thing to want.
+        return {
+          code: 0,
+          out:
+            `Enrolled as ${enrolled.nodeId}.\n` +
+            "Next: subshell service install   (background, starts at login)\n" +
+            "      subshell run               (foreground, to try it in this terminal)\n",
+          err: "",
+        };
       }
       case "configure": {
         // A usage error, not a runtime one: "configure with no flags" is a
@@ -507,10 +573,15 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             ? `node ${cfg.nodeId} "${cfg.name}": ONLINE (probe: a socket to ${cfg.serverUrl} opened)`
             : `node ${cfg.nodeId} "${cfg.name}": OFFLINE (probe: no socket to ${cfg.serverUrl} within 5 s)`;
         } else {
+          // Same correction as enroll's closing line: the remedy an operator
+          // wants is the one that survives them closing the terminal, so the
+          // service verbs come first and `run` is named as the foreground
+          // alternative rather than as the only answer.
           line =
             `node ${cfg.nodeId} "${cfg.name}": OFFLINE (no local subshell running; ` +
-            `start one with \`subshell run\`, or pass --probe to ask the control plane. ` +
-            `a probe KICKS a remote agent!)`;
+            `start it with \`subshell service start\` — or \`subshell service install\` if no ` +
+            `service is installed yet — or run \`subshell run\` in the foreground. ` +
+            `Pass --probe to ask the control plane instead; a probe KICKS a remote agent!)`;
         }
         if (parsed.flags.json) {
           const body = {

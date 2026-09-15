@@ -120,8 +120,16 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   return { nodeId, serverUrl, name, dataDir };
 }
 
-/** The node can't run anything without tmux — refuse before touching the network. */
-function assertTmux(): void {
+/**
+ * The node can't run anything without tmux — refuse before touching the network.
+ *
+ * Exported so `setup` (cli.ts) can run the SAME preflight as its first step
+ * rather than inheriting it as a side effect of {@link runEnroll}. One
+ * function, so the refusal an operator reads is byte-identical whichever verb
+ * they typed; a second copy is how the two sentences come to disagree.
+ * @throws Error naming the platform's install hint and the escape hatch
+ */
+export function assertTmux(): void {
   if (process.env.SUBSHELL_CLIENT_SKIP_TMUX_CHECK === "1") return;
   // @types/bun 1.3.14 omits `.error` from the spawnSync result type; Bun sets it
   // (ENOENT etc.) while `exitCode` stays null — runtime field, untyped.

@@ -135,10 +135,18 @@ test("the --json body reports RESOLVED values, not what was typed", async () => 
   expect([cfg.serverUrl, cfg.name]).toEqual([body.serverUrl, body.name]); // the file and the JSON cannot disagree
 });
 
-test("without --json the human line is byte-identical to what it always was", async () => {
+test("without --json the human line names the BACKGROUND path first, then the foreground one", async () => {
   const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
   const res = await run(enrollArgv(url));
-  expect(res.out).toBe(`Enrolled as ${CANNED.nodeId}. Next: subshell run\n`);
+  // It used to end at "Next: subshell run" — a foreground daemon that dies
+  // with the SSH session, which is the dead end spec 2026-09-15 removes. The
+  // order is the assertion: `service install` before `run`.
+  expect(res.out).toBe(
+    `Enrolled as ${CANNED.nodeId}.\n` +
+      "Next: subshell service install   (background, starts at login)\n" +
+      "      subshell run               (foreground, to try it in this terminal)\n",
+  );
+  expect(res.out.indexOf("service install")).toBeLessThan(res.out.indexOf("subshell run"));
   expect(res.err).toBe("");
 });
 

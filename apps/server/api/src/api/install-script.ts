@@ -38,14 +38,25 @@ exit 2
  * writer (different mint format, imported keys) cannot silently regress the
  * no-shell-metacharacters property of this template.
  *
- * Install dest / data dir: the DEFAULT install keeps the pre-knob behavior
- * exactly — the binary lands in the invoking CWD (`./subshell`) and enroll
- * runs WITHOUT `--data-dir`, so the agent keeps its own default data dir and
- * a stray `curl | bash` from $HOME (or anywhere) never relocates agent state.
+ * Install dest / data dir: the DEFAULT install lands in `~/.local/bin/subshell`
+ * — the same path Subshell Client's own installer writes — and runs the verb
+ * WITHOUT `--data-dir`, so the agent keeps its own default data dir and a
+ * stray `curl | bash` never relocates agent state. It used to be `./subshell`
+ * in whatever directory the curl ran in, which a later `service install` then
+ * baked into a unit file by absolute path: a stable home is what makes that
+ * definition survive someone tidying up their downloads.
  * The `SUBSHELL_DATA_DIR` env knob OPTS into a relocated install: dest
  * `$SUBSHELL_DATA_DIR/subshell`, installer-created dirs at 0700, and
- * `enroll --data-dir "$SUBSHELL_DATA_DIR"` so binary and state stay together —
+ * `--data-dir "$SUBSHELL_DATA_DIR"` so binary and state stay together —
  * `curl … | SUBSHELL_DATA_DIR=/opt/subshell bash` (`curl | bash` has no argv).
+ * `SUBSHELL_NO_SERVICE` is the other knob: set, it forwards `--no-service` so
+ * a scripted install enrolls and installs no background service.
+ *
+ * The script ends at ONE CLI verb, `setup` (spec 2026-09-15 §4.5), which is
+ * where every question lives. It used to end at `enroll` plus a printed
+ * suggestion to run `subshell run` — a foreground daemon that dies with the
+ * SSH session that started it, with nothing on the whole path ever naming
+ * `service install`.
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
  */
 function renderInstallScript(key: string): string {
@@ -57,23 +68,41 @@ set -euo pipefail
 SERVER="${APP_BASE_URL}"
 KEY="${key}"
 
-# Install dest + enroll --data-dir. Unset/empty SUBSHELL_DATA_DIR keeps the
-# historical behavior exactly: binary in the CWD, enroll WITHOUT --data-dir
-# (the agent keeps its own default data dir). Setting the knob OPTS INTO a
-# relocated install: everything lands under $SUBSHELL_DATA_DIR, which the
-# installer creates (0700, with any missing parents). The ENROLL_DATA_DIR_ARGS
-# expansion below is guarded ("+word" form) so the empty array stays clean
-# under set -u even on bash 3.2 (macOS default), where a bare empty-array
-# expansion would abort as "unbound variable".
+# Install dest + setup --data-dir. Unset/empty SUBSHELL_DATA_DIR installs to
+# ~/.local/bin and runs WITHOUT --data-dir (the agent keeps its own default
+# data dir). Setting the knob OPTS INTO a relocated install: everything lands
+# under $SUBSHELL_DATA_DIR, which the installer creates (0700, with any
+# missing parents). The SETUP_DATA_DIR_ARGS expansion below is guarded
+# ("+word" form) so the empty array stays clean under set -u even on bash 3.2
+# (macOS default), where a bare empty-array expansion would abort as
+# "unbound variable".
 if [ -n "\${SUBSHELL_DATA_DIR:-}" ]; then
   DATA_DIR="$SUBSHELL_DATA_DIR"
   (umask 077; mkdir -p "$DATA_DIR")
-  DEST="$DATA_DIR/subshell"
-  ENROLL_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")
+  BIN_DIR="$DATA_DIR"
+  SETUP_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")
 else
-  DEST="./subshell"
-  ENROLL_DATA_DIR_ARGS=()
+  # NOT the curl's CWD. A later \`subshell service install\` bakes this path
+  # into a systemd unit or a launchd plist by absolute path, so the binary has
+  # to live somewhere that outlives a tidied-up downloads folder — and this is
+  # the same path Subshell Client installs the agent to, so one machine cannot
+  # end up with two.
+  BIN_DIR="$HOME/.local/bin"
+  mkdir -p "$BIN_DIR"
+  SETUP_DATA_DIR_ARGS=()
 fi
+DEST="$BIN_DIR/subshell"
+
+# A warning, never a failure: the install itself works either way, and the one
+# thing missing is being able to type \`subshell\` by name later.
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *)
+    echo "subshell: note: $BIN_DIR is not on your PATH, so the agent is installed" >&2
+    echo "    but 'subshell' will not be found by name. Add it with:" >&2
+    printf '      export PATH="%s:$PATH"\\n' "$BIN_DIR" >&2
+    ;;
+esac
 
 # Runtime loopback guard (the enroll-time trap): the URL is baked at render
 # time, but whether "localhost" is the WRONG machine is only known on the
@@ -105,6 +134,20 @@ case "$OS/$ARCH" in
     exit 1
     ;;
 esac
+
+# tmux BEFORE the download, and a warning rather than a refusal. A node cannot
+# run a single subshell without it, and the old path let you find that out from
+# a launch that failed an hour later — the enroll preflight refuses correctly,
+# but by then a 70 MB download has already happened and nobody said why.
+# Not fatal, because \`setup\` refuses properly on its own and a download is
+# cheap next to an exit an operator cannot act on.
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "subshell: tmux is not installed; a node needs it to run subshells." >&2
+  case "$OS" in
+    Darwin) echo "    install it with: brew install tmux" >&2 ;;
+    Linux)  echo "    install it with: sudo apt-get install tmux   (or your distribution's package manager)" >&2 ;;
+  esac
+fi
 
 echo "==> downloading subshell ($TARGET) from $SERVER"
 # Download to a temp path and only REPLACE $DEST after verification: curl
@@ -140,8 +183,8 @@ case "$HTTP" in
     echo "    empty). Check the server's log for the reason. To supply it by hand instead, run" >&2
     echo "    'bun run release:node' from a checkout on the server host, or copy the" >&2
     echo "    'subshell-node-cli-$TARGET' asset from a node-vX.Y.Z GitHub Release into that dir." >&2
-    echo "    Or install the agent for this machine another way and enroll directly:" >&2
-    echo "      subshell enroll --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
+    echo "    Or install the agent for this machine another way and run setup directly:" >&2
+    echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
     exit 1
     ;;
   *)
@@ -183,10 +226,27 @@ mv -f "$TMP" "$DEST"
 
 chmod +x "$DEST"
 
-echo "==> enrolling with $SERVER"
-"$DEST" enroll --server "$SERVER" --key "$KEY" \${ENROLL_DATA_DIR_ARGS[@]+"\${ENROLL_DATA_DIR_ARGS[@]}"}
+# Reattach the controlling terminal. \`curl … | bash\` leaves stdin on the pipe,
+# which is at EOF by the time setup asks whether to install a background
+# service — so the question would be answered by nobody and take its default
+# with the operator watching. Written as an \`if\` rather than an "&&" chain
+# because under \`set -e\` a chain whose first test fails aborts the install; and
+# guarded on /dev/tty because a CI pipe has none.
+if [ -t 1 ] && [ -r /dev/tty ]; then
+  exec </dev/tty
+fi
 
-echo "==> installed and enrolled. start the agent with:  \\"$DEST\\" run"
+# The scripted opt-out (\`curl … | SUBSHELL_NO_SERVICE=1 bash\`), for anyone who
+# wants enrollment without a service and cannot pass argv through a pipe.
+SETUP_SERVICE_ARGS=()
+if [ -n "\${SUBSHELL_NO_SERVICE:-}" ]; then
+  SETUP_SERVICE_ARGS=(--no-service)
+fi
+
+echo "==> enrolling with $SERVER"
+"$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"}
+
+echo "==> done."
 echo "    the agent runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default agent data dir})."
 # A piped-curl install is a distribution, and the recipient never sees a
 # LICENSE file: what lands is one bare binary. Naming the terms once here, and
