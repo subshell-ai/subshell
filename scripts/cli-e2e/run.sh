@@ -29,4 +29,6 @@ echo "==> compiling both CLIs"
 echo
 "$HERE/install-script.sh"
 echo
+"$HERE/server-update.sh"
+echo
 echo "✓ headless CLI end-to-end suite passed"

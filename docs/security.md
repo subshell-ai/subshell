@@ -569,7 +569,7 @@ posture:
   trusts the plane's word for what it received.
 - **The digest only proves the bytes match what that release published** —
   over the default GitHub HTTPS endpoint that is GitHub's assurance, and over
-  an operator-set `SUBSHELL_NODE_RELEASE_URL` it is their own network. The
+  an operator-set `SUBSHELL_RELEASE_URL` it is their own network. The
   same sentence the plugin registry carries, for the same reason.
 - **Empty disables it**, and that is the supported air-gapped configuration:
   the routes then serve only what is on disk, exactly as before. The Nodes

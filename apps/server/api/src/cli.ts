@@ -3,9 +3,11 @@ import { homedir } from "node:os";
 import { confirm as clackConfirm, text as clackText, intro, isCancel, outro } from "@clack/prompts";
 import { runReport, runSubshellMcp } from "@internal/mcp-core";
 import { licenseNotice } from "@internal/subshell-protocol";
+import { runBackup } from "@/commands/backup.js";
 import { type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { type InitDeps, runInit, setupHandoffLines } from "@/commands/init.js";
 import { collectStatus, runStatus, serviceStateLines, syncPortListening } from "@/commands/status.js";
+import { runUpdate, type UpdateOpts } from "@/commands/update.js";
 import { serverConfigDir } from "@/config-env.js";
 import {
   type CliResult,
@@ -52,7 +54,10 @@ import { SERVER_VERSION } from "@/version.js";
  *
  * Convention (not a safety mechanism): handled quick commands run to
  * completion and `process.exit` SYNCHRONOUSLY inside `dispatchCli` (sync fs,
- * `readSync(0, …)` prompts, `Bun.spawnSync` for the service manager). It is
+ * `readSync(0, …)` prompts, `Bun.spawnSync` for the service manager). Four
+ * commands opt out by name: `mcp` (long-running by contract), `init` and
+ * `configure` (clack prompts), and `update`/`backup` (spec 2026-09-15 — they
+ * download, prompt, and snapshot a database). It is
  * kept because suspension is otherwise invisible on bun 1.4.0 — measured, NOT
  * spec behaviour: any top-level await in the entry prelude lets Bun evaluate
  * the rest of the graph and the entry body while the await is pending
@@ -160,6 +165,8 @@ usage:
   subshell-server status         print the resolved config view and exit (--json for machine output)
   subshell-server init           first run: config home + auth secret + config.env + the service
   subshell-server configure      (re)write config.env; interactive unless --yes
+  subshell-server update         install a newer server over this one (--check to look only)
+  subshell-server backup         snapshot the database now (--json for machine output)
   subshell-server service install    background the server (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
@@ -178,6 +185,15 @@ init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --
                                                           use (empty clears the list)
 init-only flags:      --service / --no-service            install the background service,
                                                           or skip it (default: install)
+
+update flags:         --check                  report what is available and stop
+                      --to <version>           install this published version
+                      --from <file>            install a local file (no digest to check)
+                      --force                  allow a downgrade, and override the pane refusal
+                      --yes                    skip the confirmation
+                      --json                   machine-readable output
+                      --no-restart             swap the binary; the caller restarts
+                      --rollback               undo the last update (binary + database)
 
 config precedence: process env > config.env > .env > built-in defaults
 `;
@@ -343,6 +359,38 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       exit(code);
       return true;
     }
+    // ASYNC, like `init` and `configure` — the third named exception to the
+    // sync-exit convention (see this file's header and AGENTS.md). It
+    // downloads and it prompts; neither is possible with `readSync(0, …)`.
+    case "update": {
+      const opts = parseUpdateFlags(argv.slice(1), error);
+      if (!opts) {
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      const code = await runUpdate(opts, {
+        log,
+        error,
+        confirm: deps.confirm ?? promptConfirm,
+        isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+        service: serviceDeps(deps, log),
+      });
+      exit(code);
+      return true;
+    }
+    case "backup": {
+      const bad = argv.slice(1).find((f) => f !== "--json");
+      if (bad !== undefined) {
+        error(`subshell-server: unexpected argument '${bad}'`);
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      const code = await runBackup({ json: argv.includes("--json") }, { log, error });
+      exit(code);
+      return true;
+    }
     case "service": {
       // `service <verb> [flags]` (client cli.ts UX: an unknown verb is a
       // usage error). Flags are per-verb and deliberately few — `--force`
@@ -469,6 +517,92 @@ const SERVICE_FLAGS: Partial<Record<ServiceCommand, ReadonlySet<string>>> = {
 
 /** Shared empty allowlist for the verbs that take no flags at all. */
 const NO_FLAGS: ReadonlySet<string> = new Set();
+
+/** `update`'s boolean flags, and what each one sets. */
+const UPDATE_BOOLEANS: Record<string, (o: UpdateOpts) => void> = {
+  "--check": (o) => {
+    o.check = true;
+  },
+  "--force": (o) => {
+    o.force = true;
+  },
+  "--yes": (o) => {
+    o.yes = true;
+  },
+  "--json": (o) => {
+    o.json = true;
+  },
+  "--no-restart": (o) => {
+    o.noRestart = true;
+  },
+  "--rollback": (o) => {
+    o.rollback = true;
+  },
+};
+
+/** `update`'s value-taking flags. */
+const UPDATE_VALUE_FLAGS = new Set(["--to", "--from"]);
+
+/**
+ * Hand-rolled `update` flag parser, the same shape
+ * {@link parseConfigFlags} has: the `--flag=value` form alongside the
+ * separate-token one, an empty value refused, a stray positional refused.
+ *
+ * `--rollback` is checked against the install-only flags HERE rather than
+ * inside the command, because "rollback --to 0.7.0" is a person describing an
+ * act this verb does not have, and the earliest possible refusal is the kind
+ * one.
+ *
+ * @param rest - the args after the subcommand word
+ * @param error - stderr sink for the one refusal line
+ * @returns the parsed options, or null after writing the error line
+ */
+export function parseUpdateFlags(rest: string[], error: (line: string) => void): UpdateOpts | null {
+  const opts: UpdateOpts = {};
+  for (let i = 0; i < rest.length; i++) {
+    const token = rest[i] as string;
+    const eq = token.startsWith("--") ? token.indexOf("=") : -1;
+    const flag = eq === -1 ? token : token.slice(0, eq);
+    const inline = eq === -1 ? undefined : token.slice(eq + 1);
+    const boolean = UPDATE_BOOLEANS[flag];
+    if (boolean !== undefined) {
+      if (inline !== undefined) {
+        error(`subshell-server: flag '${flag}' takes no value`);
+        return null;
+      }
+      boolean(opts);
+      continue;
+    }
+    if (!token.startsWith("-")) {
+      error(`subshell-server: unexpected argument '${token}'`);
+      return null;
+    }
+    if (!UPDATE_VALUE_FLAGS.has(flag)) {
+      error(`subshell-server: unknown flag '${flag}'`);
+      return null;
+    }
+    const value = inline ?? rest[i + 1];
+    if (value === undefined || value === "" || (inline === undefined && value.startsWith("--"))) {
+      error(`subshell-server: flag '${flag}' requires a value`);
+      return null;
+    }
+    if (inline === undefined) i++;
+    if (flag === "--to") opts.to = value;
+    else opts.from = value;
+  }
+  if (opts.to !== undefined && opts.from !== undefined) {
+    error("subshell-server: --to and --from name two different things to install; pass one");
+    return null;
+  }
+  if (opts.rollback === true) {
+    const conflicting = (["check", "to", "from", "noRestart"] as const).filter((k) => opts[k] !== undefined);
+    if (conflicting.length > 0) {
+      error("subshell-server: --rollback takes only --yes, --force and --json");
+      return null;
+    }
+  }
+  return opts;
+}
 
 /** Value-taking flags of `init`/`configure` (client `cli.ts` pattern — no flag library). */
 const CONFIG_VALUE_FLAGS = new Set(["--port", "--host", "--base-url", "--db-path", "--trusted-origins"]);

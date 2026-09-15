@@ -13,6 +13,7 @@ import {
   SERVER_TARGETS,
   serverArtifactFileName,
 } from "../paths.js";
+import { RELEASE_MANIFEST_NAME } from "../releases.js";
 
 /**
  * These names are a contract between four places that never import each other:
@@ -162,6 +163,27 @@ const VERSION = "0.5.0";
 /** What the name has to SAY: an app bundle, or the bare CLI binary it wraps. */
 type ArtifactKind = "cli" | "desktop";
 
+/**
+ * The release METADATA assets, exempt from the kind-token rule by name.
+ *
+ * Everything else a pipeline publishes is a downloadable artifact whose name
+ * has to say which kind it is, because a human scanning a downloads folder
+ * needs to tell a CLI binary from an app bundle. These four are not that: they
+ * are fixed-name files a machine reads (spec 2026-09-15 §3.2 and §8). The list
+ * is EXPLICIT rather than a pattern, so a fifth exempt name is a decision
+ * somebody makes here rather than one a regex quietly grants.
+ *
+ * `latest.json` and `latest.<triple>.json` are the desktop updater's manifests,
+ * added by phase D; they are listed now so the rule below is stated once for
+ * the whole set.
+ */
+const RELEASE_METADATA_NAMES = [
+  "release-manifest.json",
+  "latest.json",
+  "latest.linux-x64.json",
+  "latest.darwin-arm64.json",
+] as const;
+
 interface PublishedArtifact {
   /** The name its pipeline publishes it under. */
   name: string;
@@ -256,6 +278,29 @@ describe("the published artifact set (all four producers)", () => {
       const words = tokens(artifact.name);
       expect(words).toContain(artifact.kind);
       expect(words).not.toContain(artifact.kind === "cli" ? "desktop" : "cli");
+    }
+  });
+
+  // The exemption, stated as its own case: metadata assets are named for a
+  // machine that fetches them by a fixed name, so "which kind is this" has no
+  // meaning for them — and nothing else is exempt.
+  test("only the named metadata assets are exempt from the kind rule", () => {
+    expect(RELEASE_METADATA_NAMES).toContain(RELEASE_MANIFEST_NAME);
+    for (const name of RELEASE_METADATA_NAMES) {
+      const words = tokens(name);
+      expect(words).not.toContain("cli");
+      expect(words).not.toContain("desktop");
+    }
+    // No artifact's name may equal or prefix one of these, or a pipeline could
+    // publish a downloadable file the exemption then covers.
+    for (const artifact of publishedArtifacts()) {
+      for (const file of publishedFiles(artifact)) {
+        for (const name of RELEASE_METADATA_NAMES) {
+          expect(file.toLowerCase(), `${artifact.producer} collides with ${name}`).not.toBe(name.toLowerCase());
+          expect(name.toLowerCase().startsWith(file.toLowerCase())).toBe(false);
+          expect(file.toLowerCase().startsWith(name.toLowerCase())).toBe(false);
+        }
+      }
     }
   });
 

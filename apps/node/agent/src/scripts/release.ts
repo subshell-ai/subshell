@@ -20,15 +20,23 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { NODE_TARGETS, nodeArtifactFileName, resolveNodeArtifactsDir } from "@internal/subshell-protocol";
+import {
+  NODE_TARGETS,
+  nodeArtifactFileName,
+  RELEASE_MANIFEST_NAME,
+  resolveNodeArtifactsDir,
+} from "@internal/subshell-protocol";
 import {
   assertBunFloor,
   type BuiltArtifact,
   digestFile,
   parseScope as parseScopeTargets,
   publishArtifacts,
+  releaseCommit,
   runSignHook,
+  writeReleaseManifest,
 } from "@internal/subshell-protocol/release-artifacts";
+import pkg from "../../package.json" with { type: "json" };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 /** `apps/node/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
@@ -224,6 +232,14 @@ async function main(): Promise<void> {
   }
 
   await publishArtifacts(result.artifacts, destDir);
+  // The fifth asset (spec 2026-09-15 §3.2). A control plane reads THIS to
+  // decide whether it can talk to the agent in a release, so it is written
+  // only after a complete build has published.
+  const manifest = await writeReleaseManifest(destDir, {
+    component: "node",
+    version: pkg.version,
+    commit: releaseCommit(),
+  });
 
   process.stdout.write(`\npublished ${result.artifacts.size} subshell builds → ${destDir}\n\n`);
   for (const [triple, { path, digest }] of result.artifacts) {
@@ -232,6 +248,9 @@ async function main(): Promise<void> {
       `  ${nodeArtifactFileName(triple).padEnd(28)} ${String(bytes).padStart(12)} bytes  ${digest}\n`,
     );
   }
+  process.stdout.write(
+    `  ${RELEASE_MANIFEST_NAME.padEnd(28)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minAgentVersion}\n`,
+  );
   process.stdout.write(
     "\nrestart `subshell-server.service` to serve them: systemctl --user restart subshell-server.service\n",
   );

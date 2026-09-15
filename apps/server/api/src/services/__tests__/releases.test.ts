@@ -1,16 +1,20 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION, RELEASE_MANIFEST_NAME } from "@internal/subshell-protocol";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { artifactPath } from "@/lib/node-artifacts.js";
 import {
   autoFetchEnabled,
+  compatibleNodeRelease,
+  downloadVerified,
   fetchArtifact,
   fetchDigest,
+  refreshReleases,
   resetReleaseCacheForTests,
-  resolveRelease,
-  setNodeReleaseUrlForTests,
-} from "@/services/node-release.js";
+  resolveReleases,
+  setReleaseUrlForTests,
+} from "@/services/releases.js";
 
 /**
  * A stand-in for the repository's releases endpoint.
@@ -84,6 +88,26 @@ async function drain(stream: ReadableStream<Uint8Array>): Promise<number> {
   return total;
 }
 
+/**
+ * A `release-manifest.json` body, as a release script writes it.
+ *
+ * Every node-release case needs one: without it `compatibleNodeRelease`
+ * refuses by design (spec §3.3), because a plane that cannot read which
+ * protocol an agent speaks must not install it.
+ */
+function manifestBody(over: Record<string, unknown> = {}): Uint8Array {
+  return enc(
+    JSON.stringify({
+      component: "node",
+      version: "9.9.9",
+      nodeProtocol: NODE_PROTOCOL_VERSION,
+      minAgentVersion: MIN_AGENT_VERSION,
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      ...over,
+    }),
+  );
+}
+
 let fake: Fake;
 
 beforeEach(() => {
@@ -92,60 +116,119 @@ beforeEach(() => {
   const { bytes, digest } = payload("a convincing binary");
   fake.assets.set(BINARY, bytes);
   fake.assets.set(SIDECAR, enc(`${digest}\n`));
+  fake.assets.set(RELEASE_MANIFEST_NAME, manifestBody());
   mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
-  setNodeReleaseUrlForTests(`${fake.url}/releases`);
+  setReleaseUrlForTests(`${fake.url}/releases`);
 });
 
 afterEach(() => {
   fake.stop();
-  setNodeReleaseUrlForTests(null);
+  setReleaseUrlForTests(null);
   resetReleaseCacheForTests();
   rmSync(NODE_ARTIFACTS_DIR, { recursive: true, force: true });
 });
 
 afterAll(() => {
-  setNodeReleaseUrlForTests(null);
+  setReleaseUrlForTests(null);
 });
 
 describe("autoFetchEnabled", () => {
   it("is off when the operator empties the release URL", () => {
     expect(autoFetchEnabled()).toBe(true);
-    setNodeReleaseUrlForTests("");
+    setReleaseUrlForTests("");
     // The supported air-gapped configuration: the routes then serve only
     // what is on disk, which is the behaviour that predates this module.
     expect(autoFetchEnabled()).toBe(false);
   });
 });
 
-describe("resolveRelease", () => {
-  it("picks the newest node release and memoizes the read", async () => {
-    fake.tags = [{ tag: "server-v50.0.0" }, { tag: "node-v9.9.9" }, { tag: "node-v1.0.0" }];
-    expect((await resolveRelease()).tag).toBe("node-v9.9.9");
-    expect((await resolveRelease()).tag).toBe("node-v9.9.9");
+describe("resolveReleases", () => {
+  it("indexes the newest release of EVERY component from one read", async () => {
+    fake.tags = [
+      { tag: "server-v50.0.0" },
+      { tag: "server-v1.0.0" },
+      { tag: "node-v9.9.9" },
+      { tag: "node-v1.0.0" },
+      { tag: "desktop-server-v2.0.0" },
+      { tag: "@subshell-ai/plugin-api@1.0.0" },
+    ];
+    const index = await resolveReleases();
+    expect(index.byComponent.server?.version).toBe("50.0.0");
+    expect(index.byComponent.node?.version).toBe("9.9.9");
+    expect(index.byComponent["desktop-server"]?.version).toBe("2.0.0");
+    // Nothing published it, so the answer is null rather than a throw: three
+    // components resolving must not fail because a fourth has no release.
+    expect(index.byComponent["desktop-client"]).toBeNull();
+    // One list read answers all four — the whole point of an index.
+    expect(fake.listReads).toBe(1);
+  });
+
+  it("memoizes the read, and refreshReleases busts it", async () => {
+    await resolveReleases();
+    await resolveReleases();
     // A burst of enrollments must not become a burst of API reads.
     expect(fake.listReads).toBe(1);
+    await refreshReleases();
+    expect(fake.listReads).toBe(2);
   });
 
   it("skips drafts", async () => {
     // The release pipeline publishes draft-then-live, so a cut in flight must
-    // never be handed to a node.
+    // never be handed to anyone.
     fake.tags = [{ tag: "node-v99.0.0", draft: true }, { tag: "node-v9.9.9" }];
-    expect((await resolveRelease()).tag).toBe("node-v9.9.9");
+    expect((await resolveReleases()).byComponent.node?.tag).toBe("node-v9.9.9");
+  });
+
+  it("names the URL it could not read", async () => {
+    setReleaseUrlForTests("http://127.0.0.1:1/releases");
+    expect(resolveReleases()).rejects.toThrow(/127\.0\.0\.1:1/);
+  });
+
+  it("refuses when the source is off", async () => {
+    setReleaseUrlForTests("");
+    expect(resolveReleases()).rejects.toThrow(/SUBSHELL_RELEASE_URL is empty/);
+  });
+});
+
+describe("compatibleNodeRelease", () => {
+  it("offers the newest node release whose manifest matches this server's protocol", async () => {
+    const { release, reason } = await compatibleNodeRelease();
+    expect(release?.tag).toBe("node-v9.9.9");
+    expect(reason).toBeNull();
   });
 
   it("refuses a release below the server's own agent floor", async () => {
     fake.tags = [{ tag: "node-v0.0.1" }];
-    expect(resolveRelease()).rejects.toThrow(/minimum agent version/);
+    const { release, reason } = await compatibleNodeRelease();
+    expect(release).toBeNull();
+    expect(reason).toMatch(/minimum agent version/);
   });
 
-  it("names the URL it could not read", async () => {
-    setNodeReleaseUrlForTests("http://127.0.0.1:1/releases");
-    expect(resolveRelease()).rejects.toThrow(/127\.0\.0\.1:1/);
+  it("refuses a release that carries no manifest, and says why", async () => {
+    // Every cut before 2026-09-15. Unknown is refused rather than guessed:
+    // installing an agent this plane cannot talk to produces a node that
+    // enrolls, reconnects and is closed 4406 forever.
+    fake.assets.delete(RELEASE_MANIFEST_NAME);
+    const { release, reason } = await compatibleNodeRelease();
+    expect(release).toBeNull();
+    expect(reason).toMatch(/carries no release manifest/);
+  });
+
+  it("refuses a release that speaks a different protocol, naming both", async () => {
+    fake.assets.set(RELEASE_MANIFEST_NAME, manifestBody({ nodeProtocol: NODE_PROTOCOL_VERSION + 1 }));
+    const { reason } = await compatibleNodeRelease();
+    expect(reason).toContain(`protocol ${NODE_PROTOCOL_VERSION + 1}`);
+    expect(reason).toContain("update the server first");
+  });
+
+  it("refuses an unparseable manifest the same way as an absent one", async () => {
+    fake.assets.set(RELEASE_MANIFEST_NAME, enc("<!doctype html>"));
+    expect((await compatibleNodeRelease()).reason).toMatch(/carries no release manifest/);
   });
 
   it("refuses when the repository publishes no node release", async () => {
     fake.tags = [{ tag: "server-v1.0.0" }];
-    expect(resolveRelease()).rejects.toThrow(/no node-v\* release/);
+    expect((await compatibleNodeRelease()).reason).toMatch(/no node-v\* release/);
   });
 });
 
@@ -255,5 +338,67 @@ describe("fetchDigest", () => {
     // `install.sh` asks for the binary first, so this path exists for the
     // other order — and it must not cache a binary nobody asked for.
     expect(existsSync(artifactPath(TARGET))).toBe(false);
+  });
+});
+
+describe("downloadVerified", () => {
+  const assetUrl = (name: string) => `${fake.url}/asset/${encodeURIComponent(name)}`;
+
+  it("writes a temp file and returns its path on a digest match", async () => {
+    const { digest } = payload("a convincing binary");
+    const path = await downloadVerified({
+      url: assetUrl(BINARY),
+      expectedDigest: digest,
+      destDir: NODE_ARTIFACTS_DIR,
+      destName: "subshell-server",
+    });
+    expect(path).toContain("subshell-server.download-");
+    expect(readFileSync(path, "utf8")).toBe("a convincing binary");
+    // It never chmods: deciding that a downloaded file may be EXECUTED is the
+    // caller's act, beside the caller's own version probe.
+    expect(statSync(path).mode & 0o111).toBe(0);
+  });
+
+  it("deletes the partial file and throws on a mismatch", async () => {
+    // The server's own update EXECS what this writes, so a mismatch must leave
+    // nothing behind rather than merely report.
+    let path = "";
+    await expect(
+      downloadVerified({
+        url: assetUrl(BINARY),
+        expectedDigest: "0".repeat(64),
+        destDir: NODE_ARTIFACTS_DIR,
+        destName: "subshell-server",
+        onProgress: () => {
+          path = join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`);
+        },
+      }),
+    ).rejects.toThrow(/did not match the published digest/);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("reports progress as the bytes arrive", async () => {
+    const { digest } = payload("a convincing binary");
+    const seen: number[] = [];
+    await downloadVerified({
+      url: assetUrl(BINARY),
+      expectedDigest: digest,
+      destDir: NODE_ARTIFACTS_DIR,
+      destName: "subshell-server",
+      onProgress: (received) => seen.push(received),
+    });
+    expect(seen.at(-1)).toBe("a convincing binary".length);
+  });
+
+  it("throws and keeps nothing when the asset is not there", async () => {
+    await expect(
+      downloadVerified({
+        url: assetUrl("nothing-published-under-this-name"),
+        expectedDigest: "0".repeat(64),
+        destDir: NODE_ARTIFACTS_DIR,
+        destName: "subshell-server",
+      }),
+    ).rejects.toThrow(/answered 404/);
+    expect(existsSync(join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`))).toBe(false);
   });
 });

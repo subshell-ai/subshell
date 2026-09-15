@@ -21,7 +21,9 @@ import { createReadStream } from "node:fs";
 import { copyFile, mkdir, rename } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { semverLt } from "./versions.js";
+import { NODE_PROTOCOL_VERSION } from "./node-frames.js";
+import { RELEASE_MANIFEST_NAME, type ReleaseComponent, type ReleaseManifest } from "./releases.js";
+import { MIN_AGENT_VERSION, semverLt } from "./versions.js";
 
 /**
  * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
@@ -105,6 +107,75 @@ export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, de
     await copyFile(path, tmp);
     await rename(tmp, dest);
     await Bun.write(`${dest}.sha256`, `${digest}\n`);
+  }
+}
+
+/**
+ * Write the `release-manifest.json` asset into a publish directory beside its
+ * artifacts (spec 2026-09-15 §3.2).
+ *
+ * Called by all four `release.ts` pipelines after a successful publish, so
+ * every app release carries the same fifth asset and the existing
+ * `files: dist/<app>-*` publish glob ships it with no workflow change.
+ *
+ * The compatibility fields are read from THIS build's own constants rather
+ * than passed in, which is the whole point of the file: a control plane can
+ * then answer "does this node release speak my protocol" from 200 bytes
+ * instead of an 80 MB binary. The commit comes from the caller
+ * ({@link releaseCommit}).
+ *
+ * Plain write, no tmp+rename — unlike a published binary, nothing reads this
+ * out of the directory while it is being written; it is an asset the release
+ * job uploads once the pipeline has finished.
+ *
+ * @param destDir - the publish directory (created when missing)
+ * @param manifest - the component, its version, and the commit it was cut from
+ * @returns the manifest as written, so a pipeline can print it
+ */
+export async function writeReleaseManifest(
+  destDir: string,
+  manifest: { component: ReleaseComponent; version: string; commit: string },
+): Promise<ReleaseManifest> {
+  const full: ReleaseManifest = {
+    component: manifest.component,
+    version: manifest.version,
+    nodeProtocol: NODE_PROTOCOL_VERSION,
+    minAgentVersion: MIN_AGENT_VERSION,
+    commit: manifest.commit,
+  };
+  await mkdir(destDir, { recursive: true });
+  await Bun.write(join(destDir, RELEASE_MANIFEST_NAME), `${JSON.stringify(full, null, 2)}\n`);
+  return full;
+}
+
+/**
+ * The commit a release is being cut from: CI's own `GITHUB_SHA`, else the
+ * checkout's `HEAD`, else `"unknown"`.
+ *
+ * `"unknown"` is a real answer rather than a refusal — a source tarball with
+ * no git directory should still publish a manifest, because the compatibility
+ * fields are the part anything actually reads and the commit is provenance.
+ *
+ * @param env - environment source (default `process.env`)
+ * @param head - resolver for the checkout's HEAD (default: `git rev-parse HEAD`)
+ */
+export function releaseCommit(
+  env: Record<string, string | undefined> = process.env,
+  head: () => string | null = gitHead,
+): string {
+  const fromCi = env.GITHUB_SHA;
+  if (typeof fromCi === "string" && fromCi !== "") return fromCi;
+  return head() ?? "unknown";
+}
+
+/** `git rev-parse HEAD`, or null when there is no git or no checkout. */
+function gitHead(): string | null {
+  try {
+    const res = Bun.spawnSync({ cmd: ["git", "rev-parse", "HEAD"], stdout: "pipe", stderr: "ignore" });
+    const out = res.stdout.toString().trim();
+    return res.exitCode === 0 && out !== "" ? out : null;
+  } catch {
+    return null;
   }
 }
 

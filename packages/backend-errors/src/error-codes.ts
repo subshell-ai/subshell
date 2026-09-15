@@ -67,6 +67,35 @@ export enum BackendErrorCodes {
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
   SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
   SETUP_KEY_INVALID = "SETUP_KEY_INVALID",
+  /** `POST /api/admin/server/update`: `SUBSHELL_RELEASE_URL` is empty — this instance fetches no releases (the air-gapped configuration). */
+  UPDATE_SOURCE_DISABLED = "UPDATE_SOURCE_DISABLED",
+  /**
+   * `POST /api/admin/server/update`: nothing on this host names a binary an
+   * update could replace — a checkout (update it with git), a directory this
+   * user cannot write, or no service definition and a process that is not an
+   * installed one. The message carries the reason.
+   */
+  UPDATE_BINARY_UNKNOWN = "UPDATE_BINARY_UNKNOWN",
+  /** `POST /api/admin/server/update`: a marker is already on disk, or a job is running. */
+  UPDATE_IN_PROGRESS = "UPDATE_IN_PROGRESS",
+  /** `POST /api/admin/server/update`: no newer release, and the body named no version. */
+  UPDATE_NOT_AVAILABLE = "UPDATE_NOT_AVAILABLE",
+  /**
+   * `POST /api/admin/server/update`: the named version is older than the
+   * running one. The API has no override for this and the CLI does (`--force`),
+   * deliberately: a downgrade may leave a database the older binary cannot
+   * open (kysely refuses unknown migrations), so it is a terminal act rather
+   * than a button.
+   */
+  UPDATE_DOWNGRADE = "UPDATE_DOWNGRADE",
+  /**
+   * `POST /api/nodes/:id/update`: this plane has no node release it can offer
+   * — none published, none carrying a release manifest, or the newest one
+   * speaks a different protocol. The message names which.
+   */
+  NODE_UPDATE_UNAVAILABLE = "NODE_UPDATE_UNAVAILABLE",
+  /** `POST /api/nodes/:id/update`: the agent refused or could not apply it; the message is the agent's own. */
+  NODE_UPDATE_FAILED = "NODE_UPDATE_FAILED",
 }
 
 export const BackendErrorCodeDefs = {
@@ -189,5 +218,36 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SETUP_KEY_INVALID]: {
     message: "Invalid setup key",
     statusCode: 401,
+  },
+  // Every update refusal is a 409: the request is well-formed and the caller
+  // is allowed to make it — the host is simply not in a state where it can be
+  // honoured. Same shape as RESTART_UNAVAILABLE, which they sit beside.
+  [BackendErrorCodes.UPDATE_SOURCE_DISABLED]: {
+    message: "This server does not fetch releases",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.UPDATE_BINARY_UNKNOWN]: {
+    message: "No installed binary this server could replace",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.UPDATE_IN_PROGRESS]: {
+    message: "An update is already in progress",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.UPDATE_NOT_AVAILABLE]: {
+    message: "There is no newer release to install",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.UPDATE_DOWNGRADE]: {
+    message: "That version is older than the one running",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_UPDATE_UNAVAILABLE]: {
+    message: "No node release can be offered",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NODE_UPDATE_FAILED]: {
+    message: "The node could not apply the update",
+    statusCode: 409,
   },
 };

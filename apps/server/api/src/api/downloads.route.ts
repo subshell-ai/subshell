@@ -8,7 +8,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { artifactPath, artifactStat } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
-import { autoFetchEnabled, fetchArtifact, fetchDigest } from "@/services/node-release.js";
+import { autoFetchEnabled, fetchArtifact, fetchDigest } from "@/services/releases.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
@@ -166,7 +166,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     }
     // Nothing local. THIS is the lazy fetch: the first machine of a platform
     // to ask pays for the download, and it is streamed past rather than staged
-    // (see services/node-release.ts). A plane whose nodes are all one platform
+    // (see services/releases.ts). A plane whose nodes are all one platform
     // never spends a byte on the others.
     if (!autoFetchEnabled()) return status(404, apiErrorBody(notPublished(params.target)));
     try {

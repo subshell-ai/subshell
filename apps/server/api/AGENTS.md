@@ -88,15 +88,23 @@ see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous.
 A binary-only server install ships that dir EMPTY. That used to mean the
 install one-liner 404ed until someone published; since 2026-09-12 the server
 FETCHES a missing binary from the project's own `node-v*` GitHub release the
-first time a machine asks for it (`services/node-release.ts`). Lazily, on the
+first time a machine asks for it (`services/releases.ts`). Lazily, on the
 download route's 404 branch — no warm-up, no admin button, no poll, so a plane
 whose nodes are all one platform never spends a byte on the others. The bytes
 stream THROUGH while being hashed against the release's `.sha256` (fetched
 first); a mismatch errors the response mid-flight, so nothing unverified is
 cached and the node's own digest check before `chmod +x` still decides.
-`SUBSHELL_NODE_RELEASE_URL` configures it and EMPTY disables it — the
+`SUBSHELL_RELEASE_URL` configures it and EMPTY disables it — the
 air-gapped configuration, and the default under `IS_TEST` so no suite reaches
-the network by accident. A file on disk always wins over a fetch, and only
+the network by accident. (It was `SUBSHELL_NODE_RELEASE_URL` until spec
+2026-09-15 §3.3; the same list now answers for the server's own `update` too,
+so the name stopped being the node agent's. No alias — there is no installed
+base to keep compatible.) **The release a node is offered is the newest one
+whose `release-manifest.json` says it speaks THIS server's `NODE_PROTOCOL_VERSION`**
+(`compatibleNodeRelease`), not merely the newest above `MIN_AGENT_VERSION`: the
+old rule could install an agent this plane cannot talk to, which enrolls,
+reconnects and is closed 4406 forever. A release carrying no manifest — every
+cut before 2026-09-15 — is refused BY NAME rather than guessed at. A file on disk always wins over a fetch, and only
 what this instance fetched (recorded in `<node-artifacts>/.fetched.json` with
 its release tag) is ever superseded when a newer tag appears — a hand-published
 binary has no entry and is never touched. Superseded platforms are DELETED
@@ -586,6 +594,8 @@ it, so never make a bare invocation mean anything else.
 | `service enable` / `service disable` | arm or disarm start-at-login, WITHOUT touching the running process. Linux: `systemctl --user enable\|disable` with no `--now` — that flag is the whole difference between a preference and an outage. macOS: the plist MOVES (below) |
 | `service status` | what the MANAGER reports — run state, pid, starts-at-login, and whether a teardown keeps live panes; `--json` for scripts. Always exits 0: a view must not make a caller distinguish "not running" from "the call failed" |
 | `service start\|stop\|restart` | drive an already-installed service. Never installs one — `start` must not become a way to background a server whose config was never checked |
+| `update` | install a newer `subshell-server` over this one, REVERSIBLY (spec 2026-09-15 §4.4). It replaces the binary the SERVICE DEFINITION names — never a path by convention, because writing `~/.local/bin` on a host whose unit points elsewhere is an update that reports success and changes nothing. Ten steps, nine of them refusals: a checkout, an unwritable directory, an empty release source, a downgrade, a transaction already open, a binary that will not say what it is, a restart that would close live panes. The one irreversible moment is a pair of `rename(2)`s, and even that is undone by the NEXT boot. Flags: `--check --to <v> --from <file> --force --yes --json --no-restart --rollback` |
+| `backup` | `VACUUM INTO` a single-file snapshot of the database now (spec §4.1). Its own verb rather than a flag of `update`, because the reason to take one by hand is that you are NOT updating. `--json` prints the path, size and how many are kept |
 | `mcp` | serve the pane-spawned stdio MCP server (the self rung of MCP resolution below); the one long-running command — spawned by harnesses, not typed by humans |
 | `report attention turn_complete\|needs_attention`, `report session` | out-of-band reporting from a harness HOOK: attention signals, and the pane's current conversation id (read from the SessionStart payload on stdin — only `session_id` is forwarded). Run by generated hook command lines, never typed. ALWAYS exits 0 and prints nothing, even on an unreachable server or an incomplete pane env — a hook's stderr and exit code land in the user's session, and a lost report costs one notification, never a turn |
 
@@ -593,10 +603,14 @@ An unknown word exits 1 with usage. **Sync-exit design** (house style for
 the quick commands, no longer the safety mechanism): a handled command
 should run to completion and `process.exit` SYNCHRONOUSLY inside
 `dispatchCli` — sync fs, `Bun.spawnSync` for the service manager. There are
-now THREE exceptions rather than one: `mcp`, long-running by design and
-suspended in its stdio loop, plus `init` and `configure`, which became async
+now FIVE exceptions rather than one: `mcp`, long-running by design and
+suspended in its stdio loop; `init` and `configure`, which became async
 when their prompts moved to `@clack/prompts` (spec 2026-09-15) — a promise-based
-library cannot be driven by `readSync(0, …)`.
+library cannot be driven by `readSync(0, …)`; and `update` and `backup` (spec
+2026-09-15 §4.1/§4.4), which download, prompt and `VACUUM INTO` a database.
+`update` is the third named exception in the sense that matters — it is the one
+that both prompts AND does network I/O, and it can sit for up to 60 seconds
+waiting for the restarted binary to finish or revert the transaction.
 
 That is allowed precisely BECAUSE sync-exit is not the safety mechanism, and
 the two things that are stay intact and tested: the entry graph is IO-free at
@@ -924,6 +938,78 @@ restart-resume identity ever worked.
 IO-free at import — lazy `getAuth()`, purity-tested — so a long-running
 subcommand can no longer drag the boot graph into side effects; the 1.3.x
 companion-binary era that made a separate tiny entry necessary is retired.)
+
+### Updating the server (spec 2026-09-15 §4)
+
+**The new binary finishes or reverts the transaction.** An updater process
+cannot see the future boot; the booting binary can see the past update. So
+whoever swaps writes a marker, and whoever boots consumes it — which is what
+makes the CLI path, the dashboard path (phase B) and the desktop path one
+implementation rather than three that agree.
+
+The four modules, and the one fact each exists for:
+
+- **`services/releases.ts`** (was `node-release.ts`) — one read of the release
+  list, indexed by component, 15 min TTL. `resolveReleases()`,
+  `refreshReleases()`, `compatibleNodeRelease()`, `fetchArtifact`/`fetchDigest`
+  (unchanged `.fetched.json` semantics) and `downloadVerified()`, the
+  hash-as-you-go download the server's own update shares with the node fetch.
+- **`services/db-backup.ts`** — `VACUUM INTO` on a fresh READ-ONLY
+  `bun:sqlite` connection, which yields a consistent single-file snapshot of a
+  LIVE WAL database with no `-wal`/`-shm` beside it (MEASURED, §12.1, bun
+  1.4.2 / SQLite 3.51.0). SQLite creates it with the umask, so the `chmod
+  0600` after the vacuum is what makes the mode true. `<dataDir>/backups/`,
+  0700, `SUBSHELL_DB_BACKUPS_KEEP` (default 5, `0` = keep forever — the
+  `SUBSHELL_LOG_RETENTION_DAYS` spelling). It LOGS NOTHING: `backup --json`'s
+  contract is one JSON line on stdout and LogLayer's console transport writes
+  there too, so a log line here broke every parser (measured in `test:cli`).
+- **`services/installed-binary.ts`** — which file on this host IS the
+  installed server. The two readers from `apps/server/desktop`'s
+  `server_bin.rs` ported to TypeScript: the systemd `ExecStart=` unquoting
+  (the inverse of `service.ts`'s `systemdQuote`, last-wins) and the launchd
+  `ProgramArguments` read through `plutil`, both plist locations, with the XML
+  regex only as the no-plutil fallback. **A dev-form install records TWO
+  tokens** (`[interpreter, script]`) and is reported as `source` — a reader
+  that kept only the first would hand the updater a copy of `bun`. Then
+  app-supervised (`process.execPath`, claim verified against the real parent),
+  then a hand-run installed binary, then `unknown` with a reason. Exposed as
+  `status --json`'s `paths.binary` and `binary`.
+- **`services/update-transaction.ts`** — `<dataDir>/update/pending.json`
+  (0600, written temp+rename immediately before the swap) and `failed.json`.
+  `beginUpdate` refuses a second open transaction; the boot hook in `index.ts`
+  reads the marker BEFORE the migrations, reverts on a migration failure
+  (restore the backup, rename `.previous` back, write `failed.json`, exit 1 so
+  the manager respawns the old version), completes AFTER `startServer`
+  (audit `server.update` with actor null, delete `.previous` and the marker),
+  and records a failure when the marker names a version this process is not.
+
+Three measurements the design rests on, each pinned or recorded where the code
+that depends on it lives:
+
+1. **`VACUUM INTO` from a second connection on a live WAL database** →
+   `integrity_check: ok`, no sidecars, rows written after the vacuum absent.
+   So the `BEGIN IMMEDIATE` + checkpoint + copy fallback is not implemented.
+2. **`rename(2)` over a running compiled binary on macOS** leaves the running
+   process alive and running to completion (unlike overwriting the bytes in
+   place, which `crates/desktop-core`'s sidecar module documents as a
+   SIGKILL). That is why both halves of the swap are renames, in one directory.
+3. **Kysely refuses a database carrying migration names it does not know** —
+   `migrateToLatest()` answers `corrupted migrations: previously executed
+   migration … is missing` rather than ignoring the row (kysely 0.29.5).
+   Pinned by `services/__tests__/update-transaction.test.ts`. It is WHY a
+   revert restores the backup and not just the binary: an old binary cannot
+   boot on a newer database at all.
+
+`test:cli`'s `server-update.sh` is the only thing that proves the swap and the
+boot-time completion with real binaries: it installs this build, compiles a
+`99.0.0` one from the same source with a patched `package.json` (restored from
+a trap), runs `update --from … --no-restart`, boots the new binary and asserts
+the marker cleared, `.previous` gone and the `server.update` audit row written
+with actor null. The migration-failure REVERT is deliberately NOT compiled
+there — making a binary fail a migration on demand would mean a test seam
+inside `db/migrate.ts`, production code that exists only to break — so that
+half is a unit test on `revertUpdate`. What IS compiled is the other half of
+the same hook: a marker whose binary never booted, recorded and cleared.
 
 ### Embedded SPA + release dance
 

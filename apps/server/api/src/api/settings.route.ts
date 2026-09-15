@@ -13,8 +13,8 @@ import {
   resolveInstanceName,
   setInstanceName,
 } from "@/services/instance-name.js";
-import { autoFetchEnabled } from "@/services/node-release.js";
 import { ALLOW_NODE_ENROLLMENT_KEY, ALLOW_REGISTRATIONS_KEY, registrationOpen } from "@/services/registration-gate.js";
+import { autoFetchEnabled } from "@/services/releases.js";
 import { SERVER_VERSION } from "@/version.js";
 
 const SettingsSchema = t.Object({
@@ -103,7 +103,7 @@ const PublicSettingsSchema = t.Object({
   // is for the air-gapped configuration, where it is still exactly true.
   nodeArtifactsAutoFetch: t.Boolean({
     description:
-      "Whether this server downloads a missing agent binary from the project's own GitHub release on first use (SUBSHELL_NODE_RELEASE_URL; empty disables it)",
+      "Whether this server downloads a missing agent binary from the project's own GitHub release on first use (SUBSHELL_RELEASE_URL; empty disables it)",
   }),
 });
 

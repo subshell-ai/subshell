@@ -33,15 +33,18 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SERVER_TARGETS, serverArtifactFileName } from "@internal/subshell-protocol";
+import { RELEASE_MANIFEST_NAME, SERVER_TARGETS, serverArtifactFileName } from "@internal/subshell-protocol";
 import {
   assertBunFloor,
   type BuiltArtifact,
   digestFile,
   parseScope,
   publishArtifacts,
+  releaseCommit,
   runSignHook,
+  writeReleaseManifest,
 } from "@internal/subshell-protocol/release-artifacts";
+import pkg from "../../package.json" with { type: "json" };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 /** `apps/server/api` — the cwd every `bun build`/embed/restore invocation runs in. */
@@ -370,6 +373,15 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // The fifth asset (spec 2026-09-15 §3.2), written only after a COMPLETE
+  // build publishes: a manifest beside a half set would describe a release
+  // that does not exist.
+  const manifest = await writeReleaseManifest(destDir, {
+    component: "server",
+    version: pkg.version,
+    commit: releaseCommit(),
+  });
+
   process.stdout.write(`\npublished ${result.artifacts.size} subshell-server builds → ${destDir}\n\n`);
   for (const [triple, { path, digest }] of result.artifacts) {
     const bytes = (await Bun.file(path).stat())?.size ?? 0;
@@ -377,6 +389,9 @@ async function main(): Promise<void> {
       `  ${serverArtifactFileName(triple).padEnd(32)} ${String(bytes).padStart(12)} bytes  ${digest}\n`,
     );
   }
+  process.stdout.write(
+    `  ${RELEASE_MANIFEST_NAME.padEnd(32)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minAgentVersion}\n`,
+  );
 }
 
 if (import.meta.main) {

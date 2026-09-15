@@ -19,7 +19,7 @@ ok()   { echo "  ok: $*"; }
 export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
 export SUBSHELL_NODE_ARTIFACTS_DIR="$W/artifacts"
-export SUBSHELL_NODE_RELEASE_URL=""      # no internet fallback: prove OUR artifact is used
+export SUBSHELL_RELEASE_URL=""      # no internet fallback: prove OUR artifact is used
 mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR" "$SUBSHELL_NODE_ARTIFACTS_DIR"
 
 echo "== publish the locally compiled agent as this instance's artifact"

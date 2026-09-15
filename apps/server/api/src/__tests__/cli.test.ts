@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { type CliDeps, dispatchCli } from "../cli.js";
+import { type CliDeps, dispatchCli, parseUpdateFlags } from "../cli.js";
 import { DATABASE_PATH, SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "../constants.js";
 
 /**
@@ -506,7 +506,15 @@ describe("dispatchCli — status --json", () => {
       expect(await dispatchCli(["status", "--json"], deps)).toBe(true);
     });
     const view = JSON.parse(out[0] as string);
-    expect(Object.keys(view.paths).sort()).toEqual(["dataDir", "database", "logsDir", "nodeArtifacts", "serverLog"]);
+    expect(Object.keys(view.paths).sort()).toEqual([
+      "backups",
+      "binary",
+      "dataDir",
+      "database",
+      "logsDir",
+      "nodeArtifacts",
+      "serverLog",
+    ]);
     expect(isAbsolute(view.paths.dataDir)).toBe(true);
     expect(view.paths.dataDir).toBe(SUBSHELL_SERVER_DATA_DIR);
     expect(view.paths.database).toBe(DATABASE_PATH);
@@ -514,8 +522,39 @@ describe("dispatchCli — status --json", () => {
     // Inside dataDir on purpose: a reset deletes the data directory, and the
     // server log goes with it rather than needing a path of its own.
     expect(view.paths.serverLog).toBe(`${SUBSHELL_SERVER_DATA_DIR}/logs/server.log`);
+    // Same reason for the database snapshots, which are the most sensitive
+    // single file this app writes (spec 2026-09-15 §4.1).
+    expect(view.paths.backups).toBe(`${SUBSHELL_SERVER_DATA_DIR}/backups`);
     // Already a StatusView fact: the paths block must not be a second source.
     expect(view.paths.nodeArtifacts).toBe(view.nodeArtifacts.dir);
+  });
+
+  /**
+   * `paths.binary` is the file an update would REPLACE, and `binary` is how it
+   * was decided. The suite runs under `bun src/index.ts` with a temp config
+   * home, so there is no service definition and `process.execPath` is `bun`:
+   * the honest answer is `unknown` with a reason, and `paths.binary` is null.
+   * Writing a path here by convention is exactly the failure spec §4.2 names —
+   * an update that reports success and changes nothing.
+   */
+  test("binary says which file an update would replace, or why it cannot", async () => {
+    const dir = newConfigDir();
+    const { deps, out } = collectingDeps({ probePort: () => false, home: newConfigDir() });
+    await withEnv({ SUBSHELL_SERVER_CONFIG_DIR: dir }, async () => {
+      expect(await dispatchCli(["status", "--json"], deps)).toBe(true);
+    });
+    const view = JSON.parse(out[0] as string);
+    expect(["compiled", "source", "unknown"]).toContain(view.binary.kind);
+    if (view.binary.kind === "compiled") {
+      expect(isAbsolute(view.paths.binary)).toBe(true);
+      expect(typeof view.binary.source).toBe("string");
+    } else {
+      expect(view.paths.binary).toBeNull();
+      expect(typeof view.binary.reason).toBe("string");
+    }
+    // Backups are a count plus the newest, never the whole list.
+    expect(Object.keys(view.backups).sort()).toEqual(["count", "latest"]);
+    expect(typeof view.backups.count).toBe("number");
   });
 
   /**
@@ -1088,5 +1127,100 @@ describe("dispatchCli — status says whether an admin account exists", () => {
     expect(exits).toEqual([0]);
     expect(err).toEqual([]);
     expect(JSON.parse(out[0] as string).setup).toEqual({ database: "present", hasUsers: null });
+  });
+});
+
+/**
+ * The `update` and `backup` verbs (spec 2026-09-15 §4.1/§4.4).
+ *
+ * Only the DISPATCH layer is here — the flag shape, the usage listing, and
+ * that a refusal exits 1 without reaching the network. What the verb DOES is
+ * `commands/__tests__/update.test.ts`, which drives it with injected seams.
+ */
+describe("parseUpdateFlags", () => {
+  const collect = () => {
+    const errs: string[] = [];
+    return { errs, error: (line: string) => errs.push(line) };
+  };
+
+  test("reads every boolean and both value flags, in either spelling", () => {
+    const { error } = collect();
+    expect(parseUpdateFlags(["--check", "--force", "--yes", "--json", "--no-restart"], error)).toEqual({
+      check: true,
+      force: true,
+      yes: true,
+      json: true,
+      noRestart: true,
+    });
+    expect(parseUpdateFlags(["--to", "0.7.0"], error)).toEqual({ to: "0.7.0" });
+    expect(parseUpdateFlags(["--to=0.7.0"], error)).toEqual({ to: "0.7.0" });
+    expect(parseUpdateFlags(["--from", "/tmp/x"], error)).toEqual({ from: "/tmp/x" });
+  });
+
+  test("refuses an unknown flag, a stray positional, and a missing value", () => {
+    for (const argv of [["--jsonn"], ["0.7.0"], ["--to"], ["--to", "--yes"], ["--to="], ["--yes=1"]]) {
+      const { errs, error } = collect();
+      expect(parseUpdateFlags(argv, error), argv.join(" ")).toBeNull();
+      expect(errs).toHaveLength(1);
+    }
+  });
+
+  test("refuses --to with --from: two different things to install", () => {
+    const { errs, error } = collect();
+    expect(parseUpdateFlags(["--to", "0.7.0", "--from", "/tmp/x"], error)).toBeNull();
+    expect(errs.join("")).toMatch(/pass one/);
+  });
+
+  test("refuses the install-only flags beside --rollback", () => {
+    // "rollback --to 0.7.0" describes an act this verb does not have, and the
+    // earliest refusal is the kind one.
+    for (const extra of [["--check"], ["--to", "0.7.0"], ["--from", "/x"], ["--no-restart"]]) {
+      const { errs, error } = collect();
+      expect(parseUpdateFlags(["--rollback", ...extra], error)).toBeNull();
+      expect(errs.join("")).toMatch(/only --yes, --force and --json/);
+    }
+    const { error } = collect();
+    expect(parseUpdateFlags(["--rollback", "--yes", "--force", "--json"], error)).toEqual({
+      rollback: true,
+      yes: true,
+      force: true,
+      json: true,
+    });
+  });
+});
+
+describe("dispatchCli — update and backup", () => {
+  test("usage lists both verbs and update's flags", async () => {
+    const { deps, err } = collectingDeps();
+    await dispatchCli(["nonsense"], deps);
+    const usage = err.join("\n");
+    expect(usage).toContain("subshell-server update");
+    expect(usage).toContain("subshell-server backup");
+    expect(usage).toContain("--rollback");
+    expect(usage).toContain("--no-restart");
+  });
+
+  test("a bad update flag is a usage error, and nothing is installed", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["update", "--nope"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toContain("unknown flag '--nope'");
+  });
+
+  test("a bad backup flag is a usage error", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["backup", "--jsonn"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toContain("unexpected argument '--jsonn'");
+  });
+
+  test("update refuses before reaching the network when no binary is installed", async () => {
+    // The suite runs under `bun src/...` with an empty temp home, so the
+    // ladder's answer is `unknown` — which is the refusal, before any release
+    // is read and with SUBSHELL_RELEASE_URL empty under test anyway.
+    const { deps, err, exits } = collectingDeps({ home: newConfigDir(), configDir: newConfigDir() });
+    expect(await dispatchCli(["update", "--yes"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toMatch(/no service definition|cannot replace/);
   });
 });

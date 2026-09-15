@@ -227,6 +227,13 @@ fi
 echo "    Copyright 2026 Disaresta, LLC. AGPL-3.0-only, with the API Type Surface"
 echo "    exception. Run \"$DEST\" license for the full notice."
 
+# Said ONCE, here, because this script is the only moment a piped-curl install
+# has to name the way back: nothing else ever tells that operator a newer
+# server exists, and re-running this installer is not it (it would overwrite
+# the binary without backing the database up first).
+echo "    Later: \"$DEST\" update --check to see what is available,"
+echo "    \"$DEST\" update to install it (the database is backed up first)."
+
 # The last word belongs to `init`: it asks about the background service and
 # prints the "open <url>/setup" handoff. Nothing is echoed after it.
 exec "$DEST" init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}

@@ -15,6 +15,8 @@ import {
 } from "@/constants.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, SYSTEMD_UNIT_NAME, serviceArtifactPath } from "@/service.js";
+import { backupsDir, listBackups } from "@/services/db-backup.js";
+import { resolveInstalledBinary } from "@/services/installed-binary.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
 import { subshellLogDir } from "@/services/nodes/subshell-paths.js";
 import { serverLogPath } from "@/utils/log-file.js";
@@ -109,7 +111,26 @@ export interface StatusView {
    * like everything here; presence with an unusable value is impossible
    * because these are already-resolved constants.
    */
-  paths: { dataDir: string; database: string; logsDir: string; nodeArtifacts: string; serverLog: string };
+  paths: {
+    dataDir: string;
+    database: string;
+    logsDir: string;
+    nodeArtifacts: string;
+    serverLog: string;
+    /** Where `subshell-server update` writes its database snapshots. */
+    backups: string;
+    /**
+     * The installed `subshell-server` this host would RUN — the service
+     * definition's own binary, else this process when it is an installed one.
+     * `null` when nothing names one (a checkout, or a dev-form install, which
+     * {@link StatusView.binary} explains).
+     *
+     * It is `paths.binary` rather than a derived convention because the whole
+     * point (spec 2026-09-15 §4.2) is that an update must never write a file
+     * the service does not execute.
+     */
+    binary: string | null;
+  };
   /** The `configure`-owned keys, each with its layer attribution. */
   settings: Record<StatusSettingKey, StatusSetting>;
   /** Presence only — never the value. */
@@ -136,6 +157,23 @@ export interface StatusView {
   listen: { host: string; port: number | null; portRaw: string; portValid: boolean; listening: boolean };
   /** The DEFINITION-on-disk check only. `service status` answers what the manager is doing. */
   service: { definitionPath: string | null; installed: boolean };
+  /**
+   * How `paths.binary` was decided, and why it is null when it is.
+   *
+   * `compiled` is the only shape `subshell-server update` can replace;
+   * `source` means a checkout (update it with git) and `unknown` means nothing
+   * on this host names a binary. `reason` is present for those two only.
+   */
+  binary: { kind: "compiled" | "source" | "unknown"; source?: string; reason?: string };
+  /**
+   * The database snapshots `update` takes, newest first by name.
+   *
+   * A count and the newest one, not the whole list: this is the fact an
+   * operator wants before an update ("is there something to roll back to")
+   * and after a failure ("what is the file"), and the directory is in
+   * `paths.backups` for anything more.
+   */
+  backups: { count: number; latest: { path: string; bytes: number; at: string } | null };
   /**
    * How many agent binaries this host can actually serve.
    *
@@ -380,6 +418,17 @@ export function collectStatus(deps: StatusDeps): StatusView {
   const dbExists = existsSync(dbPath);
   const accounts = dbExists ? countAccounts(dbPath) : null;
 
+  // The binary an update would replace, and the snapshots it would roll back
+  // to (spec 2026-09-15 §4.1/§4.2). Both are read-only and both are cheap —
+  // the ladder reads one file (and, on darwin, spawns `plutil` once), and the
+  // backups list is a readdir.
+  const installed = resolveInstalledBinary({
+    platform: deps.platform ?? process.platform,
+    home: deps.home ?? homedir(),
+    configDir: dirname(cfg.path),
+  });
+  const backups = listBackups();
+
   return {
     version: SERVER_VERSION,
     configEnv: { path: cfg.path, exists: cfg.exists },
@@ -391,6 +440,10 @@ export function collectStatus(deps: StatusDeps): StatusView {
       // The server's OWN log — one 200 KB file, replaced when full. It lives
       // inside dataDir, so a reset that deletes the data directory covers it.
       serverLog: serverLogPath(),
+      // Also inside dataDir, deliberately: the desktop reset's five paths then
+      // already cover the most sensitive file this app writes.
+      backups: backupsDir(),
+      binary: installed.kind === "compiled" ? installed.path : null,
     },
     settings: {
       SERVER_PORT: setting("SERVER_PORT", portRaw),
@@ -420,6 +473,13 @@ export function collectStatus(deps: StatusDeps): StatusView {
     pluginRegistry: SUBSHELL_PLUGIN_REGISTRY_URL,
     listen: { host: dialHost, port: portValid ? portNum : null, portRaw, portValid, listening },
     service: { definitionPath: svc, installed: svc !== null && existsSync(svc) },
+    binary:
+      installed.kind === "compiled"
+        ? { kind: "compiled", source: installed.source }
+        : installed.kind === "source"
+          ? { kind: "source", source: installed.source, reason: installed.reason }
+          : { kind: "unknown", reason: installed.reason },
+    backups: { count: backups.length, latest: backups[0] ?? null },
     nodeArtifacts: {
       published: publishedNodeTargets().length,
       total: NODE_TARGETS.length,
@@ -481,6 +541,18 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
           ? "admin account exists"
           : `no admin account yet — open ${v.settings.APP_BASE_URL.value}/setup`;
   log(`setup                = ${setup}`);
+  // The file an update would replace, and what is there to roll back to. Named
+  // here rather than only in --json because "which binary is this instance"
+  // is the first question a failed update raises.
+  log(
+    v.binary.kind === "compiled"
+      ? `installed binary     = ${v.paths.binary} (via ${v.binary.source})`
+      : `installed binary     = UNRESOLVED; update cannot run; ${v.binary.reason}`,
+  );
+  log(
+    `database backups     = ${v.backups.count} in ${v.paths.backups}` +
+      (v.backups.latest ? `, newest ${v.backups.latest.at}` : ""),
+  );
   log(`port ${v.listen.portRaw} on ${v.listen.host}: ${v.listen.listening ? "likely running" : "not listening"}`);
   // Service DEFINITION on disk — not a liveness line (`service status` is the
   // real answer; the port probe above is the closest this view gets).

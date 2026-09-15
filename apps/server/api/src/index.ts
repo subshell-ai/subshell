@@ -40,6 +40,7 @@ import { listOnline } from "@/services/nodes/node-registry.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
+import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
@@ -115,9 +116,33 @@ async function bootServer(): Promise<void> {
   // ./data/subshell.db — and relative to wherever the process was started).
   getLogger().info(`database: ${resolve(DATABASE_PATH)}`);
 
+  // An update in flight (spec 2026-09-15 §4.3). Read BEFORE the migrations,
+  // because the migrations are the thing it is a transaction over.
+  const pending = readPending();
+  if (pending && pending.to !== SERVER_VERSION) {
+    // The binary that was meant to boot did not: something put an older one
+    // back (the CLI's own rollback, or a hand). The swap is already undone —
+    // what is missing is the RECORD, and without it the marker would refuse
+    // every later update forever.
+    recordFailure(pending, `expected ${pending.to} to boot, ${SERVER_VERSION} did`);
+  }
+
   // DB + auth tables before the HTTP listener starts.
-  await runMigrations();
-  await runAuthMigrations();
+  try {
+    await runMigrations();
+    await runAuthMigrations();
+  } catch (error) {
+    if (pending && pending.to === SERVER_VERSION) {
+      // This IS the new binary and it cannot migrate. Put the database and the
+      // previous binary back and exit: the service manager respawns the old
+      // version onto the restored database, which is the only state it can
+      // boot in (kysely refuses a database carrying migrations it does not
+      // know — measured, §12.3).
+      revertUpdate(pending, error, {});
+      process.exit(1);
+    }
+    throw error;
+  }
   setAuthPolicyDb(db);
   // The debug-logging setting, as early as the database allows. Everything
   // before this line is written at `info` whatever the setting says, which is
@@ -142,6 +167,15 @@ async function bootServer(): Promise<void> {
   }
 
   await startServer({ port: SERVER_PORT, host: HOST });
+
+  // The transaction completes only once this version is SERVING: migrations
+  // passing is necessary and not sufficient — a binary that migrates and then
+  // cannot bind is not an update that worked. Audited with actor null (the
+  // booting process holds no session); an API-driven update audited its START
+  // with the admin as actor, so the pair reads as "who asked" and "what
+  // happened". Best-effort: an audit that fails must not undo an update that
+  // succeeded, which is why `audit()` never throws.
+  if (pending && pending.to === SERVER_VERSION) await completeUpdate(pending);
 
   // The handoff, said where a headless operator is standing (spec 2026-09-15
   // §4.3). `/api/setup/*` is public until the first account exists, and

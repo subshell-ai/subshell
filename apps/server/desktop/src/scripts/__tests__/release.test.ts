@@ -8,6 +8,7 @@ import {
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  RELEASE_MANIFEST_NAME,
   SERVER_SIDECAR_NAME,
   serverArtifactFileName,
 } from "@internal/subshell-protocol";
@@ -118,11 +119,16 @@ describe("stageSidecar", () => {
     ]);
   });
 
-  // It describes the bytes BEFORE Tauri re-seals them.
-  test("deletes the sidecar's own .sha256", async () => {
+  // The `.sha256` describes the bytes BEFORE Tauri re-seals them; the release
+  // manifest describes the SERVER release rather than this app's, and this
+  // directory is a build input rather than a publish dir.
+  test("deletes the nested build's .sha256 and release manifest", async () => {
     const s = stub();
     await stageSidecar(s.deps, "darwin-arm64");
-    expect(s.removed).toEqual([`${join(SIDECAR_DIR, serverArtifactFileName("darwin-arm64"))}.sha256`]);
+    expect(s.removed).toEqual([
+      `${join(SIDECAR_DIR, serverArtifactFileName("darwin-arm64"))}.sha256`,
+      join(SIDECAR_DIR, RELEASE_MANIFEST_NAME),
+    ]);
   });
 
   test("a failing server build stages nothing", async () => {

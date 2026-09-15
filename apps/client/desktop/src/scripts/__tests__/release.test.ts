@@ -10,6 +10,7 @@ import {
   desktopArtifactFileName,
   desktopSidecarFileName,
   nodeArtifactFileName,
+  RELEASE_MANIFEST_NAME,
   rustTargetTriple,
 } from "@internal/subshell-protocol";
 import {
@@ -123,11 +124,16 @@ describe("stageSidecar", () => {
     expect(s.moves[0]?.[1]).not.toContain("darwin-arm64");
   });
 
-  // It describes the bytes BEFORE Tauri re-seals them.
-  test("deletes the sidecar's own .sha256", async () => {
+  // The `.sha256` describes the bytes BEFORE Tauri re-seals them; the release
+  // manifest describes the NODE release rather than this app's, and this
+  // directory is a build input rather than a publish dir.
+  test("deletes the nested build's .sha256 and release manifest", async () => {
     const s = stub();
     await stageSidecar(s.deps, "darwin-arm64");
-    expect(s.removed).toEqual([`${join(SIDECAR_DIR, nodeArtifactFileName("darwin-arm64"))}.sha256`]);
+    expect(s.removed).toEqual([
+      `${join(SIDECAR_DIR, nodeArtifactFileName("darwin-arm64"))}.sha256`,
+      join(SIDECAR_DIR, RELEASE_MANIFEST_NAME),
+    ]);
   });
 
   test("a failing agent build stages nothing", async () => {

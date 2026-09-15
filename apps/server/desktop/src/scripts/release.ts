@@ -35,6 +35,7 @@ import {
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  RELEASE_MANIFEST_NAME,
   SERVER_SIDECAR_NAME,
   serverArtifactFileName,
 } from "@internal/subshell-protocol";
@@ -45,7 +46,9 @@ import {
   notarizeAndStapleDmg,
   parseScope,
   publishArtifacts,
+  releaseCommit,
   selectBundleOutput,
+  writeReleaseManifest,
 } from "@internal/subshell-protocol/release-artifacts";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -143,6 +146,10 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
   }
   // The sidecar digest describes pre-seal bytes; keeping it publishes a lie.
   await deps.remove(`${built}.sha256`);
+  // Same rule for the nested build's release manifest: it describes the SERVER
+  // release, and this directory is a Tauri build input, not a publish dir.
+  // This app writes its OWN manifest into the publish dir at the end of main().
+  await deps.remove(join(SIDECAR_DIR, RELEASE_MANIFEST_NAME));
   await deps.move(built, join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, triple)));
   return true;
 }
@@ -270,8 +277,16 @@ async function main(): Promise<void> {
 
   const dest = resolveReleaseDir();
   await publishArtifacts(artifacts, dest);
+  // The fifth asset (spec 2026-09-15 §3.2), after a complete publish: the
+  // Updates page reads it to say which desktop version is available.
+  const manifest = await writeReleaseManifest(dest, {
+    component: "desktop-server",
+    version,
+    commit: releaseCommit(),
+  });
   console.log(`\npublished ${artifacts.size} desktop bundle(s) → ${dest}\n`);
   for (const [triple, a] of artifacts) console.log(`  ${triple.padEnd(16)} ${a.digest}`);
+  console.log(`  ${RELEASE_MANIFEST_NAME.padEnd(16)} ${manifest.component} ${manifest.version} @ ${manifest.commit}`);
 }
 
 /** Directory names directly under `root`, or [] when it does not exist. */

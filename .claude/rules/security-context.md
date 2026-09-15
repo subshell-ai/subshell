@@ -446,7 +446,7 @@ shares and subshell shares are two independent axes:
   streamed through while being hashed against the release's `.sha256`, with a
   mismatch erroring the response mid-flight so nothing unverified is cached.
   The node's own digest check before `chmod +x` is what makes streaming sound.
-  `SUBSHELL_NODE_RELEASE_URL` is operator-configurable and **empty disables
+  `SUBSHELL_RELEASE_URL` is operator-configurable and **empty disables
   it** (the air-gapped configuration, where the Nodes dialog keeps its
   no-binary warning). Only files this instance fetched — recorded in
   `.fetched.json` with their release tag — are ever superseded or deleted; a

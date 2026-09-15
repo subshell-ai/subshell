@@ -80,16 +80,6 @@ export {
   parseNodeRuntimeReport,
 } from "./node-frames.js";
 export {
-  DEFAULT_NODE_RELEASE_API,
-  NODE_RELEASE_TAG_PREFIX,
-  type NodeReleaseCandidate,
-  newestNodeRelease,
-  nodeReleaseAssetNames,
-  parseNodeReleaseTag,
-  parseSidecarDigest,
-  SUBSHELL_REPO_SLUG,
-} from "./node-release.js";
-export {
   type DetectResultWire,
   FS_LS_MAX_ENTRIES,
   type NodeAgentLogSlice,
@@ -154,6 +144,22 @@ export {
   type ServerTarget,
   serverArtifactFileName,
 } from "./paths.js";
+export {
+  DEFAULT_RELEASE_API,
+  hostReleaseTarget,
+  newestRelease,
+  parseReleaseManifest,
+  parseReleaseTag,
+  parseSidecarDigest,
+  RELEASE_COMPONENTS,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_TAG_PREFIX,
+  type ReleaseCandidate,
+  type ReleaseComponent,
+  type ReleaseManifest,
+  releaseAssetNames,
+  SUBSHELL_REPO_SLUG,
+} from "./releases.js";
 export {
   DEFAULT_GRID,
   DEFAULT_SIZING,

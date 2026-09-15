@@ -6,7 +6,7 @@ import { config } from "@dotenvx/dotenvx";
 import { DEFAULT_REGISTRY_URL } from "@internal/pane-runtime";
 import {
   DEFAULT_DATABASE_PATH,
-  DEFAULT_NODE_RELEASE_API,
+  DEFAULT_RELEASE_API,
   defaultSubshellServerDataDir as sharedDefaultSubshellServerDataDir,
 } from "@internal/subshell-protocol";
 import { default as envVar } from "env-var";
@@ -167,7 +167,14 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
     );
 
 /**
- * Where this instance fetches node agent binaries it does not have on disk.
+ * Where this instance reads the project's releases: node agent binaries it does
+ * not have on disk, and the newer `subshell-server` its own `update` installs.
+ *
+ * It was `SUBSHELL_NODE_RELEASE_URL` until spec 2026-09-15 §3.3, when the same
+ * list stopped being the node agent's alone — one release source, one picker,
+ * every component. There is deliberately NO alias for the old spelling: this
+ * project has no installed base to keep compatible, and an alias is a second
+ * thing to read that can disagree with the first.
  *
  * A server installed from a release tarball has an EMPTY node-artifacts
  * directory, so every enroll one-liner 404s until someone runs `release:node`
@@ -176,21 +183,41 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
  * machine asks for it, verifies it, and keeps it.
  *
  * **Empty disables it**, and that is the supported air-gapped configuration:
- * the download routes fall back to serving only what is on disk, which is
- * exactly today's behaviour. Like {@link SUBSHELL_PLUGIN_REGISTRY_URL} this
+ * the download routes fall back to serving only what is on disk, and
+ * `subshell-server update` refuses with "this host does not fetch releases;
+ * use --from". Like {@link SUBSHELL_PLUGIN_REGISTRY_URL} this
  * has no writer of its own, so it is trusted as typed and a malformed value
  * fails at first use rather than at boot — nothing here reaches the network
- * until a node actually asks for a binary.
+ * until something actually asks for a release.
  */
-export const SUBSHELL_NODE_RELEASE_URL = IS_TEST
+export const SUBSHELL_RELEASE_URL = IS_TEST
   ? // OFF under test, always. This is the one setting whose default reaches
     // the public internet, and a suite that inherits it turns every
     // download-route case into a real GitHub request — slow, flaky, and
     // quietly asserting against whatever is published today. A test that
-    // wants the behaviour opts in through `setNodeReleaseUrlForTests`, which
+    // wants the behaviour opts in through `setReleaseUrlForTests`, which
     // points at a fake release server.
     ""
-  : env.get("SUBSHELL_NODE_RELEASE_URL").default(DEFAULT_NODE_RELEASE_API).asString().replace(/\/+$/, "");
+  : env.get("SUBSHELL_RELEASE_URL").default(DEFAULT_RELEASE_API).asString().replace(/\/+$/, "");
+
+/**
+ * How many database backups `subshell-server update` keeps (spec 2026-09-15
+ * §4.1). `0` = keep forever — the same spelling as
+ * {@link SUBSHELL_LOG_RETENTION_DAYS}'s opt-out, deliberately, because an
+ * operator who has learned one of these has learned both.
+ *
+ * Five is a compromise: a backup is the WHOLE database (credential hashes,
+ * API-key hashes, audit rows, channel ciphertext), so keeping every one of
+ * them forever accumulates the most sensitive bytes this app writes, while
+ * keeping one means a second failed update overwrites the snapshot the first
+ * one would have been recovered from.
+ */
+export const DEFAULT_DB_BACKUPS_KEEP = 5;
+
+/** Configured backup retention count; see {@link DEFAULT_DB_BACKUPS_KEEP}. */
+// `asInt`, not `asIntPositive`: 0 is the documented keep-forever opt-out and
+// would be rejected as non-positive. Anything <= 0 prunes nothing.
+export const SUBSHELL_DB_BACKUPS_KEEP = env.get("SUBSHELL_DB_BACKUPS_KEEP").default(DEFAULT_DB_BACKUPS_KEEP).asInt();
 
 /**
  * The npm registry `local` fetches plugin installs from (phase 3). The URL

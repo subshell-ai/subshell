@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION, RELEASE_MANIFEST_NAME } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { downloadsRoutes } from "@/api/downloads.route.js";
@@ -21,7 +22,7 @@ import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { resetReleaseCacheForTests, setNodeReleaseUrlForTests } from "@/services/node-release.js";
+import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 // Assembled like createApp(): the GLOBAL error handler is mounted before the
@@ -659,7 +660,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         // the operator can check (the server could not provide one, and why)
         // and keeps the hand-publish route as the fallback.
         expect(gone404.stderr).toContain("could not provide a linux-x64 agent binary");
-        expect(gone404.stderr).toContain("SUBSHELL_NODE_RELEASE_URL");
+        expect(gone404.stderr).toContain("SUBSHELL_RELEASE_URL");
         expect(gone404.stderr).toContain("subshell-node-cli-linux-x64");
         expect(gone404.stderr).toContain("GitHub Release"); // the binary-only-host path, not just release:node
         // …and it names the ASSET to copy. That name is the artifact name, so
@@ -761,12 +762,26 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
               assets: [
                 { name: `subshell-node-cli-${TARGET}`, browser_download_url: `${base}/bin` },
                 { name: `subshell-node-cli-${TARGET}.sha256`, browser_download_url: `${base}/sha` },
+                // The fifth asset (spec 2026-09-15 §3.2). Without it the plane
+                // cannot tell which protocol that agent speaks and refuses to
+                // offer the release at all — so a fake release that omits it
+                // is testing the refusal, not the fetch.
+                { name: RELEASE_MANIFEST_NAME, browser_download_url: `${base}/manifest` },
               ],
             },
           ]);
         }
         if (url.pathname === "/bin") return new Response(BODY);
         if (url.pathname === "/sha") return new Response(`${release.serveDigest}\n`);
+        if (url.pathname === "/manifest") {
+          return Response.json({
+            component: "node",
+            version: "9.9.9",
+            nodeProtocol: NODE_PROTOCOL_VERSION,
+            minAgentVersion: MIN_AGENT_VERSION,
+            commit: "0123456789abcdef0123456789abcdef01234567",
+          });
+        }
         return new Response("no", { status: 404 });
       },
     });
@@ -775,7 +790,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
 
   afterAll(async () => {
     release.stop();
-    setNodeReleaseUrlForTests(null);
+    setReleaseUrlForTests(null);
     resetReleaseCacheForTests();
     rmSync(binaryPath, { force: true });
     rmSync(`${binaryPath}.sha256`, { force: true });
@@ -784,7 +799,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
   });
 
   it("serves a target that is on NO disk by fetching it, and caches it", async () => {
-    setNodeReleaseUrlForTests(`${release.url}/releases`);
+    setReleaseUrlForTests(`${release.url}/releases`);
     resetReleaseCacheForTests();
     expect(existsSync(binaryPath)).toBe(false);
 
@@ -814,7 +829,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     // A closed port: the same OUTCOME as an unpublished build (this machine
     // cannot install), so it must be the same status — `install.sh` has a 404
     // arm and no branch for a 502.
-    setNodeReleaseUrlForTests("http://127.0.0.1:1/releases");
+    setReleaseUrlForTests("http://127.0.0.1:1/releases");
     resetReleaseCacheForTests();
     const res = await app.handle(
       new Request(`http://localhost/api/downloads/node/${TARGET}`, {
@@ -825,7 +840,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
   });
 
   it("still requires a credential — a fetch is not a way around the gate", async () => {
-    setNodeReleaseUrlForTests(`${release.url}/releases`);
+    setReleaseUrlForTests(`${release.url}/releases`);
     resetReleaseCacheForTests();
     const res = await app.handle(new Request(`http://localhost/api/downloads/node/${TARGET}`));
     expect(res.status).toBe(401);
