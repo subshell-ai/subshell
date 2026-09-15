@@ -74,6 +74,7 @@ function renderRail(initialPath: string) {
     "/settings/api-keys",
     "/settings/plugins",
     "/settings/service",
+    "/settings/updates",
     "/settings/status",
     "/settings/audit",
   ]) {

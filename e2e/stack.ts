@@ -140,6 +140,13 @@ export async function startStack(): Promise<void> {
       // otherwise fall through to the https://registry.npmjs.org default and put
       // the suite on the open network.
       SUBSHELL_PLUGIN_REGISTRY_URL: FAKE_REGISTRY_URL,
+      // Releases are OFF for the same reason, and it matters more here because
+      // there is no fake to point at: the stack runs with SUBSHELL_TEST_MODE
+      // false, so `IS_TEST` does NOT pin this empty the way it does in
+      // `bun test` — the default is the real GitHub API, and the Updates page
+      // and the agent-binary download would both reach it. Empty is the
+      // supported air-gapped configuration, which is what spec `17` asserts.
+      SUBSHELL_RELEASE_URL: "",
       // `tmux -L <name>` resolves its socket path to $TMUX_TMPDIR/tmux-<uid>/
       // <name>, so pointing TMUX_TMPDIR at the scratch dir makes EVERY tmux
       // server this run spawns (specs 05/06 start real subshells) addressable

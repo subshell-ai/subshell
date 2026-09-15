@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { updateAvailable } from "@/components/service/update-card";
+import { bundledServerUpdate } from "@/components/updates/server-card";
 import type { DesktopShell } from "@/lib/desktop";
 
 /** A Subshell SERVER shell — the only one that can bundle a server at all. */
@@ -7,23 +7,23 @@ function serverShell(overrides: Partial<DesktopShell> = {}): DesktopShell {
   return { app: "server", version: "0.2.0", platform: "macos", protocol: 1, ...overrides };
 }
 
-describe("updateAvailable", () => {
+describe("bundledServerUpdate", () => {
   it("names the bundled version only when it is newer than the running server", () => {
-    expect(updateAvailable(serverShell({ bundledServer: "0.3.0" }), "0.2.0")).toBe("0.3.0");
-    expect(updateAvailable(serverShell({ bundledServer: "0.2.0" }), "0.2.0")).toBeNull();
+    expect(bundledServerUpdate(serverShell({ bundledServer: "0.3.0" }), "0.2.0")).toBe("0.3.0");
+    expect(bundledServerUpdate(serverShell({ bundledServer: "0.2.0" }), "0.2.0")).toBeNull();
     // An older shell sends no `b=` at all, and a browser sends no marker.
-    expect(updateAvailable(serverShell(), "0.2.0")).toBeNull();
-    expect(updateAvailable(null, "0.2.0")).toBeNull();
+    expect(bundledServerUpdate(serverShell(), "0.2.0")).toBeNull();
+    expect(bundledServerUpdate(null, "0.2.0")).toBeNull();
   });
 
   it("says nothing while the server version is still unknown", () => {
     // A cached PWA can outlive the field; offering an update against an
     // unknown current version would be a guess presented as a fact.
-    expect(updateAvailable(serverShell({ bundledServer: "0.3.0" }), undefined)).toBeNull();
+    expect(bundledServerUpdate(serverShell({ bundledServer: "0.3.0" }), undefined)).toBeNull();
   });
 
   it("never offers a DOWNGRADE when the shell is older than the server", () => {
-    expect(updateAvailable(serverShell({ platform: "linux", bundledServer: "0.1.0" }), "0.4.0")).toBeNull();
+    expect(bundledServerUpdate(serverShell({ platform: "linux", bundledServer: "0.1.0" }), "0.4.0")).toBeNull();
   });
 
   // Subshell Client ships no server, so it never sends `b=` and the card would
@@ -33,7 +33,7 @@ describe("updateAvailable", () => {
   // no assistant to raise.
   it("offers nothing in Subshell Client, whatever it claims to bundle", () => {
     const client: DesktopShell = { app: "client", version: "0.3.0", platform: "linux", protocol: 1 };
-    expect(updateAvailable(client, "0.2.0")).toBeNull();
-    expect(updateAvailable({ ...client, bundledServer: "9.9.9" }, "0.2.0")).toBeNull();
+    expect(bundledServerUpdate(client, "0.2.0")).toBeNull();
+    expect(bundledServerUpdate({ ...client, bundledServer: "9.9.9" }, "0.2.0")).toBeNull();
   });
 });

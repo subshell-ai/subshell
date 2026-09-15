@@ -11,6 +11,7 @@ const GROUP_PAGES = [
   "/settings/api-keys",
   "/settings/plugins",
   "/settings/service",
+  "/settings/updates",
   "/settings/status",
   "/settings/audit",
 ];

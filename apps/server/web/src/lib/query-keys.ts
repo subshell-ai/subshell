@@ -51,6 +51,13 @@ export const SERVER_DEPLOYMENT_QUERY_KEY = ["server-deployment"] as const;
 export const SERVER_LOGS_QUERY_KEY = ["server-logs"] as const;
 
 /**
+ * Everything the Updates page renders (`GET /api/admin/updates`); read via
+ * `useUpdates`. ONE key for all three cards, because it is one read — splitting
+ * it would leave the cards disagreeing about which release list they saw.
+ */
+export const UPDATES_QUERY_KEY = ["updates"] as const;
+
+/**
  * The desktop shell's standing with macOS (`desktop_permissions`); read via
  * `useDesktopPermissions`. Not an API read — it goes over the webview's IPC,
  * and it answers nothing at all in a browser.

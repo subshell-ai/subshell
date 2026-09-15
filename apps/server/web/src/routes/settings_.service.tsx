@@ -6,7 +6,6 @@ import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
 import { SupervisionCard } from "@/components/service/supervision-card";
-import { UpdateCard } from "@/components/service/update-card";
 import { Button } from "@/components/ui/button";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -75,10 +74,12 @@ function ServicePage() {
             />
           )}
           {isLoading && !view && <p className="text-muted-foreground text-sm">Loading…</p>}
-          {/* First, and outside the `view` branch: an update is worth
-              offering even if the deployment read failed, and it renders
-              nothing at all in a browser. */}
-          <UpdateCard serverVersion={publicSettings?.serverVersion} />
+          {/* The bundled-server offer that used to lead this page is on
+              `/settings/updates` now (spec 2026-09-15 §6), folded into the
+              Server card there: "this app ships a newer server" and "the
+              release source has a newer server" are two answers to one
+              question, and on two pages a person had to choose which to
+              believe. */}
           {view && (
             <>
               <DevProxyNotice />

@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
+  ArrowUpCircle,
   ChevronDown,
   ChevronLeft,
   ExternalLink,
@@ -102,6 +103,9 @@ const NAV_ENTRIES: NavEntry[] = [
       // named Server by default, and every card on this page is about the
       // running process — where it listens, who supervises it, what it logged.
       { to: "/settings/service", label: "Service", icon: Power, short: "Svc" },
+      // Beside Service, because the two are about the same machine: Service is
+      // the process as it runs now, Updates is what it could be running next.
+      { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },
       { to: "/settings/status", label: "Status", icon: Activity, short: "Stat" },
       { to: "/settings/audit", label: "Audit log", icon: ScrollText, short: "Audit" },
     ],

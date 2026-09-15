@@ -102,3 +102,115 @@ export const DeploymentViewSchema = t.Object({
   platform: t.String({ description: "process.platform" }),
   generatedAt: t.String({ description: "ISO 8601 snapshot time" }),
 });
+
+/**
+ * `GET /api/admin/server/update` and the two routes that answer with it (spec
+ * 2026-09-15 §4.5), here for the same reason the deployment view is: THREE
+ * routes render it — the read, the re-check, and `GET /api/admin/updates`,
+ * which nests it whole — so stating it once is what keeps them from drifting.
+ */
+
+/** One published release, as every view names it. */
+export const ReleaseRefSchema = t.Object({
+  version: t.String({ description: "Strict X.Y.Z, parsed off the tag" }),
+  tag: t.String({ description: "The git tag the release carries (server-v0.7.0)" }),
+  publishedAt: t.Nullable(t.String(), {
+    description: "ISO 8601 from the release source, or null when it did not say",
+  }),
+});
+
+/** One database snapshot on disk. */
+const BackupFileSchema = t.Object({
+  path: t.String({ description: "Absolute path of the snapshot" }),
+  bytes: t.Number({ description: "Size in bytes" }),
+  at: t.String({ description: "ISO 8601 of the file's mtime — when it was written" }),
+});
+
+/** The in-process update job, polled at 1 s while one runs. */
+const UpdateJobSchema = t.Object({
+  from: t.String({ description: "The version installed when the job started" }),
+  to: t.String({ description: "The version being installed" }),
+  startedAt: t.String({ description: "ISO 8601, when the job started" }),
+  phase: t.Union(
+    [
+      t.Literal("downloading"),
+      t.Literal("verifying"),
+      t.Literal("backing-up"),
+      t.Literal("swapping"),
+      t.Literal("restarting"),
+      t.Literal("failed"),
+    ],
+    { description: "Which step is running; `failed` is terminal and survives until the next start" },
+  ),
+  received: t.Number({ description: "Bytes downloaded so far; only moves while phase is downloading" }),
+  total: t.Nullable(t.Number(), { description: "Total bytes, when the release source sent a content length" }),
+  error: t.Nullable(t.String(), { description: "Why the job stopped, when phase is failed" }),
+});
+
+/** The transaction that reverted at the last boot, kept until the next update begins. */
+const FailedUpdateSchema = t.Object({
+  from: t.String({ description: "The version installed before the swap, and restored by the revert" }),
+  to: t.String({ description: "The version installed by the swap, which could not boot" }),
+  binary: t.String({ description: "The installed binary's path" }),
+  previousBinary: t.String({ description: "Where the previous binary was kept while the swap stood" }),
+  backup: t.Nullable(t.String(), { description: "The snapshot taken before the swap, or null when there was none" }),
+  startedAt: t.String({ description: "ISO 8601, when the swap began" }),
+  origin: t.Union([t.Literal("cli"), t.Literal("api"), t.Literal("desktop")], {
+    description: "Which surface drove the update",
+  }),
+  forced: t.Optional(t.Boolean({ description: "Whether the pane-safety refusal was overridden" })),
+  error: t.String({ description: "The migration (or boot) error, flattened to a string" }),
+  failedAt: t.String({ description: "ISO 8601, when the revert ran" }),
+});
+
+/** `GET /api/admin/server/update` — can this server replace itself, and with what. */
+export const ServerUpdateViewSchema = t.Object({
+  source: t.Object(
+    {
+      url: t.Nullable(t.String(), { description: "SUBSHELL_RELEASE_URL, or null when it is empty (air-gapped)" }),
+      enabled: t.Boolean({ description: "Whether this instance fetches releases at all" }),
+    },
+    { description: "Where releases are read from" },
+  ),
+  current: t.String({ description: "The version this process is" }),
+  latest: t.Nullable(ReleaseRefSchema, { description: "The newest published server release, or null" }),
+  latestError: t.Nullable(t.String(), {
+    description: "Why latest is null while the source is on; null when the source answered, or is off",
+  }),
+  updateAvailable: t.Boolean({ description: "Whether latest is newer than current" }),
+  canApply: t.Object(
+    {
+      ok: t.Boolean({ description: "Whether an update could be applied at all right now" }),
+      reasons: t.Array(t.String({ description: "One blocker, in a sentence a page renders verbatim" }), {
+        description:
+          "Every hard blocker evaluated now — the refusals no press can overcome. Excludes the FORCIBLE pane-safety refusal (see paneSafety) and 'no newer release' (see updateAvailable)",
+      }),
+    },
+    { description: "Whether the button is live, and why not when it is not" },
+  ),
+  binary: t.Object(
+    {
+      kind: t.Union([t.Literal("compiled"), t.Literal("source"), t.Literal("unknown")], {
+        description: "Which shape the installed server is: one executable, a checkout, or nothing this host can name",
+      }),
+      path: t.Nullable(t.String(), { description: "The file an update would replace; null unless kind is compiled" }),
+      reason: t.Nullable(t.String(), { description: "Why that file cannot be replaced; null when it can" }),
+    },
+    { description: "Which file an update would replace" },
+  ),
+  paneSafety: t.Union([t.Literal("keeps"), t.Literal("kills"), t.Literal("unknown")], {
+    description:
+      "Whether the restart at the end of an update keeps live panes; drives the confirm dialog's sentence and its forced path",
+  }),
+  job: t.Nullable(UpdateJobSchema, { description: "The running (or last failed) job in this process" }),
+  lastFailure: t.Nullable(FailedUpdateSchema, { description: "The last update that reverted at boot" }),
+  backups: t.Object(
+    {
+      dir: t.String({ description: "Where snapshots are written" }),
+      keep: t.Number({ description: "How many are kept; 0 = keep forever" }),
+      count: t.Number({ description: "How many are there now" }),
+      latest: t.Nullable(BackupFileSchema, { description: "The newest snapshot, or null when there is none" }),
+    },
+    { description: "The backup that would be taken, and what is already there" },
+  ),
+});

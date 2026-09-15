@@ -99,6 +99,20 @@ export class NodesRepository extends BaseRepository {
       .execute();
   }
 
+  /**
+   * Every ENROLLED node, whoever owns it — the fleet, in name order.
+   *
+   * The one instance-wide node read, and it is deliberately narrow: it exists
+   * for `GET /api/admin/updates`, which is admin-only and asks a question about
+   * the whole fleet ("which machines are behind?"), not about one viewer's
+   * grants. Every other reader goes through `findAccessible`, which is what
+   * keeps a private node invisible. `local` is excluded because it is not an
+   * agent: the control-plane host updates with the server.
+   */
+  async listAgents(): Promise<NodeTable[]> {
+    return await this.db.selectFrom("nodes").selectAll().where("kind", "=", "agent").orderBy("name").execute();
+  }
+
   /** Every node one user owns, creation order. */
   async listByOwner(ownerUserId: string): Promise<NodeTable[]> {
     return await this.db.selectFrom("nodes").selectAll().where("ownerUserId", "=", ownerUserId).execute();

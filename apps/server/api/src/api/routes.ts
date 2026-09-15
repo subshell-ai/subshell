@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
 import { adminStatusRoutes } from "@/api/admin-status.route.js";
+import { adminUpdatesRoutes } from "@/api/admin-updates.route.js";
 import { auditRoutes } from "@/api/audit.route.js";
 import { channelRoutes } from "@/api/channels/index.js";
 import { devicesRoutes } from "@/api/devices.route.js";
@@ -72,7 +73,7 @@ const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use
  * the whole reason these groups exist, and spending it in the fullest one is
  * how the next feature route ends up paying for a regrouping.
  */
-const adminRoutes = new Elysia().use(adminStatusRoutes).use(adminServerRoutes);
+const adminRoutes = new Elysia().use(adminStatusRoutes).use(adminServerRoutes).use(adminUpdatesRoutes);
 
 /**
  * The anonymous surface — routes that deliberately do NOT `.use(authGuard)`.
