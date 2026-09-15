@@ -39,14 +39,19 @@ const INLINE_HARNESSES = 3;
  * not sitting at it — and it is the one row a person is most likely to
  * misread as their own laptop.
  *
- * **The name block has a floor, and the harness chips are what give way.** The
- * row wraps, and the name block used to be `flex-1` off a zero basis with no
- * minimum while no badge could shrink — so a node with six detected harnesses
- * squeezed the name to roughly one character, rendering a letter per line
- * under an ellipsis. `min-w-48` is the floor (the badges wrap below the name
- * instead of crushing it), and only the harness chips are truncated: the
- * OS/arch, status, `inventory stale` and ownership badges are each one chip
- * of fixed shape, and a WARNING must never hide behind a "more" control.
+ * **Three columns: identity, chips, menu — and only the middle one moves.**
+ * This was one flat wrapping row, which made both fixed things accidental.
+ * The name was `flex-1` off a zero basis with no minimum while no chip could
+ * shrink, so a node with six detected harnesses squeezed it to roughly one
+ * character — a letter per line under an ellipsis. The menu looked
+ * right-aligned only because that stretching pushed it there, so it drifted to
+ * wherever the last chip left it the moment the row wrapped. Both are columns
+ * now, fixed-width and unshrinkable, and wrapping is contained in the middle
+ * column alone.
+ *
+ * Only the harness chips truncate, behind "+N more": the OS/arch, status,
+ * `inventory stale` and ownership badges are each one chip of fixed shape, and
+ * a WARNING must never hide behind a "more" control.
  */
 export function NodeRow({
   node,
@@ -71,8 +76,13 @@ export function NodeRow({
   const overflowCount = Math.max(0, installed.length - INLINE_HARNESSES);
   const visible = showAllHarnesses ? installed : installed.slice(0, INLINE_HARNESSES);
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3">
-      <div className="min-w-48 flex-1">
+    <div className="flex items-start gap-3 rounded-lg border p-3">
+      {/* Column 1: identity. A fixed width rather than a flexible one, so the
+          name occupies the same place in every row of the list and a node with
+          many chips cannot move it. `min-w-0` is what lets `truncate` act — a
+          flex child's automatic minimum is its content, so without it a long
+          name widens this column instead of ellipsing inside it. */}
+      <div className="w-40 min-w-0 shrink-0 sm:w-48">
         <p className="truncate font-strong">{node.name}</p>
         <p className="truncate text-detail text-muted-foreground">
           {node.hostname ?? node.id}
@@ -81,40 +91,45 @@ export function NodeRow({
         </p>
       </div>
 
-      <Badge variant="outline" className="text-muted-foreground">
-        {osLabel(node.os)}
-        {node.arch ? ` · ${node.arch}` : ""}
-      </Badge>
-      <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
-      {node.inventoryStale && <Badge variant="warning">inventory stale</Badge>}
-      {visible.map((h) => (
-        <Badge key={h.harnessId} variant="outline" className="border-emerald-500/50 text-emerald-400">
-          {h.harnessId}
+      {/* Column 2: the only part that flexes, and the only part that wraps.
+          Wrapping is contained HERE rather than on the row, which is what
+          keeps the other two columns still: the chips run onto a second line
+          without dragging the menu down the row or squeezing the name. */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <Badge variant="outline" className="text-muted-foreground">
+          {osLabel(node.os)}
+          {node.arch ? ` · ${node.arch}` : ""}
         </Badge>
-      ))}
-      {overflowCount > 0 && (
-        <button
-          type="button"
-          aria-expanded={showAllHarnesses}
-          onClick={() => setShowAllHarnesses((open) => !open)}
-          className={cn(
-            badgeVariants({ variant: "outline" }),
-            "cursor-pointer text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          )}
-        >
-          {showAllHarnesses ? "Show fewer" : `+${overflowCount} more`}
-        </button>
-      )}
-      {isOwner ? <Badge variant="muted">yours</Badge> : <Badge variant="secondary">shared · {node.access}</Badge>}
+        <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
+        {node.inventoryStale && <Badge variant="warning">inventory stale</Badge>}
+        {visible.map((h) => (
+          <Badge key={h.harnessId} variant="outline" className="border-emerald-500/50 text-emerald-400">
+            {h.harnessId}
+          </Badge>
+        ))}
+        {overflowCount > 0 && (
+          <button
+            type="button"
+            aria-expanded={showAllHarnesses}
+            onClick={() => setShowAllHarnesses((open) => !open)}
+            className={cn(
+              badgeVariants({ variant: "outline" }),
+              "cursor-pointer text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            )}
+          >
+            {showAllHarnesses ? "Show fewer" : `+${overflowCount} more`}
+          </button>
+        )}
+        {isOwner ? <Badge variant="muted">yours</Badge> : <Badge variant="secondary">shared · {node.access}</Badge>}
+      </div>
 
-      {/* `ml-auto` rather than nothing, because the menu's old right-hand
-          placement was never positioned — it was a side effect of the name
-          block absorbing every pixel of free space, which only held while the
-          row fitted on ONE line. It always did, since the name had no minimum
-          and simply collapsed instead (the same defect as the crushed name
-          above). Now that the row genuinely wraps, plain flow drops the menu
-          wherever the last badge leaves it, so the edge has to be asked for. */}
-      <div className="ml-auto">
+      {/* Column 3: the menu, in the same place in every row whatever the
+          middle column does. It used to sit last in one flat wrapping row,
+          where its right-hand position was a side effect of the name block
+          stretching — so it drifted to wherever the last chip left it as soon
+          as the row wrapped. A column of its own is the thing that was
+          actually wanted. */}
+      <div className="shrink-0">
         <ActionsMenu
           label={node.name}
           items={[
