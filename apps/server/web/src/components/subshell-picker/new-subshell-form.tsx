@@ -53,16 +53,13 @@ export function canSubmit(value: NewSubshellFormValue): boolean {
 export function isSelectable(n: Node): boolean {
   // `canLaunch` is the SERVER's answer to "may this viewer start a subshell
   // here", and the one node that can be visible without it is the
-  // control-plane host with launching switched off (spec 2026-09-12). Read as
-  // `!== false` so a build talking to an older server, which omits the field,
-  // behaves exactly as it did before.
+  // control-plane host nobody is granted launch access on (spec 2026-09-12).
   //
   // Maintenance is checked SEPARATELY even though the server already ANDs it
   // into `canLaunch` (spec 2026-09-14): this row is the one unlaunchable node
-  // the list keeps, so a payload cached before the flip — or one from a
-  // server older than the flag — would otherwise offer a launch the node
-  // itself refuses at the pane.
-  return !isOfflineAgent(n) && n.canLaunch !== false && n.maintenance !== true;
+  // the list keeps, so a payload cached before the flip would otherwise offer
+  // a launch the node itself refuses at the pane.
+  return !isOfflineAgent(n) && n.canLaunch !== false && !n.maintenance;
 }
 
 /**
@@ -79,7 +76,7 @@ export function isSelectable(n: Node): boolean {
  * a person hunting for a node that had simply vanished.
  */
 export function launchableNodes(nodes: Node[]): Node[] {
-  return nodes.filter((n) => n.canLaunch !== false || n.maintenance === true);
+  return nodes.filter((n) => n.canLaunch !== false || n.maintenance);
 }
 
 /**
@@ -98,10 +95,13 @@ export function hideMachineField(nodes: Node[]): boolean {
   const targets = launchableNodes(nodes);
   const sole = targets.length === 1 ? targets[0] : undefined;
   // The rule is "one possible answer, so no question" — which means the sole
-  // row has to BE an answer. A host in maintenance is listed but unpickable
-  // (zero possible answers), and hiding the field there would leave the
-  // greyed row that explains the whole situation off the screen, above a form
-  // that cannot submit and says nothing about why.
+  // row has to BE an answer. A host in maintenance is zero answers, not one,
+  // and that screen is no longer this function's to get right: the form
+  // returns `NoLaunchTargets` before it reaches here whenever nothing is
+  // selectable, which covers the sole-host-in-maintenance case completely.
+  // The check stays as a belt against a caller that renders the fields
+  // without that gate — a form whose one field offers only a greyed row is a
+  // question with no answer, and hiding it makes the dead end silent.
   return sole !== undefined && sole.kind === "local" && isSelectable(sole);
 }
 

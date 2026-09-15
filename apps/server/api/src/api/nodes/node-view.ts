@@ -259,9 +259,16 @@ export const GetNodeResponseSchema = t.Object({
  * immediately after taking a machine out of service. `failed` is present only
  * when a kill was refused: an empty array would read as a field worth checking
  * on every ordinary success.
+ *
+ * The BASE view, not {@link GetNodeResponseSchema}: the handler answers
+ * `toNodeView` plus these two fields, and never the detail route's optional
+ * `shares`, `runtime` or `runningSubshells`. `@internal/backend-client` infers
+ * its types from the server's exported `App`, so declaring the wider object
+ * would teach every consumer that three fields may arrive which never do — a
+ * lie the type checker enforces on the caller rather than on us.
  */
 export const MaintenanceResponseSchema = t.Object({
-  ...GetNodeResponseSchema.properties,
+  ...NodeViewSchema.properties,
   stopped: t.Array(t.String({ description: "Subshell id this act retired" }), {
     description: "Subshells this act stopped, across every owner; empty when it turned maintenance off",
   }),

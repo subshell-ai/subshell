@@ -400,19 +400,41 @@ shares and subshell shares are two independent axes:
   deleting keys, not by the toggle.
   It governs ADDING a node only. Who may launch on one they were shared, and
   what a share confers, are the unchanged axes above.
-- **Disabling the control-plane host as a launch target** = an admin removing
-  `local`'s seeded Everyone/`edit` share row (the toggle on that node's page
-  does exactly this). The disable **survives restarts** — boot seeding creates
-  that row only when the `local` node row itself is created, never to "repair"
-  a deliberate removal. The row then vanishes from non-admin views like any
-  invisible node — no separate flag exists to drift out of sync with it.
-  **It applies to ADMINS too** (2026-09-12): `resolveNodeAccess` ranks every
-  admin at `edit` on every node, so without a rule the one person who can turn
-  the switch off was the one person it never applied to. `nodeCanLaunchOn`
-  reads the GRANTED access for `local` — the boost grants management, never
-  launch — which makes `local` the one node that can be visible and
-  unlaunchable at once. The admin must keep seeing it to switch it back on, so
-  that refusal is a **403**, not the 404 an invisible node answers with.
+- **Two axes stop launches on a node, not two switches** (spec 2026-09-14).
+  Shares answer WHO may launch; **maintenance** answers whether anyone may.
+  - *Narrowing the control-plane host* is still an admin removing `local`'s
+    seeded Everyone/`edit` share row. It **survives restarts** — boot seeding
+    creates that row only when the `local` node row itself is created, never to
+    "repair" a deliberate removal — and the row then vanishes from non-admin
+    views like any invisible node. **It applies to ADMINS too** (2026-09-12):
+    `nodeCanLaunchOn` reads the GRANTED access for `local`, so the boost grants
+    management and never launch. The refusal is a **403**, not the 404 an
+    invisible node answers with, because the admin must keep seeing the row to
+    widen it again. The remedy is a share.
+  - *Maintenance* is a per-node flag every node has, `local` included: the
+    machine stays enrolled and answers every other command but takes no new
+    subshells, and turning it on **terminates every subshell running there,
+    whoever owns them**. `PUT /api/nodes/:id/maintenance` is owner-only (admin
+    on `local`) — the delete/re-share gate, not `nodeCanConfigure` — and the
+    machine's own `subshell maintenance on|off` sets the same flag. Audited
+    `node.maintenance.update` from both origins, actor null when the machine
+    decided.
+  - It **reaches past the person who throws it**: any node share lets a
+    grantee launch there, and what they launch is private to them, so an owner
+    stops work they cannot enumerate. They are told a COUNT only
+    (`runningSubshells`, manage-gated on the node detail — itself a disclosure
+    of how much invisible work sits on that machine); the affected owners learn
+    by push. Retroactive on purpose, unlike `allow_node_enrollment`, which
+    bounds only the future.
+  - **Either end may overrule the other** (newer stamp wins, ties to the
+    plane), so a COMPROMISED machine can always clear its own flag. That costs
+    nothing: whoever can send that frame holds the node key, so they are the
+    local OS user and already own every pane, file and pane-argv token there.
+    **Maintenance is a routing preference, never a quarantine** — it keeps
+    answering every other command. Containment is deleting the node, rotating
+    or disabling its key, or clearing its shares, all cookie-gated and out of a
+    node key's reach. The node's own fail-closed mirror check is defence in
+    depth against a plane that has not learned yet, not a second switch.
 - **Agent artifacts are never anonymous.** Prebuilt `subshell` binaries and
   their `.sha256` digests (`GET /api/downloads/node/*`) require a signed-in
   session cookie OR a valid unconsumed setup key; `GET /install.sh` renders a

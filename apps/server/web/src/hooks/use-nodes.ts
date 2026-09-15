@@ -2,7 +2,7 @@ import type { NodeServiceVerb } from "@internal/subshell-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { NODE_QUERY_KEY, NODES_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
-import type { CreatedSetupKey, Node, NodeDetail, RotatedNodeKey, SetupKeyRow } from "@/types/node";
+import type { CreatedSetupKey, MaintenanceResult, Node, NodeDetail, RotatedNodeKey, SetupKeyRow } from "@/types/node";
 
 /**
  * Node registry reads/writes (spec 2026-08-31 §9). All endpoints are
@@ -170,16 +170,22 @@ export function useRotateNodeKey(id: string) {
  * the node queries nothing else on the page refetches them (the same
  * cross-domain reason `useRotateNodeKey` carries).
  *
- * The answer is the updated node view, but the detail cache is INVALIDATED
- * rather than written through — the detail row also carries `shares`,
- * `runtime` and `runningSubshells`, and the last of those is exactly the
- * number this mutation just changed.
+ * The answer is the updated node view plus `stopped` and, when the node
+ * refused a kill, `failed` — which a caller must SURFACE rather than discard
+ * (`lib/node-maintenance.ts` holds the wording). A refused kill is not in
+ * `stopped` precisely so nobody is told a pane is down and walks away from a
+ * machine still running it, and typing this response as a plain view threw
+ * that away at the last step.
+ *
+ * The detail cache is INVALIDATED rather than written through — the detail row
+ * also carries `shares`, `runtime` and `runningSubshells`, and the last of
+ * those is exactly the number this mutation just changed.
  */
 export function useSetNodeMaintenance(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (on: boolean) =>
-      apiFetch<NodeDetail>(`/api/nodes/${id}/maintenance`, {
+      apiFetch<MaintenanceResult>(`/api/nodes/${id}/maintenance`, {
         method: "PUT",
         body: JSON.stringify({ on }),
       }),

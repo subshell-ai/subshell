@@ -111,10 +111,12 @@ never granted" is not a choice, and one sentence in the empty state beats the
 same sentence on every row. A node in **maintenance** is KEPT and greyed,
 labelled ` (maintenance)` as the label's last segment the way `(offline)`
 already is — it is a choice with a reason and a way back, and hiding it leaves
-a person hunting for a node that simply disappeared. That is also why
-`hideMachineField` requires its sole row to be selectable: a host in
-maintenance has zero possible answers, not one, so the field stays on screen
-carrying the greyed row that explains the whole situation.
+a person hunting for a node that simply disappeared. The sole-host-in-
+maintenance case belongs to the EMPTY STATE, not to the field: the form returns
+`NoLaunchTargets` whenever nothing is selectable, so it never renders with one
+greyed row. `hideMachineField` still requires its sole row to be selectable —
+zero answers is not one — but as a belt against a caller that skips that gate,
+not as the thing that puts a reason on screen.
 
 `no-launch-targets.tsx` therefore takes the node LIST, not `local` alone, and
 answers per machine — what is in the way (maintenance first, even on a machine
@@ -125,7 +127,12 @@ dialogs above the route, so a button that only navigates changes the page
 underneath a modal still showing this same empty state. Ending a maintenance
 window navigates to the node's page rather than PUTting from here — it re-opens
 the machine to everyone it is shared with, so it belongs beside the card that
-says what maintenance means and which end declared it.
+says what maintenance means and which end declared it. The other unlaunchable
+kind gets a different offer for a different remedy: a host nobody is granted
+launch access on is fixed by a SHARE, so the button says so and lands on the
+page whose header opens the sharing dialog. It used to read "Enable on {name}"
+and point at `LocalLaunchCard`, which is gone — an offer that ends nowhere is
+worse than no offer, and it ended nowhere for the one person who could take it.
 
 **The form asks Agent → Preset → Node → Working directory** (spec
 2026-09-13, presets replace profiles; `#picker-agent` / `#picker-preset` are
@@ -252,7 +259,12 @@ exists — it fetches the detail through the query cache at the moment the menu
 item is picked, and hedges the prompt rather than refusing the act if that read
 fails. `useSetNodeMaintenance` invalidates the subshell list beside the two
 node keys, for `useRotateNodeKey`'s reason: rows went `terminated` the instant
-it answered.
+it answered. Its response is a `MaintenanceResult`, not a node view, and both
+callers SURFACE the `failed` array — a subshell whose kill the node refused is
+deliberately not in `stopped`, and everything else on screen (the switch, the
+badge, the menu item) moves as if the flip were clean, so dropping it tells
+someone a machine is quiet while panes are still alive on it. The wording is
+`lib/node-maintenance.ts`, once, for the card and the row.
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the

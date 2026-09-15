@@ -42,8 +42,20 @@ interface Call {
   body?: string;
 }
 
-/** Serves the node detail (or refuses it) and records every request. */
-function mockFetch({ runningSubshells, detailStatus = 200 }: { runningSubshells?: number; detailStatus?: number }) {
+/**
+ * Serves the node detail (or refuses it) and records every request; the PUT
+ * answers with the flipped view plus what the act did. `failed` is present
+ * only when the node refused a kill — the case the row must not swallow.
+ */
+function mockFetch({
+  runningSubshells,
+  detailStatus = 200,
+  failed,
+}: {
+  runningSubshells?: number;
+  detailStatus?: number;
+  failed?: string[];
+}) {
   const calls: Call[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -56,7 +68,8 @@ function mockFetch({ runningSubshells, detailStatus = 200 }: { runningSubshells?
       }
       return Promise.resolve(new Response(JSON.stringify({ ...node(), runningSubshells })));
     }
-    return Promise.resolve(new Response(JSON.stringify(node({ maintenance: true }))));
+    const result = { ...node({ maintenance: true }), stopped: [], ...(failed ? { failed } : {}) };
+    return Promise.resolve(new Response(JSON.stringify(result)));
   }) as typeof fetch;
   return { calls, restore: () => (globalThis.fetch = original) };
 }
@@ -130,6 +143,41 @@ describe("NodeListRow", () => {
       );
       expect(confirm.seen).toEqual([]);
       expect(fetchMock.calls.some((c) => c.method === "GET")).toBe(false);
+    } finally {
+      confirm.restore();
+      fetchMock.restore();
+    }
+  });
+
+  it("says what the node refused to stop on the page's message line", async () => {
+    // The row's badge and menu item both move as if the flip were clean, so
+    // this line is the only thing telling the person a pane is still alive
+    // on a machine they are about to open up.
+    const fetchMock = mockFetch({ runningSubshells: 3, failed: ["s1"] });
+    const confirm = mockConfirm(true);
+    const said: (string | null)[] = [];
+    try {
+      renderRow(node(), (m) => said.push(m));
+      await pickMaintenance("mac mini", "Start maintenance…");
+      await waitFor(() => expect(said.some((m) => m?.includes("1 subshell could not be stopped"))).toBe(true));
+    } finally {
+      confirm.restore();
+      fetchMock.restore();
+    }
+  });
+
+  it("clears the line on a clean flip rather than leaving a stale warning up", async () => {
+    const fetchMock = mockFetch({ runningSubshells: 3 });
+    const confirm = mockConfirm(true);
+    const said: (string | null)[] = [];
+    try {
+      renderRow(node(), (m) => said.push(m));
+      await pickMaintenance("mac mini", "Start maintenance…");
+      await waitFor(() =>
+        expect(fetchMock.calls.some((c) => c.method === "PUT" && c.url === "/api/nodes/a1/maintenance")).toBe(true),
+      );
+      await waitFor(() => expect(said.length).toBeGreaterThan(1));
+      expect(said.every((m) => m === null)).toBe(true);
     } finally {
       confirm.restore();
       fetchMock.restore();

@@ -8,6 +8,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { attachScriptedNode, ok } from "@/test-helpers/scripted-node.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -57,8 +58,11 @@ describe("node maintenance route", () => {
    * `tmuxSocket: null` on purpose — the terminate path only reaches a launcher
    * for a row that has one, so these retire through the bookkeeping half
    * (status, token, audit) without needing a tmux server on the test host.
+   *
+   * @param tmuxSocket - a path here is what routes the kill through the row's
+   *   launcher, which is the only way a refusal can be produced at all
    */
-  async function seedRunning(id: string, userId: string): Promise<void> {
+  async function seedRunning(id: string, userId: string, tmuxSocket: string | null = null): Promise<void> {
     await db
       .insertInto("subshells")
       .values({
@@ -67,12 +71,28 @@ describe("node maintenance route", () => {
         name: id,
         harnessId: "claude-code",
         workingDir: "/tmp",
-        tmuxSocket: null,
+        tmuxSocket,
         nodeId: NODE,
         status: "running",
         alive: 1,
       } as never)
       .execute();
+  }
+
+  /** Every `node.maintenance.update` row this file's node has collected, id-keyed. */
+  async function maintenanceAudit(): Promise<Map<string, { actorUserId: string | null; meta: { source?: string } }>> {
+    const rows = await db
+      .selectFrom("auditEvents")
+      .select(["id", "actorUserId", "metadataJson"])
+      .where("targetId", "=", NODE)
+      .where("action", "=", "node.maintenance.update")
+      .execute();
+    return new Map(
+      rows.map((r) => [
+        r.id,
+        { actorUserId: r.actorUserId, meta: JSON.parse(r.metadataJson ?? "null") as { source?: string } },
+      ]),
+    );
   }
 
   function put(nodeId: string, cookie: string | undefined, on: boolean, bearer?: string) {
@@ -235,6 +255,24 @@ describe("node maintenance route", () => {
     expect(second.stopped).toEqual([]);
   });
 
+  it("names the acting human and the plane in the audit row", async () => {
+    // The ROUTE is the only place `actorUserId: user.id` and `source: "plane"`
+    // are wired together — the service takes both as arguments, so a
+    // regression to a null actor (or to `"node"`, which would read as the
+    // machine having done this to itself) passes every test of the service.
+    await put(NODE, ownerCookie, false);
+    const before = await maintenanceAudit();
+    expect((await put(NODE, ownerCookie, true)).status).toBe(200);
+
+    // Keyed on which row is NEW rather than on "the latest": rows share a
+    // millisecond stamp and their ids are unordered nanoids, so a
+    // newest-first read cannot name this act's row.
+    const added = [...(await maintenanceAudit())].filter(([id]) => !before.has(id));
+    expect(added).toHaveLength(1);
+    expect(added[0][1].actorUserId).toBe(ownerId);
+    expect(added[0][1].meta.source).toBe("plane");
+  });
+
   it("carries the running count for a manager, and withholds it from everyone else", async () => {
     await put(NODE, ownerCookie, false);
     const id = `s-mt-${crypto.randomUUID()}`;
@@ -250,5 +288,36 @@ describe("node maintenance route", () => {
     // them how much invisible work sits on a machine they do not own.
     const asEditor = (await (await get(NODE, editorCookie)).json()) as { runningSubshells?: number };
     expect(asEditor.runningSubshells).toBeUndefined();
+  });
+
+  // Last in the file: it leaves a live scripted connection and an unkilled row
+  // on the node, and detaching in a `finally` is only half of that promise.
+  it("reports a refused kill as failed, and never counts it among the stopped", async () => {
+    await put(NODE, ownerCookie, false);
+    const stubborn = `s-mt-${crypto.randomUUID()}`;
+    const willing = `s-mt-${crypto.randomUUID()}`;
+    // A socket is what routes the kill to the node at all; without one the
+    // row retires through bookkeeping alone and no refusal is reachable.
+    await seedRunning(stubborn, ownerId, `/tmp/sock-${stubborn}`);
+    await seedRunning(willing, ownerId, `/tmp/sock-${willing}`);
+    const scripted = attachScriptedNode(NODE, {
+      kill: (cmd) =>
+        cmd.type === "kill" && cmd.subshellId === stubborn ? new Error("tmux: pane is unkillable") : undefined,
+      set_maintenance: ok,
+    });
+    try {
+      const res = await put(NODE, ownerCookie, true);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { stopped: string[]; failed?: string[] };
+      expect(body.failed).toEqual([stubborn]);
+      // The one assertion the whole field exists for: a refused kill counted
+      // as stopped sends someone away from a machine still running the pane.
+      expect(body.stopped).not.toContain(stubborn);
+      expect(body.stopped).toContain(willing);
+      expect((await subshells.findById(stubborn))?.status).toBe("running");
+      expect((await subshells.findById(willing))?.status).toBe("terminated");
+    } finally {
+      scripted.detach();
+    }
   });
 });

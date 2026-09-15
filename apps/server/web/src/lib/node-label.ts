@@ -39,12 +39,9 @@ export function nodeOptionLabel(node: Pick<Node, "kind" | "status" | "name" | "o
   // A node in maintenance stays VISIBLE and greyed rather than vanishing
   // (spec 2026-09-14 §6) — unlike the share-narrowed host, which keeps
   // disappearing — so this word is the whole reason the row is still there.
-  // Compared to `true` rather than read for truthiness because a server older
-  // than the flag sends no such field, and an undefined must read as "not in
-  // maintenance" rather than sprouting a word nothing reported. BOTH suffixes
-  // can appear at once, deliberately: ending maintenance would not make a
-  // machine that is down launchable, so hiding either half sends someone to
-  // fix the wrong thing.
-  const maintenance = node.maintenance === true ? " (maintenance)" : "";
+  // BOTH suffixes can appear at once, deliberately: ending maintenance would
+  // not make a machine that is down launchable, so hiding either half sends
+  // someone to fix the wrong thing.
+  const maintenance = node.maintenance ? " (maintenance)" : "";
   return `${node.name}${platform}${offline}${maintenance}`;
 }

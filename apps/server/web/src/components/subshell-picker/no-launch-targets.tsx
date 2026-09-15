@@ -61,7 +61,15 @@ export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNaviga
   // `leaveFor` the only way this component ever moves, which is what the
   // dialog-left-open bug above cost to learn.
   const endable = nodes.filter((n) => n.maintenance && n.canManage);
-  const enableable = nodes.filter((n) => !n.maintenance && n.canLaunch === false && n.canManage);
+  // The other unlaunchable kind, and the remedy is a SHARE rather than a
+  // switch: nothing is in maintenance here, the row simply grants nobody
+  // launch access, and the card that used to flip that (`LocalLaunchCard`) is
+  // gone — it was share surgery wearing a switch's clothes. So this button
+  // names sharing, the same word the non-manager sentence and the route's own
+  // 403 use, and lands on the node page whose header opens the dialog. Calling
+  // it "Enable on {name}" pointed at a control that page no longer carries,
+  // which is the dead end this component exists to not offer.
+  const shareable = nodes.filter((n) => !n.maintenance && n.canLaunch === false && n.canManage);
 
   return (
     <div className="space-y-4 rounded-lg border border-dashed p-6 text-center">
@@ -91,9 +99,9 @@ export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNaviga
             End maintenance on {node.name}
           </Button>
         ))}
-        {enableable.map((node) => (
+        {shareable.map((node) => (
           <Button key={node.id} variant="outline" size="sm" onClick={() => openNode(node.id)}>
-            Enable on {node.name}
+            Share {node.name}
           </Button>
         ))}
         {mayAddNode && (
@@ -135,9 +143,11 @@ function blockedSentence(node: Node): string {
   if (node.canLaunch === false) {
     // Reworded per spec 2026-09-14 §2: the host's launch switch is no longer
     // a switch at all. What is left on that row is its share set, so the
-    // sentence names grants rather than an on/off nobody can find.
+    // sentence names grants rather than an on/off nobody can find, and says
+    // what to do in the route's own words (§2's reworded 403) so a person who
+    // meets both does not have to work out that they are one refusal.
     return node.canManage
-      ? `Nobody is granted launch access on ${node.name}.`
+      ? `Nobody is granted launch access on ${node.name}. Share it with Everyone or with specific people to allow launching.`
       : `Nobody is granted launch access on ${node.name}; an admin can share it.`;
   }
   return `${node.name} cannot take a subshell right now.`;

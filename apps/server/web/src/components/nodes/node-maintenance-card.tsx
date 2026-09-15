@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { useSetNodeMaintenance } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmStartMaintenance } from "@/lib/node-confirmations";
+import { maintenanceRefusalNotice } from "@/lib/node-maintenance";
 import type { NodeDetail } from "@/types/node";
 
 /**
@@ -35,12 +36,18 @@ import type { NodeDetail } from "@/types/node";
 export function NodeMaintenanceCard({ node }: { node: NodeDetail }): JSX.Element | null {
   const setMaintenance = useSetNodeMaintenance(node.id);
   const [error, setError] = useState<string | null>(null);
+  // A flip the node only PARTLY applied is not an error and not a success, and
+  // it has to be said here: the switch and the state line both move to "in
+  // maintenance", so a window where three of five kills were refused otherwise
+  // renders exactly like a clean one.
+  const [refusals, setRefusals] = useState<string | null>(null);
 
   if (!node.canManage) return null;
 
   function toggle(checked: boolean): void {
     if (setMaintenance.isPending) return;
     setError(null);
+    setRefusals(null);
     void (async () => {
       // Only the ON direction asks. Ending maintenance widens what the machine
       // accepts and loses nothing; starting it stops every subshell here —
@@ -57,6 +64,7 @@ export function NodeMaintenanceCard({ node }: { node: NodeDetail }): JSX.Element
         return;
       }
       setMaintenance.mutate(checked, {
+        onSuccess: (result) => setRefusals(maintenanceRefusalNotice(node.name, result.failed)),
         onError: (err) => setError(errMessage(err, "Couldn't change this node's maintenance state.")),
       });
     })();
@@ -88,8 +96,16 @@ export function NodeMaintenanceCard({ node }: { node: NodeDetail }): JSX.Element
           <Label>{node.maintenance ? maintenanceSinceLabel(node) : "Accepting subshells"}</Label>
         </div>
         {error && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {error}
+          </p>
+        )}
+        {/* Amber rather than destructive: the switch did what it was asked, and
+            calling it a failure would send the reader to retry a flip that has
+            already landed. What is wrong is the machine, not the act. */}
+        {refusals && (
+          <p role="alert" className="text-amber-600 text-detail dark:text-amber-400">
+            {refusals}
           </p>
         )}
       </CardContent>
@@ -103,9 +119,8 @@ export function NodeMaintenanceCard({ node }: { node: NodeDetail }): JSX.Element
  * The source is worth a clause of its own rather than a detail somewhere: "at
  * the node" means somebody is standing at that machine with a reason, which is
  * exactly what a manager should know before undoing it from a browser. Either
- * half is dropped when the server has no answer for it, so a row that was
- * flipped before the stamps existed reads as a plain fact instead of "since
- * null".
+ * half is dropped when the server has no answer for it, so a row carrying no
+ * stamp reads as a plain fact instead of "since null".
  */
 function maintenanceSinceLabel(node: NodeDetail): string {
   const since = node.maintenanceAt === null ? "" : ` since ${relativeElapsed(node.maintenanceAt)}`;

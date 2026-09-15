@@ -4,6 +4,7 @@ import { NodeRow } from "@/components/nodes/node-row";
 import { nodeDetailQuery, useSetNodeMaintenance } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmStartMaintenance } from "@/lib/node-confirmations";
+import { maintenanceRefusalNotice } from "@/lib/node-maintenance";
 import type { Node, NodeDetail } from "@/types/node";
 
 /**
@@ -42,7 +43,15 @@ export function NodeListRow({
   onShare: () => void;
   /** Delete this node (owner-only server-side) */
   onDelete: () => void;
-  /** Report a failure to the page's one error line; null clears it */
+  /**
+   * Say something on the page's one message line; null clears it.
+   *
+   * Two things travel here, and both have to: the server's refusal, and a flip
+   * that LANDED while the node refused to kill some of what was running on it.
+   * The second reads as a success everywhere else on this row — the badge
+   * flips, the menu item changes — so dropping it tells the person a machine
+   * is quiet when panes are still alive there.
+   */
   onError: (message: string | null) => void;
 }): JSX.Element {
   const queryClient = useQueryClient();
@@ -53,6 +62,7 @@ export function NodeListRow({
     if (node.maintenance) {
       // Ending only widens what the machine accepts — nothing to ask.
       setMaintenance.mutate(false, {
+        onSuccess: (result) => onError(maintenanceRefusalNotice(node.name, result.failed)),
         onError: (err) => onError(errMessage(err, `Couldn't end maintenance on ${node.name}.`)),
       });
       return;
@@ -71,6 +81,7 @@ export function NodeListRow({
     });
     if (!ok) return;
     setMaintenance.mutate(true, {
+      onSuccess: (result) => onError(maintenanceRefusalNotice(node.name, result.failed)),
       onError: (err) => onError(errMessage(err, `Couldn't start maintenance on ${node.name}.`)),
     });
   }

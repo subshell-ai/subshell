@@ -493,6 +493,21 @@ half). Most nodes are HEADLESS — the agent is installed there, the GUI never i
 | `POST /api/nodes/:id/service` | start / stop / restart / install / uninstall, as one signed `service` command |
 | `GET /api/nodes/:id/logs` | a byte range of the agent's OWN log file |
 | `PATCH /api/nodes/:id/config` | repoint the node at another control plane |
+| `PUT /api/nodes/:id/maintenance` | take the machine out of service, or put it back |
+
+**Maintenance is owner-only for a THIRD reason**, neither of the two below
+(spec 2026-09-14). It leaves the node perfectly reachable, so the structural
+argument does not apply, and it is trivially reversible, so the repointing one
+does not either. What decides it is blast radius: turning it on TERMINATES
+every subshell running on that machine, and any node share lets a grantee
+launch there, so those subshells belong to people the node's owner cannot
+enumerate and who did not act. That is the delete/re-share gate's business
+(`gate.canManage`, admins on `local`), not an `edit` grantee's. The count it
+would stop rides `GET /api/nodes/:id` as `runningSubshells` on that same
+narrower gate — whoever can pay the price is who gets told it. `local` is NOT
+refused here, unlike the three routes below: the control-plane host is a launch
+target like any other, and taking it out of service is the one management act
+that means the same thing on every kind of node.
 
 **`stop` and `uninstall` are owner-only, and the reason is structural rather
 than a permission subtlety.** Every command reaches a node over the AGENT'S OWN

@@ -800,10 +800,12 @@ describe("maintenance in the picker's pure rules", () => {
     expect(pickNodeDefault([MAINT], "m1")).toBe("");
   });
 
-  it("shows the Machine field rather than hiding it above a form that cannot submit", () => {
+  it("keeps the belt: a sole host in maintenance is zero answers, not one", () => {
     // The hidden-field rule is "one possible answer, so no question" — a host
-    // in maintenance has ZERO possible answers, which is a different thing and
-    // needs the greyed row saying so.
+    // in maintenance has ZERO possible answers, which is a different thing.
+    // On screen that case belongs to the empty state (the form returns
+    // `NoLaunchTargets` before it renders a field), so this guard is what
+    // keeps a caller skipping that gate from hiding the dead end entirely.
     const host = node({ id: "local", kind: "local", maintenance: true, canLaunch: false });
     expect(hideMachineField([host])).toBe(false);
     expect(hideMachineField([node({ id: "local", kind: "local" })])).toBe(true);
@@ -824,13 +826,15 @@ describe("launchableNodes", () => {
 });
 
 describe("nowhere to launch", () => {
-  it("replaces the form with the two ways out, and offers the host switch to whoever manages it", async () => {
+  it("replaces the form with the two ways out, and offers the SHARE to whoever manages the host", async () => {
     const off = node({ id: "local", name: "Server", kind: "local", canManage: true, canLaunch: false });
     const restore = mockFetch([off], [CLAUDE]);
     try {
       await renderForm();
       await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());
-      expect(screen.getByRole("button", { name: "Enable on Server" })).toBeDefined();
+      // Not "Enable on Server": the card that button pointed at is gone, and
+      // what is left on that row is its share set.
+      expect(screen.getByRole("button", { name: "Share Server" })).toBeDefined();
       expect(screen.getByRole("button", { name: "Add a node" })).toBeDefined();
       // The form itself is gone — there is no question left to ask.
       expect(screen.queryByLabelText("Working directory")).toBeNull();
@@ -845,7 +849,7 @@ describe("nowhere to launch", () => {
     try {
       await renderForm();
       await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());
-      expect(screen.queryByRole("button", { name: /^Enable on/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Share / })).toBeNull();
       expect(screen.getByRole("button", { name: "Add a node" })).toBeDefined();
       // Re-based on spec 2026-09-14 §2: the host's launch "switch" was never a
       // switch — it was its Everyone grant — and with the maintenance flag

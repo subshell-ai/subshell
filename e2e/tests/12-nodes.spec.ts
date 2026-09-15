@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
-import { type RunningAgent, startAgent } from "../stub/client";
+import { AGENT_MAIN, type RunningAgent, startAgent } from "../stub/client";
 import { ADMIN_STATE, dismissDirectoryPanel, openAgentPicker, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -367,6 +367,63 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       async () => !nodeHasPane(tmuxBase, pane),
       1_500,
     );
+
+    // ── 8. Maintenance, over the real wire in BOTH directions (spec
+    // 2026-09-14). What only an end-to-end run can prove is the wire itself:
+    // that the plane's push reaches a real agent's disk, that a real CLI's
+    // write reaches the plane, and that the refusal survives the whole stack.
+    // The stopping half — terminating other people's subshells — is pinned in
+    // `set-node-maintenance.route.test.ts`, which can script a refused kill;
+    // repeating it here would cost a second launch to prove less.
+    const mirror = path.join(dataDir, "maintenance.json");
+    const mirrorSays = (on: boolean): boolean => {
+      if (!existsSync(mirror)) return false;
+      try {
+        return (JSON.parse(readFileSync(mirror, "utf8")) as { on: boolean }).on === on;
+      } catch {
+        return false; // a half-written file is not an answer
+      }
+    };
+    // Plane → machine: the agent writes its OWN mirror, which is what makes
+    // the node refuse launches even before the plane's own gate is consulted.
+    const intoMaintenance = await request.put(`/api/nodes/${nodeId}/maintenance`, { data: { on: true } });
+    expect(intoMaintenance.ok(), await intoMaintenance.text()).toBe(true);
+    await pollUntil("the node never wrote the mirror the plane pushed", agent, async () => mirrorSays(true));
+
+    // And the refusal reaches a caller as the node's reason rather than as a
+    // generic failure — the 409 an older build answered 500 for.
+    const refused = await request.post("/api/subshells", {
+      data: { harnessId: "pi", workingDir, nodeId },
+    });
+    expect(refused.status()).toBe(409);
+    expect(((await refused.json()) as { code: string }).code).toBe("NODE_IN_MAINTENANCE");
+
+    const outOfMaintenance = await request.put(`/api/nodes/${nodeId}/maintenance`, { data: { on: false } });
+    expect(outOfMaintenance.ok(), await outOfMaintenance.text()).toBe(true);
+    await pollUntil("the node never cleared the mirror", agent, async () => mirrorSays(false));
+
+    // Machine → plane: `subshell maintenance` writes the file, and the DAEMON
+    // is what tells the plane — there is no IPC between the two processes, so
+    // this also proves the heartbeat re-read actually fires.
+    const cliEnv = { ...process.env, SUBSHELL_CONFIG_HOME: home, TMUX_TMPDIR: tmuxBase };
+    const flip = spawnSync("bun", [AGENT_MAIN, "maintenance", "on", "--yes"], { env: cliEnv, encoding: "utf8" });
+    expect(flip.status, `${flip.stdout ?? ""}${flip.stderr ?? ""}`).toBe(0);
+    await pollUntil("the plane never learned the machine's own flip", agent, async () => {
+      const res = await request.get(`/api/nodes/${nodeId}`);
+      if (!res.ok()) return false;
+      const view = (await res.json()) as { maintenance: boolean; maintenanceSource: string | null };
+      // `source` is the half a person reads on the page: the machine said this,
+      // not a browser.
+      return view.maintenance === true && view.maintenanceSource === "node";
+    });
+    // Leave it launchable: the teardown below deletes the node, and a machine
+    // left in maintenance would make the next run's failure message a puzzle.
+    const unflip = spawnSync("bun", [AGENT_MAIN, "maintenance", "off"], { env: cliEnv, encoding: "utf8" });
+    expect(unflip.status, `${unflip.stdout ?? ""}${unflip.stderr ?? ""}`).toBe(0);
+    await pollUntil("the plane never learned the machine ended maintenance", agent, async () => {
+      const res = await request.get(`/api/nodes/${nodeId}`);
+      return res.ok() && ((await res.json()) as { maintenance: boolean }).maintenance === false;
+    });
   } finally {
     const leaks: string[] = [];
     // Order matters: daemon first (the node must flip offline before DELETE),

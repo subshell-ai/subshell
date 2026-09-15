@@ -47,8 +47,20 @@ interface Call {
   body?: string;
 }
 
-/** Records every request; the maintenance PUT answers with the flipped view. */
-function mockFetch(status = 200, message = "nope") {
+/**
+ * Records every request; the maintenance PUT answers with the flipped view
+ * plus what the act did. `failed` rides the answer only when the node refused
+ * a kill, which is exactly the case this card must not render as a clean flip.
+ */
+function mockFetch({
+  status = 200,
+  message = "nope",
+  failed,
+}: {
+  status?: number;
+  message?: string;
+  failed?: string[];
+} = {}) {
   const calls: Call[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -58,7 +70,8 @@ function mockFetch(status = 200, message = "nope") {
     if (status !== 200) {
       return Promise.resolve(new Response(JSON.stringify({ message }), { status }));
     }
-    return Promise.resolve(new Response(JSON.stringify(node({ maintenance: true }))));
+    const result = { ...node({ maintenance: true }), stopped: [], ...(failed ? { failed } : {}) };
+    return Promise.resolve(new Response(JSON.stringify(result)));
   }) as typeof fetch;
   return { calls, restore: () => (globalThis.fetch = original) };
 }
@@ -208,13 +221,45 @@ describe("NodeMaintenanceCard", () => {
   });
 
   it("renders the server's refusal on the card rather than swallowing it", async () => {
-    const fetchMock = mockFetch(403, "Only the node's owner can do that");
+    const fetchMock = mockFetch({ status: 403, message: "Only the node's owner can do that" });
     const confirm = mockConfirm(true);
     try {
       renderCard(node({ runningSubshells: 0 }));
       fireEvent.click(screen.getByRole("switch"));
       expect(await screen.findByRole("alert")).toBeDefined();
       expect(screen.getByRole("alert").textContent).toContain("Only the node's owner can do that");
+    } finally {
+      confirm.restore();
+      fetchMock.restore();
+    }
+  });
+
+  it("says what the node REFUSED to stop, rather than rendering a partial flip as a clean one", async () => {
+    // The switch and the state line both move to "in maintenance" either way.
+    // Without this line a person is told the machine is quiet and walks away
+    // from two panes still running on it.
+    const fetchMock = mockFetch({ failed: ["s1", "s2"] });
+    const confirm = mockConfirm(true);
+    try {
+      renderCard(node({ runningSubshells: 5 }));
+      fireEvent.click(screen.getByRole("switch"));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("2 subshells could not be stopped");
+      expect(alert.textContent).toContain("mac mini is in maintenance and will launch nothing");
+    } finally {
+      confirm.restore();
+      fetchMock.restore();
+    }
+  });
+
+  it("stays silent on a clean flip", async () => {
+    const fetchMock = mockFetch();
+    const confirm = mockConfirm(true);
+    try {
+      renderCard(node({ runningSubshells: 5 }));
+      fireEvent.click(screen.getByRole("switch"));
+      await waitFor(() => expect(putBodies(fetchMock.calls)).toEqual(['{"on":true}']));
+      expect(screen.queryByRole("alert")).toBeNull();
     } finally {
       confirm.restore();
       fetchMock.restore();

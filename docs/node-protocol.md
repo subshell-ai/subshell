@@ -136,7 +136,7 @@ names both the required and the found version. It is bumped deliberately,
 whenever a server needs newer agent behaviour.
 
 **Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from
-`NODE_PROTOCOL_VERSION` (currently `7`) is refused **in either direction**. There
+`NODE_PROTOCOL_VERSION` (currently `8`) is refused **in either direction**. There
 is no compatibility window and no per-feature gating: server and agent ship
 together, so a mismatch is a deployment out of step, not a node to be carried.
 The close reason names both numbers.
@@ -237,6 +237,7 @@ nowhere near the directories subshells are allowed to run in.
 | `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the control plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at `FS_LS_MAX_ENTRIES` (1000) |
 | `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof` |
 | `remove_paths` | Delete paths |
+| `set_maintenance` | Write the node's maintenance mirror (`<dataDir>/maintenance.json`, 0600, atomic) with the plane's `{ on, changedAt }` bytes VERBATIM — re-stamping here would make the two copies differ by exactly the delay between them, and the next reconnect would reconcile a disagreement this relay invented. It kills nothing: a plane-side flip has already terminated every row it knew about through the ordinary per-subshell path, which does the bookkeeping (token revocation, audit, the owner's push) a blind kill on the machine would not |
 | `set_allowed_dirs` | Replace the node's persisted directory allowlist. The node stores it at `<dataDir>/allowed-dirs.json` (0600) and checks every `launch` against its OWN copy — signing proves who sent a launch, never whether the directory is permitted. An empty array clears the rules (unrestricted). Pushed on every owner edit and again after each `ready`, which is what reconciles a node that was offline for an edit |
 
 **Status**
@@ -258,8 +259,9 @@ through `isNodeSubshellId` — hex and hyphen, ≤ 64 chars. A hostile
 
 | Event | |
 |---|---|
-| `ready` | First frame — identity, versions, capabilities, the subcommand-less `selfInvoke` prefix (`mcp` and `report` both append to it), the resume-path `homeDir` (§3, spec 2026-09-10 §5; the resume env is NOT here — it is asked by name on `detect`), and, from agents that report it, the `runtime` supervision snapshot (spec 2026-09-12 §6.1) |
+| `ready` | First frame — identity, versions, capabilities, the subcommand-less `selfInvoke` prefix (`mcp` and `report` both append to it), the resume-path `homeDir` (§3, spec 2026-09-10 §5; the resume env is NOT here — it is asked by name on `detect`), and, from agents that report it, the `runtime` supervision snapshot (spec 2026-09-12 §6.1) and the `maintenance` mirror (spec 2026-09-14). Both are parsed LENIENTLY — a malformed one is dropped and the `ready` still brings the node up, because the rest of the frame is what connects it and a machine whose mirror is unreadable must still reach a plane that can repair it |
 | `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp. Since protocol 3 the event carries NO plugin set (the node has none) and the agent's answer is an empty `harnesses` list — the periodic push and the `inventory` command are protocol filler the wire still expects, and the server treats the empty array as "nothing to apply" so it can never wipe the detection rows its own `detect` command collected. Those detect answers, not this event, are the node's harness facts |
+| `maintenance` | `{ on, changedAt }` — the machine flipped its own flag (`subshell maintenance on\|off` at the keyboard). It exists because a CLI process cannot talk to the running daemon: the verb writes the mirror file, and the daemon notices and reports. Sent on the heartbeat tick when the file has moved since this connection last spoke about it, and — load-bearing — from inside `reportDeath` BEFORE the `exit` frames the flip causes, since the plane serialises frames per socket and that ordering is the difference between "the operator took this machine down" and N crashes it would push as failures and try to auto-restart onto a node that refuses launches |
 | `heartbeat` | Every 15 s (`HEARTBEAT_MS`) |
 | `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — answers one command |
 | `output` | Tail bytes: `subId`, `fromByte`, `toByte`, `data_b64` |
@@ -398,13 +400,22 @@ Two numbers, changed on different schedules:
   2026-09-13): the `launch` frame's `profile` field becomes `preset`
   (`ProfileDefinitionWire` → `PresetDefinitionWire`) and the plugin-report
   settings field becomes `presetSettings` — wire-shaped, not semantic: the
-  same JSON under new names. Old numbers from the retired sequence do not
-  recur here (their history is in git).
+  same JSON under new names. **7 → 8 is node maintenance** (spec 2026-09-14):
+  one flag meaning "this machine takes no new subshells", settable at either
+  end, which is what puts THREE frames on the wire rather than one —
+  `ready.maintenance` states the machine's mirror at connect, the `maintenance`
+  event reports a flip the machine made, and `set_maintenance` carries the
+  plane's. The event exists because a CLI process cannot talk to the running
+  daemon: `subshell maintenance` writes a file, and the daemon is what tells
+  the plane. Old numbers from the retired sequence do not recur here (their
+  history is in git).
 - **`MIN_AGENT_VERSION`** — bump when the server needs newer agent *behaviour*
   that the frames alone do not express, and in the same commit as a protocol
   bump so the refusal an operator sees names a version that exists. Currently
-  `0.5.0`, raised with protocol 7 alongside the agent package's own hand-raise
-  to the same number.
+  `0.6.0`, raised with protocol 8 alongside the agent package's own hand-raise
+  to the same number. An agent below it speaks no `set_maintenance`, so the
+  plane could set a flag that machine would never honour — the floor turns that
+  into "update the agent" instead of a launch that quietly proceeds.
 
 An exact-match protocol was chosen over a compatibility window on purpose. A
 window buys the ability to add a command without a node rollout and pays for it

@@ -125,7 +125,7 @@ export function buildNodeOptions(nodes: readonly Node[], agent: LaunchAgent | nu
       // is the one that has to explain itself here. Harness fit is not even
       // asked: a machine nobody may launch on does not owe an answer about
       // which agent it has.
-      const maintenance = n.maintenance === true;
+      const maintenance = n.maintenance;
       const fit = !offline && !maintenance && agent !== null ? harnessFitsNode(n, agent.id) : null;
       const opt: ComboboxOption = {
         value: n.id,

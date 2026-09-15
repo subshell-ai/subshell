@@ -591,11 +591,54 @@ loopback-ish, a remote node will dutifully dial its own machine. The enroll flow
 and the Nodes page surface the resolved URL and warn on loopback; public settings
 carries `appBaseUrl` so the dialog shows exactly what the server will bake.
 
-**Disabling the control-plane host as a launch target** means an admin removing
-the `local` node's seeded Everyone/`edit` share row (the toggle on that node's
-own page does exactly this). The disable survives restarts: boot seeding creates
-that row only when the `local` node row itself is created, never to "repair" a
-deliberate removal. There is no separate flag to drift out of sync with it.
+**Two different things can stop launches on a node, and they are two axes
+rather than two switches** (spec 2026-09-14). Shares answer WHO may launch;
+**maintenance** answers whether anyone may.
+
+**Narrowing the control-plane host** is still an admin removing the `local`
+node's seeded Everyone/`edit` share row, and it still survives restarts: boot
+seeding creates that row only when the `local` node row itself is created,
+never to "repair" a deliberate removal. What it means is unchanged — nobody is
+granted launch access — and the remedy is a share, not a switch.
+
+**Maintenance is a per-node flag** (`nodes.maintenance`, with the stamp and the
+origin beside it) that every node has, `local` included. It says the machine
+stays enrolled and answers every other command — service control, logs,
+detection, restart, config — but takes no new subshells. Turning it on
+**terminates every subshell running there**, whoever owns them, and the two
+ends that can set it are `PUT /api/nodes/:id/maintenance` (owner only; admin on
+`local`; the same gate as delete and re-share) and the machine's own
+`subshell maintenance on|off`.
+
+Three properties of that pair are worth stating rather than inferring:
+
+- **It reaches past the person who throws it.** Any node share lets a grantee
+  launch there, and what they launch is private to them — so a node's owner
+  stops work they cannot enumerate, belonging to people who did not act. The
+  owner is told a COUNT and nothing more; the owners of those subshells learn
+  by push. `GET /api/nodes/:id` carries that count (`runningSubshells`) on the
+  manage gate alone, which is a real disclosure in its own right: it tells a
+  machine's owner how much otherwise-invisible work sits on it.
+- **It is retroactive, deliberately unlike `allow_node_enrollment`**, which
+  bounds only the future. Maintenance stops what is already running; that is
+  the point of it, and it is why the confirmation names the number.
+- **Either end may overrule the other**, newer stamp winning and ties going to
+  the plane. The plane can end a window an operator opened at the machine —
+  decision 5 of the spec, with "machine wins" offered and declined. So can the
+  reverse: a machine chooses its own stamp, so a COMPROMISED one can always
+  present a winning value and clear the flag. That costs nothing, and the
+  reason is the boundary already drawn above — whoever can send that frame
+  holds the node key, which means they are the local OS user on that machine
+  and already own every pane launched there, its files, and the bearer token in
+  each pane's argv. **Maintenance is a routing preference, never a quarantine**:
+  it keeps answering every other command, so it was never a containment control
+  and must not be described as one. What actually contains a suspect machine —
+  deleting the node, rotating or disabling its key, clearing its shares — is
+  cookie-gated, and a node key reaches none of it.
+
+The node ALSO enforces the flag from its own mirror file, fail-closed, on every
+launch. That is defence in depth against a plane that has not learned yet, not
+a second switch: both copies fall to the same credential.
 
 **It applies to ADMINS too** (2026-09-12). `resolveNodeAccess` ranks every admin
 at `edit` on every node, so before this the one person who could throw the
@@ -604,10 +647,12 @@ something different for whoever set it. `nodeCanLaunchOn` therefore reads the
 GRANTED access for `local` — the admin boost still confers management, never
 launch. Two consequences worth stating:
 
-- `local` becomes the one node in the product that is **visible and
-  unlaunchable at once**. That is deliberate: an admin has to keep seeing the
-  row to switch it back on, and a node they cannot see is a switch they cannot
-  reach.
+- `local` becomes **visible and unlaunchable at once**. That is deliberate: an
+  admin has to keep seeing the row to widen it again, and a node they cannot
+  see is a control they cannot reach. Maintenance made that state ordinary
+  rather than unique — any node in a window is visible and unlaunchable, and
+  the launch picker greys it with the reason instead of hiding it, precisely so
+  the way back is on screen.
 - Its refusal is a **403**, not the 404 an invisible node answers with. The
   404 check runs first, so the 403 can only ever name a row already on the
   caller's own Nodes page — it is not an id-existence oracle.

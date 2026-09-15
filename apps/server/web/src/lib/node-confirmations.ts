@@ -20,11 +20,7 @@
  */
 
 import { confirmAction } from "@/lib/confirm";
-
-/** `N subshells`, singular at one — the spelling `subshell-confirmations` uses. */
-function count(n: number): string {
-  return `${n} subshell${n === 1 ? "" : "s"}`;
-}
+import { subshellCount } from "@/lib/node-maintenance";
 
 /**
  * The stopping clause, whose three shapes are three different facts.
@@ -41,7 +37,7 @@ function stoppingClause(runningSubshells: number | undefined): string {
   if (runningSubshells === 0) return "Nothing is running here.";
   // "N subshells", never "N running": the server counts parked rows too, so
   // the stronger word would claim more than the number supports.
-  return `${count(runningSubshells)} running here will be stopped and their owners notified.`;
+  return `${subshellCount(runningSubshells)} running here will be stopped and their owners notified.`;
 }
 
 /**

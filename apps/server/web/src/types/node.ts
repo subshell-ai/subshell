@@ -140,6 +140,30 @@ export interface Node {
   maintenanceSource: MaintenanceSource | null;
 }
 
+/**
+ * `PUT /api/nodes/:id/maintenance` — the node view plus what the act actually
+ * did (the mirror of the backend's `MaintenanceResponseSchema`).
+ *
+ * It extends the BASE view rather than the detail one: the route answers
+ * `toNodeView` plus these two fields, so `shares`, `runtime` and
+ * `runningSubshells` never ride it. Declaring them here would teach every
+ * caller that a field exists which never arrives — the same over-advertising
+ * the route's own schema was narrowed to stop.
+ *
+ * `failed` is the half a caller must never drop. A subshell whose kill the
+ * node refused is deliberately NOT in `stopped`, because someone told a pane
+ * is down walks away from a machine that is still running it — so a flip that
+ * reports refusals has to say so where the person is looking. It rides the
+ * response only when it is non-empty, which makes its ABSENCE the clean case
+ * rather than a length to compare against zero.
+ */
+export interface MaintenanceResult extends Node {
+  /** Subshell ids this act retired, across every owner; empty when it ended maintenance */
+  stopped: string[];
+  /** Subshell ids whose kill the node refused — still alive on that machine, never counted as stopped */
+  failed?: string[];
+}
+
 /** One sharing grant on a node (mirrors the backend `NodeShareSchema`). */
 export interface NodeShare {
   /** Share row id */

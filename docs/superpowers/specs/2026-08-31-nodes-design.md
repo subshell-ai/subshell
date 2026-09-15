@@ -28,7 +28,7 @@ over a websocket (NAT-friendly, no listeners on the node), accepts only commands
 | # | Question | Decision |
 |---|----------|----------|
 | 1 | Node ownership | **Per-user nodes.** Any user registers their own machines; sharing mirrors the session-sharing model (§4 of the session-sharing spec): private by default (404-not-403), `view`/`edit` grants to Everyone or specific users, admins hold instance-wide `edit` but never delete/re-share |
-| 2 | The control-plane host | Seeded as a real `nodes` row with id `local` — one code path for dropdown/config/pinning. Admins manage it as owner; **disabling it as a launch target = an admin deleting its seeded Everyone/edit share row** (no separate flag) |
+| 2 | The control-plane host | Seeded as a real `nodes` row with id `local` — one code path for dropdown/config/pinning. Admins manage it as owner; **disabling it as a launch target = an admin deleting its seeded Everyone/edit share row** (no separate flag) — AMENDED by spec 2026-09-14: that removal still means "nobody is granted launch access", but it is no longer the only way to stop launches. `nodes.maintenance` is a separate per-node flag, on every node including this one, and the two are axes rather than rivals: shares answer WHO, maintenance answers WHETHER ANYONE |
 | 3 | Agent distribution | **The backend serves compiled `bun --compile` binaries**; the Nodes page renders a one-line install command embedding server URL + setup key |
 | 4 | Parity | Remote sessions must reach **full feature parity** with local ones; delivered in phases, each phase ships a usable system |
 
@@ -674,6 +674,11 @@ spec 2026-08-31)"** section:
 - Disabling the control-plane machine as a launch target = an admin deleting `local`'s
   seeded Everyone/edit share row (§2); the row then vanishes from non-admin views like
   any invisible node — no separate flag exists to drift out of sync with it.
+  **AMENDED by spec 2026-09-14** (node maintenance): a separate flag now exists, on
+  every node, and it does not drift because it answers a different question — a share
+  says who may launch, `nodes.maintenance` says whether anyone may, and the launch gate
+  ANDs them. Entering maintenance also terminates what is already running there, which
+  no share ever did.
 - Trusted-network posture unchanged: node→control traffic is expected to ride the same
   VPN/Tailscale; `wss://` termination is the operator's deployment. **Enroll time
   loopback trap:** if `APP_BASE_URL`/server URL is `localhost`-ish, a remote node will

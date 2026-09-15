@@ -12,15 +12,20 @@ import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets"
 import type { Node } from "@/types/node";
 
 /**
- * Two promises this empty state makes.
+ * Three promises this empty state makes.
  *
  * **Every way out CLOSES what contains it.** Every caller of the launch form
  * is a dialog `QuickAddProvider` mounts above the route
  * (`routes/__root.tsx`), so a button that only navigates changes the page
  * UNDERNEATH a modal that stays up — still showing this same empty state, over
- * the very page that fixes it. "Enable on Server" did exactly that while "Add
- * a node" did not, which made the switch-it-back-on route look broken to the
- * one person who could take it.
+ * the very page that fixes it. The host's own button did exactly that while
+ * "Add a node" did not, which made the one route out look broken to the one
+ * person who could take it.
+ *
+ * **Each reason gets the offer that actually fixes IT.** Maintenance ends from
+ * the node's card; a host nobody is granted launch access on is fixed by a
+ * share, and the button that used to say "Enable on {name}" pointed at a card
+ * this branch deleted.
  *
  * **It answers per MACHINE.** The component was shaped around one node — the
  * host with launching off — and said "no other machine is registered as a
@@ -83,10 +88,14 @@ async function mount(nodes: Node[]): Promise<{ onNavigate: ReturnType<typeof moc
 }
 
 describe("NoLaunchTargets", () => {
-  it("closes the dialog before going to the host's node page", async () => {
+  it("offers SHARING — not a switch — for a host nobody is granted launch access on, and closes first", async () => {
+    // "Enable on Server" pointed at `LocalLaunchCard`, which is gone: that
+    // page carries the Maintenance card, and maintenance is already off here.
+    // The remedy left is a share, so the button has to name one.
     const { onNavigate, restore } = await mount([LOCAL_OFF]);
     try {
-      fireEvent.click(screen.getByRole("button", { name: "Enable on Server" }));
+      expect(screen.queryByRole("button", { name: /^Enable on/ })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Share Server" }));
       expect(onNavigate).toHaveBeenCalled();
     } finally {
       cleanup();
@@ -151,7 +160,11 @@ describe("NoLaunchTargets", () => {
       node({ id: "a2", name: "old laptop", status: "offline" }),
     ]);
     try {
-      expect(screen.getByText("Nobody is granted launch access on Server.")).toBeDefined();
+      expect(
+        screen.getByText(
+          "Nobody is granted launch access on Server. Share it with Everyone or with specific people to allow launching.",
+        ),
+      ).toBeDefined();
       expect(screen.getByText("shop is in maintenance.")).toBeDefined();
       expect(screen.getByText("old laptop is offline.")).toBeDefined();
       expect(screen.queryByText(/no other machine is registered/)).toBeNull();
