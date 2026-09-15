@@ -90,14 +90,25 @@ export interface SendCommandOptions {
  * - node not connected now, or gone by the time the queued step runs →
  *   rejects `NodeRpcError("offline")`
  *
- * **A HELD socket is used when there is no live one** (spec 2026-09-15 §5.3).
- * A held agent speaks a protocol this plane does not, so it is offline for
- * every purpose but `update` — and `update` reaches it through exactly this
- * function, over a connection record that is otherwise ordinary. The narrowing
- * is not here: the ROUTE decides what may be sent to a held node, because that
- * is a policy question and this is the transport. What this does guarantee is
- * that a LIVE connection always wins, so the fallback can never steal a
- * command from a node that came back.
+ * **A HELD socket is used when there is no live one, and ONLY for `update`**
+ * (spec 2026-09-15 §5.3). A held agent speaks a protocol this plane does not,
+ * so it is offline for every purpose but `update`, and the narrowing lives
+ * HERE rather than in the routes.
+ *
+ * It was left to the routes first, on the reasoning that "what may be sent to
+ * a held node" is policy and this is transport. That was wrong as written:
+ * `getLive` used to BE the gate, so every existing caller — the service,
+ * logging, server-url, file-browse, upload, maintenance and allowed-dirs paths
+ * — passes a command with no liveness check of its own, and the fallback
+ * silently promoted all of them. A `service uninstall` posted against a node
+ * the UI shows as offline would have been parsed by an agent whose wire
+ * contract this plane explicitly refuses to speak, and `service` is not one of
+ * the shapes frozen across protocol bumps — only `update` is
+ * (`node-frames.ts`). A route may still refuse a held node for its own
+ * reasons; it can no longer widen this by omission.
+ *
+ * A LIVE connection always wins, so the fallback can never steal a command
+ * from a node that came back.
  *
  * @param nodeId - target node (must have a live or held connection)
  * @param cmd - command payload (validated wire shape)
@@ -107,7 +118,7 @@ export interface SendCommandOptions {
  */
 export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendCommandOptions = {}): Promise<unknown> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
-  const conn = getLive(nodeId) ?? getHeld(nodeId)?.conn;
+  const conn = getLive(nodeId) ?? (cmd.type === "update" ? getHeld(nodeId)?.conn : undefined);
   if (!conn) {
     return Promise.reject(new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId));
   }

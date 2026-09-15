@@ -15,6 +15,7 @@ import {
   releaseHeld,
   resetNodeRegistryForTests,
 } from "../node-registry.js";
+import { sendCommand } from "../node-rpc.js";
 
 /**
  * The held map (spec 2026-09-15 §5.3): sockets the plane refuses for
@@ -164,6 +165,30 @@ describe("held connections", () => {
     // Cleared, so nothing fires minutes later against a socket already gone.
     await new Promise((r) => setTimeout(r, 5));
     expect(fired).toBe(0);
+  });
+
+  it("carries `update` to a held socket and REFUSES every other command as offline", async () => {
+    // The transport is the narrowing, not the routes. `getLive` used to be the
+    // gate, so every existing caller — the service, logging, server-url,
+    // file-browse, upload, maintenance and allowed-dirs paths — sends with no
+    // liveness check of its own. A fallback that took any command would have
+    // delivered `service uninstall` to an agent whose wire contract this plane
+    // refuses to speak, and `service` is not frozen across protocol bumps.
+    const ws = fakeSocket();
+    holdConnection("n1", attachConnection("n1", ws), holdInput());
+
+    await expect(sendCommand("n1", { type: "service", verb: "uninstall" })).rejects.toMatchObject({ code: "offline" });
+    expect(ws.sent).toHaveLength(0);
+
+    // `update` still reaches it — that is the whole reason the socket is held.
+    void sendCommand("n1", {
+      type: "update",
+      version: "9.9.9",
+      url: "http://127.0.0.1:1/subshell-node-cli-linux-x64",
+      sha256: "0".repeat(64),
+    }).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ws.sent).toHaveLength(1);
   });
 
   it("disconnectNode evicts a HELD socket too — a revoked key must not keep one open", () => {
