@@ -1139,6 +1139,23 @@ refusal is the safe default until someone builds and tests the re-derive.
   — quiet labels for data, `font-strong` for a control's label and a section
   heading — as a named pattern rather than as four local class choices.
 
+- **Publishing becomes a section of the joined card, with its necessity
+  answered (amended 2026-09-16, operator read of a live Tailscale row).** The
+  joined state flowed facts, the state sentence, the plugin's hints and the
+  publish controls as one column, and the reader could not tell whether the
+  press was required — "it's not clear to me if the user needs to or not."
+  The act now sits in its own bounded group (the join-mode box's language)
+  under a `Publish` heading, positioned BELOW the plugin's hints so
+  Tailscale's certificate-transparency cost reads as the section's preamble
+  rather than as prose about the addresses above; the section's second line
+  states the case where skipping is honest — this machine only, or an address
+  the server already allows. The published half keeps its bare standing
+  sentence: a fact among the readout, not a re-asked question. Three directly
+  fixed siblings ride the same changeset: the membership facts regained the
+  fact card's columns, every address is copyable in every state (the prop
+  that gated copying to `published` called a live mesh address "a preview"),
+  and the address values settled to the list's size.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,

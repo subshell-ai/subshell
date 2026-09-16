@@ -892,6 +892,32 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByText("Subshell is published on Tailscale.")).toBeNull();
   });
 
+  it("gives publishing its own section, and answers whether it is needed", async () => {
+    // The operator read: a joined card flowed facts, sentence, hints and the
+    // publish button as one column, and nothing said whether pressing it was
+    // required. The act now sits under its own heading, and the section states
+    // the case where skipping is honest — this machine only, or addresses the
+    // server already allows.
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    expect(screen.getByRole("heading", { name: "Publish" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "You can skip this while you only use Subshell on this machine, or at an address you have already allowed.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("asks no publish question of a published row", async () => {
+    // The published state's standing line is a FACT among the card's readout,
+    // not an opt-in: a "Publish" heading and a skip-it sentence over an
+    // already-published row would re-ask a decided question.
+    await renderCard(
+      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
+    );
+    expect(screen.queryByRole("heading", { name: "Publish" })).toBeNull();
+    expect(screen.queryByText(/You can skip this/)).toBeNull();
+  });
+
   it("names the act by the label the button under it actually carries", async () => {
     // The defect: the sentence said "publishing" while the button said
     // something else — NetBird's "Use this address" made an operator ask how to

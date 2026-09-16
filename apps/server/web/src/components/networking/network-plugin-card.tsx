@@ -680,25 +680,17 @@ export function NetworkPluginCard({
                   <NetworkAddresses addresses={status.addresses} />
                 </div>
               )}
-              {/* The standing FACT of this state, in ONE slot for both halves
-                  of it, in the same words' shape — the two states differ by
-                  one thing and the copy now says which. It sits above the
-                  publish control because it explains the button — naming the act
-                  in that button's OWN word, quoted, since the four plugins use
-                  four words (Publish / Publish with Tailscale Serve / Start
-                  tunnel / Use this address) and this sentence used to say
-                  "publishing" whatever was under it: NetBird's "Use this
-                  address" made an operator ask how to publish. And above
-                  Unpublish/Disconnect because the published half used to have
-                  no standing sentence at all: the post-publish block says what
-                  just happened and is cleared by the next act, so after a
-                  reload an admin saw addresses, hints and an Unpublish button
-                  with nothing stating the row's status. */}
-              <p className="text-detail text-muted-foreground">
-                {state === "published"
-                  ? `Subshell is published on ${row.name}.`
-                  : `Subshell is not published on ${row.name} yet — “${publishLabel}” is what lets your other devices open this dashboard over the network.`}
-              </p>
+              {/* The published half's standing FACT stays a bare line among
+                  the card's facts: it states what IS, and the controls that
+                  follow (Unpublish, Disconnect) act on the row, not on a
+                  question. The joined half is now a section — see below. The
+                  post-publish block says what JUST happened and is cleared by
+                  the next act, so after a reload an admin saw addresses,
+                  hints and an Unpublish button with nothing stating the row's
+                  status; this line is that statement. */}
+              {state === "published" && (
+                <p className="text-detail text-muted-foreground">Subshell is published on {row.name}.</p>
+              )}
               {/* Hints do not stop at the door. A network that has joined can
                   still have something to say about the addresses it did NOT
                   hand out — no certificates on the tailnet means no https
@@ -707,8 +699,35 @@ export function NetworkPluginCard({
                   that answer nowhere, under a list quietly one address short. */}
               <NetworkHints hints={status.hints} />
 
+              {/* **The publish act is a section, not a button in a list**
+                  (2026-09-16, operator read): a joined card flowed facts →
+                  sentence → hints → checkbox → button as one undifferentiated
+                  column, and the question "do I even need to publish?" had no
+                  address — the opt-in hid inside the readout. The box is the
+                  join-mode box's language (a bounded control group with its
+                  own heading, like "Addresses" for the list), it sits BELOW
+                  the plugin's hints so Tailscale's certificate-transparency
+                  cost reads as this section's preamble rather than as a
+                  paragraph about the addresses above, and its second sentence
+                  answers necessity outright — the honest answer includes the
+                  case where publishing is not needed. The button keeps the
+                  plugin's own quoted word inside, and the sentence that used
+                  to float above the hints names the act in that word. */}
               {state === "joined" && (
-                <div className="space-y-2">
+                <div className="space-y-3 rounded-md border p-4">
+                  <h3 className="font-strong text-label">Publish</h3>
+                  <p className="text-detail text-muted-foreground">
+                    Subshell is not published on {row.name} yet — “{publishLabel}” is what lets your other devices open
+                    this dashboard over the network.
+                  </p>
+                  {/* The necessity question, answered before it is asked: the
+                      section exists because an operator could not tell from
+                      the card whether this press was required, and the honest
+                      answer has an if-clause. */}
+                  <p className="text-detail text-muted-foreground">
+                    You can skip this while you only use Subshell on this machine, or at an address you have already
+                    allowed.
+                  </p>
                   <label className="flex items-start gap-2" htmlFor={`network-${row.id}-promote`}>
                     <input
                       id={`network-${row.id}-promote`}
