@@ -14,7 +14,7 @@
 // biome-ignore-all assist/source/organizeImports: entry prelude must evaluate first — see comment
 import "./cli-bootstrap.js";
 import { resolve } from "node:path";
-import { getHarness } from "@internal/pane-runtime";
+import { getHarness, setPluginDataDir } from "@internal/pane-runtime";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
 import { isCliEngaged } from "@/cli.js";
@@ -25,6 +25,7 @@ import {
   HOST,
   SERVER_PORT,
   SUBSHELL_LOG_RETENTION_DAYS,
+  SUBSHELL_SERVER_DATA_DIR,
 } from "@/constants.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
@@ -37,6 +38,8 @@ import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
+import { prepareNetworkGuards, prepareNetworkProcesses } from "@/services/network/prepare.js";
+import { stopAllProcesses } from "@/services/network/supervisor.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
@@ -160,13 +163,48 @@ async function bootServer(): Promise<void> {
   //
   // Seeding can add a built-in this instance has never had (the plugins-seed
   // record), so this runs before anything reads what the host offers.
+  //
+  // The data dir has to be named BEFORE any plugin code runs: a plugin host
+  // built without one has no secret store and no state directory, and a
+  // network plugin asked whether it holds a credential would be told no
+  // forever. `plugin-host.ts` defaults rather than refusing, so this is the
+  // one call that makes the default right for this process.
+  setPluginDataDir(SUBSHELL_SERVER_DATA_DIR);
   try {
     await prepareLocalPlugins();
   } catch (err) {
     getLogger().withError(err).warn("could not prepare this host's plugins at boot; will retry next start");
   }
 
+  // Network guards go in BEFORE the listener (spec 2026-09-15 network
+  // plugins): a tunnel that survived this restart is already resolvable, so
+  // the first request over it can arrive in the same millisecond the port
+  // opens, and a guard installed after that is a guard that missed requests.
+  try {
+    await prepareNetworkGuards();
+  } catch (err) {
+    getLogger().withError(err).warn("could not install network request guards at boot");
+  }
+
+  // Children of this process, so nothing else reaps them: an exit that left
+  // them running would leave a tunnel pointing at a port about to stop
+  // answering. Registered before the listener for the same reason the stop
+  // exists at all — the window in which a signal can arrive starts now.
+  installShutdownHandlers();
+
   await startServer({ port: SERVER_PORT, host: HOST });
+
+  // ...and the processes AFTER it. A tunnel proxies to this port, so starting
+  // one before the server answers publishes a machine that returns connection
+  // refused — worse than being briefly absent, because it is briefly WRONG.
+  // This is also where a `SERVER_PORT` an admin changed while the server was
+  // down is reconciled, which is the one thing the (memoryless) plugin cannot
+  // notice for itself.
+  try {
+    await prepareNetworkProcesses();
+  } catch (err) {
+    getLogger().withError(err).warn("could not start network plugin processes at boot");
+  }
 
   // The transaction completes only once this version is SERVING: migrations
   // passing is necessary and not sufficient — a binary that migrates and then
@@ -282,4 +320,38 @@ async function bootServer(): Promise<void> {
   setInterval(() => {
     void idleWatcher.tick(Date.now());
   }, IDLE_TICK_MS);
+}
+
+/**
+ * Stops the supervised network children on the way out.
+ *
+ * `performRestart` does the same thing on the restart path; this covers the
+ * other two ways this process ends — a service manager's SIGTERM and a
+ * developer's Ctrl-C. Registering a handler for either REPLACES the default
+ * (which is to die), so both branches exit explicitly, and a second signal is
+ * ignored rather than starting a second teardown.
+ *
+ * The deadline is not paranoia about our own code — `disarmProcess` is bounded
+ * by its own SIGTERM grace — but about a child that ignores both signals while
+ * systemd's `TimeoutStopSec` runs down. Exiting late looks like a hung server;
+ * exiting is what the operator asked for.
+ */
+function installShutdownHandlers(): void {
+  let stopping = false;
+  const shutdown = (signal: NodeJS.Signals): void => {
+    if (stopping) return;
+    stopping = true;
+    getLogger().info(`received ${signal}; stopping supervised network processes`);
+    const deadline = setTimeout(() => process.exit(0), 10_000);
+    // Never blocks the exit on an unref'd timer of its own.
+    deadline.unref?.();
+    void stopAllProcesses()
+      .catch((err: unknown) => getLogger().withError(err).warn("could not stop every network process cleanly"))
+      .finally(() => {
+        clearTimeout(deadline);
+        process.exit(0);
+      });
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }

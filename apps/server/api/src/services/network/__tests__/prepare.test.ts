@@ -1,0 +1,342 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import type {
+  NetworkAddress,
+  NetworkPlugin,
+  NetworkPluginEntry,
+  PluginPlatform,
+  RequestGuardSpec,
+  SupervisedProcessSpec,
+} from "@internal/pane-runtime";
+import { SERVER_PORT } from "@/constants.js";
+import type { AuditEventInput } from "@/services/audit.js";
+import {
+  type NetworkPrepareDeps,
+  prepareNetworkGuards,
+  prepareNetworkProcesses,
+  setNetworkPrepareDepsForTests,
+} from "@/services/network/prepare.js";
+import { readNetworkState, writeNetworkState } from "@/services/network/state.js";
+
+/**
+ * Boot, without a database, a plugin registry, or a config.env this suite
+ * could damage. Every gate is a REFUSAL to act on someone's machine, so each
+ * one is asserted as "nothing was armed" rather than as an error.
+ */
+
+const guard: RequestGuardSpec = {
+  kind: "cloudflare-access",
+  hostname: "subshell.example.com",
+  teamDomain: "acme.cloudflareaccess.com",
+  aud: "aud-tag",
+};
+
+const address: NetworkAddress = {
+  url: "https://box.tail.ts.net",
+  scheme: "https",
+  label: "MagicDNS",
+  secureContext: true,
+};
+
+const processSpec: SupervisedProcessSpec = { command: "/usr/local/bin/tailscaled", args: ["serve"] };
+
+function entry(plugin: Partial<NetworkPlugin>, platforms: PluginPlatform[] = ["darwin", "linux"]): NetworkPluginEntry {
+  return {
+    manifest: { network: { platforms, exposure: "private" } } as NetworkPluginEntry["manifest"],
+    plugin: {
+      capabilities: () => [],
+      status: async () => ({ state: "published", addresses: [], hints: [] }),
+      join: async () => ({ state: "joined" }),
+      leave: async () => {},
+      ...plugin,
+    },
+  };
+}
+
+interface Recorder {
+  armed: { id: string; spec: SupervisedProcessSpec }[];
+  guards: RequestGuardSpec[][];
+  audits: AuditEventInput[];
+  origins: { id: string; addresses: NetworkAddress[] }[];
+}
+
+function recorderDeps(
+  recorder: Recorder,
+  plugins: Record<string, NetworkPluginEntry | undefined>,
+  platform: PluginPlatform = "darwin",
+): NetworkPrepareDeps {
+  return {
+    listPlugins: async () => Object.keys(plugins).map((id) => ({ id })),
+    getPlugin: (id) => plugins[id],
+    platform: () => platform,
+    arm: (id, spec) => recorder.armed.push({ id, spec }),
+    setGuards: (specs) => recorder.guards.push(specs),
+    audit: async (event) => {
+      recorder.audits.push(event);
+    },
+    trustOrigins: (id, addresses) => recorder.origins.push({ id, addresses }),
+  };
+}
+
+function recorder(): Recorder {
+  return { armed: [], guards: [], audits: [], origins: [] };
+}
+
+/** A fresh plugin id per case: `bun test` shares one process and one data dir. */
+function id(): string {
+  return `net-prepare-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+afterEach(() => {
+  setNetworkPrepareDepsForTests(null);
+});
+
+describe("prepareNetworkGuards", () => {
+  it("installs every published plugin's guard in one call", async () => {
+    const plugin = id();
+    const rec = recorder();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(recorderDeps(rec, { [plugin]: entry({ requestGuard: () => guard }) }));
+
+    await prepareNetworkGuards();
+    // One call with the complete set: appending would leave a moment in which
+    // one network's traffic was checked and another's was not.
+    expect(rec.guards).toEqual([[guard]]);
+  });
+
+  it("installs nothing for a plugin that is not published", async () => {
+    const plugin = id();
+    const rec = recorder();
+    setNetworkPrepareDepsForTests(recorderDeps(rec, { [plugin]: entry({ requestGuard: () => guard }) }));
+
+    await prepareNetworkGuards();
+    expect(rec.guards).toEqual([[]]);
+  });
+
+  it("skips a published plugin whose manifest does not name this platform", async () => {
+    const plugin = id();
+    const rec = recorder();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, { [plugin]: entry({ requestGuard: () => guard }, ["linux"]) }, "darwin"),
+    );
+
+    await prepareNetworkGuards();
+    // Manifest DATA, read without loading plugin code: a data directory
+    // carried between machines holds publishes for plugins that cannot run.
+    expect(rec.guards).toEqual([[]]);
+  });
+
+  it("skips a published plugin that will not load", async () => {
+    const plugin = id();
+    const rec = recorder();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(recorderDeps(rec, { [plugin]: undefined }));
+
+    await prepareNetworkGuards();
+    expect(rec.guards).toEqual([[]]);
+  });
+
+  it("keeps the other guards when one plugin's requestGuard throws", async () => {
+    const good = id();
+    const bad = id();
+    const rec = recorder();
+    await writeNetworkState(good, { published: true, port: SERVER_PORT });
+    await writeNetworkState(bad, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, {
+        [good]: entry({ requestGuard: () => guard }),
+        [bad]: entry({
+          requestGuard: () => {
+            throw new Error("cannot build a guard");
+          },
+        }),
+      }),
+    );
+
+    await prepareNetworkGuards();
+    expect(rec.guards).toEqual([[guard]]);
+  });
+});
+
+describe("prepareNetworkProcesses", () => {
+  it("arms the child a published plugin asks for", async () => {
+    const plugin = id();
+    const rec = recorder();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(recorderDeps(rec, { [plugin]: entry({ supervisedProcess: () => processSpec }) }));
+
+    await prepareNetworkProcesses();
+    expect(rec.armed).toEqual([{ id: plugin, spec: processSpec }]);
+  });
+
+  it("arms nothing for a plugin that is unpublished, unloadable, or on the wrong platform", async () => {
+    const unpublished = id();
+    const unloadable = id();
+    const wrongPlatform = id();
+    const rec = recorder();
+    await writeNetworkState(unloadable, { published: true, port: SERVER_PORT });
+    await writeNetworkState(wrongPlatform, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(
+        rec,
+        {
+          [unpublished]: entry({ supervisedProcess: () => processSpec }),
+          [unloadable]: undefined,
+          [wrongPlatform]: entry({ supervisedProcess: () => processSpec }, ["linux"]),
+        },
+        "darwin",
+      ),
+    );
+
+    await prepareNetworkProcesses();
+    expect(rec.armed).toEqual([]);
+  });
+
+  it("does not throw when a plugin's supervisedProcess throws", async () => {
+    const plugin = id();
+    const rec = recorder();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, {
+        [plugin]: entry({
+          supervisedProcess: () => {
+            throw new Error("the plugin is broken");
+          },
+        }),
+      }),
+    );
+
+    // A network plugin is third-party code and must never be why a boot fails.
+    await prepareNetworkProcesses();
+    expect(rec.armed).toEqual([]);
+  });
+
+  describe("the port reconcile", () => {
+    it("re-publishes on the running port, arms the new spec, trusts the origin and audits it", async () => {
+      const plugin = id();
+      const rec = recorder();
+      const newSpec: SupervisedProcessSpec = { command: "/usr/local/bin/tailscaled", args: ["serve", "--new"] };
+      await writeNetworkState(plugin, { published: true, port: 1234, addresses: [] });
+      setNetworkPrepareDepsForTests(
+        recorderDeps(rec, {
+          [plugin]: entry({
+            publish: async (ctx) => {
+              // A plugin is given no memory of the port it published on; the
+              // context is where it learns the new one.
+              expect(ctx.port).toBe(SERVER_PORT);
+              return { addresses: [address], process: newSpec };
+            },
+            unpublish: async () => {},
+            supervisedProcess: () => processSpec,
+          }),
+        }),
+      );
+
+      await prepareNetworkProcesses();
+
+      const state = await readNetworkState(plugin);
+      expect(state.port).toBe(SERVER_PORT);
+      expect(state.addresses).toEqual([address]);
+      expect(state.publishedAt).toBeDefined();
+      // The outcome's own process wins over what `supervisedProcess` would say
+      // a moment later, so the NEW tunnel is the one that runs.
+      expect(rec.armed.map((row) => row.spec)).toEqual([newSpec, processSpec]);
+      expect(rec.origins).toEqual([{ id: plugin, addresses: [address] }]);
+      expect(rec.audits).toHaveLength(1);
+      expect(rec.audits[0]).toMatchObject({ actorUserId: null, action: "network.publish", targetId: plugin });
+      expect(JSON.parse(rec.audits[0].metadataJson ?? "{}")).toMatchObject({
+        reason: "port-change",
+        from: 1234,
+        to: SERVER_PORT,
+      });
+    });
+
+    it("does not re-publish when the recorded port is the running one", async () => {
+      const plugin = id();
+      const rec = recorder();
+      let published = false;
+      await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+      setNetworkPrepareDepsForTests(
+        recorderDeps(rec, {
+          [plugin]: entry({
+            publish: async () => {
+              published = true;
+              return { addresses: [address] };
+            },
+            unpublish: async () => {},
+          }),
+        }),
+      );
+
+      await prepareNetworkProcesses();
+      expect(published).toBe(false);
+      expect(rec.audits).toEqual([]);
+    });
+
+    it("leaves the publish standing when the plugin refuses, and audits nothing", async () => {
+      const plugin = id();
+      const rec = recorder();
+      await writeNetworkState(plugin, { published: true, port: 1234 });
+      setNetworkPrepareDepsForTests(
+        recorderDeps(rec, {
+          [plugin]: entry({
+            publish: async () => ({ refused: { text: "log in to Tailscale first" } }),
+            unpublish: async () => {},
+          }),
+        }),
+      );
+
+      await prepareNetworkProcesses();
+      const state = await readNetworkState(plugin);
+      // Still the admin's standing decision; what failed is this host's
+      // attempt to honour it, and the plugin's own status() says so.
+      expect(state.published).toBe(true);
+      expect(state.port).toBe(1234);
+      expect(rec.audits).toEqual([]);
+    });
+
+    it("does not throw when the plugin throws while re-publishing", async () => {
+      const plugin = id();
+      const rec = recorder();
+      await writeNetworkState(plugin, { published: true, port: 1234 });
+      setNetworkPrepareDepsForTests(
+        recorderDeps(rec, {
+          [plugin]: entry({
+            publish: async () => {
+              throw new Error("the vendor API is down");
+            },
+            unpublish: async () => {},
+            supervisedProcess: () => processSpec,
+          }),
+        }),
+      );
+
+      await prepareNetworkProcesses();
+      expect((await readNetworkState(plugin)).published).toBe(true);
+      // The process is still armed: a failed republish is not a reason to also
+      // have no tunnel process at all.
+      expect(rec.armed).toEqual([{ id: plugin, spec: processSpec }]);
+      expect(rec.audits).toEqual([]);
+    });
+
+    it("re-installs the guard set after a republish", async () => {
+      const plugin = id();
+      const rec = recorder();
+      await writeNetworkState(plugin, { published: true, port: 1234 });
+      setNetworkPrepareDepsForTests(
+        recorderDeps(rec, {
+          [plugin]: entry({
+            publish: async () => ({ addresses: [address], guard }),
+            unpublish: async () => {},
+            requestGuard: () => guard,
+          }),
+        }),
+      );
+
+      await prepareNetworkProcesses();
+      // A republish can produce a different hostname or Access application, so
+      // everyone is re-asked rather than reasoning about whose changed.
+      expect(rec.guards).toEqual([[guard]]);
+    });
+  });
+});

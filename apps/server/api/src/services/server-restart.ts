@@ -1,3 +1,4 @@
+import { stopAllProcesses } from "@/services/network/supervisor.js";
 import { disconnectAllNodes } from "@/services/nodes/node-registry.js";
 import { closeAllViewers } from "@/ws/viewers.js";
 
@@ -21,6 +22,15 @@ export interface RestartDeps {
   closeNodes?: (code: number, reason: string) => number;
   /** Process exit (production: `process.exit`). */
   exit?: (code: number) => void;
+  /**
+   * Supervised network children (production: `stopAllProcesses`).
+   *
+   * They are children of THIS process and nothing else reaps them, so an exit
+   * that skipped this would leave a tunnel pointing at a port that is about to
+   * stop answering — which is worse than no tunnel, because it stays
+   * resolvable for as long as the restart takes.
+   */
+  stopProcesses?: () => Promise<void>;
   /** Timer (production: `setTimeout`). */
   setTimer?: typeof setTimeout;
 }
@@ -45,9 +55,18 @@ export function performRestart(deps: RestartDeps = {}): void {
   const closeViewers = deps.closeViewers ?? closeAllViewers;
   const closeNodes = deps.closeNodes ?? disconnectAllNodes;
   const exit = deps.exit ?? ((code: number) => process.exit(code));
+  const stopProcesses = deps.stopProcesses ?? stopAllProcesses;
   timer(() => {
     closeViewers(WS_CLOSE_SERVICE_RESTART, RESTART_REASON);
     closeNodes(WS_CLOSE_SERVICE_RESTART, RESTART_REASON);
-    exit(0);
+    // The sockets are closed first and the children stopped after, so the
+    // browser is already reconnecting while a daemon takes its SIGTERM grace.
+    // The exit waits for the reap rather than racing it: a tunnel outliving
+    // its server is the one outcome a restart must not produce, and a failure
+    // to stop one is not a reason to stay up — the manager is bringing this
+    // process straight back.
+    void stopProcesses()
+      .catch(() => {})
+      .finally(() => exit(0));
   }, deps.delayMs ?? 250);
 }

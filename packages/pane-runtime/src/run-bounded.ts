@@ -58,8 +58,14 @@ const MAX_TIMEOUT_MS = 10 * 60 * 1000;
  * An allowlist, not `process.env` — see the module docstring. These are the
  * variables a `curl | sh` installer or a vendor CLI legitimately needs: where
  * to put things, how to reach the network, and what locale to speak.
+ *
+ * Exported because the network supervisor spawns a LONG-RUNNING child rather
+ * than going through {@link runBounded}, and it must guard the same thing.
+ * Two allowlists over one secret are the pair that drifts, and the drift is
+ * silent in the direction that matters — nothing fails when a copy starts
+ * letting something through.
  */
-const CHILD_ENV_KEYS = [
+export const CHILD_ENV_KEYS = [
   "HOME",
   "USER",
   "LOGNAME",
@@ -82,8 +88,11 @@ const CHILD_ENV_KEYS = [
  * PATH is applied LAST and so cannot be overridden by `extra`. A caller that
  * could replace it would defeat the login-shell probe above it, and a plugin
  * that could replace it would choose which binaries this process finds.
+ *
+ * Exported for the network supervisor, which spawns its own child and needs
+ * the identical environment. See {@link CHILD_ENV_KEYS}.
  */
-function childEnv(path: string, extra?: Record<string, string>): Record<string, string> {
+export function childEnv(path: string, extra?: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const key of CHILD_ENV_KEYS) {
     const value = process.env[key];

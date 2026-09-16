@@ -124,6 +124,8 @@ export {
 export {
   type BoundedRunOptions,
   type BoundedRunResult,
+  CHILD_ENV_KEYS,
+  childEnv,
   OUTPUT_CAP,
   runBounded,
 } from "./run-bounded.js";
