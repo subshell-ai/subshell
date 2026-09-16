@@ -1,5 +1,4 @@
 import type { NetworkHint, PluginPlatform } from "@subshell-ai/plugin-api";
-import { manifest } from "./manifest.js";
 
 /** Where Tailscale documents enabling certificates and MagicDNS for a tailnet. */
 export const HTTPS_DOCS_URL = "https://tailscale.com/kb/1153/enabling-https";
@@ -22,34 +21,18 @@ const INSTALL_DOCS_URL: Record<PluginPlatform, string> = {
 };
 
 /**
- * The manifest's privileged steps for one platform, as hints.
- *
- * The steps live in package.json so a page can print them before any of this
- * code is imported (spec: the `network` block is data). Rendering them here
- * too, from the same bytes, is what keeps the "install it first" hint and the
- * "here is what to run" panel from drifting into two different commands.
- *
- * Every one of them is marked `privileged`, which is the field that tells the
- * host never to run it: the server has no terminal to answer a password
- * prompt, so a `sudo` line is something a person copies.
- */
-export function privilegedHints(platform: PluginPlatform): NetworkHint[] {
-  const steps = manifest.network?.privileged?.[platform] ?? [];
-  return steps.map((step) => ({
-    text: step.label,
-    command: step.command,
-    ...(step.docsUrl ? { docsUrl: step.docsUrl } : {}),
-    privileged: true,
-  }));
-}
-
-/**
  * What to say when there is no `tailscale` binary at all.
  *
- * Leads with the sentence and then the platform's own steps, because the
- * reader of a "not installed" row has not decided to install anything yet and
- * a bare `sudo` line with no explanation is how that decision gets made by
- * accident.
+ * ONE sentence, and deliberately no commands. The install sequence lives in
+ * `network.privileged` in package.json, as data a page renders before any of
+ * this code is imported — so a host already has it, and a status that
+ * re-emitted the same steps did not keep the two from drifting (the reason
+ * first given for doing it) but made the card render the whole sequence
+ * TWICE: "1. Install … 2. Let this server drive it", then this sentence, then
+ * "3. Install … 4. Let this server drive it".
+ *
+ * What a status knows and a manifest cannot is which state this machine is in.
+ * That is this sentence, and it is the whole contribution.
  */
 export function notInstalledHints(platform: PluginPlatform): NetworkHint[] {
   return [
@@ -57,7 +40,6 @@ export function notInstalledHints(platform: PluginPlatform): NetworkHint[] {
       text: "Tailscale is not installed on this machine. Install it, then let this server drive it.",
       docsUrl: INSTALL_DOCS_URL[platform],
     },
-    ...privilegedHints(platform),
   ];
 }
 

@@ -119,15 +119,17 @@ describe("tailscale manifest", () => {
 });
 
 describe("TailscalePlugin.status", () => {
-  it("reports not-installed, with the platform's own setup steps, when there is no binary", async () => {
+  it("reports not-installed and says so, leaving the steps to the manifest, when there is no binary", async () => {
     const { plugin, host } = scripted({}, { findBinary: async () => null, platform: "linux" });
     const status = await plugin.status(CTX);
     expect(status.state).toBe("not-installed");
     expect(status.addresses).toEqual([]);
-    // The steps come from the manifest, so the hint and the setup panel cannot
-    // print two different commands.
-    expect(status.hints.some((h) => h.command?.includes("tailscale.com/install.sh"))).toBe(true);
+    // The steps come from the manifest and are rendered from there. Repeating
+    // them here printed the whole sequence twice on the card — see
+    // `notInstalledHints`. What the status owes is the sentence naming the
+    // state, which the manifest cannot know.
     expect(status.hints.every((h) => h.text.trim() !== "")).toBe(true);
+    expect(status.hints.some((h) => h.command?.includes("tailscale.com/install.sh"))).toBe(false);
     // Nothing was run: there was nothing to run it with.
     expect(host.calls).toEqual([]);
   });
@@ -533,15 +535,31 @@ describe("TailscalePlugin: a machine without the CLI", () => {
     }
   });
 
-  it("carries a copyable command and a doc link for every install step", async () => {
-    // Detection alone is not help: a row that says "not installed" and stops
-    // leaves the operator to find the vendor's site themselves.
-    const { plugin } = scripted({}, { platform: "linux", findBinary: async () => null });
-    const status = await plugin.status(CTX);
-    expect(status.hints.length).toBeGreaterThan(1);
-    for (const hint of status.hints.slice(1)) {
-      expect(hint.command).toBeTruthy();
-      expect(hint.privileged).toBe(true);
+  it("says what is wrong and leaves the install steps to the manifest, which is rendered once", async () => {
+    // Detection alone is not help — but the help is already on screen. The
+    // `network.privileged` block in package.json IS the install sequence, and
+    // a page renders it from those bytes before any of this code is imported.
+    // Re-emitting the same steps as hints therefore did not prevent drift (the
+    // reason first given for it); it made the card render every step TWICE, as
+    // "1. Install … 2. Let this server drive it" followed by the sentence and
+    // then "3. Install … 4. Let this server drive it".
+    //
+    // So the status contributes the one thing the manifest cannot: the
+    // sentence saying which state this machine is in.
+    for (const platform of ["linux", "darwin"] as const) {
+      const { plugin } = scripted({}, { platform, findBinary: async () => null });
+      const status = await plugin.status(CTX);
+      expect(status.hints).toHaveLength(1);
+      expect(status.hints[0]?.text).toContain("not installed");
+      expect(status.hints[0]?.command).toBeUndefined();
+      expect(status.hints[0]?.docsUrl).toBeTruthy();
+
+      // Nothing the manifest already carries is repeated here.
+      const manifestCommands = (manifest.network?.privileged?.[platform] ?? []).map((step) => step.command);
+      expect(manifestCommands.length).toBeGreaterThan(0);
+      for (const hint of status.hints) {
+        expect(manifestCommands).not.toContain(hint.command as string);
+      }
     }
   });
 });

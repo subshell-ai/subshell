@@ -4,7 +4,7 @@ import { LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { NetworkAddresses } from "@/components/networking/network-addresses";
-import { NetworkHintBlock, NetworkHints } from "@/components/networking/network-hints";
+import { NetworkHintBlock, NetworkHints, NetworkNotice, splitLeadHints } from "@/components/networking/network-hints";
 import { NetworkProcessLine } from "@/components/networking/network-process-line";
 import { NetworkRestartNotice } from "@/components/networking/network-restart-notice";
 import { NetworkSettingsForm } from "@/components/networking/network-settings-form";
@@ -280,6 +280,13 @@ export function NetworkPluginCard({
 
           {state === "not-installed" && (
             <div className="space-y-3">
+              {/* The state's own sentence FIRST, in a notice. It is the one
+                  thing the live status knows that the manifest cannot, and it
+                  used to render below the steps it explains, in the same muted
+                  grey as a step label — so the card opened with "1. Install
+                  the daemon" and buried "…is not installed on this machine"
+                  in the middle of the sequence. */}
+              <NetworkNotice hints={splitLeadHints(status.hints).lead} />
               {/* The privileged steps, numbered when they are part of a
                   sequence, because running the third one first does nothing.
                   Copy-only: see the component docblock. */}
@@ -326,7 +333,10 @@ export function NetworkPluginCard({
                   whose every install path needs root, they are the ENTIRE
                   install experience, since a manifest may not ship a `sudo`
                   command and the host would refuse to run one anyway. */}
-              <NetworkHints hints={status.hints} startAt={numberSteps ? row.privileged.length + 1 : undefined} />
+              <NetworkHints
+                hints={splitLeadHints(status.hints).rest}
+                startAt={numberSteps ? row.privileged.length + 1 : undefined}
+              />
               <Button variant="outline" size="sm" onClick={recheck}>
                 Re-check
               </Button>

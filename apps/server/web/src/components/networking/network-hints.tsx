@@ -1,3 +1,4 @@
+import { Info } from "lucide-react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { safeHref } from "@/lib/safe-href";
 import type { NetworkHint } from "@/types/network";
@@ -73,6 +74,65 @@ export function NetworkHints({ hints, startAt }: { hints: NetworkHint[]; startAt
       {numbered.map(({ hint, index }) => (
         <NetworkHintBlock key={`${hint.text}${hint.command ?? ""}`} hint={hint} index={index} />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Split a hint list into the sentences that OPEN it and everything after.
+ *
+ * The lead is every hint before the first one carrying a COMMAND. That is the
+ * plugin's own convention — a list opens by saying what is wrong and then
+ * gives the commands that fix it — and it is what lets a caller render the
+ * explanation above a sequence that came from somewhere else.
+ *
+ * The cut is at the first command rather than at "every hint without one",
+ * because a sentence AFTER a plugin's commands is a different thing: it says
+ * what to do once they are done, and hoisting it would state the last
+ * instruction first. A list with no commands at all is therefore all lead —
+ * on a `not-installed` row the fix is the manifest's steps, so prose beside
+ * them is the explanation of the state, never a footnote to it.
+ */
+export function splitLeadHints(hints: NetworkHint[]): { lead: NetworkHint[]; rest: NetworkHint[] } {
+  const firstCommand = hints.findIndex((hint) => hint.command !== undefined);
+  if (firstCommand === -1) return { lead: hints, rest: [] };
+  return { lead: hints.slice(0, firstCommand), rest: hints.slice(firstCommand) };
+}
+
+/**
+ * The state's own explanation, as a notice above whatever fixes it.
+ *
+ * Distinct from {@link NetworkHintBlock} in weight, not just position: this
+ * sentence used to render in the same muted grey as a step label, below the
+ * steps it explains, so a card for a machine with nothing installed opened
+ * with "1. Install the Tailscale daemon" and said WHY somewhere in the middle.
+ * A person scanning the card never saw it.
+ *
+ * Neutral rather than the amber used for exposure: not having installed
+ * something yet is the ordinary state of a fresh machine, and spending the
+ * warning colour here would leave nothing louder for the row that puts a
+ * server on the public internet.
+ */
+export function NetworkNotice({ hints }: { hints: NetworkHint[] }) {
+  if (hints.length === 0) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2">
+      <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="space-y-1.5">
+        {hints.map((hint) => {
+          const docsUrl = safeHref(hint.docsUrl);
+          return (
+            <p key={hint.text} className="text-detail">
+              {hint.text}{" "}
+              {docsUrl && (
+                <a href={docsUrl} target="_blank" rel="noreferrer" className="underline">
+                  Docs ↗
+                </a>
+              )}
+            </p>
+          );
+        })}
+      </div>
     </div>
   );
 }

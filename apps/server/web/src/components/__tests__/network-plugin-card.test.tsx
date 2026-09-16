@@ -208,6 +208,67 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
 
+  it("leads with the state's own sentence, ABOVE the numbered steps", async () => {
+    // What a person meets first has to be what is wrong. The sentence is the
+    // one thing the live status knows and the manifest cannot, and it used to
+    // render UNDER the steps it explains — so a card opened on a machine with
+    // nothing installed began with "1. Install the Tailscale daemon" and
+    // buried "Tailscale is not installed on this machine" in the middle, in
+    // the same muted grey as a step label.
+    await renderCard(
+      row({
+        state: "not-installed",
+        privileged: [
+          { label: "Install the daemon", command: "brew install tailscale" },
+          { label: "Let this server drive it", command: "sudo tailscale set --operator=$USER" },
+        ],
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [{ text: "Tailscale is not installed on this machine.", docsUrl: "https://ts.net/install" }],
+        },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    const text = card.textContent ?? "";
+    expect(text.indexOf("Tailscale is not installed on this machine.")).toBeLessThan(
+      text.indexOf("1.Install the daemon"),
+    );
+    // A lead sentence is not step 1 of anything, so the steps still start at 1.
+    expect(text).toContain("1.Install the daemon");
+    expect(text).toContain("2.Let this server drive it");
+    // Each manifest command is rendered exactly ONCE.
+    expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(2);
+  });
+
+  it("keeps a sentence that FOLLOWS the plugin's own commands where the plugin put it", async () => {
+    // The mirror of the test above, and the reason the split is "hints before
+    // the FIRST COMMAND" rather than "every hint without a command". Once a
+    // plugin's hints carry a sequence of their own, a closing sentence
+    // explains what to do AFTER it, and hoisting that to the top would state
+    // the last instruction first.
+    await renderCard(
+      row({
+        state: "not-installed",
+        privileged: [{ label: "Install the daemon", command: "brew install tailscale" }],
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [
+            { text: "Then register it as a system daemon.", command: "sudo tailscaled install-system-daemon" },
+            { text: "Then come back and re-check." },
+          ],
+        },
+      }),
+    );
+    const text = screen.getByRole("group", { name: "Tailscale" }).textContent ?? "";
+    // Nothing is hoisted: the list opens with a command, so it has no lead.
+    expect(text.indexOf("1.Install the daemon")).toBeLessThan(text.indexOf("2.Then register it as a system daemon."));
+    expect(text.indexOf("2.Then register it as a system daemon.")).toBeLessThan(
+      text.indexOf("Then come back and re-check."),
+    );
+  });
+
   it("renders a docs link only for a URL a browser may navigate to", async () => {
     // The server strips these before they get here — twice — so this asserts
     // the sink's own refusal, which is the one an upstream omission cannot
