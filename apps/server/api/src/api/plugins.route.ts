@@ -21,6 +21,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
+import { clearNetworkState } from "@/services/network/state.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
 import {
   installLocalPlugin,
@@ -539,6 +540,12 @@ const adminRoutes = new Elysia()
         if (!stopped.ok) {
           throw new HarnessStateError([stopped.message, ...stopped.lastLines].join("\n"), 409);
         }
+        // The state file too, or the settings and the publish stamp survive
+        // the package and a later reinstall of the same id silently inherits
+        // them. The SECRETS beside it are deliberately left alone: destroying
+        // a credential is a different act from removing bytes, and
+        // `uninstallLocalPlugin` owns that directory.
+        await clearNetworkState(params.pluginId);
       }
       // Bytes next: a failed uninstall must not have already deleted
       // presets for a plugin that stayed installed. `uninstallLocalPlugin`

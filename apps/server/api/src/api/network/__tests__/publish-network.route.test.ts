@@ -119,7 +119,7 @@ describe("POST /api/network/:id/publish", () => {
     expect(done.config.warnings).toContain("a warning the CLI writer produced");
 
     // The guard is live, and the existing origin survived the union.
-    expect(activeAccessGuards()).toEqual([GUARD]);
+    expect(activeAccessGuards()).toEqual([{ pluginId: FAKE_ID, spec: GUARD }]);
     expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080,https://server.example.com" }]);
 
     const state = await readNetworkState(FAKE_ID);
@@ -130,11 +130,14 @@ describe("POST /api/network/:id/publish", () => {
 
   it("replaces only its own hostname in the guard set", async () => {
     const other: RequestGuardSpec = { ...GUARD, hostname: "someone-else.example.com" };
-    setAccessGuards([other]);
+    setAccessGuards([{ pluginId: "someone-else", spec: other }]);
     const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES, guard: GUARD } });
     setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
     await frames(await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })));
-    expect(activeAccessGuards().map((g) => g.hostname)).toEqual(["someone-else.example.com", "server.example.com"]);
+    expect(activeAccessGuards().map((g) => g.spec.hostname)).toEqual([
+      "someone-else.example.com",
+      "server.example.com",
+    ]);
   });
 
   it("answers a plugin's refusal as a done frame, not an error", async () => {
@@ -180,7 +183,7 @@ describe("POST /api/network/:id/publish", () => {
     expect(done.config.written).toBe(false);
     expect(done.config.unwritableKey).toBe("TRUSTED_ORIGINS");
     expect(config.calls).toEqual([]);
-    expect(activeAccessGuards()).toEqual([GUARD]);
+    expect(activeAccessGuards()).toEqual([{ pluginId: FAKE_ID, spec: GUARD }]);
     expect((await readNetworkState(FAKE_ID)).published).toBe(true);
   });
 

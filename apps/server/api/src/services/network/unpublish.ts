@@ -1,6 +1,6 @@
 import { getNetworkPlugin, type NetworkPluginEntry, type RequestGuardSpec } from "@internal/pane-runtime";
 import { IS_TEST } from "@/constants.js";
-import { activeAccessGuards, setAccessGuards } from "@/plugins/access-guard.plugin.js";
+import { setPluginGuards } from "@/plugins/access-guard.plugin.js";
 import { networkContext, writeNetworkState } from "@/services/network/state.js";
 import { disarmProcess, processState } from "@/services/network/supervisor.js";
 import { getLogger } from "@/utils/logger.js";
@@ -37,18 +37,15 @@ export interface UnpublishDeps {
   disarm(pluginId: string): Promise<void>;
   /** What the child last printed, for a refusal's message. */
   lastLines(pluginId: string): string[];
-  /** The guards currently installed. */
-  activeGuards(): RequestGuardSpec[];
-  /** Install a complete guard set. */
-  setGuards(specs: RequestGuardSpec[]): void;
+  /** Replace the guards owned by one plugin; empty removes them. */
+  setPluginGuards(pluginId: string, specs: RequestGuardSpec[]): void;
 }
 
 const defaultDeps: UnpublishDeps = {
   getPlugin: getNetworkPlugin,
   disarm: disarmProcess,
   lastLines: (pluginId) => processState(pluginId)?.lastLines ?? [],
-  activeGuards: activeAccessGuards,
-  setGuards: setAccessGuards,
+  setPluginGuards,
 };
 
 let depsOverride: UnpublishDeps | undefined;
@@ -114,39 +111,21 @@ export async function unpublishNetwork(pluginId: string): Promise<UnpublishResul
 }
 
 /**
- * Removes one plugin's guard from the active set, identified by VALUE.
+ * Removes one plugin's guards from the active set, identified by OWNER.
  *
- * A {@link RequestGuardSpec} carries no plugin id, and that is the contract
- * being right rather than a gap: it is the plugin's declaration of a check,
- * not a claim about ownership, and a field a plugin filled in would be a field
- * one plugin could use to name another's. So the plugin is asked what it
- * declares NOW and exactly those specs are removed.
+ * It used to identify them by VALUE — ask the plugin what it declares now, and
+ * remove exactly those specs — reasoning that a {@link RequestGuardSpec}
+ * carries no plugin id and a field a plugin filled in would be a field one
+ * plugin could use to name another's. The second half of that is still true
+ * and the spec still carries no id. What was wrong is that recomputing the
+ * value is not a way to FIND the installed one: a settings write while
+ * published changes the hostname or the audience the plugin describes, so the
+ * guard standing in front of live traffic no longer matched what the plugin
+ * now said, and nothing short of a restart could take it down.
  *
- * Failing to identify them is deliberately not a reason to touch the rest.
- * Leaving a stale guard installed fails CLOSED — an identity check in front of
- * traffic that is no longer arriving — and the next boot rebuilds the set from
- * what is published. Rebuilding the whole set here instead would let one
- * plugin's broken `requestGuard` drop ANOTHER plugin's guard while its tunnel
- * is still live, which fails open.
+ * Ownership is the host's own record — the id it looked the plugin up by —
+ * so nothing a plugin supplies is trusted, and removal cannot miss.
  */
 async function dropGuardsOf(pluginId: string): Promise<void> {
-  const entry = deps().getPlugin(pluginId);
-  let mine: RequestGuardSpec | null = null;
-  if (entry?.plugin.requestGuard) {
-    try {
-      mine = entry.plugin.requestGuard(await networkContext(pluginId, entry));
-    } catch (err) {
-      getLogger()
-        .withError(err)
-        .warn(`network plugin "${pluginId}" could not say which guard is its own; leaving the active set unchanged`);
-      return;
-    }
-  }
-  if (!mine) return;
-  const key = JSON.stringify(mine);
-  deps().setGuards(
-    deps()
-      .activeGuards()
-      .filter((guard) => JSON.stringify(guard) !== key),
-  );
+  deps().setPluginGuards(pluginId, []);
 }

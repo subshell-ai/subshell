@@ -8,6 +8,7 @@ import {
   activeAccessGuards,
   setAccessGuardDepsForTests,
   setAccessGuards,
+  setPluginGuards,
 } from "@/plugins/access-guard.plugin.js";
 
 /**
@@ -136,7 +137,7 @@ describe("access-guard plugin", () => {
 
   beforeEach(() => {
     setAccessGuardDepsForTests(realPeerDeps());
-    setAccessGuards([GUARD]);
+    setAccessGuards([{ pluginId: "fixture", spec: GUARD }]);
   });
 
   it("does not touch a hostname no guard names", async () => {
@@ -175,6 +176,31 @@ describe("access-guard plugin", () => {
     const body = (await res.json()) as { code: string; message: string };
     expect(body.code).toBe("ACCESS_DENIED");
     expect(body.message).toContain(GUARDED_HOST);
+  });
+
+  it("refuses a token signed by a key the team's JWKS does not carry", async () => {
+    // The suite's seam serves one public key, so without this nothing proved
+    // the signature is checked at all rather than merely the claims.
+    const stranger = await generateKeyPair("RS256");
+    const token = await new SignJWT({ email: "someone@example.com" })
+      .setProtectedHeader({ alg: "RS256" })
+      .setIssuer(`https://${TEAM_DOMAIN}`)
+      .setAudience(AUD)
+      .setExpirationTime("5m")
+      .sign(stranger.privateKey);
+    const res = await fetch(`http://${GUARDED_HOST}:${PORT}/ping`, {
+      headers: { "cf-access-jwt-assertion": token },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("matches a Host whose case differs", async () => {
+    // A hostname is case-insensitive, so `GUARDED.example.com` names the
+    // guarded host and must not walk past a guard installed for it.
+    const res = await fetch(`http://${GUARDED_HOST}:${PORT}/ping`, {
+      headers: { host: `${GUARDED_HOST.toUpperCase()}:${PORT}` },
+    });
+    expect(res.status).toBe(403);
   });
 
   it("is not skipped by a trailing dot on the Host header", async () => {
@@ -266,19 +292,23 @@ describe("access-guard plugin", () => {
 
   it("swaps the guard set wholesale", () => {
     const second: RequestGuardSpec = { ...GUARD, hostname: "elsewhere.example.com" };
-    setAccessGuards([GUARD, second]);
-    expect(activeAccessGuards().map((g) => g.hostname)).toEqual([GUARDED_HOST, "elsewhere.example.com"]);
-    // The publish route's idiom: filter this hostname out, then append. The
-    // OTHER plugin's guard must survive it.
-    setAccessGuards([...activeAccessGuards().filter((g) => g.hostname !== GUARDED_HOST), { ...GUARD, aud: "rotated" }]);
-    expect(activeAccessGuards().map((g) => g.hostname)).toEqual(["elsewhere.example.com", GUARDED_HOST]);
-    expect(activeAccessGuards().find((g) => g.hostname === GUARDED_HOST)?.aud).toBe("rotated");
+    setAccessGuards([
+      { pluginId: "a", spec: GUARD },
+      { pluginId: "b", spec: second },
+    ]);
+    expect(activeAccessGuards().map((g) => g.spec.hostname)).toEqual([GUARDED_HOST, "elsewhere.example.com"]);
+    // The publish route's idiom: replace this PLUGIN's guards and leave every
+    // other plugin's alone. By hostname it would have missed after a settings
+    // change, which is how a guard became unremovable.
+    setPluginGuards("a", [{ ...GUARD, aud: "rotated" }]);
+    expect(activeAccessGuards().map((g) => g.spec.hostname)).toEqual(["elsewhere.example.com", GUARDED_HOST]);
+    expect(activeAccessGuards().find((g) => g.spec.hostname === GUARDED_HOST)?.spec.aud).toBe("rotated");
   });
 
   it("hands back a copy, so a caller cannot mutate the live set", () => {
     const set = activeAccessGuards();
-    set.push({ ...GUARD, hostname: "smuggled.example.com" });
-    expect(activeAccessGuards().map((g) => g.hostname)).toEqual([GUARDED_HOST]);
+    set.push({ pluginId: "smuggler", spec: { ...GUARD, hostname: "smuggled.example.com" } });
+    expect(activeAccessGuards().map((g) => g.spec.hostname)).toEqual([GUARDED_HOST]);
   });
 
   it("blocks a websocket upgrade on a guarded hostname (the § 10.6 measurement)", async () => {

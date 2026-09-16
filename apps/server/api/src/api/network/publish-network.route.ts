@@ -16,7 +16,7 @@ import {
 } from "@/api/network/network-gate.js";
 import { NetworkParamsSchema } from "@/api/network/schemas.js";
 import { apiErrorBody } from "@/lib/api-error.js";
-import { activeAccessGuards, setAccessGuards } from "@/plugins/access-guard.plugin.js";
+import { setPluginGuards } from "@/plugins/access-guard.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { writeNetworkState } from "@/services/network/state.js";
 import { armProcess } from "@/services/network/supervisor.js";
@@ -165,7 +165,11 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
       // hostname rather than appending keeps a re-publish idempotent.
       if (result.guard) {
         const guard = result.guard;
-        setAccessGuards([...activeAccessGuards().filter((g) => g.hostname !== guard.hostname), guard]);
+        // Replaced by OWNER rather than by hostname: a re-publish after a
+        // settings change declares a different hostname, and filtering on the
+        // new one would leave the old guard standing with nothing able to
+        // remove it.
+        setPluginGuards(id, [guard]);
         send({ type: "line", text: `Requiring a Cloudflare Access assertion for ${guard.hostname}.` });
       }
       if (result.process) {

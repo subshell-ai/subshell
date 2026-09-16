@@ -8,6 +8,7 @@ import type {
   SupervisedProcessSpec,
 } from "@internal/pane-runtime";
 import { SERVER_PORT } from "@/constants.js";
+import type { OwnedGuard } from "@/plugins/access-guard.plugin.js";
 import type { AuditEventInput } from "@/services/audit.js";
 import {
   type NetworkPrepareDeps,
@@ -58,7 +59,7 @@ function entry(
 
 interface Recorder {
   armed: { id: string; spec: SupervisedProcessSpec }[];
-  guards: RequestGuardSpec[][];
+  guards: OwnedGuard[][];
   audits: AuditEventInput[];
   origins: { id: string; addresses: NetworkAddress[] }[];
 }
@@ -104,7 +105,7 @@ describe("prepareNetworkGuards", () => {
     await prepareNetworkGuards();
     // One call with the complete set: appending would leave a moment in which
     // one network's traffic was checked and another's was not.
-    expect(rec.guards).toEqual([[guard]]);
+    expect(rec.guards.map((set) => set.map((g) => g.spec))).toEqual([[guard]]);
   });
 
   it("installs nothing for a plugin that is not published", async () => {
@@ -113,7 +114,7 @@ describe("prepareNetworkGuards", () => {
     setNetworkPrepareDepsForTests(recorderDeps(rec, { [plugin]: entry({ requestGuard: () => guard }) }));
 
     await prepareNetworkGuards();
-    expect(rec.guards).toEqual([[]]);
+    expect(rec.guards.map((set) => set.map((g) => g.spec))).toEqual([[]]);
   });
 
   it("skips a published plugin whose manifest does not name this platform", async () => {
@@ -127,7 +128,7 @@ describe("prepareNetworkGuards", () => {
     await prepareNetworkGuards();
     // Manifest DATA, read without loading plugin code: a data directory
     // carried between machines holds publishes for plugins that cannot run.
-    expect(rec.guards).toEqual([[]]);
+    expect(rec.guards.map((set) => set.map((g) => g.spec))).toEqual([[]]);
   });
 
   it("skips a published plugin that will not load", async () => {
@@ -137,7 +138,7 @@ describe("prepareNetworkGuards", () => {
     setNetworkPrepareDepsForTests(recorderDeps(rec, { [plugin]: undefined }));
 
     await prepareNetworkGuards();
-    expect(rec.guards).toEqual([[]]);
+    expect(rec.guards.map((set) => set.map((g) => g.spec))).toEqual([[]]);
   });
 
   it("keeps the other guards when one plugin's requestGuard throws", async () => {
@@ -158,7 +159,7 @@ describe("prepareNetworkGuards", () => {
     );
 
     await prepareNetworkGuards();
-    expect(rec.guards).toEqual([[guard]]);
+    expect(rec.guards.map((set) => set.map((g) => g.spec))).toEqual([[guard]]);
   });
 });
 
@@ -344,7 +345,7 @@ describe("prepareNetworkProcesses", () => {
       await prepareNetworkProcesses();
       // A republish can produce a different hostname or Access application, so
       // everyone is re-asked rather than reasoning about whose changed.
-      expect(rec.guards).toEqual([[guard]]);
+      expect(rec.guards.map((set) => set.map((g) => g.spec))).toEqual([[guard]]);
     });
   });
 });

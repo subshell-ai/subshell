@@ -147,9 +147,24 @@ export function setAccessGuardDepsForTests(deps: AccessGuardDeps | null): void {
 /** The guard set, plus the lookup built from it. Replaced wholesale, never mutated. */
 interface ActiveGuards {
   /** As {@link setAccessGuards} was given them, for {@link activeAccessGuards}. */
-  specs: readonly RequestGuardSpec[];
+  specs: readonly OwnedGuard[];
   /** Normalised hostname → spec, the per-request lookup. */
   byHost: ReadonlyMap<string, RequestGuardSpec>;
+}
+
+/**
+ * One guard, tagged with the plugin the HOST resolved it from.
+ *
+ * The tag is not part of {@link RequestGuardSpec} and must not become one: a
+ * field a plugin filled in would be a field one plugin could use to claim
+ * another's guard. This is the host's own bookkeeping, attached where the host
+ * already knows the answer.
+ */
+export interface OwnedGuard {
+  /** The plugin whose `requestGuard` produced this. */
+  pluginId: string;
+  /** What that plugin declared. */
+  spec: RequestGuardSpec;
 }
 
 let active: ActiveGuards = { specs: [], byHost: new Map() };
@@ -166,15 +181,36 @@ let active: ActiveGuards = { specs: [], byHost: new Map() };
  * Arming a guard is what makes a tunnel safe, so a caller arms BEFORE the
  * tunnel exists and disarms AFTER it is gone (spec § 5.3).
  */
-export function setAccessGuards(specs: RequestGuardSpec[]): void {
+export function setAccessGuards(guards: OwnedGuard[]): void {
   const byHost = new Map<string, RequestGuardSpec>();
-  for (const spec of specs) byHost.set(normalizeHost(spec.hostname), spec);
-  active = { specs: [...specs], byHost };
+  for (const { spec } of guards) byHost.set(normalizeHost(spec.hostname), spec);
+  active = { specs: [...guards], byHost };
 }
 
 /** The guard set currently applied, in the order it was installed. */
-export function activeAccessGuards(): RequestGuardSpec[] {
+export function activeAccessGuards(): OwnedGuard[] {
   return [...active.specs];
+}
+
+/**
+ * Replaces the guards owned by ONE plugin, leaving every other plugin's alone.
+ *
+ * Ownership is the HOST's record — the plugin id it looked the plugin up by —
+ * and never anything the plugin supplied. That is what makes removal work at
+ * all: identifying a guard by recomputing it and comparing values meant a
+ * settings change while published left the installed guard unremovable, since
+ * the plugin now describes a different hostname or audience than the one
+ * standing. It also keeps the property the value-identity approach was
+ * protecting: a plugin still cannot name another plugin's guard, because it
+ * never names an owner.
+ * @param pluginId - whose guards these are
+ * @param specs - the guards that plugin declares now; empty removes its own
+ */
+export function setPluginGuards(pluginId: string, specs: RequestGuardSpec[]): void {
+  setAccessGuards([
+    ...activeAccessGuards().filter((owned) => owned.pluginId !== pluginId),
+    ...specs.map((spec) => ({ pluginId, spec })),
+  ]);
 }
 
 /**
@@ -345,6 +381,11 @@ async function guardRequest(request: Request, server: PeerLookup | null): Promis
       // dependency and this makes it a property of our own code — the kind of
       // guarantee that should not quietly change under a version bump.
       algorithms: ["RS256"],
+      // A little slack between Cloudflare's edge and this host's clock. An
+      // assertion minted a second ago must not be refused because the two
+      // machines disagree about what "now" is, and thirty seconds is far
+      // shorter than any Access session.
+      clockTolerance: 30,
     });
     const email = typeof payload.email === "string" ? payload.email : undefined;
     // Audit metadata only — never a credential. See the module docstring.

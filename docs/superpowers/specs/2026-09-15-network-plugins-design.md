@@ -875,6 +875,37 @@ above, and both changed code:
   naming a guarded host anywhere is refused rather than admitted by the
   ambiguity.
 
+### 10b. Deviations from this spec, as built
+
+Recorded rather than quietly fixed, because each is a decision and a later
+reader should find the decision rather than the discrepancy.
+
+- **`PRIVILEGE_REQUIRED` and `ACCESS_UNCONFIGURED` are not 409 codes.** §5.1's
+  refusal table named them, and neither turned out to have a route that could
+  raise one. A `sudo` or relative-path command is refused by `PluginHost.run`
+  and by the supervisor at spawn, so it surfaces on the plugin's own row rather
+  than as a status on a request; an Access pre-flight failure is the plugin
+  declining to publish, which arrives as a `done` frame with `ok: false` and a
+  hint. Both are refusals in the right place; only the transport differs from
+  what the table predicted.
+- **§6's `ACCESS_REQUIRED` is `ACCESS_DENIED` in the code**, which is the
+  existing member of the error enum. A new code naming the same condition would
+  have been a second spelling of one thing.
+- **Guard removal is keyed by the OWNING PLUGIN, not by the guard's value.**
+  §5.3 described removing the specs the plugin declares now. That is not a way
+  to FIND the installed one: a settings write while published changes the
+  hostname or audience the plugin describes, so the guard standing in front of
+  live traffic stopped matching and nothing short of a restart could remove it.
+  The ownership tag is the host's own record of which plugin it resolved the
+  guard from, never a field a plugin fills in — so the property §5.3 was
+  protecting (a plugin cannot name another plugin's guard) is unchanged.
+- **`jose` already closes algorithm confusion.** Measured on 6.2.9 against a
+  real `createRemoteJWKSet`: a token with `alg: HS256` or `alg: none` is
+  refused before a key is produced, whether or not it carries a `kid`, and
+  whether the claimed secret is the modulus or the JWK as JSON. The guard pins
+  `algorithms: ["RS256"]` anyway, so that guarantee is a property of this
+  repository rather than of a dependency's current behaviour.
+
 ## 11. Copy, exact
 
 Every user-visible string in the feature. Implementers use these verbatim.

@@ -5,13 +5,12 @@ import {
   type NetworkContext,
   type NetworkPluginEntry,
   type PluginPlatform,
-  type RequestGuardSpec,
   type SupervisedProcessSpec,
 } from "@internal/pane-runtime";
 import { applyConfig } from "@/commands/configure.js";
 import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-env.js";
 import { DEFAULT_TRUSTED_ORIGINS, IS_TEST, SERVER_PORT } from "@/constants.js";
-import { setAccessGuards } from "@/plugins/access-guard.plugin.js";
+import { type OwnedGuard, setAccessGuards } from "@/plugins/access-guard.plugin.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { networkContext, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { armProcess } from "@/services/network/supervisor.js";
@@ -49,7 +48,7 @@ export interface NetworkPrepareDeps {
   /** Hand a child to the supervisor. */
   arm(pluginId: string, spec: SupervisedProcessSpec): void;
   /** Install the complete guard set. */
-  setGuards(specs: RequestGuardSpec[]): void;
+  setGuards(guards: OwnedGuard[]): void;
   /** Record an event. */
   audit(event: AuditEventInput): Promise<void>;
   /**
@@ -140,13 +139,13 @@ async function eligible(): Promise<Eligible[]> {
  */
 export async function prepareNetworkGuards(): Promise<void> {
   try {
-    const guards: RequestGuardSpec[] = [];
+    const guards: OwnedGuard[] = [];
     unguarded.clear();
     for (const { id, entry, ctx } of await eligible()) {
       if (!entry.plugin.requestGuard) continue;
       try {
         const guard = entry.plugin.requestGuard(ctx);
-        if (guard) guards.push(guard);
+        if (guard) guards.push({ pluginId: id, spec: guard });
         else if (needsGuard(entry)) unguarded.add(id);
       } catch (err) {
         // The publish is not undone over this, but the PROCESS half must know:

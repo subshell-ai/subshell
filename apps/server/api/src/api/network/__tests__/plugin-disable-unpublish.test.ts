@@ -83,8 +83,7 @@ describe("disabling a network plugin", () => {
         order.push(`disarm(enabled=${state.get(NETWORK_PLUGIN_ID) !== false})`);
       },
       lastLines: () => [],
-      activeGuards: () => [],
-      setGuards: () => {},
+      setPluginGuards: () => {},
     });
 
     const res = await app.fetch(patch(NETWORK_PLUGIN_ID, false));
@@ -100,8 +99,7 @@ describe("disabling a network plugin", () => {
         throw new Error("the tunnel would not stop");
       },
       lastLines: () => ["cloudflared: still connected"],
-      activeGuards: () => [],
-      setGuards: () => {},
+      setPluginGuards: () => {},
     });
 
     const res = await app.fetch(patch(NETWORK_PLUGIN_ID, false));
@@ -123,8 +121,7 @@ describe("disabling a network plugin", () => {
         disarms += 1;
       },
       lastLines: () => [],
-      activeGuards: () => [],
-      setGuards: () => {},
+      setPluginGuards: () => {},
     });
     const res = await app.fetch(patch(NETWORK_PLUGIN_ID, true));
     expect(res.status).toBe(200);
@@ -139,8 +136,7 @@ describe("disabling a network plugin", () => {
         disarms += 1;
       },
       lastLines: () => [],
-      activeGuards: () => [],
-      setGuards: () => {},
+      setPluginGuards: () => {},
     });
     const res = await app.fetch(patch(HARNESS_PLUGIN_ID, false));
     expect(res.status).toBe(200);

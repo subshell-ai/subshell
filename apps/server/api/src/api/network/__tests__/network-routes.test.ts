@@ -597,8 +597,7 @@ describe("/api/network", () => {
           unpublished += 1;
         },
         lastLines: () => [],
-        activeGuards: () => [],
-        setGuards: () => {},
+        setPluginGuards: () => {},
       });
       const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
       expect(res.status).toBe(200);
@@ -616,8 +615,7 @@ describe("/api/network", () => {
           throw new Error("SIGKILL did not reap it");
         },
         lastLines: () => ["cloudflared: connection lost", "cloudflared: retrying"],
-        activeGuards: () => [],
-        setGuards: () => {},
+        setPluginGuards: () => {},
       });
       const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
       expect(res.status).toBe(409);
@@ -652,8 +650,7 @@ describe("/api/network", () => {
           order.push("disarm");
         },
         lastLines: () => [],
-        activeGuards: () => [],
-        setGuards: () => {},
+        setPluginGuards: () => {},
       });
       await writeNetworkState(FAKE_ID, { settings: { hostname: "box" }, published: true });
       const res = await app.fetch(
@@ -680,8 +677,7 @@ describe("/api/network", () => {
           throw new Error("still running");
         },
         lastLines: () => [],
-        activeGuards: () => [],
-        setGuards: () => {},
+        setPluginGuards: () => {},
       });
       const res = await app.fetch(
         withCookie(`/api/network/${FAKE_ID}/leave`, adminCookie, {
