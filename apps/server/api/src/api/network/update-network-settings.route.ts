@@ -13,7 +13,7 @@ import { NetworkParamsSchema, NetworkRowSchema } from "@/api/network/schemas.js"
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
-import { writeNetworkState } from "@/services/network/state.js";
+import { readNetworkState, writeNetworkState } from "@/services/network/state.js";
 
 const SettingsBodySchema = t.Record(
   t.String({ description: "A settings field key the plugin declared" }),
@@ -52,6 +52,33 @@ export const updateNetworkSettingsRoute = new Elysia().use(apiModels).patch(
     }
     const { resolved, ctx, release } = prepared;
     try {
+      // REFUSED WHILE PUBLISHED, and the refusal is the point rather than the
+      // behaviour. Writing settings here changes what the plugin would
+      // describe, and nothing re-derives from it: the installed request guard
+      // keeps naming the hostname and audience it was built with, the
+      // supervised child keeps the argv and the hydrated SECRET it was spawned
+      // with, and every surface reports success. An admin rotating a leaked
+      // tunnel token would see the field read `set` and the process read
+      // running while the old credential stayed live — a rotation that
+      // silently does not apply, on the one credential class this feature
+      // introduces.
+      //
+      // Re-deriving all three is phase 3's work, written against the Cloudflare
+      // plugin that actually exercises them. Until then this refusal is what
+      // makes the gap unreachable BY CONSTRUCTION: phase 3 has to delete a
+      // refusal to get the wrong thing, rather than remember to find a bug.
+      // Same reasoning as `enabledHarnessPlugins` excluding network plugins at
+      // one accessor instead of at five call sites.
+      if ((await readNetworkState(resolved.entry.manifest.id)).published) {
+        release();
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.EXISTS_ERROR,
+            message: `${resolved.entry.manifest.name} is published. Unpublish it first, change these settings, then publish again — otherwise the change would not reach the running tunnel.`,
+          }),
+        );
+      }
       const fields = resolved.entry.plugin.settingsFields?.() ?? [];
       const byKey = new Map(fields.map((f) => [f.key, f]));
       const unknown = Object.keys(body).filter((key) => !byKey.has(key));

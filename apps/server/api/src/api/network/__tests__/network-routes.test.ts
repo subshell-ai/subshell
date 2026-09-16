@@ -486,6 +486,33 @@ describe("/api/network", () => {
     });
   });
 
+  it("refuses a settings write while the network is published", async () => {
+    // Nothing re-derives from a settings change: the installed guard keeps
+    // the hostname and audience it was built with, and the supervised child
+    // keeps the argv and the hydrated SECRET it was spawned with. An admin
+    // rotating a leaked token would see the field read `set` and the process
+    // read running while the old credential stayed live. Re-deriving all
+    // three is phase 3's work; until then the refusal makes the gap
+    // unreachable, so phase 3 must DELETE something to get the wrong thing.
+    const { entry } = makeFakePlugin({ fields: [{ key: "hostname", label: "Hostname", type: "string" }] });
+    setNetworkDepsForTests(fakeDeps(entry));
+    await writeNetworkState(FAKE_ID, { published: true, port: 3080 });
+    try {
+      const res = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/settings`, adminCookie, {
+          method: "PATCH",
+          body: JSON.stringify({ hostname: "moved.example.com" }),
+        }),
+      );
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { message: string }).message).toContain("Unpublish it first");
+      // And nothing was written, so the refusal is not merely a bad report.
+      expect((await readNetworkState(FAKE_ID)).settings.hostname).toBeUndefined();
+    } finally {
+      await writeNetworkState(FAKE_ID, { published: false });
+    }
+  });
+
   describe("POST /api/network/:id/join", () => {
     it("streams NDJSON: line frames, then exactly one done", async () => {
       const { entry } = makeFakePlugin({ join: { state: "needs-login", loginUrl: "https://login.example/abc" } });

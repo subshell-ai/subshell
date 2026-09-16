@@ -875,6 +875,33 @@ above, and both changed code:
   naming a guarded host anywhere is refused rather than admitted by the
   ambiguity.
 
+### 10d. What phase 3 must re-derive, and the refusal holding the place
+
+A settings write does not re-derive anything, so `PATCH /api/network/:id/settings`
+**refuses while the network is published** (409, "unpublish first"). Three
+things would otherwise go stale, and the third is a security problem rather
+than a display one:
+
+1. the installed **request guard**, which keeps the hostname and audience it
+   was built with — the interesting case being an admin CORRECTING a hostname,
+   after which the row shows the new one and the guard names the old one with
+   nothing saying so;
+2. the supervised child's **argv**, for any plugin that embeds a setting in it;
+3. the **hydrated secret**. The child holds the credential it was spawned with,
+   so an admin rotating a leaked Cloudflare tunnel token would see the field
+   report `set` and the process report running while the old token stayed live.
+   A rotation that silently does not apply, on the one credential class §9
+   introduces.
+
+Phase 3 replaces the refusal with a re-derive of all three plus a re-arm. The
+refusal is deliberately the thing standing there in the meantime: phase 3 has
+to DELETE it to get the wrong behaviour, rather than remember to go looking for
+a bug — the same reasoning that puts the harness/network split at one accessor
+instead of at five call sites.
+
+Reachable by nobody today: the shipping Tailscale plugin declares no settings
+fields, so every key in such a write is unknown and the route 400s before this.
+
 ### 10c. The one operator action phase 1 leaves outstanding
 
 `@subshell-ai/plugin-tailscale` is an eighth `@subshell-ai/*` package and npm
