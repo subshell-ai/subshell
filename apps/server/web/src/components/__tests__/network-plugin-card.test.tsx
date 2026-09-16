@@ -8,6 +8,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { NetworkRow, NetworkState } from "@/types/network";
@@ -107,6 +108,17 @@ function mockFetch(handler: (url: URL, init?: RequestInit) => Response | undefin
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     calls.push({ method: init?.method ?? "GET", pathname: url.pathname, body: init?.body as string | undefined });
+    // `GET /api/admin/server` answers for real, because a `{}` for it is not
+    // a harmless stub: `NetworkRestartNotice` mounts that query whenever a
+    // publish reports `restartRequired`, guards `!view` and then reads
+    // `view.restart.available` — which `{}` satisfies as truthy and then
+    // throws on. The throw is caught by the router's CatchBoundary, so the
+    // test that triggered it still passed while the boundary rebuilt the tree
+    // from scratch underneath whatever ran next. That is what made a
+    // neighbouring test time out in CI and pass everywhere else.
+    if (url.pathname === "/api/admin/server") {
+      return Promise.resolve(handler(url, init) ?? Response.json(deploymentView()));
+    }
     return Promise.resolve(handler(url, init) ?? new Response(JSON.stringify({})));
   }) as typeof fetch;
   restore.push(() => {
