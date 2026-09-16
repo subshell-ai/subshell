@@ -18,7 +18,8 @@
     "@internal/pane-runtime",
     "@internal/server-web",
     "@internal/subshell-protocol",
-    "@internal/tsconfig"
+    "@internal/tsconfig",
+    "@subshell-ai/plugin-headscale"
   ],
   "privatePackages": {
     "version": true,

@@ -855,7 +855,7 @@ Anything still open is named as open rather than quietly treated as settled.
 |---|---|---|
 | 1 | **open** | No live tailnet was available. The interactive join reads the URL off the output AND falls back to re-reading `AuthURL` from `status --json`, so it does not rest on which stream carries it. The fallback at `join.ts` exists precisely because this is unmeasured. |
 | 2 | **open** | No version floor is pinned anywhere in the plugin. If TS-2026-005's regression is present on an operator's install, `publish` fails and the refusal carries the CLI's own stderr — a bad message rather than a wrong state, but still unmeasured. |
-| 3 | deferred | Phase 2 (Headscale). |
+| 3 | **unmeasured, shipped so** | Phase 2's Headscale plugin shipped 2026-09-16 with this measurement still open — see the amendment at the end of this section. |
 | 4 | deferred | Phase 2 (NetBird). |
 | 5 | deferred | Phase 3 (Cloudflare Tunnel). |
 | 6 | **measured** | Elysia 1.4.29 on Bun 1.4.2 DOES run `onRequest` for the WebSocket upgrade, and a `Response` returned from it prevents the upgrade: the socket's `open` hook never fires. So no `requireAccess` was threaded into the two upgrade hooks. Pinned by three tests in `access-guard.plugin.test.ts` against a REAL listener, which will say so if a version bump changes the answer. |
@@ -874,6 +874,18 @@ above, and both changed code:
   matching no guard, so `normalizeHost` strips the root label and a value
   naming a guarded host anywhere is refused rather than admitted by the
   ambiguity.
+
+**Amendment (2026-09-16, phase 2):** #3 shipped unmeasured. The Headscale
+plugin (`@subshell-ai/plugin-headscale`, spec 2026-09-16 § 4) was built to the
+posture § 10.3's own text prescribes for a refusal: `publish` tries
+`tailscale serve --bg --http=80 http://127.0.0.1:<port>` (reset first) and,
+when the CLI refuses, returns a refusal naming § 10.3 as unmeasured and
+pointing the operator at the plain `http://<DNSName>:<port>` address the
+status already lists — never a fabricated `published` state. `status` treats
+`CertDomains` as always empty regardless of what the daemon reports, so the
+http-everywhere posture does not rest on the measurement either. The live
+measurement remains an operator action (§ 9's out-of-scope stands); when it
+happens, only the vendor table's publish row can change.
 
 ### 10d. What phase 3 must re-derive, and the refusal holding the place
 

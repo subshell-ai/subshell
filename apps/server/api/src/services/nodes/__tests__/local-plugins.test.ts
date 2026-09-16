@@ -51,6 +51,7 @@ describe("the control-plane host's plugins", () => {
     expect(reports.map((r) => r.id).sort()).toEqual([
       "claude-code",
       "codex",
+      "headscale",
       "hermes",
       "opencode",
       "pi",
