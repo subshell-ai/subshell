@@ -59,6 +59,14 @@ export interface NetworkPrepareDeps {
    * developer's own instance configuration, which no assertion is worth.
    */
   trustOrigins(pluginId: string, addresses: NetworkAddress[]): void;
+  /**
+   * Say something an operator will read later.
+   *
+   * A seam only so a test can assert the boot health report is MADE. Every
+   * other warning in this file is incidental to whatever failed; that one is
+   * the whole point of the pass, so it needs pinning rather than trusting.
+   */
+  warn(message: string): void;
 }
 
 const defaultDeps: NetworkPrepareDeps = {
@@ -69,6 +77,7 @@ const defaultDeps: NetworkPrepareDeps = {
   setGuards: setAccessGuards,
   audit,
   trustOrigins: writeTrustedOrigins,
+  warn: (message) => getLogger().warn(message),
 };
 
 let depsOverride: NetworkPrepareDeps | undefined;
@@ -198,6 +207,10 @@ export async function prepareNetworkProcesses(): Promise<void> {
       // carries a process at all.
       if (!reconciled.has(row.id)) armFrom(row);
     }
+    // ...and then ask each of them whether it is actually carrying traffic.
+    for (const row of rows) {
+      if (!reconciled.has(row.id)) await reportIfDown(row);
+    }
   } catch (err) {
     getLogger().withError(err).warn("could not start network plugin processes; published networks may be down");
   }
@@ -223,6 +236,46 @@ const unguarded = new Set<string>();
  */
 function needsGuard(entry: NetworkPluginEntry): boolean {
   return entry.manifest.network?.exposure === "public-with-gate";
+}
+
+/**
+ * Says so, once, when a published network is not actually up.
+ *
+ * The realistic failure and the one nothing else catches: the machine
+ * rebooted, this server came back, and the vendor's daemon did not. The
+ * addresses an operator published still resolve, nothing answers at them, and
+ * until this the first anyone heard of it was opening the Networking page —
+ * which is the one place a person goes only when they already suspect
+ * something.
+ *
+ * A read at BOOT rather than a timer. Detection in this codebase is "never a
+ * timer, never a sweep" (`services/nodes/inventory.ts`), and a background poll
+ * would spawn a vendor CLI forever for every published network — the same cost
+ * the page's own cadence was just narrowed to avoid. Once per boot per
+ * published plugin is nearly free, and a reboot is exactly when this breaks.
+ *
+ * It reports rather than repairs. `joined` means the machine is on the network
+ * and not serving, which a re-publish would fix — but a publish is an admin's
+ * standing decision about an address, and re-making it unattended is how a
+ * server starts publishing somewhere the operator had deliberately stopped.
+ * The line goes to the server's own log, which an admin reads over HTTP.
+ */
+async function reportIfDown({ id, entry, ctx }: Eligible): Promise<void> {
+  try {
+    const status = await entry.plugin.status(ctx);
+    if (status.state === "published") return;
+    const because = status.hints[0]?.text ?? `it reports "${status.state}"`;
+    deps().warn(
+      status.state === "joined"
+        ? `network "${entry.manifest.name}" is on the network but is NOT publishing this server; the addresses it was published at answer nothing. Re-publish it under Settings → Networking.`
+        : `network "${entry.manifest.name}" is published but not reachable: ${because}`,
+    );
+  } catch (err) {
+    // A plugin that throws here has already been reported by whatever else
+    // asked it; this is a diagnosis, and a diagnosis that fails is not a
+    // reason to interfere with a boot that has otherwise succeeded.
+    getLogger().withError(err).warn(`could not check whether network "${id}" is up`);
+  }
 }
 
 /** Arms the child a plugin asks for, when it asks for one. */

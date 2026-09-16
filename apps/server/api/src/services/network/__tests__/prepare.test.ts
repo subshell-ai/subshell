@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type {
   NetworkAddress,
+  NetworkHint,
   NetworkPlugin,
   NetworkPluginEntry,
+  NetworkState,
   PluginPlatform,
   RequestGuardSpec,
   SupervisedProcessSpec,
@@ -58,6 +60,7 @@ function entry(
 }
 
 interface Recorder {
+  warnings: string[];
   armed: { id: string; spec: SupervisedProcessSpec }[];
   guards: OwnedGuard[][];
   audits: AuditEventInput[];
@@ -79,11 +82,12 @@ function recorderDeps(
       recorder.audits.push(event);
     },
     trustOrigins: (id, addresses) => recorder.origins.push({ id, addresses }),
+    warn: (message) => recorder.warnings.push(message),
   };
 }
 
 function recorder(): Recorder {
-  return { armed: [], guards: [], audits: [], origins: [] };
+  return { warnings: [], armed: [], guards: [], audits: [], origins: [] };
 }
 
 /** A fresh plugin id per case: `bun test` shares one process and one data dir. */
@@ -408,5 +412,61 @@ describe("a public exposure may not run unguarded", () => {
     await prepareNetworkGuards();
     await prepareNetworkProcesses();
     expect(rec.armed.map((a) => a.spec)).toEqual([processSpec]);
+  });
+});
+
+describe("a published network that is not actually up", () => {
+  /** A published plugin whose status is whatever the case needs. */
+  async function published(rec: Recorder, state: NetworkState, hints: NetworkHint[] = []): Promise<void> {
+    const plugin = id();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, {
+        [plugin]: entry({ status: async () => ({ state, addresses: [], hints }) }),
+      }),
+    );
+  }
+
+  it("says so when the vendor's daemon did not come back", async () => {
+    // The realistic failure and the one nothing else catches: the machine
+    // rebooted, this server came back, the daemon did not. The published
+    // addresses still resolve and nothing answers at them.
+    const rec = recorder();
+    await published(rec, "daemon-down", [{ text: "Tailscale is installed but its daemon is not running." }]);
+    await prepareNetworkProcesses();
+    expect(rec.warnings.some((w) => w.includes("not reachable") && w.includes("daemon is not running"))).toBe(true);
+  });
+
+  it("distinguishes on-the-network-but-not-serving from not-up-at-all", async () => {
+    // `joined` is a different sentence and a different remedy: the machine is
+    // fine and the serve was reset, so re-publishing fixes it.
+    const rec = recorder();
+    await published(rec, "joined");
+    await prepareNetworkProcesses();
+    expect(rec.warnings.some((w) => w.includes("NOT publishing"))).toBe(true);
+  });
+
+  it("says nothing about a network that is up", async () => {
+    // A boot that reports a problem every time is a boot nobody reads.
+    const rec = recorder();
+    await published(rec, "published");
+    await prepareNetworkProcesses();
+    expect(rec.warnings).toEqual([]);
+  });
+
+  it("does not let a throwing status stop the boot", async () => {
+    const rec = recorder();
+    const plugin = id();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, {
+        [plugin]: entry({
+          status: async () => {
+            throw new Error("the CLI is gone");
+          },
+        }),
+      }),
+    );
+    await expect(prepareNetworkProcesses()).resolves.toBeUndefined();
   });
 });
