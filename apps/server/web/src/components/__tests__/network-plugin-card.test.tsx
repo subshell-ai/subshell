@@ -568,6 +568,38 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
   });
 
+  it("the credential box links the vendor page where the key is minted", async () => {
+    // The box asked for an "Auth key" with nothing on the card saying what
+    // one is or where to get it. The manifest's `credentialDocsUrl` answers
+    // that on the label row.
+    await renderCard(
+      row({
+        state: "needs-login",
+        labels: { credential: "Auth key", credentialDocsUrl: "https://tailscale.com/kb/1085/auth-keys" },
+      }),
+    );
+    const docs = screen.getByRole("link", { name: "Docs ↗" }) as HTMLAnchorElement;
+    expect(docs.href).toBe("https://tailscale.com/kb/1085/auth-keys");
+    expect(docs.getAttribute("rel")).toBe("noreferrer");
+    // The Label still names the INPUT — the link rides beside it, it does
+    // not replace it.
+    expect(screen.getByLabelText("Auth key").id).toBe("network-tailscale-credential");
+  });
+
+  it("no Docs link when the plugin names no page, or names one a browser must not open", async () => {
+    // Absence renders nothing rather than a dead anchor — and the sink keeps
+    // its own check even though the manifest parser already refused this URL
+    // at load: this field crosses the wire, and `safeHref` is the layer that
+    // cannot be bypassed by anything upstream.
+    await renderCard(row({ state: "needs-login" }));
+    expect(screen.queryByRole("link", { name: "Docs ↗" })).toBeNull();
+    cleanup();
+    await renderCard(
+      row({ state: "needs-login", labels: { credential: "Auth key", credentialDocsUrl: "javascript:alert(1)" } }),
+    );
+    expect(screen.queryByRole("link", { name: "Docs ↗" })).toBeNull();
+  });
+
   it("Connect waits for the field the server would refuse on, and names it", async () => {
     // Headscale's real shape: one required non-secret. The route answers a
     // join on an unset one with 409 NETWORK_UNCONFIGURED and a sentence
@@ -594,7 +626,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     const signIn = screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement;
     expect(connect.disabled).toBe(true);
     expect(signIn.disabled).toBe(true);
-    const sentence = screen.getByText("Set the control server url first.");
+    const sentence = screen.getByText("Save the Control server URL first.");
     expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
     expect(signIn.getAttribute("aria-describedby")).toBe(sentence.id);
   });
@@ -612,7 +644,7 @@ describe("NetworkPluginCard: the state matrix", () => {
         settings: { controlUrl: "https://headscale.example.com" },
       }),
     );
-    expect(screen.queryByText(/Set the control server url first\./)).toBeNull();
+    expect(screen.queryByText(/Save the Control server URL first./)).toBeNull();
     expect((screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -741,6 +773,26 @@ describe("NetworkPluginCard: the state matrix", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+  });
+
+  it("labels each address above its value, the line-item grammar", async () => {
+    // The operator read: the tag-after-URL row (`http://…   MagicDNS name`)
+    // read as two disjoint things, because the small muted word after a big
+    // bold URL names nothing until you scan back. The design system's line
+    // item puts the label ABOVE the value, in the form-label grammar, and the
+    // value stops competing with its own heading.
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    const items = screen.getAllByRole("listitem");
+    const first = items[0] as HTMLElement;
+    expect(first.children[0]?.textContent).toBe("MagicDNS name");
+    expect(first.children[0]?.className).toContain("text-label");
+    expect(first.children[0]?.className).toContain("font-strong");
+    expect(first.children[1]?.textContent).toContain("https://box.tail1234.ts.net");
+    // The secure-context sentence keeps its own line below the value, and it
+    // is still the address's own — one per address, comparative by repetition.
+    expect(first.children[2]?.textContent).toBe("Passkeys and secure cookies work at this address.");
+    const second = items[1] as HTMLElement;
+    expect(second.children[0]?.textContent).toBe("Tailscale IP");
   });
 
   it("renders the addresses in the order the server sent them", async () => {

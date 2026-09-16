@@ -40,7 +40,7 @@ const CONTROL_URL: SettingsFieldWire = {
 
 describe("connectBlocker", () => {
   it("names the first required non-secret the server would refuse on", () => {
-    expect(connectBlocker(rowWith([CONTROL_URL]))).toBe("Set the control server url first.");
+    expect(connectBlocker(rowWith([CONTROL_URL]))).toBe("Save the Control server URL first.");
   });
 
   it("passes a row whose required field is stored", () => {
@@ -50,7 +50,7 @@ describe("connectBlocker", () => {
   it("treats a blank stored value as unset", () => {
     // Mirrors the server: `(settings[key] ?? "").trim() !== ""`. A stored
     // empty string is a field that was cleared, not one that is set.
-    expect(connectBlocker(rowWith([CONTROL_URL], { controlUrl: "   " }))).toBe("Set the control server url first.");
+    expect(connectBlocker(rowWith([CONTROL_URL], { controlUrl: "   " }))).toBe("Save the Control server URL first.");
   });
 
   it("treats a non-blank default as satisfied", () => {
@@ -60,7 +60,7 @@ describe("connectBlocker", () => {
   });
 
   it("does not treat a blank default as satisfied", () => {
-    expect(connectBlocker(rowWith([{ ...CONTROL_URL, default: "" }]))).toBe("Set the control server url first.");
+    expect(connectBlocker(rowWith([{ ...CONTROL_URL, default: "" }]))).toBe("Save the Control server URL first.");
   });
 
   it("exempts required secrets, because the join is what delivers them", () => {
@@ -74,7 +74,7 @@ describe("connectBlocker", () => {
 
   it("ignores optional fields entirely", () => {
     const optional: SettingsFieldWire = { key: "region", label: "Region", type: "string" };
-    expect(connectBlocker(rowWith([optional, CONTROL_URL]))).toBe("Set the control server url first.");
+    expect(connectBlocker(rowWith([optional, CONTROL_URL]))).toBe("Save the Control server URL first.");
     expect(connectBlocker(rowWith([optional]))).toBeNull();
   });
 
@@ -83,16 +83,16 @@ describe("connectBlocker", () => {
     // hostname first AND set, control URL second and not: the answer names
     // the unset one, not the first field.
     expect(connectBlocker(rowWith([hostname, CONTROL_URL], { hostname: "subshell.example.com" }))).toBe(
-      "Set the control server url first.",
+      "Save the Control server URL first.",
     );
     // Reordered with control URL first and unset, it is the one named — the
     // server walks in declaration order and refuses on the first gap.
     expect(connectBlocker(rowWith([CONTROL_URL, hostname], { hostname: "subshell.example.com" }))).toBe(
-      "Set the control server url first.",
+      "Save the Control server URL first.",
     );
     // Both unset names the FIRST-DECLARED one — one sentence per press is
     // the server's behaviour, and the card mirrors it rather than listing.
-    expect(connectBlocker(rowWith([hostname, CONTROL_URL]))).toBe("Set the hostname first.");
+    expect(connectBlocker(rowWith([hostname, CONTROL_URL]))).toBe("Save the Hostname first.");
     // And every field satisfied is no blocker at all.
     expect(
       connectBlocker(

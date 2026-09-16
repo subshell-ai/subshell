@@ -1051,6 +1051,39 @@ refusal is the safe default until someone builds and tests the re-derive.
   address**, and an operator met two names for one act and asked how to publish.
   The sentence now renders `row.labels.publish ?? "Publish"` — the same expression
   the button itself uses, in quoted form — so copy and control cannot disagree.
+- **Address rows take the line-item grammar (amended 2026-09-16, on the
+  operator's live Headscale and NetBird cards).** Each row had been the URL as
+  the loud thing — `font-strong text-label`, a second heading — with the kind
+  tag trailing it small and muted (`http://macbook-pro…:3080   NetBird FQDN`),
+  and the operator read the two as disjoint. The design system's line item puts
+  the label ABOVE the value, so each `<li>` is now the kind label in the
+  form-label grammar (`font-strong text-label`, the same classes as a "Control
+  server URL (required)" label), the URL beneath it as a value at body size,
+  and the secure-context sentence exactly where it was — still one per address,
+  comparative by repetition, undeduped for the reason its docblock defends.
+  One component, so all four plugins move together.
+- **The connect refusal says SAVE, and keeps the label's casing (amended
+  2026-09-16).** "Set the control server url first." was wrong twice over.
+  It named an act nothing on screen performs: the blocker fires in exactly one
+  state — the field is typed into the settings form and its **Save** button has
+  not been pressed (or it was never typed) — so the sentence now says
+  `Save the ${label} first.` And the wholesale lowercasing renamed the thing
+  the form asks for: the field is labelled "Control server URL", and a
+  sentence reading "control server url" sends the reader hunting for a second
+  field. The label is quoted verbatim, so the sentence and the control name
+  the same box.
+- **`labels.credentialDocsUrl`: a Docs link beside the credential box (amended
+  2026-09-16).** The needs-login card could name what to paste ("Auth key",
+  "Setup key", "Tunnel token") while saying nothing about where one comes
+  from — knowledge only the vendor has, so only the manifest should carry it.
+  The labels block gains one optional member, gated by `isDocsUrl` at parse
+  like every other URL the contract carries (a bad value is refused at load,
+  not dropped), passed through the row's `labels` by `network-view.ts`'s whole-
+  object mapping and declared on the response schema — Elysia strips
+  undeclared fields, so the schema is what makes it cross the wire, and
+  `network-routes.test.ts` now pins the whole block survives. The card renders
+  it through `safeHref` as a `Docs ↗` sibling on the label row — the Label
+  keeps pointing at the input. All four built-ins carry their page.
 
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 

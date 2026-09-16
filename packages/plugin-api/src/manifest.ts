@@ -175,6 +175,18 @@ export interface NetworkLabels {
   credential?: string;
   /** What to call publishing: "Publish with Tailscale Serve", "Start tunnel". */
   publish?: string;
+  /**
+   * Where the credential named by `credential` comes from — the vendor page
+   * that mints one.
+   *
+   * The credential box asks for an "Auth key" on a card that otherwise says
+   * nothing about what an auth key is or where to get it, and every vendor
+   * words that differently enough that the SPA cannot write the sentence
+   * itself. So the plugin names its page, and the card renders it as a Docs
+   * link on the label row. http(s) only, refused at parse like every other
+   * URL this contract carries — it lands in an `href` on an admin page.
+   */
+  credentialDocsUrl?: string;
 }
 
 /** The parsed `subshell` block. */
@@ -509,9 +521,21 @@ function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | Ma
         return { error: `\`subshell.network.labels.${key}\` must be a non-empty string` };
       }
     }
+    const credDocs = raw.labels.credentialDocsUrl;
+    // Refused, not dropped: the other URL fields are too. A manifest is
+    // static data, so a non-http(s) value here is a plugin defect and the
+    // operator should hear about it at load rather than meet a quietly
+    // absent link — or, without the refusal, a `javascript:` href.
+    if (credDocs !== undefined && (typeof credDocs !== "string" || !isDocsUrl(credDocs))) {
+      return {
+        error:
+          "`subshell.network.labels.credentialDocsUrl` must be an http(s) URL — it is rendered as a link on an admin page",
+      };
+    }
     labels = {
       ...(typeof raw.labels.credential === "string" ? { credential: raw.labels.credential } : {}),
       ...(typeof raw.labels.publish === "string" ? { publish: raw.labels.publish } : {}),
+      ...(typeof raw.labels.credentialDocsUrl === "string" ? { credentialDocsUrl: raw.labels.credentialDocsUrl } : {}),
     };
   }
 

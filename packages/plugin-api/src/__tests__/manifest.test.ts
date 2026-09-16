@@ -403,6 +403,41 @@ describe("parseManifest (network labels)", () => {
     expect(result.network?.labels).toEqual({ credential: "Setup key", publish: "Start tunnel" });
   });
 
+  it("round-trips a credentialDocsUrl beside the words", () => {
+    // The box asks for an "Auth key"; the link says where one is minted.
+    const result = parseManifest(
+      networkPkg({
+        network: {
+          platforms: ["linux"],
+          exposure: "private",
+          labels: { credential: "Auth key", credentialDocsUrl: "https://tailscale.com/kb/1085/auth-keys" },
+        },
+      }),
+    );
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.network?.labels).toEqual({
+      credential: "Auth key",
+      credentialDocsUrl: "https://tailscale.com/kb/1085/auth-keys",
+    });
+  });
+
+  it("refuses a credentialDocsUrl a browser must not navigate to", () => {
+    // Same rule as every other URL this contract carries — this one lands in
+    // an href on an admin page beside the credential box.
+    const result = parseManifest(
+      networkPkg({
+        network: {
+          platforms: ["linux"],
+          exposure: "private",
+          labels: { credentialDocsUrl: "javascript:alert(1)" },
+        },
+      }),
+    );
+    expect("error" in result && result.error).toContain("credentialDocsUrl");
+    expect("error" in result && result.error).toContain("http(s)");
+  });
+
   it("refuses an empty label rather than coercing it", () => {
     // An empty string renders as a control with no name, which is worse than
     // the generic default it was meant to replace.

@@ -96,6 +96,7 @@
       },
       "labels": {
         "credential": "Setup key",
+        "credentialDocsUrl": "https://docs.netbird.io/manage/peers/register-machines-using-setup-keys",
         "publish": "Use this address"
       }
     }

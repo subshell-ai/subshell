@@ -80,6 +80,13 @@ export interface FakeOptions {
    * exercise the host's publish-state merge.
    */
   publishImplicit?: boolean;
+  /**
+   * Set `subshell.network.labels` on the fake's manifest, as every built-in
+   * does. The row is the SPA's only source for the credential box's name and
+   * its Docs link, so a suite asserts the WHOLE block survives the wire —
+   * Elysia strips fields a response schema does not declare.
+   */
+  labels?: { credential?: string; publish?: string; credentialDocsUrl?: string };
 }
 
 const DEFAULT_STATUS: NetworkStatus = {
@@ -158,6 +165,7 @@ export function makeFakePlugin(options: FakeOptions = {}): { entry: NetworkPlugi
       interactiveLogin: true,
       exposure: options.exposure ?? "public-with-gate",
       ...(options.publishImplicit ? { publishImplicit: true } : {}),
+      ...(options.labels ? { labels: options.labels } : {}),
       privileged: {
         darwin: [{ label: "Install the daemon", command: "sudo test-network install", group: "The daemon" }],
         linux: [{ label: "Enable the service", command: "sudo systemctl enable test-network" }],

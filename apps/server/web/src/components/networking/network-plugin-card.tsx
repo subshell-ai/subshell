@@ -182,6 +182,14 @@ export function NetworkPluginCard({
    */
   const publishLabel = row.labels.publish ?? "Publish";
   /**
+   * Where this plugin's credential is minted, when the manifest names a page.
+   *
+   * Checked at the sink like every other plugin-authored URL on this surface
+   * (`safe-href`'s docblock carries why the parser upstream is not enough):
+   * absent or non-http(s) renders no link at all.
+   */
+  const credentialDocs = safeHref(row.labels.credentialDocsUrl);
+  /**
    * Whether the `not-installed` row is a SEQUENCE worth numbering, and where
    * the hints' own numbers carry on from.
    *
@@ -450,7 +458,22 @@ export function NetworkPluginCard({
                 </p>
               )}
               <div className="space-y-1.5">
-                <Label htmlFor={`network-${row.id}-credential`}>{row.labels.credential ?? "Access key"}</Label>
+                {/* The label row: the box's name, and — where the plugin
+                    names one — the vendor page that mints the thing the box
+                    asks for. A card could tell you WHAT to paste ("Auth key",
+                    "Setup key", "Tunnel token") while saying nothing about
+                    WHERE it comes from, and the four vendors word and mint
+                    that differently enough that only the plugin can say.
+                    The Label keeps pointing at the input; this is a sibling
+                    on the row, styled as every other plugin link (hints). */}
+                <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                  <Label htmlFor={`network-${row.id}-credential`}>{row.labels.credential ?? "Access key"}</Label>
+                  {credentialDocs && (
+                    <a href={credentialDocs} target="_blank" rel="noreferrer" className="text-detail underline">
+                      Docs ↗
+                    </a>
+                  )}
+                </div>
                 <Input
                   id={`network-${row.id}-credential`}
                   type="password"

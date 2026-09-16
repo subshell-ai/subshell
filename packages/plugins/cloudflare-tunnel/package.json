@@ -85,6 +85,7 @@
       },
       "labels": {
         "credential": "Tunnel token",
+        "credentialDocsUrl": "https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/",
         "publish": "Start tunnel"
       }
     }

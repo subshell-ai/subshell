@@ -203,6 +203,12 @@ export const NetworkRowSchema = t.Object({
             'What this network calls publishing: "Publish with Tailscale Serve", "Start tunnel". Absent means the UI picks a generic word',
         }),
       ),
+      credentialDocsUrl: t.Optional(
+        t.String({
+          description:
+            "Where the vendor documents minting the credential, rendered as a Docs link beside the credential box. The manifest parser refuses anything but http(s)",
+        }),
+      ),
     },
     { description: "The vendor's own words for the two acts a person takes, from the manifest" },
   ),

@@ -25,21 +25,29 @@ function secureContextLine(address: NetworkAddress): string {
  *
  * `copyable` is for the published state, where the address has stopped being
  * a preview and become the thing a person sends to their phone.
+ *
+ * **Each row is the design system's line item: label above value.** The kind
+ * tag used to sit AFTER the URL — a big bold address with a small muted word
+ * trailing it — and an operator read the two as disjoint things, because a
+ * tag that follows a bold value names nothing until you scan back from it.
+ * The label now leads, in the same `font-strong text-label` grammar the form
+ * labels use, and the URL drops its own weight: a value styled as a heading
+ * competes with the section heading above it. The secure-context sentence
+ * keeps its line below the value — see {@link secureContextLine} for why it
+ * appears on every address, the good one included.
  */
 export function NetworkAddresses({ addresses, copyable = false }: { addresses: NetworkAddress[]; copyable?: boolean }) {
   if (addresses.length === 0) return null;
   return (
     <ul className="space-y-2">
       {addresses.map((address) => (
-        <li key={address.url} className="space-y-0.5">
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            {copyable ? (
-              <CopyableValue value={address.url} label={address.label} />
-            ) : (
-              <span className="min-w-0 break-all font-strong text-label">{address.url}</span>
-            )}
-            <span className="text-detail text-muted-foreground">{address.label}</span>
-          </div>
+        <li key={address.url} className="space-y-1">
+          <p className="font-strong text-label">{address.label}</p>
+          {copyable ? (
+            <CopyableValue value={address.url} label={address.label} />
+          ) : (
+            <span className="block min-w-0 break-all">{address.url}</span>
+          )}
           <p className={address.secureContext ? "text-detail text-muted-foreground" : "text-detail text-warning"}>
             {secureContextLine(address)}
           </p>

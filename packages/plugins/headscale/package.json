@@ -99,6 +99,7 @@
       },
       "labels": {
         "credential": "Auth key",
+        "credentialDocsUrl": "https://headscale.net/stable/usage/getting-started/",
         "publish": "Publish with Tailscale Serve"
       }
     }

@@ -107,6 +107,7 @@
       },
       "labels": {
         "credential": "Auth key",
+        "credentialDocsUrl": "https://tailscale.com/kb/1085/auth-keys",
         "publish": "Publish with Tailscale Serve"
       }
     }

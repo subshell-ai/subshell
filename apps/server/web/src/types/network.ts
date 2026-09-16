@@ -174,15 +174,18 @@ export interface NetworkRow {
    */
   privileged: { label: string; command: string; docsUrl?: string; group?: string }[];
   /**
-   * The vendor's own words for the two acts, from the manifest.
+   * The vendor's own words for the acts, and the page behind the credential,
+   * from the manifest.
    *
-   * Either may be absent, and the card supplies a generic default — but a
-   * generic word is WRONG rather than bland for the credential: Tailscale
+   * Either word may be absent, and the card supplies a generic default — but
+   * a generic word is WRONG rather than bland for the credential: Tailscale
    * takes an auth key, NetBird a setup key, Cloudflare a tunnel token, and a
    * field labelled "Auth key" on a NetBird row asks for something NetBird does
-   * not have.
+   * not have. `credentialDocsUrl` is where one of those is minted — the box
+   * says what to paste, the Docs link says where to get it — and absent means
+   * no link is rendered.
    */
-  labels: { credential?: string; publish?: string };
+  labels: { credential?: string; publish?: string; credentialDocsUrl?: string };
   /** The plugin's settings schema; empty means the card shows no form */
   settingsFields: SettingsFieldWire[];
   /** Current values, secrets as `{ set }` */

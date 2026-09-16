@@ -346,6 +346,7 @@ describe("/api/network", () => {
           { key: "hostname", label: "Hostname", type: "string" },
           { key: "token", label: "API token", type: "secret", required: true },
         ],
+        labels: { credential: "Auth key", credentialDocsUrl: "https://docs.example.invalid/keys" },
       });
       setNetworkDepsForTests(fakeDeps(entry));
       await writeNetworkState(FAKE_ID, { settings: { hostname: "box" } });
@@ -365,6 +366,14 @@ describe("/api/network", () => {
       // carry an answer — absence is Elysia dropping an undeclared field.
       expect(row.publishImplicit).toBe(false);
       expect(row.install.command).toBe("brew install test-network");
+      // The credential box's name and its Docs link both read from here.
+      // `credentialDocsUrl` is newer than the rest of the block, so this
+      // asserts the wire carries it rather than Elysia silently stripping an
+      // undeclared field — the SPA then renders no link, and nothing fails.
+      expect(row.labels).toEqual({
+        credential: "Auth key",
+        credentialDocsUrl: "https://docs.example.invalid/keys",
+      });
       // darwin's step only. Rendering the linux one to copy is how an operator
       // runs a systemd command on a Mac.
       //
