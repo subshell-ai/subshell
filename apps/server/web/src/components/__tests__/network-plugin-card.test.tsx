@@ -540,20 +540,28 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy());
+    // Each step waits on its OWN budget rather than sharing the test's. This
+    // test failed three CI runs in a row as a bare five-second timeout with no
+    // assertion attached, which says only that something never happened —
+    // useless for a failure that does not reproduce locally. Split, the step
+    // that stalls is the one that reports, and the total still sits well
+    // inside the default budget.
+    await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy(), { timeout: 1200 });
 
     // A DIFFERENT mutation, which is the case that was broken: `leave` never
     // cleared `publish`'s error, so the card reported a failure that had
     // nothing to do with what it was now doing.
-    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    const disconnect = screen.getByRole("button", { name: "Disconnect" });
+    expect(disconnect.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(disconnect);
     // Scoped to the dialog, which is what the two tests below already do. A
     // bare role query matches the CARD's Disconnect as well as the dialog's,
     // so whichever the query reached first decided the outcome — and under CI
     // load it reached the card's, re-toggling the dialog shut and leaving the
     // assertion below to time out. Measured red on main at 7.7s.
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog", {}, { timeout: 1200 });
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
-    await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull(), { timeout: 1200 });
   });
 
   it("uses the vendor's own words for the credential and for publishing", async () => {
