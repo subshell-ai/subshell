@@ -534,7 +534,13 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // cleared `publish`'s error, so the card reported a failure that had
     // nothing to do with what it was now doing.
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Disconnect", hidden: false }));
+    // Scoped to the dialog, which is what the two tests below already do. A
+    // bare role query matches the CARD's Disconnect as well as the dialog's,
+    // so whichever the query reached first decided the outcome — and under CI
+    // load it reached the card's, re-toggling the dialog shut and leaving the
+    // assertion below to time out. Measured red on main at 7.7s.
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull());
   });
 

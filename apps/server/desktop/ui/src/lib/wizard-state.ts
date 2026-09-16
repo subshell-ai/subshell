@@ -402,7 +402,7 @@ export function setupRows(
  * that merged the version PR. Bumping it is a RELEASE step: do it when the
  * server's package version changes, not before.
  */
-export const MIN_AUTOSTART_SERVER_VERSION = "0.6.0";
+export const MIN_AUTOSTART_SERVER_VERSION = "0.7.0";
 
 /** Whether the resolved server is new enough to control start-at-login. */
 export function autostartSupported(probe: Probe): boolean {
