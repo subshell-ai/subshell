@@ -21,6 +21,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
+import { unpublishNetwork } from "@/services/network/unpublish.js";
 import {
   installLocalPlugin,
   localPluginReports,
@@ -430,6 +431,24 @@ const adminRoutes = new Elysia()
         throw new HttpError(404, `"${params.pluginId}" is not installed on this instance`);
       }
       const was = s.state.get(params.pluginId) !== false;
+      // DISABLING A NETWORK PLUGIN IS AN UNPUBLISH FIRST (spec 2026-09-15
+      // § 5.1). "Disable" has to be a real stop, not a request: the host owns
+      // the tunnel process and the request guard, and flipping a flag while
+      // both are live would leave a `public-with-gate` hostname serving
+      // traffic that nothing in the UI still claims to be publishing. The
+      // sequence — process down, plugin unpublishes, guard off LAST — is
+      // `services/network/unpublish.ts`, the same function the unpublish
+      // route runs, so the ordering exists once.
+      //
+      // A failure REFUSES the disable (409): leaving the flag on is what keeps
+      // the row, the Networking page and the running tunnel describing the
+      // same machine.
+      if (!body.enabled && pluginTypeOf(s.installed.find((r) => r.id === params.pluginId)?.type) === "network") {
+        const result = await unpublishNetwork(params.pluginId);
+        if (!result.ok) {
+          throw new HarnessStateError([result.message, ...result.lastLines].join("\n"), 409);
+        }
+      }
       // The row is written BOTH ways: an explicit enable is the operator's
       // recorded choice, and the absent-row default belongs to installs the
       // flag never touched.
@@ -456,12 +475,13 @@ const adminRoutes = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "setInstancePluginEnabled",
         tags: ["plugins"],
         description:
-          "Enables or disables an installed plugin (cookie admin). Disabling hides its presets everywhere and blocks its launches; nothing is stored per-preset, so re-enabling brings the same rows back",
+          "Enables or disables an installed plugin (cookie admin). Disabling hides its presets everywhere and blocks its launches; nothing is stored per-preset, so re-enabling brings the same rows back. Disabling a `network` plugin unpublishes this server from that network first, and is refused (409) when that cannot be completed",
       },
     },
   )

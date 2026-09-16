@@ -1,11 +1,11 @@
 import {
   type BuildCommandInput,
+  type HarnessPluginFactory,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,
   type McpSetupInfo,
   type PluginCapability,
-  type PluginFactory,
   type PluginHost,
   type PresetDefinition,
   type PresetValidationResult,
@@ -82,7 +82,7 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  *
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
-const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
+const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => ["mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {

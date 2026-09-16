@@ -1,7 +1,7 @@
 import {
   type BuildCommandInput,
+  type HarnessPluginFactory,
   type PluginCapability,
-  type PluginFactory,
   type PluginHost,
   type PresetDefinition,
   type PresetValidationResult,
@@ -36,7 +36,7 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  *
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
-const createPlugin: PluginFactory = (_host: PluginHost): SubshellPlugin => ({
+const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
   // Deliberately empty. A shell has no MCP dialect to speak, no conversation
   // to resume, no attention signal to parse and no settings to edit. The host
   // validates this list at load, so naming a capability here that the plugin

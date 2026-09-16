@@ -718,6 +718,21 @@ export interface NetworkPlugin {
 export type PluginFactory = (host: PluginHost) => SubshellPlugin | NetworkPlugin;
 
 /**
+ * A factory that returns a harness, for a plugin that knows which it is.
+ *
+ * {@link PluginFactory} is the LOADER's view — it must accept either shape,
+ * because it decides which to expect from the manifest. A plugin itself has no
+ * such ambiguity, and annotating its own factory with the union would widen
+ * what its tests can call: `createPlugin(host).buildCommand(...)` stops
+ * type-checking on a value that might be a network plugin. So a plugin
+ * declares the half it implements and the loader keeps the union.
+ */
+export type HarnessPluginFactory = (host: PluginHost) => SubshellPlugin;
+
+/** A factory that returns a network plugin. See {@link HarnessPluginFactory}. */
+export type NetworkPluginFactory = (host: PluginHost) => NetworkPlugin;
+
+/**
  * The MCP server name every harness registers the built-in `subshell mcp`
  * server under: the config object key, and the `hermes mcp add|remove`
  * argument alike. The server reports the same name in its MCP handshake, which

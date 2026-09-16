@@ -3,9 +3,9 @@ import type {
   JoinOutcome,
   NetworkContext,
   NetworkPlugin,
+  NetworkPluginFactory,
   NetworkStatus,
   PluginCapability,
-  PluginFactory,
   PluginHost,
   PublishOutcome,
   PublishRefusal,
@@ -41,7 +41,7 @@ import { readNetwork } from "./status.js";
  *
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
-const createPlugin: PluginFactory = (host: PluginHost): NetworkPlugin => ({
+const createPlugin: NetworkPluginFactory = (host: PluginHost): NetworkPlugin => ({
   /**
    * `publish` only, and it is the PAIR — publish plus unpublish, which the
    * host validates at load.

@@ -1,13 +1,13 @@
 import { join, resolve } from "node:path";
 import {
   type BuildCommandInput,
+  type HarnessPluginFactory,
   type HarnessResume,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,
   type McpSetupInfo,
   type PluginCapability,
-  type PluginFactory,
   type PluginHost,
   type PresetDefinition,
   type PresetValidationResult,
@@ -163,7 +163,7 @@ function projectSlug(cwd: string): string {
  * version probe, shell quoting, a namespaced logger). See
  * `@subshell-ai/plugin-api`.
  */
-const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
+const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
   capabilities: (): PluginCapability[] => ["mcp", "resume", "attention", "settings"],
 
   supportsAttentionHooks: true,

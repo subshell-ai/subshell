@@ -10,6 +10,7 @@ import { filesRoutes } from "@/api/files.route.js";
 import { identityRoutes } from "@/api/identities.route.js";
 import { liveRoutes } from "@/api/live.route.js";
 import { metaRoutes } from "@/api/meta.route.js";
+import { networkRoutes } from "@/api/network/index.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { notificationsRoutes } from "@/api/notifications.route.js";
 import { pluginsRoutes } from "@/api/plugins.route.js";
@@ -73,7 +74,14 @@ const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use
  * the whole reason these groups exist, and spending it in the fullest one is
  * how the next feature route ends up paying for a regrouping.
  */
-const adminRoutes = new Elysia().use(adminStatusRoutes).use(adminServerRoutes).use(adminUpdatesRoutes);
+const adminRoutes = new Elysia()
+  .use(adminStatusRoutes)
+  .use(adminServerRoutes)
+  .use(adminUpdatesRoutes)
+  // `/api/network` belongs here rather than in `coreRoutes`: every route it
+  // carries is cookie-admin only, and `coreRoutes` already holds the most of
+  // the depth budget this grouping exists to protect.
+  .use(networkRoutes);
 
 /**
  * The anonymous surface — routes that deliberately do NOT `.use(authGuard)`.

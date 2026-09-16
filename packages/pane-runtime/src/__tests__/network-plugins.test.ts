@@ -4,7 +4,7 @@ import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NetworkPlugin } from "@subshell-ai/plugin-api";
-import { createPluginHost, resetPluginDataDirForTests, setPluginDataDir } from "../plugin-host.js";
+import { createPluginHost, resetPluginDataDirForTests, setPluginDataDir, withPluginOutput } from "../plugin-host.js";
 import { createInProcessRuntime } from "../plugin-runtime.js";
 import { createPluginSecrets, secretPath } from "../plugin-secrets.js";
 
@@ -213,5 +213,78 @@ describe("the plugin secret store", () => {
     } finally {
       resetPluginDataDirForTests();
     }
+  });
+});
+
+describe("withPluginOutput", () => {
+  it("tees a plugin's command output to a watching act", async () => {
+    // The gap this closes: a host is built at registry construction, long
+    // before any request exists, and `run`'s own `onLine` belongs to the
+    // PLUGIN. Without this a route streaming a join could narrate only its own
+    // steps, never the thirty seconds of output the vendor CLI produced.
+    const host = createPluginHost({ pluginId: "fixture" });
+    const watched: string[] = [];
+    const byThePlugin: string[] = [];
+
+    await withPluginOutput(
+      "fixture",
+      (line) => watched.push(line),
+      async () => {
+        await host.run(["/bin/sh", "-c", "echo first; echo second"], {
+          onLine: (line) => byThePlugin.push(line),
+        });
+      },
+    );
+
+    // Both sinks see it: the tee adds a reader, it never replaces one.
+    expect(watched).toEqual(["first", "second"]);
+    expect(byThePlugin).toEqual(["first", "second"]);
+  });
+
+  it("stops teeing once the act settles", async () => {
+    // A response stream closes when the act ends, so a later run writing to it
+    // would be writing to a reader that is gone.
+    const host = createPluginHost({ pluginId: "fixture" });
+    const watched: string[] = [];
+    await withPluginOutput(
+      "fixture",
+      (line) => watched.push(line),
+      async () => {
+        await host.run(["/bin/sh", "-c", "echo during"]);
+      },
+    );
+    await host.run(["/bin/sh", "-c", "echo after"]);
+    expect(watched).toEqual(["during"]);
+  });
+
+  it("removes the sink even when the act throws", async () => {
+    const host = createPluginHost({ pluginId: "fixture" });
+    const watched: string[] = [];
+    await expect(
+      withPluginOutput(
+        "fixture",
+        (line) => watched.push(line),
+        async () => {
+          throw new Error("the plugin gave up");
+        },
+      ),
+    ).rejects.toThrow("the plugin gave up");
+    await host.run(["/bin/sh", "-c", "echo after"]);
+    expect(watched).toEqual([]);
+  });
+
+  it("survives a sink that throws, because a closed stream is ordinary", async () => {
+    // The page navigated away mid-join. That has nothing to do with whether
+    // the command worked, so it must not fail the run.
+    const host = createPluginHost({ pluginId: "fixture" });
+    const result = await withPluginOutput(
+      "fixture",
+      () => {
+        throw new Error("nobody is reading");
+      },
+      () => host.run(["/bin/sh", "-c", "echo hello"]),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe("hello");
   });
 });

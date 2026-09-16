@@ -96,6 +96,26 @@ export enum BackendErrorCodes {
   NODE_UPDATE_UNAVAILABLE = "NODE_UPDATE_UNAVAILABLE",
   /** `POST /api/nodes/:id/update`: the agent refused or could not apply it; the message is the agent's own. */
   NODE_UPDATE_FAILED = "NODE_UPDATE_FAILED",
+  /**
+   * `/api/network/:id/*`: this host's OS is not in the plugin's
+   * `subshell.network.platforms`. Manifest DATA, so it is known without
+   * loading plugin code and a surface renders the row unavailable rather than
+   * offering a button that would 409.
+   */
+  PLATFORM_UNSUPPORTED = "PLATFORM_UNSUPPORTED",
+  /**
+   * `POST /api/network/:id/join|publish`: the plugin's live `status()` is
+   * below `needs-login` — the vendor CLI is missing, its daemon is down, or
+   * this OS user may not drive it. The message is the first hint the plugin
+   * gave, so the refusal names the remedy rather than the state.
+   */
+  NETWORK_NOT_READY = "NETWORK_NOT_READY",
+  /**
+   * `POST /api/network/:id/join|publish`: a `required` settings field has no
+   * value (or a `required` secret field has nothing stored). Configuration
+   * this act cannot invent, so it is refused before anything runs.
+   */
+  NETWORK_UNCONFIGURED = "NETWORK_UNCONFIGURED",
 }
 
 export const BackendErrorCodeDefs = {
@@ -248,6 +268,21 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_UPDATE_FAILED]: {
     message: "The node could not apply the update",
+    statusCode: 409,
+  },
+  // Every network refusal is a 409 for the reason the update ones are: the
+  // request is well formed and the caller is allowed to make it — this host
+  // is simply not in a state where it can be honoured.
+  [BackendErrorCodes.PLATFORM_UNSUPPORTED]: {
+    message: "This plugin cannot run on this platform",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NETWORK_NOT_READY]: {
+    message: "This network is not ready on this host",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.NETWORK_UNCONFIGURED]: {
+    message: "This network needs configuring first",
     statusCode: 409,
   },
 };

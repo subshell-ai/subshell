@@ -126,6 +126,46 @@ export function hostPlatform(): PluginPlatform {
 }
 
 /**
+ * Where a plugin's command output goes while ONE act is being watched.
+ *
+ * The gap this closes: a host is built once, at registry construction, long
+ * before any request exists — and `run`'s `onLine` belongs to the PLUGIN, which
+ * passes its own callback to parse what a CLI printed. So a route streaming a
+ * join had nothing of the vendor's output to send and could narrate only its
+ * own steps, which is the least interesting half of a `tailscale up` that takes
+ * thirty seconds.
+ *
+ * Keyed by plugin id and set for the duration of one call, which is sound
+ * because the routes take a per-plugin in-flight lock: there is at most one act
+ * per plugin at a time, so there is at most one sink to hold. A plugin's own
+ * `onLine` still runs, unchanged and first — this tees, it never replaces.
+ */
+const actSinks = new Map<string, (line: string) => void>();
+
+/**
+ * Streams one plugin act's command output to `onLine` while `fn` runs.
+ *
+ * Every line every `host.run` inside `fn` produces is teed here, ANSI already
+ * stripped. The sink is removed when `fn` settles, however it settles, so a
+ * closed response stream can never be written to by a later act.
+ * @param pluginId - whose output to watch
+ * @param onLine - called per line, from any command the plugin runs
+ * @param fn - the act
+ */
+export async function withPluginOutput<T>(
+  pluginId: string,
+  onLine: (line: string) => void,
+  fn: () => Promise<T>,
+): Promise<T> {
+  actSinks.set(pluginId, onLine);
+  try {
+    return await fn();
+  } finally {
+    actSinks.delete(pluginId);
+  }
+}
+
+/**
  * Builds the host object for one plugin.
  * @param options - the plugin's id, where its logs go, and its data directory
  */
@@ -149,7 +189,26 @@ export function createPluginHost(options: PluginHostOptions): PluginHost {
       // saw them as "the command failed" would render them to an operator as
       // the vendor's problem.
       if (refusal !== undefined) throw new Error(refusal);
-      const { code, stdout, stderr, timedOut, aborted } = await runBounded(argv, opts);
+      // The plugin's own sink runs first and unchanged; the watching act, if
+      // there is one, gets a copy. A throw from either must not fail the run —
+      // a closed response stream is the ordinary case (the page navigated) and
+      // it has nothing to do with whether the command worked.
+      const teed = (line: string) => {
+        try {
+          opts?.onLine?.(line);
+        } catch {
+          // The plugin's parser threw. Its own problem, not this run's.
+        }
+        try {
+          actSinks.get(options.pluginId)?.(line);
+        } catch {
+          // Nobody is watching any more.
+        }
+      };
+      const { code, stdout, stderr, timedOut, aborted } = await runBounded(argv, {
+        ...opts,
+        ...(opts?.onLine || actSinks.has(options.pluginId) ? { onLine: teed } : {}),
+      });
       return { code, stdout, stderr, timedOut, aborted };
     },
     secrets:

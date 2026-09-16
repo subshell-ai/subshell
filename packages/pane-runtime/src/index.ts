@@ -69,6 +69,7 @@ export {
   type PluginHostOptions,
   resetPluginDataDirForTests,
   setPluginDataDir,
+  withPluginOutput,
 } from "./plugin-host.js";
 export { buildPluginReports } from "./plugin-report.js";
 export {

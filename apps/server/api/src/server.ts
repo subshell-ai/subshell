@@ -6,6 +6,7 @@ import { installScriptRoute } from "@/api/install-script.js";
 import { routes } from "@/api/routes.js";
 import { TRUSTED_ORIGINS } from "@/constants.js";
 import { EMBEDDED } from "@/generated/embedded-web.js";
+import { accessGuardPlugin } from "@/plugins/access-guard.plugin.js";
 import { authPlugin } from "@/plugins/auth.plugin.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { selectStaticPlugin } from "@/plugins/static.plugin.js";
@@ -21,6 +22,12 @@ export function createApp() {
     // Mounted first so the global onError owns every failure thrown anywhere
     // in the app (its hooks are registered before any route exists).
     .use(errorHandlerPlugin)
+    // The Cloudflare Access front door, BEFORE everything else: a hostname a
+    // network plugin published on the open internet must be checked before
+    // cors, the rate limiter, `/install.sh`, auth, the static SPA or a
+    // WebSocket upgrade can answer for it. A hostname no active guard names
+    // is not touched at all, so loopback and the LAN are unchanged.
+    .use(accessGuardPlugin)
     // Shared response models (ApiErrorResponse) registered app-wide so route
     // `response` maps can reference them by name; named plugin, so per-route
     // `.use(apiModels)` calls (test-isolated instances) dedupe to this one.
