@@ -7,15 +7,15 @@ import createPlugin, { manifest } from "../index.js";
 /** The port the host says this server listens on. Every address uses it. */
 const PORT = 3080;
 
-/** A context with no settings and no secrets — the plain hosted-NetBird case. */
+/**
+ * The only context this plugin takes: a port, and nothing else.
+ *
+ * `settings` is empty because the plugin declares NO settings fields — the
+ * management URL is the daemon's own config (operator's ruling, 2026-09-16),
+ * so there is no stored value for a self-hosted operator to arrive here. The
+ * join tests below pin that `netbird up` carries only the setup key.
+ */
 const CTX: NetworkContext = { port: PORT, settings: {}, secrets: { has: () => false } };
-
-/** The context a self-hosted operator gets once they have saved a management URL. */
-const SELF_HOSTED: NetworkContext = {
-  port: PORT,
-  settings: { managementUrl: "https://master.netbird.example.com" },
-  secrets: { has: () => false },
-};
 
 /**
  * A realistic `netbird status --json` for an enrolled machine.
@@ -201,12 +201,17 @@ describe("netbird manifest", () => {
     ]);
   });
 
-  it("publishes (the pair) and reads settings, and nothing else", () => {
+  it("publishes (the pair), and nothing else — no settings, ever", () => {
     const plugin = createPlugin(createTestHost()) as NetworkPlugin;
-    expect(plugin.capabilities()).toEqual(["publish", "settings"]);
+    expect(plugin.capabilities()).toEqual(["publish"]);
     expect(typeof plugin.publish).toBe("function");
     expect(typeof plugin.unpublish).toBe("function");
-    expect(typeof plugin.settingsFields).toBe("function");
+    // The `managementUrl` field is GONE, not hidden: `capabilityMismatches`
+    // pairs `settings` with `settingsFields` in both directions, so these two
+    // absences are what the trimmed capability declaration stands on. The
+    // setup key survives because it rides the JOIN input, never settings.
+    expect(plugin.settingsFields).toBeUndefined();
+    expect(plugin.validateSettings).toBeUndefined();
     expect(plugin.supervisedProcess).toBeUndefined();
     expect(plugin.requestGuard).toBeUndefined();
   });
@@ -361,14 +366,6 @@ describe("NetBirdPlugin.join", () => {
     expect(lines(host)).toEqual(["/usr/bin/netbird up --setup-key=8c9f-2a1b-uuid-ish"]);
   });
 
-  it("adds the management URL to a credential join when the operator set one", async () => {
-    const { plugin, host } = scripted({ "/usr/bin/netbird up": { code: 0 } });
-    await plugin.join({ credential: "setup-key-1" }, SELF_HOSTED);
-    expect(lines(host)).toEqual([
-      "/usr/bin/netbird up --setup-key=setup-key-1 --management-url=https://master.netbird.example.com",
-    ]);
-  });
-
   it("throws the CLI's own first line when the setup key is refused", async () => {
     const { plugin } = scripted({
       "/usr/bin/netbird up": { code: 1, stderr: "invalid setup key: not found\nusage: netbird up" },
@@ -457,25 +454,6 @@ describe("NetBirdPlugin.join", () => {
     expect(await plugin.join({}, CTX)).toEqual({ state: "joined" });
   });
 
-  it("adds the management URL to an interactive join too", async () => {
-    const seen: string[][] = [];
-    const host = createTestHost({
-      findBinary: async (name) => `/usr/bin/${name}`,
-      run: async (argv, opts) => {
-        seen.push([...argv]);
-        opts?.onLine?.("Open the URL to authenticate: https://login.netbird.io/a/1");
-        return { code: null, stdout: "", stderr: "", timedOut: false, aborted: true };
-      },
-    });
-    await (createPlugin(host) as NetworkPlugin).join({}, SELF_HOSTED);
-    expect(seen[0]).toEqual([
-      "/usr/bin/netbird",
-      "up",
-      "--no-browser",
-      "--management-url=https://master.netbird.example.com",
-    ]);
-  });
-
   it("throws, naming what happened, when there is no URL and no network", async () => {
     const { plugin } = scripted({
       "/usr/bin/netbird up": { code: 1, stderr: "management peer is not connected" },
@@ -552,29 +530,6 @@ describe("NetBirdPlugin.unpublish and leave", () => {
     const { plugin, host } = scripted({}, { findBinary: async () => null });
     await plugin.leave(CTX);
     expect(host.calls).toEqual([]);
-  });
-});
-
-describe("NetBirdPlugin.settings", () => {
-  it("declares one optional managementUrl field", () => {
-    const plugin = createPlugin(createTestHost()) as NetworkPlugin;
-    const fields = plugin.settingsFields?.() ?? [];
-    expect(fields.map((f) => f.key)).toEqual(["managementUrl"]);
-    expect(fields[0]?.type).toBe("string");
-    expect(fields[0]?.required).toBe(false);
-  });
-
-  it("refuses a management URL that is not an http(s) URL", () => {
-    const plugin = createPlugin(createTestHost()) as NetworkPlugin;
-    const issues = plugin.validateSettings?.({ managementUrl: "master.netbird.example.com" }) ?? [];
-    expect(issues.map((i) => i.field)).toContain("managementUrl");
-  });
-
-  it("accepts a blank or a well-formed management URL", () => {
-    const plugin = createPlugin(createTestHost()) as NetworkPlugin;
-    expect(plugin.validateSettings?.({})).toEqual([]);
-    expect(plugin.validateSettings?.({ managementUrl: "" })).toEqual([]);
-    expect(plugin.validateSettings?.({ managementUrl: "https://master.netbird.example.com" })).toEqual([]);
   });
 });
 

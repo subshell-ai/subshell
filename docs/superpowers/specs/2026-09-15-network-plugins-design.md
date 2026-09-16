@@ -445,13 +445,13 @@ reading `process`, which it should not have to reason about.
 | `install.command` | none | none | none | darwin: `brew install cloudflared` |
 | `privileged` (printed, never run) | linux: the install script, then `sudo tailscale set --operator=$USER`; darwin: `brew install --formula tailscale && sudo tailscaled install-system-daemon`, then the same operator line | same | linux: the install script (nothing further); darwin: `brew install netbirdio/tap/netbird && sudo netbird service install && sudo netbird service start` | linux: the apt repo / `.deb` step |
 | `status` | `tailscale status --json` → `BackendState`, `Self.DNSName`, `TailscaleIPs`, `CertDomains`, `AuthURL`; "Access denied" ⇒ `needs-privilege`; socket error ⇒ `daemon-down`; `tailscale serve status --json` decides `published` | same, and `CertDomains` is always empty ⇒ http addresses with a hint saying why | `netbird status --json` → `management.connected`, `fqdn`, `netbirdIp`; the daemon hint text ⇒ `daemon-down` | binary present; `published` ⇔ the supervisor reports running (the host merges that in) |
-| `join` with a credential | `tailscale up --auth-key=<cred> [--hostname …]` | `tailscale up --login-server <settings.controlUrl> [--auth-key …]` | `netbird up --setup-key <cred> [--management-url <settings.managementUrl>]` | validate the token's shape (base64 JSON carrying `a`, `t`, `s`), `host.secrets.set("tunnel-token", cred)`, return `joined` |
+| `join` with a credential | `tailscale up --auth-key=<cred> [--hostname …]` | `tailscale up --login-server <settings.controlUrl> [--auth-key …]` | `netbird up --setup-key <cred>` (the `--management-url` variant was removed 2026-09-16 — see the § 10e bullet) | validate the token's shape (base64 JSON carrying `a`, `t`, `s`), `host.secrets.set("tunnel-token", cred)`, return `joined` |
 | `join` interactive | `tailscale up`, capture `To authenticate, visit:` off `onLine`, then abort | same; the hint names `headscale nodes register` | `netbird up --no-browser`, capture the URL and code, then abort | not offered |
 | `publish` | `tailscale serve reset`, then `tailscale serve --bg --https=443 http://127.0.0.1:<port>` | `tailscale serve --bg --http=80 http://127.0.0.1:<port>` (**measure**, §10.3) | no-op: the addresses are `http://<fqdn>:<port>` and `http://<netbirdIp>:<port>` | Access pre-flight (§6), then a `process` for `cloudflared tunnel run` and a `guard` |
 | `publish` refusal | `CertDomains` empty ⇒ refused, naming MagicDNS + HTTPS certificates | — | — | settings incomplete, or the pre-flight fails |
 | `unpublish` | `tailscale serve reset` | same | no-op | the host stops the process, then drops the guard |
 | `leave` | `tailscale logout` | same | `netbird down` | delete the secret |
-| `settingsFields` | none | `controlUrl` (required) | `managementUrl` (optional) | `hostname`, `teamDomain`, `aud` (all required), `tunnelToken` (`secret`) |
+| `settingsFields` | none | `controlUrl` (required) | none (2026-09-16: the `managementUrl` field went — the daemon owns its config) | `hostname`, `teamDomain`, `aud` (all required), `tunnelToken` (`secret`) |
 
 Headscale is a **separate plugin with a separate id** that inlines the shared
 source from the Tailscale package at build time (tsdown `noExternal`). It
@@ -1292,6 +1292,21 @@ refusal is the safe default until someone builds and tests the re-derive.
   NetBird's `labels.publish` — "Use this address", the box's whole
   vocabulary — now serves only the fallback button, a copy call left to
   the plugin.
+
+- **NetBird keeps no configuration (amended 2026-09-16, operator read of a
+  live joined row: "the user should configure all of this in their own
+  netbird cli setup").** The "Management URL (self-hosted only)" field died
+  at the manifest, not the disclosure: it fed only `netbird up
+  --management-url` at join, and post-join the daemon's own config owns the
+  management service — a card copy of it could only disagree with the
+  machine. The plugin now declares no `settingsFields` and drops the
+  `settings` capability with them (the load-time mismatch check pairs them
+  BOTH ways, so half a removal would refuse the plugin), the join argv
+  shrinks to `netbird up [--setup-key …]` / `netbird up --no-browser`, and
+  the setup KEY survives because it is a join credential, not
+  configuration. Zero-field plugins became a tested card shape at the same
+  time: no disclosure opens onto nothing (`collapseSettings` checks
+  `settingsFields.length`), and the implicit gap fallback stands alone.
 
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 

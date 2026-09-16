@@ -26,6 +26,16 @@ importing any of this code.
   stays a no-op — there is nothing on the machine for it to undo — but the
   host's half clears the record and removes the trusted origins, so the address
   stops accepting sign-ins at the next restart.
+- **The management URL is the daemon's own config — the card has no field for
+  it.** A self-hosted NetBird is set up **on the machine**: run
+  `netbird setup`/`netbird up` yourself first; this card then reflects and
+  publishes what the daemon says. There used to be a "Management URL
+  (self-hosted only)" settings field, and it was right about the mechanism —
+  it fed `netbird up --management-url` at join — but post-join the daemon owns
+  its config, so the card's copy was a dead input that could disagree with
+  what the machine already says. Hosted SaaS is what a bare `netbird up` uses;
+  the setup **key** stays, because it is the join credential, not
+  configuration (operator's ruling, 2026-09-16).
 - **Peer names need a nameserver group.** The FQDN address is offered alongside
   the IP, with a hint saying peer names only resolve when the NetBird account has
   a nameserver group configured — otherwise use the NetBird IP address — linked to

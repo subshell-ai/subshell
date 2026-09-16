@@ -970,63 +970,83 @@ describe("NetworkPluginCard: the state matrix", () => {
   // answered stood at the top of the card, above the act still pending.
   // The fix is a place, not a removal: one "Change settings" disclosure,
   // BELOW the fallback, storing the same form.
+  // Operator's live reads, 2026-09-16, one defect in two moves. The joined
+  // card opened with setup fields ("Management URL (self-hosted only)", help
+  // text, a disabled "Save settings") above the act still pending — so the
+  // fields moved behind a "Change settings" disclosure. And the operator then
+  // ruled that field away for NetBird entirely (the daemon owns its config):
+  // the exemplar here is HEADSCALE, verbatim from
+  // `packages/plugins/headscale/src/index.ts`, and NetBird now supplies the
+  // zero-fields case the guard must also handle.
   describe("a joined row stores its setup fields behind a disclosure", () => {
-    const MANAGED: SettingsFieldWire[] = [
+    /** Headscale's one required field, verbatim from its plugin. */
+    const CONTROL: SettingsFieldWire[] = [
       {
-        key: "managementUrl",
-        label: "Management URL",
+        key: "controlUrl",
+        label: "Control server URL",
         type: "string",
-        description: "Self-hosted only — leave unset to use NetBird's cloud.",
+        required: true,
+        placeholder: "https://headscale.example.com",
       },
     ];
+    const configured = (over: Partial<NetworkRow> & { state?: NetworkState } = {}) =>
+      row({
+        id: "headscale",
+        name: "Headscale",
+        settingsFields: CONTROL,
+        settings: { controlUrl: "https://hs.example.com" },
+        ...over,
+      });
 
     it("collapses them into one closed disclosure, fields and all", async () => {
-      await renderCard(
-        row({
-          state: "joined",
-          settingsFields: MANAGED,
-          status: { state: "joined", addresses: ADDRESSES, hints: [] },
-        }),
-      );
+      await renderCard(configured({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
       const summary = screen.getByText("Change settings");
       const details = summary.closest("details");
       expect(details).not.toBeNull();
       expect(details?.open).toBe(false);
       // The WHOLE form moves, not just the inputs: its Save button is part of
       // what the operator did not want to lead with.
-      expect(details?.contains(screen.getByLabelText("Management URL"))).toBe(true);
+      expect(details?.contains(screen.getByLabelText(/^Control server URL/))).toBe(true);
       expect(details?.contains(screen.getByRole("button", { name: "Save settings" }))).toBe(true);
+      cleanup();
+      // A published row stores them the same way — refusal sentence and
+      // disabled inputs inside (the two published-form tests below pin the
+      // sentence's text and its `aria-describedby` wire; this pins its PLACE).
+      await renderCard(
+        configured({
+          state: "published",
+          published: true,
+          status: { state: "published", addresses: ADDRESSES, hints: [] },
+        }),
+      );
+      const published = screen.getByText("Change settings").closest("details");
+      expect(published?.contains(screen.getByText(/Unpublish Headscale to change these/))).toBe(true);
     });
 
     it("keeps the pending act ABOVE the disclosure", async () => {
-      // The fallback line and its button are the one thing worth pressing on
-      // a joined-and-unrecorded implicit row; the disclosure may be found
-      // eventually, but never in front of that.
-      await renderCard(
-        row({
-          id: "netbird",
-          name: "NetBird",
-          publishImplicit: true,
-          labels: { credential: "Setup key", publish: "Use this address" },
-          state: "joined",
-          settingsFields: MANAGED,
-          status: { state: "joined", addresses: ADDRESSES, hints: [] },
-        }),
-      );
-      const gapLine = screen.getByText(/publishes by joining/);
+      // The disclosure must never sit in front of what the row is actually
+      // waiting for. A joined explicit row's pending act is its Publish press;
+      // the implicit row's gap fallback has no disclosure to be in front of
+      // any more (see the zero-fields test), but the rule is the section's
+      // ORDER, and this pins it.
+      await renderCard(configured({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+      const publish = screen.getByRole("button", { name: "Publish with Tailscale Serve" });
       const details = screen.getByText("Change settings").closest("details");
       expect(details).not.toBeNull();
       const order = Array.from(document.querySelectorAll("*"));
       // The `details !== null` conjunct is for the type, and it fails the
       // assertion too — a missing disclosure reads as the wrong order, never
       // as a passing one.
-      expect(details !== null && order.indexOf(gapLine) < order.indexOf(details)).toBe(true);
+      expect(details !== null && order.indexOf(publish) < order.indexOf(details)).toBe(true);
     });
 
-    it("asks the fallback of a joined-but-unrecorded row, and never of a recorded one", async () => {
-      // Point (4) of the report, pinned from exactly those facts: the gap
-      // line renders from `joined` + `publishImplicit` alone — addresses in
-      // the status or not — and leaves when the record lands.
+    it("opens no disclosure for a plugin that has no settings at all", async () => {
+      // The guard `collapseSettings` reads is what the FORM would show, and
+      // NetBird — join-is-publish, no fields since the operator cut the
+      // management URL — is that plugin now. Its joined row keeps the gap
+      // fallback and shows no "Change settings" anywhere; its published row
+      // asks no publish question and stores nothing. (Verified per the fifth
+      // read's ruling: zero-field rows in both joined states, full frame.)
       await renderCard(
         row({
           id: "netbird",
@@ -1034,11 +1054,11 @@ describe("NetworkPluginCard: the state matrix", () => {
           publishImplicit: true,
           labels: { credential: "Setup key", publish: "Use this address" },
           state: "joined",
-          settingsFields: MANAGED,
           status: { state: "joined", addresses: [], hints: [] },
         }),
       );
       expect(screen.getByText(/publishes by joining/)).toBeTruthy();
+      expect(screen.queryByText("Change settings")).toBeNull();
       cleanup();
       await renderCard(
         row({
@@ -1048,30 +1068,18 @@ describe("NetworkPluginCard: the state matrix", () => {
           labels: { credential: "Setup key", publish: "Use this address" },
           state: "published",
           published: true,
-          settingsFields: MANAGED,
           status: { state: "published", addresses: ADDRESSES, hints: [] },
         }),
       );
       expect(screen.queryByText(/publishes by joining/)).toBeNull();
-      // A published row stores its fields the same way, refusal sentence and
-      // disabled inputs inside — see the two published-form tests below for
-      // the sentence and the `aria-describedby` wire.
-      const details = screen.getByText("Change settings").closest("details");
-      expect(details?.contains(screen.getByText(/Unpublish NetBird to change these/))).toBe(true);
+      expect(screen.queryByText("Change settings")).toBeNull();
     });
 
     it("keeps the fields INLINE for every state before joining", async () => {
       // Setup states ARE the fields — collapsing them there would hide the
       // very thing the row is waiting on. (The needs-login blocker tests
       // above read these fields without opening anything; that stays true.)
-      await renderCard(
-        row({
-          id: "headscale",
-          name: "Headscale",
-          state: "needs-login",
-          settingsFields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
-        }),
-      );
+      await renderCard(row({ id: "headscale", name: "Headscale", state: "needs-login", settingsFields: CONTROL }));
       expect(screen.queryByText("Change settings")).toBeNull();
       expect(screen.getByLabelText(/^Control server URL/).closest("details")).toBeNull();
     });
@@ -1084,8 +1092,10 @@ describe("NetworkPluginCard: the state matrix", () => {
       // written from the facts, not from the reachability.
       await renderCard(
         row({
+          id: "headscale",
+          name: "Headscale",
           state: "joined",
-          settingsFields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
+          settingsFields: CONTROL,
           status: { state: "joined", addresses: ADDRESSES, hints: [] },
         }),
       );
@@ -1098,12 +1108,7 @@ describe("NetworkPluginCard: the state matrix", () => {
       // The first-run step's short form IS the question it asks; the
       // disclosure is the FULL card's grammar only.
       await renderCard(
-        row({
-          state: "joined",
-          settingsFields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
-          settings: { controlUrl: "https://hs.example.com" },
-          status: { state: "joined", addresses: ADDRESSES, hints: [] },
-        }),
+        configured({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }),
         true,
       );
       expect(screen.queryByText("Change settings")).toBeNull();

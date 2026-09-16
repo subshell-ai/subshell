@@ -24,18 +24,6 @@ const LOGIN_LINE_RE = /open|url|login|auth|browser|sign[\s-]?in/i;
 const DEVICE_CODE_RE = /code[^A-Za-z0-9]*([A-Za-z0-9][A-Za-z0-9-]{3,})/i;
 
 /**
- * The `--management-url` argument, when the operator set one.
- *
- * NetBird points at the SaaS management service by default; a self-hosted
- * NetBird needs the explicit URL. Absent means the default, so the argument is
- * omitted entirely rather than passed empty.
- */
-function managementArg(ctx: NetworkContext): string[] {
-  const url = ctx.settings.managementUrl?.trim();
-  return url ? [`--management-url=${url}`] : [];
-}
-
-/**
  * Puts this machine on a NetBird network.
  *
  * Two paths, chosen by whether the operator pasted a setup key. Both are one
@@ -47,17 +35,22 @@ function managementArg(ctx: NetworkContext): string[] {
  * operator as the stream's terminal `error` frame, not a status code — the
  * body is open before any plugin verb runs.
  *
+ * **The management URL is not this card's business.** `netbird up` joins with
+ * whatever management service the DAEMON is configured to use — `netbird
+ * setup`/the operator's own `netbird up` on the machine sets that (the card's
+ * old `managementUrl` field fed only this argv at join and did nothing after
+ * it; operator's ruling, 2026-09-16). The hosted SaaS default is what a bare
+ * `up` uses.
+ *
  * **The setup key's shape is not validated.** NetBird setup keys are opaque
  * (account-scoped UUIDs in the current scheme), and a wrong-length guess would
  * refuse a key that happens to be valid — so a malformed one is the CLI's to
  * reject, and its own words come back. This mirrors the join route's own note
  * that the credential's shape is the vendor's business.
  */
-export async function joinNetwork(host: PluginHost, input: JoinInput, ctx: NetworkContext): Promise<JoinOutcome> {
+export async function joinNetwork(host: PluginHost, input: JoinInput, _ctx: NetworkContext): Promise<JoinOutcome> {
   const binary = await resolveBinary(host);
   if (!binary) throw new Error("NetBird is not installed on this machine, so there is nothing to join.");
-
-  const management = managementArg(ctx);
 
   const credential = input.credential?.trim();
   if (credential) {
@@ -65,7 +58,7 @@ export async function joinNetwork(host: PluginHost, input: JoinInput, ctx: Netwo
     // the life of the command — the same accepted exposure as every other mesh
     // credential this server passes to a CLI. It is never stored: a join
     // credential is transient by contract.
-    const result = await runNetbird(host, binary, ["up", `--setup-key=${credential}`, ...management], {
+    const result = await runNetbird(host, binary, ["up", `--setup-key=${credential}`], {
       timeoutMs: LOGIN_TIMEOUT_MS,
     });
     if (result.code !== 0) {
@@ -74,7 +67,7 @@ export async function joinNetwork(host: PluginHost, input: JoinInput, ctx: Netwo
     return { state: "joined" };
   }
 
-  return interactiveJoin(host, binary, management);
+  return interactiveJoin(host, binary);
 }
 
 /**
@@ -88,11 +81,11 @@ export async function joinNetwork(host: PluginHost, input: JoinInput, ctx: Netwo
  * code. NetBird's status carries no login URL of its own, so "not joined and no
  * URL" is a genuine failure with the CLI's words, not a URL to hand back.
  */
-async function interactiveJoin(host: PluginHost, binary: string, management: string[]): Promise<JoinOutcome> {
+async function interactiveJoin(host: PluginHost, binary: string): Promise<JoinOutcome> {
   const controller = new AbortController();
   const found: { url: string | null; code: string | null } = { url: null, code: null };
 
-  const result = await runNetbird(host, binary, ["up", "--no-browser", ...management], {
+  const result = await runNetbird(host, binary, ["up", "--no-browser"], {
     timeoutMs: LOGIN_TIMEOUT_MS,
     signal: controller.signal,
     onLine: (line) => {

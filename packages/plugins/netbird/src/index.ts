@@ -1,17 +1,14 @@
-import {
-  isDocsUrl,
-  type JoinInput,
-  type JoinOutcome,
-  type NetworkContext,
-  type NetworkPlugin,
-  type NetworkPluginFactory,
-  type NetworkStatus,
-  type PluginCapability,
-  type PluginHost,
-  type PresetValidationIssue,
-  type PublishOutcome,
-  type PublishRefusal,
-  type SettingsField,
+import type {
+  JoinInput,
+  JoinOutcome,
+  NetworkContext,
+  NetworkPlugin,
+  NetworkPluginFactory,
+  NetworkStatus,
+  PluginCapability,
+  PluginHost,
+  PublishOutcome,
+  PublishRefusal,
 } from "@subshell-ai/plugin-api";
 import { joinNetwork } from "./join.js";
 import { leaveNetwork, publishServer, unpublishServer } from "./publish.js";
@@ -45,17 +42,25 @@ import { readNetwork } from "./status.js";
  */
 const createPlugin: NetworkPluginFactory = (host: PluginHost): NetworkPlugin => ({
   /**
-   * `publish` (the pair) and `settings`.
+   * `publish` (the pair), and nothing else.
    *
    * Not `supervise`: there is no long-running child to babysit — NetBird's daemon
    * is a service the operator installed, not a process this plugin spawns. Not
    * `guard`: NetBird is a private network of enrolled machines (the manifest says
-   * `exposure: "private"`), so there is no front-door assertion to verify. The
-   * `settings` capability is because this plugin declares a `managementUrl` field
-   * for self-hosted NetBird, which `capabilityMismatches` requires be paired with
-   * the declaration.
+   * `exposure: "private"`), so there is no front-door assertion to verify. And
+   * not `settings` — which this plugin used to declare alongside a
+   * `managementUrl` field (operator's ruling, 2026-09-16: "the user should
+   * configure all of this in their own netbird cli setup"). The field was right
+   * on the mechanism: it only ever fed `netbird up --management-url` AT JOIN;
+   * post-join the daemon owns its own config, so the card's copy of it was a
+   * dead input that could disagree with what the machine says. A self-hosted
+   * operator runs `netbird setup`/`netbird up` on the machine, and this card
+   * then reflects and publishes what the daemon reports. `capabilityMismatches`
+   * pairs the capability with the declaration in both directions, so removing
+   * one means removing the other — and the setup KEY survives untouched,
+   * because it is the join credential, not configuration.
    */
-  capabilities: (): PluginCapability[] => ["publish", "settings"],
+  capabilities: (): PluginCapability[] => ["publish"],
 
   async status(ctx: NetworkContext): Promise<NetworkStatus> {
     return (await readNetwork(host, ctx)).status;
@@ -75,43 +80,6 @@ const createPlugin: NetworkPluginFactory = (host: PluginHost): NetworkPlugin => 
 
   async unpublish(): Promise<void> {
     return unpublishServer();
-  },
-
-  /**
-   * The one knob a self-hosted NetBird needs. Absent means the vendor's SaaS
-   * management service, which is right for the hosted accounts most people use.
-   */
-  settingsFields: (): SettingsField[] => [
-    {
-      key: "managementUrl",
-      label: "Management URL (self-hosted only)",
-      description:
-        "Leave blank for the hosted NetBird service. Set this only if you run your own NetBird management server.",
-      type: "string",
-      required: false,
-      placeholder: "https://master.netbird.example.com",
-    },
-  ],
-
-  /**
-   * A management URL, when one is set, must be an http(s) origin.
-   *
-   * It rides into `netbird up --management-url=…` argv, and a value that is not a
-   * URL would be rejected by NetBird seconds later with a network error that says
-   * nothing about the field. Checking it here turns that into a named field error
-   * on the settings form.
-   */
-  validateSettings: (values: Record<string, string>): PresetValidationIssue[] => {
-    const url = values.managementUrl?.trim();
-    if (url && !isDocsUrl(url)) {
-      return [
-        {
-          field: "managementUrl",
-          message: "The management URL must be a full http(s) URL, e.g. https://master.netbird.example.com.",
-        },
-      ];
-    }
-    return [];
   },
 });
 

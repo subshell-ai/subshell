@@ -132,10 +132,15 @@ Independent binary and daemon. Decisions:
   `daemon-down` with a hint naming `netbird service install` (§ 8's
   peer-credentials claim is UNMEASURED per § 10.4 — the daemon-down hint text
   stays generic: "the NetBird daemon is not running or not reachable").
-- **settingsFields:** `managementUrl`, optional, label "Management URL
-  (self-hosted only)".
-- **join (credential):** `netbird up --setup-key <cred>` plus
-  `--management-url <settings.managementUrl>` when set. **join
+- **settingsFields:** ~~`managementUrl`, optional, label "Management URL
+  (self-hosted only)"~~ — **REMOVED (amended 2026-09-16, operator's
+  ruling):** post-join the daemon owns its management config, so the card's
+  copy was a dead input that could disagree with the machine. Self-hosted
+  people run `netbird setup` themselves; the plugin declares no settings
+  fields and no `settings` capability.
+- **join (credential):** `netbird up --setup-key <cred>` ~~plus
+  `--management-url <settings.managementUrl>` when set~~ (gone with the
+  field — the daemon's own config decides the management service). **join
   (interactive):** `netbird up --no-browser` reading the URL (and device
   code, if the output carries one) off `onLine`, then abort — same shape as
   tailscale's interactive join, same fallback-to-reread-status.
