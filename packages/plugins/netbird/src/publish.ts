@@ -31,12 +31,14 @@ const NOT_READY: Partial<Record<NetworkState, string>> = {
  * no address at all (nothing to hand out), rather than fabricating a publish.
  *
  * **Pressing twice means what pressing once means.** The verb is a pure read:
- * the same joined machine answers with the same addresses every time, the host
- * rewrites its record to the same effect, and a union with a set it already
- * holds writes nothing new. There is therefore no "recorded" second press to
- * announce — an already-published NetBird is simply ALREADY REACHABLE HERE,
- * which is what the page says. What the host makes of a second identical
- * record is the host's § 5.3 business; this verb never sees it.
+ * the same joined machine answers with the same addresses every time, and the
+ * host rewrites its record to the same effect — a union with a set it already
+ * holds writes nothing new. (Amended 2026-09-16: the JOIN is this kind's
+ * publish, so the verb now runs only as the gap fallback, and re-pressing an
+ * already-recorded row lands on the same nothing for the same reason — the
+ * announcement the press makes is the card's own, not a second effect here.)
+ * What the host makes of a second identical record is the host's § 5.3
+ * business; this verb never sees it.
  */
 export async function publishServer(host: PluginHost, ctx: NetworkContext): Promise<PublishOutcome | PublishRefusal> {
   const read = await readNetwork(host, ctx);

@@ -964,6 +964,153 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.getByRole("button", { name: "Use this address" })).toBeTruthy();
   });
 
+  // Operator's live read, 2026-09-16: the JOINED row opened with
+  // "Management URL (self-hosted only)", its help text, and a disabled
+  // "Save settings" — setup fields for a question the row had already
+  // answered stood at the top of the card, above the act still pending.
+  // The fix is a place, not a removal: one "Change settings" disclosure,
+  // BELOW the fallback, storing the same form.
+  describe("a joined row stores its setup fields behind a disclosure", () => {
+    const MANAGED: SettingsFieldWire[] = [
+      {
+        key: "managementUrl",
+        label: "Management URL",
+        type: "string",
+        description: "Self-hosted only — leave unset to use NetBird's cloud.",
+      },
+    ];
+
+    it("collapses them into one closed disclosure, fields and all", async () => {
+      await renderCard(
+        row({
+          state: "joined",
+          settingsFields: MANAGED,
+          status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        }),
+      );
+      const summary = screen.getByText("Change settings");
+      const details = summary.closest("details");
+      expect(details).not.toBeNull();
+      expect(details?.open).toBe(false);
+      // The WHOLE form moves, not just the inputs: its Save button is part of
+      // what the operator did not want to lead with.
+      expect(details?.contains(screen.getByLabelText("Management URL"))).toBe(true);
+      expect(details?.contains(screen.getByRole("button", { name: "Save settings" }))).toBe(true);
+    });
+
+    it("keeps the pending act ABOVE the disclosure", async () => {
+      // The fallback line and its button are the one thing worth pressing on
+      // a joined-and-unrecorded implicit row; the disclosure may be found
+      // eventually, but never in front of that.
+      await renderCard(
+        row({
+          id: "netbird",
+          name: "NetBird",
+          publishImplicit: true,
+          labels: { credential: "Setup key", publish: "Use this address" },
+          state: "joined",
+          settingsFields: MANAGED,
+          status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        }),
+      );
+      const gapLine = screen.getByText(/publishes by joining/);
+      const details = screen.getByText("Change settings").closest("details");
+      expect(details).not.toBeNull();
+      const order = Array.from(document.querySelectorAll("*"));
+      // The `details !== null` conjunct is for the type, and it fails the
+      // assertion too — a missing disclosure reads as the wrong order, never
+      // as a passing one.
+      expect(details !== null && order.indexOf(gapLine) < order.indexOf(details)).toBe(true);
+    });
+
+    it("asks the fallback of a joined-but-unrecorded row, and never of a recorded one", async () => {
+      // Point (4) of the report, pinned from exactly those facts: the gap
+      // line renders from `joined` + `publishImplicit` alone — addresses in
+      // the status or not — and leaves when the record lands.
+      await renderCard(
+        row({
+          id: "netbird",
+          name: "NetBird",
+          publishImplicit: true,
+          labels: { credential: "Setup key", publish: "Use this address" },
+          state: "joined",
+          settingsFields: MANAGED,
+          status: { state: "joined", addresses: [], hints: [] },
+        }),
+      );
+      expect(screen.getByText(/publishes by joining/)).toBeTruthy();
+      cleanup();
+      await renderCard(
+        row({
+          id: "netbird",
+          name: "NetBird",
+          publishImplicit: true,
+          labels: { credential: "Setup key", publish: "Use this address" },
+          state: "published",
+          published: true,
+          settingsFields: MANAGED,
+          status: { state: "published", addresses: ADDRESSES, hints: [] },
+        }),
+      );
+      expect(screen.queryByText(/publishes by joining/)).toBeNull();
+      // A published row stores its fields the same way, refusal sentence and
+      // disabled inputs inside — see the two published-form tests below for
+      // the sentence and the `aria-describedby` wire.
+      const details = screen.getByText("Change settings").closest("details");
+      expect(details?.contains(screen.getByText(/Unpublish NetBird to change these/))).toBe(true);
+    });
+
+    it("keeps the fields INLINE for every state before joining", async () => {
+      // Setup states ARE the fields — collapsing them there would hide the
+      // very thing the row is waiting on. (The needs-login blocker tests
+      // above read these fields without opening anything; that stays true.)
+      await renderCard(
+        row({
+          id: "headscale",
+          name: "Headscale",
+          state: "needs-login",
+          settingsFields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
+        }),
+      );
+      expect(screen.queryByText("Change settings")).toBeNull();
+      expect(screen.getByLabelText(/^Control server URL/).closest("details")).toBeNull();
+    });
+
+    it("never hides a required-and-unset field, even on a joined row", async () => {
+      // The one exception: with a required field unset, the setup IS what is
+      // missing, and the field whose absence blocks the next act — with its
+      // blocker sentence — stays on screen. Unreachable post-join while the
+      // gate holds, real for a partial or re-edited config, so the rule is
+      // written from the facts, not from the reachability.
+      await renderCard(
+        row({
+          state: "joined",
+          settingsFields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
+          status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        }),
+      );
+      expect(screen.queryByText("Change settings")).toBeNull();
+      expect(screen.getByLabelText(/^Control server URL/).closest("details")).toBeNull();
+      expect(screen.getByText("Save the Control server URL first.")).toBeTruthy();
+    });
+
+    it("leaves the wizard's compact frame exactly as it was", async () => {
+      // The first-run step's short form IS the question it asks; the
+      // disclosure is the FULL card's grammar only.
+      await renderCard(
+        row({
+          state: "joined",
+          settingsFields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
+          settings: { controlUrl: "https://hs.example.com" },
+          status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        }),
+        true,
+      );
+      expect(screen.queryByText("Change settings")).toBeNull();
+      expect(screen.getByLabelText(/^Control server URL/).closest("details")).toBeNull();
+    });
+  });
+
   it("asks no publish question of a published row", async () => {
     // The published state's standing line is a FACT among the card's readout,
     // not an opt-in: a "Publish" heading and a skip-it sentence over an

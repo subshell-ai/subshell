@@ -303,6 +303,51 @@ export function NetworkPluginCard({
   const blockerId = `network-${row.id}-connect-blocker`;
   const blockerProps = blocker ? { "aria-describedby": blockerId } : {};
 
+  /**
+   * Whether a joined/published row STORES its setup fields below its acts,
+   * behind one "Change settings" disclosure (operator's live read, 2026-09-16:
+   * the JOINED NetBird row opened with "Management URL (self-hosted only)",
+   * its help text, and a disabled "Save settings" — the fields of a question
+   * this row had already ANSWERED stood at the top of the card, above the act
+   * that was still pending).
+   *
+   * A place, not a removal: self-hosted networks really are repointed while
+   * joined, so the form survives verbatim — same disabled reason, same
+   * `onPendingChange` that keeps the card's other buttons honest. Three rows
+   * keep their fields inline:
+   *
+   * - every state BEFORE joining (this is still the setup card there);
+   * - the wizard's compact frame, whose short form IS the step's question;
+   * - a joined/published row with a required field UNSET (`blocker`) — the
+   *   join gate makes that unreachable in practice, but a partially
+   *   configured or re-edited row must never hide the field whose absence
+   *   blocks its next act, and its sentence with it.
+   *
+   * A row with NO settings fields has nothing to store, and the disclosure
+   * exists for the form — `NetworkSettingsForm` renders nothing at all for
+   * zero fields, so the condition checks what the form would show, not what
+   * it shows.
+   */
+  const collapseSettings =
+    !compact && (state === "joined" || state === "published") && blocker === null && row.settingsFields.length > 0;
+  /**
+   * The ONE form element. Both placements render this same instance and they
+   * are mutually exclusive by construction, so the form's draft state has no
+   * second copy to disagree with, and the settings write it reports upward
+   * gates every button on the card exactly once.
+   */
+  const settingsForm = (
+    <NetworkSettingsForm
+      row={row}
+      disabled={busy || row.published}
+      onPendingChange={setSavingSettings}
+      requiredOnly={compact}
+      {...(row.published
+        ? { reason: `Unpublish ${row.name} to change these — a change cannot reach the running publish.` }
+        : {})}
+    />
+  );
+
   const published = publish.data;
   const unpublished = unpublish.data;
   /**
@@ -461,19 +506,26 @@ export function NetworkPluginCard({
         </div>
       ) : (
         <>
-          {/* Disabled while published, because the server refuses the write
-              (nothing re-derives the guard, the argv or the hydrated secret
-              from it) and a form that invites an act the server will refuse
-              puts the explanation AFTER the edit. */}
-          <NetworkSettingsForm
-            row={row}
-            disabled={busy || row.published}
-            onPendingChange={setSavingSettings}
-            requiredOnly={compact}
-            {...(row.published
-              ? { reason: `Unpublish ${row.name} to change these — a change cannot reach the running publish.` }
-              : {})}
-          />
+          {collapseSettings ? null : (
+            <>
+              {/* Disabled while published, because the server refuses the
+                  write (nothing re-derives the guard, the argv or the
+                  hydrated secret from it) and a form that invites an act the
+                  server will refuse puts the explanation AFTER the edit.
+                  Joined/published rows normally skip this seat entirely —
+                  see {@link collapseSettings} — and the two placements
+                  render the same element. */}
+              {settingsForm}
+              {/* The exception's sentence, for the joined/published row that
+                  did NOT collapse because a required field is unset: the
+                  field is visible precisely because it blocks, so the
+                  blocker explains it here too, not only at the join buttons
+                  (which this state has none of). */}
+              {(state === "joined" || state === "published") && blocker && (
+                <p className="text-detail text-muted-foreground">{blocker}</p>
+              )}
+            </>
+          )}
 
           {state === "not-installed" && (
             <div className="space-y-3">
@@ -878,6 +930,20 @@ export function NetworkPluginCard({
                   Disconnect
                 </Button>
               </div>
+              {/* The joined row's setup fields, LAST (operator's live read,
+                  2026-09-16 — the rule and its three inline exceptions are
+                  {@link collapseSettings}'s). Below the pending act, not
+                  merely below the facts: a joined-and-unrecorded row's gap
+                  line above is the one thing worth pressing here, and the
+                  disclosure must not sit in front of it. The summary is a
+                  control label — `font-strong` grammar — and the stored form
+                  carries its own disabled reason for a published row. */}
+              {collapseSettings && (
+                <details className="space-y-3">
+                  <summary className="cursor-pointer font-strong text-label">Change settings</summary>
+                  {settingsForm}
+                </details>
+              )}
             </div>
           )}
 
