@@ -190,6 +190,10 @@ export function foreignControlServerHints(where: string, configuredUrl: string |
     {
       text: `This machine's Tailscale belongs to ${where}, and this plugin has no control server URL to check it against.`,
     },
-    { text: "Set the control server URL for this plugin, then re-check." },
+    // Not "then re-check": SAVING the URL already re-runs this check — the
+    // settings mutation invalidates the row, so the button advice describes a
+    // manual step for something that just happened (operator read, 2026-09-16:
+    // "what does re-check mean here?").
+    { text: "Saving the control server URL for this plugin re-runs this check." },
   ];
 }

@@ -474,7 +474,7 @@ describe("HeadscalePlugin.status", () => {
       {
         text: "This machine's Tailscale belongs to Tailscale's own service, and this plugin has no control server URL to check it against.",
       },
-      { text: "Set the control server URL for this plugin, then re-check." },
+      { text: "Saving the control server URL for this plugin re-runs this check." },
     ]);
     // The foreign daemon's serve config is never read — a phantom
     // "Published" was the same defect one state further.
