@@ -633,8 +633,11 @@ code. Full accounting: `docs/security.md` §11.13.
 - **Publishing widens the address surface through `applyConfig` and nothing
   else** — §11.11's writer, so the component validation and the wildcard
   refusal above apply unchanged. `TRUSTED_ORIGINS` is additive and
-  passkey-neutral; promoting to `APP_BASE_URL` MOVES the passkey rpID and is
-  opt-in with that warning. A key sourced from `process env` reports
+  passkey-neutral, and it is now all a publish writes: the opt-in promotion of
+  `APP_BASE_URL` the publish checkbox carried was removed 2026-09-16 (a
+  checkbox moving the passkey rpID sat in a flow about reaching the server,
+  not about identity). The base URL is changed on the Service page, where it
+  still MOVES the rpID and the field says so. A key sourced from `process env` reports
   `written:false` rather than a write the next read would mask. Audit rows
   (`network.configure|install|join|publish|unpublish|leave`) name origins and
   field

@@ -204,7 +204,11 @@ describe("POST /api/network/:id/publish", () => {
     expect((await readNetworkState(FAKE_ID)).published).toBe(false);
   });
 
-  it("promotes APP_BASE_URL only when asked, and warns about the rpID move", async () => {
+  it("writes no base URL, whatever the body carries", async () => {
+    // Publishing no longer moves `APP_BASE_URL` (2026-09-16): the route
+    // declares no body at all, so a client still sending `promoteBaseUrl`
+    // is simply not heard. The recorder sees the patch the writer actually
+    // applied — a publish whose patch names a second key fails the toEqual.
     const config = recorder();
     const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
     setNetworkDepsForTests(fakeDeps(entry, { config }));
@@ -223,20 +227,9 @@ describe("POST /api/network/:id/publish", () => {
     // browser reaches this server on. The boot reconcile always knew that;
     // this writer did not, and two writers over one key is how they disagree.
     expect(config.calls).toEqual([
-      {
-        trustedOrigins: "http://localhost:5174,http://localhost:5173,https://server.example.com",
-        baseUrl: "https://server.example.com",
-      },
+      { trustedOrigins: "http://localhost:5174,http://localhost:5173,https://server.example.com" },
     ]);
-    expect(done.config.warnings.some((w: string) => w.includes("passkey rpID"))).toBe(true);
-  });
-
-  it("leaves APP_BASE_URL alone by default", async () => {
-    const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
-    setNetworkDepsForTests(fakeDeps(entry, { config }));
-    await frames(await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })));
-    expect(config.calls[0]?.baseUrl).toBeUndefined();
+    expect(done.config.warnings.some((w: string) => w.includes("passkey rpID"))).toBe(false);
   });
 
   it("keeps the publish when the config writer refuses the value", async () => {
@@ -265,23 +258,15 @@ describe("POST /api/network/:id/publish", () => {
     expect((await readNetworkState(FAKE_ID)).published).toBe(false);
   });
 
-  it("audits the addresses and whether a base URL was promoted", async () => {
+  it("audits the addresses, and nothing else", async () => {
     const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
     setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
-    await frames(
-      await app.fetch(
-        withCookie(`/api/network/${FAKE_ID}/publish`, {
-          method: "POST",
-          body: JSON.stringify({ promoteBaseUrl: true }),
-        }),
-      ),
-    );
+    await frames(await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })));
     const events = await new AuditRepository(db).listLatest(300);
     const row = events.find((e) => e.action === "network.publish");
     expect(row).toBeDefined();
     expect(JSON.parse(String(row?.metadataJson ?? "{}"))).toEqual({
       addresses: ["https://server.example.com"],
-      promotedBaseUrl: "https://server.example.com",
     });
   });
 

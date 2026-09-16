@@ -396,9 +396,10 @@ Three rules the card keeps, each with a defect behind it:
 
 - **The plugin owns its copy.** Hints, labels and step text render verbatim.
   What this page owns is the shape, and the consequences that are the SERVER's
-  rather than the network's — what a non-secure-context address costs, what
-  promoting the base URL does to passkeys, that `subshell-server backup` does
-  not include a plugin secret.
+  rather than the network's — what a non-secure-context address costs, that
+`subshell-server backup` does not include a plugin secret. Publishing moves
+no boot-time identity: the base URL is the Service page's field, and a
+publish only widens `TRUSTED_ORIGINS`.
 - **Nothing privileged is ever a button**, including the numbered install steps.
   Same rule as `TmuxRow`: this server has no terminal to answer a password
   prompt. Numbering runs only over hints that carry a COMMAND, so a plugin's

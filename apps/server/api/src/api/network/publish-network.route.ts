@@ -1,7 +1,6 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import type { NetworkAddress } from "@internal/pane-runtime";
 import { withPluginOutput } from "@internal/pane-runtime";
-import { Elysia, t } from "elysia";
+import { Elysia } from "elysia";
 import { ndjsonResponse } from "@/api/network/ndjson.js";
 import {
   auditNetwork,
@@ -21,32 +20,6 @@ import { apiModels } from "@/schema/index.js";
 import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
 import { networkContext, writeNetworkState } from "@/services/network/state.js";
 import { armProcess } from "@/services/network/supervisor.js";
-
-const PublishBodySchema = t.Object(
-  {
-    promoteBaseUrl: t.Optional(
-      t.Boolean({
-        description:
-          "Also write APP_BASE_URL to the published address. Opt-in: APP_BASE_URL is the passkey rpID, so promoting it stops existing passkeys working on the old address",
-      }),
-    ),
-  },
-  { description: "Options for the publish" },
-);
-
-/**
- * The address to promote `APP_BASE_URL` to, when the admin asked.
- *
- * The first SECURE-CONTEXT address wins, and only then the first of any kind:
- * `APP_BASE_URL` is the passkey rpID, so promoting a non-secure origin would
- * move passkeys to a host where the browser refuses WebAuthn outright. If a
- * plugin returns only non-secure addresses the promotion still happens — the
- * admin asked, and the alternative is silently ignoring the flag — and
- * `writePublishConfig` warns about the move either way.
- */
-function promotionTarget(addresses: NetworkAddress[]): string | undefined {
-  return (addresses.find((a) => a.secureContext) ?? addresses[0])?.url;
-}
 
 /**
  * `POST /api/network/:id/publish` (spec 2026-09-15 § 5.1, § 5.4).
@@ -76,7 +49,7 @@ function promotionTarget(addresses: NetworkAddress[]): string | undefined {
  */
 export const publishNetworkRoute = new Elysia().use(apiModels).post(
   "/:id/publish",
-  async ({ params, body, request, status }) => {
+  async ({ params, request, status }) => {
     await requireNetworkAdmin(request);
     const prepared = await prepareNetworkAct(params.id);
     if ("status" in prepared) {
@@ -194,17 +167,12 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
         publishedAt: new Date().toISOString(),
       });
 
-      const baseUrl = body.promoteBaseUrl === true ? promotionTarget(result.addresses) : undefined;
-      const config = writePublishConfig({
-        origins: result.addresses.map((a) => a.url),
-        ...(baseUrl !== undefined ? { baseUrl } : {}),
-      });
+      const config = writePublishConfig({ origins: result.addresses.map((a) => a.url) });
       for (const warning of config.warnings) send({ type: "line", text: warning });
 
       const after = await readNetworkStatus(entry, ctx, { fresh: true });
       await auditNetwork(request, "network.publish", id, {
         addresses: result.addresses.map((a) => a.url),
-        promotedBaseUrl: baseUrl ?? null,
       });
       send({
         type: "done",
@@ -212,7 +180,7 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
         addresses: result.addresses,
         config,
         // Always true: `applyConfig` writes a file the next boot reads, so
-        // the origins and the base URL do not take effect until then —
+        // the new origins do not take effect until then —
         // even when nothing needed writing, the page offers the restart
         // rather than leaving an admin to discover a 403 on sign-in.
         restartRequired: true,
@@ -222,7 +190,6 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
   },
   {
     params: NetworkParamsSchema,
-    body: PublishBodySchema,
     // NO typed 200: this route streams. The body is NDJSON — {type:line,text}
     // frames, then one {type:done,ok,addresses,config,restartRequired,status}
     // (with `refused` when ok is false) or {type:error,message}.

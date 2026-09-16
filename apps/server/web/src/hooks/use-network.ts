@@ -228,23 +228,20 @@ export function useJoinNetwork(onLine?: (id: string, line: string) => void) {
 /**
  * Publishes this server on the network (`POST /api/network/:id/publish`).
  *
- * It rewrites config.env — the trusted origins, and the base URL when
- * `promoteBaseUrl` is set — so it invalidates more than its own list: the
- * deployment view holds `restartRequired` and the saved settings the Service
- * page renders, and the public settings hold `appBaseUrl`, which the Nodes
- * dialog bakes into install commands. Leaving either stale leaves another page
- * describing a server that no longer exists.
+ * It rewrites config.env — `TRUSTED_ORIGINS`, the one key a publish writes
+ * since the base-URL promotion was removed (2026-09-16) — so it invalidates
+ * more than its own list: the deployment view holds `restartRequired` and the
+ * saved-versus-running settings the Service page renders, `TRUSTED_ORIGINS`
+ * among them, and leaving it stale leaves that page describing a server that
+ * no longer exists. The public settings ride along for the same cheap refresh
+ * `useUnpublishNetwork` gives them.
  */
 export function usePublishNetwork(onLine?: (id: string, line: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: NETWORK_MUTATION_KEY,
-    mutationFn: ({ id, promoteBaseUrl }: { id: string; promoteBaseUrl?: boolean }) =>
-      streamPost<NetworkPublishResult>(
-        `/api/network/${id}/publish`,
-        promoteBaseUrl ? { promoteBaseUrl: true } : {},
-        (line) => onLine?.(id, line),
-      ),
+    mutationFn: ({ id }: { id: string }) =>
+      streamPost<NetworkPublishResult>(`/api/network/${id}/publish`, {}, (line) => onLine?.(id, line)),
     // Settled rather than succeeded: a publish that was REFUSED still tells
     // the row something (the refusal is an answer), and a publish that failed
     // mid-write may have changed config.env before it did.

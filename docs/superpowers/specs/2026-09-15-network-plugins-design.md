@@ -480,7 +480,7 @@ guarded seam every installer already uses.
 | `GET /api/network` | — | one row per installed `network` plugin: `{ id, name, exposure, platforms, supported, enabled, status, settings, process?, hints }`. Live `status()` per enabled and supported plugin, memoised 3 s. Unsupported ⇒ `supported: false` and no probe. Secret fields report `{ set: boolean }`. | no |
 | `PATCH /api/network/:id/settings` | `Record<string,string>` | `validateSettings` (400 with field problems) → `secret` fields to `host.secrets.set`, the rest to `network.json`. Audit `network.configure` with `{ fields: [names] }`, never values. | no |
 | `POST /api/network/:id/join` | `JoinInput` | `join()`. Frames: `line`* then `done: { outcome, status }`. Audit `network.join` `{ mode: "credential" \| "interactive", ok }`. | yes |
-| `POST /api/network/:id/publish` | `{ promoteBaseUrl?: boolean }` | `publish()` → arm the guard → arm the process → `applyConfig({ trustedOrigins: existing ∪ addresses })` → optionally `applyConfig({ baseUrl })` → `network.json.published = true`. `done: { addresses, config: { changed, warnings, written }, restartRequired: true }`. Audits `network.publish` `{ addresses, promotedBaseUrl }` plus the writer's own `server.config.update`. | yes |
+| `POST /api/network/:id/publish` | — (the `promoteBaseUrl` half was removed 2026-09-16, § 10e) | `publish()` → arm the guard → arm the process → `applyConfig({ trustedOrigins: existing ∪ addresses })` → `network.json.published = true`. `done: { addresses, config: { changed, warnings, written }, restartRequired: true }`. Audits `network.publish` `{ addresses }` plus the writer's own `server.config.update`. | yes |
 | `POST /api/network/:id/unpublish` | — | the §5.3 sequence. `TRUSTED_ORIGINS` is left alone; the response says so. Audit `network.unpublish`. | no |
 | `POST /api/network/:id/leave` | `{ confirm: string }` (the plugin id) | the §5.3 sequence, then `leave()`. Audit `network.leave`. | no |
 | `PATCH /api/plugins/:id { enabled: false }` (existing) | — | for a network plugin: the §5.3 sequence BEFORE `setEnabled`; 409 if it fails. | no |
@@ -551,10 +551,11 @@ Both go through `applyConfig` (§2.7). There is no second writer, and that is
 what makes `docs/security.md` §8's validator claims true of this feature
 without restating them.
 
-The `TRUSTED_ORIGINS` union is the default and is **passkey-neutral**.
-`promoteBaseUrl` is opt-in and carries `applyConfig`'s own warnings plus one
-the route adds about the rpID move (§11). Neither takes effect until restart;
-the `done` frame says so and the SPA offers the existing `RestartDialog`.
+The `TRUSTED_ORIGINS` union is the only write, and it is
+**passkey-neutral** — `promoteBaseUrl` and the route's rpID warning went on
+2026-09-16 (§ 10e); the base URL is the Service page's field. It takes effect
+at restart; the `done` frame says so and the SPA offers the existing
+`RestartDialog`.
 
 Removal is not here. Unpublishing does not strip an origin from
 `TRUSTED_ORIGINS` — that is the Addresses card's act (§14), and the response
@@ -1198,6 +1199,20 @@ refusal is the safe default until someone builds and tests the re-derive.
   nothing when no address list claims the origin or the stored value will not
   parse.
 
+- **The base-URL promote checkbox is gone (amended 2026-09-16, operator
+  read of the finished page).** "It caused a lot of confusion", and the shape
+  explains why: a checkbox that silently moves the passkey rpID sat inside a
+  flow about REACHING the server rather than one about its identity, every
+  card carried its own copy, and the value it wrote was the instance's one
+  `APP_BASE_URL` — so two cards pressing it moved the server, and the
+  passkeys, from wherever the first had left them; the cross-network
+  confirmation the first read prompted only made the confusion denser. Out
+  went `promoteBaseUrl` on the publish body, the gate's `baseUrl` half, the
+  route's rpID warning and `lib/base-url-move.ts` together. Publishing now
+  writes `TRUSTED_ORIGINS` alone; the base URL is set where the rest of the
+  server's config is set — Server Settings → Service — where moving the rpID
+  is the field's own stated consequence.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,
@@ -1303,12 +1318,6 @@ network, or add the address on Settings → Service.*
 - *Passkeys and secure cookies work at this address.*
 - *Encrypted by the network, but your browser sees plain http: passkeys and
   secure cookies will not work here.*
-
-**Base URL promotion.** Checkbox: *Also make this the server's base URL.*
-Warning beneath it: *APP_BASE_URL moves the passkey rpID to <host>. Passkeys
-registered on <old host> stop working there, including the Subshell Server
-app's own window. Adding this address to trusted origins does not have that
-effect, and is enough to sign in from it.*
 
 **After publishing.** *Added to trusted origins. Restart the server to apply.*
 When the config could not be written: *TRUSTED_ORIGINS is set in this server's
@@ -1450,7 +1459,7 @@ are `ignore`d workspaces, and a changeset naming one wedges the version PR.
 ## 14. Non-goals, named
 
 - **Joining NODES to a network.** Nodes dial outbound. A node on the same mesh
-  benefits when the operator promotes the base URL or repoints it with
+  benefits when the operator names it in the base URL (Server Settings → Service) or repoints it with
   `subshell configure --server`, and the publish response says so.
 - **Installing any root-level daemon from the server.** Printed, never run.
   This is §11.10b's rule applied to a second family of installers, and it is

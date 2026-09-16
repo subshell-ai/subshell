@@ -24,9 +24,7 @@ import {
   usePublishNetwork,
   useUnpublishNetwork,
 } from "@/hooks/use-network";
-import { usePublicSettings } from "@/hooks/use-public-settings";
 import { ApiError, errMessage } from "@/lib/api";
-import { baseUrlMove } from "@/lib/base-url-move";
 import { confirmAction } from "@/lib/confirm";
 import { connectBlocker } from "@/lib/network-connect";
 import { safeHref } from "@/lib/safe-href";
@@ -103,8 +101,8 @@ function JoinedFacts({ row, status, compact }: { row: NetworkRow; status: Networ
  *   password prompt, so a control that ran it would always fail.
  * - **The plugin owns its copy.** Hints, labels and step text are rendered
  *   verbatim. What this page owns is the shape and the consequences that are
- *   the SERVER's rather than the network's — what a non-secure context costs,
- *   what moving the base URL does to passkeys.
+ *   the SERVER's rather than the network's — what a non-secure context
+ *   costs, and the restart a config write defers.
  */
 export function NetworkPluginCard({
   row,
@@ -130,10 +128,6 @@ export function NetworkPluginCard({
   compact?: boolean;
 }) {
   const queryClient = useQueryClient();
-  // Where the base URL currently points, for the promote confirmation
-  // (`baseUrlMove`). Shared cached query — the pages hosting this card
-  // already mount it for their own gates, so this costs no extra request.
-  const { data: publicSettings } = usePublicSettings();
   const [credential, setCredential] = useState("");
   /**
    * Which of the two join paths the `needs-login` card shows.
@@ -144,7 +138,6 @@ export function NetworkPluginCard({
    * one" — a person comes to this card intending one of them.
    */
   const [joinMode, setJoinMode] = useState<"signin" | "key">("signin");
-  const [promoteBaseUrl, setPromoteBaseUrl] = useState(false);
   /**
    * The most recent line the running act printed.
    *
@@ -754,62 +747,7 @@ export function NetworkPluginCard({
                     You can skip this while you only use Subshell on this machine, or at an address you have already
                     allowed.
                   </p>
-                  <label className="flex items-start gap-2" htmlFor={`network-${row.id}-promote`}>
-                    <input
-                      id={`network-${row.id}-promote`}
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 rounded border border-input bg-background accent-primary"
-                      checked={promoteBaseUrl}
-                      disabled={busy}
-                      onChange={(event) => setPromoteBaseUrl(event.target.checked)}
-                    />
-                    <span>
-                      {/* `font-strong` is not decoration here: a control's label carries the
-                          `label` role at BOTH of its tokens (15/600), and this one had the size
-                          alone — a 400-weight label over a checkbox, while every other control
-                          on this page, including `SupervisionCard`'s radios, is 600. The quiet
-                          weight belongs to read-only data, which is what the audit in
-                          `network-addresses.tsx` was fixing on the other side. */}
-                      <span className="font-strong text-label">Set as this server's base URL</span>
-                      {/* The consequence nobody guesses, and the one that is
-                          not reversible for a credential already registered
-                          against the old host. */}
-                      <span className="block text-detail text-muted-foreground">
-                        Moves where passkeys work. Passkeys registered at the current address stop working there. Adding
-                        this address to trusted origins does not have that effect, and is enough to sign in from it —
-                        which publishing has already done.
-                      </span>
-                    </span>
-                  </label>
-                  <Button
-                    size="sm"
-                    disabled={busy}
-                    onClick={async () => {
-                      // One `APP_BASE_URL`, every card: the checkbox is each
-                      // card's own local state, so publishing with it on from a
-                      // SECOND network silently re-points the server — and the
-                      // passkey rpID — from wherever the first one left it.
-                      // Moving off loopback is the checkbox's documented
-                      // purpose and its copy says so; moving off another
-                      // network's address names both and asks (2026-09-16,
-                      // operator question: "what if you enable it on multiple
-                      // plugins?").
-                      const move = promoteBaseUrl
-                        ? baseUrlMove(publicSettings?.appBaseUrl, status.addresses[0]?.url)
-                        : null;
-                      if (move) {
-                        const proceed = await confirmAction({
-                          title: "Move this server's base URL?",
-                          description:
-                            `The base URL currently points at ${move.fromHost} — another network's address. ` +
-                            `“${publishLabel}” moves it to ${move.toHost}; passkeys registered at ${move.fromHost} stop working there.`,
-                          confirmLabel: "Move and publish",
-                        });
-                        if (!proceed) return;
-                      }
-                      begin(() => publish.mutate({ id: row.id, promoteBaseUrl }));
-                    }}
-                  >
+                  <Button size="sm" disabled={busy} onClick={() => begin(() => publish.mutate({ id: row.id }))}>
                     {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
                     {publish.isPending ? "Publishing…" : publishLabel}
                   </Button>
@@ -929,9 +867,9 @@ export function NetworkPluginCard({
                   first unconditionally sent an admin to edit a unit file over
                   what was really a validation error; the true reason is in
                   `config.warnings` just above, in the server's own words.
-                  And a write is PARTIAL more often than not: `written` is
-                  false whenever ANY key was refused, so a publish that added
-                  the trusted origin and could not promote the base URL said
+                  And a partial write must not contradict itself: `written`
+                  is false whenever ANY key was refused, so a frame that both
+                  changed one key and refused another would otherwise read
                   "updated TRUSTED_ORIGINS" and "config.env was not changed"
                   four lines apart, about one write. */}
               {!published.config.written && (

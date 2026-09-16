@@ -512,13 +512,14 @@ export interface NetworkConfigWrite {
 export interface PublishConfigInput {
   /** Origins to ADD to `TRUSTED_ORIGINS`. Never a replacement — see below. */
   origins: string[];
-  /** A new `APP_BASE_URL`, when the admin asked to promote one. */
-  baseUrl?: string;
 }
 
 /**
- * The publish's config.env write: `TRUSTED_ORIGINS` ∪ the new origins, plus an
- * optional `APP_BASE_URL`.
+ * The publish's config.env write: `TRUSTED_ORIGINS` ∪ the new origins, and
+ * nothing else. The optional `APP_BASE_URL` promotion this writer once took
+ * went on 2026-09-16 — the base URL is the Service page's field, and a
+ * checkbox in a flow about reaching the server that moved the passkey rpID
+ * was the confusion that killed it.
  *
  * Three properties, each load-bearing:
  *
@@ -580,22 +581,6 @@ export function writePublishConfig(input: PublishConfigInput): NetworkConfigWrit
       stored.TRUSTED_ORIGINS ?? env.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS,
       input.origins,
     ).join(",");
-  }
-
-  if (input.baseUrl !== undefined) {
-    if (fromEnv("APP_BASE_URL")) {
-      unwritableKey ??= "APP_BASE_URL";
-      warnings.push(
-        "APP_BASE_URL is set in the server's environment, so config.env cannot promote this address; change it where the server is started.",
-      );
-    } else {
-      patch.baseUrl = input.baseUrl;
-      // The rpID move, which is the one consequence of promoting a base URL
-      // that nothing else in the UI would say (`.claude/rules/security-context.md`).
-      warnings.push(
-        `APP_BASE_URL is also the passkey rpID, so existing passkeys will stop working on the old address once the server restarts at ${input.baseUrl}.`,
-      );
-    }
   }
 
   if (Object.keys(patch).length === 0) {

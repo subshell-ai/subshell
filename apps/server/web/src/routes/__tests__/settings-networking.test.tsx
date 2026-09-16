@@ -148,9 +148,9 @@ describe("the networking page", () => {
   });
 
   it("names the running base URL and the network whose address it is", async () => {
-    // The base URL is one value every card competes to set, so the page that
-    // lists the cards prints the answer and names which network's address list
-    // contains it — the promotion's whole point, stated where it can be seen.
+    // Every card's publish can hand the base URL an address it might name,
+    // so the page that lists the cards prints the answer and names which
+    // network's address list contains it — stated where it can be seen.
     const tailnet = "http://box.tail1234.ts.net:3080";
     const m = mockServer({
       admin: true,
@@ -183,7 +183,8 @@ describe("the networking page", () => {
   });
 
   it("prints a saved base URL as pending the restart, not as the running one", async () => {
-    // The constants are read at boot, so a fresh promote is SAVED, not live.
+    // The constants are read at boot, so a fresh config write is SAVED, not
+    // live — whichever page wrote it.
     // Showing it as the address would promise sign-in works over NetBird when
     // it does not yet; the line names the running one and flags the pending.
     const running = "http://box.tail1234.ts.net:3080";

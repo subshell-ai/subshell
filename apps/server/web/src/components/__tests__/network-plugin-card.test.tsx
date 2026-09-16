@@ -931,70 +931,6 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("heading", { name: "Publish" })).toBeNull();
   });
 
-  it("asks before promoting over ANOTHER network's base URL, and publishes nothing meanwhile", async () => {
-    // Every card carries the promote checkbox and `APP_BASE_URL` is ONE value,
-    // so a second network's press silently moves the passkey rpID from the
-    // first network's address. Off loopback that is the documented step and
-    // the checkbox's copy suffices; off another network's address, the press
-    // names both hosts and asks.
-    const calls = mockFetch((url) =>
-      url.pathname === "/api/settings/public"
-        ? Response.json({
-            allowRegistrations: false,
-            emergencyLoginActive: false,
-            instanceName: "test",
-            viewerIsAdmin: true,
-            appBaseUrl: "http://macbook-pro.tail1234.ts.net:3080",
-          })
-        : undefined,
-    );
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByLabelText(/Set as this server's base URL/));
-    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Move this server's base URL?")).toBeTruthy();
-    expect(
-      within(dialog).getByText(
-        "The base URL currently points at macbook-pro.tail1234.ts.net:3080 — another network's address. “Publish with Tailscale Serve” moves it to box.tail1234.ts.net; passkeys registered at macbook-pro.tail1234.ts.net:3080 stop working there.",
-      ),
-    ).toBeTruthy();
-    expect(calls.some((c) => c.pathname === "/api/network/tailscale/publish")).toBe(false);
-  });
-
-  it("publishes straight away when the base URL is still loopback", async () => {
-    // The dialog's absence is the other half: the ordinary first promote moves
-    // `http://localhost:…` onto the network — the checkbox's stated purpose —
-    // and a confirmation on every first use trains people to dismiss
-    // confirmations.
-    const calls = mockFetch((url) =>
-      url.pathname === "/api/settings/public"
-        ? Response.json({
-            allowRegistrations: false,
-            emergencyLoginActive: false,
-            instanceName: "test",
-            viewerIsAdmin: true,
-            appBaseUrl: "http://localhost:3080",
-          })
-        : url.pathname === "/api/network/tailscale/publish"
-          ? ndjson({
-              type: "done",
-              ok: true,
-              addresses: ADDRESSES,
-              config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-              restartRequired: false,
-              status: { state: "published", addresses: ADDRESSES, hints: [] },
-            })
-          : undefined,
-    );
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByLabelText(/Set as this server's base URL/));
-    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    await waitFor(() => {
-      expect(calls.some((c) => c.pathname === "/api/network/tailscale/publish")).toBe(true);
-    });
-    expect(document.body.textContent).not.toContain("Move this server's base URL?");
-  });
-
   it("asks no publish question of a published row", async () => {
     // The published state's standing line is a FACT among the card's readout,
     // not an opt-in: a "Publish" heading and a skip-it sentence over an
@@ -1068,11 +1004,10 @@ describe("NetworkPluginCard: the state matrix", () => {
   });
 
   it("renders the addresses in the order the server sent them", async () => {
-    // Load-bearing rather than cosmetic: the host promotes `addresses[0]`
-    // when asked to set the base URL, so a plugin puts its https origin first
-    // deliberately. Anything that re-sorted this list here — by scheme, by
-    // secure context, by label — would leave the page showing one order while
-    // the checkbox beneath it adopted another.
+    // The plugin's order is its own decision — tailscale puts its https
+    // origin first — and this page prints the list it was handed. Re-sorting
+    // here by scheme, by secure context or by label would make the page
+    // contradict its own data for a reason no reader can see.
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     const shown = screen.getAllByRole("listitem").map((item) => item.textContent ?? "");
     expect(shown[0]).toContain("https://box.tail1234.ts.net");
@@ -1089,7 +1024,9 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.getAllByRole("button", { name: /copy/i }).length).toBe(ADDRESSES.length);
   });
 
-  it("the base-URL checkbox says what it costs and rides on the publish body", async () => {
+  it("publishes with a plain empty body", async () => {
+    // The publish body is empty now that promoting the base URL is gone —
+    // the field was the body's only member, and the route declares none.
     const calls = mockFetch((url) =>
       url.pathname === "/api/network/tailscale/publish"
         ? ndjson({
@@ -1103,12 +1040,10 @@ describe("NetworkPluginCard: the state matrix", () => {
         : undefined,
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    expect(screen.getByText(/Passkeys registered at the current address stop working there/)).toBeTruthy();
-    fireEvent.click(screen.getByLabelText(/Set as this server's base URL/));
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
     await waitFor(() => {
       const call = calls.find((c) => c.pathname === "/api/network/tailscale/publish");
-      expect(call && JSON.parse(String(call.body))).toEqual({ promoteBaseUrl: true });
+      expect(call && JSON.parse(String(call.body))).toEqual({});
     });
   });
 
@@ -1398,11 +1333,11 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect((screen.getByLabelText("Hostname") as HTMLInputElement).disabled).toBe(true);
   });
 
-  it("does not claim the file was untouched when part of the write landed", async () => {
-    // `written` is false whenever ANY key was refused, so a publish that added
-    // the trusted origin and could not promote the base URL used to say
-    // "updated TRUSTED_ORIGINS" and "config.env was not changed" four lines
-    // apart, about one write.
+  it("names the refused key instead of calling the whole file untouched", async () => {
+    // `written: false` describes a KEY, not the file — the environment owning
+    // `TRUSTED_ORIGINS` is what produces it now. Naming the key says WHERE the
+    // change has to be made instead (the environment the server starts in),
+    // which a flat "config.env was not changed" would hide.
     mockFetch((url) =>
       url.pathname === "/api/network/tailscale/publish"
         ? ndjson({
@@ -1410,10 +1345,12 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
             ok: true,
             addresses: ADDRESSES,
             config: {
-              changed: ["TRUSTED_ORIGINS"],
-              warnings: ["APP_BASE_URL is set in the server's environment."],
+              changed: [],
+              warnings: [
+                "TRUSTED_ORIGINS is set in the server's environment, so config.env cannot add these origins; add them where the server is started.",
+              ],
               written: false,
-              unwritableKey: "APP_BASE_URL",
+              unwritableKey: "TRUSTED_ORIGINS",
             },
             restartRequired: true,
             status: { state: "published", addresses: ADDRESSES, hints: [] },
@@ -1425,7 +1362,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const line = await screen.findByText(/was not written to config.env/);
     // The KEY and the sentence in one element, so a split rendering cannot
     // pass this while showing the reader half of it.
-    expect(line.textContent).toContain("APP_BASE_URL was not written to config.env");
+    expect(line.textContent).toContain("TRUSTED_ORIGINS was not written to config.env");
     expect(screen.queryByText(/config.env was not changed/)).toBeNull();
   });
 

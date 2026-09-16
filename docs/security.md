@@ -1852,9 +1852,11 @@ this project did not write.
   afterwards.
 - **The address surface widens from a browser**, through §11.11's writer and no
   other. Publishing adds the new origin to `TRUSTED_ORIGINS`, which is additive
-  and **passkey-neutral**; promoting it to `APP_BASE_URL` is a separate,
-  opt-in act that **moves the passkey rpID** (§2, §8) and carries that warning
-  at the checkbox. Both go through `applyConfig`, so the component validation
+  and **passkey-neutral** — and it is
+  now all publishing writes: the earlier opt-in promotion of `APP_BASE_URL`
+  was removed on 2026-09-16, and the base URL — which **moves the passkey
+  rpID** (§2, §8) — is changed on the Service page, warned at the field.
+  Writes go through `applyConfig`, so the component validation
   and the wildcard refusal in §8 apply unchanged, and a key whose source is the
   process environment is reported as not written rather than silently masked.
   Audit rows (`network.configure`, `network.install`, `network.join`,

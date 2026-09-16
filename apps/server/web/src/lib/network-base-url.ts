@@ -4,13 +4,14 @@ import type { NetworkRow } from "@/types/network";
  * The Networking page's one statement of where this server says it lives.
  *
  * The base URL is what passkeys bind to and what install commands bake, it
- * is ONE value, and every network card can move it — so the page that shows
- * the cards must also show the answer, with the two facts an operator needs
- * to read with it: WHICH NETWORK owns the address (the whole point of the
- * promote checkbox), and the one the boot-time constants make unavoidable —
- * a saved change is not the running one until the restart the publish flow
- * already asks for. `running` comes from the settings every request already
- * reads; `saved` from the deployment view, which knows both.
+ * is ONE value, and the cards below each hand it addresses it might name —
+ * so the page that shows the cards must also show the answer, with the two
+ * facts an operator needs to read with it: WHICH NETWORK owns the address,
+ * and the one the boot-time constants make unavoidable — a saved change is
+ * not the running one until the restart. (The value is written on Server
+ * Settings → Service; a publish only adds origins.) `running` comes from the
+ * settings every request already reads; `saved` from the deployment view,
+ * which knows both.
  */
 export interface BaseUrlLine {
   /** The address this server is running AS right now */
