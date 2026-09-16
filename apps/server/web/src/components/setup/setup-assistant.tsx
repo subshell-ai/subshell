@@ -17,7 +17,8 @@ export interface SetupAssistantProps {
    */
   illustration?: ReactNode;
   title: string;
-  subtitle?: string;
+  /** A string suffices; markup lets a sentence bold its own destination. */
+  subtitle?: ReactNode;
   dots: { total: number; done: number; current: number };
   /**
    * Ghost button, left. Absent = hidden.
