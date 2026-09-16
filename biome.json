@@ -8,6 +8,7 @@
       "!**/*.json",
       "!.turbo/**",
       "!**/dist/**",
+      "!**/target/**",
       "!**/test-results/**",
       "!**/playwright-report/**",
       "!packages/backend-client/**",
