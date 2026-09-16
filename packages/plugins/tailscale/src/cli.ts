@@ -1,4 +1,4 @@
-import { isDocsUrl, type PluginHost } from "@subshell-ai/plugin-api";
+import { isDocsUrl, type PluginHost, type RunOptions, type RunResult } from "@subshell-ai/plugin-api";
 import { manifest } from "./manifest.js";
 
 /**
@@ -51,7 +51,7 @@ export interface TailscaleStatusJson {
   MagicDNSSuffix?: string;
 }
 
-/** The binary name, env override and HOME-relative locations, from the manifest. */
+/** The binary name, env override and known install locations, from the manifest. */
 const DETECT = manifest.detect;
 
 /**
@@ -61,17 +61,45 @@ const DETECT = manifest.detect;
  * data a host scans a machine with (without loading this file) and the data
  * this file runs against cannot drift apart.
  *
- * Note what the manifest CANNOT say: `knownPaths` entries are resolved against
- * HOME by the host, so the absolute install locations that matter on a Mac
- * (`/usr/local/bin`, `/opt/homebrew/bin`, `/Applications/Tailscale.app/…`)
- * cannot be listed there — an absolute entry would be joined onto HOME and
- * silently never match. Those are reached through PATH instead, and
- * `TAILSCALE_PATH` is the answer for a machine whose Tailscale is somewhere
- * PATH does not name.
+ * `knownPaths` entries are HOME-relative, or absolute when one starts with
+ * `/`, and the manifest lists both kinds: `.local/bin/tailscale` beside
+ * `/Applications/Tailscale.app/Contents/MacOS/Tailscale`. The absolute entries
+ * are what answer on a Mac, because a launchd service's PATH names neither
+ * Homebrew directory and the login-shell rung depends on the user's profile.
+ * `TAILSCALE_PATH` remains the answer for a machine whose Tailscale is somewhere
+ * none of them say.
  */
 export async function resolveBinary(host: PluginHost): Promise<string | null> {
   if (!DETECT) return null;
   return host.findBinary(DETECT.binaryName, DETECT.envOverride, DETECT.knownPaths);
+}
+
+/**
+ * Runs the vendor CLI, telling it to behave as one.
+ *
+ * The Mac app's binary is the same executable as its GUI. Asked to do
+ * something with a bare environment it tries to start the interface and dies
+ * with `The Tailscale GUI failed to start: … (Tailscale.CLIError error 3.)`;
+ * `TAILSCALE_BE_CLI=1` (tailscale.com/kb/1080/cli) is what makes it a CLI.
+ *
+ * Every run in this plugin goes through here rather than calling `host.run`
+ * itself, because the requirement is a property of the BINARY and which binary
+ * the ladder landed on is not known until runtime — the same argv reaches the
+ * Homebrew formula, the app's `/usr/local/bin` wrapper and the bundle, and the
+ * variable is inert for the first two and load-bearing for the third.
+ *
+ * @param host - the plugin host that runs the process
+ * @param binary - the resolved binary path, from {@link resolveBinary}
+ * @param args - argv after the binary; no shell, no quoting
+ * @param opts - the run's deadline, stream callbacks and any extra env
+ */
+export function runTailscale(
+  host: PluginHost,
+  binary: string,
+  args: string[],
+  opts: RunOptions = {},
+): Promise<RunResult> {
+  return host.run([binary, ...args], { ...opts, env: { ...opts.env, TAILSCALE_BE_CLI: "1" } });
 }
 
 /**

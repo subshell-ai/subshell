@@ -150,8 +150,16 @@ export interface NetworkRow {
   interactiveLogin: boolean;
   /** An install command the SERVER may run, absent where it may not */
   install?: { command: string; docsUrl: string };
-  /** Steps needing root ON THIS PLATFORM — copy-only, never run from here */
-  privileged: { label: string; command: string; docsUrl?: string }[];
+  /**
+   * Steps needing root ON THIS PLATFORM — copy-only, never run from here.
+   *
+   * `group` marks which ALTERNATIVE a step belongs to: steps sharing one are a
+   * sequence, different groups are ways to arrive at the same place and the
+   * card renders an `or` between them. Absent on every step of every plugin
+   * that offers one route, which is what keeps those rows a plain numbered
+   * list.
+   */
+  privileged: { label: string; command: string; docsUrl?: string; group?: string }[];
   /**
    * The vendor's own words for the two acts, from the manifest.
    *

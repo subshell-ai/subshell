@@ -7,6 +7,16 @@ export const HTTPS_DOCS_URL = "https://tailscale.com/kb/1153/enabling-https";
 export const CLI_DOCS_URL = "https://tailscale.com/kb/1080/cli";
 
 /**
+ * Where the open-source macOS daemon is documented.
+ *
+ * Distinct from {@link INSTALL_DOCS_URL.darwin}: that page is about installing
+ * Tailscale on a Mac, which since the app became the recommended route mostly
+ * means the app. This one is the daemon specifically, and it is the page a
+ * person needs once they have chosen that route.
+ */
+export const TAILSCALED_MACOS_DOCS_URL = "https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS";
+
+/**
  * Where Tailscale documents INSTALLING, per platform.
  *
  * Separate from {@link CLI_DOCS_URL} because they answer different questions
@@ -46,30 +56,40 @@ export function notInstalledHints(platform: PluginPlatform): NetworkHint[] {
 /**
  * What to say when the CLI is here but its daemon is not answering.
  *
- * The command differs by platform for a structural reason rather than a
- * cosmetic one: on Linux `tailscaled` is a systemd unit that exists already,
- * so it is started; on macOS a Homebrew `tailscale` ships no system daemon
- * until one is installed, so the useful line is the install-daemon one.
+ * The two platforms get different shapes, not just different commands. On
+ * Linux `tailscaled` is a systemd unit the install step already put there, so
+ * the one useful line starts it. On macOS there are TWO ways to be running
+ * Tailscale — the app and the command-line daemon — and this plugin cannot
+ * tell which one a machine took: the app's CLI integration installs a two-line
+ * shell wrapper at `/usr/local/bin/tailscale`, which hides the bundle it execs.
+ * So macOS says both, app first (most people have it, and opening it is the
+ * cheaper thing to try), and the two sentences cost less than a wrong guess.
  */
 export function daemonDownHints(platform: PluginPlatform, detail: string): NetworkHint[] {
-  const hints: NetworkHint[] = [
+  const hints: NetworkHint[] =
     platform === "darwin"
-      ? {
-          text: "The Tailscale daemon is not running. Install and start it, then re-check.",
-          command: "sudo tailscaled install-system-daemon",
-          docsUrl: "https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS",
-          privileged: true,
-        }
-      : {
-          text: "The Tailscale daemon is not running. Start it, then re-check.",
-          command: "sudo systemctl start tailscaled",
-          docsUrl: CLI_DOCS_URL,
-          privileged: true,
-        },
-  ];
-  // The daemon's own words, second: they name the actual socket or error, and
-  // they are the only part of this that can explain a case the two commands
-  // above do not fix.
+      ? [
+          {
+            text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in, then re-check.",
+          },
+          {
+            text: "If you installed the command-line daemon instead, install and start it, then re-check.",
+            command: "sudo tailscaled install-system-daemon",
+            docsUrl: TAILSCALED_MACOS_DOCS_URL,
+            privileged: true,
+          },
+        ]
+      : [
+          {
+            text: "The Tailscale daemon is not running. Start it, then re-check.",
+            command: "sudo systemctl start tailscaled",
+            docsUrl: CLI_DOCS_URL,
+            privileged: true,
+          },
+        ];
+  // The daemon's own words, last: they name the actual socket or error, and
+  // they are the only part of this that can explain a case the advice above
+  // does not fix.
   if (detail) hints.push({ text: detail });
   return hints;
 }

@@ -58,7 +58,10 @@
       "binaryName": "tailscale",
       "envOverride": "TAILSCALE_PATH",
       "knownPaths": [
-        ".local/bin/tailscale"
+        ".local/bin/tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
       ]
     },
     "network": {
@@ -83,11 +86,19 @@
         ],
         "darwin": [
           {
+            "group": "The Tailscale app (recommended)",
+            "label": "Install the Tailscale app, or get it from the Mac App Store, then open it and sign in",
+            "command": "brew install --cask tailscale-app",
+            "docsUrl": "https://tailscale.com/kb/1016/install-mac"
+          },
+          {
+            "group": "The command-line daemon",
             "label": "Install the Tailscale daemon",
             "command": "brew install --formula tailscale && sudo tailscaled install-system-daemon",
             "docsUrl": "https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS"
           },
           {
+            "group": "The command-line daemon",
             "label": "Allow this server to control Tailscale",
             "command": "sudo tailscale set --operator=$USER",
             "docsUrl": "https://tailscale.com/kb/1080/cli"

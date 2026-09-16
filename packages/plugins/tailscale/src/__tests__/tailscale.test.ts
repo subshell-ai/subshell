@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { NetworkContext, NetworkPlugin, PluginHost, RunOptions, RunResult } from "@subshell-ai/plugin-api";
 import { createScriptedHost, createTestHost } from "@subshell-ai/plugin-api/testing";
+import { daemonDownHints } from "../hints.js";
 import createPlugin, { manifest } from "../index.js";
 
 /** The port the host says this server listens on. Every address and the serve target use it. */
@@ -76,6 +77,32 @@ function lines(host: { calls: string[][] }): string[] {
   return host.calls.map((argv) => argv.join(" "));
 }
 
+/**
+ * A scripted host that also records each run's OPTIONS.
+ *
+ * `createScriptedHost` records argv only, which is all a parser test needs —
+ * but `TAILSCALE_BE_CLI` lives in the options, and the app-bundle binary tries
+ * to start a GUI and fails without it. So the one thing that has to be true of
+ * every single run is invisible to the argv recorder.
+ */
+function recording(
+  answers: Record<string, Partial<RunResult>>,
+  over: Partial<PluginHost> = {},
+): {
+  plugin: NetworkPlugin;
+  host: PluginHost & { calls: string[][] };
+  runs: { argv: string[]; env?: RunOptions["env"] }[];
+} {
+  const host = createScriptedHost(answers, over);
+  const runs: { argv: string[]; env?: RunOptions["env"] }[] = [];
+  const inner = host.run;
+  host.run = async (argv, opts) => {
+    runs.push({ argv: [...argv], ...(opts?.env ? { env: opts.env } : {}) });
+    return inner(argv, opts);
+  };
+  return { plugin: createPlugin(host) as NetworkPlugin, host, runs };
+}
+
 describe("tailscale manifest", () => {
   it("declares its identity and network facts as DATA, not in code", () => {
     // A page renders "not available on this platform" and prints the sudo
@@ -89,19 +116,48 @@ describe("tailscale manifest", () => {
     expect(manifest.network?.exposure).toBe("private");
     expect(manifest.network?.interactiveLogin).toBe(true);
     expect(manifest.network?.privileged?.linux?.length).toBe(2);
-    expect(manifest.network?.privileged?.darwin?.length).toBe(2);
+    expect(manifest.network?.privileged?.darwin?.length).toBe(3);
   });
 
-  it("says what the operator grant DOES, in both platforms' step two", () => {
+  it("says what the operator grant DOES, wherever a platform asks for it", () => {
     // These labels are the only words a person reads beside a `sudo` command,
     // and they used to read "Let this server drive it" — spec vocabulary for
     // Tailscale's `--operator` grant that nobody reads that way. Pinned on
     // both platforms so a rewording is a decision made here and in the
-    // manifest together.
+    // manifest together. It is the LAST step on each, because on macOS the
+    // daemon route now sits behind the app route.
     for (const platform of ["darwin", "linux"] as const) {
       const steps = manifest.network?.privileged?.[platform] ?? [];
-      expect(steps[1]?.label).toBe("Allow this server to control Tailscale");
-      expect(steps[1]?.command).toBe("sudo tailscale set --operator=$USER");
+      const last = steps[steps.length - 1];
+      expect(last?.label).toBe("Allow this server to control Tailscale");
+      expect(last?.command).toBe("sudo tailscale set --operator=$USER");
+    }
+  });
+
+  it("offers the macOS app and the command-line daemon as two ALTERNATIVES", () => {
+    // Measured 2026-09-16: the app's CLI drives `status`, `up`, `serve` and
+    // `set --operator` with no root and no operator grant, because the app
+    // runs as the local user and so does the server. Most people have the app
+    // or will install it, and the card used to name only the open-source
+    // daemon — which Tailscale itself recommends "only for unattended
+    // installs managed by experienced macOS system administrators".
+    const steps = manifest.network?.privileged?.darwin ?? [];
+    expect(steps.map((s) => s.group)).toEqual([
+      "The Tailscale app (recommended)",
+      "The command-line daemon",
+      "The command-line daemon",
+    ]);
+    expect(steps[0]?.label).toBe(
+      "Install the Tailscale app, or get it from the Mac App Store, then open it and sign in",
+    );
+    // The CASK, not the formula: the formula is the daemon, and the cask was
+    // renamed to `tailscale-app` when the formula took the plain name.
+    expect(steps[0]?.command).toBe("brew install --cask tailscale-app");
+    expect(steps[1]?.label).toBe("Install the Tailscale daemon");
+    expect(steps[1]?.command).toBe("brew install --formula tailscale && sudo tailscaled install-system-daemon");
+    // Linux has one route, so it keeps one plain sequence.
+    for (const step of manifest.network?.privileged?.linux ?? []) {
+      expect(step.group).toBeUndefined();
     }
   });
 
@@ -110,13 +166,18 @@ describe("tailscale manifest", () => {
     expect(manifest.detect?.envOverride).toBe("TAILSCALE_PATH");
   });
 
-  it("keeps every knownPath HOME-relative", () => {
-    // The host joins these onto HOME, so an absolute entry would resolve to
-    // `$HOME/usr/local/bin/tailscale` and silently never match. The absolute
-    // install locations are reached through PATH instead.
-    for (const known of manifest.detect?.knownPaths ?? []) {
-      expect(known.startsWith("/")).toBe(false);
-    }
+  it("names the places Tailscale installs itself that PATH does not reach", () => {
+    // A launchd-run server's PATH holds neither Homebrew directory, and the
+    // login-shell rung depends on whatever the user's profile does — so these
+    // are the rung that answers on a real Mac. The app bundle is LAST, so a
+    // person who deliberately installed the formula beside the app keeps
+    // driving the formula.
+    expect(manifest.detect?.knownPaths).toEqual([
+      ".local/bin/tailscale",
+      "/opt/homebrew/bin/tailscale",
+      "/usr/local/bin/tailscale",
+      "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ]);
   });
 
   it("publishes, and nothing else", () => {
@@ -163,13 +224,25 @@ describe("TailscalePlugin.status", () => {
     expect(status.hints[0]?.privileged).toBe(true);
   });
 
-  it("names the macOS daemon install when the socket is unreachable there", async () => {
+  it("names BOTH macOS routes when the socket is unreachable there", async () => {
+    // The plugin cannot cheaply tell the app from the daemon — the app's CLI
+    // integration installs a two-line shell wrapper at /usr/local/bin/tailscale,
+    // which hides the bundle path it execs — and the two sentences cost less
+    // than a wrong guess about which one a person installed.
     const { plugin } = scripted(
       { "/usr/bin/tailscale status --json": { code: 1, stderr: "failed to connect to local tailscaled" } },
       { platform: "darwin" },
     );
     const status = await plugin.status(CTX);
-    expect(status.hints[0]?.command).toBe("sudo tailscaled install-system-daemon");
+    expect(status.hints[0]?.text).toBe(
+      "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in, then re-check.",
+    );
+    // The app route needs no command: opening an app is not a sudo line.
+    expect(status.hints[0]?.command).toBeUndefined();
+    expect(status.hints[1]?.command).toBe("sudo tailscaled install-system-daemon");
+    expect(status.hints[1]?.privileged).toBe(true);
+    // The daemon's own words still come last, naming the actual socket.
+    expect(status.hints[2]?.text).toBe("failed to connect to local tailscaled");
   });
 
   it("reports daemon-down, not a throw, when the body will not parse", async () => {
@@ -208,17 +281,6 @@ describe("TailscalePlugin.status", () => {
     await plugin.status(CTX);
     const statusCall = host.calls.find((c) => c[1] === "status");
     expect(statusCall).toEqual(["/usr/bin/tailscale", "status", "--json", "--peers=false"]);
-  });
-
-  it("does not offer the macOS app bundle as a known path", async () => {
-    // Spec § 8: the App Store and standalone Mac variants talk to a logged-in
-    // desktop session — `tailscale up` opens that user's browser instead of
-    // printing a URL, which a launchd-run server can use for nothing. Naming
-    // the bundle here made the plugin actively resolve the one binary the spec
-    // says cannot be driven, and then offer an interactive join that hangs to
-    // its deadline. The Homebrew `tailscaled` formula is found on PATH.
-    const paths = manifest.detect?.knownPaths ?? [];
-    expect(paths.some((p) => p.includes("Tailscale.app"))).toBe(false);
   });
 
   it("says what publishing discloses, before anyone presses publish", async () => {
@@ -581,5 +643,90 @@ describe("TailscalePlugin: a machine without the CLI", () => {
         expect(manifestCommands).not.toContain(hint.command as string);
       }
     }
+  });
+});
+
+/**
+ * The one environment variable every run needs.
+ *
+ * Its own block rather than one test per verb, because the requirement is a
+ * property of the BINARY the host's ladder happened to land on and not of any
+ * call site: `status`, `up`, `serve` and `logout` all need it, and a verb added
+ * later needs it too.
+ */
+describe("every run asks for CLI mode", () => {
+  it("sets TAILSCALE_BE_CLI=1 on all of them, including the two `up` paths", async () => {
+    // Measured 2026-09-16 on the standalone Mac app, 1.102.4: run with a bare
+    // environment its binary tries to start the GUI and dies with `The
+    // Tailscale GUI failed to start: … (Tailscale.CLIError error 3.)`.
+    // `TAILSCALE_BE_CLI=1` (tailscale.com/kb/1080/cli) makes it behave as a CLI.
+    // The Homebrew formula and the app's `/usr/local/bin` wrapper need nothing,
+    // so the variable is inert for them and load-bearing for the bundle — and
+    // which of the three the ladder found is not known until runtime.
+    const { plugin, runs } = recording({
+      "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
+      "/usr/bin/tailscale serve status --json": { stdout: SERVE_PUBLISHED },
+    });
+    await plugin.status(CTX);
+    await plugin.join({ credential: "tskey-auth-k123-abc" }, CTX);
+    await plugin.join({}, CTX);
+    await plugin.publish?.(CTX);
+    await plugin.unpublish?.(CTX);
+    await plugin.leave(CTX);
+
+    // Every verb the plugin has is exercised above, so the loop below cannot
+    // be vacuous on a plugin that stopped running anything.
+    const verbs = new Set(runs.map((run) => run.argv[1]));
+    expect([...verbs].sort()).toEqual(["logout", "serve", "status", "up"]);
+    expect(runs.length).toBeGreaterThanOrEqual(8);
+    for (const run of runs) {
+      expect(run.env?.TAILSCALE_BE_CLI).toBe("1");
+    }
+  });
+});
+
+/**
+ * The dead-daemon message, per platform, spoken by the function rather than
+ * through a status read.
+ *
+ * The status test above pins what a page receives; this pins the two platforms
+ * side by side, because the difference between them is structural: Linux has
+ * one daemon that is already installed and merely stopped, while macOS has two
+ * routes to a running Tailscale and the plugin cannot tell which one a machine
+ * took.
+ */
+describe("daemonDownHints", () => {
+  it("offers the app first and the daemon second on macOS, then the daemon's own words", () => {
+    expect(daemonDownHints("darwin", "socket /tmp/tailscaled.sock: no such file")).toEqual([
+      {
+        text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in, then re-check.",
+      },
+      {
+        text: "If you installed the command-line daemon instead, install and start it, then re-check.",
+        command: "sudo tailscaled install-system-daemon",
+        docsUrl: "https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS",
+        privileged: true,
+      },
+      { text: "socket /tmp/tailscaled.sock: no such file" },
+    ]);
+  });
+
+  it("still says START on Linux, where the unit exists already", () => {
+    // Not a cosmetic difference. `tailscaled` is a systemd unit that the
+    // install step already put there, so the useful line starts it; re-running
+    // an install for a stopped service is advice that changes nothing.
+    expect(daemonDownHints("linux", "boom")).toEqual([
+      {
+        text: "The Tailscale daemon is not running. Start it, then re-check.",
+        command: "sudo systemctl start tailscaled",
+        docsUrl: "https://tailscale.com/kb/1080/cli",
+        privileged: true,
+      },
+      { text: "boom" },
+    ]);
+  });
+
+  it("omits the daemon's own line when it said nothing", () => {
+    expect(daemonDownHints("darwin", "")).toHaveLength(2);
   });
 });

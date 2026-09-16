@@ -2,9 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import { CopyCommandRow } from "@/components/copy-command-row";
 import { NetworkAddresses } from "@/components/networking/network-addresses";
 import { NetworkHintBlock, NetworkHints, NetworkNotice, splitLeadHints } from "@/components/networking/network-hints";
+import { hasGroupedSteps, PrivilegedSteps } from "@/components/networking/network-privileged-steps";
 import { NetworkProcessLine } from "@/components/networking/network-process-line";
 import { NetworkRestartNotice } from "@/components/networking/network-restart-notice";
 import { NetworkSettingsForm } from "@/components/networking/network-settings-form";
@@ -138,6 +138,16 @@ export function NetworkPluginCard({
    */
   const commandSteps = row.privileged.length + (status?.hints ?? []).filter((hint) => hint.command).length;
   const numberSteps = commandSteps > 1;
+  /**
+   * Whether the privileged steps are alternatives rather than one sequence.
+   *
+   * Read here as well as inside {@link PrivilegedSteps} because it changes what
+   * the HINTS may do: a number continued from a grouped list belongs to no
+   * group, so "3." under a two-step route reads as that route's third step when
+   * the plugin is in fact talking about the machine rather than about either
+   * route. Grouped means the hints carry no numbers at all.
+   */
+  const groupedSteps = hasGroupedSteps(row.privileged);
   const recheck = () => void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
   /**
    * Starts one act, having forgotten every previous one.
@@ -289,21 +299,12 @@ export function NetworkPluginCard({
               <NetworkNotice hints={splitLeadHints(status.hints).lead} />
               {/* The privileged steps, numbered when they are part of a
                   sequence, because running the third one first does nothing.
-                  Copy-only: see the component docblock. */}
-              {row.privileged.map((step, index) => (
-                <div key={step.command} className="space-y-1.5">
-                  <p className="text-detail text-muted-foreground">
-                    {numberSteps && <span className="mr-1.5 font-strong text-foreground">{index + 1}.</span>}
-                    {step.label}
-                  </p>
-                  <CopyCommandRow text={step.command} />
-                  {safeHref(step.docsUrl) && (
-                    <a href={safeHref(step.docsUrl)} target="_blank" rel="noreferrer" className="text-detail underline">
-                      Docs ↗
-                    </a>
-                  )}
-                </div>
-              ))}
+                  A platform that offers ALTERNATIVES — macOS, where the
+                  Tailscale app and the command-line daemon are two ways to the
+                  same place — gets one heading per route and an `or` between
+                  them instead of one long count. Copy-only either way: see the
+                  component docblock. */}
+              <PrivilegedSteps steps={row.privileged} numbered={numberSteps} />
               {row.install && (
                 <div className="space-y-1.5">
                   <p className="text-detail text-muted-foreground">
@@ -335,7 +336,7 @@ export function NetworkPluginCard({
                   command and the host would refuse to run one anyway. */}
               <NetworkHints
                 hints={splitLeadHints(status.hints).rest}
-                startAt={numberSteps ? row.privileged.length + 1 : undefined}
+                startAt={numberSteps && !groupedSteps ? row.privileged.length + 1 : undefined}
               />
               <Button variant="outline" size="sm" onClick={recheck}>
                 Re-check

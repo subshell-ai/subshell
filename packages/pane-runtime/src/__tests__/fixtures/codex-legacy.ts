@@ -62,8 +62,9 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
   },
 ];
 
-// HOME-relative fallbacks (findBinary joins these to $HOME — absolute paths
-// would NOT reset the join, so brew/npm-global system dirs come via PATH).
+// The locations a real codex install might sit in, all under HOME. (An absolute
+// entry is allowed too — `findBinary` uses one as-is — but every one of these
+// IS a home directory, so they are spelled relative.)
 const PLUGIN_KNOWN_PATHS = [".local/bin/codex", ".npm-global/bin/codex", ".bun/bin/codex"];
 
 /** A TOML basic string from an ASCII-safe JS string. */

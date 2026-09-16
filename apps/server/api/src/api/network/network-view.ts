@@ -72,11 +72,17 @@ export async function buildNetworkRow(entry: NetworkPluginEntry, inputs: RowInpu
     // THIS platform's steps only. The manifest carries a set per platform, and
     // rendering the other one's `sudo` lines to copy is how an operator runs a
     // Linux command on a Mac.
+    //
+    // `group` is forwarded verbatim rather than resolved into sections here:
+    // which steps are alternatives to which is the manifest's fact, and a page
+    // that received pre-grouped arrays could no longer render the ungrouped
+    // flat sequence every other plugin's steps are.
     labels: entry.manifest.network?.labels ?? {},
     privileged: (network?.privileged?.[inputs.platform] ?? []).map((step) => ({
       label: step.label,
       command: step.command,
       ...(step.docsUrl ? { docsUrl: step.docsUrl } : {}),
+      ...(step.group ? { group: step.group } : {}),
     })),
     settingsFields: fields.map((field) => ({
       key: field.key,
