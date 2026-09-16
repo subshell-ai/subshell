@@ -1,0 +1,179 @@
+import type { PluginHost } from "@subshell-ai/plugin-api";
+import { manifest } from "./manifest.js";
+
+/**
+ * The subset of `tailscale status --json` this plugin reads.
+ *
+ * Deliberately partial and entirely optional. The document is a vendor's, it
+ * gains fields between releases, and `status` must never throw — so every
+ * field is `?` and every reader below copes with its absence rather than
+ * asserting a shape a future Tailscale might not produce.
+ */
+export interface TailscaleStatusJson {
+  /**
+   * The daemon's own word for where this machine stands: `NeedsLogin`,
+   * `Running`, `Stopped`, `Starting` or `NoState`. Anything but `Running`
+   * means this host is not on a tailnet it can serve on.
+   */
+  BackendState?: string;
+  /** Where a human finishes an interactive login. Empty string when there is none. */
+  AuthURL?: string;
+  /** This machine's own node entry. */
+  Self?: {
+    /** Short machine name on the tailnet, e.g. `mac-mini`. */
+    HostName?: string;
+    /**
+     * The MagicDNS FQDN, which Tailscale prints WITH a trailing dot
+     * (`mac-mini.tailnet-abc.ts.net.`). Every consumer here is building a URL,
+     * so it is stripped once in {@link magicDnsName} rather than at each use.
+     */
+    DNSName?: string;
+  };
+  /** Every tailnet address of this machine, IPv4 and IPv6 interleaved. */
+  TailscaleIPs?: string[];
+  /**
+   * The names Tailscale can issue a TLS certificate for.
+   *
+   * EMPTY is the case that decides everything about publishing: it means
+   * HTTPS certificates (or MagicDNS) are not enabled for this tailnet, so
+   * `tailscale serve --https=443` has no certificate to present and there is
+   * no secure-context address to hand out. It is an admin-console setting,
+   * not something this machine can turn on, which is why it produces a
+   * refusal with a docs link rather than an attempt.
+   */
+  CertDomains?: string[];
+  /** The tailnet this machine is currently a member of. */
+  CurrentTailnet?: {
+    /** The tailnet's display name, e.g. `example.com`. */
+    Name?: string;
+  };
+  /** The tailnet's DNS suffix, e.g. `tailnet-abc.ts.net`. */
+  MagicDNSSuffix?: string;
+}
+
+/** The binary name, env override and HOME-relative locations, from the manifest. */
+const DETECT = manifest.detect;
+
+/**
+ * Resolves the `tailscale` binary through the host's own lookup ladder.
+ *
+ * Reads the manifest rather than repeating the three detection values, so the
+ * data a host scans a machine with (without loading this file) and the data
+ * this file runs against cannot drift apart.
+ *
+ * Note what the manifest CANNOT say: `knownPaths` entries are resolved against
+ * HOME by the host, so the absolute install locations that matter on a Mac
+ * (`/usr/local/bin`, `/opt/homebrew/bin`, `/Applications/Tailscale.app/…`)
+ * cannot be listed there — an absolute entry would be joined onto HOME and
+ * silently never match. Those are reached through PATH instead, and
+ * `TAILSCALE_PATH` is the answer for a machine whose Tailscale is somewhere
+ * PATH does not name.
+ */
+export async function resolveBinary(host: PluginHost): Promise<string | null> {
+  if (!DETECT) return null;
+  return host.findBinary(DETECT.binaryName, DETECT.envOverride, DETECT.knownPaths);
+}
+
+/**
+ * Parses `tailscale status --json`, answering null rather than throwing.
+ *
+ * `status` is called on every page load and before every act, and its contract
+ * says it never throws — so a body that will not parse has to become a state
+ * with a hint, which it cannot do from inside a `JSON.parse` that exploded.
+ */
+export function parseStatusJson(raw: string): TailscaleStatusJson | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    return value as TailscaleStatusJson;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * This machine's MagicDNS name with the trailing dot stripped, or null.
+ *
+ * The dot is correct in DNS and wrong in a URL: `https://host.ts.net./` is a
+ * different origin string from `https://host.ts.net/`, and the host stores
+ * these as trusted origins verbatim. Falls back to the first cert domain,
+ * which is the same name by construction and is present in exactly the case
+ * that matters (a tailnet with HTTPS enabled).
+ */
+export function magicDnsName(status: TailscaleStatusJson): string | null {
+  const dnsName = status.Self?.DNSName?.trim();
+  if (dnsName) return dnsName.replace(/\.$/, "");
+  const cert = status.CertDomains?.find((d) => typeof d === "string" && d.trim() !== "");
+  return cert ? cert.trim().replace(/\.$/, "") : null;
+}
+
+/** IPv4 only: an IPv6 literal needs brackets in a URL and no browser needs it here. */
+const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+
+/** This machine's tailnet IPv4 addresses, in the order the daemon reported them. */
+export function tailnetIpv4s(status: TailscaleStatusJson): string[] {
+  return (status.TailscaleIPs ?? []).filter((ip) => typeof ip === "string" && IPV4_RE.test(ip));
+}
+
+/**
+ * The first non-blank line of some command output, for a hint.
+ *
+ * Tailscale's errors are one useful line followed by usage text or a stack of
+ * health warnings, and a hint is a sentence a person reads — so the rest is
+ * dropped rather than pasted into the UI.
+ */
+export function firstLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) ?? ""
+  );
+}
+
+/**
+ * True when this output is the daemon being absent rather than anything else.
+ *
+ * Matched on the vendor's own phrasings, because the exit code does not
+ * distinguish them: `tailscale status` exits non-zero for a down daemon, a
+ * permission refusal and a malformed flag alike.
+ */
+export function looksLikeDaemonDown(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    t.includes("failed to connect") ||
+    t.includes("not running") ||
+    t.includes("socket") ||
+    t.includes("connection refused")
+  );
+}
+
+/**
+ * True when this output is the OS refusing THIS user access to the daemon.
+ *
+ * Checked BEFORE {@link looksLikeDaemonDown}, which is a decision rather than
+ * an ordering accident: Tailscale's access-denied messages routinely also say
+ * "no server running?" in the same sentence, so a daemon-down check that ran
+ * first would swallow every permission problem and send the operator to
+ * restart a daemon that is already up. Nothing in the reverse direction
+ * collides — a plain "failed to connect" names no operator and no denial.
+ */
+export function looksLikePermissionDenied(text: string): boolean {
+  const t = text.toLowerCase();
+  return t.includes("access denied") || t.includes("permission denied") || t.includes("operator");
+}
+
+/**
+ * A display name for the OS user this server runs as, derived from the home
+ * directory's last segment.
+ *
+ * A DISPLAY hint and not an identity check: nothing is authorized on the
+ * strength of it. It exists so the copyable `sudo tailscale set --operator=…`
+ * line names a plausible user instead of a literal `$USER` the reader has to
+ * substitute, and a home directory that does not match the account name
+ * yields a slightly wrong suggestion rather than a wrong decision.
+ */
+export function likelyUserName(homeDir: string): string {
+  const segment = homeDir.split("/").filter(Boolean).pop();
+  return segment && segment.trim() !== "" ? segment : "$USER";
+}

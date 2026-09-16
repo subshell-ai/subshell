@@ -11,6 +11,7 @@ import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-cod
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
 import piFactory, { manifest as piManifest } from "@subshell-ai/plugin-pi";
+import tailscaleFactory, { manifest as tailscaleManifest } from "@subshell-ai/plugin-tailscale";
 import terminalFactory, { manifest as terminalManifest } from "@subshell-ai/plugin-terminal";
 import { adaptPlugin } from "./plugin-adapter.js";
 import { createPluginHost } from "./plugin-host.js";
@@ -55,6 +56,9 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: piManifest, factory: piFactory },
   { manifest: codexManifest, factory: codexFactory },
   { manifest: terminalManifest, factory: terminalFactory },
+  // The first NETWORK built-in. It goes in the same list because the store is
+  // one store; `build()` sorts it into the network half by manifest type.
+  { manifest: tailscaleManifest, factory: tailscaleFactory },
 ];
 
 /** Ids compiled into this build. The shadowing rule keys off exactly this set. */

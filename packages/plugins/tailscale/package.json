@@ -1,0 +1,91 @@
+{
+  "name": "@subshell-ai/plugin-tailscale",
+  "description": "Tailscale network plugin for Subshell",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/tailscale"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "build:dev": "hash-runner",
+    "clean": "rm -rf .turbo node_modules dist .hashes.json",
+    "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
+    "lint:check": "biome check --no-errors-on-unmatched src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "test": "bun test",
+    "verify-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@subshell-ai/plugin-api": "workspace:*",
+    "@types/bun": "1.3.14",
+    "hash-runner": "4.0.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  },
+  "files": ["dist", "icon.svg"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "subshell": {
+    "apiVersion": 2,
+    "id": "tailscale",
+    "type": "network",
+    "name": "Tailscale",
+    "description": "Reach this server from your other devices over your tailnet.",
+    "icon": "icon.svg",
+    "entry": "dist/index.js",
+    "detect": {
+      "binaryName": "tailscale",
+      "envOverride": "TAILSCALE_PATH",
+      "knownPaths": [".local/bin/tailscale", "Applications/Tailscale.app/Contents/MacOS/Tailscale"]
+    },
+    "network": {
+      "platforms": ["darwin", "linux"],
+      "exposure": "private",
+      "interactiveLogin": true,
+      "privileged": {
+        "linux": [
+          {
+            "label": "Install Tailscale",
+            "command": "curl -fsSL https://tailscale.com/install.sh | sh",
+            "docsUrl": "https://tailscale.com/kb/1031/install-linux"
+          },
+          {
+            "label": "Let this server drive it",
+            "command": "sudo tailscale set --operator=$USER",
+            "docsUrl": "https://tailscale.com/kb/1080/cli"
+          }
+        ],
+        "darwin": [
+          {
+            "label": "Install the Tailscale daemon",
+            "command": "brew install --formula tailscale && sudo tailscaled install-system-daemon",
+            "docsUrl": "https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS"
+          },
+          {
+            "label": "Let this server drive it",
+            "command": "sudo tailscale set --operator=$USER",
+            "docsUrl": "https://tailscale.com/kb/1080/cli"
+          }
+        ]
+      }
+    }
+  }
+}
