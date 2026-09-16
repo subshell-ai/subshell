@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { NotFoundPage } from "@/components/not-found-page";
 import { desktopShell } from "@/lib/desktop";
+import { installDesktopLinkHandling } from "@/lib/desktop-links";
 import { routeTree } from "./routeTree.gen";
 import "./styles.css";
 
@@ -31,6 +32,13 @@ document.documentElement.classList.add("dark");
 const shell = desktopShell();
 document.documentElement.dataset.shell = shell ? (shell.app === "server" ? "desktop" : "client") : "web";
 if (shell) document.documentElement.dataset.platform = shell.platform;
+
+// External links are inert inside a Tauri webview (measured 2026-09-16: the
+// click reaches the DOM and the webview then raises nothing at the app); the
+// capture-phase relay sends them through window.open, which the shell's
+// on_new_window handler answers by opening the system browser. Armed here —
+// module level, not a component effect — because it cannot double-arm.
+installDesktopLinkHandling();
 
 createRoot(rootElement).render(
   <StrictMode>
