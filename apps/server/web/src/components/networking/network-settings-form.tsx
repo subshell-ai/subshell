@@ -163,6 +163,24 @@ export function NetworkSettingsForm({
               />
             )}
             {field.description && <p className="text-detail text-muted-foreground">{field.description}</p>}
+            {/* The standing caveat on every secret this form writes, under
+                the plugin's own description and never instead of it: the
+                plugin says what this secret IS, the page says what this
+                server does not do with it.
+
+                It is the SERVER's fact, which is why no manifest has to carry
+                it — `subshell-server backup` snapshots the DATABASE, and a
+                plugin secret does not live there. An operator who restores a
+                backup and finds their tunnel down learns nothing from the
+                restore about what is missing, so it is said at the moment the
+                secret is entered, where it is cheap, rather than at the
+                moment it is discovered, where it is not. */}
+            {field.type === "secret" && (
+              <p className="text-detail text-muted-foreground">
+                <code className="font-mono">subshell-server backup</code> does not include it — after a restore, paste
+                it again.
+              </p>
+            )}
             {problem && <p className="text-destructive text-detail">{problem}</p>}
           </div>
         );

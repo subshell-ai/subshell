@@ -5,7 +5,6 @@ import { useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { NetworkAddresses } from "@/components/networking/network-addresses";
 import { NetworkHintBlock, NetworkHints } from "@/components/networking/network-hints";
-import { NetworkLeaveDialog } from "@/components/networking/network-leave-dialog";
 import { NetworkProcessLine } from "@/components/networking/network-process-line";
 import { NetworkRestartNotice } from "@/components/networking/network-restart-notice";
 import { NetworkSettingsForm } from "@/components/networking/network-settings-form";
@@ -19,10 +18,12 @@ import {
   NETWORK_QUERY_KEY,
   useInstallNetwork,
   useJoinNetwork,
+  useLeaveNetwork,
   usePublishNetwork,
   useUnpublishNetwork,
 } from "@/hooks/use-network";
-import { errMessage } from "@/lib/api";
+import { ApiError, errMessage } from "@/lib/api";
+import { confirmAction } from "@/lib/confirm";
 import type { NetworkRow } from "@/types/network";
 
 /** What this host's platform is called in a sentence. */
@@ -77,7 +78,6 @@ export function NetworkPluginCard({
   const queryClient = useQueryClient();
   const [credential, setCredential] = useState("");
   const [promoteBaseUrl, setPromoteBaseUrl] = useState(false);
-  const [leaving, setLeaving] = useState(false);
   /**
    * The most recent line the running act printed.
    *
@@ -97,7 +97,8 @@ export function NetworkPluginCard({
   const join = useJoinNetwork(note);
   const publish = usePublishNetwork(note);
   const unpublish = useUnpublishNetwork();
-  const busy = install.isPending || join.isPending || publish.isPending || unpublish.isPending;
+  const leave = useLeaveNetwork();
+  const busy = install.isPending || join.isPending || publish.isPending || unpublish.isPending || leave.isPending;
 
   const status = row.status;
   const state = status?.state;
@@ -120,14 +121,22 @@ export function NetworkPluginCard({
   const loginCode = (joinOutcome?.state === "needs-login" ? joinOutcome.loginCode : undefined) ?? status?.loginCode;
 
   const published = publish.data;
+  /**
+   * A 404 from the install route is not a failure.
+   *
+   * It means this plugin ships no installer — which is a fact the row is
+   * already rendering, as the privileged steps a person copies instead. No
+   * plugin available today HAS one (every Tailscale install path needs root,
+   * and the manifest parser refuses a `sudo` install command), so a button
+   * somehow pressed against a route that is not there must leave the hints
+   * standing rather than cover them with an error about them.
+   */
+  const installMissing = install.error instanceof ApiError && install.error.status === 404;
+
   /** A failed CALL, which is not the same thing as a refusal the server explained. */
-  const actionError =
-    (install.error ?? join.error ?? publish.error ?? unpublish.error)
-      ? errMessage(
-          install.error ?? join.error ?? publish.error ?? unpublish.error,
-          "The request failed. Nothing changed.",
-        )
-      : null;
+  const failure =
+    (installMissing ? null : install.error) ?? join.error ?? publish.error ?? unpublish.error ?? leave.error;
+  const actionError = failure ? errMessage(failure, "The request failed. Nothing changed.") : null;
 
   const header = (
     <div className="flex min-w-0 items-center gap-3">
@@ -246,7 +255,16 @@ export function NetworkPluginCard({
                   promises a second step that never comes. */}
               <NetworkHints
                 hints={status.hints}
-                startAt={row.privileged.length + status.hints.length > 1 ? row.privileged.length + 1 : undefined}
+                startAt={
+                  // Counted over the hints that carry a COMMAND, matching what
+                  // `NetworkHints` will actually number. A plugin opens this
+                  // list with a sentence saying what is wrong before the steps
+                  // that fix it, so counting every hint would turn one real
+                  // step plus its explanation into a two-step sequence.
+                  row.privileged.length + status.hints.filter((hint) => hint.command).length > 1
+                    ? row.privileged.length + 1
+                    : undefined
+                }
               />
             </div>
           )}
@@ -369,12 +387,29 @@ export function NetworkPluginCard({
                     {unpublish.isPending ? "Unpublishing…" : "Unpublish"}
                   </Button>
                 )}
+                {/* The shared confirmation, not a type-the-name field.
+                    Leaving is recoverable by rejoining, so it does not
+                    deserve the ceremony the desktop reset's typed hostname
+                    has — and the token the route compares is the plugin ID,
+                    which differs from the name a person is looking at by its
+                    case alone (`tailscale` against "Tailscale"). A field
+                    asking someone to type what is on screen would refuse
+                    exactly that. So the id goes programmatically and the
+                    question stays a question. */}
                 <Button
                   variant="ghost"
                   size="sm"
                   className="text-destructive hover:text-destructive"
                   disabled={busy}
-                  onClick={() => setLeaving(true)}
+                  onClick={async () => {
+                    const proceed = await confirmAction({
+                      title: `Disconnect this server from ${row.name}?`,
+                      description: `The addresses this server answered on over ${row.name} stop working, and anything reaching it through them — a phone, another laptop — loses it until you connect again.`,
+                      confirmLabel: "Disconnect",
+                      danger: true,
+                    });
+                    if (proceed) leave.mutate({ id: row.id, confirm: row.id });
+                  }}
                 >
                   Disconnect
                 </Button>
@@ -427,7 +462,6 @@ export function NetworkPluginCard({
           {actionError && <p className="text-destructive text-detail">{actionError}</p>}
         </>
       )}
-      <NetworkLeaveDialog row={row} open={leaving} onOpenChange={setLeaving} />
     </div>
   );
 

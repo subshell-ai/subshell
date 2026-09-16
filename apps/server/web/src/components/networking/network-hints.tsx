@@ -36,26 +36,36 @@ export function NetworkHintBlock({ hint, index }: { hint: NetworkHint; index?: n
 /**
  * Every hint a status carries, in the order the plugin put them in.
  *
- * `startAt` numbers them, and only the caller knows whether that is honest:
- * on a machine with nothing installed the hints ARE the setup sequence — for
- * Tailscale they are the whole of it, since every install path there needs
- * root and a manifest may not ship a `sudo` command — so running the numbers
- * on from the privileged steps above is what makes them read as steps. In
- * every other state a hint is a standing fact about the machine, and a lone
- * "1." in front of one would promise a second that never comes.
+ * `numberFrom` runs a step count through them, and only the hints carrying a
+ * COMMAND take a number. That distinction is the whole rule: a plugin's list
+ * opens with a sentence saying what is wrong ("Meshtool is not installed on
+ * this machine.") and then the commands that fix it. Numbering the sentence
+ * tells the reader to perform it and pushes every real step one along.
  *
- * @param startAt - the number to give the first hint; unset renders none
+ * Whether to number at all is the CALLER's, because only it can see the rest
+ * of the sequence — the privileged steps above these hints are part of the
+ * same count.
+ *
+ * @param numberFrom - the number to give the first hint that carries a
+ *   command; unset renders no numbers at all
  */
-export function NetworkHints({ hints, startAt }: { hints: NetworkHint[]; startAt?: number }) {
+export function NetworkHints({ hints, numberFrom }: { hints: NetworkHint[]; numberFrom?: number }) {
   if (hints.length === 0) return null;
+  // Assigned in one pass rather than inside the render, so the counter
+  // advances over the hints that take a number and skips the ones that do not
+  // — a `map` that incremented as it rendered would be a side effect in a
+  // render function, and React is free to call one twice.
+  let next = numberFrom;
+  const numbered = hints.map((hint) => {
+    if (next === undefined || hint.command === undefined) return { hint, index: undefined };
+    const index = next;
+    next += 1;
+    return { hint, index };
+  });
   return (
     <div className="space-y-3">
-      {hints.map((hint, offset) => (
-        <NetworkHintBlock
-          key={`${hint.text}${hint.command ?? ""}`}
-          hint={hint}
-          index={startAt === undefined ? undefined : startAt + offset}
-        />
+      {numbered.map(({ hint, index }) => (
+        <NetworkHintBlock key={`${hint.text}${hint.command ?? ""}`} hint={hint} index={index} />
       ))}
     </div>
   );

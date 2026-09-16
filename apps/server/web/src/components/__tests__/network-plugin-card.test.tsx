@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { NetworkRow, NetworkState } from "@/types/network";
 
 /**
@@ -68,13 +69,17 @@ async function renderCard(value: NetworkRow, compact = false): Promise<void> {
     path: "/",
     component: () => (
       <QueryClientProvider client={client}>
-        {compact ? (
-          <ul>
-            <NetworkPluginCard row={value} compact />
-          </ul>
-        ) : (
-          <NetworkPluginCard row={value} />
-        )}
+        {/* The same provider `__root` mounts: Disconnect asks through the
+            app's one confirmation mechanism rather than a dialog of its own. */}
+        <ConfirmProvider>
+          {compact ? (
+            <ul>
+              <NetworkPluginCard row={value} compact />
+            </ul>
+          ) : (
+            <NetworkPluginCard row={value} />
+          )}
+        </ConfirmProvider>
       </QueryClientProvider>
     ),
   });
@@ -170,7 +175,11 @@ describe("NetworkPluginCard: the state matrix", () => {
     const card = screen.getByRole("group", { name: "Tailscale" });
     expect(card.textContent).toContain("1.Install the daemon");
     expect(card.textContent).toContain("2.Then register it as a system daemon.");
-    expect(card.textContent).toContain("3.Then come back and re-check.");
+    // A hint with no command is NOT step 3. It is the sentence explaining what
+    // to do once the two steps above are done, and numbering it would tell the
+    // reader to perform a sentence.
+    expect(card.textContent).toContain("Then come back and re-check.");
+    expect(card.textContent).not.toContain("3.");
     // Still copy-only, however they arrived.
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
@@ -384,6 +393,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(field.value).toBe("");
     expect(field.type).toBe("password");
     expect(screen.getByText(/Set — typing here replaces it\./)).toBeTruthy();
+    // The caveat the page owns rather than the plugin: the backup snapshots
+    // the database, and a plugin secret does not live there.
+    expect(screen.getByText(/does not include it — after a restore, paste it again/)).toBeTruthy();
   });
 
   it("a refused publish renders the plugin's reason inline, not as an error", async () => {
@@ -437,23 +449,59 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.queryByText(/public internet/)).toBeNull();
   });
 
-  it("disconnecting asks for the network to be named before it sends anything", async () => {
+  it("disconnecting asks a question and sends the plugin id, which nobody types", async () => {
     const calls = mockFetch(() => undefined);
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     const dialog = await screen.findByRole("dialog");
-    // The confirming button is inert until something is typed, and nothing
-    // has gone to the server.
-    const confirm = within(dialog).getByRole("button", { name: "Disconnect" }) as HTMLButtonElement;
-    expect(confirm.disabled).toBe(true);
+    // The question names the network the person is looking at…
+    expect(within(dialog).getByText("Disconnect this server from Tailscale?")).toBeTruthy();
+    // …and nothing has gone to the server yet.
     expect(calls.some((c) => c.pathname.endsWith("/leave"))).toBe(false);
-    fireEvent.change(within(dialog).getByLabelText(/to confirm/), { target: { value: "tailscale" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => {
       const leave = calls.find((c) => c.pathname === "/api/network/tailscale/leave");
-      // Verbatim: the server owns the rule about what confirms.
+      // The ID, programmatically. It is the path segment and a guaranteed
+      // lowercase slug; the name on screen is "Tailscale", so a field asking
+      // someone to type what they can see would fail on the capital alone.
       expect(leave && JSON.parse(String(leave.body))).toEqual({ confirm: "tailscale" });
     });
+  });
+
+  it("dismissing that question sends nothing", async () => {
+    const calls = mockFetch(() => undefined);
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls.some((c) => c.pathname.endsWith("/leave"))).toBe(false);
+  });
+
+  it("an install route that is not there leaves the hints standing", async () => {
+    // A 404 means this plugin ships no installer — which is what the row is
+    // already saying, in the steps beneath. An error line over them would
+    // report a failure about the very thing that is on screen working.
+    mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/install"
+        ? new Response(JSON.stringify({ message: "no installer" }), { status: 404 })
+        : undefined,
+    );
+    await renderCard(
+      row({
+        state: "not-installed",
+        install: { command: "brew install tailscale", docsUrl: "https://ts.net" },
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [{ text: "Install it on this machine first.", command: "brew install tailscale" }],
+        },
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.getByText("Install it on this machine first.")).toBeTruthy();
+    expect(screen.queryByText(/The request failed/)).toBeNull();
   });
 
   it("the compact variant keeps every act and drops the chrome", async () => {
@@ -472,5 +520,49 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // first run is not where a person reads a pid.
     expect(item.textContent).not.toContain("A private network for your own devices.");
     expect(item.textContent).not.toContain("pid 99");
+  });
+});
+
+describe("hint numbering", () => {
+  it("numbers only the hints that carry a command", async () => {
+    // A plugin opens its not-installed list with a sentence saying what is
+    // wrong, then the steps that fix it. Numbering the sentence tells the
+    // reader to perform it, and pushes every real step one number along.
+    await renderCard(
+      row({
+        privileged: [{ label: "Install the daemon", command: "sudo apt install meshtool" }],
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [
+            { text: "Meshtool is not installed on this machine." },
+            { text: "Let this server drive it", command: "sudo meshtool set --operator=$USER", privileged: true },
+          ],
+        },
+      }),
+    );
+    // Two commands in the sequence, so both are numbered and the explanation
+    // between them takes no number of its own.
+    expect(screen.getByText("1.")).toBeTruthy();
+    expect(screen.getByText("2.")).toBeTruthy();
+    expect(screen.queryByText("3.")).toBeNull();
+  });
+
+  it("numbers nothing when there is a single command", async () => {
+    await renderCard(
+      row({
+        privileged: [],
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [
+            { text: "Meshtool is not installed on this machine." },
+            { text: "Install it", command: "brew install meshtool" },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByText("Install it")).toBeTruthy();
+    expect(screen.queryByText("1.")).toBeNull();
   });
 });
