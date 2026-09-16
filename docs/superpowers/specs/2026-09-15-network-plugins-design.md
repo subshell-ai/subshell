@@ -846,6 +846,35 @@ than only in a commit message.
    GUI-variant CLI answers `status --json` from a launchd-run process. The
    answer decides what §8's table's second row renders.
 
+### 10a. Results, as of the phase 1 cut (2026-09-15)
+
+Recorded here so that "measured and true" is distinguishable from "assumed".
+Anything still open is named as open rather than quietly treated as settled.
+
+| # | status | result |
+|---|---|---|
+| 1 | **open** | No live tailnet was available. The interactive join reads the URL off the output AND falls back to re-reading `AuthURL` from `status --json`, so it does not rest on which stream carries it. The fallback at `join.ts` exists precisely because this is unmeasured. |
+| 2 | **open** | No version floor is pinned anywhere in the plugin. If TS-2026-005's regression is present on an operator's install, `publish` fails and the refusal carries the CLI's own stderr — a bad message rather than a wrong state, but still unmeasured. |
+| 3 | deferred | Phase 2 (Headscale). |
+| 4 | deferred | Phase 2 (NetBird). |
+| 5 | deferred | Phase 3 (Cloudflare Tunnel). |
+| 6 | **measured** | Elysia 1.4.29 on Bun 1.4.2 DOES run `onRequest` for the WebSocket upgrade, and a `Response` returned from it prevents the upgrade: the socket's `open` hook never fires. So no `requireAccess` was threaded into the two upgrade hooks. Pinned by three tests in `access-guard.plugin.test.ts` against a REAL listener, which will say so if a version bump changes the answer. |
+| 7 | **partially settled, by avoidance** | Still unmeasured. The plugin no longer names the macOS app bundle in `knownPaths`, so it does not actively resolve the GUI variant a launchd-run server cannot drive; the Homebrew `tailscaled` formula is found on PATH. A machine with only the GUI variant installed therefore reports `not-installed` and renders the install hints, which is honest but is not the distinct state §8's table anticipates. |
+
+Two further things were measured while building, neither of them in the list
+above, and both changed code:
+
+- **A trapped SIGTERM outlived `runBounded`'s deadline.** A child running
+  `trap '' TERM; sleep 20` against a 500 ms deadline had its reads cancelled at
+  501 ms and the CALL return at 20010 ms, because `proc.kill()` sends only
+  SIGTERM and the call then awaits the real exit. SIGTERM is now followed by
+  SIGKILL after a grace.
+- **Two Host headers reach a Bun 1.4.2 handler joined as `a, b`**, and a
+  trailing dot survives verbatim. Both spellings named a guarded host while
+  matching no guard, so `normalizeHost` strips the root label and a value
+  naming a guarded host anywhere is refused rather than admitted by the
+  ambiguity.
+
 ## 11. Copy, exact
 
 Every user-visible string in the feature. Implementers use these verbatim.

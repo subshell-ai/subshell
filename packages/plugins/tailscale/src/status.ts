@@ -50,7 +50,15 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
     };
   }
 
-  const result = await host.run([binary, "status", "--json"], { timeoutMs: STATUS_TIMEOUT_MS });
+  // `--peers=false` is not an optimization. `status --json` embeds the whole
+  // peer map, which on a real tailnet runs to tens of kilobytes, and the host
+  // caps captured output at 64 KiB and appends a truncation marker past it. A
+  // truncated document does not parse, so a perfectly healthy daemon reported
+  // `daemon-down` saying Tailscale "did not report a status this server could
+  // read" — and the bigger the tailnet, the more certain it was. Every field
+  // this plugin reads is top-level: `BackendState`, `AuthURL`, `Self`,
+  // `TailscaleIPs`, `CertDomains`, `CurrentTailnet`.
+  const result = await host.run([binary, "status", "--json", "--peers=false"], { timeoutMs: STATUS_TIMEOUT_MS });
 
   // **Only a FAILED run is diagnosed, and only from stderr.** Both matchers
   // below are substring tests over loose vendor prose — `looksLikePermissionDenied`

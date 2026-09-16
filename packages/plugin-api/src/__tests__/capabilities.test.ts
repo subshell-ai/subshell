@@ -125,3 +125,27 @@ describe("capabilityMismatches (network)", () => {
     expect(capabilityMismatches(p, "network")).toEqual([]);
   });
 });
+
+describe("capabilityMismatches: the publish pair's undeclared half", () => {
+  it("catches a publish shipped without unpublish and without a declaration", () => {
+    // The hole: `implemented.publish` requires BOTH members, and the
+    // undeclared direction read that same boolean — so half a pair with no
+    // declaration produced no mismatch at all. It loaded clean with its
+    // publish method permanently unreachable, which is precisely what the
+    // undeclared direction was added to prevent.
+    const p = network([], { publish: async () => ({ addresses: [] }) });
+    expect(capabilityMismatches(p, "network")[0]).toContain('implements "publish" members');
+  });
+
+  it("catches an unpublish shipped alone, too", () => {
+    const p = network([], { unpublish: async () => {} });
+    expect(capabilityMismatches(p, "network")[0]).toContain('implements "publish" members');
+  });
+
+  it("tells a half-pair author which half is missing", () => {
+    // "implements none of its members" is false of this plugin and sends its
+    // author looking in the wrong place.
+    const p = network(["publish"], { publish: async () => ({ addresses: [] }) });
+    expect(capabilityMismatches(p, "network")[0]).toContain("only part of it");
+  });
+});

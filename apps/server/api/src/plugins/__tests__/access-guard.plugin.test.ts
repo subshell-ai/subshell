@@ -177,6 +177,28 @@ describe("access-guard plugin", () => {
     expect(body.message).toContain(GUARDED_HOST);
   });
 
+  it("is not skipped by a trailing dot on the Host header", async () => {
+    // `guarded.example.com.` is the fully-qualified spelling of the same name
+    // and resolves identically, so a comparison that only lowercases and
+    // strips the port lets a client name a guarded host in a form the guard
+    // does not recognize.
+    const res = await fetch(`http://${GUARDED_HOST}:${PORT}/ping`, {
+      headers: { host: `${GUARDED_HOST}.:${PORT}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("is not skipped by a second Host header", async () => {
+    // Measured on Bun 1.4.2: two Host headers reach the handler joined as
+    // `a, b`, which matches no guard. There is no honest reading of two Host
+    // headers, so a request naming a guarded host anywhere in that value is
+    // refused rather than admitted by the ambiguity.
+    const res = await fetch(`http://${GUARDED_HOST}:${PORT}/ping`, {
+      headers: { host: `elsewhere.invalid, ${GUARDED_HOST}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
   it("refuses an expired assertion", async () => {
     const res = await fetch(`http://${GUARDED_HOST}:${PORT}/ping`, {
       headers: { "cf-access-jwt-assertion": await mintToken({ expiresAt: Math.floor(Date.now() / 1000) - 120 }) },

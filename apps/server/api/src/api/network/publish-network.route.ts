@@ -138,6 +138,28 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
         return;
       }
 
+      // A publish that reaches the open internet may not proceed without the
+      // one enforcement point that bounds it. `exposure` is manifest data, so
+      // this is decided without loading plugin code — and a plugin that
+      // returned addresses but no guard is not a plugin to trust with the
+      // difference. Nothing has been armed at this point, so refusing here
+      // leaves the machine exactly as it was.
+      if (entry.manifest.network?.exposure === "public-with-gate" && !result.guard) {
+        release();
+        send({
+          type: "done",
+          ok: false,
+          refused: {
+            text: `${entry.manifest.name} publishes this server on the public internet and did not describe an identity check to put in front of it. Nothing was published.`,
+          },
+          addresses: [],
+          config: { changed: [], warnings: [], written: true },
+          restartRequired: false,
+          status: before,
+        });
+        return;
+      }
+
       // GUARD FIRST. See the docstring: the tunnel must never be able to
       // carry a request before the check on it is installed. Replacing by
       // hostname rather than appending keeps a re-publish idempotent.

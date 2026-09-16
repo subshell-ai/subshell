@@ -178,18 +178,59 @@ export function activeAccessGuards(): RequestGuardSpec[] {
 }
 
 /**
- * A `Host` header reduced to what a guard's `hostname` is compared against:
- * lowercased, with the port removed. An IPv6 literal keeps its brackets, which
- * is the only form a Host header may carry one in.
+ * A `Host` header reduced to what a guard's `hostname` is compared against.
+ *
+ * Every step here closes a way of naming the SAME host that a plain
+ * lowercase-and-strip-the-port comparison would miss, and a miss means the
+ * guard skips itself on a hostname it was installed for. Measured against a
+ * Bun 1.4.2 listener:
+ *
+ * | sent | `headers.get("host")` | without this |
+ * |---|---|---|
+ * | `Host: guarded.example.com.` | `guarded.example.com.` | missed |
+ * | `Host: a` and `Host: b` | `a, b` | missed |
+ *
+ * - **A duplicate Host header** is joined by the Headers API into `a, b`, which
+ *   matches nothing. There is no honest reading of two Host headers, so the
+ *   first is taken and compared: a request that names a guarded host at all is
+ *   a request that guard must see. (A request naming it SECOND is still
+ *   caught, because the whole value matches no guard and the caller then
+ *   refuses anything containing a guarded name — see {@link hostMatches}.)
+ * - **A trailing dot** is the fully-qualified spelling of the same name and
+ *   resolves identically, so `example.com.` and `example.com` are one host.
+ * - An IPv6 literal keeps its brackets, the only form a Host header may carry
+ *   one in.
  */
 function normalizeHost(value: string): string {
-  const host = value.trim().toLowerCase();
-  if (host.startsWith("[")) {
-    const end = host.indexOf("]");
-    return end === -1 ? host : host.slice(0, end + 1);
-  }
-  const colon = host.indexOf(":");
-  return colon === -1 ? host : host.slice(0, colon);
+  // The first of several, not the joined string: see the docstring.
+  const first = value.split(",")[0] ?? "";
+  const host = first.trim().toLowerCase();
+  const bare = host.startsWith("[")
+    ? (() => {
+        const end = host.indexOf("]");
+        return end === -1 ? host : host.slice(0, end + 1);
+      })()
+    : (() => {
+        const colon = host.indexOf(":");
+        return colon === -1 ? host : host.slice(0, colon);
+      })();
+  // The root label. `example.com.` and `example.com` name the same host.
+  return bare.endsWith(".") ? bare.replace(/\.+$/, "") : bare;
+}
+
+/**
+ * Whether this request names a guarded hostname, by any spelling it could use.
+ *
+ * Normally the normalized Host IS the answer. The extra pass exists for the
+ * duplicate-header case: `Host: unguarded` plus `Host: guarded` arrives as one
+ * joined value whose FIRST element is innocent, and a request that names a
+ * guarded host anywhere in its Host header is one the guard must not skip.
+ * Refusing an ambiguous request costs nothing — there is no legitimate reason
+ * to send two Host headers.
+ */
+function hostMatches(raw: string, hostname: string): boolean {
+  if (normalizeHost(raw) === hostname) return true;
+  return raw.includes(",") && raw.split(",").some((part) => normalizeHost(part) === hostname);
 }
 
 /**
@@ -255,7 +296,12 @@ async function guardRequest(request: Request, server: PeerLookup | null): Promis
   // rule is actually about.
   const host = request.headers.get("host");
   if (host === null) return undefined;
-  const spec = guards.byHost.get(normalizeHost(host));
+  const spec =
+    guards.byHost.get(normalizeHost(host)) ??
+    // The duplicate-header case: a joined `unguarded, guarded` has an innocent
+    // first element, and a request naming a guarded host ANYWHERE in its Host
+    // header is one this guard must not skip.
+    [...guards.byHost.values()].find((candidate) => hostMatches(host, normalizeHost(candidate.hostname)));
   if (spec === undefined) return undefined;
 
   const deps = depsOverride ?? defaultDeps;

@@ -141,15 +141,22 @@ async function eligible(): Promise<Eligible[]> {
 export async function prepareNetworkGuards(): Promise<void> {
   try {
     const guards: RequestGuardSpec[] = [];
+    unguarded.clear();
     for (const { id, entry, ctx } of await eligible()) {
       if (!entry.plugin.requestGuard) continue;
       try {
         const guard = entry.plugin.requestGuard(ctx);
         if (guard) guards.push(guard);
+        else if (needsGuard(entry)) unguarded.add(id);
       } catch (err) {
-        // The publish is not undone over this: a guard that cannot be built is
-        // reported, and the process half below will not start a tunnel for a
-        // plugin whose own code is throwing either.
+        // The publish is not undone over this, but the PROCESS half must know:
+        // a `public-with-gate` network whose guard could not be built must not
+        // then have its tunnel started. Those are different methods over
+        // different data — a Cloudflare-shaped plugin needs a hostname and an
+        // audience for its guard and only a token for its process — so one
+        // failing says nothing about the other, and an admin clearing a single
+        // settings field is enough to produce exactly this.
+        if (needsGuard(entry)) unguarded.add(id);
         getLogger().withError(err).warn(`network plugin "${id}" failed to describe its request guard`);
       }
     }
@@ -182,9 +189,41 @@ export async function prepareNetworkProcesses(): Promise<void> {
   }
 }
 
+/**
+ * Ids whose guard could not be built on the last {@link prepareNetworkGuards}
+ * pass, and which declare an exposure that may not run without one.
+ *
+ * Module state because the two halves are deliberately separated in time —
+ * guards before the listener, processes after it — and the second half has to
+ * know what the first could not do.
+ */
+const unguarded = new Set<string>();
+
+/**
+ * Whether this plugin's exposure makes a request guard mandatory.
+ *
+ * Manifest data, read without loading plugin code: `public-with-gate` means
+ * publishing reaches the open internet with an identity check in front. The
+ * check IS the perimeter there, so a tunnel without one is the whole risk the
+ * exposure label exists to bound.
+ */
+function needsGuard(entry: NetworkPluginEntry): boolean {
+  return entry.manifest.network?.exposure === "public-with-gate";
+}
+
 /** Arms the child a plugin asks for, when it asks for one. */
 function armFrom({ id, entry, ctx }: Eligible): void {
   if (!entry.plugin.supervisedProcess) return;
+  // The refusal the guard half could not make for itself. A publish that
+  // reaches the public internet is allowed exactly one enforcement point, and
+  // starting its tunnel while that point is missing is worse than the network
+  // simply being down: the server is reachable and unchecked.
+  if (needsGuard(entry) && unguarded.has(id)) {
+    getLogger().warn(
+      `network plugin "${id}" publishes to the public internet and has no request guard; its process is NOT being started`,
+    );
+    return;
+  }
   try {
     const spec = entry.plugin.supervisedProcess(ctx);
     if (spec) deps().arm(id, spec);

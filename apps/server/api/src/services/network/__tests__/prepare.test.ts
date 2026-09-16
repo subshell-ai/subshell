@@ -39,9 +39,13 @@ const address: NetworkAddress = {
 
 const processSpec: SupervisedProcessSpec = { command: "/usr/local/bin/tailscaled", args: ["serve"] };
 
-function entry(plugin: Partial<NetworkPlugin>, platforms: PluginPlatform[] = ["darwin", "linux"]): NetworkPluginEntry {
+function entry(
+  plugin: Partial<NetworkPlugin>,
+  platforms: PluginPlatform[] = ["darwin", "linux"],
+  exposure: "private" | "public-with-gate" = "private",
+): NetworkPluginEntry {
   return {
-    manifest: { network: { platforms, exposure: "private" } } as NetworkPluginEntry["manifest"],
+    manifest: { network: { platforms, exposure } } as NetworkPluginEntry["manifest"],
     plugin: {
       capabilities: () => [],
       status: async () => ({ state: "published", addresses: [], hints: [] }),
@@ -338,5 +342,66 @@ describe("prepareNetworkProcesses", () => {
       // everyone is re-asked rather than reasoning about whose changed.
       expect(rec.guards).toEqual([[guard]]);
     });
+  });
+});
+
+describe("a public exposure may not run unguarded", () => {
+  /** A published plugin wired through the recorder deps, ready to prepare. */
+  async function publish(rec: Recorder, e: NetworkPluginEntry): Promise<void> {
+    const plugin = id();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(recorderDeps(rec, { [plugin]: e }));
+  }
+
+  it("does not arm the tunnel of a public-with-gate plugin whose guard threw", async () => {
+    // These are different methods over different data: a Cloudflare-shaped
+    // plugin needs a hostname and an audience for its guard but only a token
+    // for its process, so an admin clearing one settings field produces
+    // exactly this. Starting the tunnel anyway is worse than the network being
+    // down — the server is reachable from the internet and unchecked.
+    const rec = recorder();
+    await publish(
+      rec,
+      entry(
+        {
+          requestGuard: () => {
+            throw new Error("hostname is not configured");
+          },
+          supervisedProcess: () => processSpec,
+        },
+        ["darwin", "linux"],
+        "public-with-gate",
+      ),
+    );
+    await prepareNetworkGuards();
+    await prepareNetworkProcesses();
+    expect(rec.guards.at(-1)).toEqual([]);
+    expect(rec.armed).toEqual([]);
+  });
+
+  it("does not arm it when the guard is merely absent either", async () => {
+    // The same hole by omission rather than by throw.
+    const rec = recorder();
+    await publish(
+      rec,
+      entry(
+        { requestGuard: () => null, supervisedProcess: () => processSpec },
+        ["darwin", "linux"],
+        "public-with-gate",
+      ),
+    );
+    await prepareNetworkGuards();
+    await prepareNetworkProcesses();
+    expect(rec.armed).toEqual([]);
+  });
+
+  it("still arms a PRIVATE network that describes no guard", async () => {
+    // The refusal is scoped to the exposure that makes a guard the perimeter.
+    // Tailscale describes no guard and must still start.
+    const rec = recorder();
+    await publish(rec, entry({ supervisedProcess: () => processSpec }));
+    await prepareNetworkGuards();
+    await prepareNetworkProcesses();
+    expect(rec.armed.map((a) => a.spec)).toEqual([processSpec]);
   });
 });

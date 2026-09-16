@@ -791,6 +791,23 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
         };
       })();
 
+  /**
+   * Whether ANY member of a capability is present, which is a different
+   * question from whether the capability is implemented.
+   *
+   * They differ for `publish` alone, and that gap was a hole: a plugin shipping
+   * `publish()` with no `unpublish()` and declaring nothing had
+   * `implemented.publish === false`, so neither direction of the check fired
+   * and it loaded clean with its publish method permanently unreachable —
+   * exactly what the undeclared direction exists to prevent.
+   */
+  const present: Partial<Record<PluginCapability, boolean>> = isHarnessType(type)
+    ? implemented
+    : {
+        ...implemented,
+        publish: Boolean((plugin as NetworkPlugin).publish ?? (plugin as NetworkPlugin).unpublish),
+      };
+
   // A capability that belongs to the OTHER type is refused by name rather than
   // ignored: `resume` on a network plugin is a plugin built against the wrong
   // half of the contract, and silently dropping it would leave whatever it
@@ -803,9 +820,16 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
 
   for (const capability of applicable) {
     if (declared.has(capability) && !implemented[capability]) {
-      problems.push(`declares the "${capability}" capability but implements none of its members`);
+      // Named precisely, because "implements none of its members" is FALSE of
+      // a plugin that shipped half a pair and sends its author looking in the
+      // wrong place.
+      problems.push(
+        present[capability]
+          ? `declares the "${capability}" capability but implements only part of it (publish and unpublish are a pair: a publish nothing can undo would leave this server exposed with no way back)`
+          : `declares the "${capability}" capability but implements none of its members`,
+      );
     }
-    if (!declared.has(capability) && implemented[capability]) {
+    if (!declared.has(capability) && present[capability]) {
       problems.push(`implements "${capability}" members but does not declare the capability`);
     }
   }

@@ -39,7 +39,10 @@
     "tsdown": "0.22.14",
     "typescript": "7.0.2"
   },
-  "files": ["dist", "icon.svg"],
+  "files": [
+    "dist",
+    "icon.svg"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -54,10 +57,15 @@
     "detect": {
       "binaryName": "tailscale",
       "envOverride": "TAILSCALE_PATH",
-      "knownPaths": [".local/bin/tailscale", "Applications/Tailscale.app/Contents/MacOS/Tailscale"]
+      "knownPaths": [
+        ".local/bin/tailscale"
+      ]
     },
     "network": {
-      "platforms": ["darwin", "linux"],
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
       "exposure": "private",
       "interactiveLogin": true,
       "privileged": {

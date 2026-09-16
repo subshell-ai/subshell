@@ -184,9 +184,26 @@ describe("POST /api/network/:id/publish", () => {
     expect((await readNetworkState(FAKE_ID)).published).toBe(true);
   });
 
+  it("refuses to publish a public-with-gate network that describes no guard", async () => {
+    // The host is the enforcement point by this design's own rule, so a plugin
+    // that reaches the open internet and hands back no identity check may not
+    // be taken at its word. Nothing is armed before this point, so the refusal
+    // leaves the machine exactly as it was — and it is a refusal (an answer)
+    // rather than an error, so it carries a hint instead of a status code.
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "public-with-gate" });
+    setNetworkDepsForTests(fakeDeps(entry));
+    const done = await doneFrame(
+      await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: JSON.stringify({}) })),
+    );
+    expect(done.ok).toBe(false);
+    expect(done.refused.text).toContain("public internet");
+    expect(done.addresses).toEqual([]);
+    expect((await readNetworkState(FAKE_ID)).published).toBe(false);
+  });
+
   it("promotes APP_BASE_URL only when asked, and warns about the rpID move", async () => {
     const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES } });
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
     setNetworkDepsForTests(fakeDeps(entry, { config }));
     const done = await doneFrame(
       await app.fetch(
@@ -205,7 +222,7 @@ describe("POST /api/network/:id/publish", () => {
 
   it("leaves APP_BASE_URL alone by default", async () => {
     const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES } });
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
     setNetworkDepsForTests(fakeDeps(entry, { config }));
     await frames(await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })));
     expect(config.calls[0]?.baseUrl).toBeUndefined();
@@ -214,7 +231,7 @@ describe("POST /api/network/:id/publish", () => {
   it("keeps the publish when the config writer refuses the value", async () => {
     const config = recorder();
     config.result = { ok: false, kind: "invalid", key: "TRUSTED_ORIGINS", reason: "that is not an origin" };
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES } });
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
     setNetworkDepsForTests(fakeDeps(entry, { config }));
     const done = await doneFrame(
       await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })),
@@ -238,7 +255,7 @@ describe("POST /api/network/:id/publish", () => {
   });
 
   it("audits the addresses and whether a base URL was promoted", async () => {
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES } });
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
     setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
     await frames(
       await app.fetch(

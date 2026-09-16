@@ -179,6 +179,29 @@ describe("TailscalePlugin.status", () => {
     expect(status.hints[0]?.command).toBe("sudo tailscale set --operator=test");
   });
 
+  it("asks the daemon to leave out the peer map", async () => {
+    // Not an optimization. `status --json` embeds the whole peer map, a real
+    // tailnet's runs to tens of kilobytes, and the host caps captured output
+    // at 64 KiB — so the document stopped parsing and a healthy daemon
+    // reported itself down. Pinned because the scripted host matches argv by
+    // PREFIX, so dropping this flag would otherwise keep every test green.
+    const { plugin, host } = scripted({ "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS } });
+    await plugin.status(CTX);
+    const statusCall = host.calls.find((c) => c[1] === "status");
+    expect(statusCall).toEqual(["/usr/bin/tailscale", "status", "--json", "--peers=false"]);
+  });
+
+  it("does not offer the macOS app bundle as a known path", async () => {
+    // Spec § 8: the App Store and standalone Mac variants talk to a logged-in
+    // desktop session — `tailscale up` opens that user's browser instead of
+    // printing a URL, which a launchd-run server can use for nothing. Naming
+    // the bundle here made the plugin actively resolve the one binary the spec
+    // says cannot be driven, and then offer an interactive join that hangs to
+    // its deadline. The Homebrew `tailscaled` formula is found on PATH.
+    const paths = manifest.detect?.knownPaths ?? [];
+    expect(paths.some((p) => p.includes("Tailscale.app"))).toBe(false);
+  });
+
   it("does not read a HEALTHY tailnet's own document as a permission failure", async () => {
     // The matchers are substring tests over loose vendor prose — the
     // permission one matches the bare word "operator" — and a successful
