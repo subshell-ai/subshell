@@ -416,6 +416,50 @@ describe("a public exposure may not run unguarded", () => {
     expect(rec.armed).toEqual([]);
   });
 
+  it("does not arm a public tunnel the PORT RECONCILE republished", async () => {
+    // The third arming site, and the one the refusal could not reach: the
+    // reconcile armed `outcome.process` itself and then made the arming loop
+    // skip that row, so a `public-with-gate` tunnel started with zero guards
+    // installed even when the refusal correctly named the plugin. Measured by
+    // the reviewer across all three ways of having no guard.
+    for (const plugin of [
+      { supervisedProcess: () => processSpec },
+      { requestGuard: () => null, supervisedProcess: () => processSpec },
+      {
+        requestGuard: () => {
+          throw new Error("hostname is not configured");
+        },
+        supervisedProcess: () => processSpec,
+      },
+    ]) {
+      const rec = recorder();
+      const id2 = id();
+      // Published on a port this server no longer listens on, which is what
+      // sends it down the reconcile path.
+      await writeNetworkState(id2, { published: true, port: SERVER_PORT + 1 });
+      setNetworkPrepareDepsForTests(
+        recorderDeps(rec, {
+          [id2]: entry(
+            {
+              ...plugin,
+              publish: async () => ({
+                addresses: [address],
+                process: { command: "/usr/local/bin/tailscaled", args: ["serve", "--new"] },
+              }),
+              unpublish: async () => {},
+            },
+            ["darwin", "linux"],
+            "public-with-gate",
+          ),
+        }),
+      );
+      await prepareNetworkGuards();
+      await prepareNetworkProcesses();
+      expect(rec.armed).toEqual([]);
+      expect(rec.guards.at(-1)).toEqual([]);
+    }
+  });
+
   it("still arms a PRIVATE network that describes no guard", async () => {
     // The refusal is scoped to the exposure that makes a guard the perimeter.
     // Tailscale describes no guard and must still start.

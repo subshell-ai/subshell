@@ -5,6 +5,8 @@ import {
   type NetworkContext,
   type NetworkPluginEntry,
   type PluginPlatform,
+  type PublishOutcome,
+  type RequestGuardSpec,
   type SupervisedProcessSpec,
 } from "@internal/pane-runtime";
 import { applyConfig } from "@/commands/configure.js";
@@ -107,6 +109,33 @@ interface Eligible {
 }
 
 /**
+ * One eligible row with its guard question already answered.
+ *
+ * **The guard fact travels WITH the row**, rather than living in a module Set
+ * the arming sites are each expected to remember to consult. It used to, and
+ * that shape produced three separate findings: a plugin whose guard threw, one
+ * whose guard was null, and one with no guard member at all were three
+ * different holes in the same rule, and the port-change path armed without
+ * consulting the Set at all — so a `public-with-gate` tunnel started with zero
+ * guards installed even when the Set correctly held its id.
+ *
+ * A memo read at one arming site out of three means a NEW arming site is
+ * unguarded by default. A field on the value in hand means the compiler asks.
+ */
+interface Prepared extends Eligible {
+  /** What this plugin declares right now, or null for any reason at all. */
+  guard: RequestGuardSpec | null;
+  /**
+   * True when this exposure requires a guard and none was produced.
+   *
+   * ANY reason: the member is absent, it returned null, it threw. They are one
+   * rule — for an exposure whose guard IS the perimeter, no guard means no
+   * process — and separating them is what let two of the three through.
+   */
+  refuseProcess: boolean;
+}
+
+/**
  * Every enabled network plugin that is published, loadable, and runnable here.
  *
  * All three gates are structural rather than defensive. `published` is the
@@ -146,94 +175,87 @@ async function eligible(): Promise<Eligible[]> {
  * would leave a moment in which one published network's traffic was checked
  * and another's was not, and no ordering of the appends removes it.
  */
-export async function prepareNetworkGuards(): Promise<void> {
+export async function prepareNetworkGuards(): Promise<Prepared[]> {
   try {
-    const guards: OwnedGuard[] = [];
-    unguarded.clear();
-    for (const { id, entry, ctx } of await eligible()) {
-      if (!entry.plugin.requestGuard) {
-        // A plugin that declares a PUBLIC exposure and implements no guard at
-        // all is the same refusal as one whose guard threw, and this early
-        // return used to run before the test — so that plugin was never added
-        // to `unguarded` and its tunnel was armed with nothing in front of it.
-        // The two cases are one rule: whatever the reason, no guard means no
-        // process for an exposure whose guard IS the perimeter.
-        if (needsGuard(entry)) unguarded.add(id);
-        continue;
-      }
-      try {
-        const guard = entry.plugin.requestGuard(ctx);
-        if (guard) guards.push({ pluginId: id, spec: guard });
-        else if (needsGuard(entry)) unguarded.add(id);
-      } catch (err) {
-        // The publish is not undone over this, but the PROCESS half must know:
-        // a `public-with-gate` network whose guard could not be built must not
-        // then have its tunnel started. Those are different methods over
-        // different data — a Cloudflare-shaped plugin needs a hostname and an
-        // audience for its guard and only a token for its process — so one
-        // failing says nothing about the other, and an admin clearing a single
-        // settings field is enough to produce exactly this.
-        if (needsGuard(entry)) unguarded.add(id);
-        getLogger().withError(err).warn(`network plugin "${id}" failed to describe its request guard`);
-      }
-    }
+    const prepared = (await eligible()).map((row) => resolveGuard(row));
+    const guards = prepared.flatMap((row) => (row.guard ? [{ pluginId: row.id, spec: row.guard }] : []));
     deps().setGuards(guards);
     if (guards.length > 0) getLogger().info(`networks: ${guards.length} request guard(s) installed`);
+    return prepared;
   } catch (err) {
     getLogger().withError(err).warn("could not prepare network request guards; none are installed");
+    return [];
+  }
+}
+
+/**
+ * Asks one plugin for its guard and answers both questions at once.
+ *
+ * The three ways to have no guard — no member, a null return, a throw — are
+ * one answer here, which is the whole point of doing it in one place. A throw
+ * does NOT undo the publish: that is still the admin's standing decision, and
+ * what failed is this host's attempt to honour it.
+ */
+function resolveGuard(row: Eligible): Prepared {
+  const required = needsGuard(row.entry);
+  if (!row.entry.plugin.requestGuard) return { ...row, guard: null, refuseProcess: required };
+  try {
+    const guard = row.entry.plugin.requestGuard(row.ctx);
+    return { ...row, guard: guard ?? null, refuseProcess: required && !guard };
+  } catch (err) {
+    getLogger().withError(err).warn(`network plugin "${row.id}" failed to describe its request guard`);
+    return { ...row, guard: null, refuseProcess: required };
   }
 }
 
 /**
  * Reconciles a changed port, then arms every published plugin's process. Call
  * AFTER the listener is up.
+ *
+ * Takes what {@link prepareNetworkGuards} resolved, so the two halves cannot
+ * disagree about which plugins may run. Passing nothing RE-DERIVES rather than
+ * reading a memo — that is what makes calling this alone correct instead of
+ * merely unsupported, and it is what a later re-arm path will want.
+ * @param prepared - the rows the guard pass resolved; omit to re-derive
  */
-export async function prepareNetworkProcesses(): Promise<void> {
+export async function prepareNetworkProcesses(prepared?: Prepared[]): Promise<void> {
   try {
     let republished = false;
-    const rows = await eligible();
-    // The reconcile pass runs FIRST and completely, so the re-ask below lands
-    // before any tunnel is armed. Re-installing the guards after the arming
-    // loop inverted this file's whole ordering rule on the port-change path:
-    // for one moment a republished network's tunnel was up against the OLD
-    // guard set.
-    const reconciled = new Set<string>();
+    const rows = prepared ?? (await eligible()).map((row) => resolveGuard(row));
+    // THE RECONCILE PASS RUNS FIRST AND COMPLETELY, AND ARMS NOTHING. It used
+    // to arm `outcome.process` itself, which put a third arming site outside
+    // the refusal — and worse, it then made the arming loop SKIP that row, so
+    // a `public-with-gate` tunnel started with zero guards installed even when
+    // the refusal correctly named it. One loop arms now, and it is the loop
+    // that checks.
+    const republishedProcess = new Map<string, SupervisedProcessSpec>();
     for (const row of rows) {
-      if (row.publishedPort !== null && row.publishedPort !== SERVER_PORT && (await reconcilePort(row))) {
-        republished = true;
-        reconciled.add(row.id);
-      }
+      if (row.publishedPort === null || row.publishedPort === SERVER_PORT) continue;
+      const outcome = await reconcilePort(row);
+      if (!outcome) continue;
+      republished = true;
+      // The plugin may hand back a NEW process with the outcome, and running
+      // that one rather than whatever `supervisedProcess` says a moment later
+      // is the only reason `PublishOutcome` carries a process at all.
+      if (outcome.process) republishedProcess.set(row.id, outcome.process);
     }
     // A republish may have produced a different guard — a new hostname, a new
-    // Access application. Cheaper to re-ask everyone than to reason about
-    // whose changed, and this runs at most once per boot.
-    if (republished) await prepareNetworkGuards();
-    for (const row of rows) {
-      // A reconcile already armed the process its OWN republish described.
-      // Arming again from `supervisedProcess(ctx)` would stop that child and
-      // spawn a replacement, so the outcome's process never won — and the two
-      // can legitimately differ, which is the only reason `PublishOutcome`
-      // carries a process at all.
-      if (!reconciled.has(row.id)) armFrom(row);
+    // Access application — so the set is re-asked BEFORE anything is armed.
+    // Re-asking afterwards left the republished row's own tunnel up against
+    // the pre-republish guard set, which is the ordering this file exists to
+    // keep.
+    const armable = republished ? await prepareNetworkGuards() : rows;
+    for (const row of armable) {
+      armFrom(row, republishedProcess.get(row.id));
     }
     // ...and then ask each of them whether it is actually carrying traffic.
-    for (const row of rows) {
-      if (!reconciled.has(row.id)) await reportIfDown(row);
+    for (const row of armable) {
+      if (!republishedProcess.has(row.id)) await reportIfDown(row);
     }
   } catch (err) {
     getLogger().withError(err).warn("could not start network plugin processes; published networks may be down");
   }
 }
-
-/**
- * Ids whose guard could not be built on the last {@link prepareNetworkGuards}
- * pass, and which declare an exposure that may not run without one.
- *
- * Module state because the two halves are deliberately separated in time —
- * guards before the listener, processes after it — and the second half has to
- * know what the first could not do.
- */
-const unguarded = new Set<string>();
 
 /**
  * Whether this plugin's exposure makes a request guard mandatory.
@@ -287,19 +309,34 @@ async function reportIfDown({ id, entry, ctx }: Eligible): Promise<void> {
   }
 }
 
-/** Arms the child a plugin asks for, when it asks for one. */
-function armFrom({ id, entry, ctx }: Eligible): void {
-  if (!entry.plugin.supervisedProcess) return;
-  // The refusal the guard half could not make for itself. A publish that
-  // reaches the public internet is allowed exactly one enforcement point, and
-  // starting its tunnel while that point is missing is worse than the network
-  // simply being down: the server is reachable and unchecked.
-  if (needsGuard(entry) && unguarded.has(id)) {
+/**
+ * Arms the child for one row: the republish's own, or the one the plugin
+ * describes now.
+ *
+ * THE ONLY place this pass arms anything, which is what makes the refusal
+ * below total. It reads `refuseProcess` off the row in its hand rather than
+ * consulting a memo, so a site that forgot to check cannot exist: there is one
+ * site, and the field is on its argument.
+ * @param row - the eligible plugin, with its guard question already answered
+ * @param republished - the process a port-change republish just described, if any
+ */
+function armFrom(row: Prepared, republished?: SupervisedProcessSpec): void {
+  const { id, entry, ctx, refuseProcess } = row;
+  // The refusal, applied to BOTH sources of a process. A publish that reaches
+  // the public internet is allowed exactly one enforcement point, and starting
+  // its tunnel while that point is missing is worse than the network being
+  // down: the server is reachable and unchecked.
+  if (refuseProcess) {
     getLogger().warn(
       `network plugin "${id}" publishes to the public internet and has no request guard; its process is NOT being started`,
     );
     return;
   }
+  if (republished) {
+    deps().arm(id, republished);
+    return;
+  }
+  if (!entry.plugin.supervisedProcess) return;
   try {
     const spec = entry.plugin.supervisedProcess(ctx);
     if (spec) deps().arm(id, spec);
@@ -326,12 +363,12 @@ function armFrom({ id, entry, ctx }: Eligible): void {
  * because a daemon was slow to start.
  * @returns true when the republish produced new addresses
  */
-async function reconcilePort({ id, entry, ctx, publishedPort }: Eligible): Promise<boolean> {
+async function reconcilePort({ id, entry, ctx, publishedPort }: Eligible): Promise<PublishOutcome | null> {
   if (!entry.plugin.publish) {
     getLogger().warn(
       `network plugin "${id}" was published on port ${publishedPort} and this server now listens on ${SERVER_PORT}, but it cannot re-publish; its addresses may be stale`,
     );
-    return false;
+    return null;
   }
   getLogger().info(
     `networks: re-publishing "${id}" — published on port ${publishedPort}, this server is on ${SERVER_PORT}`,
@@ -345,11 +382,11 @@ async function reconcilePort({ id, entry, ctx, publishedPort }: Eligible): Promi
       .warn(
         `network plugin "${id}" threw while re-publishing on port ${SERVER_PORT}; it stays published and unreachable`,
       );
-    return false;
+    return null;
   }
   if ("refused" in outcome) {
     getLogger().warn(`network plugin "${id}" refused to re-publish on port ${SERVER_PORT}: ${outcome.refused.text}`);
-    return false;
+    return null;
   }
 
   await writeNetworkState(id, {
@@ -357,10 +394,11 @@ async function reconcilePort({ id, entry, ctx, publishedPort }: Eligible): Promi
     addresses: outcome.addresses,
     publishedAt: new Date().toISOString(),
   });
-  // The plugin may hand back a NEW process description with the outcome, and
-  // arming from that is what makes the new tunnel the one that runs — rather
-  // than whatever `supervisedProcess` would describe a moment later.
-  if (outcome.process) deps().arm(id, outcome.process);
+  // NOT armed here. This used to call `deps().arm` directly, which made the
+  // reconcile a third arming site outside the guard refusal — and then made
+  // the arming loop skip this row, so the refusal could not reach it even when
+  // it correctly named the plugin. The outcome goes back to the one loop that
+  // arms and checks.
   deps().trustOrigins(id, outcome.addresses);
 
   // Actor null: nobody asked for this, the boot noticed. The pair with the
@@ -378,7 +416,7 @@ async function reconcilePort({ id, entry, ctx, publishedPort }: Eligible): Promi
       addresses: outcome.addresses,
     }),
   });
-  return true;
+  return outcome;
 }
 
 /**

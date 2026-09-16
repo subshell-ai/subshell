@@ -180,8 +180,13 @@ async function bootServer(): Promise<void> {
   // plugins): a tunnel that survived this restart is already resolvable, so
   // the first request over it can arrive in the same millisecond the port
   // opens, and a guard installed after that is a guard that missed requests.
+  // The resolved rows are carried from the guard half to the process half, so
+  // the two cannot disagree about which plugins may run — a `public-with-gate`
+  // network whose guard could not be built must not then have its tunnel
+  // started, and that fact now travels with the row rather than in a memo.
+  let preparedNetworks: Awaited<ReturnType<typeof prepareNetworkGuards>> = [];
   try {
-    await prepareNetworkGuards();
+    preparedNetworks = await prepareNetworkGuards();
   } catch (err) {
     getLogger().withError(err).warn("could not install network request guards at boot");
   }
@@ -201,7 +206,7 @@ async function bootServer(): Promise<void> {
   // down is reconciled, which is the one thing the (memoryless) plugin cannot
   // notice for itself.
   try {
-    await prepareNetworkProcesses();
+    await prepareNetworkProcesses(preparedNetworks);
   } catch (err) {
     getLogger().withError(err).warn("could not start network plugin processes at boot");
   }
