@@ -202,6 +202,26 @@ describe("TailscalePlugin.status", () => {
     expect(paths.some((p) => p.includes("Tailscale.app"))).toBe(false);
   });
 
+  it("says what publishing discloses, before anyone presses publish", async () => {
+    // A public certificate is recorded in Certificate Transparency logs, which
+    // are public and indexed, so publishing makes this machine's NAME public
+    // permanently. Nobody would guess that from a button labelled Publish, and
+    // the security documents already claimed it was said — this is what makes
+    // that true.
+    const { plugin } = scripted({ "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS } });
+    const status = await plugin.status(CTX);
+    expect(status.hints.some((h) => h.text.includes("Certificate Transparency"))).toBe(true);
+  });
+
+  it("does not mention certificates on a tailnet that cannot issue them", async () => {
+    // There the honest next step is enabling HTTPS, and advice about a
+    // disclosure that cannot happen yet is noise in front of it.
+    const { plugin } = scripted({ "/usr/bin/tailscale status --json": { stdout: RUNNING_NO_CERTS } });
+    const status = await plugin.status(CTX);
+    expect(status.hints.some((h) => h.text.includes("Certificate Transparency"))).toBe(false);
+    expect(status.hints.some((h) => h.text.includes("enable HTTPS certificates"))).toBe(true);
+  });
+
   it("does not read a HEALTHY tailnet's own document as a permission failure", async () => {
     // The matchers are substring tests over loose vendor prose — the
     // permission one matches the bare word "operator" — and a successful

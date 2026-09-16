@@ -473,10 +473,16 @@ export function NetworkPluginCard({
               {!published.config.written && (
                 <p className="text-detail text-warning">
                   config.env was not changed
+                  {/* The KEY, never a reason for it. `unwritableKey` is set on
+                      three different paths — the environment owning the key,
+                      an unreadable config file, and a validator refusal — and
+                      naming the first of those unconditionally sent an admin
+                      to edit a unit file over what was really a validation
+                      error. The true reason is in `config.warnings`, rendered
+                      immediately below in the server's own words. */}
                   {published.config.unwritableKey && (
                     <>
-                      : <span className="font-mono">{published.config.unwritableKey}</span> is set in this server's
-                      environment, so the file cannot change it
+                      : <span className="font-mono">{published.config.unwritableKey}</span> was not written
                     </>
                   )}
                   .

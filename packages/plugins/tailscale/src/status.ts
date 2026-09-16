@@ -10,7 +10,13 @@ import {
   type TailscaleStatusJson,
   tailnetIpv4s,
 } from "./cli.js";
-import { daemonDownHints, httpsUnavailableHint, needsPrivilegeHints, notInstalledHints } from "./hints.js";
+import {
+  certificateTransparencyHint,
+  daemonDownHints,
+  httpsUnavailableHint,
+  needsPrivilegeHints,
+  notInstalledHints,
+} from "./hints.js";
 
 /** A status read is one CLI call, so it is bounded well below the host's 30s default. */
 const STATUS_TIMEOUT_MS = 15_000;
@@ -119,7 +125,11 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
 
   const addresses = tailnetAddresses(json, ctx.port);
   const hints: NetworkHint[] = [];
+  const dnsName = magicDnsName(json);
   if ((json.CertDomains ?? []).length === 0) hints.push(httpsUnavailableHint());
+  // Said where someone deciding whether to publish is looking, and only when
+  // publishing would actually issue a certificate.
+  else if (dnsName) hints.push(certificateTransparencyHint(dnsName));
 
   const published = await isServingThisPort(host, binary, ctx.port);
   return {

@@ -53,14 +53,14 @@ signed-in-only — which writes each `/api/events` frame into
 `SUBSHELLS_QUERY_KEY`; read via `useSubshellsList`/`useLiveSubshells`, never
 by opening another EventSource.
 
-**The admin surface is six pages behind one collapsible group** (spec
+**The admin surface is NINE pages behind one collapsible group** (spec
 2026-09-11 grouped-navigation): General (`/settings`), Users
-(`/settings/users`), API keys, Plugins, Status and Audit log, listed in the
-rail under **Server Settings** and gated as a WHOLE — a member's rail lists
+(`/settings/users`), API keys, Plugins, Service, Networking, Updates, Status
+and Audit log, listed in the rail under **Server Settings** and gated as a WHOLE — a member's rail lists
 none of them, and none of them renders for a member who types the URL. The
 roster page moved INTO the namespace on 2026-09-14 and lost its read-only
 member view with it: the roster exists so the sharing picker can name people,
-and that reads `GET /api/users`, which is still instance-wide. Two of the six
+and that reads `GET /api/users`, which is still instance-wide. Two of them
 are read-only: `/settings` is where an admin CHANGES the instance, while
 Status and `/settings/audit` are where they see what it currently IS and what
 has happened to it.
@@ -377,6 +377,51 @@ tries to fix:
   `APP_BASE_URL` host (better-auth derives the rpID from the static baseURL,
   not the request host), so a passkey works on that address only if
   `APP_BASE_URL` is the loopback one.
+
+## Networking: one card that is a state machine (spec 2026-09-15)
+
+`/settings/networking` and the first-run step both render ONE component,
+`components/networking/network-plugin-card.tsx`, and that is deliberate: the
+six states a network walks (`not-installed` → `daemon-down` →
+`needs-privilege` → `needs-login` → `joined` → `published`, plus unsupported
+and disabled, which short-circuit before any of them) are a sequence a person
+passes once, and a second implementation of it would be a second place for
+"what can I do from here" to be answered differently on two pages met minutes
+apart. The wizard step passes `compact`, which changes the FRAME and never the
+acts — it drops card chrome, the description, the supervisor line and every
+non-required settings field, because hiding a required one would leave a
+Connect button nothing on screen could satisfy.
+
+Three rules the card keeps, each with a defect behind it:
+
+- **The plugin owns its copy.** Hints, labels and step text render verbatim.
+  What this page owns is the shape, and the consequences that are the SERVER's
+  rather than the network's — what a non-secure-context address costs, what
+  promoting the base URL does to passkeys, that `subshell-server backup` does
+  not include a plugin secret.
+- **Nothing privileged is ever a button**, including the numbered install steps.
+  Same rule as `TmuxRow`: this server has no terminal to answer a password
+  prompt. Numbering runs only over hints that carry a COMMAND, so a plugin's
+  explanatory sentence is not rendered as an instruction to perform.
+- **A refusal is an ANSWER.** A publish returning `ok:false` with a `refused`
+  hint renders inline where the button was, with no alert role — the server
+  worked correctly and said why not.
+
+`hooks/use-network.ts` holds the query and six mutations; the two streaming
+ones reuse `readInstallStream` from `use-install-agent.ts` rather than a second
+NDJSON reader. Every act goes through the card's `begin()`, which resets ALL
+the mutations: a result outlives the state it describes, so a publish
+announcement survived the unpublish that undid it until that was true.
+
+`types/network.ts` is a HAND-WRITTEN mirror of `apps/server/api/src/api/network/schemas.ts`.
+Elysia strips fields a schema does not declare, so a mismatch is silent in
+exactly the way `lib/split-workspace-refusal.ts` records — check both when you
+touch either.
+
+**A network plugin must never be launchable.** Every picker filters
+`type === "agent-harness"` positively rather than `!== "terminal"`
+(`lib/subshell-compat.tsx`, and mobile's `lib/agent-default.ts`). That is the
+whole type audit, and reverting either filter fails a test.
 
 ## Talking to the backend
 

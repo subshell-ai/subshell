@@ -111,3 +111,25 @@ export function httpsUnavailableHint(): NetworkHint {
     docsUrl: HTTPS_DOCS_URL,
   };
 }
+
+/**
+ * What publishing with Tailscale Serve discloses, said BEFORE the press.
+ *
+ * `tailscale serve --https` provisions a real Let's Encrypt certificate for
+ * this machine's MagicDNS name, and every publicly-trusted certificate is
+ * recorded in Certificate Transparency logs — which are public and indexed.
+ * So the machine's NAME becomes public knowledge, permanently, while the
+ * server behind it stays reachable only from the tailnet.
+ *
+ * Nobody would guess that from a button labelled Publish, and it cannot be
+ * undone once the certificate is issued. It is emitted only when certificates
+ * are actually available, because on a tailnet without them the honest next
+ * step is `httpsUnavailableHint` and this would be advice about something that
+ * cannot happen yet.
+ */
+export function certificateTransparencyHint(dnsName: string): NetworkHint {
+  return {
+    text: `Tailscale Serve gets a public certificate for ${dnsName}. That name appears in public Certificate Transparency logs, so this machine's name becomes public — the server itself stays private to your tailnet.`,
+    docsUrl: HTTPS_DOCS_URL,
+  };
+}

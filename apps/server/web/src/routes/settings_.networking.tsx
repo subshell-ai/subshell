@@ -25,9 +25,20 @@ const IDLE_POLL_MS = 30_000;
  */
 const ACTIVE_POLL_MS = 5_000;
 
-/** True while any row is waiting on a sign-in the page cannot be told about. */
+/**
+ * True while any row is waiting on a sign-in the page cannot be told about.
+ *
+ * Keyed on `loginUrl`, NOT on the `needs-login` state. That state is the
+ * RESTING state of any installed, running, unjoined network — an admin who
+ * opens this page with Tailscale installed and not signed in would otherwise
+ * have this server run `tailscale status --json` every five seconds for as
+ * long as the tab stayed open, for a row nobody is acting on. Only an
+ * interactive login that has actually started produces a URL, and that is the
+ * one case where the answer arrives out of band and polling is the only way to
+ * see it.
+ */
 function awaitingLogin(networks: NetworkRow[] | undefined): boolean {
-  return (networks ?? []).some((row) => row.status?.state === "needs-login");
+  return (networks ?? []).some((row) => row.status?.loginUrl !== undefined);
 }
 
 /**

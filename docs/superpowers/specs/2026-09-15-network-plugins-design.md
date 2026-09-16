@@ -875,6 +875,20 @@ above, and both changed code:
   naming a guarded host anywhere is refused rather than admitted by the
   ambiguity.
 
+### 10c. The one operator action phase 1 leaves outstanding
+
+`@subshell-ai/plugin-tailscale` is an eighth `@subshell-ai/*` package and npm
+trusted publishing cannot be configured for a package that does not exist. It
+is therefore in `.changeset/config.json`'s ignore list — beside ten workspaces
+ignored for the opposite reason, which are not independently released at all.
+Without that entry the `changesets` job finds `0.1.0` missing from the registry
+and wakes `npm-publish` for a package it cannot publish.
+
+**Publish it by hand once, configure the trusted publisher, then remove it from
+the ignore list.** Until that happens it ships inside the server binary (it is
+a compiled-in built-in, so nothing a user does depends on the registry) and is
+simply not separately installable.
+
 ### 10b. Deviations from this spec, as built
 
 Recorded rather than quietly fixed, because each is a decision and a later
