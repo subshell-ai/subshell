@@ -106,6 +106,17 @@ function JoinedFacts({ row, status, compact }: { row: NetworkRow; status: Networ
  *   the SERVER's rather than the network's — what a non-secure context
  *   costs, and the restart a config write defers.
  */
+/**
+ * One, two, or many, in English. The restart confirmation names addresses
+ * by value and there may be several (a tailnet MagicDNS name beside a mesh
+ * IP); "a, b and c" reads, "a, b, c" does not, and none of the three forms
+ * may borrow the other's comma.
+ */
+function andList(items: string[]): string {
+  if (items.length <= 2) return items.join(" and ");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 export function NetworkPluginCard({
   row,
   headerless = false,
@@ -877,6 +888,12 @@ export function NetworkPluginCard({
                 config={published.config}
                 restartRequired={published.restartRequired}
                 restart={restart}
+                enables={
+                  <>
+                    Once it is back, your other devices can sign in at{" "}
+                    {andList(published.addresses.map((address) => address.url))}.
+                  </>
+                }
               />
             </div>
           )}
@@ -896,6 +913,12 @@ export function NetworkPluginCard({
                 config={join.data.config}
                 restartRequired={join.data.restartRequired === true}
                 restart={restart}
+                enables={
+                  <>
+                    Once it is back, your other devices can sign in at{" "}
+                    {andList(join.data.status.addresses.map((address) => address.url))}.
+                  </>
+                }
               />
             </div>
           )}
@@ -926,6 +949,7 @@ export function NetworkPluginCard({
                   restartRequired={unpublished.restartRequired}
                   restart={restart}
                   removal
+                  enables={<>{andList(unpublished.origins)} will stop accepting sign-ins.</>}
                 />
               )}
             </div>
@@ -951,6 +975,7 @@ export function NetworkPluginCard({
                   restartRequired={leave.data.restartRequired}
                   restart={restart}
                   removal
+                  enables={<>{andList(leave.data.origins)} will stop accepting sign-ins.</>}
                 />
               )}
             </div>

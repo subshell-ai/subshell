@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { RestartDialog } from "@/components/service/restart-dialog";
 import { RestartStrip } from "@/components/service/restart-strip";
 import { Button } from "@/components/ui/button";
@@ -30,9 +30,12 @@ import type { ServerRestart } from "@/hooks/use-server-restart";
 export function NetworkRestartNotice({
   restart,
   removal = false,
+  enables,
 }: {
   /** The card's one restart waiter */
   restart: ServerRestart;
+  /** What the restart turns on, named for the dialog (see `RestartDialog`) */
+  enables?: ReactNode;
   /**
    * True when the write AWAITING this restart took origins away rather than
    * adding them. "the new address" is a publish's sentence; under an
@@ -88,6 +91,7 @@ export function NetworkRestartNotice({
         open={confirming}
         onOpenChange={setConfirming}
         view={view}
+        enables={enables}
         onConfirm={(force) => {
           setConfirming(false);
           void restart.restart(force ? { force: true } : {});

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { REINSTALL_COMMAND } from "@/components/service/service-card";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,7 @@ export function RestartDialog({
   onOpenChange,
   view,
   onConfirm,
+  enables,
 }: {
   /** Whether the dialog is showing */
   open: boolean;
@@ -66,6 +68,19 @@ export function RestartDialog({
   view: ServerDeployment;
   /** Called with `force` when the person confirms */
   onConfirm: (force: boolean) => void;
+  /**
+   * What the restart TURNS ON, said instead of the resume line — for a
+   * restart requested from beside a write that does not move the base URL.
+   *
+   * (Operator's live read of the network card, 2026-09-16: "The server will
+   * come back at http://localhost:3080" is about a restart that MOVES where
+   * the server answers; from the card the address is unchanged and the
+   * sentence buried what the press actually enables — that other devices may
+   * now sign in, or that certain addresses stop accepting it.) When set, it
+   * REPLACES the resume paragraph; the Service page passes nothing and keeps
+   * its wording pixel-unchanged.
+   */
+  enables?: ReactNode;
 }) {
   // Gated on `installed` for the reason `ServiceCard` is: `paneSafety` is
   // "unknown" when there is no definition to read, and "unknown" is not
@@ -85,14 +100,18 @@ export function RestartDialog({
               : "Running subshells keep running; open terminals reconnect in a few seconds."}
           </DialogDescription>
         </DialogHeader>
-        {elsewhere && (
-          <p className="text-muted-foreground text-sm">
-            The server will come back at{" "}
-            <a href={elsewhere} target="_blank" rel="noreferrer" className="underline hover:text-foreground">
-              {elsewhere}
-            </a>
-            .
-          </p>
+        {enables ? (
+          <p className="text-muted-foreground text-sm">{enables}</p>
+        ) : (
+          elsewhere && (
+            <p className="text-muted-foreground text-sm">
+              The server will come back at{" "}
+              <a href={elsewhere} target="_blank" rel="noreferrer" className="underline hover:text-foreground">
+                {elsewhere}
+              </a>
+              .
+            </p>
+          )
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

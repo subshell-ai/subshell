@@ -1384,6 +1384,12 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(
       within(dialog).getByText("Running subshells keep running; open terminals reconnect in a few seconds."),
     ).toBeTruthy();
+    // The card's restart does not move the base URL, so the dialog names
+    // what the press ENABLES instead of the Service page's resume line —
+    // with the real recorded address, and no "come back at" sentence.
+    // (Operator's live read of the Tailscale card, 2026-09-16.)
+    expect(within(dialog).getByText("https://box.tail1234.ts.net will stop accepting sign-ins.")).toBeTruthy();
+    expect(within(dialog).queryByText(/The server will come back at/)).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
     await waitFor(() => {
       const press = calls.find((c) => c.method === "POST" && c.pathname === "/api/admin/server/restart");
@@ -1422,6 +1428,17 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Sign in with NetBird" }));
     expect(await screen.findByText(/Published on NetBird/)).toBeTruthy();
+    // And its restart dialog names the addresses the join just trusted —
+    // plural-aware, from the frame's own status, not a mock string.
+    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        "Once it is back, your other devices can sign in at https://box.tail1234.ts.net and http://100.64.0.1:3080.",
+      ),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/The server will come back at/)).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.getByText(/updated TRUSTED_ORIGINS/)).toBeTruthy();
     expect(screen.getByText("Restart the server to apply the new address.")).toBeTruthy();
   });

@@ -1,6 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { builtInNetworkPlugins, type NetworkContext } from "@internal/pane-runtime";
-import { configurationRefusal } from "@/api/network/network-gate.js";
+import {
+  configurationRefusal,
+  removePublishedConfig,
+  setNetworkDepsForTests,
+  writePublishConfig,
+} from "@/api/network/network-gate.js";
+import { readNetworkState, writeNetworkState } from "@/services/network/state.js";
+import { type ConfigRecorder, FAKE_ID, fakeDeps, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**
  * The settings/secret gate, run against the REAL built-in manifests.
@@ -86,5 +93,87 @@ describe("configurationRefusal across the real built-ins", () => {
       expect(configurationRefusal(entry(id), emptyCtx(), "join")).toBeUndefined();
       expect(configurationRefusal(entry(id), emptyCtx(), "publish")).toBeUndefined();
     }
+  });
+});
+
+/**
+ * The warning filter (operator's live read of the Tailscale card,
+ * 2026-09-16): `applyConfig` posture-checks the WHOLE stored config and the
+ * CLI/Service-page writers must keep every sentence — they wrote those keys.
+ * A network act wrote `TRUSTED_ORIGINS` alone, so the gate drops what does
+ * not name it. Case is the discriminator, tested here rather than assumed:
+ * the port-mismatch advisory offers `--trusted-origins` lower-case as advice
+ * for an `APP_BASE_URL` problem, and a case-insensitive match would let the
+ * exact wall this filter exists to drop back through.
+ */
+describe("keyOwnWarnings at the gate's two write sites", () => {
+  afterEach(() => setNetworkDepsForTests(null));
+
+  const LAN_BIND =
+    "HOST=0.0.0.0 (LAN bind) but APP_BASE_URL is loopback (http://localhost:3080); remote nodes will dial their OWN machine, not this server.";
+  const PORT_MISMATCH =
+    "APP_BASE_URL is http://box.local:3080 but the server will listen on 4000; set --base-url to the address you actually browse, or add it to --trusted-origins.";
+  const ALL_LOOPBACK =
+    "HOST=0.0.0.0 (LAN bind) with a loopback APP_BASE_URL (http://localhost:3080) and no TRUSTED_ORIGINS: a browser on any other machine sends an origin this instance does not trust.";
+
+  function rec(): ConfigRecorder {
+    return {
+      calls: [],
+      result: {
+        ok: true,
+        path: "/tmp/config.env",
+        values: {},
+        warnings: [LAN_BIND, PORT_MISMATCH, ALL_LOOPBACK],
+        changed: [{ key: "TRUSTED_ORIGINS", from: undefined, to: "http://localhost:3080,https://box.ts.net" }],
+      },
+    };
+  }
+
+  it("keeps only the key's own advisory on a publish union", () => {
+    const { entry } = makeFakePlugin();
+    setNetworkDepsForTests(fakeDeps(entry, { config: rec(), configValues: () => ({}) }));
+    const write = writePublishConfig({ origins: ["https://box.ts.net"] });
+    expect(write.warnings).toEqual([ALL_LOOPBACK]);
+    expect(write.written).toBe(true);
+  });
+
+  it("keeps only the key's own advisory on an unpublish subtraction", async () => {
+    const { entry } = makeFakePlugin();
+    setNetworkDepsForTests(
+      fakeDeps(entry, {
+        config: rec(),
+        configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080,https://box.ts.net" }),
+      }),
+    );
+    await writeNetworkState(FAKE_ID, {
+      published: true,
+      port: 3080,
+      addresses: [{ url: "https://box.ts.net", scheme: "https", label: "MagicDNS", secureContext: true }],
+    });
+    const write = removePublishedConfig(["https://box.ts.net"]);
+    expect(write.warnings).toEqual([ALL_LOOPBACK]);
+    expect(write.changed).toEqual(["TRUSTED_ORIGINS"]);
+    await readNetworkState(FAKE_ID);
+  });
+
+  it("the env-ownership sentence is the gate's own branch and cannot be filtered", () => {
+    // The refusal path returns BEFORE any writer runs — the filter has no
+    // reach here, which is why the sentence survives by construction rather
+    // than by matching.
+    const config = rec();
+    const { entry } = makeFakePlugin();
+    setNetworkDepsForTests(
+      fakeDeps(entry, {
+        config,
+        env: () => ({ TRUSTED_ORIGINS: "http://env-owned.example" }),
+        configValues: () => ({ TRUSTED_ORIGINS: "https://box.ts.net" }),
+        appliedKeys: () => new Set<string>(),
+      }),
+    );
+    const write = removePublishedConfig(["https://box.ts.net"]);
+    expect(write.written).toBe(false);
+    expect(write.unwritableKey).toBe("TRUSTED_ORIGINS");
+    expect(write.warnings[0]).toContain("TRUSTED_ORIGINS is set in the server's environment");
+    expect(config.calls).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
 import { LoaderCircle } from "lucide-react";
+import type { ReactNode } from "react";
 import { NetworkRestartNotice } from "@/components/networking/network-restart-notice";
 import type { ServerRestart } from "@/hooks/use-server-restart";
 import type { NetworkConfigOutcome } from "@/types/network";
@@ -20,6 +21,7 @@ export function ConfigWriteOutcome({
   restartRequired,
   restart,
   removal = false,
+  enables,
 }: {
   /** What the act's config.env write did */
   config: NetworkConfigOutcome;
@@ -30,6 +32,8 @@ export function ConfigWriteOutcome({
   /** True for the acts that TOOK origins away (unpublish, leave) — it selects
    * "apply the change" over the publish's "apply the new address". */
   removal?: boolean;
+  /** What the restart turns on, named for the confirm dialog (see there). */
+  enables?: ReactNode;
 }) {
   return (
     <>
@@ -66,7 +70,7 @@ export function ConfigWriteOutcome({
           )}
         </p>
       )}
-      {restartRequired && <NetworkRestartNotice restart={restart} removal={removal} />}
+      {restartRequired && <NetworkRestartNotice restart={restart} removal={removal} enables={enables} />}
       {/* The outage the press opened. The acts around this block are already
           disabled — the card folds `waiting` into `busy` — so the spinner is
           not decoration: it is the reason those buttons went quiet. */}

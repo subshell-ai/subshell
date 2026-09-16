@@ -69,7 +69,7 @@ function recorder(): ConfigRecorder {
       ok: true,
       path: "/tmp/config.env",
       values: {},
-      warnings: ["a warning the CLI writer produced"],
+      warnings: ["TRUSTED_ORIGINS now names 3 origins (a warning the CLI writer produced)"],
       changed: [{ key: "TRUSTED_ORIGINS", from: undefined, to: "https://server.example.com" }],
     },
   };
@@ -116,7 +116,7 @@ describe("POST /api/network/:id/publish", () => {
     expect(done.restartRequired).toBe(true);
     expect(done.config.written).toBe(true);
     expect(done.config.changed).toEqual(["TRUSTED_ORIGINS"]);
-    expect(done.config.warnings).toContain("a warning the CLI writer produced");
+    expect(done.config.warnings).toEqual(["TRUSTED_ORIGINS now names 3 origins (a warning the CLI writer produced)"]);
 
     // The guard is live, and the existing origin survived the union.
     expect(activeAccessGuards()).toEqual([{ pluginId: FAKE_ID, spec: GUARD }]);

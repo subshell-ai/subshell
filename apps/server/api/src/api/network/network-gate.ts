@@ -515,6 +515,27 @@ export interface PublishConfigInput {
 }
 
 /**
+ * The config writer's advisories that speak of THIS write's key, or none.
+ *
+ * (Operator's live read of the Tailscale card, 2026-09-16: a publish that
+ * writes `TRUSTED_ORIGINS` and nothing else printed a wall of advice about
+ * `HOST` and `APP_BASE_URL` — keys the press had not touched.) `applyConfig`
+ * merges the stored values and posture-checks everything it can see, which is
+ * right for the CLI and the Service page: they WROTE those keys, and their
+ * readers keep every sentence. A network act wrote one. The discriminator is
+ * the key's own name, case-sensitively and on purpose: the all-loopback
+ * posture names `TRUSTED_ORIGINS` because it describes the list THIS write
+ * produced — it stays; the base-URL-port pair offers `--trusted-origins`
+ * lower-case as advice for fixing an `APP_BASE_URL` problem, an answer about
+ * another key, and drops. The gate's own env-ownership sentence never passes
+ * through here — that branch returns before any writer runs — so no filter
+ * can silence it.
+ */
+export function keyOwnWarnings(warnings: string[]): string[] {
+  return warnings.filter((warning) => warning.includes("TRUSTED_ORIGINS"));
+}
+
+/**
  * The publish's config.env write: `TRUSTED_ORIGINS` ∪ the new origins, and
  * nothing else. The optional `APP_BASE_URL` promotion this writer once took
  * went on 2026-09-16 — the base URL is the Service page's field, and a
@@ -600,7 +621,7 @@ export function writePublishConfig(input: PublishConfigInput): NetworkConfigWrit
   }
   return {
     changed: result.changed.map((c) => c.key),
-    warnings: [...warnings, ...result.warnings],
+    warnings: [...warnings, ...keyOwnWarnings(result.warnings)],
     written: unwritableKey === undefined,
     ...(unwritableKey ? { unwritableKey } : {}),
   };
@@ -752,7 +773,7 @@ export function removePublishedConfig(origins: string[]): NetworkConfigWrite {
   }
   return {
     changed: result.changed.map((c) => c.key),
-    warnings: [...warnings, ...result.warnings],
+    warnings: [...warnings, ...keyOwnWarnings(result.warnings)],
     written: true,
   };
 }
