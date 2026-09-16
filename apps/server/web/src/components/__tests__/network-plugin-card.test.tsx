@@ -652,6 +652,62 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: "Unpublish" })).toBeNull();
   });
 
+  it("names each identity fact, rather than joining them into one line", async () => {
+    // The defect this closes: `suteki.nu · MacBook Pro · 1.102.4` put three
+    // facts about three different things in one muted sentence, so nothing on
+    // screen said which part was the network and which was a version number.
+    await renderCard(
+      row({
+        state: "joined",
+        status: {
+          state: "joined",
+          addresses: ADDRESSES,
+          hints: [],
+          identity: { network: "suteki.nu", hostname: "MacBook Pro", version: "1.102.4" },
+        },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(within(card).getByText("Network", { selector: "dt" })).toBeTruthy();
+    expect(within(card).getByText("suteki.nu")).toBeTruthy();
+    expect(within(card).getByText("Machine", { selector: "dt" })).toBeTruthy();
+    expect(within(card).getByText("MacBook Pro")).toBeTruthy();
+    expect(within(card).getByText("Client version", { selector: "dt" })).toBeTruthy();
+    expect(within(card).getByText("1.102.4")).toBeTruthy();
+    // The addresses are their own section now, and the card says so.
+    expect(within(card).getByRole("heading", { name: "Addresses" })).toBeTruthy();
+  });
+
+  it("labels only the identity parts the network reported", async () => {
+    // A plugin's identity is partial in the general case; the joined line used
+    // to drop an absent part silently, and a labelled "Machine:" over nothing
+    // would be louder about the gap than the gap itself.
+    await renderCard(
+      row({ state: "joined", status: { state: "joined", addresses: [], hints: [], identity: { hostname: "box-1" } } }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(within(card).getByText("Machine", { selector: "dt" })).toBeTruthy();
+    expect(within(card).queryByText("Network", { selector: "dt" })).toBeNull();
+    expect(within(card).queryByText("Client version", { selector: "dt" })).toBeNull();
+    // No facts beyond the one, no addresses: no empty frame above the hints.
+    expect(within(card).queryByRole("heading", { name: "Addresses" })).toBeNull();
+  });
+
+  it("says what joined means, above the button that changes it", async () => {
+    // Both halves of this state now answer the standing question in the same
+    // slot. Joined had no sentence at all — a person met a Publish button and
+    // had to already know that joining put the MACHINE on the network while
+    // publishing is what puts the DASHBOARD on it.
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    expect(
+      screen.getByText(
+        "Subshell is not published on Tailscale yet — publishing is what lets your other devices open this dashboard over the network.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Publish/ })).toBeTruthy();
+    expect(screen.queryByText("Subshell is published on Tailscale.")).toBeNull();
+  });
+
   it("renders the addresses in the order the server sent them", async () => {
     // Load-bearing rather than cosmetic: the host promotes `addresses[0]`
     // when asked to set the base URL, so a plugin puts its https origin first
@@ -894,6 +950,8 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
       row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
     );
     expect(screen.getByText("Subshell is published on Tailscale.")).toBeTruthy();
+    // One slot, two halves: the joined sentence has no place here.
+    expect(screen.queryByText(/is not published on/)).toBeNull();
   });
 
   it("unpublishing an implicit-publish network promises no shutdown", async () => {
@@ -1085,7 +1143,12 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     await renderCard(
       row({
         state: "joined",
-        status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        status: {
+          state: "joined",
+          addresses: ADDRESSES,
+          hints: [],
+          identity: { network: "suteki.nu", hostname: "MacBook Pro", version: "1.102.4" },
+        },
         process: { running: true, pid: 99, restarts: 0, lastLines: ["up"] },
       }),
       true,
@@ -1097,6 +1160,10 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // first run is not where a person reads a pid.
     expect(item.textContent).not.toContain("A private network for your own devices.");
     expect(item.textContent).not.toContain("pid 99");
+    // The FACTS stay: `compact` changes the frame, not the answer, and which
+    // network this machine joined is the one thing the wizard step is about.
+    expect(within(item).getByText("Network", { selector: "dt" })).toBeTruthy();
+    expect(within(item).queryByText("Publish process", { selector: "dt" })).toBeNull();
     // And the HEADER, name included: the caller renders it. Nothing here may
     // carry the plugin's name as its own text, or the wizard's row prints
     // "Tailscale" twice, once per component.

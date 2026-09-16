@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { NETWORK_STATE_LEGEND } from "@/components/setup/network-row";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { awaitingLogin, Route } from "@/routes/settings_.networking";
 import type { NetworkRow, NetworkStatus } from "@/types/network";
@@ -128,6 +129,37 @@ describe("the networking page", () => {
       expect(await within(row).findByText("Access key")).toBeTruthy();
       // One press opens ONE card.
       expect(within(screen.getByRole("listitem", { name: "NetBird" })).queryByText("Access key")).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("defines the two chips above the rows, in the wizard's words", async () => {
+    // "Joined" and "Published" look like synonyms for a status colour and are
+    // not — one of them is the difference between a dashboard that opens over
+    // the network and one that 403s on sign-in. The sentence belongs to
+    // `network-row.tsx`, which owns the chips, so this asserts the shared
+    // constant rather than retyping it: a second definition would be a second
+    // sentence to drift from the wizard's.
+    const m = mockServer({ admin: true, networks: [network({ id: "tailscale", name: "Tailscale" })] });
+    try {
+      renderPage();
+      expect(await screen.findByText(NETWORK_STATE_LEGEND)).toBeTruthy();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("explains nothing when there is no chip to explain", async () => {
+    const m = mockServer({ admin: true, networks: [] });
+    try {
+      renderPage();
+      // Settled rather than merely mounted: an unanswered read has no rows
+      // either, so a legend absent at t=0 would prove nothing. The list
+      // answering with NOTHING is the case being asserted.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(m.calls.some((c) => c.pathname === "/api/network")).toBe(true);
+      expect(screen.queryByText(NETWORK_STATE_LEGEND)).toBeNull();
     } finally {
       m.restore();
     }

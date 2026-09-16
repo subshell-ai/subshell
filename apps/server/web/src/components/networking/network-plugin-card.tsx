@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
+import { Fact } from "@/components/admin-status/fact-list";
 import { NetworkAddresses } from "@/components/networking/network-addresses";
 import { NetworkHintBlock, NetworkHints, NetworkNotice, splitLeadHints } from "@/components/networking/network-hints";
 import { hasGroupedSteps, PrivilegedSteps } from "@/components/networking/network-privileged-steps";
@@ -26,7 +27,7 @@ import { ApiError, errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
 import { connectBlocker } from "@/lib/network-connect";
 import { safeHref } from "@/lib/safe-href";
-import type { NetworkRow } from "@/types/network";
+import type { NetworkRow, NetworkStatus } from "@/types/network";
 
 /** What this host's platform is called in a sentence. */
 const PLATFORM_NAMES: Record<string, string> = { darwin: "macOS", linux: "Linux" };
@@ -36,6 +37,45 @@ function platformList(platforms: string[]): string {
   const names = platforms.map((p) => PLATFORM_NAMES[p] ?? p);
   if (names.length <= 1) return names[0] ?? "no platform this build knows";
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+/**
+ * What this host's membership consists of, as the app's one shape for a block
+ * of read-only facts.
+ *
+ * These used to be paragraphs, and the first was a bare
+ * `suteki.nu · MacBook Pro · 1.102.4` — three facts about three different
+ * things in one joined string, in the same muted grey as the hints under it,
+ * so nothing on screen said which part was the network's name and which was a
+ * version number. Labelling them is what turns that back into data. `Fact` is
+ * the node detail page's own component, so this adds no visual vocabulary.
+ *
+ * Each row renders only when its own part exists — the identity a plugin
+ * reports is partial in the general case, and a labelled "Machine:" over
+ * nothing is worse than the line that quietly omitted it. And the whole block
+ * renders only when at least one row does: a `<dl>` that is empty is a frame
+ * around a gap.
+ */
+function JoinedFacts({ row, status, compact }: { row: NetworkRow; status: NetworkStatus; compact: boolean }) {
+  const process = !compact && row.process ? row.process : undefined;
+  const identity = status.identity;
+  if (!identity && !process) return null;
+  return (
+    <dl className="grid gap-x-6 gap-y-3 text-sm">
+      {identity?.network && <Fact label="Network">{identity.network}</Fact>}
+      {identity?.hostname && <Fact label="Machine">{identity.hostname}</Fact>}
+      {identity?.version && (
+        <Fact label="Client version" mono>
+          {identity.version}
+        </Fact>
+      )}
+      {process && (
+        <Fact label="Publish process" wide>
+          <NetworkProcessLine process={process} />
+        </Fact>
+      )}
+    </dl>
+  );
 }
 
 /**
@@ -478,14 +518,33 @@ export function NetworkPluginCard({
 
           {(state === "joined" || state === "published") && (
             <div className="space-y-4">
-              {status.identity && (
-                <p className="text-detail text-muted-foreground">
-                  {[status.identity.network, status.identity.hostname, status.identity.version]
-                    .filter((part): part is string => part !== undefined && part !== "")
-                    .join(" · ")}
-                </p>
+              <JoinedFacts row={row} status={status} compact={compact} />
+              {/* Its own section, because the list is the thing a person
+                  copies to their phone and it used to sit unlabelled directly
+                  under an identity line it has nothing to do with. The heading
+                  hides WITH the list: `NetworkAddresses` renders nothing when
+                  there are no addresses, and a heading over a gap reads as a
+                  component that failed. */}
+              {status.addresses.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="font-strong text-label">Addresses</h3>
+                  <NetworkAddresses addresses={status.addresses} copyable={state === "published"} />
+                </div>
               )}
-              <NetworkAddresses addresses={status.addresses} copyable={state === "published"} />
+              {/* The standing FACT of this state, in ONE slot for both halves
+                  of it, in the same words' shape — the two states differ by
+                  one thing and the copy now says which. It sits above the
+                  Publish control because it explains the button, and above
+                  Unpublish/Disconnect because the published half used to have
+                  no standing sentence at all: the post-publish block says what
+                  just happened and is cleared by the next act, so after a
+                  reload an admin saw addresses, hints and an Unpublish button
+                  with nothing stating the row's status. */}
+              <p className="text-detail text-muted-foreground">
+                {state === "published"
+                  ? `Subshell is published on ${row.name}.`
+                  : `Subshell is not published on ${row.name} yet — publishing is what lets your other devices open this dashboard over the network.`}
+              </p>
               {/* Hints do not stop at the door. A network that has joined can
                   still have something to say about the addresses it did NOT
                   hand out — no certificates on the tailnet means no https
@@ -493,7 +552,6 @@ export function NetworkPluginCard({
                   here. Rendering hints only in the states before joining left
                   that answer nowhere, under a list quietly one address short. */}
               <NetworkHints hints={status.hints} />
-              {!compact && row.process && <NetworkProcessLine process={row.process} />}
 
               {state === "joined" && (
                 <div className="space-y-2">
@@ -527,15 +585,6 @@ export function NetworkPluginCard({
                     {publish.isPending ? "Publishing…" : (row.labels.publish ?? "Publish")}
                   </Button>
                 </div>
-              )}
-
-              {/* The standing FACT, not the outcome of the last act. The
-                  post-publish block says what just happened and is cleared by
-                  the next act, so after a reload an admin saw addresses, hints
-                  and an Unpublish button with nothing stating the row's
-                  status. */}
-              {state === "published" && (
-                <p className="text-detail text-muted-foreground">Subshell is published on {row.name}.</p>
               )}
 
               <div className="flex flex-wrap items-center gap-2">

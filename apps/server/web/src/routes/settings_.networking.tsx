@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { AddNetworkCard } from "@/components/networking/add-network-card";
 import { PageHeader } from "@/components/page-header";
-import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
+import { NETWORK_STATE_LEGEND, NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
 import { Button } from "@/components/ui/button";
 import { NETWORK_MUTATION_KEY, NETWORK_QUERY_KEY, useNetwork } from "@/hooks/use-network";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -102,11 +102,18 @@ function NetworkingPage() {
               The difference is only what expands — here it is the whole
               card, fields and supervisor detail included. */}
           {data && data.networks.length > 0 && (
-            <ul className="space-y-3">
-              {data.networks.map((row) => (
-                <NetworkRowItem key={row.id} row={row} full />
-              ))}
-            </ul>
+            <>
+              {/* The wizard's step and this page show the same chips, so they
+                  say what those chips mean in one sentence owned by the file
+                  that renders them — a second copy here would be a second
+                  definition to drift from. */}
+              <p className="text-detail text-muted-foreground">{NETWORK_STATE_LEGEND}</p>
+              <ul className="space-y-3">
+                {data.networks.map((row) => (
+                  <NetworkRowItem key={row.id} row={row} full />
+                ))}
+              </ul>
+            </>
           )}
           <AddNetworkCard />
         </>

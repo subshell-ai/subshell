@@ -578,8 +578,30 @@ function network(over: { id: string; name: string; state?: string; supported?: b
 describe("setup wizard: the Network step", () => {
   it("is optional, and skipping lands on the agent step", async () => {
     await renderSetup({}, 1);
+    // The framing, not just the button: a step whose only offer is a page of
+    // vendor setup instructions reads as a wall, and the way round it was
+    // nothing but an unlabelled footer control. Step 3's subtitle already said
+    // "now, or later in Settings" — this says the same, and names where.
+    expect(
+      await screen.findByText(
+        "Reach this server from your other devices over a network you already use. This step is optional — you can set it up later under Settings → Networking.",
+      ),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     await waitFor(() => expect(screen.getByText("Add an Agent")).toBeTruthy());
+  });
+
+  it("says what the two green chips mean, above the rows that show them", async () => {
+    // Joined = this machine is reachable; Published = this dashboard opens
+    // over the network. The step exists to get a person to the second, so a
+    // row reading "Joined" next to one reading "Published" with no sentence
+    // anywhere is the exact confusion this screen cannot afford.
+    await renderSetup({ networks: [network({ id: "tailscale", name: "Tailscale", state: "joined" })] }, 1);
+    expect(
+      await screen.findByText(
+        "Joined means this machine is on the network. Published means your other devices can open this dashboard over it.",
+      ),
+    ).toBeTruthy();
   });
 
   it("renders every network as a collapsed row with a state chip", async () => {
@@ -657,6 +679,9 @@ describe("setup wizard: the Network step", () => {
   it("says so plainly when this build ships no networks at all", async () => {
     await renderSetup({}, 1);
     expect(await screen.findByText(/ships no network plugins/)).toBeTruthy();
+    // The legend belongs to the rows: with nothing listed, defining two words
+    // nobody can see is a paragraph about another screen.
+    expect(screen.queryByText(/^Joined means this machine is on the network/)).toBeNull();
   });
 });
 
