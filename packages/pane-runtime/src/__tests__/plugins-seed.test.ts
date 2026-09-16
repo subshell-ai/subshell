@@ -26,6 +26,7 @@ describe("seedBuiltIns", () => {
     const seeded = await seedBuiltIns(dir);
     expect(seeded.sort()).toEqual([
       "claude-code",
+      "cloudflare-tunnel",
       "codex",
       "hermes",
       "netbird",
@@ -34,7 +35,7 @@ describe("seedBuiltIns", () => {
       "tailscale",
       "terminal",
     ]);
-    expect((await listInstalled(dir)).length).toBe(8);
+    expect((await listInstalled(dir)).length).toBe(9);
   });
 
   it("does NOTHING once a seed has COMPLETED, even with the directory emptied", async () => {
@@ -242,8 +243,8 @@ describe("prepareInstalledPlugins", () => {
     const dir = join(parent, "fresh-home");
     mkdirSync(dir);
     await expect(prepareInstalledPlugins(dir)).resolves.toBeUndefined();
-    // Six harnesses + two network plugins (tailscale, netbird). A third network
-    // built-in lands it to 9.
-    expect(await listInstalled(dir)).toHaveLength(8);
+    // Six harnesses + three network plugins (cloudflare-tunnel, netbird,
+    // tailscale).
+    expect(await listInstalled(dir)).toHaveLength(9);
   });
 });

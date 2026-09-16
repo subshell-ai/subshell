@@ -857,7 +857,7 @@ Anything still open is named as open rather than quietly treated as settled.
 | 2 | **open** | No version floor is pinned anywhere in the plugin. If TS-2026-005's regression is present on an operator's install, `publish` fails and the refusal carries the CLI's own stderr — a bad message rather than a wrong state, but still unmeasured. |
 | 3 | deferred | Phase 2 (Headscale). |
 | 4 | **shipped, still open** | NetBird (phase 2) shipped, but this measurement is STILL UNMEASURED — see the amendments note below § 10a. The plugin degrades honestly: a socket error, a permission refusal and an unparseable body are ALL `daemon-down`, never `needs-privilege`, so it never relies on the peer-credential claim being true. |
-| 5 | deferred | Phase 3 (Cloudflare Tunnel). |
+| 5 | **open, degraded honestly in code** | Phase 3 landed (2026-09-16, `@subshell-ai/plugin-cloudflare-tunnel`) with no live Access team to measure against. The pre-flight passes ONLY on positive evidence of Access — the `Location` header or any `cf-access-*` header, if present — and treats every other answer, including a failed fetch, as a refusal; the exact status and header names remain unobserved. `--token-file` is NOT used at all, so its version floor is not this plugin's floor: the token is hydrated as the child's `TUNNEL_TOKEN` environment (`secretEnv`), which is the mechanism § 4.4 named as the expected route. Recorded with the other phase-3 results in § 10e below. |
 | 6 | **measured** | Elysia 1.4.29 on Bun 1.4.2 DOES run `onRequest` for the WebSocket upgrade, and a `Response` returned from it prevents the upgrade: the socket's `open` hook never fires. So no `requireAccess` was threaded into the two upgrade hooks. Pinned by three tests in `access-guard.plugin.test.ts` against a REAL listener, which will say so if a version bump changes the answer. |
 | 7 | **partially settled, by avoidance** | Still unmeasured. The plugin no longer names the macOS app bundle in `knownPaths`, so it does not actively resolve the GUI variant a launchd-run server cannot drive; the Homebrew `tailscaled` formula is found on PATH. A machine with only the GUI variant installed therefore reports `not-installed` and renders the install hints, which is honest but is not the distinct state §8's table anticipates. |
 
@@ -932,6 +932,59 @@ instead of at five call sites.
 Reachable by nobody today: the shipping Tailscale plugin declares no settings
 fields, so every key in such a write is unknown and the route 400s before this.
 
+
+### 10e. Phase 3 as built (2026-09-16) — what the first `supervise`/`guard` consumer changed
+
+The Cloudflare Tunnel plugin is the first real use of the two capabilities
+phase 1 shipped declared-but-unused, and being first turned up three things
+§ 4–6 had specified but no code had yet exercised. Each is recorded as built,
+because a later reader should find the decision, not the discrepancy.
+
+- **`supervisedProcess` may return a promise** (widened in
+  `@subshell-ai/plugin-api`, awaited by `prepare.ts`). The spec demanded an
+  absolute `command` resolved through `findBinary`, `findBinary` is async,
+  and boot re-asks the member on a fresh process before any earlier call
+  could have cached a path — a synchronous-only member means a supervised
+  plugin arms NOTHING after a restart, silently breaking § 5.5. No vendor
+  measurement was needed to find this; the type checked and the runtime
+  armed a Promise as a spec.
+- **The host merges `published` into the row** (§ 4.5's "the host merges that
+  in", unimplemented until there was a plugin that needed it):
+  `buildNetworkRow` promotes a plugin's `joined` to `published` when the
+  supervisor reports that plugin's child running, and only for plugins that
+  declare `supervisedProcess` — for the mesh class, `status()` reads its own
+  daemon and remains the authority. `reportIfDown` gets the same scoping from
+  the other side: a supervised plugin with an armed child gets no boot
+  warning, because the supervisor's own state is its health line and
+  `status()` honestly cannot see it. The plugin answers presence and
+  completeness and never process state, exactly as phase 2-3 § 6 specified;
+  this is the host keeping its half of that sentence.
+- **The secret's field key is `tunnel-token`, not the spec's `tunnelToken`.**
+  The PATCH route stores a secret field under the declared field's KEY, and
+  secret names are file names (`NAME_RE`: lowercase, digits, hyphens), so a
+  camelCase key makes the field permanently unsettable — the store refuses
+  every write by name, `ctx.secrets.has` answers false forever, and publish
+  refuses with "paste the token" no matter what was pasted. The dashed key is
+  the one spelling consistent with § 4.4's own storage rules.
+- **`install.command` is not platform-scoped.** § 7.1 anticipated an Install
+  button "when `install.command` exists for this platform"; the manifest's
+  `install` block is one command for the whole plugin. The button therefore
+  renders wherever the plugin is supported, and on a Linux host without
+  Homebrew the press streams the installer's own failure beside the apt-repo
+  step the card already prints. Gating it per platform is a UI/manifest
+  change phase 3 was explicitly out-of-scope for ("Any UI change"); shipping
+  the command as spec'd (§ 4.5/§ 8) with the Linux path covered by the
+  privileged step is the choice made here.
+- **No `readyPattern` on the process spec**, because § 10.5 stayed unmeasured
+  and a guessed ready line that never matches would leave a working tunnel
+  reported not-running forever (which, with the merge above, is also a row
+  stuck at `joined`). Alive-is-ready is the contract's own fallback; § 10.5
+  keeps the row open for a live measurement to replace it.
+
+The § 10d settings-write refusal **still stands**: phase 3's plugin works
+against the refusal (unpublish → edit → re-publish), and replacing it with
+the three-part re-derive is a server behavior change beyond this plugin. The
+refusal is the safe default until someone builds and tests the re-derive.
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,

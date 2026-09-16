@@ -60,6 +60,22 @@ export async function buildNetworkRow(entry: NetworkPluginEntry, inputs: RowInpu
   if (status !== undefined) status = publishStateVisible(network, state.published, status);
   const process = processState(id) ?? undefined;
 
+  // THE ONE MERGE (spec 2026-09-15 § 4.5): for a plugin whose daemon IS the
+  // supervised child, `published ⇔ the supervisor reports running`, and only
+  // the host can make that judgement — `NetworkContext` shows a plugin the
+  // port, the settings and the secret presence, never the child it asked for.
+  // Without this the Cloudflare-shaped row could never rise above `joined`:
+  // the plugin's honest ceiling, and a card offering "Publish" over a tunnel
+  // the supervisor is holding. Scoped to plugins that declare
+  // `supervisedProcess` because for the mesh class — which READS its daemon
+  // and may answer `published` or `joined` itself — `status()` is the
+  // authority, and a stray armed child must not move a rung it has no
+  // business moving. Applied to a copy so the memoised `status()` answer
+  // keeps the plugin's own word.
+  if (process?.running === true && status?.state === "joined" && entry.plugin.supervisedProcess) {
+    status = { ...status, state: "published" };
+  }
+
   return {
     id,
     name: entry.manifest.name,

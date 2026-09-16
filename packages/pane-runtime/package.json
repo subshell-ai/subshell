@@ -28,6 +28,7 @@
     "@internal/subshell-protocol": "workspace:*",
     "@subshell-ai/plugin-api": "workspace:*",
     "@subshell-ai/plugin-claude-code": "workspace:*",
+    "@subshell-ai/plugin-cloudflare-tunnel": "workspace:*",
     "@subshell-ai/plugin-codex": "workspace:*",
     "@subshell-ai/plugin-hermes": "workspace:*",
     "@subshell-ai/plugin-netbird": "workspace:*",

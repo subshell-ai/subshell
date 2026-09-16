@@ -14,7 +14,17 @@ import { EMBEDDED_PLUGINS } from "../generated/embedded-plugins.js";
  * happens to return, so a resolver that answered nothing would fail all of
  * them instead of passing vacuously.
  */
-const BUILT_INS = ["claude-code", "codex", "hermes", "netbird", "opencode", "pi", "tailscale", "terminal"] as const;
+const BUILT_INS = [
+  "claude-code",
+  "cloudflare-tunnel",
+  "codex",
+  "hermes",
+  "netbird",
+  "opencode",
+  "pi",
+  "tailscale",
+  "terminal",
+] as const;
 
 describe("built-in plugin bytes", () => {
   it("offers exactly the built-ins this build ships", async () => {

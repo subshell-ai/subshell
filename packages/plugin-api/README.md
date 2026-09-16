@@ -160,7 +160,7 @@ interface NetworkPlugin {
 
   publish?(ctx): Promise<PublishOutcome | PublishRefusal>;
   unpublish?(ctx): Promise<void>;
-  supervisedProcess?(ctx): SupervisedProcessSpec | null;
+  supervisedProcess?(ctx): SupervisedProcessSpec | null | Promise<SupervisedProcessSpec | null>;
   requestGuard?(ctx): RequestGuardSpec | null;
   settingsFields?(): SettingsField[];
   validateSettings?(values): PresetValidationIssue[];
@@ -288,11 +288,14 @@ legitimate consumer is a process the host spawns, so the host hydrates the value
 itself from the name you gave it:
 
 ```ts
-supervisedProcess: () => ({
-  command: resolvedBinary,            // absolute, from host.findBinary
+supervisedProcess: async () => ({
+  // absolute, from host.findBinary — which is why this member may return a
+  // promise: boot re-asks it on a fresh process, before any earlier call
+  // could have cached a path, and `findBinary` is the host's only ladder.
+  command: (await host.findBinary("cloudflared", "CLOUDFLARED_PATH", [".local/bin/cloudflared"]))!,
   args: ["tunnel", "run", "--no-autoupdate"],
   secretFileArgs: { "--token-file": "tunnel-token" },   // host writes 0600, appends the path
-  // or: secretEnv: { MYNET_TOKEN: "tunnel-token" }
+  // or: secretEnv: { TUNNEL_TOKEN: "tunnel-token" }
 });
 ```
 
@@ -304,13 +307,19 @@ database and never in a settings row.
 from `join` and let the vendor's daemon own the identity afterwards; store only
 a credential that must survive a restart.
 
-### Declared but not yet exercised
+### First exercise of `supervise` and `guard`
 
-`supervise` and `guard` are in the contract and have no shipping consumer until
-the Cloudflare Tunnel plugin lands (spec 2026-09-15, phase 3). Treat both as
-specified rather than proven: the shapes are stable, the host code paths exist,
-and the first real use may still turn up rough edges the three mesh plugins
-never touch.
+`supervise` and `guard` shipped in the phase-1 contract with no shipping
+consumer — the Cloudflare Tunnel plugin (`@subshell-ai/plugin-cloudflare-tunnel`,
+spec 2026-09-15 phase 3) is their first real use. Two rough edges that use
+turned up are recorded in the code it exercised, not papered over here:
+`supervisedProcess` may return a promise (boot re-asks it before any async
+binary lookup could have been cached — see the member's own comment), and the
+host promotes a supervised plugin's `joined` row to `published` from its own
+supervisor state, because a plugin whose daemon IS that child has no honest
+way to observe it. What remains genuinely unproven is vendor-shaped: § 10.5
+(cloudflared's `--token-file` floor and the Access pre-flight's exact
+statuses) stays unmeasured until someone runs it against a live account.
 
 ## Versioning
 

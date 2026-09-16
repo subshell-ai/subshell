@@ -1,0 +1,92 @@
+{
+  "name": "@subshell-ai/plugin-cloudflare-tunnel",
+  "description": "Cloudflare Tunnel network plugin for Subshell",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/cloudflare-tunnel"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "build:dev": "hash-runner",
+    "clean": "rm -rf .turbo node_modules dist .hashes.json",
+    "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
+    "lint:check": "biome check --no-errors-on-unmatched src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "test": "bun test",
+    "verify-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@subshell-ai/plugin-api": "workspace:*",
+    "@types/bun": "1.3.14",
+    "hash-runner": "4.0.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  },
+  "files": [
+    "dist",
+    "icon.svg"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "subshell": {
+    "apiVersion": 2,
+    "id": "cloudflare-tunnel",
+    "type": "network",
+    "name": "Cloudflare Tunnel",
+    "description": "Publish this server on a hostname you own, behind Cloudflare Access.",
+    "icon": "icon.svg",
+    "entry": "dist/index.js",
+    "detect": {
+      "binaryName": "cloudflared",
+      "envOverride": "CLOUDFLARED_PATH",
+      "knownPaths": [
+        ".local/bin/cloudflared",
+        "/usr/local/bin/cloudflared",
+        "/opt/homebrew/bin/cloudflared"
+      ]
+    },
+    "install": {
+      "command": "brew install cloudflared",
+      "docsUrl": "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+    },
+    "network": {
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "exposure": "public-with-gate",
+      "interactiveLogin": false,
+      "privileged": {
+        "linux": [
+          {
+            "label": "Install cloudflared from Cloudflare's apt repository",
+            "command": "sudo curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg && echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list && sudo apt-get update && sudo apt-get install -y cloudflared",
+            "docsUrl": "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/install-and-setup/installation/"
+          }
+        ]
+      },
+      "labels": {
+        "credential": "Tunnel token",
+        "publish": "Start tunnel"
+      }
+    }
+  }
+}
