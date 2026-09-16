@@ -1,5 +1,13 @@
 # @internal/node
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [[`a5c9810`](https://github.com/subshell-ai/subshell/commit/a5c9810308afed92f1da95841a6c6fe4de65d5ea)]:
+  - @subshell-ai/plugin-api@2.1.1
+  - @internal/pane-runtime@1.0.0
+
 ## 0.10.0
 
 ### Minor Changes

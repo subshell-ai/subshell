@@ -1,5 +1,174 @@
 # @internal/server
 
+## 0.7.1
+
+### Patch Changes
+
+- [`189d8df`](https://github.com/subshell-ai/subshell/commit/189d8df7e4d9c80519c8b3d0fb14de719263284c) Thanks [@theogravity](https://github.com/theogravity)! - External links inside the desktop apps' windows open in the system browser
+  
+  Every `target="_blank"` link the served pages render — the Tailscale card's
+  Docs links among them — did nothing when clicked inside Subshell Server or
+  Subshell Client. Instrumenting both webview callbacks with a self-clicking
+  probe measured where it dies: the click reaches the page's DOM on the right
+  anchor, and the webview then raises NOTHING at the app — neither the
+  navigation callback nor the new-window callback fires for an anchor click,
+  so no native handler can catch it. A `window.open` under the same click DOES
+  reach the app's new-window handler, which opens http(s) in the system
+  browser (fixed together with this, same spec).
+  
+  So the page answers its own links when it runs in a desktop shell: a
+  capture-phase relay on the document turns a plain left-click on a
+  blank-target http(s) anchor into `window.open`, and the native handler stays
+  the security boundary — it re-checks the scheme and refuses everything else.
+  In an ordinary browser nothing is armed and the links behave as always.
+
+- [`048ca5f`](https://github.com/subshell-ai/subshell/commit/048ca5f23295de937b1abe3ed134c7c581b88659) Thanks [@theogravity](https://github.com/theogravity)! - The network card stops printing its install steps twice, and leads with what is wrong
+  
+  A `not-installed` Tailscale row rendered the whole install sequence twice —
+  "1. Install the Tailscale daemon", "2. Let this server drive it", then the
+  sentence explaining the state, then "3. Install the Tailscale daemon",
+  "4. Let this server drive it" — with the only sentence that says WHY buried in
+  the middle of it, in the same muted grey as a step label.
+  
+  One cause behind both halves. The install steps live in the plugin's
+  `package.json` as data the page renders before any plugin code loads, and the
+  plugin ALSO emitted them as status hints; each side was written believing it
+  was the only one rendering them. The plugin now contributes the one thing a
+  manifest cannot know — which state this machine is in — and the steps are
+  rendered once, from the manifest.
+  
+  That sentence now opens the card as a notice, above the steps it explains,
+  rather than below them. Only sentences BEFORE a plugin's first command are
+  hoisted: one that follows a plugin's own commands says what to do once they
+  are done, and lifting it would state the last instruction first.
+
+- [`7238d30`](https://github.com/subshell-ai/subshell/commit/7238d302e15efad3961ed4b1d5e44f9a7da74ef6) Thanks [@theogravity](https://github.com/theogravity)! - The first-run Network step shows one collapsed row per network, with a Configure button
+  
+  Every network plugin rendered as a full card on the wizard's Network step,
+  split into "networks this machine has" and an "Other networks" disclosure.
+  On a fresh install the first group is empty by definition, so the step
+  opened on a heading relative to nothing, followed by two numbered sudo
+  commands, three Docs links and a Re-check button — for a step whose own
+  framing says it is optional.
+  
+  Each network is now a row in the shape the Add an Agent step already uses:
+  icon, name, a state chip ("Not installed", "Not signed in", "Joined",
+  "Published", …) and one button. Configure expands the same card the
+  Networking settings page renders, in place; Manage once published; Hide
+  folds it away. Unsupported and disabled networks show their chip and no
+  button.
+  
+  Two things found on the same screen: a network plugin's icon 404'd because
+  the icon route consulted only the harness registry, so Tailscale rendered as
+  a "T" monogram; and "Let this server drive it" — the label for Tailscale's
+  `--operator` grant — now reads "Allow this server to control Tailscale", in
+  the manifest's step, the needs-permission hint and the publish refusal.
+
+- [`152f5ad`](https://github.com/subshell-ai/subshell/commit/152f5adb5e410d680135e4382db32c5e538b045b) Thanks [@theogravity](https://github.com/theogravity)! - Terminating or deleting a subshell now reclaims its tmux socket file
+  
+  Every subshell owns a tmux server, and tmux does not unlink the socket when
+  its last session ends — so each subshell left a 0-byte file in the tmux
+  temp directory forever. 737 had accumulated on one developer machine, one per
+  subshell since the beginning, alongside ~2,000 more from test runs.
+  
+  `TmuxRunner.cleanSocket` already existed and was already tested; nothing in
+  production had ever called it. Terminate and delete now do.
+  
+  The reason it was not simply added to the shared kill helper is the reason it
+  took a while to be right: a **restart** kills the pane and respawns it on the
+  SAME socket, so reclaiming there would unlink a socket a live tmux server is
+  about to bind, orphaning the pane. Only the call site knows a kill is final, so
+  that is where it lives — and a test pins both directions, including that a
+  restart reclaims nothing.
+  
+  Two gaps stay open and are marked in the code rather than guessed at.
+  Subshells on a **remote node** still accumulate a socket each: the file is on
+  that machine's disk, and the node cannot tell a restart's `kill` from a
+  terminate's without a new frame. A pane that **exits on its own** keeps its
+  socket until the row is deleted, which is what delete now covers.
+
+- [`42f1828`](https://github.com/subshell-ai/subshell/commit/42f1828571bd4df0f15606e153a36b36b5fcb9fb) Thanks [@theogravity](https://github.com/theogravity)! - Settings → Networking is collapsed rows too
+  
+  The page listed every network as a full card, while the wizard's Network
+  step — built days earlier — answered the same list with one collapsed row
+  per network and a Configure button. Two surfaces, minutes apart, in two
+  shapes for one question.
+  
+  The settings page now uses the same row: name, state chip, one button —
+  framed as ONE card per network, like every other card on that page — and
+  Configure expands the WHOLE card (every field, the supervisor detail)
+  inside the same frame rather than the wizard's stripped flat row and
+  smaller card. The row is shared; the frame and the expanded content are
+  what each surface deserves.
+
+- [`8ca8b7e`](https://github.com/subshell-ai/subshell/commit/8ca8b7ec41526a418276da8447ac3ab45dfc75f5) Thanks [@theogravity](https://github.com/theogravity)! - The first-run wizard can go back
+  
+  Every screen rendered a Back slot the frame has always supported, and no screen
+  ever filled it — so skipping **Connect a Network** to reach the agent list was
+  irreversible short of restarting the wizard, on the one screen most worth a
+  second look: it is optional, easy to skip past, and it is where "open this on
+  my phone" is answered before a 403 on a sign-in page answers it instead.
+  
+  Back now goes Add an Agent → Connect a Network, and Start Your First Subshell →
+  Add an Agent. It is disabled while an install or a launch is in flight, for the
+  reason Continue already was: a `curl … | bash` on this machine must not be
+  walked out of in either direction, or its progress line and any failure land on
+  a screen nobody is looking at.
+  
+  There is deliberately no Back from the Network screen to the account screen.
+  The wizard advances past it only once sign-up has SUCCEEDED, so that form is
+  for an account that already exists.
+
+- [`779badf`](https://github.com/subshell-ai/subshell/commit/779badfc92d80beac19c4d0589a6f569a9d9a410) Thanks [@theogravity](https://github.com/theogravity)! - Reopening the app resumes the first-run wizard where it left off
+  
+  Closing Subshell Server mid-wizard and reopening it landed on the dashboard.
+  The wizard's step lived only in React state, and the one persisted fact —
+  "does an account exist" — flips the moment the FIRST screen creates the
+  account, so every later step had no record anywhere and the wizard bounced a
+  returning visitor to `/`.
+  
+  A signed-in user now carries a per-user bookmark (`user_meta.setup_step`:
+  `network`, `agent` or `launch`, NULL for nobody-but-the-first-admin and for
+  anyone who finished). `promoteFirstUserAtomically` writes it in the same
+  statement that decides who is admin, so closing the app the instant the
+  account exists still resumes on the Network step, and the wizard advances and
+  clears it through `GET`/`PATCH /api/setup/progress` — cookie-only, the
+  caller's own row. The root shell holds first paint until a signed-in user's
+  bookmark reads and keeps them on `/setup` when it names a step; a signed-in
+  visitor with no bookmark is still bounced to the dashboard.
+
+- [`a5c9810`](https://github.com/subshell-ai/subshell/commit/a5c9810308afed92f1da95841a6c6fe4de65d5ea) Thanks [@theogravity](https://github.com/theogravity)! - On macOS, Tailscale's card offers the app as the route and the daemon as the alternative
+  
+  A Mac with nothing installed was told to `brew install --formula tailscale &&
+  sudo tailscaled install-system-daemon` and then grant an operator. That is the
+  open-source daemon, which Tailscale itself recommends "only for unattended
+  installs managed by experienced macOS system administrators", and the card named
+  nothing else. Installing the Tailscale app — which most people have or would
+  install — did not even clear the row: its CLI lives inside the app bundle and is
+  never on PATH unless the person enables the app's CLI integration.
+  
+  Measured on 2026-09-16, the app's CLI drives `status`, `up`, `serve` and
+  `set --operator` with no root and no operator grant, because the app runs as the
+  local user and so does this server. Three things follow:
+  
+  - Detection can name the bundle. A `knownPaths` entry that starts with `/` is
+    now used as-is rather than joined onto HOME (which resolved
+    `/Applications/Tailscale.app/…` to `$HOME/Applications/…` and silently matched
+    nothing), so the app and both Homebrew directories are listed beside the
+    HOME-relative one. The node agent shares that lookup and gains the same rule.
+  - Every run sets `TAILSCALE_BE_CLI=1`. Run with a bare environment the app's
+    binary tries to start the GUI and dies with `Tailscale.CLIError error 3.`; the
+    variable is inert for the formula and its wrapper.
+  - A privileged step can carry a `group`, which means ALTERNATIVE rather than
+    next. The macOS row now prints one heading per route with an `or` between them
+    and numbers inside a route only, where a flat 1-2-3 told a person to install
+    the app AND the daemon. No other plugin is grouped, so no other row changed.
+  
+  A dead daemon on macOS now says both routes too, since the plugin cannot tell
+  the app from the wrapper, and the two sentences cost less than a wrong guess.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 0.7.0
 
 ### Minor Changes
