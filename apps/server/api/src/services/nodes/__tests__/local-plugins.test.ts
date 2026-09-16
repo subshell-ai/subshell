@@ -52,6 +52,7 @@ describe("the control-plane host's plugins", () => {
       "claude-code",
       "codex",
       "hermes",
+      "netbird",
       "opencode",
       "pi",
       "tailscale",

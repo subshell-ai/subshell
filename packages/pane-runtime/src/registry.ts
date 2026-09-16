@@ -9,6 +9,7 @@ import {
 import claudeCodeFactory, { manifest as claudeCodeManifest } from "@subshell-ai/plugin-claude-code";
 import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-codex";
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
+import netbirdFactory, { manifest as netbirdManifest } from "@subshell-ai/plugin-netbird";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
 import piFactory, { manifest as piManifest } from "@subshell-ai/plugin-pi";
 import tailscaleFactory, { manifest as tailscaleManifest } from "@subshell-ai/plugin-tailscale";
@@ -59,6 +60,9 @@ const BUILT_INS: BuiltIn[] = [
   // The first NETWORK built-in. It goes in the same list because the store is
   // one store; `build()` sorts it into the network half by manifest type.
   { manifest: tailscaleManifest, factory: tailscaleFactory },
+  // The second network built-in: NetBird, an independent mesh (its own binary
+  // and daemon), so nothing about its argv or status is shared with Tailscale.
+  { manifest: netbirdManifest, factory: netbirdFactory },
 ];
 
 /** Ids compiled into this build. The shadowing rule keys off exactly this set. */
