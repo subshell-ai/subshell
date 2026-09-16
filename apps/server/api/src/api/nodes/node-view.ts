@@ -6,7 +6,7 @@ import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
-import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
+import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import { getHeld, type HeldReason } from "@/services/nodes/node-registry.js";
 import { localPlatform } from "@/services/nodes/seed-local.js";
 
@@ -395,7 +395,7 @@ export async function toNodeViews(
   const out: NodeView[] = [];
   // ONE read of the instance store for every row — rows differ per node only
   // in their detection half, so a list must not pay the disk pass per row.
-  const installed = await enabledInstalledPlugins();
+  const installed = await enabledHarnessPlugins();
   // ONE query for every row's rules, not one per row — the same batching the
   // catalog read above gets, for the same reason.
   const dirsBy = await new NodeAllowedDirsRepository(db).listForNodes(entries.map((e) => e.row.id));

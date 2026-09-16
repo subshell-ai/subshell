@@ -47,11 +47,11 @@ function readBuiltInManifests(): DeclaredVersion[] {
 describe("built-in plugin manifests", () => {
   it("pins each built-in's declared apiVersion to the host's PLUGIN_API_VERSION", () => {
     const manifests = readBuiltInManifests();
-    // The six built-ins that ship (AGENTS.md). Asserted so a broken path —
-    // or a built-in whose `subshell` block went missing — fails loudly here
-    // rather than passing vacuously over a shorter list. A seventh built-in
-    // updates this number on purpose.
-    expect(manifests.length).toBe(6);
+    // The built-ins that ship (AGENTS.md). Asserted so a broken path — or a
+    // built-in whose `subshell` block went missing — fails loudly here rather
+    // than passing vacuously over a shorter list. Another built-in updates
+    // this number on purpose.
+    expect(manifests.length).toBe(7);
     for (const m of manifests) {
       expect(m.apiVersion, `${m.name} declares a stale subshell.apiVersion`).toBe(PLUGIN_API_VERSION);
     }

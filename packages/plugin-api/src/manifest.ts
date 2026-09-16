@@ -1,4 +1,4 @@
-import { PLUGIN_TYPES, type PluginType } from "./types.js";
+import { PLUGIN_PLATFORMS, PLUGIN_TYPES, type PluginPlatform, type PluginType } from "./types.js";
 
 /**
  * The `subshell` block of a plugin's package.json, and its parser.
@@ -40,10 +40,76 @@ export interface DetectSpec {
 
 /** Where to send someone whose binary is missing. */
 export interface InstallSpec {
-  /** Copy-pasteable install command for the official installer */
+  /**
+   * Copy-pasteable install command for the official installer.
+   *
+   * A command the HOST may run on request, which is why it may not be
+   * privileged: `sudo` is refused by the parser, so an installer that needs
+   * root is described under {@link NetworkManifest.privileged} instead and is
+   * only ever shown to copy. Without that refusal the two would be one field
+   * with two meanings, and the surface offering a button would have to guess.
+   */
   command: string;
   /** URL of the installation documentation */
   docsUrl: string;
+}
+
+/** One step an operator must run themselves, because the host may not. */
+export interface PrivilegedStep {
+  /** What it does, in a few words: "Install the daemon" */
+  label: string;
+  /** The command to copy. Usually `sudo …`. */
+  command: string;
+  /** Where the vendor documents it. */
+  docsUrl?: string;
+}
+
+/**
+ * The `subshell.network` block. Required when `type` is `network`.
+ *
+ * Everything here is DATA a host reads without loading plugin code: which
+ * machines this plugin can run on at all, whether it can produce a login URL,
+ * what publishing it exposes, and which steps only a human with root can
+ * perform. A page can therefore say "not available on this platform" or print
+ * the two sudo commands before any plugin code has been imported — and before
+ * the vendor's CLI is anywhere on the machine.
+ */
+export interface NetworkManifest {
+  /**
+   * Operating systems this plugin can be driven on.
+   *
+   * Not a hint: a host refuses every act on a platform absent from this list,
+   * and the UI renders the row as unavailable rather than offering a button
+   * that would 409. Vendors differ here for real reasons — a CLI that talks to
+   * a logged-in desktop session cannot be driven from a launchd service.
+   */
+  platforms: PluginPlatform[];
+  /**
+   * True when `join({})` with no credential can yield a URL a human finishes.
+   *
+   * Data rather than a capability because it describes what a RETURN VALUE may
+   * be, and a capability is checked against members. The UI reads it to decide
+   * whether to offer "sign in" beside "paste a key".
+   */
+  interactiveLogin?: boolean;
+  /**
+   * What publishing on this network exposes the server to.
+   *
+   * `private` is a network only invited machines are on. `public-with-gate`
+   * reaches the open internet with an identity check in front — a different
+   * security posture, stated here so every surface can say so before the act
+   * rather than after it.
+   */
+  exposure: "private" | "public-with-gate";
+  /**
+   * Steps the host can never perform, per platform, in the order to run them.
+   *
+   * Every mesh VPN installs a daemon as root and the server has no terminal to
+   * answer a password prompt, so these are printed to copy and never executed.
+   * Keeping them out of {@link InstallSpec} is what lets a surface offer a
+   * button for one and a copy row for the other without inspecting the string.
+   */
+  privileged?: Partial<Record<PluginPlatform, PrivilegedStep[]>>;
 }
 
 /** The parsed `subshell` block. */
@@ -80,6 +146,8 @@ export interface SubshellManifest {
    * fallback, i.e. a resume that quietly never offers itself (§11).
    */
   hostEnv?: string[];
+  /** Network facts. Present exactly when `type` is `network`. */
+  network?: NetworkManifest;
 }
 
 /** A parse failure, carrying the sentence to render. */
@@ -191,6 +259,16 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     if (!isRecord(i) || typeof i.command !== "string" || typeof i.docsUrl !== "string") {
       return { error: "`subshell.install` needs a command and a docsUrl" };
     }
+    // The one field a host will RUN on request, so it may not need root: the
+    // server has no terminal to answer a password prompt, and a surface
+    // offering a button must be able to tell from the manifest alone that
+    // pressing it can work. Privileged steps have their own field.
+    if (/^\s*sudo(\s|$)/.test(i.command)) {
+      return {
+        error:
+          "`subshell.install.command` must not need sudo — the host runs it and has no terminal for a password prompt; put privileged steps in `subshell.network.privileged`",
+      };
+    }
     install = { command: i.command, docsUrl: i.docsUrl };
   }
 
@@ -206,10 +284,14 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     hostEnv = [...(block.hostEnv as string[])];
   }
 
+  const type = block.type as PluginType;
+  const parsedNetwork = parseNetworkBlock(block.network, type);
+  if (parsedNetwork !== undefined && "error" in parsedNetwork) return parsedNetwork;
+
   return {
     apiVersion: block.apiVersion,
     id: block.id,
-    type: block.type as PluginType,
+    type,
     name: block.name,
     description: block.description,
     ...(typeof block.icon === "string" ? { icon: block.icon } : {}),
@@ -217,5 +299,85 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     ...(detect ? { detect } : {}),
     ...(install ? { install } : {}),
     ...(hostEnv ? { hostEnv } : {}),
+    ...(parsedNetwork ? { network: parsedNetwork } : {}),
+  };
+}
+
+/**
+ * Parses `subshell.network`, which is required for and exclusive to `network`.
+ *
+ * Both directions are refused rather than tolerated. A network plugin without
+ * the block would be unrenderable — nothing could say which platforms it runs
+ * on or what publishing it exposes, and the safe default for "what does this
+ * expose" is not a default anyone should pick silently. A harness WITH one
+ * declares facts nothing reads, which is how a manifest starts lying.
+ * @returns the parsed block, an error, or undefined when there is none to have
+ */
+function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | ManifestError | undefined {
+  if (type !== "network") {
+    if (raw !== undefined) {
+      return { error: `\`subshell.network\` is only for \`type: "network"\` plugins, and this one is \`${type}\`` };
+    }
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    return { error: '`subshell.network` is required for `type: "network"` plugins' };
+  }
+
+  if (
+    !Array.isArray(raw.platforms) ||
+    raw.platforms.length === 0 ||
+    !raw.platforms.every((p) => typeof p === "string" && PLUGIN_PLATFORMS.includes(p as PluginPlatform))
+  ) {
+    return { error: `\`subshell.network.platforms\` must be a non-empty array of: ${PLUGIN_PLATFORMS.join(", ")}` };
+  }
+
+  if (raw.exposure !== "private" && raw.exposure !== "public-with-gate") {
+    return { error: '`subshell.network.exposure` must be "private" or "public-with-gate"' };
+  }
+
+  if (raw.interactiveLogin !== undefined && typeof raw.interactiveLogin !== "boolean") {
+    return { error: "`subshell.network.interactiveLogin` must be a boolean" };
+  }
+
+  let privileged: Partial<Record<PluginPlatform, PrivilegedStep[]>> | undefined;
+  if (raw.privileged !== undefined) {
+    if (!isRecord(raw.privileged)) {
+      return { error: "`subshell.network.privileged` must be an object keyed by platform" };
+    }
+    privileged = {};
+    for (const [platform, steps] of Object.entries(raw.privileged)) {
+      if (!PLUGIN_PLATFORMS.includes(platform as PluginPlatform)) {
+        return { error: `\`subshell.network.privileged\` has an unknown platform "${platform}"` };
+      }
+      if (
+        !Array.isArray(steps) ||
+        !steps.every(
+          (s) =>
+            isRecord(s) &&
+            typeof s.label === "string" &&
+            s.label.trim() !== "" &&
+            typeof s.command === "string" &&
+            s.command.trim() !== "" &&
+            (s.docsUrl === undefined || typeof s.docsUrl === "string"),
+        )
+      ) {
+        return {
+          error: `\`subshell.network.privileged.${platform}\` must be an array of { label, command, docsUrl? }`,
+        };
+      }
+      privileged[platform as PluginPlatform] = (steps as PrivilegedStep[]).map((s) => ({
+        label: s.label,
+        command: s.command,
+        ...(s.docsUrl ? { docsUrl: s.docsUrl } : {}),
+      }));
+    }
+  }
+
+  return {
+    platforms: [...(raw.platforms as PluginPlatform[])],
+    exposure: raw.exposure,
+    ...(raw.interactiveLogin === true ? { interactiveLogin: true } : {}),
+    ...(privileged ? { privileged } : {}),
   };
 }

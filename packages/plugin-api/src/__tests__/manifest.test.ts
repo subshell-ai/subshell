@@ -163,3 +163,91 @@ describe("parseManifest", () => {
     }
   });
 });
+
+/** What a `type: "network"` plugin's package.json carries. */
+function networkPkg(over: Record<string, unknown> = {}): unknown {
+  return {
+    name: "@subshell-ai/plugin-tailscale",
+    version: "1.0.0",
+    subshell: {
+      apiVersion: PLUGIN_API_VERSION,
+      id: "tailscale",
+      type: "network",
+      name: "Tailscale",
+      description: "Reach this server over your tailnet",
+      entry: "dist/index.js",
+      detect: { binaryName: "tailscale", envOverride: "TAILSCALE_PATH", knownPaths: [] },
+      network: {
+        platforms: ["darwin", "linux"],
+        exposure: "private",
+        interactiveLogin: true,
+        privileged: {
+          linux: [{ label: "Install the daemon", command: "curl -fsSL https://tailscale.com/install.sh | sh" }],
+        },
+      },
+      ...over,
+    },
+  };
+}
+
+describe("parseManifest (network)", () => {
+  it("accepts a well-formed network manifest", () => {
+    const result = parseManifest(networkPkg());
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.type).toBe("network");
+    expect(result.network?.platforms).toEqual(["darwin", "linux"]);
+    expect(result.network?.exposure).toBe("private");
+    expect(result.network?.interactiveLogin).toBe(true);
+    expect(result.network?.privileged?.linux?.[0]?.label).toBe("Install the daemon");
+  });
+
+  it("requires the network block on a network plugin", () => {
+    // Nothing could render the row without it: not which platforms it runs on,
+    // and not what publishing exposes — which has no safe default to guess.
+    const result = parseManifest(networkPkg({ network: undefined }));
+    expect("error" in result && result.error).toContain("`subshell.network` is required");
+  });
+
+  it("refuses a network block on a harness", () => {
+    const result = parseManifest(pkg({ network: { platforms: ["linux"], exposure: "private" } }));
+    expect("error" in result && result.error).toContain('only for `type: "network"`');
+  });
+
+  it("refuses an empty or unknown platform list", () => {
+    expect("error" in parseManifest(networkPkg({ network: { platforms: [], exposure: "private" } }))).toBe(true);
+    const bad = parseManifest(networkPkg({ network: { platforms: ["win32"], exposure: "private" } }));
+    expect("error" in bad && bad.error).toContain("platforms");
+  });
+
+  it("refuses an exposure it does not know", () => {
+    const result = parseManifest(networkPkg({ network: { platforms: ["linux"], exposure: "public" } }));
+    expect("error" in result && result.error).toContain("exposure");
+  });
+
+  it("refuses a privileged block keyed by an unknown platform", () => {
+    const result = parseManifest(
+      networkPkg({
+        network: { platforms: ["linux"], exposure: "private", privileged: { win32: [{ label: "x", command: "y" }] } },
+      }),
+    );
+    expect("error" in result && result.error).toContain("unknown platform");
+  });
+
+  it("refuses a sudo install command", () => {
+    // The host RUNS install.command on request and has no terminal for a
+    // password prompt, so a privileged installer belongs in `privileged`
+    // where it is only ever printed.
+    const result = parseManifest(
+      networkPkg({ install: { command: "sudo apt install tailscale", docsUrl: "https://x.invalid" } }),
+    );
+    expect("error" in result && result.error).toContain("must not need sudo");
+  });
+
+  it("allows an unprivileged install command", () => {
+    const result = parseManifest(
+      networkPkg({ install: { command: "brew install cloudflared", docsUrl: "https://x.invalid" } }),
+    );
+    expect("error" in result).toBe(false);
+  });
+});

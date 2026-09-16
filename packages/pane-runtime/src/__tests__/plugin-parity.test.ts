@@ -123,7 +123,9 @@ async function loadExtracted(): Promise<SubshellPlugin> {
   const dir = join(import.meta.dir, "..", "..", "..", "plugins", "claude-code");
   const result = await createInProcessRuntime().load(dir);
   if ("error" in result) throw new Error(`the extracted plugin failed to load: ${result.error}`);
-  return result.plugin;
+  // Every plugin in this file is a harness by manifest; the loader has already
+  // proved the object matches its type, so this narrows rather than assumes.
+  return result.plugin as SubshellPlugin;
 }
 
 describe("claude-code parity", () => {
@@ -282,7 +284,7 @@ for (const { id, legacy, caps } of OTHERS) {
     const load = async (): Promise<SubshellPlugin> => {
       const result = await createInProcessRuntime().load(join(import.meta.dir, "..", "..", "..", "plugins", id));
       if ("error" in result) throw new Error(`${id} failed to load: ${result.error}`);
-      return result.plugin;
+      return result.plugin as SubshellPlugin;
     };
 
     for (const c of SHARED_CASES) {

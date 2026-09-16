@@ -61,7 +61,7 @@ describe("the built-in registry", () => {
     // plugins it ships alongside.
     const host = createPluginHost({ pluginId: "test" });
     for (const [id, factory] of Object.entries({ claudeCode, opencode, hermes, pi, codex })) {
-      expect([id, capabilityMismatches(factory(host))]).toEqual([id, []]);
+      expect([id, capabilityMismatches(factory(host), "agent-harness")]).toEqual([id, []]);
     }
   });
 });

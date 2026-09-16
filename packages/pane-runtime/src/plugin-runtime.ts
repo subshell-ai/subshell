@@ -4,7 +4,9 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   capabilityMismatches,
+  type NetworkPlugin,
   PLUGIN_API_VERSION,
+  type PluginType,
   parseManifest,
   type SubshellManifest,
   type SubshellPlugin,
@@ -35,10 +37,38 @@ import { createPluginHost } from "./plugin-host.js";
  * a rewrite.
  */
 
+/**
+ * The members a plugin of each type must implement, checked BY NAME at load.
+ *
+ * A contract gate rather than a crash guard, and the reason it is by name is
+ * version skew: a v1 plugin's member was `validateProfile`, so it comes back
+ * as "missing validatePreset" and a rebuild is the named fix, instead of the
+ * plugin loading and failing at the first launch. Do not trim either list to
+ * what today's call sites happen to invoke.
+ *
+ * The split by type is what admits a second SHAPE behind one store: a network
+ * plugin has no argv to build and no preset to validate, and requiring it to
+ * ship stubs for both would make "implements the contract" mean nothing.
+ */
+const REQUIRED_MEMBERS: Record<PluginType, readonly string[]> = {
+  "agent-harness": ["buildCommand", "validatePreset", "capabilities"],
+  terminal: ["buildCommand", "validatePreset", "capabilities"],
+  network: ["status", "join", "leave", "capabilities"],
+};
+
 /** A plugin that loaded and is ready to use. */
 export interface LoadedPlugin {
   manifest: SubshellManifest;
-  plugin: SubshellPlugin;
+  /**
+   * The object the factory returned.
+   *
+   * Which shape it is follows from `manifest.type`, and the loader has already
+   * proved it: a `network` manifest here carries a {@link NetworkPlugin}, any
+   * other carries a {@link SubshellPlugin}. Callers narrow on the type rather
+   * than probing for members, because the probe was done once, here, where a
+   * failure could still be reported as a broken plugin.
+   */
+  plugin: SubshellPlugin | NetworkPlugin;
   /**
    * The entry file changed since THIS PROCESS first imported it, so `plugin`
    * is the previously loaded code while `manifest` is what is on disk now.
@@ -82,6 +112,15 @@ export interface LoadOptions {
    * @internal
    */
   entryOverrideForTests?: string;
+  /**
+   * The server's data directory, which is what gives the loaded plugin a
+   * secret store.
+   *
+   * Absent on the node agent, which loads no network plugins and must not be
+   * handed a path to invent one under. A plugin built with no store gets one
+   * that refuses writes by name rather than one that writes somewhere.
+   */
+  dataDir?: string;
 }
 
 /** How plugins are loaded. One implementation today; see the module docstring. */
@@ -216,7 +255,9 @@ export function createInProcessRuntime(): PluginRuntime {
         if (typeof factory !== "function") {
           return broken(manifest, "the plugin module has no default export, so there is no factory to call", stale);
         }
-        const plugin = (factory as (host: unknown) => SubshellPlugin)(createPluginHost({ pluginId: manifest.id }));
+        const plugin = (factory as (host: unknown) => SubshellPlugin | NetworkPlugin)(
+          createPluginHost({ pluginId: manifest.id, ...(options.dataDir ? { dataDir: options.dataDir } : {}) }),
+        );
         // Every REQUIRED member, not a sample of them. Nothing calls
         // `validatePreset` today: the adapter passes it through
         // (`plugin-adapter.ts`), but no route or service in the control
@@ -227,8 +268,10 @@ export function createInProcessRuntime(): PluginRuntime {
         // `validateProfile`) comes back as missing `validatePreset`, never
         // as silently working. Contract gate, not crash guard — do not trim
         // this list to current call sites.
-        const required = ["buildCommand", "validatePreset", "capabilities"] as const;
-        const absent = required.filter((m) => typeof plugin?.[m] !== "function");
+        const required = REQUIRED_MEMBERS[manifest.type];
+        const absent = required.filter(
+          (m) => typeof (plugin as unknown as Record<string, unknown>)?.[m] !== "function",
+        );
         if (absent.length > 0) {
           // Name BOTH numbers when the declaration is BELOW the host's, for
           // `parseManifest`'s reason pointing the other way: there, the
@@ -247,7 +290,7 @@ export function createInProcessRuntime(): PluginRuntime {
         // here rather than surfacing later as a feature that silently does
         // nothing: a claimed `resume` with no `resume` object produces a
         // restart that begins a fresh conversation while looking continued.
-        const mismatches = capabilityMismatches(plugin);
+        const mismatches = capabilityMismatches(plugin, manifest.type);
         if (mismatches.length > 0) {
           return broken(manifest, `capabilities do not match the implementation: ${mismatches.join("; ")}`, stale);
         }

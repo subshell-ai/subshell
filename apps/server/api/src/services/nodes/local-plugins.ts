@@ -1,6 +1,7 @@
 import {
   buildPluginReports,
   installPlugin,
+  isHarnessType,
   pluginsDir,
   prepareInstalledPlugins,
   refreshInstalledPlugins,
@@ -48,18 +49,40 @@ export async function localPluginReports(): Promise<PluginReportWire[]> {
 }
 
 /**
- * What the gate and the node views iterate: the installed set MINUS anything
- * an operator has explicitly disabled (spec §6.1).
+ * What the launch gate and the node views iterate: the installed HARNESS set
+ * minus anything an operator has explicitly disabled (spec §6.1).
  *
  * An absent `plugin_state` row means enabled, so installing writes nothing
  * and a plugin this table never heard of is offered. Broken plugins pass this
  * filter — they are installed, and the page has to be able to say WHY they
  * are not usable; the usability predicates refuse them.
+ *
+ * **Network plugins are excluded here, once, rather than at each of the five
+ * call sites.** Every caller is a harness surface — the launch gate, the
+ * preset catalog, a node's harness list, the detection specs shipped to
+ * agents — and a `network` plugin reaching any of them would put "Tailscale"
+ * in a launch picker and ship a tailnet detection rule to every enrolled
+ * machine. Structural, like `allHarnesses()`: the safety cannot rest on five
+ * callers each remembering to filter. Network plugins are read by the
+ * networking routes, from the registry, by their own accessor.
  */
-export async function enabledInstalledPlugins(): Promise<PluginReportWire[]> {
+export async function enabledHarnessPlugins(): Promise<PluginReportWire[]> {
   const state = await new PluginStateRepository(db).stateByPluginId();
   const reports = await localPluginReports();
-  return reports.filter((r) => state.get(r.id) !== false);
+  return reports.filter((r) => state.get(r.id) !== false && isHarnessType(r.type));
+}
+
+/**
+ * The same disabled-filter over EVERY type, for the networking routes.
+ *
+ * Separate from {@link enabledHarnessPlugins} rather than a parameter on it,
+ * so a caller that wants harnesses cannot get networks by passing the wrong
+ * argument.
+ */
+export async function enabledNetworkPlugins(): Promise<PluginReportWire[]> {
+  const state = await new PluginStateRepository(db).stateByPluginId();
+  const reports = await localPluginReports();
+  return reports.filter((r) => state.get(r.id) !== false && r.type === "network");
 }
 
 /**

@@ -1,0 +1,20 @@
+{
+  "name": "@fixture/network-good",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 2,
+    "id": "network-good",
+    "type": "network",
+    "name": "Good Network Fixture",
+    "description": "loads cleanly as a network plugin",
+    "entry": "index.js",
+    "detect": { "binaryName": "meshtool", "envOverride": "MESHTOOL_PATH", "knownPaths": [] },
+    "network": {
+      "platforms": ["darwin", "linux"],
+      "exposure": "private",
+      "interactiveLogin": true,
+      "privileged": { "linux": [{ "label": "Install it", "command": "sudo apt install meshtool" }] }
+    }
+  }
+}

@@ -15,7 +15,7 @@ import {
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
+import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
@@ -243,7 +243,7 @@ export async function effectiveHarnessStates(
   node: NodeTable,
   installed?: readonly PluginReportWire[],
 ): Promise<EffectiveHarnessReport> {
-  const catalog = installed ? [...installed] : await enabledInstalledPlugins();
+  const catalog = installed ? [...installed] : await enabledHarnessPlugins();
   const probe = node.kind === "local" ? await probeLocally(catalog) : readAgentInventory(node);
 
   const harnesses = catalog.map((report) => {
@@ -334,7 +334,7 @@ export interface DetectOnNodeDeps {
  * production calls it only through {@link detectOnNode}.
  */
 export async function enabledEnvHarnesses(): Promise<HarnessPlugin[]> {
-  const catalog = await enabledInstalledPlugins();
+  const catalog = await enabledHarnessPlugins();
   return catalog.flatMap((r) => {
     const h = getHarness(r.id);
     return h ? [h] : [];

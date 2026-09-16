@@ -108,7 +108,7 @@ describe("the installed overlay", () => {
     resetRegistryForTests();
   });
 
-  it("resolves an installed plugin once refreshed, alongside the six built-ins", async () => {
+  it("resolves an installed plugin once refreshed, alongside the built-ins", async () => {
     const dir = tempDataDir();
     await writePlugin(dir, "acme", { detect: true });
 

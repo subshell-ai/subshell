@@ -1,4 +1,41 @@
-export { validateGenericPreset } from "@subshell-ai/plugin-api";
+/**
+ * The plugin contract, re-exported.
+ *
+ * `@subshell-ai/plugin-api` is a dependency of THIS package, not of the server,
+ * which reaches the contract through here exactly as it already does for
+ * `SettingsField` and `PresetDefinition`. One edge to the contract, and the
+ * server keeps depending on the runtime rather than on both.
+ */
+export {
+  capabilitiesFor,
+  HARNESS_CAPABILITIES,
+  isHarnessType,
+  type JoinInput,
+  type JoinOutcome,
+  NETWORK_CAPABILITIES,
+  type NetworkAddress,
+  type NetworkContext,
+  type NetworkHint,
+  type NetworkManifest,
+  type NetworkPlugin,
+  type NetworkState,
+  type NetworkStatus,
+  PLUGIN_CAPABILITIES,
+  PLUGIN_PLATFORMS,
+  PLUGIN_TYPES,
+  type PluginCapability,
+  type PluginPlatform,
+  type PluginType,
+  type PrivilegedStep,
+  type PublishOutcome,
+  type PublishRefusal,
+  type RequestGuardSpec,
+  type RunOptions,
+  type RunResult,
+  type SubshellManifest,
+  type SupervisedProcessSpec,
+  validateGenericPreset,
+} from "@subshell-ai/plugin-api";
 export {
   type DetectionReason,
   type DetectionResult,
@@ -26,7 +63,13 @@ export {
   resolvePackageVersion,
 } from "./npm-registry.js";
 export { adaptPlugin } from "./plugin-adapter.js";
-export { createPluginHost, type PluginHostOptions } from "./plugin-host.js";
+export {
+  createPluginHost,
+  hostPlatform,
+  type PluginHostOptions,
+  resetPluginDataDirForTests,
+  setPluginDataDir,
+} from "./plugin-host.js";
 export { buildPluginReports } from "./plugin-report.js";
 export {
   type BrokenPlugin,
@@ -36,6 +79,12 @@ export {
   type PluginRuntime,
   resetImportedForTests,
 } from "./plugin-runtime.js";
+export {
+  createPluginSecrets,
+  pluginSecretsDir,
+  pluginStateDir,
+  secretPath,
+} from "./plugin-secrets.js";
 export {
   type InstalledPlugin,
   type InstallRecord,
@@ -57,17 +106,27 @@ export {
 export { prepareInstalledPlugins, seedBuiltIns } from "./plugins-seed.js";
 export {
   allHarnesses,
+  allNetworkPlugins,
   type BrokenBuiltIn,
   type BrokenInstalled,
   brokenBuiltIns,
   builtInHarnesses,
+  builtInNetworkPlugins,
   clearInstalledPlugins,
   getBuiltInHarness,
   getHarness,
+  getNetworkPlugin,
   type InstalledRefresh,
+  type NetworkPluginEntry,
   refreshInstalledPlugins,
   resetRegistryForTests,
 } from "./registry.js";
+export {
+  type BoundedRunOptions,
+  type BoundedRunResult,
+  OUTPUT_CAP,
+  runBounded,
+} from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
 export { TmuxError, TmuxRunner, TmuxTimeoutError, tmuxSocketFor } from "./tmux-runner.js";

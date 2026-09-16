@@ -1,5 +1,11 @@
 import { join } from "node:path";
-import type { PluginFactory, SubshellManifest } from "@subshell-ai/plugin-api";
+import {
+  isHarnessType,
+  type NetworkPlugin,
+  type PluginFactory,
+  type SubshellManifest,
+  type SubshellPlugin,
+} from "@subshell-ai/plugin-api";
 import claudeCodeFactory, { manifest as claudeCodeManifest } from "@subshell-ai/plugin-claude-code";
 import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-codex";
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
@@ -62,8 +68,24 @@ export interface BrokenBuiltIn {
   error: string;
 }
 
+/**
+ * One loaded network plugin, kept beside its manifest.
+ *
+ * Unlike a harness, a network plugin is NOT adapted into a second shape: there
+ * is no legacy interface to preserve and nothing in the launch pipeline reads
+ * it, so the pair travels as the loader produced it. The manifest rides along
+ * because everything a surface needs before touching the plugin — its
+ * platforms, its exposure, its privileged steps — lives there rather than in
+ * the code.
+ */
+export interface NetworkPluginEntry {
+  manifest: SubshellManifest;
+  plugin: NetworkPlugin;
+}
+
 interface Registry {
   plugins: HarnessPlugin[];
+  networks: NetworkPluginEntry[];
   broken: BrokenBuiltIn[];
 }
 
@@ -71,10 +93,21 @@ let memo: Registry | null = null;
 
 function build(): Registry {
   const plugins: HarnessPlugin[] = [];
+  const networks: NetworkPluginEntry[] = [];
   const broken: BrokenBuiltIn[] = [];
   for (const { manifest, factory } of BUILT_INS) {
     try {
-      plugins.push(adaptPlugin(manifest, factory(createPluginHost({ pluginId: manifest.id }))));
+      const built = factory(createPluginHost({ pluginId: manifest.id }));
+      // The manifest type decides the SHAPE, and it is the only thing that
+      // may: probing for members here would let a harness with a `status`
+      // method land in the network list. A built-in's manifest is validated at
+      // its own module scope, so by the time it reaches this line the type and
+      // the object it produced have already been made to agree.
+      if (isHarnessType(manifest.type)) {
+        plugins.push(adaptPlugin(manifest, built as SubshellPlugin));
+      } else {
+        networks.push({ manifest, plugin: built as NetworkPlugin });
+      }
     } catch (err) {
       // One bad plugin costs its own row, never the whole registry. It is
       // also LOGGED, not just recorded: a built-in that vanishes from every
@@ -86,7 +119,7 @@ function build(): Registry {
       broken.push({ id: manifest.id, error });
     }
   }
-  return { plugins, broken };
+  return { plugins, networks, broken };
 }
 
 function registry(): Registry {
@@ -125,8 +158,10 @@ function registry(): Registry {
  * last describes a COMPLETE load pass.
  */
 interface InstalledOverlay {
-  /** `id -> adapted plugin` for successfully loaded installed non-built-ins */
+  /** `id -> adapted plugin` for successfully loaded installed non-built-in HARNESSES */
   plugins: Map<string, HarnessPlugin>;
+  /** `id -> entry` for successfully loaded installed non-built-in NETWORK plugins */
+  networks: Map<string, NetworkPluginEntry>;
 }
 
 /** Why an installed plugin did not resolve. */
@@ -147,7 +182,7 @@ export interface InstalledRefresh {
   broken: BrokenInstalled[];
 }
 
-const EMPTY_OVERLAY: InstalledOverlay = { plugins: new Map() };
+const EMPTY_OVERLAY: InstalledOverlay = { plugins: new Map(), networks: new Map() };
 
 let overlay: InstalledOverlay = EMPTY_OVERLAY;
 
@@ -179,6 +214,7 @@ const shadowWarned = new Set<string>();
 export async function refreshInstalledPlugins(dataDir: string): Promise<InstalledRefresh> {
   const runtime = createInProcessRuntime();
   const plugins = new Map<string, HarnessPlugin>();
+  const networks = new Map<string, NetworkPluginEntry>();
   const broken: BrokenInstalled[] = [];
 
   for (const installed of await listInstalled(dataDir)) {
@@ -199,20 +235,24 @@ export async function refreshInstalledPlugins(dataDir: string): Promise<Installe
       }
       continue;
     }
-    const loaded = await runtime.load(join(pluginsDir(dataDir), installed.id));
+    const loaded = await runtime.load(join(pluginsDir(dataDir), installed.id), { dataDir });
     if ("error" in loaded) {
       broken.push({ id: installed.id, error: loaded.error });
       continue;
     }
-    plugins.set(loaded.manifest.id, adaptPlugin(loaded.manifest, loaded.plugin));
+    if (isHarnessType(loaded.manifest.type)) {
+      plugins.set(loaded.manifest.id, adaptPlugin(loaded.manifest, loaded.plugin as SubshellPlugin));
+    } else {
+      networks.set(loaded.manifest.id, { manifest: loaded.manifest, plugin: loaded.plugin as NetworkPlugin });
+    }
   }
 
   // The broken rows reach the caller ONLY: the result is the single read
   // path, and keeping a second copy here is what the removed getter used to
   // risk drifting from it.
-  overlay = { plugins };
+  overlay = { plugins, networks };
   merged = null;
-  return { loaded: [...plugins.keys()], broken };
+  return { loaded: [...plugins.keys(), ...networks.keys()], broken };
 }
 
 /**
@@ -225,6 +265,32 @@ export function clearInstalledPlugins(): void {
   overlay = EMPTY_OVERLAY;
   merged = null;
   shadowWarned.clear();
+}
+
+/**
+ * Every resolvable NETWORK plugin: compiled-in, plus the overlay.
+ *
+ * Deliberately a sibling of {@link allHarnesses} rather than a filter over one
+ * list. The two shapes share a store and nothing else, and the launch pipeline
+ * reads harnesses by walking that list — so a single list would put a network
+ * plugin into every preset editor, every node's harness inventory and every
+ * launch picker, and the safety would rest on every one of those call sites
+ * remembering to filter.
+ */
+export function allNetworkPlugins(): NetworkPluginEntry[] {
+  const base = registry().networks;
+  if (overlay.networks.size === 0) return base;
+  return [...base, ...[...overlay.networks.values()].filter((n) => !base.some((b) => b.manifest.id === n.manifest.id))];
+}
+
+/** One network plugin by id, or undefined. Built-ins answer first: the shadow rule. */
+export function getNetworkPlugin(id: string): NetworkPluginEntry | undefined {
+  return registry().networks.find((n) => n.manifest.id === id) ?? overlay.networks.get(id);
+}
+
+/** Network plugins COMPILED INTO THIS BUILD, for the offline catalog. */
+export function builtInNetworkPlugins(): NetworkPluginEntry[] {
+  return registry().networks;
 }
 
 /** Built-ins, plus any installed plugin the overlay resolved (stable identity). */

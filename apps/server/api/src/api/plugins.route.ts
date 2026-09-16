@@ -5,6 +5,8 @@ import {
   builtInIds,
   getBuiltInHarness,
   getHarness,
+  PLUGIN_TYPES,
+  type PluginType,
   parsePackageSpec,
   readBuiltIn,
 } from "@internal/pane-runtime";
@@ -58,13 +60,25 @@ const InstallSourceSchema = t.Union([t.Literal("embedded"), t.Literal("registry"
   description: "Whether the installed bytes are this build's embedded copy or a fetched npm package",
 });
 
+/**
+ * A plugin type this build knows, or undefined.
+ *
+ * The wire carries manifest data verbatim, so a value from a plugin built
+ * against a later contract can be a type this binary has never heard of.
+ * Naming the known set in one place is what keeps the fallback below a
+ * decision rather than an accident.
+ */
+function pluginTypeOf(value: string | undefined): PluginType | undefined {
+  return value !== undefined && (PLUGIN_TYPES as readonly string[]).includes(value) ? (value as PluginType) : undefined;
+}
+
 /** One plugin as the instance page renders it: identity × installed × enabled. */
 const PluginRowSchema = t.Object({
   id: t.String({ description: "Plugin id (its directory name under the instance's plugins dir)" }),
   name: t.String({ description: "Display name, from the installed plugin or this build's manifest" }),
-  type: t.Union([t.Literal("agent-harness"), t.Literal("terminal")], {
+  type: t.Union([t.Literal("agent-harness"), t.Literal("terminal"), t.Literal("network")], {
     description:
-      "Manifest plugin type: an agent CLI, or a plain shell. The web Agent picker's default rule puts terminal last",
+      "Manifest plugin type: an agent CLI, a plain shell, or a network this host can be reached over. The web Agent picker takes `agent-harness` only; `network` rows are managed from Settings → Networking",
   }),
   description: t.String({ description: "One-line description" }),
   icon: t.Optional(t.String({ description: "Icon label" })),
@@ -189,12 +203,13 @@ function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | 
     name: report?.name ?? harness?.name ?? id,
     // The manifest's type, whichever source knows this id. The wire type is a
     // plain string (manifest data, not re-validated here), so an unknown value
-    // reads as agent-harness — the type only groups and labels; nothing
-    // branches on it server-side.
-    type:
-      report?.type === "agent-harness" || report?.type === "terminal"
-        ? report.type
-        : (harness?.type ?? "agent-harness"),
+    // has to become SOMETHING — and it must not become `agent-harness`, which
+    // is what this did while there were only two types. A network plugin
+    // mislabelled that way lands in the launch picker, which is the one place
+    // the type genuinely gates rather than merely labels. `terminal` is the
+    // safe fallback: it is a harness type, so nothing that reads this row
+    // breaks, and it is last in every picker's default rule.
+    type: pluginTypeOf(report?.type) ?? harness?.type ?? "terminal",
     description: report?.description ?? harness?.description ?? "",
     ...(icon ? { icon } : {}),
     ...(harness ? { binary: harness.binaryName } : {}),

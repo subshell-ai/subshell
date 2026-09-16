@@ -5,7 +5,7 @@ import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
+import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import type { sendCommand } from "@/services/nodes/node-rpc.js";
 import {
   detectEnvNames,
@@ -138,7 +138,7 @@ describe("detectEnvNames: the plane names what it asks for (spec §5 as amended)
     // the enabled catalog (§6.1 `plugin_state` filter) restricted to ids the
     // registry resolves — a disabled plugin's declarations never go on the
     // wire, and a broken install contributes nothing.
-    const [harnesses, catalog] = await Promise.all([enabledEnvHarnesses(), enabledInstalledPlugins()]);
+    const [harnesses, catalog] = await Promise.all([enabledEnvHarnesses(), enabledHarnessPlugins()]);
     expect(harnesses.map((h) => h.id)).toEqual(catalog.map((r) => r.id).filter((id) => getHarness(id) !== undefined));
   });
 

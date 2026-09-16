@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/network-half-publish",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 2,
+    "id": "network-half-publish",
+    "type": "network",
+    "name": "Half Publish",
+    "description": "declares publish but can never undo it",
+    "entry": "index.js",
+    "network": { "platforms": ["linux"], "exposure": "private" }
+  }
+}

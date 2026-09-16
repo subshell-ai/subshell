@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PLUGIN_API_VERSION } from "@subshell-ai/plugin-api";
+import { PLUGIN_API_VERSION, type SubshellPlugin } from "@subshell-ai/plugin-api";
 import { createPluginHost } from "../plugin-host.js";
 import { createInProcessRuntime, resetImportedForTests } from "../plugin-runtime.js";
 
@@ -17,7 +17,7 @@ describe("PluginRuntime", () => {
     if ("error" in result) return;
     expect(result.manifest.id).toBe("good");
     // The argv proves the plugin called back into the host it was handed.
-    expect(result.plugin.buildCommand({ binary: "/bin/x" } as never)).toEqual(["/bin/x", "'a b'"]);
+    expect((result.plugin as SubshellPlugin).buildCommand({ binary: "/bin/x" } as never)).toEqual(["/bin/x", "'a b'"]);
   });
 
   it("reports a plugin that throws at import as broken, without throwing", async () => {
@@ -158,7 +158,7 @@ describe("re-loading a plugin whose files changed", () => {
     expect("error" in first).toBe(false);
     if ("error" in first) return;
     expect(first.stale).toBeUndefined();
-    expect(first.plugin.buildCommand({} as never)).toEqual(["FIRST"]);
+    expect((first.plugin as SubshellPlugin).buildCommand({} as never)).toEqual(["FIRST"]);
 
     await Bun.write(join(dir, "package.json"), pkg("2.0.0"));
     await Bun.write(entry, plugin("SECOND-and-longer"));
@@ -167,7 +167,7 @@ describe("re-loading a plugin whose files changed", () => {
     if ("error" in second) return;
     // The pair that must be reported together: new manifest, old code.
     expect(second.stale).toBe(true);
-    expect(second.plugin.buildCommand({} as never)).toEqual(["FIRST"]);
+    expect((second.plugin as SubshellPlugin).buildCommand({} as never)).toEqual(["FIRST"]);
   });
 
   it("does not call an unchanged plugin stale when it is loaded twice", async () => {

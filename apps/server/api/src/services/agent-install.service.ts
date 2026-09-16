@@ -1,5 +1,4 @@
-import { stripAnsi } from "@internal/backend-errors";
-import { builtInIds, getHarness, loginPathEntries } from "@internal/pane-runtime";
+import { builtInIds, getHarness, loginPathEntries, runBounded } from "@internal/pane-runtime";
 
 /** What one install run produced. `ok:false` is a result, not an error: the installer ran and said no. */
 export interface AgentInstallResult {
@@ -40,58 +39,11 @@ export interface AgentInstallDeps {
 }
 
 /**
- * Caps captured stdout/stderr so a chatty or runaway installer cannot grow
- * the response (or this process's memory) without bound.
- */
-const OUTPUT_CAP = 64 * 1024;
-
-/**
  * Generous on purpose: a real package-manager install (nvm, cargo, npm -g)
  * can take minutes on a cold cache, and this runs unattended with no
  * feedback loop to extend it interactively.
  */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-
-/**
- * What an installer gets. An allowlist, not `process.env`: the control-plane
- * process holds `BETTER_AUTH_SECRET` and the database path, and a vendor's
- * install script has no business reading either. These are the variables a
- * `curl | sh` installer legitimately needs - where to put things, how to reach
- * the network, and what locale to speak.
- */
-const INSTALLER_ENV_KEYS = [
-  "HOME",
-  "USER",
-  "LOGNAME",
-  "SHELL",
-  "TMPDIR",
-  "LANG",
-  "TERM",
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "NO_PROXY",
-  "http_proxy",
-  "https_proxy",
-  "no_proxy",
-] as const;
-
-/**
- * Builds the child env for an installer run: the allowlisted keys above (only
- * those actually set), any `LC_*` locale override, plus the computed PATH.
- * Deliberately not `process.env` - see {@link INSTALLER_ENV_KEYS}.
- */
-function installerEnv(path: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of INSTALLER_ENV_KEYS) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
-  }
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith("LC_") && value !== undefined) env[key] = value;
-  }
-  env.PATH = path;
-  return env;
-}
 
 const defaultDeps: AgentInstallDeps = {
   commandFor: async (id) => ((await builtInIds()).includes(id) ? getHarness(id)?.installHint.command : undefined),
@@ -175,139 +127,50 @@ export interface InstallerRunOptions {
 }
 
 /**
- * Runs one installer argv to completion under the allowlisted environment,
- * streaming its output a line at a time.
+ * Runs one installer argv to completion, streaming its output a line at a time
+ * and reporting it as an {@link AgentInstallResult}.
  *
  * The argv is the CALLER's — this function decides nothing about what runs,
- * only how. Both callers supply something fixed by this repo rather than by a
- * request: a built-in plugin's compiled-in install hint, or the tmux table in
- * `commands/tmux-install.ts`.
+ * only how it is reported. Both callers supply something fixed by this repo
+ * rather than by a request: a built-in plugin's compiled-in install hint, or
+ * the tmux table in `commands/tmux-install.ts`.
  *
- * `stdin: "ignore"` because there is no TTY behind this call: an installer
- * that prompts must hang to the timeout rather than block forever waiting on
- * input nobody will give it. (The tmux route refuses a `sudo`-prefixed argv
- * outright for exactly that reason, rather than discovering it here ten
- * minutes later.) Output is captured and capped but never logged, since an
- * installer's stdout can legitimately carry a token or path a user typed into
- * their own shell profile moments earlier. The child's environment is an
- * allowlist ({@link installerEnv}), not this process's own — the control plane
- * holds `BETTER_AUTH_SECRET` and the database path, which a vendor's install
- * script has no business reading.
+ * The bounds themselves live in `runBounded` (`@internal/pane-runtime`), which
+ * network plugins reach through `PluginHost.run`: the environment allowlist —
+ * NOT this process's own, which holds `BETTER_AUTH_SECRET` and the database
+ * path — the login-shell PATH, the closed stdin that makes a prompting
+ * installer hit the deadline rather than wait forever, the 64 KiB cap, and the
+ * reader cancellation that makes the deadline hold against a pipeline's
+ * orphans. They were this function's, and they were duplicated the moment a
+ * second kind of caller needed them; there is one copy now.
+ *
+ * What stays here is the REPORTING shape the two install routes already
+ * stream, which is why this wrapper exists rather than the routes calling
+ * `runBounded` directly. Output is captured and capped but never logged: an
+ * installer's stdout can legitimately carry a token or a path a user typed
+ * into their own shell profile moments earlier.
  */
 export async function runInstaller(
   argv: readonly string[],
   { timeoutMs, extraPath, onLine }: InstallerRunOptions,
 ): Promise<AgentInstallResult> {
-  const started = Date.now();
-  const path = [...(process.env.PATH ?? "").split(":"), ...(await extraPath())].filter(Boolean);
-  const proc = Bun.spawn([...argv], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-    env: installerEnv([...new Set(path)].join(":")),
-  });
-  // Readers are acquired up front (rather than inside `cap`) so the timeout
-  // callback can cancel THEM. A stream already locked by `cap`'s own read
-  // loop refuses `stream.cancel()` outright (`TypeError: Cannot cancel a
-  // locked ReadableStream`, measured) - the reader that holds the lock is
-  // the only thing that can cancel it from here.
-  const stdoutReader = proc.stdout.getReader();
-  const stderrReader = proc.stderr.getReader();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-    // Killing `sh` is not enough for a pipeline: `curl … | bash` gives `sh` two
-    // children that hold their own copies of fd 1 and fd 2, so the pipe never
-    // reaches EOF and the reads below would wait for an orphan rather than for
-    // the deadline. Cancel the reads instead; what was captured up to here is
-    // what we report. The orphaned component can still outlive us - the cost of
-    // not putting the child in its own process group - but the CALL returns, so
-    // the caller's single-flight slot clears and this is installable again.
-    void stdoutReader.cancel().catch(() => {});
-    void stderrReader.cancel().catch(() => {});
-  }, timeoutMs);
-  try {
-    const [stdout, stderr] = await Promise.all([cap(stdoutReader, onLine), cap(stderrReader, onLine)]);
-    const exitCode = await proc.exited;
-    const output = [
-      stdout,
-      stderr,
-      timedOut ? `[installer timed out after ${timeoutMs} ms; it may still be running]` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    return { ok: exitCode === 0 && !timedOut, exitCode, output, durationMs: Date.now() - started };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Reads a stream (via its already-acquired reader) to a string, stopping at
- * {@link OUTPUT_CAP}. Keeps draining past the cap rather than breaking out of
- * the loop: a child process blocked writing to a full, unread pipe never
- * exits, which would turn a capacity limit into a hang.
- *
- * On the timeout path the caller cancels this same reader out from under the
- * loop (see {@link runInstaller}) because a pipeline's orphaned
- * children can hold the pipe open past the deadline. A cancelled read rejects
- * rather than reporting `done`, so the loop is wrapped: on that rejection we
- * return whatever was captured before the cancellation instead of throwing,
- * which is what lets the call return AT the deadline rather than when the
- * orphan exits.
- */
-async function cap(
-  reader: { read(): Promise<{ done?: boolean; value?: Uint8Array }> },
-  onLine?: (line: string) => void,
-): Promise<string> {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  // Every byte the child produced, counted whether or not it was KEPT. `size`
-  // stops at the cap, so it can only ever report "we filled up", never "there
-  // was more" - and a pipe hands over power-of-two sized reads against a
-  // power-of-two cap, so landing EXACTLY on it is the common case rather than
-  // the rare one. Counting arrivals separately is what makes the marker below
-  // fire on that boundary instead of dropping 130 KB in silence.
-  let seen = 0;
-  // Only assembled when someone is listening: the accumulate-and-return
-  // contract above is unchanged for every caller that passes no sink.
-  const decoder = onLine ? new TextDecoder() : null;
-  let pending = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value !== undefined) {
-        seen += value.byteLength;
-        if (size < OUTPUT_CAP) {
-          chunks.push(value);
-          size += value.byteLength;
-        }
-      }
-      if (decoder && onLine && value !== undefined) {
-        // Chunks are not lines: a read can split one mid-word or carry
-        // several. `stream: true` keeps a multi-byte character whole across
-        // the boundary, and the tail is held until its newline arrives.
-        pending += decoder.decode(value, { stream: true });
-        const lines = pending.split("\n");
-        pending = lines.pop() ?? "";
-        // ANSI out, at the source. A vendor's installer writes for a
-        // terminal — `\x1b[0;36m→\x1b[0m Extracting …` — and the page renders
-        // into HTML, where the escapes are literal mojibake rather than
-        // colour. Stripped here so the streamed line and the captured
-        // `output` below agree, rather than in the route (which would leave
-        // the failure disclosure still showing them) or in the page (which
-        // would put a terminal concern in a React component).
-        for (const line of lines) onLine(stripAnsi(line));
-      }
-    }
-  } catch {
-    // Cancelled by the timeout - return what we have.
-  }
-  // A final line with no trailing newline is still a line — an installer that
-  // dies mid-sentence has usually said the most useful thing it will say.
-  if (onLine && pending.trim() !== "") onLine(stripAnsi(pending));
-  const text = stripAnsi(new TextDecoder().decode(Buffer.concat(chunks))).slice(0, OUTPUT_CAP);
-  return seen > OUTPUT_CAP ? `${text}\n[truncated]` : text;
+  const result = await runBounded(argv, { timeoutMs, extraPath, onLine });
+  // Joined, unlike every other caller of the shared core, because this one's
+  // `output` is a DISCLOSURE rather than something to parse: it is shown to an
+  // admin when an install failed, and an installer that explains itself on
+  // stderr while printing progress on stdout is the common case. Splitting it
+  // here would make the page choose which half to show.
+  const output = [
+    result.stdout,
+    result.stderr,
+    result.timedOut ? `[installer timed out after ${timeoutMs} ms; it may still be running]` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    ok: result.code === 0 && !result.timedOut,
+    exitCode: result.code,
+    output,
+    durationMs: result.durationMs,
+  };
 }

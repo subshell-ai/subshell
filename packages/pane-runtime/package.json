@@ -24,6 +24,7 @@
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@internal/backend-errors": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",
     "@subshell-ai/plugin-api": "workspace:*",
     "@subshell-ai/plugin-claude-code": "workspace:*",
@@ -31,6 +32,7 @@
     "@subshell-ai/plugin-hermes": "workspace:*",
     "@subshell-ai/plugin-opencode": "workspace:*",
     "@subshell-ai/plugin-pi": "workspace:*",
+    "@subshell-ai/plugin-tailscale": "workspace:*",
     "@subshell-ai/plugin-terminal": "workspace:*"
   },
   "devDependencies": {

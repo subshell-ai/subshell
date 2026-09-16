@@ -298,6 +298,7 @@
       "name": "@internal/pane-runtime",
       "version": "1.0.0",
       "dependencies": {
+        "@internal/backend-errors": "workspace:*",
         "@internal/subshell-protocol": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
         "@subshell-ai/plugin-claude-code": "workspace:*",
@@ -305,6 +306,7 @@
         "@subshell-ai/plugin-hermes": "workspace:*",
         "@subshell-ai/plugin-opencode": "workspace:*",
         "@subshell-ai/plugin-pi": "workspace:*",
+        "@subshell-ai/plugin-tailscale": "workspace:*",
         "@subshell-ai/plugin-terminal": "workspace:*",
       },
       "devDependencies": {
@@ -377,6 +379,18 @@
     "packages/plugins/pi": {
       "name": "@subshell-ai/plugin-pi",
       "version": "0.2.0",
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@subshell-ai/plugin-api": "workspace:*",
+        "@types/bun": "1.3.14",
+        "hash-runner": "4.0.0",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/plugins/tailscale": {
+      "name": "@subshell-ai/plugin-tailscale",
+      "version": "0.1.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -1238,6 +1252,8 @@
     "@subshell-ai/plugin-opencode": ["@subshell-ai/plugin-opencode@workspace:packages/plugins/opencode"],
 
     "@subshell-ai/plugin-pi": ["@subshell-ai/plugin-pi@workspace:packages/plugins/pi"],
+
+    "@subshell-ai/plugin-tailscale": ["@subshell-ai/plugin-tailscale@workspace:packages/plugins/tailscale"],
 
     "@subshell-ai/plugin-terminal": ["@subshell-ai/plugin-terminal@workspace:packages/plugins/terminal"],
 

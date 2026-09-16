@@ -155,7 +155,7 @@ beforeAll(async () => {
   // migrator — the same reasoning `subshell-manager-remote.test.ts` records.
   await runMigrations();
   // Seeds the built-in plugin store, which is the instance half of the
-  // harness gate (`enabledInstalledPlugins`); the node half is the inventory
+  // harness gate (`enabledHarnessPlugins`); the node half is the inventory
   // stamped in `sharedNode`.
   await setupAuthTables();
   dbHandle = new Kysely<Database>({

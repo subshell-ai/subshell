@@ -5,7 +5,7 @@ import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { type AgentInventory, probeInstalledOnly, readAgentInventory } from "@/services/nodes/inventory.js";
-import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
+import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 
 /**
  * Every harness plugin id the instance offers — installed, not explicitly
@@ -22,7 +22,7 @@ import { enabledInstalledPlugins } from "@/services/nodes/local-plugins.js";
  * installed".)
  */
 export async function getAllHarnessIds(): Promise<string[]> {
-  return (await enabledInstalledPlugins())
+  return (await enabledHarnessPlugins())
     .filter((r) => !r.broken)
     .map((r) => r.id)
     .sort();
@@ -96,7 +96,7 @@ export async function harnessInfo(id: string, installedHere: boolean): Promise<S
  */
 async function usableHarnessIdSet(nodeId: string, onlyId?: string): Promise<Set<string>> {
   const usable = new Set<string>();
-  const installed = await enabledInstalledPlugins();
+  const installed = await enabledHarnessPlugins();
   const wanted = onlyId === undefined ? installed : installed.filter((r) => r.id === onlyId);
   if (wanted.length === 0) return usable;
 

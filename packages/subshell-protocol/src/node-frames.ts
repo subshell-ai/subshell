@@ -808,10 +808,22 @@ export type SettingsFieldWire = {
   label: string;
   /** Short description for the editor */
   description?: string;
-  /** Editor control kind */
-  type: "string" | "boolean" | "number" | "select";
+  /**
+   * Editor control kind.
+   *
+   * Mirrors `SettingsField["type"]` in `@subshell-ai/plugin-api`, which is why
+   * `secret` is in the union: the two must agree or a plugin's own schema will
+   * not assign to the wire's. It cannot actually appear HERE — `secret` is
+   * network-only and a node is sent harness preset fields — and a node that
+   * received one would render a password box for a value it must never hold.
+   */
+  type: "string" | "boolean" | "number" | "select" | "secret";
   /** Choices when type is "select" */
   choices?: string[];
+  /** True when the field must be set before the plugin can act */
+  required?: boolean;
+  /** Placeholder / example for the editor. Never a real credential. */
+  placeholder?: string;
   /** Default value when unset */
   default?: string | boolean | number;
 };

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { PluginReportWire } from "@internal/subshell-protocol";
+import { isHarnessType, type SubshellPlugin } from "@subshell-ai/plugin-api";
 import { createInProcessRuntime } from "./plugin-runtime.js";
 import { listInstalled, pluginsDir } from "./plugins-dir.js";
 
@@ -73,9 +74,14 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
 
     const { manifest, plugin } = loaded;
     try {
+      // A network plugin has none of the launch-shaped members below, and
+      // asking it for them would report empty arrays as if it had answered.
+      // The manifest type is what decides, here as everywhere: the loader has
+      // already proved the object matches it.
+      const harness = isHarnessType(manifest.type) ? (plugin as SubshellPlugin) : null;
       const exitStatuses: Record<string, string> = {};
       for (const code of EXIT_CODES) {
-        const label = plugin.exitStatus?.(code);
+        const label = harness?.exitStatus?.(code);
         if (label) exitStatuses[String(code)] = label;
       }
       reports.push({
@@ -86,14 +92,19 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         ...(manifest.icon ? { icon: manifest.icon } : {}),
         description: manifest.description,
         capabilities: plugin.capabilities(),
-        presetSettings: plugin.presetSettings?.() ?? [],
-        suggestedEnv: plugin.suggestedEnv?.() ?? [],
-        suggestedFlags: plugin.suggestedFlags?.() ?? [],
-        // The launch spec is the SERVER's to resolve, so the setup text here
-        // is rendered against a placeholder the server substitutes. Plugins
-        // that describe manual steps embed the command, which is why this is
-        // reported at all rather than recomputed on the control plane.
-        mcpSetup: plugin.mcpSetup?.({ command: "subshell", args: ["mcp"] }),
+        ...(harness
+          ? {
+              presetSettings: harness.presetSettings?.() ?? [],
+              suggestedEnv: harness.suggestedEnv?.() ?? [],
+              suggestedFlags: harness.suggestedFlags?.() ?? [],
+              // The launch spec is the SERVER's to resolve, so the setup text
+              // here is rendered against a placeholder the server substitutes.
+              // Plugins that describe manual steps embed the command, which is
+              // why this is reported at all rather than recomputed on the
+              // control plane.
+              mcpSetup: harness.mcpSetup?.({ command: "subshell", args: ["mcp"] }),
+            }
+          : {}),
         ...(Object.keys(exitStatuses).length > 0 ? { exitStatuses } : {}),
         // The split matters. `id`, `name`, `type`, `version`, `icon` and
         // `description` came from the manifest, so they describe the copy on

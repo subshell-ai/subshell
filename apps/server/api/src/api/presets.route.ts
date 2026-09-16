@@ -1,4 +1,4 @@
-import { getHarness } from "@internal/pane-runtime";
+import { getHarness, type SettingsField } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { getAllHarnessIds } from "@/api/harness-utils.js";
@@ -6,6 +6,24 @@ import { HarnessSchemaResponseSchema, PresetSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { resolveMcpLaunchForDisplay } from "@/services/mcp-resolve.js";
+
+/**
+ * A settings field the preset editor can actually hold.
+ *
+ * `secret` is the NETWORK half of the contract: a write-only value the host
+ * keeps in a 0600 file and hydrates into a process it spawns. A preset is a
+ * database row a user owns and a launch reads, so it has nowhere to put one —
+ * a harness declaring a secret field would otherwise get a password box in the
+ * preset editor whose value had no store. The response schema stays narrow
+ * (`SettingsFieldSchema` names four kinds), and this is what makes the data
+ * agree with it, rather than widening the schema and hoping no harness ever
+ * does it.
+ */
+function isPresetSettingsField(
+  field: SettingsField,
+): field is SettingsField & { type: "string" | "boolean" | "number" | "select" } {
+  return field.type !== "secret";
+}
 
 /** POSIX-style env var name; anything else is rejected before storage. */
 const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -217,7 +235,8 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       const harness = getHarness(params.id);
       if (!harness) throw new PresetError("not_found", "Unknown harness");
       return {
-        settingsFields: harness.settingsFields(),
+        // See {@link isPresetSettingsField}: a credential has no home here.
+        settingsFields: harness.settingsFields().filter(isPresetSettingsField),
         suggestedEnv: harness.suggestedEnv(),
         suggestedFlags: harness.suggestedFlags(),
         // The manual steps embed this deployment's real `subshell mcp` launch

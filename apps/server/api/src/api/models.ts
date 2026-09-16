@@ -162,8 +162,9 @@ export const WorkspaceDetailSchema = t.Object({
 export const HarnessInfoSchema = t.Object({
   id: t.String({ description: "Harness plugin id" }),
   name: t.String({ description: "Display name" }),
-  type: t.Union([t.Literal("agent-harness"), t.Literal("terminal")], {
-    description: "Plugin type from the manifest: an agent CLI, or a plain shell",
+  type: t.Union([t.Literal("agent-harness"), t.Literal("terminal"), t.Literal("network")], {
+    description:
+      "Plugin type from the manifest: an agent CLI, a plain shell, or a network this host can be reached over. A `network` plugin never reaches this schema in practice — `allHarnesses()` excludes it — but the union mirrors the manifest's so the two cannot drift",
   }),
   binary: t.String({ description: 'Executable command name, e.g. "claude"' }),
   envOverride: t.String({

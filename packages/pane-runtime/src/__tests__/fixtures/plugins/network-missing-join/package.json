@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/network-missing-join",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 2,
+    "id": "network-missing-join",
+    "type": "network",
+    "name": "Missing Join",
+    "description": "a network plugin that forgot a required member",
+    "entry": "index.js",
+    "network": { "platforms": ["linux"], "exposure": "private" }
+  }
+}
