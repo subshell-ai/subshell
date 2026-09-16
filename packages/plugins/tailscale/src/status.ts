@@ -2,6 +2,7 @@ import type { NetworkAddress, NetworkContext, NetworkHint, NetworkStatus, Plugin
 import {
   firstLine,
   likelyUserName,
+  loginUrl,
   looksLikeDaemonDown,
   looksLikePermissionDenied,
   magicDnsName,
@@ -109,7 +110,7 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
   const identity = await readIdentity(host, binary, json);
 
   if (json.BackendState !== "Running") {
-    const authUrl = json.AuthURL?.trim();
+    const authUrl = loginUrl(json.AuthURL);
     return {
       binary,
       json,

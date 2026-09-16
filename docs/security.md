@@ -1826,6 +1826,25 @@ this project did not write.
   is ordered for the same reason: disabling or unpublishing stops the tunnel
   process FIRST and drops the guard LAST, so there is no instant in which a
   live tunnel is unguarded.
+- **A plugin's reported text reaches an admin's browser, and some of it was
+  chosen by a machine nobody here controls.** A network plugin's status carries
+  hints, and a hint may carry a URL the page renders as a link. Much of that
+  text is the plugin author's, but not all of it: a plugin reports what it read
+  off a vendor CLI, which reports what its CONTROL SERVER sent. Tailscale's
+  `AuthURL` is the worked example — with `--login-server` it comes from
+  whatever host the operator pointed the daemon at. An `href` is not inert, so
+  a `javascript:` URL in one would be script on the control plane's own origin,
+  in the session of the one person who may install plugins. **A URL this
+  contract carries is `http:` or `https:` and is checked three times**, at
+  layers that fail differently on purpose: the manifest parser REFUSES a bad
+  `docsUrl` at load, because a manifest is static data and a bad value there is
+  a plugin defect; the network gate DROPS one a plugin reports at runtime,
+  keeping the sentence beside it, because refusing to load a working plugin
+  over a value some control server chose would be the wrong failure; and the
+  page renders no anchor for one that reaches it anyway. React 19 happens to
+  neutralize this scheme itself, which is why it was never exploitable here —
+  that is an internal of a rendering library and is not what the guarantee
+  rests on.
 - **Tailscale Serve puts this machine's name in public Certificate
   Transparency logs.** The certificate is a real Let's Encrypt one for
   `<host>.<tailnet>.ts.net`, so the NAME becomes public even though the server

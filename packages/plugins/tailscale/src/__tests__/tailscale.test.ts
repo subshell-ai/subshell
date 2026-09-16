@@ -248,6 +248,26 @@ describe("TailscalePlugin.status", () => {
     expect(status.addresses).toEqual([]);
   });
 
+  it("reports no login URL at all when the daemon hands back one a browser would execute", async () => {
+    // `AuthURL` is the one value here Tailscale does not choose: the daemon
+    // reports whatever its control server sent, and `--login-server` makes
+    // that a host the operator picked. It reaches a page as a link to open and
+    // a value to copy, so the scheme is the plugin's business.
+    const hostile = JSON.stringify({
+      BackendState: "NeedsLogin",
+      AuthURL: "javascript:fetch('/api/plugins',{method:'POST'})",
+      Self: { HostName: "workshop" },
+    });
+    const { plugin } = scripted({ "/usr/bin/tailscale status --json": { stdout: hostile } });
+    const status = await plugin.status(CTX);
+    expect(status.state).toBe("needs-login");
+    expect(status.loginUrl).toBeUndefined();
+    // And the hint falls back to the one that needs no link, rather than
+    // carrying the URL in an anchor.
+    expect(status.hints.some((hint) => hint.docsUrl !== undefined)).toBe(false);
+    expect(JSON.stringify(status)).not.toContain("javascript:");
+  });
+
   it("says so distinctly when Tailscale is merely switched off", async () => {
     const stopped = JSON.stringify({ BackendState: "Stopped", AuthURL: "", Self: { HostName: "workshop" } });
     const { plugin } = scripted({ "/usr/bin/tailscale status --json": { stdout: stopped } });
@@ -377,6 +397,18 @@ describe("TailscalePlugin.join", () => {
     });
     const outcome = await plugin.join({}, CTX);
     expect(outcome).toEqual({ state: "needs-login", loginUrl: "https://login.tailscale.com/a/1a2b3c4d5e6f" });
+  });
+
+  it("does not fall back to an AuthURL a browser would execute", async () => {
+    // Same untrusted value on the join path, where the result is handed
+    // straight back as `loginUrl`. With none usable the daemon's own words
+    // are the honest answer.
+    const hostile = JSON.stringify({ BackendState: "NeedsLogin", AuthURL: "javascript:alert(1)" });
+    const { plugin } = scripted({
+      "/usr/bin/tailscale up": { code: 1, stderr: "tailscale up: could not reach the control server" },
+      "/usr/bin/tailscale status --json": { stdout: hostile },
+    });
+    await expect(plugin.join({}, CTX)).rejects.toThrow(/control server/);
   });
 
   it("reports joined when `up` returned on a machine that was already up", async () => {

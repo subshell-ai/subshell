@@ -1,6 +1,7 @@
 export {
   type DetectSpec,
   type InstallSpec,
+  isDocsUrl,
   type ManifestError,
   type NetworkLabels,
   type NetworkManifest,

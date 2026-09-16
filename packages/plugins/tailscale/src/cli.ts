@@ -1,4 +1,4 @@
-import type { PluginHost } from "@subshell-ai/plugin-api";
+import { isDocsUrl, type PluginHost } from "@subshell-ai/plugin-api";
 import { manifest } from "./manifest.js";
 
 /**
@@ -176,4 +176,25 @@ export function looksLikePermissionDenied(text: string): boolean {
 export function likelyUserName(homeDir: string): string {
   const segment = homeDir.split("/").filter(Boolean).pop();
   return segment && segment.trim() !== "" ? segment : "$USER";
+}
+
+/**
+ * A login URL this plugin is willing to hand back, or nothing.
+ *
+ * `AuthURL` is the one value here that Tailscale does not choose: the local
+ * daemon reports whatever its CONTROL SERVER sent, and `--login-server` makes
+ * that an address the operator picked — a self-hosted Headscale, or something
+ * standing in for one. It then travels to a page where it is offered as a link
+ * to open and a value to copy, which is the whole reason the scheme matters.
+ *
+ * Absent is the honest answer for an unusable one. A `needs-login` row with no
+ * link falls back to "join a tailnet", which is exactly the situation; a
+ * plugin that passed the value along and let a later layer strip it would be
+ * reporting something it had no reason to believe.
+ * @param raw - `AuthURL` as the daemon reported it, or a URL scraped from `up`
+ */
+export function loginUrl(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed || !isDocsUrl(trimmed)) return undefined;
+  return trimmed;
 }

@@ -2,6 +2,7 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import {
   allNetworkPlugins,
   hostPlatform,
+  isDocsUrl,
   loginPathEntries,
   type NetworkContext,
   type NetworkManifest,
@@ -378,11 +379,48 @@ function statusFromThrow(name: string, err: unknown): NetworkStatus {
 }
 
 /**
+ * A status as the host is willing to forward it.
+ *
+ * A network plugin DESCRIBES and the host EXECUTES — and putting a string in
+ * front of an admin's browser is an execution. Two fields of a status are URLs
+ * a page turns into something a person clicks or pastes, and neither is
+ * necessarily the plugin author's own text: a plugin reports what it read off
+ * a vendor CLI, and the CLI reports what its control server told it. Tailscale
+ * is the worked example — `AuthURL` is chosen by whichever control server the
+ * daemon was pointed at, which on a self-hosted Headscale is not Tailscale's.
+ *
+ * So the URL is dropped and the hint is kept. The sentence beside it is the
+ * plugin's own and stays true without a link, where a dropped hint would leave
+ * a `needs-login` card saying nothing at all. Refusing the whole plugin would
+ * be worse still: nothing about it is broken, and the operator would lose a
+ * working network over a value some other machine chose.
+ *
+ * Note what this does NOT cover: a `JoinOutcome`'s `loginUrl`, which the
+ * contract makes required on that variant and which reaches no `href` — it is
+ * rendered to copy. A plugin is expected to check its own; Tailscale does.
+ */
+function forwardableStatus(status: NetworkStatus): NetworkStatus {
+  const hints = status.hints.map((hint) => {
+    if (hint.docsUrl === undefined || isDocsUrl(hint.docsUrl)) return hint;
+    const { docsUrl: _dropped, ...rest } = hint;
+    return rest;
+  });
+  const loginOk = status.loginUrl === undefined || isDocsUrl(status.loginUrl);
+  if (loginOk && hints.every((hint, i) => hint === status.hints[i])) return status;
+  const next: NetworkStatus = { ...status, hints };
+  if (!loginOk) delete next.loginUrl;
+  return next;
+}
+
+/**
  * One plugin's live status, memoised for {@link STATUS_TTL_MS}.
  *
  * Never throws: see {@link statusFromThrow}. Pass `fresh` to bypass the memo,
  * which every act does for the status it reports back — the memo exists for
  * the polled list, not for the answer to "what did my act just do".
+ *
+ * What lands in the memo is already {@link forwardableStatus}'d, so the check
+ * runs once per probe rather than once per reader.
  */
 export async function readNetworkStatus(
   entry: NetworkPluginEntry,
@@ -401,6 +439,7 @@ export async function readNetworkStatus(
   } catch (err) {
     status = statusFromThrow(entry.manifest.name, err);
   }
+  status = forwardableStatus(status);
   statusMemo.set(id, { at: Date.now(), status });
   return status;
 }

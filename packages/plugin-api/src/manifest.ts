@@ -50,7 +50,12 @@ export interface InstallSpec {
    * with two meanings, and the surface offering a button would have to guess.
    */
   command: string;
-  /** URL of the installation documentation */
+  /**
+   * URL of the installation documentation.
+   *
+   * Rendered as a link on an admin page, so it must be `http:` or `https:`
+   * and the parser refuses anything else — see {@link isDocsUrl}.
+   */
   docsUrl: string;
 }
 
@@ -60,7 +65,7 @@ export interface PrivilegedStep {
   label: string;
   /** The command to copy. Usually `sudo …`. */
   command: string;
-  /** Where the vendor documents it. */
+  /** Where the vendor documents it; `http:`/`https:` only, as {@link isDocsUrl} requires. */
   docsUrl?: string;
 }
 
@@ -184,6 +189,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Whether a string may be rendered as a link in an operator's browser.
+ *
+ * Every `docsUrl` in this contract ends up as the `href` of an anchor on an
+ * admin page, and an `href` is not inert: a `javascript:` URL in one is script
+ * running on the control plane's own origin, in the session of the one person
+ * who can install plugins. So a URL this contract carries is restricted to the
+ * two schemes that navigate, and both the parser below and the host check it.
+ *
+ * It is checked in two places on purpose. A manifest is static data, so a bad
+ * value there is a plugin defect and is refused at load. A URL a plugin
+ * REPORTS at runtime is often something it read off a vendor CLI — Tailscale's
+ * `AuthURL` comes from whichever control server the operator pointed the
+ * daemon at — so the host drops that one instead, because refusing to load a
+ * working plugin over a value its control server chose would be the wrong
+ * failure.
+ *
+ * Not a reachability claim: nothing fetches these, and a docs page that 404s
+ * is a broken link rather than a hazard.
+ * @param value - the candidate URL, as written in a manifest or returned by a plugin
+ */
+export function isDocsUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    // Not absolute, or not a URL at all. A relative href would resolve
+    // against the SPA's own origin, which is never what a vendor docs link
+    // means.
+    return false;
+  }
+  return parsed.protocol === "http:" || parsed.protocol === "https:";
+}
+
+/**
  * Reads and validates the `subshell` block of a plugin's package.json.
  *
  * Answers `{ error }` rather than throwing, because every caller is reporting
@@ -293,6 +332,11 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
           "`subshell.install.command` must not need sudo — the host runs it and has no terminal for a password prompt; put privileged steps in `subshell.network.privileged`",
       };
     }
+    // Rendered as a link beside that button, so it is held to the same rule
+    // as every other URL this manifest carries.
+    if (!isDocsUrl(i.docsUrl)) {
+      return { error: "`subshell.install.docsUrl` must be an http(s) URL — it is rendered as a link on an admin page" };
+    }
     install = { command: i.command, docsUrl: i.docsUrl };
   }
 
@@ -388,6 +432,12 @@ function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | Ma
       ) {
         return {
           error: `\`subshell.network.privileged.${platform}\` must be an array of { label, command, docsUrl? }`,
+        };
+      }
+      const badDocs = (steps as PrivilegedStep[]).find((s) => s.docsUrl !== undefined && !isDocsUrl(s.docsUrl));
+      if (badDocs) {
+        return {
+          error: `\`subshell.network.privileged.${platform}\` has a docsUrl that is not an http(s) URL: "${badDocs.label}"`,
         };
       }
       privileged[platform as PluginPlatform] = (steps as PrivilegedStep[]).map((s) => ({

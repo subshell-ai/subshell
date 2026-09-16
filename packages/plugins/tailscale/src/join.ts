@@ -1,5 +1,5 @@
 import type { JoinInput, JoinOutcome, PluginHost } from "@subshell-ai/plugin-api";
-import { firstLine, parseStatusJson, resolveBinary } from "./cli.js";
+import { firstLine, loginUrl, parseStatusJson, resolveBinary } from "./cli.js";
 
 /**
  * How long `tailscale up` may block waiting for a human.
@@ -112,7 +112,7 @@ async function interactiveJoin(host: PluginHost, binary: string, hostnameArgs: s
   // and `up` simply returned. Ask, rather than guessing from the exit code.
   const status = await host.run([binary, "status", "--json"], { timeoutMs: 15_000 });
   const json = parseStatusJson(status.stdout);
-  const authUrl = json?.AuthURL?.trim();
+  const authUrl = loginUrl(json?.AuthURL);
   if (authUrl) return { state: "needs-login", loginUrl: authUrl };
   if (json?.BackendState === "Running") return { state: "joined" };
 

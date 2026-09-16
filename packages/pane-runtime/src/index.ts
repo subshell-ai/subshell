@@ -9,6 +9,7 @@
 export {
   capabilitiesFor,
   HARNESS_CAPABILITIES,
+  isDocsUrl,
   isHarnessType,
   type JoinInput,
   type JoinOutcome,

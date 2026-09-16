@@ -326,6 +326,35 @@ describe("/api/network", () => {
       expect(calls.status).toBe(1);
     });
 
+    it("drops a hint URL a browser must not navigate to, and keeps the sentence", async () => {
+      // A plugin reports what it read off a vendor CLI, which reports what its
+      // CONTROL SERVER sent — and `--login-server` makes that a host the
+      // operator chose. So a hint's URL is the least trustworthy string on the
+      // page, and it lands in an `href` in an admin's session.
+      const { entry } = makeFakePlugin({
+        status: {
+          state: "needs-login",
+          addresses: [],
+          loginUrl: "javascript:alert(document.cookie)",
+          hints: [
+            { text: "Finish signing in.", docsUrl: "javascript:alert(document.cookie)" },
+            { text: "Read the docs.", docsUrl: "https://example.invalid/docs" },
+          ],
+        },
+      });
+      setNetworkDepsForTests(fakeDeps(entry));
+
+      const res = await app.fetch(withCookie("/api/network", adminCookie));
+      const { networks } = (await res.json()) as { networks: Record<string, any>[] };
+      const status = networks[0].status;
+      // The hint survives without its link: the sentence is the plugin's own
+      // and stays true, where a dropped hint leaves the card saying nothing.
+      expect(status.hints[0]).toEqual({ text: "Finish signing in." });
+      expect(status.hints[1].docsUrl).toBe("https://example.invalid/docs");
+      expect(status.loginUrl).toBeUndefined();
+      expect(await (await app.fetch(withCookie("/api/network", adminCookie))).text()).not.toContain("javascript:");
+    });
+
     it("never returns a secret's value, only whether one is set", async () => {
       const { entry } = makeFakePlugin({ fields: [{ key: "token", label: "API token", type: "secret" }] });
       setNetworkDepsForTests(fakeDeps(entry));

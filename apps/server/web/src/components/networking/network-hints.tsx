@@ -1,4 +1,5 @@
 import { CopyCommandRow } from "@/components/copy-command-row";
+import { safeHref } from "@/lib/safe-href";
 import type { NetworkHint } from "@/types/network";
 
 /**
@@ -15,6 +16,11 @@ import type { NetworkHint } from "@/types/network";
  * be a control that always fails; the command is copyable and nothing more.
  */
 export function NetworkHintBlock({ hint, index }: { hint: NetworkHint; index?: number }) {
+  // A hint's URL is the least trustworthy string on this page: a plugin often
+  // reads it off a vendor CLI, which reads it off a control server. The server
+  // drops a scheme a browser must not navigate to; this is the sink saying so
+  // as well, so no upstream omission reaches an `href`.
+  const docsUrl = safeHref(hint.docsUrl);
   return (
     <div className="space-y-1.5">
       <p className="text-detail text-muted-foreground">
@@ -24,8 +30,8 @@ export function NetworkHintBlock({ hint, index }: { hint: NetworkHint; index?: n
         {hint.text}
       </p>
       {hint.command && <CopyCommandRow text={hint.command} />}
-      {hint.docsUrl && (
-        <a href={hint.docsUrl} target="_blank" rel="noreferrer" className="text-detail underline">
+      {docsUrl && (
+        <a href={docsUrl} target="_blank" rel="noreferrer" className="text-detail underline">
           Docs ↗
         </a>
       )}

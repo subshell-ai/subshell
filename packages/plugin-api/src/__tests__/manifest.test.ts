@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { PLUGIN_API_VERSION, parseManifest } from "../manifest.js";
+import { isDocsUrl, PLUGIN_API_VERSION, parseManifest } from "../manifest.js";
 
 /** A package.json that a valid plugin would ship. */
 function pkg(over: Record<string, unknown> = {}): unknown {
@@ -249,6 +249,67 @@ describe("parseManifest (network)", () => {
       networkPkg({ install: { command: "brew install cloudflared", docsUrl: "https://x.invalid" } }),
     );
     expect("error" in result).toBe(false);
+  });
+
+  it("refuses an install docsUrl a browser must not navigate to", () => {
+    // Every docsUrl in this manifest becomes the href of an anchor on an admin
+    // page, and `javascript:` in an href is script on the control plane's
+    // origin in the session of the one person who can install plugins.
+    const result = parseManifest(
+      networkPkg({ install: { command: "brew install cloudflared", docsUrl: "javascript:alert(1)" } }),
+    );
+    expect("error" in result && result.error).toContain("http(s)");
+  });
+
+  it("refuses a privileged step's docsUrl on the same rule, and names the step", () => {
+    const result = parseManifest(
+      networkPkg({
+        network: {
+          platforms: ["linux"],
+          exposure: "private",
+          privileged: {
+            linux: [{ label: "Install the daemon", command: "sudo apt install x", docsUrl: "javascript:alert(1)" }],
+          },
+        },
+      }),
+    );
+    expect("error" in result && result.error).toContain("http(s)");
+    expect("error" in result && result.error).toContain("Install the daemon");
+  });
+});
+
+describe("isDocsUrl", () => {
+  it("accepts the two schemes a browser navigates to", () => {
+    expect(isDocsUrl("https://tailscale.com/kb/1080/cli")).toBe(true);
+    expect(isDocsUrl("http://headscale.internal/docs")).toBe(true);
+  });
+
+  it("refuses every scheme that is not one of those", () => {
+    // The first is the one that executes; the rest are here so a later edit
+    // that reaches for a scheme allowlist finds the shape already decided.
+    expect(isDocsUrl("javascript:alert(document.cookie)")).toBe(false);
+    expect(isDocsUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+    expect(isDocsUrl("file:///etc/passwd")).toBe(false);
+    expect(isDocsUrl("vbscript:msgbox(1)")).toBe(false);
+  });
+
+  it("refuses the obfuscations that get past a naive prefix check", () => {
+    // A leading control character, interleaved whitespace and mixed case all
+    // survive a `startsWith("javascript:")` test and all still execute in a
+    // browser. The URL parser normalizes them, which is why parsing beats
+    // matching here.
+    expect(isDocsUrl("\u0000javascript:alert(1)")).toBe(false);
+    expect(isDocsUrl("  javascript:alert(1)")).toBe(false);
+    expect(isDocsUrl("java\tscript:alert(1)")).toBe(false);
+    expect(isDocsUrl("JaVaScRiPt:alert(1)")).toBe(false);
+  });
+
+  it("refuses anything that is not an absolute URL at all", () => {
+    // A relative href resolves against the SPA's own origin, which is never
+    // what a vendor documentation link means.
+    expect(isDocsUrl("/settings/networking")).toBe(false);
+    expect(isDocsUrl("tailscale.com/kb")).toBe(false);
+    expect(isDocsUrl("")).toBe(false);
   });
 });
 

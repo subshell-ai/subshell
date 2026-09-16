@@ -639,6 +639,16 @@ code. Full accounting: `docs/security.md` §11.13.
   (`network.configure|install|join|publish|unpublish|leave`) name origins and
   field
   NAMES, never values.
+- **A URL a plugin reports is `http:`/`https:` or it is not rendered.** A hint
+  can carry a link, and a plugin often read that value off a vendor CLI, which
+  read it off its control server (Tailscale's `AuthURL` with `--login-server`
+  is the case). An `href` is not inert, so it is checked three times and each
+  layer fails differently: the manifest parser REFUSES a bad `docsUrl` at load
+  (static data, so it is a plugin defect), the network gate DROPS one reported
+  at runtime and keeps the sentence beside it, and the page renders no anchor
+  for one that arrives anyway (`lib/safe-href.ts`). Do not remove a layer on
+  the grounds that React neutralizes `javascript:` hrefs — it does, and that is
+  a rendering library's internal, not the guarantee.
 - **Tailscale Serve puts the machine's name in public CT logs** (a real Let's
   Encrypt certificate for `<host>.<tailnet>.ts.net`). Said on the publish
   button, not discovered.

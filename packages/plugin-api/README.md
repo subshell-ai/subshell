@@ -167,6 +167,27 @@ hint, not a rejection. A `PublishRefusal` is likewise an answer rather than a
 failure; it carries a hint to render ("enable HTTPS certificates in the admin
 console") instead of an error to log.
 
+### A URL you report becomes a link, so it is checked
+
+Anything you put in a `docsUrl` — on a hint, on an `install` block, on a
+privileged step — is rendered as the `href` of an anchor on an admin's page.
+An `href` is not inert, so **only `http:` and `https:` are accepted**, and the
+two halves fail differently on purpose:
+
+- A `docsUrl` in your **manifest** is static data, so a bad one is a defect in
+  your plugin and the parser refuses to load it. `isDocsUrl` is exported if you
+  want to check it yourself in a test.
+- A `docsUrl` on a hint you report at **runtime** is dropped by the host, and
+  the hint's sentence is kept. Refusing your whole plugin there would be wrong:
+  the value often is not yours.
+
+That last case is the one worth designing around. If you read a URL out of a
+vendor CLI, the CLI read it from its control server, and on a self-hosted
+deployment that server is not the vendor's. Tailscale's `AuthURL` under
+`--login-server` is exactly this. Validate it where it enters your plugin and
+report nothing rather than passing it along — the host's drop is a backstop,
+not your input validation.
+
 ### The manifest block
 
 Required when `type` is `network`, refused on any other type:

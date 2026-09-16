@@ -24,6 +24,7 @@ import {
 } from "@/hooks/use-network";
 import { ApiError, errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
+import { safeHref } from "@/lib/safe-href";
 import type { NetworkRow } from "@/types/network";
 
 /** What this host's platform is called in a sentence. */
@@ -289,8 +290,8 @@ export function NetworkPluginCard({
                     {step.label}
                   </p>
                   <CopyCommandRow text={step.command} />
-                  {step.docsUrl && (
-                    <a href={step.docsUrl} target="_blank" rel="noreferrer" className="text-detail underline">
+                  {safeHref(step.docsUrl) && (
+                    <a href={safeHref(step.docsUrl)} target="_blank" rel="noreferrer" className="text-detail underline">
                       Docs ↗
                     </a>
                   )}
@@ -300,8 +301,8 @@ export function NetworkPluginCard({
                 <div className="space-y-1.5">
                   <p className="text-detail text-muted-foreground">
                     Runs <code className="font-mono">{row.install.command}</code> on this machine.{" "}
-                    {row.install.docsUrl && (
-                      <a href={row.install.docsUrl} target="_blank" rel="noreferrer" className="underline">
+                    {safeHref(row.install.docsUrl) && (
+                      <a href={safeHref(row.install.docsUrl)} target="_blank" rel="noreferrer" className="underline">
                         Install docs ↗
                       </a>
                     )}

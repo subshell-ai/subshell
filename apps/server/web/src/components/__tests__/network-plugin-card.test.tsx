@@ -185,6 +185,38 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
 
+  it("renders a docs link only for a URL a browser may navigate to", async () => {
+    // The server strips these before they get here — twice — so this asserts
+    // the sink's own refusal, which is the one an upstream omission cannot
+    // reach past. It deliberately does not rely on React neutralizing a
+    // `javascript:` href: that is an internal of a rendering library.
+    await renderCard(
+      row({
+        state: "not-installed",
+        privileged: [
+          { label: "Install the daemon", command: "brew install tailscale", docsUrl: "javascript:alert(1)" },
+        ],
+        install: { command: "brew install tailscale", docsUrl: "javascript:alert(2)" },
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [
+            { text: "Finish signing in.", docsUrl: "javascript:alert(3)" },
+            { text: "Read the docs.", docsUrl: "https://example.invalid/docs" },
+          ],
+        },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    const links = [...card.querySelectorAll("a")];
+    // Exactly one survives, and it is the http(s) one. The sentences beside
+    // the dropped links are still rendered — what is withheld is the anchor.
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.invalid/docs"]);
+    expect(card.textContent).toContain("Finish signing in.");
+    expect(card.textContent).toContain("Install the daemon");
+    expect(card.innerHTML).not.toContain("javascript:");
+  });
+
   it("a single thing to do is not numbered", async () => {
     await renderCard(
       row({
