@@ -308,6 +308,15 @@ function SetupPage() {
         title="Add an Agent"
         subtitle="A plain terminal is always available with nothing to install. Add an agent CLI now, or later in Settings."
         dots={dotsFor(2)}
+        // Back reaches the Network screen, which is the one a person most
+        // wants a second look at: it is skippable, it is where "open this on
+        // my phone" is answered, and skipping it used to be irreversible
+        // short of restarting the wizard. It carries the primary's disabled
+        // condition for the primary's reason — an install in flight must not
+        // be walked out of in either direction. There is deliberately no Back
+        // to the account screen from Network: step 0 advances only once
+        // `signUp` has SUCCEEDED, so that form is for an account that exists.
+        back={{ onClick: () => setStep(1), disabled: busy || install.isPending || installTmux.isPending }}
         // An install is a `curl … | bash` on this machine that takes tens of
         // seconds. Continuing out from under it left the progress line and any
         // failure on a screen nobody was looking at any more, and the next
@@ -383,6 +392,9 @@ function SetupPage() {
       title="Start Your First Subshell"
       subtitle="Everything below is already filled in. Change anything you like."
       dots={dotsFor(3)}
+      // Disabled while the launch is in flight, exactly as Skip is: the
+      // subshell is already being created and leaving would orphan the report.
+      back={{ onClick: () => setStep(2), disabled: create.isPending }}
       skip={{ label: "Skip", onClick: finish, disabled: create.isPending }}
       primary={{
         label: "Start",

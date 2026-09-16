@@ -491,6 +491,39 @@ describe("setup wizard: the Network step", () => {
   });
 });
 
+describe("setup wizard: going back", () => {
+  it("goes back from the agent step to the Network step", async () => {
+    // The frame has always had a Back slot; no screen passed one, so a person
+    // who wanted another look at the network they had just skipped had no way
+    // to it but restarting the wizard.
+    await renderSetup({}, 2);
+    expect(screen.getByText("Add an Agent")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByText("Connect a Network")).toBeTruthy());
+  });
+
+  it("goes back from the launch step to the agent step", async () => {
+    await renderSetup({}, 3);
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByText("Add an Agent")).toBeTruthy());
+  });
+
+  it("offers NO Back on the Network step, because the account behind it already exists", async () => {
+    // The invariant this protects: step 0 advances only after `signUp`
+    // SUCCEEDS, so the screen before Network is a Create Account form for an
+    // account that has already been created. Offering Back there would walk a
+    // person into a form that cannot work.
+    await renderSetup({}, 1);
+    expect(screen.getByText("Connect a Network")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
+  it("offers no Back on the account step, which is the first screen this program owns", async () => {
+    await renderSetup({}, 0);
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+});
+
 describe("setup wizard: the dot row continues the native assistant", () => {
   afterEach(() => {
     resetDesktopShellForTests();

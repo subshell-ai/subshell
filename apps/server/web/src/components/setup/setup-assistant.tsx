@@ -19,8 +19,14 @@ export interface SetupAssistantProps {
   title: string;
   subtitle?: string;
   dots: { total: number; done: number; current: number };
-  /** Ghost button, left. Absent = hidden. */
-  back?: { label?: string; onClick: () => void };
+  /**
+   * Ghost button, left. Absent = hidden.
+   *
+   * `disabled` for the same reason the primary carries one: a screen running
+   * a `curl … | bash` must not be walked away from in EITHER direction, or
+   * the progress line and any failure land on a screen nobody is looking at.
+   */
+  back?: { label?: string; onClick: () => void; disabled?: boolean };
   /** Ghost button left of the primary. */
   skip?: { label: string; onClick: () => void; disabled?: boolean };
   primary: { label: string; onClick: () => void; disabled?: boolean; pending?: boolean; pendingLabel?: string };
@@ -92,7 +98,7 @@ export function SetupAssistant({
       <footer className="grid grid-cols-[1fr_auto_1fr] items-center border-t px-8">
         <div className="flex gap-2">
           {back && (
-            <Button variant="ghost" onClick={back.onClick}>
+            <Button variant="ghost" onClick={back.onClick} disabled={back.disabled}>
               {back.label ?? "Back"}
             </Button>
           )}
