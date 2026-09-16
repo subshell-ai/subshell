@@ -14,7 +14,7 @@ import { ForbiddenError } from "@/api/auth-guard.js";
 import { resolveSetupActor } from "@/api/setup.route.js";
 import { type ApplyConfigInput, type ApplyConfigResult, applyConfig } from "@/commands/configure.js";
 import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-env.js";
-import { IS_TEST, SERVER_PORT } from "@/constants.js";
+import { DEFAULT_TRUSTED_ORIGINS, IS_TEST, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
@@ -513,7 +513,16 @@ export function writePublishConfig(input: PublishConfigInput): NetworkConfigWrit
       "TRUSTED_ORIGINS is set in the server's environment, so config.env cannot add these origins; add them where the server is started.",
     );
   } else {
-    patch.trustedOrigins = unionOrigins(stored.TRUSTED_ORIGINS ?? env.TRUSTED_ORIGINS ?? "", input.origins).join(",");
+    // `DEFAULT_TRUSTED_ORIGINS`, not `""`. The key is ABSENT by default and
+    // config.env beats the built-in, so unioning against an empty base writes
+    // a file naming only the new origin — which silently strips the dev origins
+    // a developer's browser reaches this server on. The boot reconcile already
+    // knew this; two writers over one key, one of which knew, is how they
+    // disagree.
+    patch.trustedOrigins = unionOrigins(
+      stored.TRUSTED_ORIGINS ?? env.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS,
+      input.origins,
+    ).join(",");
   }
 
   if (input.baseUrl !== undefined) {

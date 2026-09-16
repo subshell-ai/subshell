@@ -525,7 +525,22 @@ const adminRoutes = new Elysia()
       if (!SAFE_PLUGIN_ID.test(params.pluginId)) {
         throw new HarnessStateError(`"${params.pluginId}" is not a valid plugin id`, 400);
       }
-      // Bytes first: a failed uninstall must not have already deleted
+      // A published NETWORK plugin is stopped before its bytes go, for the
+      // reason the disable branch above does it: deleting the package removes
+      // nothing the host is running. The supervised child would keep serving,
+      // the request guard would keep refusing traffic for a hostname nothing
+      // publishes any more, and `network.json` would keep saying `published`
+      // with no row left anywhere to say so. Same one function, so the
+      // ordering exists once; a failure refuses the uninstall (409) rather
+      // than removing the only page that could explain the tunnel.
+      const installedType = pluginTypeOf((await localPluginReports()).find((r) => r.id === params.pluginId)?.type);
+      if (installedType === "network") {
+        const stopped = await unpublishNetwork(params.pluginId);
+        if (!stopped.ok) {
+          throw new HarnessStateError([stopped.message, ...stopped.lastLines].join("\n"), 409);
+        }
+      }
+      // Bytes next: a failed uninstall must not have already deleted
       // presets for a plugin that stayed installed. `uninstallLocalPlugin`
       // also clears the enable-flag row, so a later reinstall starts enabled
       // — "installing writes nothing, the default is on" only means

@@ -201,7 +201,16 @@ async function isServingThisPort(host: PluginHost, binary: string, port: number)
   // fall back to the raw text when it does not, because a shape this cannot
   // parse may still name the port.
   const haystack = parsed ? JSON.stringify(parsed) : result.stdout;
-  return haystack.includes(`http://127.0.0.1:${port}`) || haystack.includes(`http://localhost:${port}`);
+  // Anchored on what must follow the port, or `3080` matches a serve target on
+  // `30800`. A port is the last component of these targets, so the next
+  // character is a JSON delimiter or a path separator — never another digit.
+  const targets = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
+  return targets.some((target) => {
+    const at = haystack.indexOf(target);
+    if (at === -1) return false;
+    const next = haystack.charAt(at + target.length);
+    return next === "" || !/[0-9]/.test(next);
+  });
 }
 
 /**

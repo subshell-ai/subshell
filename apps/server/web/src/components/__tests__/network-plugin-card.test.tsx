@@ -478,6 +478,33 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.getByText("TRUSTED_ORIGINS")).toBeTruthy();
   });
 
+  it("a later act clears the previous one's failure", async () => {
+    // A mutation's result outlives the state it describes. The error banner
+    // takes the first non-null error across all five mutations, and `begin()`
+    // used to clear only the output line — so a failed act's message stayed on
+    // screen through every act after it, including the ones that worked. The
+    // publish announcement had the same shape: it renders outside every state
+    // branch, so after Unpublish the card went on announcing a publish above a
+    // row that had gone back to `joined`.
+    mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/publish"
+        ? ndjson({ type: "error", message: "the daemon went away" })
+        : url.pathname === "/api/network/tailscale/leave"
+          ? Response.json({ ok: true, status: { state: "needs-login", addresses: [], hints: [] } })
+          : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy());
+
+    // A DIFFERENT mutation, which is the case that was broken: `leave` never
+    // cleared `publish`'s error, so the card reported a failure that had
+    // nothing to do with what it was now doing.
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect", hidden: false }));
+    await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull());
+  });
+
   it("a public-with-gate network says so permanently, above everything else", async () => {
     await renderCard(row({ exposure: "public-with-gate", state: "joined" }));
     expect(screen.getByText(/puts this server on the public internet with an identity check in front/)).toBeTruthy();

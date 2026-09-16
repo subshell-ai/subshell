@@ -214,8 +214,16 @@ describe("POST /api/network/:id/publish", () => {
       ),
     );
     expect(done.ok).toBe(true);
+    // The union starts from `DEFAULT_TRUSTED_ORIGINS`, not from nothing. The
+    // key is ABSENT by default and config.env beats the built-in, so writing
+    // only the new origin would silently strip the dev origins a developer's
+    // browser reaches this server on. The boot reconcile always knew that;
+    // this writer did not, and two writers over one key is how they disagree.
     expect(config.calls).toEqual([
-      { trustedOrigins: "https://server.example.com", baseUrl: "https://server.example.com" },
+      {
+        trustedOrigins: "http://localhost:5174,http://localhost:5173,https://server.example.com",
+        baseUrl: "https://server.example.com",
+      },
     ]);
     expect(done.config.warnings.some((w: string) => w.includes("passkey rpID"))).toBe(true);
   });

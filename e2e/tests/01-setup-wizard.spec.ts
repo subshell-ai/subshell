@@ -6,7 +6,7 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await expect(page).toHaveURL(/\/setup$/); // "/" redirects while needsSetup
   await expect(page.getByText("Welcome to Subshell")).toBeVisible();
 
-  // Step 1/3 — Account
+  // Step 1/4 — Account
   await page.fill("#name", ADMIN.name);
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
@@ -19,11 +19,18 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await page.fill("#password-confirm", ADMIN.password);
   await page.getByRole("button", { name: "Create Account" }).click();
 
-  // Step 2/3 — the agent step, now explicitly optional: a terminal plugin
-  // always exists, so this step can never dead-end. Boot seeds all six
-  // built-in plugins here, so pi's row reads Detected (stub binary on PATH)
-  // and the others Not found.
-  await expect(page.getByText("Step 2 of 3")).toBeVisible();
+  // Step 2/4 — the network step (spec 2026-09-15 network-plugins §7.2). It is
+  // optional and skipped here: connecting a real tailnet is not something an
+  // e2e run can do, and the point of the screen is that it can be passed.
+  await expect(page.getByText("Step 2 of 4")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Connect a Network" })).toBeVisible();
+  await page.getByRole("button", { name: "Skip for now" }).click();
+
+  // Step 3/4 — the agent step, explicitly optional: a terminal plugin always
+  // exists, so this step can never dead-end. Boot seeds every built-in plugin
+  // here, so pi's row reads Detected (stub binary on PATH) and the others Not
+  // found.
+  await expect(page.getByText("Step 3 of 4")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Add an Agent" })).toBeVisible();
   const piRow = page.getByRole("listitem", { name: "pi", exact: true });
   await expect(piRow).toBeVisible();
@@ -40,12 +47,12 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
 
   await page.getByRole("button", { name: "Continue" }).click();
 
-  // Step 3/3 — the launch step arrives filled in (Task 6's defaults), but
+  // Step 4/4 — the launch step arrives filled in (Task 6's defaults), but
   // this spec's job is the admin handoff, not the launch: spec 15 owns the
   // end-to-end launch on a dedicated clean instance. "Skip" must finish
   // setup exactly like a launch does — this also pins that no stray pane
   // is left on the shared DB by the wizard itself.
-  await expect(page.getByText("Step 3 of 3")).toBeVisible();
+  await expect(page.getByText("Step 4 of 4")).toBeVisible();
   // The wizard lands with a usable agent already picked, with no user act —
   // the wiring the old auto-filled profile combobox used to prove. WHICH
   // agent is host-dependent BY DESIGN of the stack: the local node's probe

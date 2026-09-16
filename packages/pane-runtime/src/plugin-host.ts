@@ -135,10 +135,15 @@ export function hostPlatform(): PluginPlatform {
  * own steps, which is the least interesting half of a `tailscale up` that takes
  * thirty seconds.
  *
- * Keyed by plugin id and set for the duration of one call, which is sound
- * because the routes take a per-plugin in-flight lock: there is at most one act
- * per plugin at a time, so there is at most one sink to hold. A plugin's own
- * `onLine` still runs, unchanged and first — this tees, it never replaces.
+ * Keyed by plugin id and set for the duration of one call. The routes take a
+ * per-plugin in-flight lock, so there is at most one ACT per plugin at a time.
+ * That lock does not cover READS: `GET /api/network` calls `status()` behind a
+ * memo rather than the lock, and the page polls it while a join streams, so a
+ * status probe's output can tee into a running join's body. Harmless — it is
+ * the same plugin's own output, and the alternative is threading a token
+ * through a contract that deliberately has no request in it — but it is worth
+ * knowing rather than discovering. A plugin's own `onLine` still runs,
+ * unchanged and first: this tees, it never replaces.
  */
 const actSinks = new Map<string, (line: string) => void>();
 
@@ -157,11 +162,17 @@ export async function withPluginOutput<T>(
   onLine: (line: string) => void,
   fn: () => Promise<T>,
 ): Promise<T> {
+  // The PREVIOUS sink is restored rather than deleted. Nesting is not the
+  // shape the routes use, but an inner `finally` that deleted unconditionally
+  // would silence an outer act's stream for the rest of its life, which is a
+  // worse failure than the one it was guarding against.
+  const previous = actSinks.get(pluginId);
   actSinks.set(pluginId, onLine);
   try {
     return await fn();
   } finally {
-    actSinks.delete(pluginId);
+    if (previous === undefined) actSinks.delete(pluginId);
+    else actSinks.set(pluginId, previous);
   }
 }
 
@@ -205,8 +216,17 @@ export function createPluginHost(options: PluginHostOptions): PluginHost {
           // Nobody is watching any more.
         }
       };
+      // Named fields, never `...opts`. A plugin is JavaScript at runtime, and
+      // a spread forwards whatever it passes — including `extraPath`, which
+      // `RunOptions` does not declare but `BoundedRunOptions` honours. That
+      // would let a plugin append directories to the child's PATH and so
+      // choose which binaries this process finds, which is exactly the claim
+      // the PATH-last rule makes.
       const { code, stdout, stderr, timedOut, aborted } = await runBounded(argv, {
-        ...opts,
+        ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
+        ...(opts?.env !== undefined ? { env: opts.env } : {}),
+        ...(opts?.stdin !== undefined ? { stdin: opts.stdin } : {}),
         ...(opts?.onLine || actSinks.has(options.pluginId) ? { onLine: teed } : {}),
       });
       return { code, stdout, stderr, timedOut, aborted };

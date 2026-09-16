@@ -174,7 +174,19 @@ export async function listInstalled(dataDir: string): Promise<InstalledPlugin[]>
  * is what lets that row carry a name and an error instead of being dropped.
  */
 function placeholderManifest(id: string): SubshellManifest {
-  return { apiVersion: 1, id, type: "agent-harness", name: id, description: "", entry: "" };
+  return {
+    apiVersion: 1,
+    id, // `terminal`, not `agent-harness`. A plugin whose package.json will not
+    // parse has no knowable type, and the one type that must never be GUESSED
+    // is the launchable one: a broken network plugin defaulting to
+    // `agent-harness` renders under the Agents heading and reaches the launch
+    // pickers. `terminal` is a harness type, so every consumer still works,
+    // and it is last in every picker's default rule.
+    type: "terminal",
+    name: id,
+    description: "",
+    entry: "",
+  };
 }
 
 /** Writes one plugin's files into `target`, creating directories as needed. */

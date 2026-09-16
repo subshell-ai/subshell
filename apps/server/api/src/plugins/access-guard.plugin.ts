@@ -302,7 +302,17 @@ async function guardRequest(request: Request, server: PeerLookup | null): Promis
     // first element, and a request naming a guarded host ANYWHERE in its Host
     // header is one this guard must not skip.
     [...guards.byHost.values()].find((candidate) => hostMatches(host, normalizeHost(candidate.hostname)));
-  if (spec === undefined) return undefined;
+  if (spec === undefined) {
+    // A Host carrying a comma or interior whitespace is the `Headers.get` join
+    // of duplicate headers, which no legitimate client sends. Falling through
+    // to "no guard names this" makes ambiguity the way past a guard, so while
+    // ANY guard is installed such a request is refused on its own terms —
+    // closing the class rather than the instance above.
+    if (/[,\s]/.test(host.trim())) {
+      return refusal("This request carried more than one Host header, which this server does not accept.");
+    }
+    return undefined;
+  }
 
   const deps = depsOverride ?? defaultDeps;
 
@@ -329,6 +339,12 @@ async function guardRequest(request: Request, server: PeerLookup | null): Promis
     const { payload } = await jwtVerify(token, deps.jwks(spec.teamDomain), {
       issuer: `https://${spec.teamDomain}`,
       audience: spec.aud,
+      // Measured: `createRemoteJWKSet` already refuses a symmetric or `none`
+      // `alg` before it produces a key, so algorithm confusion is closed
+      // without this. Pinned anyway, because that refusal lives in a
+      // dependency and this makes it a property of our own code — the kind of
+      // guarantee that should not quietly change under a version bump.
+      algorithms: ["RS256"],
     });
     const email = typeof payload.email === "string" ? payload.email : undefined;
     // Audit metadata only — never a credential. See the module docstring.

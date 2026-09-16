@@ -120,8 +120,28 @@ export function NetworkPluginCard({
   const commandSteps = row.privileged.length + (status?.hints ?? []).filter((hint) => hint.command).length;
   const numberSteps = commandSteps > 1;
   const recheck = () => void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
+  /**
+   * Starts one act, having forgotten every previous one.
+   *
+   * Resetting ALL five mutations rather than only the output line, because a
+   * mutation's result outlives the state it describes: `publish.data` renders
+   * outside every state branch, so after Unpublish the card went on saying
+   * "Published on Tailscale, updated the trusted origins" above a row that had
+   * gone back to `joined` — and after Disconnect, above one that had fallen to
+   * `needs-login`. Errors behaved the same way, since the banner takes the
+   * first non-null error across all five: a failed join's message stayed on
+   * screen through every later act.
+   *
+   * Every act goes through here, `unpublish` and `leave` included, which is
+   * what makes that true rather than nearly true.
+   */
   const begin = (run: () => void) => {
     setLine(undefined);
+    install.reset();
+    join.reset();
+    publish.reset();
+    unpublish.reset();
+    leave.reset();
     run();
   };
 
@@ -386,7 +406,12 @@ export function NetworkPluginCard({
 
               <div className="flex flex-wrap items-center gap-2">
                 {state === "published" && (
-                  <Button variant="outline" size="sm" disabled={busy} onClick={() => unpublish.mutate({ id: row.id })}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => begin(() => unpublish.mutate({ id: row.id }))}
+                  >
                     {unpublish.isPending ? "Unpublishing…" : "Unpublish"}
                   </Button>
                 )}
@@ -411,7 +436,7 @@ export function NetworkPluginCard({
                       confirmLabel: "Disconnect",
                       danger: true,
                     });
-                    if (proceed) leave.mutate({ id: row.id, confirm: row.id });
+                    if (proceed) begin(() => leave.mutate({ id: row.id, confirm: row.id }));
                   }}
                 >
                   Disconnect

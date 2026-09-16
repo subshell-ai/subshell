@@ -174,16 +174,31 @@ export async function prepareNetworkGuards(): Promise<void> {
 export async function prepareNetworkProcesses(): Promise<void> {
   try {
     let republished = false;
-    for (const row of await eligible()) {
-      if (row.publishedPort !== null && row.publishedPort !== SERVER_PORT) {
-        republished = (await reconcilePort(row)) || republished;
+    const rows = await eligible();
+    // The reconcile pass runs FIRST and completely, so the re-ask below lands
+    // before any tunnel is armed. Re-installing the guards after the arming
+    // loop inverted this file's whole ordering rule on the port-change path:
+    // for one moment a republished network's tunnel was up against the OLD
+    // guard set.
+    const reconciled = new Set<string>();
+    for (const row of rows) {
+      if (row.publishedPort !== null && row.publishedPort !== SERVER_PORT && (await reconcilePort(row))) {
+        republished = true;
+        reconciled.add(row.id);
       }
-      armFrom(row);
     }
     // A republish may have produced a different guard — a new hostname, a new
     // Access application. Cheaper to re-ask everyone than to reason about
     // whose changed, and this runs at most once per boot.
     if (republished) await prepareNetworkGuards();
+    for (const row of rows) {
+      // A reconcile already armed the process its OWN republish described.
+      // Arming again from `supervisedProcess(ctx)` would stop that child and
+      // spawn a replacement, so the outcome's process never won — and the two
+      // can legitimately differ, which is the only reason `PublishOutcome`
+      // carries a process at all.
+      if (!reconciled.has(row.id)) armFrom(row);
+    }
   } catch (err) {
     getLogger().withError(err).warn("could not start network plugin processes; published networks may be down");
   }

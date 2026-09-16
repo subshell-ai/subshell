@@ -242,9 +242,13 @@ describe("prepareNetworkProcesses", () => {
       expect(state.port).toBe(SERVER_PORT);
       expect(state.addresses).toEqual([address]);
       expect(state.publishedAt).toBeDefined();
-      // The outcome's own process wins over what `supervisedProcess` would say
-      // a moment later, so the NEW tunnel is the one that runs.
-      expect(rec.armed.map((row) => row.spec)).toEqual([newSpec, processSpec]);
+      // The outcome's own process wins, and is the ONLY one armed. Arming
+      // again from `supervisedProcess` a moment later would stop the child the
+      // republish just started and spawn a replacement — so the outcome's
+      // process never actually ran, which is the only reason `PublishOutcome`
+      // carries a process at all. This assertion previously expected both and
+      // said the opposite in its comment.
+      expect(rec.armed.map((row) => row.spec)).toEqual([newSpec]);
       expect(rec.origins).toEqual([{ id: plugin, addresses: [address] }]);
       expect(rec.audits).toHaveLength(1);
       expect(rec.audits[0]).toMatchObject({ actorUserId: null, action: "network.publish", targetId: plugin });
