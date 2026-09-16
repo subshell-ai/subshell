@@ -855,7 +855,7 @@ Anything still open is named as open rather than quietly treated as settled.
 |---|---|---|
 | 1 | **open** | No live tailnet was available. The interactive join reads the URL off the output AND falls back to re-reading `AuthURL` from `status --json`, so it does not rest on which stream carries it. The fallback at `join.ts` exists precisely because this is unmeasured. |
 | 2 | **open** | No version floor is pinned anywhere in the plugin. If TS-2026-005's regression is present on an operator's install, `publish` fails and the refusal carries the CLI's own stderr — a bad message rather than a wrong state, but still unmeasured. |
-| 3 | deferred | Phase 2 (Headscale). |
+| 3 | **unmeasured, shipped so** | Phase 2's Headscale plugin shipped 2026-09-16 with this measurement still open — see the amendment at the end of this section. |
 | 4 | **shipped, still open** | NetBird (phase 2) shipped, but this measurement is STILL UNMEASURED — see the amendments note below § 10a. The plugin degrades honestly: a socket error, a permission refusal and an unparseable body are ALL `daemon-down`, never `needs-privilege`, so it never relies on the peer-credential claim being true. |
 | 5 | **open, degraded honestly in code** | Phase 3 landed (2026-09-16, `@subshell-ai/plugin-cloudflare-tunnel`) with no live Access team to measure against. The pre-flight passes ONLY on positive evidence of Access — the `Location` header or any `cf-access-*` header, if present — and treats every other answer, including a failed fetch, as a refusal; the exact status and header names remain unobserved. `--token-file` is NOT used at all, so its version floor is not this plugin's floor: the token is hydrated as the child's `TUNNEL_TOKEN` environment (`secretEnv`), which is the mechanism § 4.4 named as the expected route. Recorded with the other phase-3 results in § 10e below. |
 | 6 | **measured** | Elysia 1.4.29 on Bun 1.4.2 DOES run `onRequest` for the WebSocket upgrade, and a `Response` returned from it prevents the upgrade: the socket's `open` hook never fires. So no `requireAccess` was threaded into the two upgrade hooks. Pinned by three tests in `access-guard.plugin.test.ts` against a REAL listener, which will say so if a version bump changes the answer. |
@@ -905,6 +905,18 @@ never upgraded: Tailscale's serve state is readable, so a reset from a terminal
 must still show as `joined` whatever our record claims. NetBird's manifest now
 carries the flag; the plugin's code still never reports a state it cannot see.
 
+**Amendment (2026-09-16, phase 2):** #3 shipped unmeasured. The Headscale
+plugin (`@subshell-ai/plugin-headscale`, spec 2026-09-16 § 4) was built to the
+posture § 10.3's own text prescribes for a refusal: `publish` tries
+`tailscale serve --bg --http=80 http://127.0.0.1:<port>` (reset first) and,
+when the CLI refuses, returns a refusal naming § 10.3 as unmeasured and
+pointing the operator at the plain `http://<DNSName>:<port>` address the
+status already lists — never a fabricated `published` state. `status` treats
+`CertDomains` as always empty regardless of what the daemon reports, so the
+http-everywhere posture does not rest on the measurement either. The live
+measurement remains an operator action (§ 9's out-of-scope stands); when it
+happens, only the vendor table's publish row can change.
+
 ### 10d. What phase 3 must re-derive, and the refusal holding the place
 
 A settings write does not re-derive anything, so `PATCH /api/network/:id/settings`
@@ -931,7 +943,6 @@ instead of at five call sites.
 
 Reachable by nobody today: the shipping Tailscale plugin declares no settings
 fields, so every key in such a write is unknown and the route 400s before this.
-
 
 ### 10e. Phase 3 as built (2026-09-16) — what the first `supervise`/`guard` consumer changed
 

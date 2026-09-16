@@ -51,7 +51,7 @@ describe("built-in plugin manifests", () => {
     // built-in whose `subshell` block went missing — fails loudly here rather
     // than passing vacuously over a shorter list. Another built-in updates
     // this number on purpose.
-    expect(manifests.length).toBe(9);
+    expect(manifests.length).toBe(10);
     for (const m of manifests) {
       expect(m.apiVersion, `${m.name} declares a stale subshell.apiVersion`).toBe(PLUGIN_API_VERSION);
     }

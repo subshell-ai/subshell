@@ -18,6 +18,7 @@ const BUILT_INS = [
   "claude-code",
   "cloudflare-tunnel",
   "codex",
+  "headscale",
   "hermes",
   "netbird",
   "opencode",

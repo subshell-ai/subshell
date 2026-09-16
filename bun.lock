@@ -304,6 +304,7 @@
         "@subshell-ai/plugin-claude-code": "workspace:*",
         "@subshell-ai/plugin-cloudflare-tunnel": "workspace:*",
         "@subshell-ai/plugin-codex": "workspace:*",
+        "@subshell-ai/plugin-headscale": "workspace:*",
         "@subshell-ai/plugin-hermes": "workspace:*",
         "@subshell-ai/plugin-netbird": "workspace:*",
         "@subshell-ai/plugin-opencode": "workspace:*",
@@ -357,6 +358,18 @@
     "packages/plugins/codex": {
       "name": "@subshell-ai/plugin-codex",
       "version": "0.2.0",
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@subshell-ai/plugin-api": "workspace:*",
+        "@types/bun": "1.3.14",
+        "hash-runner": "4.0.0",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/plugins/headscale": {
+      "name": "@subshell-ai/plugin-headscale",
+      "version": "0.1.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -1274,6 +1287,8 @@
     "@subshell-ai/plugin-cloudflare-tunnel": ["@subshell-ai/plugin-cloudflare-tunnel@workspace:packages/plugins/cloudflare-tunnel"],
 
     "@subshell-ai/plugin-codex": ["@subshell-ai/plugin-codex@workspace:packages/plugins/codex"],
+
+    "@subshell-ai/plugin-headscale": ["@subshell-ai/plugin-headscale@workspace:packages/plugins/headscale"],
 
     "@subshell-ai/plugin-hermes": ["@subshell-ai/plugin-hermes@workspace:packages/plugins/hermes"],
 

@@ -52,6 +52,7 @@ describe("the control-plane host's plugins", () => {
       "claude-code",
       "cloudflare-tunnel",
       "codex",
+      "headscale",
       "hermes",
       "netbird",
       "opencode",

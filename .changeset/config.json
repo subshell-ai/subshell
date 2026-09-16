@@ -20,6 +20,7 @@
     "@internal/subshell-protocol",
     "@internal/tsconfig",
     "@subshell-ai/plugin-cloudflare-tunnel",
+    "@subshell-ai/plugin-headscale",
     "@subshell-ai/plugin-netbird"
   ],
   "privatePackages": {
