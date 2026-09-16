@@ -271,6 +271,51 @@ describe("/api/network", () => {
       expect(calls.publish).toBe(0);
     });
 
+    it("does NOT gate join on a required SECRET — join is how the secret arrives", async () => {
+      // The Cloudflare Tunnel's shape: the token is a required `secret` field,
+      // and the join's credential IS how it reaches the write-only store
+      // (`host.secrets.set`). Demanding the store already hold it before join
+      // runs made the Connect button structurally dead — the only path to
+      // satisfy the gate was to have already performed the act the gate was
+      // gating. The review of phases 2/3 found it; publish still gates
+      // (above), because publish is downstream of delivery.
+      const { entry, calls } = makeFakePlugin({
+        fields: [{ key: "tunnel-token", label: "Tunnel token", type: "secret", required: true }],
+        join: { state: "joined" },
+      });
+      setNetworkDepsForTests(fakeDeps(entry));
+      const res = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, {
+          method: "POST",
+          body: JSON.stringify({ credential: "tskey-really-a-token" }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      await frames(res);
+      expect(calls.join.length).toBe(1);
+      expect(calls.join[0]?.credential).toBe("tskey-really-a-token");
+    });
+
+    it("still gates join on required NON-secret fields", async () => {
+      // The other half, so the exemption above stays narrow: the control URL
+      // (Headscale) and the hostname/team/AUD triple (Cloudflare) are ordinary
+      // settings no join can deliver, and they must be set first.
+      const { entry, calls } = makeFakePlugin({
+        fields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
+      });
+      setNetworkDepsForTests(fakeDeps(entry));
+      const res = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, {
+          method: "POST",
+          body: JSON.stringify({ credential: "tskey-any" }),
+        }),
+      );
+      const body = (await res.json()) as { code: string; message: string };
+      expect([res.status, body.code]).toEqual([409, "NETWORK_UNCONFIGURED"]);
+      expect(body.message).toContain("Control server URL");
+      expect(calls.join).toEqual([]);
+    });
+
     it("treats a required field carrying a default as configured", async () => {
       const { entry, calls } = makeFakePlugin({
         fields: [{ key: "region", label: "Region", type: "string", required: true, default: "eu" }],

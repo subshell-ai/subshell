@@ -64,7 +64,10 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
     // Fresh, not memoised: this decides whether an act may run at all, and
     // a three-second-old answer is the wrong basis for that.
     const before = await readNetworkStatus(entry, ctx, { fresh: true });
-    const refusal = readinessRefusal(before, entry.manifest.name) ?? configurationRefusal(entry, ctx);
+    // `"join"`: required SECRETS are exempt here because join is the act that
+    // stores them (the credential paste-box); required non-secret settings are
+    // still demanded. See `configurationRefusal`.
+    const refusal = readinessRefusal(before, entry.manifest.name) ?? configurationRefusal(entry, ctx, "join");
     if (refusal) {
       release();
       return status(refusal.status, apiErrorBody({ code: refusal.code, message: refusal.message }));

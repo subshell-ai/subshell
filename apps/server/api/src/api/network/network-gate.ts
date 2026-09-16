@@ -314,10 +314,28 @@ export function readinessRefusal(status: NetworkStatus, name: string): NetworkRe
  * a write-only store. A field carrying a `default` is satisfied by it: the
  * plugin will see that default, so demanding the admin retype it would refuse
  * a configuration that already works.
+ *
+ * **`act: "join"` exempts required `secret` fields, and only them.** Join is
+ * the act that DELIVERS a credential — a paste-box token flows through the
+ * join's `credential` argument and into the write-only store (`host.secrets
+ * .set`), never into the settings object. Requiring the store to already hold
+ * a secret before the act that stores it is the contradiction that made the
+ * Cloudflare Tunnel's Connect button structurally dead: the only way to satisfy
+ * the gate was to have already performed the gated act. Non-secret required
+ * fields (Headscale's control URL, Cloudflare's hostname/team/aud) are NOT
+ * exempt — no join delivers them, they must be configured first, and the card
+ * renders exactly those under "settings a join cannot proceed without".
+ * `publish` passes nothing, so it demands every required field including the
+ * secret, because it is downstream of delivery.
  */
-export function configurationRefusal(entry: NetworkPluginEntry, ctx: NetworkContext): NetworkRefusal | undefined {
+export function configurationRefusal(
+  entry: NetworkPluginEntry,
+  ctx: NetworkContext,
+  act: "join" | "publish" = "publish",
+): NetworkRefusal | undefined {
   for (const field of entry.plugin.settingsFields?.() ?? []) {
     if (!field.required) continue;
+    if (act === "join" && field.type === "secret") continue;
     const set =
       field.type === "secret"
         ? ctx.secrets.has(field.key)
