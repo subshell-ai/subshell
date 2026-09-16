@@ -7,6 +7,7 @@ import type {
   NetworkStatus,
   PublishOutcome,
   PublishRefusal,
+  RequestGuardSpec,
   SettingsField,
   SubshellManifest,
 } from "@internal/pane-runtime";
@@ -51,6 +52,14 @@ export interface FakeOptions {
   join?: JoinOutcome | { throws: string } | (() => Promise<JoinOutcome>);
   /** What `publish()` answers, or a thrown message. Absent `publish` support: pass `noPublish`. */
   publish?: PublishOutcome | PublishRefusal | { throws: string };
+  /**
+   * What `requestGuard()` answers, or a thrown message.
+   *
+   * The guard's ONE source since the outcome stopped carrying one: the route
+   * and the boot pass both ask this, so a fixture that set it on the publish
+   * outcome was testing a path that no longer exists.
+   */
+  guard?: RequestGuardSpec | { throws: string };
   /** Drops the `publish` member entirely, as a plugin without the capability would. */
   noPublish?: boolean;
   /** The settings schema the plugin declares. */
@@ -79,7 +88,7 @@ export function makeFakePlugin(options: FakeOptions = {}): { entry: NetworkPlugi
   const calls: FakeCalls = { status: 0, join: [], publish: 0, unpublish: 0, leave: 0, validate: [] };
 
   const plugin: NetworkPlugin = {
-    capabilities: () => ["publish", "settings"],
+    capabilities: () => ["publish", "settings", ...(options.guard ? (["guard"] as const) : [])],
     status: async () => {
       calls.status += 1;
       if (options.statusThrows) throw new Error(options.statusThrows);
@@ -105,6 +114,14 @@ export function makeFakePlugin(options: FakeOptions = {}): { entry: NetworkPlugi
       return options.issues ?? [];
     },
   };
+
+  if (options.guard) {
+    const guard = options.guard;
+    plugin.requestGuard = (): RequestGuardSpec | null => {
+      if ("throws" in guard) throw new Error(guard.throws);
+      return guard;
+    };
+  }
 
   if (!options.noPublish) {
     plugin.publish = async (_ctx: NetworkContext) => {

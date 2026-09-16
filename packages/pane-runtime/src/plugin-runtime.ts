@@ -294,6 +294,22 @@ export function createInProcessRuntime(): PluginRuntime {
         if (mismatches.length > 0) {
           return broken(manifest, `capabilities do not match the implementation: ${mismatches.join("; ")}`, stale);
         }
+        // A PUBLIC exposure without a guard is refused at LOAD, where every
+        // other contract violation is already named, rather than at the moment
+        // an admin presses publish. The host refuses to publish or to arm such
+        // a plugin anyway; saying so at install time is what turns "this fails
+        // when you use it" into "this cannot be installed", and it costs one
+        // check where the manifest and the object are both already in hand.
+        if (
+          manifest.network?.exposure === "public-with-gate" &&
+          typeof (plugin as { requestGuard?: unknown }).requestGuard !== "function"
+        ) {
+          return broken(
+            manifest,
+            'it declares `exposure: "public-with-gate"` — publishing reaches the open internet — but implements no `requestGuard`, so nothing could be put in front of it',
+            stale,
+          );
+        }
         return stale ? { manifest, plugin, stale: true } : { manifest, plugin };
       } catch (err) {
         return broken(manifest, describe(err), stale);

@@ -18,7 +18,8 @@ import { NetworkParamsSchema } from "@/api/network/schemas.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { setPluginGuards } from "@/plugins/access-guard.plugin.js";
 import { apiModels } from "@/schema/index.js";
-import { writeNetworkState } from "@/services/network/state.js";
+import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
+import { networkContext, writeNetworkState } from "@/services/network/state.js";
 import { armProcess } from "@/services/network/supervisor.js";
 
 const PublishBodySchema = t.Object(
@@ -144,7 +145,18 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
       // returned addresses but no guard is not a plugin to trust with the
       // difference. Nothing has been armed at this point, so refusing here
       // leaves the machine exactly as it was.
-      if (entry.manifest.network?.exposure === "public-with-gate" && !result.guard) {
+      // REBUILT AFTER `publish()`, not the one `prepareNetworkAct` made before
+      // it. A plugin may store a secret while publishing, and `NetworkContext`
+      // reports which secrets are set — so asking on the pre-publish context
+      // would install a guard derived from state the publish has already
+      // changed, while boot derives from the state after it. Two derivations,
+      // one of which is stale: exactly the disagreement deleting
+      // `PublishOutcome.guard` was meant to end.
+      const published = await networkContext(id, entry);
+      // ONE resolver, shared with the boot pass, so a `requestGuard` that
+      // throws or returns null folds the same three ways in both places.
+      const resolved = resolveNetworkGuard(entry, published);
+      if (resolved.refused) {
         release();
         send({
           type: "done",
@@ -162,15 +174,13 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
 
       // GUARD FIRST. See the docstring: the tunnel must never be able to
       // carry a request before the check on it is installed. Replacing by
-      // hostname rather than appending keeps a re-publish idempotent.
-      if (result.guard) {
-        const guard = result.guard;
-        // Replaced by OWNER rather than by hostname: a re-publish after a
-        // settings change declares a different hostname, and filtering on the
-        // new one would leave the old guard standing with nothing able to
-        // remove it.
-        setPluginGuards(id, [guard]);
-        send({ type: "line", text: `Requiring a Cloudflare Access assertion for ${guard.hostname}.` });
+      // OWNER rather than by hostname keeps a re-publish idempotent — a
+      // re-publish after a settings change declares a different hostname, and
+      // filtering on the new one would leave the old guard standing with
+      // nothing able to remove it.
+      if (resolved.guard) {
+        setPluginGuards(id, [resolved.guard]);
+        send({ type: "line", text: `Requiring a Cloudflare Access assertion for ${resolved.guard.hostname}.` });
       }
       if (result.process) {
         armProcess(id, result.process);

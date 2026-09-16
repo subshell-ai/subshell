@@ -100,7 +100,7 @@ describe("POST /api/network/:id/publish", () => {
 
   it("installs the guard, records the publish and unions the origins", async () => {
     const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES, guard: GUARD } });
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, guard: GUARD });
     setNetworkDepsForTests(
       fakeDeps(entry, { config, configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080" }) }),
     );
@@ -131,7 +131,7 @@ describe("POST /api/network/:id/publish", () => {
   it("replaces only its own hostname in the guard set", async () => {
     const other: RequestGuardSpec = { ...GUARD, hostname: "someone-else.example.com" };
     setAccessGuards([{ pluginId: "someone-else", spec: other }]);
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES, guard: GUARD } });
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, guard: GUARD });
     setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
     await frames(await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })));
     expect(activeAccessGuards().map((g) => g.spec.hostname)).toEqual([
@@ -168,7 +168,7 @@ describe("POST /api/network/:id/publish", () => {
     // the file. Reporting a refusal here would be reporting a failure for an
     // act that succeeded.
     const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES, guard: GUARD } });
+    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, guard: GUARD });
     setNetworkDepsForTests(
       fakeDeps(entry, {
         config,

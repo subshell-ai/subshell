@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/network-public-no-guard",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 2,
+    "id": "network-public-no-guard",
+    "type": "network",
+    "name": "Public With No Gate",
+    "description": "reaches the open internet and describes nothing to put in front of it",
+    "entry": "index.js",
+    "network": { "platforms": ["linux"], "exposure": "public-with-gate" }
+  }
+}

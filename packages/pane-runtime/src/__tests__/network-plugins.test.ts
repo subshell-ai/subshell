@@ -64,6 +64,19 @@ describe("loading a network plugin", () => {
     expect(result.error).toContain("publish");
   });
 
+  it("refuses a PUBLIC exposure that implements no request guard", async () => {
+    // `public-with-gate` means publishing reaches the open internet, and the
+    // guard is the perimeter there — so a plugin declaring that exposure with
+    // no `requestGuard` describes something the host must refuse to publish
+    // and refuse to arm. Refused at LOAD instead, where every other contract
+    // violation is named, so it cannot be installed rather than failing the
+    // first time somebody presses a button.
+    const result = await createInProcessRuntime().load(join(FIXTURES, "network-public-no-guard"));
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toContain("requestGuard");
+  });
+
   it("still refuses a harness missing ITS required members", async () => {
     // The type-conditional list must not have loosened the harness path.
     const result = await createInProcessRuntime().load(join(FIXTURES, "missing-validate"));

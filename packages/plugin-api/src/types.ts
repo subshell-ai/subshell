@@ -574,14 +574,29 @@ export interface JoinInput {
 /** How a join ended. */
 export type JoinOutcome = { state: "joined" } | { state: "needs-login"; loginUrl: string; loginCode?: string };
 
-/** What publishing produced, and what the host must now run and guard. */
+/**
+ * What publishing produced, and what the host must now run.
+ *
+ * It does NOT carry a guard, deliberately. It used to, and that made two
+ * sources for one fact: the route installed the outcome's guard while every
+ * later boot installed whatever {@link NetworkPlugin.requestGuard} described —
+ * so a plugin that produced its guard only at publish time was guarded by the
+ * route and UNGUARDED after any restart, with nothing refusing the shape. The
+ * two sources also met in the host's port reconcile, where the outcome's guard
+ * was silently dropped.
+ *
+ * `requestGuard(ctx)` is the single source now, and the host asks it after a
+ * publish as well as at boot. A guard whose value is discovered BY the publish
+ * act is therefore unwritable — which is the right failure, because such a
+ * guard is wrong the moment its supervised process respawns with a different
+ * hostname, and storing it would persist a value stale after exactly the event
+ * the storage existed for.
+ */
 export interface PublishOutcome {
   /** Where the server is now reachable. At least one, or this was not a publish. */
   addresses: NetworkAddress[];
   /** A long-running process the HOST must supervise for the publish to hold. */
   process?: SupervisedProcessSpec;
-  /** A front-door check the HOST must apply to traffic arriving this way. */
-  guard?: RequestGuardSpec;
 }
 
 /** A publish the plugin declined, with the reason to render. */

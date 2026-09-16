@@ -14,6 +14,7 @@ import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-e
 import { DEFAULT_TRUSTED_ORIGINS, IS_TEST, SERVER_PORT } from "@/constants.js";
 import { type OwnedGuard, setAccessGuards } from "@/plugins/access-guard.plugin.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
+import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
 import { networkContext, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { armProcess } from "@/services/network/supervisor.js";
 import { enabledNetworkPlugins } from "@/services/nodes/local-plugins.js";
@@ -188,24 +189,10 @@ export async function prepareNetworkGuards(): Promise<Prepared[]> {
   }
 }
 
-/**
- * Asks one plugin for its guard and answers both questions at once.
- *
- * The three ways to have no guard — no member, a null return, a throw — are
- * one answer here, which is the whole point of doing it in one place. A throw
- * does NOT undo the publish: that is still the admin's standing decision, and
- * what failed is this host's attempt to honour it.
- */
+/** One eligible row with its guard question answered, by the shared resolver. */
 function resolveGuard(row: Eligible): Prepared {
-  const required = needsGuard(row.entry);
-  if (!row.entry.plugin.requestGuard) return { ...row, guard: null, refuseProcess: required };
-  try {
-    const guard = row.entry.plugin.requestGuard(row.ctx);
-    return { ...row, guard: guard ?? null, refuseProcess: required && !guard };
-  } catch (err) {
-    getLogger().withError(err).warn(`network plugin "${row.id}" failed to describe its request guard`);
-    return { ...row, guard: null, refuseProcess: required };
-  }
+  const { guard, refused } = resolveNetworkGuard(row.entry, row.ctx);
+  return { ...row, guard, refuseProcess: refused };
 }
 
 /**
@@ -255,18 +242,6 @@ export async function prepareNetworkProcesses(prepared?: Prepared[]): Promise<vo
   } catch (err) {
     getLogger().withError(err).warn("could not start network plugin processes; published networks may be down");
   }
-}
-
-/**
- * Whether this plugin's exposure makes a request guard mandatory.
- *
- * Manifest data, read without loading plugin code: `public-with-gate` means
- * publishing reaches the open internet with an identity check in front. The
- * check IS the perimeter there, so a tunnel without one is the whole risk the
- * exposure label exists to bound.
- */
-function needsGuard(entry: NetworkPluginEntry): boolean {
-  return entry.manifest.network?.exposure === "public-with-gate";
 }
 
 /**
