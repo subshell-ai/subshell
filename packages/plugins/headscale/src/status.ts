@@ -270,7 +270,10 @@ async function isServingThisPort(host: PluginHost, binary: string, port: number)
 function needsLoginHints(backendState: string | undefined, authUrl: string | undefined): NetworkHint[] {
   if (backendState === "Stopped") {
     return [
-      { text: "Tailscale is installed and switched off. Turn it back on, then re-check.", command: "tailscale up" },
+      {
+        text: "Tailscale is installed and switched off. Turn it back on — this page will notice when you do.",
+        command: "tailscale up",
+      },
     ];
   }
   if (authUrl) {

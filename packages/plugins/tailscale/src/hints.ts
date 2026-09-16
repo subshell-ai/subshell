@@ -70,10 +70,10 @@ export function daemonDownHints(platform: PluginPlatform, detail: string): Netwo
     platform === "darwin"
       ? [
           {
-            text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in, then re-check.",
+            text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in — this page will notice when you do.",
           },
           {
-            text: "If you installed the command-line daemon instead, install and start it, then re-check.",
+            text: "If you installed the command-line daemon instead, install and start it — this page will notice when you do.",
             command: "sudo tailscaled install-system-daemon",
             docsUrl: TAILSCALED_MACOS_DOCS_URL,
             privileged: true,
@@ -81,7 +81,7 @@ export function daemonDownHints(platform: PluginPlatform, detail: string): Netwo
         ]
       : [
           {
-            text: "The Tailscale daemon is not running. Start it, then re-check.",
+            text: "The Tailscale daemon is not running. Start it — this page will notice when you do.",
             command: "sudo systemctl start tailscaled",
             docsUrl: CLI_DOCS_URL,
             privileged: true,
@@ -104,7 +104,7 @@ export function daemonDownHints(platform: PluginPlatform, detail: string): Netwo
 export function needsPrivilegeHints(userName: string): NetworkHint[] {
   return [
     {
-      text: "This server is not allowed to control Tailscale yet. Grant its user access to the daemon, then re-check.",
+      text: "This server is not allowed to control Tailscale yet. Grant its user access to the daemon — this page will notice when you do.",
       command: `sudo tailscale set --operator=${userName}`,
       docsUrl: CLI_DOCS_URL,
       privileged: true,

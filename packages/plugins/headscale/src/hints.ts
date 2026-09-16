@@ -76,10 +76,10 @@ export function daemonDownHints(platform: PluginPlatform, detail: string): Netwo
     platform === "darwin"
       ? [
           {
-            text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in, then re-check.",
+            text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in — this page will notice when you do.",
           },
           {
-            text: "If you installed the command-line daemon instead, install and start it, then re-check.",
+            text: "If you installed the command-line daemon instead, install and start it — this page will notice when you do.",
             command: "sudo tailscaled install-system-daemon",
             docsUrl: TAILSCALED_MACOS_DOCS_URL,
             privileged: true,
@@ -87,7 +87,7 @@ export function daemonDownHints(platform: PluginPlatform, detail: string): Netwo
         ]
       : [
           {
-            text: "The Tailscale daemon is not running. Start it, then re-check.",
+            text: "The Tailscale daemon is not running. Start it — this page will notice when you do.",
             command: "sudo systemctl start tailscaled",
             docsUrl: CLI_DOCS_URL,
             privileged: true,
@@ -107,7 +107,7 @@ export function daemonDownHints(platform: PluginPlatform, detail: string): Netwo
 export function needsPrivilegeHints(userName: string): NetworkHint[] {
   return [
     {
-      text: "This server is not allowed to control Tailscale yet. Grant its user access to the daemon, then re-check.",
+      text: "This server is not allowed to control Tailscale yet. Grant its user access to the daemon — this page will notice when you do.",
       command: `sudo tailscale set --operator=${userName}`,
       docsUrl: CLI_DOCS_URL,
       privileged: true,
@@ -190,10 +190,12 @@ export function foreignControlServerHints(where: string, configuredUrl: string |
     {
       text: `This machine's Tailscale belongs to ${where}, and this plugin has no control server URL to check it against.`,
     },
-    // Not "then re-check": SAVING the URL already re-runs this check — the
-    // settings mutation invalidates the row, so the button advice describes a
-    // manual step for something that just happened (operator read, 2026-09-16:
-    // "what does re-check mean here?").
+    // No tail at all — not the old "then re-check" (the button itself is
+    // gone as of the operator's sixth read the same day) and no "this page
+    // will notice" either: SAVING the URL already re-runs this check — the
+    // settings mutation invalidates the row — so either would describe a
+    // manual step for something that just happened (operator read,
+    // 2026-09-16: "what does re-check mean here?").
     { text: "Saving the control server URL for this plugin re-runs this check." },
   ];
 }

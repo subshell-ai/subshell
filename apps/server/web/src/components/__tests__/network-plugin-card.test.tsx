@@ -253,7 +253,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     await renderCard(row({ supported: false, platforms: ["linux"], status: undefined }));
     expect(screen.getByText(/Not available on this server's platform/)).toBeTruthy();
     expect(screen.getByText(/runs on Linux/)).toBeTruthy();
-    // No act is possible here, so none is offered — not even Re-check.
+    // No act is possible here, so none is offered.
     expect(screen.queryByRole("button")).toBeNull();
   });
 
@@ -371,7 +371,7 @@ describe("NetworkPluginCard: the state matrix", () => {
               command: "sudo tailscaled install-system-daemon",
               privileged: true,
             },
-            { text: "Then come back and re-check.", privileged: true },
+            { text: "Then come back when it is done.", privileged: true },
           ],
         },
       }),
@@ -382,7 +382,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     // A hint with no command is NOT step 3. It is the sentence explaining what
     // to do once the two steps above are done, and numbering it would tell the
     // reader to perform a sentence.
-    expect(card.textContent).toContain("Then come back and re-check.");
+    expect(card.textContent).toContain("Then come back when it is done.");
     expect(card.textContent).not.toContain("3.");
     // Still copy-only, however they arrived.
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
@@ -436,7 +436,7 @@ describe("NetworkPluginCard: the state matrix", () => {
           addresses: [],
           hints: [
             { text: "Then register it as a system daemon.", command: "sudo tailscaled install-system-daemon" },
-            { text: "Then come back and re-check." },
+            { text: "Then come back when it is done." },
           ],
         },
       }),
@@ -445,7 +445,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     // Nothing is hoisted: the list opens with a command, so it has no lead.
     expect(text.indexOf("1.Install the daemon")).toBeLessThan(text.indexOf("2.Then register it as a system daemon."));
     expect(text.indexOf("2.Then register it as a system daemon.")).toBeLessThan(
-      text.indexOf("Then come back and re-check."),
+      text.indexOf("Then come back when it is done."),
     );
   });
 
@@ -508,7 +508,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     await waitFor(() => expect(calls.some((c) => c.pathname === "/api/network/tailscale/install")).toBe(true));
   });
 
-  it("a daemon that is down renders the plugin's own hint and offers only Re-check", async () => {
+  it("a daemon that is down renders the plugin's own hint and no control at all", async () => {
     await renderCard(
       row({
         state: "daemon-down",
@@ -522,7 +522,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     // Verbatim: this page does not paraphrase what a plugin says about its
     // own daemon.
     expect(screen.getByText("tailscaled is not running.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-check" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
   });
 
@@ -553,7 +553,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByText("2.")).toBeNull();
   });
 
-  it("needs-privilege is the same shape as a daemon that is down — a hint and Re-check", async () => {
+  it("needs-privilege is the same shape as a daemon that is down — a hint and nothing else", async () => {
     await renderCard(
       row({
         state: "needs-privilege",
@@ -565,7 +565,7 @@ describe("NetworkPluginCard: the state matrix", () => {
       }),
     );
     expect(screen.getByText("This server may not talk to tailscaled.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-check" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
   });
 
@@ -2162,23 +2162,26 @@ describe("hint numbering", () => {
   });
 });
 
-describe("NetworkPluginCard: a way back from every state that needs one", () => {
-  // Installing the vendor's tool happens in a terminal — every step the card
-  // shows is copy-only, because the server has no way to run a privileged
-  // command — so the person leaves, does the work, and comes back. A state
-  // that offers no Re-check makes reloading the page the only way to say so,
-  // and a row still reporting "not installed" about a machine where it now IS
-  // reads as the feature being broken rather than as stale.
-  // `needs-login` is in this list for two reasons beyond the general one: a
-  // plugin's hint there can legitimately say "turn it back on, then re-check"
-  // (Tailscale's `Stopped` hint does, and a sentence pointing at a control
-  // that is not on screen is worse than no sentence), and signing in finishes
-  // on ANOTHER device, so the page needs a way to be told rather than only the
-  // poll that runs while a login URL exists.
-  const needsAWayBack: NetworkState[] = ["not-installed", "daemon-down", "needs-privilege", "needs-login"];
+describe("NetworkPluginCard: no state offers a Re-check button", () => {
+  // Operator's sixth live read, 2026-09-16: "do we need it?" No. The button
+  // duplicated the page poll beside it — every capability it had is the
+  // poll's — and the settings page had reasoned to that rule before the
+  // card contradicted itself ("no Refresh button: the page polls"). The
+  // cadences are untouched; the affordance is gone from EVERY state of
+  // BOTH frames, and the plugin hints that used to end "then re-check" now
+  // say the page notices. The states that once carried the button are
+  // listed so the deletion is pinned per state, not once in the abstract.
+  const hadOneOnce: NetworkState[] = [
+    "not-installed",
+    "daemon-down",
+    "needs-privilege",
+    "needs-login",
+    "joined",
+    "published",
+  ];
 
-  for (const state of needsAWayBack) {
-    it(`offers Re-check in ${state}`, async () => {
+  for (const state of hadOneOnce) {
+    it(`offers no Re-check in ${state}`, async () => {
       await renderCard(
         row({
           state,
@@ -2186,14 +2189,9 @@ describe("NetworkPluginCard: a way back from every state that needs one", () => 
           status: { state, addresses: [], hints: [{ text: "Something is not right yet." }] },
         }),
       );
-      expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Re-check" })).toBeNull();
     });
   }
-
-  // What Re-check DOES is invalidate the list query, which the page owns and
-  // this component does not: the card takes its row as a prop. Asserting the
-  // refetch here would be asserting TanStack Query's behaviour through a
-  // component that never fetches.
 });
 
 describe("NetworkPluginCard: the disable reason reaches a screen reader", () => {

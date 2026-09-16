@@ -256,7 +256,6 @@ export function NetworkPluginCard({
    * route. Grouped means the hints carry no numbers at all.
    */
   const groupedSteps = hasGroupedSteps(row.privileged);
-  const recheck = () => void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
   /**
    * Starts one act, having forgotten every previous one.
    *
@@ -498,12 +497,7 @@ export function NetworkPluginCard({
         // Supported and offered, but the server sent no status: it has not
         // asked this host yet. Saying so beats rendering the first state as
         // though it were a finding.
-        <div className="space-y-2">
-          <p className="text-detail text-muted-foreground">This network has not reported its status yet.</p>
-          <Button variant="outline" size="sm" onClick={recheck}>
-            Re-check
-          </Button>
-        </div>
+        <p className="text-detail text-muted-foreground">This network has not reported its status yet.</p>
       ) : (
         <>
           {collapseSettings ? null : (
@@ -577,30 +571,20 @@ export function NetworkPluginCard({
                 hints={splitLeadHints(status.hints).rest}
                 startAt={numberSteps && !groupedSteps ? row.privileged.length + 1 : undefined}
               />
-              <Button variant="outline" size="sm" onClick={recheck}>
-                Re-check
-              </Button>
             </div>
           )}
 
           {(state === "daemon-down" || state === "needs-privilege") && (
             <div className="space-y-3">
+              {/* Nothing to press here at all: whatever fixes these two
+                  states happens on the machine, and the page's own poll is
+                  what notices (operator's sixth live read, 2026-09-16 — the
+                  Re-check button duplicated that poll and is gone from every
+                  state of both frames). */}
               <NetworkHints hints={status.hints} />
-              {/* The only control these two states have: whatever fixes them
-                  happens on the machine, not in this page, and what the page
-                  can do is ask again. */}
-              <Button variant="outline" size="sm" onClick={recheck}>
-                Re-check
-              </Button>
             </div>
           )}
 
-          {/* `needs-login` gets one too. A plugin's hint in this state can
-              legitimately say "turn it back on, then re-check" — Tailscale's
-              `Stopped` hint does — and a sentence pointing at a control that
-              is not on screen is worse than no sentence. Signing in also
-              finishes on ANOTHER device, so the page needs a way to be told
-              rather than only a poll that runs while a login URL exists. */}
           {state === "needs-login" && (
             <div className="space-y-3">
               <NetworkHints hints={status.hints} />
@@ -758,11 +742,6 @@ export function NetworkPluginCard({
                   {loginCode && <p className="font-mono font-strong text-heading tracking-[0.2em]">{loginCode}</p>}
                 </div>
               )}
-              <div>
-                <Button variant="outline" size="sm" onClick={recheck}>
-                  Re-check
-                </Button>
-              </div>
             </div>
           )}
 

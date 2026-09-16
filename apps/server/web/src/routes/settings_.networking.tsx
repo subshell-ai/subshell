@@ -54,8 +54,12 @@ export function awaitingLogin(networks: NetworkRow[] | undefined): boolean {
  * for the same reason — `refetch()` ignores `enabled` and would fire exactly
  * that.
  *
- * There is no Refresh button: the page polls, and a control offering to do
- * what it already does every few seconds reads as a page that does not.
+ * There is no Refresh button and no per-card Re-check: the page polls, and a
+ * control offering to do what it already does every few seconds reads as a
+ * page that does not. The cards carried a Re-check in every setup state until
+ * the operator's sixth live read (2026-09-16) cut it for exactly this reason;
+ * the poll cadences are what they were, and the plugin hints now say the page
+ * notices, rather than ordering a press that no longer exists.
  */
 function NetworkingPage() {
   const { data: publicSettings } = usePublicSettings();
