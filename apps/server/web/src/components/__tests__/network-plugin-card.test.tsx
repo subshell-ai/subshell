@@ -475,7 +475,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    await waitFor(() => expect(screen.getByText(/config.env was not changed/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/was not written to config.env/)).toBeTruthy());
     expect(screen.getByText("TRUSTED_ORIGINS")).toBeTruthy();
   });
 
@@ -549,6 +549,37 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     );
     expect(screen.getByText(/Unpublish Tailscale to change these/)).toBeTruthy();
     expect((screen.getByLabelText("Hostname") as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("does not claim the file was untouched when part of the write landed", async () => {
+    // `written` is false whenever ANY key was refused, so a publish that added
+    // the trusted origin and could not promote the base URL used to say
+    // "updated TRUSTED_ORIGINS" and "config.env was not changed" four lines
+    // apart, about one write.
+    mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/publish"
+        ? ndjson({
+            type: "done",
+            ok: true,
+            addresses: ADDRESSES,
+            config: {
+              changed: ["TRUSTED_ORIGINS"],
+              warnings: ["APP_BASE_URL is set in the server's environment."],
+              written: false,
+              unwritableKey: "APP_BASE_URL",
+            },
+            restartRequired: true,
+            status: { state: "published", addresses: ADDRESSES, hints: [] },
+          })
+        : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    const line = await screen.findByText(/was not written to config.env/);
+    // The KEY and the sentence in one element, so a split rendering cannot
+    // pass this while showing the reader half of it.
+    expect(line.textContent).toContain("APP_BASE_URL was not written to config.env");
+    expect(screen.queryByText(/config.env was not changed/)).toBeNull();
   });
 
   it("a public-with-gate network says so permanently, above everything else", async () => {
@@ -701,7 +732,13 @@ describe("NetworkPluginCard: a way back from every state that needs one", () => 
   // that offers no Re-check makes reloading the page the only way to say so,
   // and a row still reporting "not installed" about a machine where it now IS
   // reads as the feature being broken rather than as stale.
-  const needsAWayBack: NetworkState[] = ["not-installed", "daemon-down", "needs-privilege"];
+  // `needs-login` is in this list for two reasons beyond the general one: a
+  // plugin's hint there can legitimately say "turn it back on, then re-check"
+  // (Tailscale's `Stopped` hint does, and a sentence pointing at a control
+  // that is not on screen is worse than no sentence), and signing in finishes
+  // on ANOTHER device, so the page needs a way to be told rather than only the
+  // poll that runs while a login URL exists.
+  const needsAWayBack: NetworkState[] = ["not-installed", "daemon-down", "needs-privilege", "needs-login"];
 
   for (const state of needsAWayBack) {
     it(`offers Re-check in ${state}`, async () => {

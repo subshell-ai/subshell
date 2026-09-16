@@ -325,6 +325,12 @@ export function NetworkPluginCard({
             </div>
           )}
 
+          {/* `needs-login` gets one too. A plugin's hint in this state can
+              legitimately say "turn it back on, then re-check" — Tailscale's
+              `Stopped` hint does — and a sentence pointing at a control that
+              is not on screen is worse than no sentence. Signing in also
+              finishes on ANOTHER device, so the page needs a way to be told
+              rather than only a poll that runs while a login URL exists. */}
           {state === "needs-login" && (
             <div className="space-y-3">
               <NetworkHints hints={status.hints} />
@@ -385,6 +391,11 @@ export function NetworkPluginCard({
                   {loginCode && <p className="font-mono font-strong text-heading tracking-[0.2em]">{loginCode}</p>}
                 </div>
               )}
+              <div>
+                <Button variant="outline" size="sm" onClick={recheck}>
+                  Re-check
+                </Button>
+              </div>
             </div>
           )}
 
@@ -527,22 +538,27 @@ export function NetworkPluginCard({
                   the next read would mask is not a success" rule the rest of
                   the config ladder follows. Naming the key is the whole
                   point: it is where the change has to be made instead. */}
+              {/* Names the KEY that did not land, never a reason for it and
+                  never the whole file. `unwritableKey` is set on three
+                  different paths — the environment owning the key, an
+                  unreadable config file, a validator refusal — so naming the
+                  first unconditionally sent an admin to edit a unit file over
+                  what was really a validation error; the true reason is in
+                  `config.warnings` just below, in the server's own words.
+                  And a write is PARTIAL more often than not: `written` is
+                  false whenever ANY key was refused, so a publish that added
+                  the trusted origin and could not promote the base URL said
+                  "updated TRUSTED_ORIGINS" and "config.env was not changed"
+                  four lines apart, about one write. */}
               {!published.config.written && (
                 <p className="text-detail text-warning">
-                  config.env was not changed
-                  {/* The KEY, never a reason for it. `unwritableKey` is set on
-                      three different paths — the environment owning the key,
-                      an unreadable config file, and a validator refusal — and
-                      naming the first of those unconditionally sent an admin
-                      to edit a unit file over what was really a validation
-                      error. The true reason is in `config.warnings`, rendered
-                      immediately below in the server's own words. */}
-                  {published.config.unwritableKey && (
+                  {published.config.unwritableKey ? (
                     <>
-                      : <span className="font-mono">{published.config.unwritableKey}</span> was not written
+                      <span className="font-mono">{published.config.unwritableKey}</span> was not written to config.env.
                     </>
+                  ) : (
+                    "config.env was not changed."
                   )}
-                  .
                 </p>
               )}
               {published.restartRequired && <NetworkRestartNotice />}

@@ -908,8 +908,16 @@ fields, so every key in such a write is unknown and the route 400s before this.
 trusted publishing cannot be configured for a package that does not exist. It
 is therefore in `.changeset/config.json`'s ignore list — beside ten workspaces
 ignored for the opposite reason, which are not independently released at all.
-Without that entry the `changesets` job finds `0.1.0` missing from the registry
-and wakes `npm-publish` for a package it cannot publish.
+
+**Two separate mechanisms, and an earlier draft of this section conflated
+them.** The ignore entry is read by `changeset publish` (through
+`getUnpublishedPackages`), so the package is skipped when a publish runs. It is
+NOT read by `release.yml`'s own `unpublished` probe, which globs
+`packages/plugins/*/package.json` and asks the registry about each — so a 404
+for an unbootstrapped package set `needs_publish` and woke the hosted
+`npm-publish` job on every push, to publish nothing. Hosted minutes are
+metered, so that is a bill rather than a nuisance. The probe now skips
+packages the changesets config ignores, which is what makes the two agree.
 
 **Publish it by hand once, configure the trusted publisher, then remove it from
 the ignore list.** Until that happens it ships inside the server binary (it is

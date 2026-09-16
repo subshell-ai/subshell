@@ -163,6 +163,18 @@ jobs:
           for f in packages/plugin-api/package.json packages/plugins/*/package.json; do
             name=$(node -p "JSON.parse(require('fs').readFileSync('$f','utf8')).name")
             ver=$(node -p "JSON.parse(require('fs').readFileSync('$f','utf8')).version")
+            # Packages `.changeset/config.json` ignores are skipped, because
+            # `changeset publish` will not publish them either: without this a
+            # 404 for an ignored package sets needs_publish and wakes the
+            # hosted publish job on EVERY push, to publish nothing. Hosted
+            # minutes are metered, so that is a bill rather than a nuisance.
+            # A package is ignored while it awaits its one-time manual
+            # bootstrap — npm cannot configure a trusted publisher for a
+            # package that does not exist yet.
+            if [ "$(node -p "JSON.parse(require('fs').readFileSync('.changeset/config.json','utf8')).ignore.includes('$name')")" = "true" ]; then
+              echo "$name@$ver -> ignored by changesets, not probed"
+              continue
+            fi
             enc=$(printf '%s' "$name" | sed 's|/|%2f|')
             code=$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$enc/$ver" || echo 000)
             echo "$name@$ver -> HTTP $code"
