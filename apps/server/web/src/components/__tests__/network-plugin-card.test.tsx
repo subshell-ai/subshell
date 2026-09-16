@@ -907,6 +907,94 @@ describe("NetworkPluginCard: the state matrix", () => {
     ).toBeTruthy();
   });
 
+  it("talks about devices, not a vendor publish, on an implicit-publish network", async () => {
+    // NetBird has `publishImplicit`: JOINING is what makes its addresses
+    // answer, and the act changes only this server's allow-list. An operator
+    // read "Publish" / "Subshell is not published on NetBird" as claiming a
+    // NetBird concept that does not exist — for these networks the section is
+    // about reaching the dashboard, and the copy says the mechanism instead.
+    await renderCard(
+      row({
+        id: "netbird",
+        name: "NetBird",
+        publishImplicit: true,
+        labels: { credential: "Setup key", publish: "Use this address" },
+        state: "joined",
+        status: { state: "joined", addresses: ADDRESSES, hints: [] },
+      }),
+    );
+    expect(screen.getByRole("heading", { name: "Other devices" })).toBeTruthy();
+    expect(screen.getByText(/already answers at the addresses above/)).toBeTruthy();
+    expect(screen.getByText(/records these as the addresses to reach this server by/)).toBeTruthy();
+    expect(screen.queryByText(/is not published on/)).toBeNull();
+    // The Publish-heading half has no place here either.
+    expect(screen.queryByRole("heading", { name: "Publish" })).toBeNull();
+  });
+
+  it("asks before promoting over ANOTHER network's base URL, and publishes nothing meanwhile", async () => {
+    // Every card carries the promote checkbox and `APP_BASE_URL` is ONE value,
+    // so a second network's press silently moves the passkey rpID from the
+    // first network's address. Off loopback that is the documented step and
+    // the checkbox's copy suffices; off another network's address, the press
+    // names both hosts and asks.
+    const calls = mockFetch((url) =>
+      url.pathname === "/api/settings/public"
+        ? Response.json({
+            allowRegistrations: false,
+            emergencyLoginActive: false,
+            instanceName: "test",
+            viewerIsAdmin: true,
+            appBaseUrl: "http://macbook-pro.tail1234.ts.net:3080",
+          })
+        : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByLabelText(/Set as this server's base URL/));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Move this server's base URL?")).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "The base URL currently points at macbook-pro.tail1234.ts.net:3080 — another network's address. “Publish with Tailscale Serve” moves it to box.tail1234.ts.net; passkeys registered at macbook-pro.tail1234.ts.net:3080 stop working there.",
+      ),
+    ).toBeTruthy();
+    expect(calls.some((c) => c.pathname === "/api/network/tailscale/publish")).toBe(false);
+  });
+
+  it("publishes straight away when the base URL is still loopback", async () => {
+    // The dialog's absence is the other half: the ordinary first promote moves
+    // `http://localhost:…` onto the network — the checkbox's stated purpose —
+    // and a confirmation on every first use trains people to dismiss
+    // confirmations.
+    const calls = mockFetch((url) =>
+      url.pathname === "/api/settings/public"
+        ? Response.json({
+            allowRegistrations: false,
+            emergencyLoginActive: false,
+            instanceName: "test",
+            viewerIsAdmin: true,
+            appBaseUrl: "http://localhost:3080",
+          })
+        : url.pathname === "/api/network/tailscale/publish"
+          ? ndjson({
+              type: "done",
+              ok: true,
+              addresses: ADDRESSES,
+              config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
+              restartRequired: false,
+              status: { state: "published", addresses: ADDRESSES, hints: [] },
+            })
+          : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByLabelText(/Set as this server's base URL/));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.pathname === "/api/network/tailscale/publish")).toBe(true);
+    });
+    expect(document.body.textContent).not.toContain("Move this server's base URL?");
+  });
+
   it("asks no publish question of a published row", async () => {
     // The published state's standing line is a FACT among the card's readout,
     // not an opt-in: a "Publish" heading and a skip-it sentence over an

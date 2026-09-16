@@ -24,7 +24,9 @@ import {
   usePublishNetwork,
   useUnpublishNetwork,
 } from "@/hooks/use-network";
+import { usePublicSettings } from "@/hooks/use-public-settings";
 import { ApiError, errMessage } from "@/lib/api";
+import { baseUrlMove } from "@/lib/base-url-move";
 import { confirmAction } from "@/lib/confirm";
 import { connectBlocker } from "@/lib/network-connect";
 import { safeHref } from "@/lib/safe-href";
@@ -128,6 +130,10 @@ export function NetworkPluginCard({
   compact?: boolean;
 }) {
   const queryClient = useQueryClient();
+  // Where the base URL currently points, for the promote confirmation
+  // (`baseUrlMove`). Shared cached query — the pages hosting this card
+  // already mount it for their own gates, so this costs no extra request.
+  const { data: publicSettings } = usePublicSettings();
   const [credential, setCredential] = useState("");
   /**
    * Which of the two join paths the `needs-login` card shows.
@@ -715,11 +721,31 @@ export function NetworkPluginCard({
                   to float above the hints names the act in that word. */}
               {state === "joined" && (
                 <div className="space-y-3 rounded-md border p-4">
-                  <h3 className="font-strong text-label">Publish</h3>
-                  <p className="text-detail text-muted-foreground">
-                    Subshell is not published on {row.name} yet — “{publishLabel}” is what lets your other devices open
-                    this dashboard over the network.
-                  </p>
+                  {/* NetBird has no vendor-side publish to configure — that is what
+                      its `publishImplicit` flag means: the addresses already answer
+                      because JOINING routed them here, and the press changes only
+                      what THIS server allows. An operator read the "Publish" framing
+                      as claiming a NetBird concept that does not exist, and they are
+                      right: the heading is about the reader's goal, the sentence is
+                      about the mechanism the reader actually has. */}
+                  <h3 className="font-strong text-label">{row.publishImplicit ? "Other devices" : "Publish"}</h3>
+                  {row.publishImplicit ? (
+                    <>
+                      <p className="text-detail text-muted-foreground">
+                        {row.name} already answers at the addresses above — joining is what put them there. What is
+                        missing is this server's permission to sign in from them.
+                      </p>
+                      <p className="text-detail text-muted-foreground">
+                        “{publishLabel}” records these as the addresses to reach this server by, so your other devices
+                        can open this dashboard over the network.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-detail text-muted-foreground">
+                      Subshell is not published on {row.name} yet — “{publishLabel}” is what lets your other devices
+                      open this dashboard over the network.
+                    </p>
+                  )}
                   {/* The necessity question, answered before it is asked: the
                       section exists because an operator could not tell from
                       the card whether this press was required, and the honest
@@ -758,7 +784,31 @@ export function NetworkPluginCard({
                   <Button
                     size="sm"
                     disabled={busy}
-                    onClick={() => begin(() => publish.mutate({ id: row.id, promoteBaseUrl }))}
+                    onClick={async () => {
+                      // One `APP_BASE_URL`, every card: the checkbox is each
+                      // card's own local state, so publishing with it on from a
+                      // SECOND network silently re-points the server — and the
+                      // passkey rpID — from wherever the first one left it.
+                      // Moving off loopback is the checkbox's documented
+                      // purpose and its copy says so; moving off another
+                      // network's address names both and asks (2026-09-16,
+                      // operator question: "what if you enable it on multiple
+                      // plugins?").
+                      const move = promoteBaseUrl
+                        ? baseUrlMove(publicSettings?.appBaseUrl, status.addresses[0]?.url)
+                        : null;
+                      if (move) {
+                        const proceed = await confirmAction({
+                          title: "Move this server's base URL?",
+                          description:
+                            `The base URL currently points at ${move.fromHost} — another network's address. ` +
+                            `“${publishLabel}” moves it to ${move.toHost}; passkeys registered at ${move.fromHost} stop working there.`,
+                          confirmLabel: "Move and publish",
+                        });
+                        if (!proceed) return;
+                      }
+                      begin(() => publish.mutate({ id: row.id, promoteBaseUrl }));
+                    }}
                   >
                     {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
                     {publish.isPending ? "Publishing…" : publishLabel}
