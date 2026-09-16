@@ -590,7 +590,7 @@ export function writePublishConfig(input: PublishConfigInput): NetworkConfigWrit
   if (fromEnv("TRUSTED_ORIGINS")) {
     unwritableKey = "TRUSTED_ORIGINS";
     warnings.push(
-      "TRUSTED_ORIGINS is set in the server's environment, so config.env cannot add these origins; add them where the server is started.",
+      "This server cannot widen the addresses it accepts sign-in from — that list is fixed by the environment it starts in, so the change was not saved; set `TRUSTED_ORIGINS` where the server is started.",
     );
   } else {
     // `DEFAULT_TRUSTED_ORIGINS`, not `""`. The key is ABSENT by default and
@@ -749,7 +749,7 @@ export function removePublishedConfig(origins: string[]): NetworkConfigWrite {
     return {
       changed: [],
       warnings: [
-        "TRUSTED_ORIGINS is set in the server's environment, so config.env cannot remove these origins; remove them where the server is started.",
+        "This server cannot take addresses out of the list it accepts sign-in from — that list is fixed by the environment it starts in, so nothing was removed; drop them from `TRUSTED_ORIGINS` where the server is started.",
       ],
       written: false,
       unwritableKey: "TRUSTED_ORIGINS",

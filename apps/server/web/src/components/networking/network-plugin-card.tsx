@@ -880,9 +880,14 @@ export function NetworkPluginCard({
           )}
           {published?.ok && (
             <div className="space-y-2">
+              {/* Result-copy rule (see `ConfigWriteOutcome`): outcome first;
+                  the key it wrote is not prose; and because a fresh trust
+                  only works after the restart, the clause says so — this
+                  line and the notice under it read as one sentence. */}
               <p className="text-detail text-success">
                 Published on {row.name}
-                {published.config.changed.length > 0 && <> · updated {published.config.changed.join(", ")}</>}
+                {published.config.changed.length > 0 &&
+                  " — your other devices can open this dashboard over it once the server restarts"}
               </p>
               <ConfigWriteOutcome
                 config={published.config}
@@ -907,7 +912,8 @@ export function NetworkPluginCard({
             <div className="space-y-2">
               <p className="text-detail text-success">
                 Published on {row.name}
-                {join.data.config.changed.length > 0 && <> · updated {join.data.config.changed.join(", ")}</>}
+                {join.data.config.changed.length > 0 &&
+                  " — your other devices can open this dashboard over it once the server restarts"}
               </p>
               <ConfigWriteOutcome
                 config={join.data.config}
@@ -938,10 +944,12 @@ export function NetworkPluginCard({
                 // already been hand-deleted, saying "Removed" would claim a
                 // match the writer never confirmed.
                 <p className="text-detail text-success">
-                  Asked to remove {unpublished.origins.join(", ")} from the trusted origins
+                  Asked this server to stop accepting sign-in from {unpublished.origins.join(", ")}
                 </p>
               ) : (
-                <p className="text-detail text-muted-foreground">Nothing was removed from the trusted origins.</p>
+                <p className="text-detail text-muted-foreground">
+                  Nothing was removed — the addresses this server accepts sign-in from are unchanged.
+                </p>
               )}
               {unpublished.config && (
                 <ConfigWriteOutcome
@@ -964,7 +972,7 @@ export function NetworkPluginCard({
             <div className="space-y-2">
               {leave.data.config && leave.data.config.changed.length > 0 ? (
                 <p className="text-detail text-success">
-                  Left {row.name}; asked to remove {leave.data.origins.join(", ")} from the trusted origins
+                  Left {row.name} — asked this server to stop accepting sign-in from {leave.data.origins.join(", ")}
                 </p>
               ) : (
                 <p className="text-detail text-success">Left {row.name}.</p>

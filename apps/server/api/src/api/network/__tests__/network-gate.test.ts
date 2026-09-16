@@ -173,7 +173,8 @@ describe("keyOwnWarnings at the gate's two write sites", () => {
     const write = removePublishedConfig(["https://box.ts.net"]);
     expect(write.written).toBe(false);
     expect(write.unwritableKey).toBe("TRUSTED_ORIGINS");
-    expect(write.warnings[0]).toContain("TRUSTED_ORIGINS is set in the server's environment");
+    expect(write.warnings[0]).toContain("fixed by the environment it starts in");
+    expect(write.warnings[0]).toContain("TRUSTED_ORIGINS");
     expect(config.calls).toEqual([]);
   });
 });

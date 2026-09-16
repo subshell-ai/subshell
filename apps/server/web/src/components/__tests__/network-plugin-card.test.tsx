@@ -1197,7 +1197,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    await waitFor(() => expect(screen.getByText(/was not written to config.env/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/This change was not saved/)).toBeTruthy());
     expect(screen.getByText("TRUSTED_ORIGINS")).toBeTruthy();
   });
 
@@ -1372,7 +1372,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
 
     expect(
-      await screen.findByText("Asked to remove https://box.tail1234.ts.net from the trusted origins"),
+      await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net"),
     ).toBeTruthy();
     expect(screen.getByText("Restart the server to apply the change.")).toBeTruthy();
 
@@ -1439,7 +1439,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     ).toBeTruthy();
     expect(within(dialog).queryByText(/The server will come back at/)).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(screen.getByText(/updated TRUSTED_ORIGINS/)).toBeTruthy();
+    expect(screen.getByText(/can open this dashboard over it once the server restarts/)).toBeTruthy();
     expect(screen.getByText("Restart the server to apply the new address.")).toBeTruthy();
   });
 
@@ -1472,7 +1472,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     expect(
-      await screen.findByText("Left NetBird; asked to remove http://nb.disaresta.internal from the trusted origins"),
+      await screen.findByText(
+        "Left NetBird — asked this server to stop accepting sign-in from http://nb.disaresta.internal",
+      ),
     ).toBeTruthy();
     expect(screen.getByText("Restart the server to apply the change.")).toBeTruthy();
   });
@@ -1503,7 +1505,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
     let dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked to remove https://box.tail1234.ts.net from the trusted origins");
+    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
 
     fireEvent.click(screen.getByRole("button", { name: "Restart" }));
     dialog = await screen.findByRole("dialog");
@@ -1538,7 +1540,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked to remove https://box.tail1234.ts.net from the trusted origins");
+    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
     // The notice stands alone: the route 409s this act, so a button opening a
     // dialog for it would be a lie with a spinner.
     expect(screen.getByText(/This server is not running under a service manager/)).toBeTruthy();
@@ -1568,7 +1570,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
     let dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked to remove https://box.tail1234.ts.net from the trusted origins");
+    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
     fireEvent.click(screen.getByRole("button", { name: "Restart" }));
     dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
@@ -1615,7 +1617,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
     let dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked to remove https://box.tail1234.ts.net from the trusted origins");
+    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
     fireEvent.click(screen.getByRole("button", { name: "Restart" }));
     dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
@@ -1661,7 +1663,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
     expect(
-      await screen.findByText("Asked to remove http://nb.disaresta.internal from the trusted origins"),
+      await screen.findByText("Asked this server to stop accepting sign-in from http://nb.disaresta.internal"),
     ).toBeTruthy();
     expect(screen.getByText("Restart the server to apply the change.")).toBeTruthy();
     expect(screen.queryByText(/Nothing was undone/)).toBeNull();
@@ -1692,7 +1694,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    expect(await screen.findByText("Nothing was removed from the trusted origins.")).toBeTruthy();
+    expect(
+      await screen.findByText("Nothing was removed — the addresses this server accepts sign-in from are unchanged."),
+    ).toBeTruthy();
   });
 
   it("does not invite a settings edit the server would refuse", async () => {
@@ -1716,7 +1720,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // `written: false` describes a KEY, not the file — the environment owning
     // `TRUSTED_ORIGINS` is what produces it now. Naming the key says WHERE the
     // change has to be made instead (the environment the server starts in),
-    // which a flat "config.env was not changed" would hide.
+    // which a flat "settings are unchanged" would hide.
     mockFetch((url) =>
       url.pathname === "/api/network/tailscale/publish"
         ? ndjson({
@@ -1726,7 +1730,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
             config: {
               changed: [],
               warnings: [
-                "TRUSTED_ORIGINS is set in the server's environment, so config.env cannot add these origins; add them where the server is started.",
+                "This server cannot widen the addresses it accepts sign-in from — that list is fixed by the environment it starts in, so the change was not saved; set `TRUSTED_ORIGINS` where the server is started.",
               ],
               written: false,
               unwritableKey: "TRUSTED_ORIGINS",
@@ -1738,11 +1742,11 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    const line = await screen.findByText(/was not written to config.env/);
+    const line = await screen.findByText(/This change was not saved/);
     // The KEY and the sentence in one element, so a split rendering cannot
     // pass this while showing the reader half of it.
-    expect(line.textContent).toContain("TRUSTED_ORIGINS was not written to config.env");
-    expect(screen.queryByText(/config.env was not changed/)).toBeNull();
+    expect(line.textContent).toContain("TRUSTED_ORIGINS — the note above names where to change it instead.");
+    expect(screen.queryByText(/settings are unchanged/)).toBeNull();
   });
 
   it("a public-with-gate network says so permanently, above everything else", async () => {
