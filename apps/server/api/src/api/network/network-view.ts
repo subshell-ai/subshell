@@ -2,7 +2,7 @@ import type { NetworkContext, NetworkPluginEntry, NetworkStatus, PluginPlatform 
 import type { Static } from "elysia";
 import { isSupportedHere, networkDeps, readNetworkStatus } from "@/api/network/network-gate.js";
 import type { NetworkRowSchema } from "@/api/network/schemas.js";
-import { networkContext, readNetworkState } from "@/services/network/state.js";
+import { networkContext, publishStateVisible, readNetworkState } from "@/services/network/state.js";
 import { processState } from "@/services/network/supervisor.js";
 
 /**
@@ -54,6 +54,10 @@ export async function buildNetworkRow(entry: NetworkPluginEntry, inputs: RowInpu
   if (status === undefined && inputs.enabled && supported) {
     status = await readNetworkStatus(entry, ctx);
   }
+  // The host's record is the only witness for a `publishImplicit` plugin
+  // (NetBird): its publish left nothing the daemon can be re-asked about.
+  // Nothing else is upgraded — see `publishStateVisible`.
+  if (status !== undefined) status = publishStateVisible(network, state.published, status);
   const process = processState(id) ?? undefined;
 
   return {

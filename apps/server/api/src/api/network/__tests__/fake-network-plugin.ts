@@ -74,6 +74,12 @@ export interface FakeOptions {
   noInstall?: boolean;
   /** The install command the manifest declares. */
   installCommand?: string;
+  /**
+   * Set `subshell.network.publishImplicit` on the fake's manifest, as NetBird
+   * does. Pairs with `status: { state: "joined" }` + a publish record to
+   * exercise the host's publish-state merge.
+   */
+  publishImplicit?: boolean;
 }
 
 const DEFAULT_STATUS: NetworkStatus = {
@@ -151,6 +157,7 @@ export function makeFakePlugin(options: FakeOptions = {}): { entry: NetworkPlugi
       platforms: options.platforms ?? ["darwin", "linux"],
       interactiveLogin: true,
       exposure: options.exposure ?? "public-with-gate",
+      ...(options.publishImplicit ? { publishImplicit: true } : {}),
       privileged: {
         darwin: [{ label: "Install the daemon", command: "sudo test-network install", group: "The daemon" }],
         linux: [{ label: "Enable the service", command: "sudo systemctl enable test-network" }],

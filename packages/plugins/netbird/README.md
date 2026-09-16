@@ -44,14 +44,21 @@ pretending the shape is settled:
   falling back to a status re-read — mirroring the Tailscale interactive join. A
   run that yields no usable URL and no connection reports the CLI's own failure.
 
-## Contract gap noted while building
+## Publish state comes from the host's record
 
 The plugin can only ever observe `joined`. The `joined → published` distinction
-lives entirely in the host's trusted-origins config, which a plugin may not read,
-and `NetworkContext` carries no `published` flag — so a NetBird that has been
-published still reports `joined` on the next status read. This is inherent to a
-plugin whose publish has no daemon-visible effect; see the design notes in
-`src/status.ts`.
+lives entirely in the host's trusted-origins config, which a plugin may not
+read — so a NetBird that has been published still reports `joined` on the next
+status read, and this is inherent to a plugin whose publish has no
+daemon-visible effect (see the design notes in `src/status.ts`).
+
+What closes it is the manifest's `publishImplicit: true`: it tells the host
+that for this plugin its own publish record IS the published state, and the
+host upgrades `joined` to `published` when — and only when — that record
+exists. A plugin without the flag (Tailscale, whose `serve` state is readable)
+is never upgraded, so a serve reset from a terminal still shows honestly as
+`joined`. The mechanism is `publishStateVisible` in
+`apps/server/api/src/services/network/state.ts`.
 
 ## Licence
 

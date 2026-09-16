@@ -36,7 +36,10 @@ import { readNetwork } from "./status.js";
  * act of recording those addresses and admitting them to `TRUSTED_ORIGINS`. The
  * consequence is stated in {@link readNetwork}: the plugin can only ever observe
  * `joined`, because the joined/published distinction lives in the host's config,
- * which a plugin may not read.
+ * which a plugin may not read. The manifest's `publishImplicit` flag is the
+ * honest half of that: it tells the host to settle the distinction from its
+ * own record rather than expecting the daemon to be asked a question it never
+ * received.
  *
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */

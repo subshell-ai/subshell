@@ -20,3 +20,9 @@ Publishing runs no command: a NetBird join already makes the machine reachable a
 its WireGuard address, so "Use this address" records the FQDN and peer-IP
 addresses and admits them to the trusted origins. Peer names resolve only if the
 NetBird account has a nameserver group — otherwise use the IP address.
+
+Because that publish leaves nothing the daemon can later be asked about, the
+host records it instead: a NetBird row reads **Published** once it has been
+published, from the host's own record rather than a state the plugin could not
+honestly claim to have seen (the new `publishImplicit` manifest flag says which
+plugins work this way; plugins without it are unaffected).

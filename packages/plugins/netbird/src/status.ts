@@ -45,9 +45,11 @@ export interface NetbirdRead {
  * entirely in the host's trusted-origins config, which a plugin is forbidden to
  * read. `publish()` records the publish and adds those origins; a later status
  * read still returns `joined`, because from the daemon's side nothing changed.
- * This is a gap in the contract for a plugin whose publish has no daemon-visible
- * effect, and it is reported rather than papered over with a state the plugin
- * cannot honestly claim to have seen.
+ * The plugin never claims a state it cannot see; the manifest instead declares
+ * `publishImplicit`, which tells the host that for THIS plugin its own publish
+ * record is the `published` state — `publishStateVisible` in
+ * `apps/server/api/src/services/network/state.ts` reads it and upgrades the
+ * row. The daemon's answer stays exactly as honest as it is here.
  */
 export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promise<NetbirdRead> {
   const binary = await resolveBinary(host);

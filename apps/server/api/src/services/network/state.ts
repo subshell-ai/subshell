@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { NetworkStatus } from "@internal/pane-runtime";
 import {
   createPluginSecrets,
   type NetworkAddress,
@@ -235,4 +236,27 @@ export async function networkContext(pluginId: string, entry: NetworkPluginEntry
     settings: state.settings,
     secrets: { has: (name: string) => present.has(name) },
   };
+}
+
+/**
+ * The status the page should see, once the host's own record is consulted.
+ *
+ * A plugin whose manifest declares `publishImplicit` cannot observe its own
+ * published state — its publish IS the join, and no vendor command will
+ * later answer "and are you serving?" For those, a host record saying
+ * published upgrades `joined` to `published`, which is what the Networking
+ * row, the wizard chip and the boot report must all agree on.
+ *
+ * Everything else passes through untouched. An unconditional upgrade would
+ * tell a Tailscale whose `serve` was reset outside this app that it is
+ * still publishing, and a confident wrong state is worse than an honest
+ * partial one.
+ */
+export function publishStateVisible(
+  manifest: { publishImplicit?: boolean } | undefined,
+  recordPublished: boolean,
+  status: NetworkStatus,
+): NetworkStatus {
+  if (!recordPublished || manifest?.publishImplicit !== true || status.state !== "joined") return status;
+  return { ...status, state: "published" };
 }

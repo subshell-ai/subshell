@@ -502,6 +502,32 @@ describe("a published network that is not actually up", () => {
     expect(rec.warnings.some((w) => w.includes("NOT publishing"))).toBe(true);
   });
 
+  it("does not warn a plugin whose publish left nothing to re-check", async () => {
+    // NetBird's publish IS the join, so its status can only ever say
+    // `joined` even while the addresses answer — and without the host's
+    // merge this warning fired on every single boot of a healthy machine.
+    const rec = recorder();
+    const plugin = id();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, {
+        [plugin]: {
+          manifest: {
+            network: { platforms: ["darwin", "linux"], exposure: "private", publishImplicit: true },
+          } as NetworkPluginEntry["manifest"],
+          plugin: {
+            capabilities: () => [],
+            status: async () => ({ state: "joined", addresses: [], hints: [] }),
+            join: async () => ({ state: "joined" }),
+            leave: async () => {},
+          },
+        },
+      }),
+    );
+    await prepareNetworkProcesses();
+    expect(rec.warnings).toEqual([]);
+  });
+
   it("says nothing about a network that is up", async () => {
     // A boot that reports a problem every time is a boot nobody reads.
     const rec = recorder();

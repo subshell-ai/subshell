@@ -121,6 +121,19 @@ export interface NetworkManifest {
    */
   interactiveLogin?: boolean;
   /**
+   * True when publishing leaves NOTHING the daemon can later be asked about.
+   *
+   * NetBird is the case that forced the field: a join is the whole publish,
+   * so `status()` can only ever see the join, and a plugin that declared
+   * itself `published` would claim a thing its own vendor CLI never told it.
+   * The HOST's publish record is the one witness of the transition, and this
+   * flag is what lets the host (and only the host) upgrade `joined` to
+   * `published` from it. A plugin without the flag is never upgraded: for
+   * Tailscale a serve reset outside this app is a real state, and `joined`
+   * is the honest reading of it.
+   */
+  publishImplicit?: boolean;
+  /**
    * What publishing on this network exposes the server to.
    *
    * `private` is a network only invited machines are on. `public-with-gate`
@@ -430,6 +443,9 @@ function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | Ma
   if (raw.interactiveLogin !== undefined && typeof raw.interactiveLogin !== "boolean") {
     return { error: "`subshell.network.interactiveLogin` must be a boolean" };
   }
+  if (raw.publishImplicit !== undefined && typeof raw.publishImplicit !== "boolean") {
+    return { error: "`subshell.network.publishImplicit` must be a boolean" };
+  }
 
   let privileged: Partial<Record<PluginPlatform, PrivilegedStep[]>> | undefined;
   if (raw.privileged !== undefined) {
@@ -503,6 +519,7 @@ function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | Ma
     platforms: [...(raw.platforms as PluginPlatform[])],
     exposure: raw.exposure,
     ...(raw.interactiveLogin === true ? { interactiveLogin: true } : {}),
+    ...(raw.publishImplicit === true ? { publishImplicit: true } : {}),
     ...(privileged ? { privileged } : {}),
     ...(labels && Object.keys(labels).length > 0 ? { labels } : {}),
   };

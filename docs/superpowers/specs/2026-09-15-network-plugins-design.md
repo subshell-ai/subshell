@@ -892,6 +892,19 @@ read "Published" for such a plugin would need the host to merge its own `publish
 record into `status.state`, which is an `apps/server/api` change deliberately not
 made here. Recorded in the plugin's own `README.md` and `src/status.ts`.
 
+**Amendment — the gap is closed, 2026-09-16.** It was closed the way § 4.5
+delegates everything else: as manifest DATA. `subshell.network.publishImplicit`
+(a boolean, refused otherwise by `parseManifest`) declares that a publish leaves
+nothing the daemon can later be asked about, and `publishStateVisible`
+(`apps/server/api/src/services/network/state.ts`) upgrades the plugin's own
+`joined` to `published` when — and only when — the host holds a publish record
+AND the flag is set. The merge runs in `buildNetworkRow` (the row, the wizard
+chip) and in the boot report's `reportIfDown` (without which a healthy NetBird
+warned "NOT publishing" on every boot forever). A plugin without the flag is
+never upgraded: Tailscale's serve state is readable, so a reset from a terminal
+must still show as `joined` whatever our record claims. NetBird's manifest now
+carries the flag; the plugin's code still never reports a state it cannot see.
+
 ### 10d. What phase 3 must re-derive, and the refusal holding the place
 
 A settings write does not re-derive anything, so `PATCH /api/network/:id/settings`

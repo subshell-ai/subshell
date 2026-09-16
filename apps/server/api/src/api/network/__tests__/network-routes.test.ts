@@ -332,6 +332,39 @@ describe("/api/network", () => {
       expect(calls.status).toBe(1);
     });
 
+    it("shows a publish-implicit plugin the host recorded as published AS publishing", async () => {
+      // NetBird's publish runs no command the daemon could later be asked
+      // about, so its own status tops out at `joined` and the host's record
+      // is the only witness of the publish. `publishImplicit` is what lets
+      // the record upgrade that plugin's row.
+      const { entry } = makeFakePlugin({
+        publishImplicit: true,
+        status: { state: "joined", addresses: [], hints: [] },
+      });
+      setNetworkDepsForTests(fakeDeps(entry));
+      await writeNetworkState(FAKE_ID, { published: true, port: 3080 });
+
+      const res = await app.fetch(withCookie("/api/network", adminCookie));
+      const { networks } = (await res.json()) as { networks: Record<string, any>[] };
+      expect(networks[0].status.state).toBe("published");
+      expect(networks[0].published).toBe(true);
+    });
+
+    it("leaves a joined row joined for a plugin that never declared publishImplicit", async () => {
+      // The other half of the flag: Tailscale's serve state IS readable, so a
+      // serve reset from a terminal outside this app must show as `joined`
+      // however confidently our record says "published". An unconditional
+      // upgrade would paper over exactly that.
+      const { entry } = makeFakePlugin({ status: { state: "joined", addresses: [], hints: [] } });
+      setNetworkDepsForTests(fakeDeps(entry));
+      await writeNetworkState(FAKE_ID, { published: true, port: 3080 });
+
+      const res = await app.fetch(withCookie("/api/network", adminCookie));
+      const { networks } = (await res.json()) as { networks: Record<string, any>[] };
+      expect(networks[0].status.state).toBe("joined");
+      expect(networks[0].published).toBe(true);
+    });
+
     it("drops a hint URL a browser must not navigate to, and keeps the sentence", async () => {
       // A plugin reports what it read off a vendor CLI, which reports what its
       // CONTROL SERVER sent — and `--login-server` makes that a host the

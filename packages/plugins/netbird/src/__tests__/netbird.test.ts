@@ -92,6 +92,10 @@ describe("netbird manifest", () => {
     expect(manifest.network?.platforms).toEqual(["darwin", "linux"]);
     expect(manifest.network?.exposure).toBe("private");
     expect(manifest.network?.interactiveLogin).toBe(true);
+    // The publish leaves no daemon-side handle — its addresses come from the
+    // join — so this flag is what tells the HOST to read its own record as
+    // "publishing" instead of warning forever that `joined` is not serving.
+    expect(manifest.network?.publishImplicit).toBe(true);
   });
 
   it("names the vendor's own words for the credential and the publish", () => {

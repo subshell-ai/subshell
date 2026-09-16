@@ -225,6 +225,40 @@ describe("parseManifest (network)", () => {
     expect("error" in result && result.error).toContain("exposure");
   });
 
+  it("carries publishImplicit when declared, and only then", () => {
+    // The flag exists so the HOST can tell "joined but not yet published"
+    // from "publishing, by a join the daemon cannot later be asked about"
+    // (NetBird). A plugin without it is never upgraded, so its absence on
+    // an ordinary manifest matters as much as its presence on that one.
+    const plain = parseManifest(networkPkg());
+    expect("error" in plain).toBe(false);
+    if ("error" in plain) return;
+    expect(plain.network?.publishImplicit).toBeUndefined();
+
+    const flagged = parseManifest(
+      networkPkg({ network: { platforms: ["darwin", "linux"], exposure: "private", publishImplicit: true } }),
+    );
+    expect("error" in flagged).toBe(false);
+    if ("error" in flagged) return;
+    expect(flagged.network?.publishImplicit).toBe(true);
+
+    // `false` is accepted (it is a boolean) and normalised to absent —
+    // there is one shape downstream to read, not two.
+    const saidNo = parseManifest(
+      networkPkg({ network: { platforms: ["darwin", "linux"], exposure: "private", publishImplicit: false } }),
+    );
+    expect("error" in saidNo).toBe(false);
+    if ("error" in saidNo) return;
+    expect(saidNo.network?.publishImplicit).toBeUndefined();
+  });
+
+  it("refuses a publishImplicit that is not a boolean", () => {
+    const result = parseManifest(
+      networkPkg({ network: { platforms: ["linux"], exposure: "private", publishImplicit: "yes" } }),
+    );
+    expect("error" in result && result.error).toContain("publishImplicit");
+  });
+
   it("refuses a privileged block keyed by an unknown platform", () => {
     const result = parseManifest(
       networkPkg({

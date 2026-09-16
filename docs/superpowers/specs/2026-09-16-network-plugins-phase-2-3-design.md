@@ -251,7 +251,12 @@ Mirror the tailscale package's test style (`src/__tests__/<id>.test.ts`, fake
   the pre-flight refuses on a failed/absent check, token-shape validation;
 - unpublish/leave argv pins.
 
-Server-side: none of the three should need `apps/server/api` changes — the
+Server-side: none of the three should need `apps/server/api` changes —
+landed 2026-09-16: `subshell.network.publishImplicit` (manifest boolean, see the
+master spec's § 10a amendments) exists precisely so netbird's joined-only status
+can be upgraded by the host's publish record. Cloudflare must NOT set it: its
+publish state comes from the supervisor's real process, which is a daemon-side
+truth the plugin CAN report. — the
 routes, gate, supervisor, guard are plugin-agnostic. If a change seems needed
 there, STOP and report it: that is a contract gap, not a plugin detail. (One
 expected exception: nothing — seed tests that list built-ins may assert an

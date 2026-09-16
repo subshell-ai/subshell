@@ -15,7 +15,7 @@ import { DEFAULT_TRUSTED_ORIGINS, IS_TEST, SERVER_PORT } from "@/constants.js";
 import { type OwnedGuard, setAccessGuards } from "@/plugins/access-guard.plugin.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
-import { networkContext, readNetworkState, writeNetworkState } from "@/services/network/state.js";
+import { networkContext, publishStateVisible, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { armProcess } from "@/services/network/supervisor.js";
 import { enabledNetworkPlugins } from "@/services/nodes/local-plugins.js";
 import { settingSource } from "@/services/server-deployment.js";
@@ -268,7 +268,11 @@ export async function prepareNetworkProcesses(prepared?: Prepared[]): Promise<vo
  */
 async function reportIfDown({ id, entry, ctx }: Eligible): Promise<void> {
   try {
-    const status = await entry.plugin.status(ctx);
+    const status = publishStateVisible(entry.manifest.network, true, await entry.plugin.status(ctx));
+    // The row reached here BECAUSE the host holds a publish record for it,
+    // which is the `recordPublished` argument; `publishStateVisible` only
+    // upgrades a `publishImplicit` plugin's `joined`, so a Tailscale whose
+    // serve was reset outside this app still earns its warning.
     if (status.state === "published") return;
     const because = status.hints[0]?.text ?? `it reports "${status.state}"`;
     deps().warn(

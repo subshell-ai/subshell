@@ -1,9 +1,20 @@
 import { describe, expect, it } from "bun:test";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createPluginSecrets, type NetworkPluginEntry, pluginStateDir } from "@internal/pane-runtime";
+import {
+  createPluginSecrets,
+  type NetworkPluginEntry,
+  type NetworkStatus,
+  pluginStateDir,
+} from "@internal/pane-runtime";
 import { SERVER_PORT, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
-import { clearNetworkState, networkContext, readNetworkState, writeNetworkState } from "@/services/network/state.js";
+import {
+  clearNetworkState,
+  networkContext,
+  publishStateVisible,
+  readNetworkState,
+  writeNetworkState,
+} from "@/services/network/state.js";
 
 /**
  * State is a file under the TEST data dir, which `constants.ts` forces to a
@@ -131,5 +142,39 @@ describe("network state", () => {
       await createPluginSecrets(SUBSHELL_SERVER_DATA_DIR, plugin).set("authkey", "later");
       expect(ctx.secrets.has("authkey")).toBe(false);
     });
+  });
+});
+
+describe("publishStateVisible", () => {
+  const joined: NetworkStatus = { state: "joined", addresses: [], hints: [] };
+  const down: NetworkStatus = { state: "daemon-down", addresses: [], hints: [{ text: "no socket" }] };
+  const implicit = { publishImplicit: true };
+
+  it("upgrades joined to published only for an implicit plugin the host recorded", () => {
+    expect(publishStateVisible(implicit, true, joined).state).toBe("published");
+  });
+
+  it("leaves every other combination untouched", () => {
+    // No record: the join happened and nobody pressed Publish yet.
+    expect(publishStateVisible(implicit, false, joined).state).toBe("joined");
+    // A plugin WITHOUT the flag — Tailscale's serve state is readable, so a
+    // reset done outside this app must not be papered over by our record.
+    expect(publishStateVisible({ publishImplicit: false }, true, joined).state).toBe("joined");
+    expect(publishStateVisible(undefined, true, joined).state).toBe("joined");
+    // Not the `joined` state — `published`, `daemon-down` and friends are
+    // the plugin's own answer and stay the plugin's own answer.
+    expect(publishStateVisible(implicit, true, { ...joined, state: "published" }).state).toBe("published");
+    expect(publishStateVisible(implicit, true, down).state).toBe("daemon-down");
+  });
+
+  it("keeps every other field of the status when it upgrades", () => {
+    const withExtras: NetworkStatus = {
+      state: "joined",
+      addresses: [{ url: "http://100.64.0.9:3080", scheme: "http", label: "NetBird", secureContext: false }],
+      hints: [{ text: "a hint" }],
+    };
+    const upgraded = publishStateVisible(implicit, true, withExtras);
+    expect(upgraded.addresses).toEqual(withExtras.addresses);
+    expect(upgraded.hints).toEqual(withExtras.hints);
   });
 });
