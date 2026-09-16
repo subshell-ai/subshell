@@ -77,3 +77,10 @@ is never upgraded, so a serve reset from a terminal still shows honestly as
 Apache-2.0 — see `LICENSE`. (Everything outside `apps/server/**` is Apache-2.0;
 this plugin ships both as a built-in inside the AGPL server binary and as a
 permissively-licensed package third parties can build against.)
+
+## Icon
+
+`icon.png` is NetBird's official brand mark, taken from the project's own
+repository (`netbirdio/netbird`, `docs/media/logo.png`, BSD-3). Icon policy
+(operator, 2026-09-16): the vendor's own asset or the letter-monogram
+fallback — never a drawing of our own.

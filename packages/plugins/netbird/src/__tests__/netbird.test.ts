@@ -139,7 +139,7 @@ describe("netbird manifest", () => {
     expect(manifest.id).toBe("netbird");
     expect(manifest.type).toBe("network");
     expect(manifest.name).toBe("NetBird");
-    expect(manifest.icon).toBe("icon.svg");
+    expect(manifest.icon).toBe("icon.png");
     expect(manifest.network?.platforms).toEqual(["darwin", "linux"]);
     expect(manifest.network?.exposure).toBe("private");
     expect(manifest.network?.interactiveLogin).toBe(true);

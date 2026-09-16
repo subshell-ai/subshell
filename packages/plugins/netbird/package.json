@@ -52,7 +52,7 @@
     "type": "network",
     "name": "NetBird",
     "description": "Reach this server from your other devices over your NetBird network.",
-    "icon": "icon.svg",
+    "icon": "icon.png",
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "netbird",

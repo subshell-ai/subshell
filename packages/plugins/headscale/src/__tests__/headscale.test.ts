@@ -160,7 +160,11 @@ describe("headscale manifest", () => {
     expect(manifest.type).toBe("network");
     expect(manifest.name).toBe("Headscale");
     expect(manifest.description).toBe("Reach this server over your own self-hosted tailnet.");
-    expect(manifest.icon).toBe("icon.svg");
+    // No icon, deliberately: Headscale ships no square brand mark this repo
+    // could link to, and a made-up tile is the vendor's mark while being
+    // nobody's — the row takes the letter-monogram fallback instead.
+    // (Icon policy, operator's call 2026-09-16: official or nothing.)
+    expect(manifest.icon).toBeUndefined();
     expect(manifest.network?.platforms).toEqual(["darwin", "linux"]);
     expect(manifest.network?.exposure).toBe("private");
     expect(manifest.network?.interactiveLogin).toBe(true);

@@ -52,7 +52,7 @@
     "type": "network",
     "name": "Headscale",
     "description": "Reach this server over your own self-hosted tailnet.",
-    "icon": "icon.svg",
+    
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "tailscale",

@@ -118,7 +118,10 @@ describe("cloudflare-tunnel manifest", () => {
     expect(manifest.id).toBe("cloudflare-tunnel");
     expect(manifest.type).toBe("network");
     expect(manifest.name).toBe("Cloudflare Tunnel");
-    expect(manifest.icon).toBe("icon.svg");
+    // Cloudflare's public logo is a wide wordmark; extracting its cloud half
+    // by hand is redrawing it, which the icon policy forbids (official or
+    // nothing, operator 2026-09-16) — so the row falls back to its monogram.
+    expect(manifest.icon).toBeUndefined();
     expect(manifest.network?.platforms).toEqual(["darwin", "linux"]);
     // The one public exposure in the set, stated before the button (§ 7.1),
     // and the reason the host refuses to arm this plugin's tunnel unguarded.

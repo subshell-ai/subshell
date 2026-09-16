@@ -52,7 +52,7 @@
     "type": "network",
     "name": "Cloudflare Tunnel",
     "description": "Publish this server on a hostname you own, behind Cloudflare Access.",
-    "icon": "icon.svg",
+    
     "entry": "dist/index.js",
     "detect": {
       "binaryName": "cloudflared",

@@ -240,7 +240,10 @@ describe("/api/plugins", () => {
     const res = await get("/api/plugins/tailscale/icon", aliceCookie);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/svg+xml");
-    expect(await res.text()).toStartWith("<svg");
+    // Trimmed: Tailscale's own favicon file begins with a newline, and these
+    // are the vendor's bytes served verbatim — the route exists to change
+    // nothing about them, and the assertion says the same.
+    expect((await res.text()).trimStart()).toStartWith("<svg");
   });
 
   it("an id this instance does not know is a 404, and a traversal attempt is the same 404", async () => {
