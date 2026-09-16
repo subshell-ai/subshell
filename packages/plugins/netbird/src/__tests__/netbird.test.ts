@@ -500,6 +500,19 @@ describe("NetBirdPlugin.publish", () => {
     expect(lines(host)).toEqual(["/usr/bin/netbird status --json"]);
   });
 
+  it("pressing twice answers with exactly what pressing once answered", async () => {
+    // The operator's rule: "Use this address" twice must mean what it means
+    // once. There is no second record to write and no second announcement to
+    // make — the verb is a read, so both presses hand back the same list and
+    // change nothing on the machine either time.
+    const { plugin, host } = scripted({ "/usr/bin/netbird status --json": { stdout: CONNECTED } });
+    const first = await plugin.publish?.(CTX);
+    const second = await plugin.publish?.(CTX);
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ addresses: [{ label: "NetBird FQDN" }, { label: "NetBird IP" }] });
+    expect(lines(host)).toEqual(["/usr/bin/netbird status --json", "/usr/bin/netbird status --json"]);
+  });
+
   it("refuses, with the state's own sentence, when NetBird is not installed", async () => {
     const { plugin } = scripted({}, { findBinary: async () => null });
     expect(await plugin.publish?.(CTX)).toMatchObject({ refused: { text: expect.stringContaining("not installed") } });

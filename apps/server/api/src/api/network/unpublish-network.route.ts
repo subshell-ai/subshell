@@ -7,7 +7,7 @@ import {
   readNetworkStatus,
   requireNetworkAdmin,
 } from "@/api/network/network-gate.js";
-import { NetworkActionResponseSchema, NetworkParamsSchema } from "@/api/network/schemas.js";
+import { NetworkParamsSchema, NetworkRemovalResponseSchema } from "@/api/network/schemas.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
@@ -26,10 +26,19 @@ import { unpublishNetwork } from "@/services/network/unpublish.js";
  * says why. It leaves the guard ON: a tunnel that would not stop is a tunnel
  * that must stay guarded.
  *
- * **`TRUSTED_ORIGINS` is deliberately left alone.** Unpublishing does not
- * strip the origin (spec § 5.4) — someone may be signed in on it right now,
- * and removing an origin is the Addresses card's act, not a side effect of
- * this one. The response says so.
+ * **The origins the publish added leave with it** (spec § 5.4, amended
+ * 2026-09-16). The subtraction runs through the same only-writer as the
+ * publish's union, inside the sequence, and the response carries what became
+ * of it: `config` for the write, `restartRequired` only when a write
+ * actually landed, and `origins` for the page to name what it removed. A key
+ * the environment owns is refused by name while the unpublish itself stands.
+ * The `publishImplicit` kind subtracts too (spec § 5.3, REVERSED 2026-09-16 —
+ * the first cut left its record and origins whole): after a disable the daemon
+ * may still ANSWER at its NetBird address, and what stripping changes is that
+ * the address stops ACCEPTING sign-ins when the restart lands. That is the
+ * stated, chosen cost of letting a publish own an origin's lifecycle — and
+ * `leave`, the verb that actually leaves the network, ends the addresses
+ * themselves anyway.
  */
 export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
   "/:id/unpublish",
@@ -57,8 +66,18 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
           }),
         );
       }
-      await auditNetwork(request, "network.unpublish", id, {});
-      return { ok: true as const, status: await readNetworkStatus(resolved.entry, ctx, { fresh: true }) };
+      await auditNetwork(request, "network.unpublish", id, { origins: result.origins });
+      return {
+        ok: true as const,
+        status: await readNetworkStatus(resolved.entry, ctx, { fresh: true }),
+        config: result.config,
+        // Genuinely computed, never a literal: a removal awaits a restart only
+        // when it landed in the file. `changed` is non-empty only after a
+        // successful write, so the environment-owned refusal and the
+        // nothing-matched silence both leave the page with no restart to offer.
+        restartRequired: (result.config?.changed.length ?? 0) > 0,
+        origins: result.origins,
+      };
     } finally {
       release();
     }
@@ -66,7 +85,7 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
   {
     params: NetworkParamsSchema,
     response: {
-      200: NetworkActionResponseSchema,
+      200: NetworkRemovalResponseSchema,
       // 400 is unreachable from this handler today, but `NetworkRefusal`'s
       // status is the shared `400 | 404 | 409` — naming it keeps the map
       // honest about what `prepareNetworkAct` may hand back.
@@ -80,7 +99,7 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "unpublishNetwork",
       tags: ["network"],
       description:
-        "Stops publishing this server on the network (admin cookie only): the supervised process is stopped and awaited, the plugin unpublishes, and only then is its request guard dropped. TRUSTED_ORIGINS is left as it is — removing an origin is a separate, deliberate act. 409 with the child's last lines when the process would not stop. Audited as network.unpublish.",
+        "Stops publishing this server on the network (admin cookie only): the supervised process is stopped and awaited, the plugin unpublishes, the request guard is dropped, and the origins this network's publish added are subtracted from TRUSTED_ORIGINS through the CLI's own config writer — the write's outcome rides the response (config, restartRequired, origins). A key the environment owns is refused by name while the unpublish itself stands. The subtraction applies to every network kind, publishImplicit included (spec § 5.3 reversed 2026-09-16): a daemon that still answers on membership alone stops accepting sign-ins at the restart. 409 with the child's last lines when the process would not stop. Audited as network.unpublish.",
     },
   },
 );

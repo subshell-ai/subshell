@@ -7,12 +7,15 @@ import {
   setupAuthTables,
   signIn,
 } from "@/api/__tests__/helpers/auth-tables.js";
+import { beginNetworkOp, endNetworkOp, setNetworkDepsForTests } from "@/api/network/network-gate.js";
 import { pluginsRoutes } from "@/api/plugins.route.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { clearNetworkState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
+import { type ConfigRecorder, fakeDeps, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**
  * `PATCH /api/plugins/:id { enabled: false }` on a NETWORK plugin runs the
@@ -70,6 +73,85 @@ describe("disabling a network plugin", () => {
 
   afterAll(async () => {
     await deleteUserByEmailOrId(adminEmail);
+  });
+
+  it("answers 409 while another act holds the plugin's lock, writing nothing", async () => {
+    // The strip disable runs is the same config.env write a `/api/network`
+    // act holds its per-plugin lock for; without taking that lock, a disable
+    // could race a live publish's union — two writers, last rename wins, and
+    // neither result describes the file afterwards. The refusal must also
+    // leave the flag ALONE: a 409 that disabled anyway would be the flag
+    // lying about a tunnel that is still up.
+    const calls: string[] = [];
+    setUnpublishDepsForTests({
+      getPlugin: () => undefined,
+      disarm: async () => {
+        calls.push("disarm");
+      },
+      lastLines: () => [],
+      setPluginGuards: () => {},
+    });
+    expect(beginNetworkOp(NETWORK_PLUGIN_ID)).toBe(true);
+    try {
+      const res = await app.fetch(patch(NETWORK_PLUGIN_ID, false));
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { code: string; message: string };
+      expect(body.code).toBe("EXISTS_ERROR");
+      expect(body.message).toContain("already running");
+    } finally {
+      endNetworkOp(NETWORK_PLUGIN_ID);
+    }
+    expect(calls).toEqual([]);
+    expect((await new PluginStateRepository(db).stateByPluginId()).get(NETWORK_PLUGIN_ID)).not.toBe(false);
+    // And the same request runs the moment the lock frees.
+    const freed = await app.fetch(patch(NETWORK_PLUGIN_ID, false));
+    expect(freed.status).toBe(200);
+    expect(calls).toEqual(["disarm"]);
+  });
+
+  it("runs the origin strip for a recorded publish, through the gate's writer", async () => {
+    // The reviewer's non-vacuity demand: with no publish record the sequence
+    // never reaches `removePublishedConfig`, so every other case in this file
+    // passes without touching the subtraction at all. Here the record is
+    // real, so the disable's quiet strip must actually rewrite the file —
+    // through the gate's ONE writer, not a local stub.
+    const config: ConfigRecorder = {
+      calls: [],
+      result: {
+        ok: true,
+        path: "/tmp/config.env",
+        values: {},
+        warnings: [],
+        changed: [
+          { key: "TRUSTED_ORIGINS", from: "http://localhost:3080,https://nb.example", to: "http://localhost:3080" },
+        ],
+      },
+    };
+    const { entry } = makeFakePlugin();
+    setNetworkDepsForTests(
+      fakeDeps(entry, {
+        config,
+        configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080,https://nb.example" }),
+      }),
+    );
+    setUnpublishDepsForTests({
+      getPlugin: () => undefined,
+      disarm: async () => {},
+      lastLines: () => [],
+      setPluginGuards: () => {},
+    });
+    await writeNetworkState(NETWORK_PLUGIN_ID, {
+      published: true,
+      port: 3080,
+      addresses: [{ url: "https://nb.example", scheme: "http", label: "IP", secureContext: false }],
+    });
+
+    expect((await app.fetch(patch(NETWORK_PLUGIN_ID, false))).status).toBe(200);
+    expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080" }]);
+    // The record cleared, the origins subtracted: the disable really did
+    // stop describing this machine as published on the network.
+    expect((await readNetworkState(NETWORK_PLUGIN_ID)).published).toBe(false);
+    await clearNetworkState(NETWORK_PLUGIN_ID);
   });
 
   it("unpublishes before the flag is written", async () => {

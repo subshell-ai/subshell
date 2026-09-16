@@ -1,13 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircle, ShieldAlert } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Fact } from "@/components/admin-status/fact-list";
+import { ConfigWriteOutcome } from "@/components/networking/config-write-outcome";
 import { NetworkAddresses } from "@/components/networking/network-addresses";
 import { NetworkHintBlock, NetworkHints, NetworkNotice, splitLeadHints } from "@/components/networking/network-hints";
 import { hasGroupedSteps, PrivilegedSteps } from "@/components/networking/network-privileged-steps";
 import { NetworkProcessLine } from "@/components/networking/network-process-line";
-import { NetworkRestartNotice } from "@/components/networking/network-restart-notice";
 import { NetworkSettingsForm, secretIsSet } from "@/components/networking/network-settings-form";
 import { PluginIcon } from "@/components/plugin-icon";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,8 @@ import {
   usePublishNetwork,
   useUnpublishNetwork,
 } from "@/hooks/use-network";
+import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
+import { useServerRestart } from "@/hooks/use-server-restart";
 import { ApiError, errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
 import { connectBlocker } from "@/lib/network-connect";
@@ -158,6 +160,8 @@ export function NetworkPluginCard({
   const publish = usePublishNetwork(note);
   const unpublish = useUnpublishNetwork();
   const leave = useLeaveNetwork();
+  /** The card's one restart waiter: the result blocks show it, `busy` gates on it. */
+  const restart = useServerRestart();
   /**
    * True while a settings write the FORM owns is in flight.
    *
@@ -176,7 +180,13 @@ export function NetworkPluginCard({
     publish.isPending ||
     unpublish.isPending ||
     leave.isPending ||
-    savingSettings;
+    savingSettings ||
+    // An act started against a server that is coming back is an act that
+    // fails offline; the outage is a state of the CARD, not only of the
+    // notice showing the spinner. The blocker disjunctions must never be
+    // able to re-enable a button during it — folded into `busy`, every
+    // `disabled={busy}` site (blocker included) stays shut.
+    restart.outcome === "waiting";
 
   const status = row.status;
   const state = status?.state;
@@ -187,7 +197,9 @@ export function NetworkPluginCard({
    * vocabularies differ per plugin — Publish, Publish with Tailscale Serve,
    * Start tunnel, Use this address — and the sentence explaining the button used
    * to say "publishing" while the thing under it said something else. NetBird's
-   * "Use this address" made an operator ask how to publish.
+   * "Use this address" made an operator ask how to publish — since the join IS
+   * its publish (spec §5.3 amended 2026-09-16), that word now rides only the
+   * fallback button, for the joined-and-unrecorded gap.
    */
   const publishLabel = row.labels.publish ?? "Publish";
   /**
@@ -281,6 +293,21 @@ export function NetworkPluginCard({
   const blockerProps = blocker ? { "aria-describedby": blockerId } : {};
 
   const published = publish.data;
+  const unpublished = unpublish.data;
+  /**
+   * What a restart that LANDS refetches.
+   *
+   * The config the restarted process just read is what every row's addresses
+   * now MEAN — boot reconciles publishes (`prepare.ts`) — and a restart is
+   * also the event that lands an `APP_BASE_URL` edit the public settings
+   * carry into install commands. The hook has already landed the deployment
+   * view and admin status; these are the two the card owns.
+   */
+  useEffect(() => {
+    if (restart.outcome !== "back") return;
+    void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
+  }, [restart.outcome, queryClient]);
   /**
    * A 404 from the install route is not a failure.
    *
@@ -698,47 +725,43 @@ export function NetworkPluginCard({
                   that answer nowhere, under a list quietly one address short. */}
               <NetworkHints hints={status.hints} />
 
-              {/* **The publish act is a section, not a button in a list**
-                  (2026-09-16, operator read): a joined card flowed facts →
-                  sentence → hints → checkbox → button as one undifferentiated
-                  column, and the question "do I even need to publish?" had no
-                  address — the opt-in hid inside the readout. The box is the
-                  join-mode box's language (a bounded control group with its
-                  own heading, like "Addresses" for the list), it sits BELOW
-                  the plugin's hints so Tailscale's certificate-transparency
-                  cost reads as this section's preamble rather than as a
-                  paragraph about the addresses above, and its second sentence
-                  answers necessity outright — the honest answer includes the
-                  case where publishing is not needed. The button keeps the
-                  plugin's own quoted word inside, and the sentence that used
-                  to float above the hints names the act in that word. */}
-              {state === "joined" && (
+              {/* Two joined states, two asks, because they are two different
+                  facts (spec §5.3 amended 2026-09-16, operator: "do we really
+                  need this?").
+
+                  **Joining IS the publish for a `publishImplicit` network**:
+                  the join route records the publish, widens TRUSTED_ORIGINS
+                  and answers the restart through the join stream itself, so a
+                  row joined-and-unrecorded is only ever the GAP — a manual
+                  `netbird up`, a sign-in finished in another tab, or the
+                  half-second an address table takes to settle. The gap gets
+                  one line and the button, not a section with a heading and a
+                  skip paragraph: the rare fallback must not wear the
+                  furniture of the normal path.
+
+                  An explicit-publish network keeps the section EXACTLY as it
+                  was, down to the necessity answer — its press carries real
+                  costs (public CT logs, a public tunnel) and is genuinely
+                  optional, which is what the box is for. */}
+              {state === "joined" && row.publishImplicit && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-detail text-muted-foreground">
+                    {row.name} publishes by joining — “{publishLabel}” records its addresses and trusts them for
+                    sign-in.
+                  </p>
+                  <Button size="sm" disabled={busy} onClick={() => begin(() => publish.mutate({ id: row.id }))}>
+                    {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+                    {publish.isPending ? "Publishing…" : publishLabel}
+                  </Button>
+                </div>
+              )}
+              {state === "joined" && !row.publishImplicit && (
                 <div className="space-y-3 rounded-md border p-4">
-                  {/* NetBird has no vendor-side publish to configure — that is what
-                      its `publishImplicit` flag means: the addresses already answer
-                      because JOINING routed them here, and the press changes only
-                      what THIS server allows. An operator read the "Publish" framing
-                      as claiming a NetBird concept that does not exist, and they are
-                      right: the heading is about the reader's goal, the sentence is
-                      about the mechanism the reader actually has. */}
-                  <h3 className="font-strong text-label">{row.publishImplicit ? "Other devices" : "Publish"}</h3>
-                  {row.publishImplicit ? (
-                    <>
-                      <p className="text-detail text-muted-foreground">
-                        {row.name} already answers at the addresses above — joining is what put them there. What is
-                        missing is this server's permission to sign in from them.
-                      </p>
-                      <p className="text-detail text-muted-foreground">
-                        “{publishLabel}” records these as the addresses to reach this server by, so your other devices
-                        can open this dashboard over the network.
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-detail text-muted-foreground">
-                      Subshell is not published on {row.name} yet — “{publishLabel}” is what lets your other devices
-                      open this dashboard over the network.
-                    </p>
-                  )}
+                  <h3 className="font-strong text-label">Publish</h3>
+                  <p className="text-detail text-muted-foreground">
+                    Subshell is not published on {row.name} yet — “{publishLabel}” is what lets your other devices open
+                    this dashboard over the network.
+                  </p>
                   {/* The necessity question, answered before it is asked: the
                       section exists because an operator could not tell from
                       the card whether this press was required, and the honest
@@ -753,7 +776,6 @@ export function NetworkPluginCard({
                   </Button>
                 </div>
               )}
-
               <div className="flex flex-wrap items-center gap-2">
                 {state === "published" && (
                   <Button
@@ -761,27 +783,28 @@ export function NetworkPluginCard({
                     size="sm"
                     disabled={busy}
                     onClick={async () => {
-                      // The LAST sentence is the point on both branches:
-                      // leaving the trusted origin behind is deliberate (spec
-                      // §5.4) — removing one is the Addresses card's act — and
-                      // it is surprising enough that discovering it later
-                      // reads as a bug.
+                      // The LAST sentence is the point on both branches: the
+                      // origins this publish trusted leave with it when the
+                      // server restarts (spec §5.4, amended 2026-09-16) — and
+                      // sign-in from an address stops being accepted BEFORE
+                      // the address itself necessarily stops answering (a
+                      // mesh IP keeps answering on membership alone). A
+                      // person has to know that order before pressing.
                       //
                       // The FIRST depends on what unpublishing even IS here.
-                      // For a `publishImplicit` network (NetBird) the
-                      // addresses follow membership: unpublishing removes the
-                      // host's RECORD and the machine keeps answering, so the
-                      // blanket promise this used to make described a
-                      // shutdown that does not happen. For the serve/tunnel
-                      // kinds the record names the mechanism and the published
-                      // addresses do go down — but a mesh IP in the same list
-                      // answers on membership too, so even that sentence names
-                      // which addresses stop.
+                      // For a `publishImplicit` network (NetBird) no vendor
+                      // mechanism stops — membership is what makes its
+                      // addresses answer — so the sentence says exactly what
+                      // DOES end: the server's permission to sign in over
+                      // them, and names Disconnect as the act that ends the
+                      // addresses themselves (spec §5.3 reversed 2026-09-16).
+                      // For the serve/tunnel kinds the record names the
+                      // mechanism and the published addresses do go down.
                       const proceed = await confirmAction({
                         title: `Stop publishing Subshell on ${row.name}?`,
                         description: row.publishImplicit
-                          ? `${row.name}'s addresses stay reachable while this machine is a member of the network — unpublishing removes the published record, it does not disconnect the machine. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.`
-                          : `The published addresses stop answering — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.`,
+                          ? `Unpublishing ${row.name} takes its addresses out of the trusted origins when the server restarts, and sign-in from them stops then — the addresses themselves keep answering while this machine stays a member, because membership is what makes them answer. "Disconnect" takes the machine off the network.`
+                          : `The published addresses stop answering — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network; the addresses this publish trusted leave the trusted origins when the server restarts, and sign-in from them stops then — before the address itself may stop answering.`,
                         confirmLabel: "Unpublish",
                       });
                       if (proceed) begin(() => unpublish.mutate({ id: row.id }));
@@ -850,40 +873,86 @@ export function NetworkPluginCard({
                 Published on {row.name}
                 {published.config.changed.length > 0 && <> · updated {published.config.changed.join(", ")}</>}
               </p>
-              {published.config.warnings.map((warning) => (
-                <p key={warning} className="text-detail text-warning">
-                  {warning}
+              <ConfigWriteOutcome
+                config={published.config}
+                restartRequired={published.restartRequired}
+                restart={restart}
+              />
+            </div>
+          )}
+          {/* The join that published (spec §5.3 amended 2026-09-16): a
+              `publishImplicit` join carries its config write and restart
+              answer on its own done frame, so the press that completed the
+              whole path reports it here — the same block the publish route's
+              result uses, the same single restart waiter. An explicit
+              network's join writes nothing, and so never renders this. */}
+          {join.data?.config && (
+            <div className="space-y-2">
+              <p className="text-detail text-success">
+                Published on {row.name}
+                {join.data.config.changed.length > 0 && <> · updated {join.data.config.changed.join(", ")}</>}
+              </p>
+              <ConfigWriteOutcome
+                config={join.data.config}
+                restartRequired={join.data.restartRequired === true}
+                restart={restart}
+              />
+            </div>
+          )}
+          {/* The outcome of the last unpublish: what became of the origins,
+              in the same shape the publish result uses. Two sentences —
+              removed, or nothing removed — because after the §5.3 reversal
+              every kind subtracts and no third truth is left to tell. The
+              implicit kind's row lands on `joined` afterwards: the machine is
+              still a member and its daemon still answers at those addresses;
+              what ended is this server's permission to sign in over them. */}
+          {unpublished && (
+            <div className="space-y-2">
+              {unpublished.config && unpublished.config.changed.length > 0 ? (
+                // ASKED, not REMOVED: the subtraction is by value, and the
+                // list printed here is what the publish had recorded, not a
+                // receipt of what the file held. If one of those origins had
+                // already been hand-deleted, saying "Removed" would claim a
+                // match the writer never confirmed.
+                <p className="text-detail text-success">
+                  Asked to remove {unpublished.origins.join(", ")} from the trusted origins
                 </p>
-              ))}
-              {/* The write did not land, and the reason is that the key is
-                  the environment's — the same "environment wins, and a write
-                  the next read would mask is not a success" rule the rest of
-                  the config ladder follows. Naming the key is the whole
-                  point: it is where the change has to be made instead. */}
-              {/* Names the KEY that did not land, never a reason for it and
-                  never the whole file. `unwritableKey` is set on three
-                  different paths — the environment owning the key, an
-                  unreadable config file, a validator refusal — so naming the
-                  first unconditionally sent an admin to edit a unit file over
-                  what was really a validation error; the true reason is in
-                  `config.warnings` just above, in the server's own words.
-                  And a partial write must not contradict itself: `written`
-                  is false whenever ANY key was refused, so a frame that both
-                  changed one key and refused another would otherwise read
-                  "updated TRUSTED_ORIGINS" and "config.env was not changed"
-                  four lines apart, about one write. */}
-              {!published.config.written && (
-                <p className="text-detail text-warning">
-                  {published.config.unwritableKey ? (
-                    <>
-                      <span className="font-mono">{published.config.unwritableKey}</span> was not written to config.env.
-                    </>
-                  ) : (
-                    "config.env was not changed."
-                  )}
-                </p>
+              ) : (
+                <p className="text-detail text-muted-foreground">Nothing was removed from the trusted origins.</p>
               )}
-              {published.restartRequired && <NetworkRestartNotice />}
+              {unpublished.config && (
+                <ConfigWriteOutcome
+                  config={unpublished.config}
+                  restartRequired={unpublished.restartRequired}
+                  restart={restart}
+                  removal
+                />
+              )}
+            </div>
+          )}
+
+          {/* The leave, answered in the same shape. This is NetBird's NORMAL
+              strip path — the unpublish button is not what a joined implicit
+              row shows — so the trio the route now carries renders here too:
+              one sentence about what left, and the shared tail that names
+              what awaits the restart. */}
+          {leave.data && (
+            <div className="space-y-2">
+              {leave.data.config && leave.data.config.changed.length > 0 ? (
+                <p className="text-detail text-success">
+                  Left {row.name}; asked to remove {leave.data.origins.join(", ")} from the trusted origins
+                </p>
+              ) : (
+                <p className="text-detail text-success">Left {row.name}.</p>
+              )}
+              {leave.data.config && (
+                <ConfigWriteOutcome
+                  config={leave.data.config}
+                  restartRequired={leave.data.restartRequired}
+                  restart={restart}
+                  removal
+                />
+              )}
             </div>
           )}
 

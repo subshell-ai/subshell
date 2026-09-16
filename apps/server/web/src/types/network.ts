@@ -213,9 +213,17 @@ export interface NetworkJoinResult {
   outcome: JoinOutcome;
   /** The status as of the end of the stream */
   status: NetworkStatus;
+  /**
+   * What the join wrote to config.env — present ONLY when the join WAS the
+   * publish (a `publishImplicit` network, spec §5.3 amended 2026-09-16). An
+   * explicit-publish network's join writes nothing and so says nothing.
+   */
+  config?: NetworkConfigOutcome;
+  /** True when that write needs a restart to take effect */
+  restartRequired?: boolean;
 }
 
-/** What `publish` did to config.env. */
+/** What one network act did to config.env — the shape both the publish `done` frame and the unpublish response carry. */
 export interface NetworkConfigOutcome {
   /** Keys whose value changed */
   changed: string[];
@@ -230,6 +238,42 @@ export interface NetworkConfigOutcome {
    * here would be the same false claim the card stopped making.
    */
   unwritableKey?: string;
+}
+
+/**
+ * The `POST /api/network/:id/leave` result: the machine is off the network,
+ * and the removal trio says what became of the origins the recorded publish
+ * had trusted — leave runs the SAME §5.3 sequence, and for NetBird it is the
+ * normal strip path.
+ */
+export interface NetworkLeaveResult {
+  ok: true;
+  /** What became of `TRUSTED_ORIGINS`, or null when nothing had been recorded */
+  config: NetworkConfigOutcome | null;
+  /** True when the subtraction rewrote config.env; the removal lands on the next restart. */
+  restartRequired: boolean;
+  /** The origins leave asked to subtract, as the publish recorded them. */
+  origins: string[];
+  /** The status as of the end of the act */
+  status: NetworkStatus;
+}
+
+/** The `POST /api/network/:id/unpublish` result. */
+export interface NetworkUnpublishResult {
+  ok: true;
+  /**
+   * What became of `TRUSTED_ORIGINS`, or null when the act asked nothing of
+   * the file — a plugin that never published recorded no origins to subtract.
+   * No kind is exempt: `publishImplicit` subtracts too (spec § 5.3, reversed
+   * 2026-09-16).
+   */
+  config: NetworkConfigOutcome | null;
+  /** True when the subtraction rewrote config.env; the removal lands on the next restart. */
+  restartRequired: boolean;
+  /** The origins this unpublish asked to remove, as the publish recorded them. */
+  origins: string[];
+  /** The status as of the end of the act */
+  status: NetworkStatus;
 }
 
 /** The `done` frame of `POST /api/network/:id/publish`. */

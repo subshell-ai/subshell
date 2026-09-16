@@ -179,11 +179,14 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
         ok: true,
         addresses: result.addresses,
         config,
-        // Always true: `applyConfig` writes a file the next boot reads, so
-        // the new origins do not take effect until then —
-        // even when nothing needed writing, the page offers the restart
-        // rather than leaving an admin to discover a 403 on sign-in.
-        restartRequired: true,
+        // True only when the union actually rewrote config.env — the same
+        // rule join and unpublish apply. The blanket `true` was a leftover of
+        // the promotion era, when every publish changed `APP_BASE_URL` too;
+        // with origins as the only key, a restart cannot apply a write that
+        // never happened, so the blanket offered its button on exactly the
+        // paths where it was useless: the environment-owned refusal and the
+        // press whose origins were already in the list.
+        restartRequired: config.changed.length > 0,
         status: after,
       });
     }, release);

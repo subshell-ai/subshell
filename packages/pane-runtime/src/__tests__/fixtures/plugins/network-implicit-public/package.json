@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/network-implicit-public",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 2,
+    "id": "network-implicit-public",
+    "type": "network",
+    "name": "Implicit Public",
+    "description": "declares publishImplicit AND a public-with-gate exposure",
+    "entry": "index.js",
+    "network": { "platforms": ["linux"], "exposure": "public-with-gate", "publishImplicit": true }
+  }
+}

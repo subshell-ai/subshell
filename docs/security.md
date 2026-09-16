@@ -1851,9 +1851,20 @@ this project did not write.
   stays private to the tailnet. Stated on the publish button, not discovered
   afterwards.
 - **The address surface widens from a browser**, through §11.11's writer and no
-  other. Publishing adds the new origin to `TRUSTED_ORIGINS`, which is additive
-  and **passkey-neutral** — and it is
-  now all publishing writes: the earlier opt-in promotion of `APP_BASE_URL`
+  other. Publishing adds the new origin to `TRUSTED_ORIGINS`, which is
+  **passkey-neutral**; unpublishing subtracts the origins its own publish
+  added (amended 2026-09-16 — origins have that publish's lifecycle, and
+  an address may stop accepting new sign-ins at the restart while the
+  daemon still answers there, the operator's accepted cost), canonical on
+  both sides — by VALUE, not provenance: an origin the file cannot tell
+  apart from a published one (a hand-added entry equal to a published
+  address) leaves with the publish, and only origins no publish matched
+  survive. For a
+  `publishImplicit` network the join is itself that publish (amended
+  2026-09-16): the join route records and unions through the same writer
+  and audits its own `network.publish` row (`by: join`) — the same act one
+  press earlier, not a new surface. It is
+  all publishing writes: the earlier opt-in promotion of `APP_BASE_URL`
   was removed on 2026-09-16, and the base URL — which **moves the passkey
   rpID** (§2, §8) — is changed on the Service page, warned at the field.
   Writes go through `applyConfig`, so the component validation

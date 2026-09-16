@@ -18,9 +18,14 @@ importing any of this code.
   authorises callers by kernel peer credentials (claimed for ≥ 0.76), so the
   server's own unprivileged user may run `up` and `status --json` without further
   grants. The ladder runs `not-installed → daemon-down → needs-login`.
-- **Publishing is not a command.** A join already makes the machine reachable at
-  its WireGuard address; "Use this address" records the addresses and admits them
-  to the trusted origins. Unpublish is therefore a no-op.
+- **Publishing is not a command — joining IS the publish.** A join already makes
+  the machine reachable at its WireGuard address, so the host records the
+  addresses and admits them to the trusted origins as part of the join itself;
+  the plugin's "Use this address" press survives only as the fallback for the
+  rare join whose address had not propagated yet. The plugin's own `unpublish`
+  stays a no-op — there is nothing on the machine for it to undo — but the
+  host's half clears the record and removes the trusted origins, so the address
+  stops accepting sign-ins at the next restart.
 - **Peer names need a nameserver group.** The FQDN address is offered alongside
   the IP, with a hint saying peer names only resolve when the NetBird account has
   a nameserver group configured — otherwise use the NetBird IP address — linked to

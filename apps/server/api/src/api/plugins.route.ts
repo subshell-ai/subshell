@@ -15,6 +15,7 @@ import type { PluginReportWire } from "@internal/subshell-protocol";
 import { Elysia, type Static, t } from "elysia";
 import { authGuard, HttpError, requireAdmin } from "@/api/auth-guard.js";
 import { HarnessStateError } from "@/api/harness-utils.js";
+import { beginNetworkOp, busyRefusal, endNetworkOp } from "@/api/network/network-gate.js";
 import { IS_TEST, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
@@ -449,9 +450,22 @@ const adminRoutes = new Elysia()
       // the row, the Networking page and the running tunnel describing the
       // same machine.
       if (!body.enabled && pluginTypeOf(s.installed.find((r) => r.id === params.pluginId)?.type) === "network") {
-        const result = await unpublishNetwork(params.pluginId);
-        if (!result.ok) {
-          throw new HarnessStateError([result.message, ...result.lastLines].join("\n"), 409);
+        // THE PER-PLUGIN LOCK, the same one every `/api/network` act takes.
+        // The strip this path runs is the same config.env write a publish's
+        // union races against: two writers, last rename wins, and neither
+        // result describes the file afterwards. A held lock is the SAME 409
+        // the network routes answer with (`busyRefusal`, mapped to
+        // EXISTS_ERROR by its status like every throw here).
+        if (!beginNetworkOp(params.pluginId)) {
+          throw new HarnessStateError(busyRefusal(params.pluginId).message, 409);
+        }
+        try {
+          const result = await unpublishNetwork(params.pluginId);
+          if (!result.ok) {
+            throw new HarnessStateError([result.message, ...result.lastLines].join("\n"), 409);
+          }
+        } finally {
+          endNetworkOp(params.pluginId);
         }
       }
       // The row is written BOTH ways: an explicit enable is the operator's
@@ -540,16 +554,27 @@ const adminRoutes = new Elysia()
       // than removing the only page that could explain the tunnel.
       const installedType = pluginTypeOf((await localPluginReports()).find((r) => r.id === params.pluginId)?.type);
       if (installedType === "network") {
-        const stopped = await unpublishNetwork(params.pluginId);
-        if (!stopped.ok) {
-          throw new HarnessStateError([stopped.message, ...stopped.lastLines].join("\n"), 409);
+        // Same lock as the disable branch above: the uninstall's strip must
+        // not interleave with a live publish's write either. Held through
+        // the whole network half (sequence + state file); the byte removal
+        // that follows is no network act.
+        if (!beginNetworkOp(params.pluginId)) {
+          throw new HarnessStateError(busyRefusal(params.pluginId).message, 409);
         }
-        // The state file too, or the settings and the publish stamp survive
-        // the package and a later reinstall of the same id silently inherits
-        // them. The SECRETS beside it are deliberately left alone: destroying
-        // a credential is a different act from removing bytes, and
-        // `uninstallLocalPlugin` owns that directory.
-        await clearNetworkState(params.pluginId);
+        try {
+          const stopped = await unpublishNetwork(params.pluginId);
+          if (!stopped.ok) {
+            throw new HarnessStateError([stopped.message, ...stopped.lastLines].join("\n"), 409);
+          }
+          // The state file too, or the settings and the publish stamp survive
+          // the package and a later reinstall of the same id silently inherits
+          // them. The SECRETS beside it are deliberately left alone: destroying
+          // a credential is a different act from removing bytes, and
+          // `uninstallLocalPlugin` owns that directory.
+          await clearNetworkState(params.pluginId);
+        } finally {
+          endNetworkOp(params.pluginId);
+        }
       }
       // Bytes next: a failed uninstall must not have already deleted
       // presets for a plugin that stayed installed. `uninstallLocalPlugin`

@@ -6,9 +6,10 @@ import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import type {
   NetworkInstallResult,
   NetworkJoinResult,
+  NetworkLeaveResult,
   NetworkList,
   NetworkPublishResult,
-  NetworkStatus,
+  NetworkUnpublishResult,
 } from "@/types/network";
 
 /** Query key of the network plugin list (`GET /api/network`, admin cookie only). */
@@ -259,14 +260,15 @@ export function useUnpublishNetwork() {
   return useMutation({
     mutationKey: NETWORK_MUTATION_KEY,
     mutationFn: ({ id }: { id: string }) =>
-      apiFetch<{ ok: true; status: NetworkStatus }>(`/api/network/${id}/unpublish`, { method: "POST" }),
+      apiFetch<NetworkUnpublishResult>(`/api/network/${id}/unpublish`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
-      // NOT because the origin is removed — it deliberately is not (spec
-      // §5.4): unpublishing stops serving an address, and removing a trusted
-      // origin is the Addresses card's act. The deployment view is invalidated
-      // because `restartRequired` and the running-vs-saved comparison can both
-      // have moved, which is a different reason for the same refetch.
+      // The subtraction rewrote config.env — the deployment view renders the
+      // saved-versus-running settings (`TRUSTED_ORIGINS` among them) and the
+      // `restartRequired` the result block acts on — and the public settings
+      // ride along for the same cheap refresh every other network act gives
+      // them. (Spec § 5.4 amended 2026-09-16: an origin a publish added now
+      // leaves with that publish; the Addresses card remains the manual lever.)
       void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
     },
@@ -275,6 +277,11 @@ export function useUnpublishNetwork() {
 
 /**
  * Leaves the network entirely (`POST /api/network/:id/leave`).
+ *
+ * The answer is the removal trio: leave runs the § 5.3 sequence first, so
+ * for an implicit-publish network this — not the unpublish button, which a
+ * joined NetBird no longer shows — is the press whose origins strip needs a
+ * restart, and the card says so in the same block unpublish uses.
  *
  * `confirm` is the route's own guard — it carries what the person typed, and
  * the server decides whether it matches. The card asks for it rather than
@@ -285,7 +292,7 @@ export function useLeaveNetwork() {
   return useMutation({
     mutationKey: NETWORK_MUTATION_KEY,
     mutationFn: ({ id, confirm }: { id: string; confirm: string }) =>
-      apiFetch<{ ok: true; status: NetworkStatus }>(`/api/network/${id}/leave`, {
+      apiFetch<NetworkLeaveResult>(`/api/network/${id}/leave`, {
         method: "POST",
         body: JSON.stringify({ confirm }),
       }),

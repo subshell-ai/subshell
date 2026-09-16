@@ -28,8 +28,8 @@ import { getLogger } from "@/utils/logger.js";
 
 /**
  * Everything the six `/api/network` routes share (spec 2026-09-15 § 5.1): the
- * gate, the refusal table, the in-flight lock, the status memo and the one
- * config write.
+ * gate, the refusal table, the in-flight lock, the status memo and the two
+ * config writes — the union a publish adds, the subtraction an unpublish takes back.
  *
  * Its own module for the reason `nodes/node-gate.ts` is: six handlers deciding
  * "may this caller act, and is this plugin in a state to be acted on" is six
@@ -523,10 +523,11 @@ export interface PublishConfigInput {
  *
  * Three properties, each load-bearing:
  *
- * - **Union, never replacement.** An origin already trusted stays trusted.
- *   Unpublishing does not remove one either (spec § 5.4) — that is the
- *   Addresses card's act — so nothing in this feature can take away an address
- *   someone is currently signed in on.
+ * - **Union, never replacement.** An origin already trusted stays trusted —
+ *   THIS writer never removes anything. Removal is {@link
+ *   removePublishedConfig}'s half of the pair: an origin added by a publish
+ *   leaves when that publish is undone (spec § 5.4, amended 2026-09-16), and
+ *   one this pair never wrote survives every cycle.
  * - **`applyConfig` is the ONLY writer**, shared with `subshell-server
  *   configure` and `PATCH /api/admin/server/config`. That shared call, not a
  *   test, is what makes `docs/security.md`'s component-wise origin validation
@@ -633,4 +634,125 @@ export function unionOrigins(stored: string, added: string[]): string[] {
     out.push(canonical);
   }
   return out;
+}
+
+/**
+ * The stored origin list with the named ones removed, canonical on both sides.
+ *
+ * The subtractive mirror of {@link unionOrigins}, keeping its two rules: the
+ * comparison runs on `URL.origin`, so a stored `https://x.ts.net/` and a
+ * published `https://x.ts.net` are one origin; and an entry that will not
+ * parse STAYS — an entry this function cannot understand is not provably one
+ * the network published, and deleting what it cannot read is not its call.
+ */
+export function subtractOrigins(stored: string, removed: string[]): string[] {
+  const gone = new Set<string>();
+  for (const raw of removed) {
+    const value = raw.trim();
+    if (value === "") continue;
+    try {
+      gone.add(new URL(value).origin);
+    } catch {
+      gone.add(value);
+    }
+  }
+  return stored
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "")
+    .filter((entry) => {
+      try {
+        return !gone.has(new URL(entry).origin);
+      } catch {
+        return true;
+      }
+    });
+}
+
+/**
+ * The unpublish's config.env write: `TRUSTED_ORIGINS` minus the origins THIS
+ * network's publish added (spec § 5.4, lifecycle amended 2026-09-16 — an
+ * origin added by a publish now leaves with that publish).
+ *
+ * The subtraction of {@link writePublishConfig}, and it inherits that
+ * writer's three properties whole: `applyConfig` is the only writer; a key
+ * the ENVIRONMENT owns is refused by name — `written: false` and
+ * `unwritableKey`, with the unpublish itself completing, because the machine
+ * really has stopped publishing and what could not follow is the file — and
+ * nothing outside the subtraction's remit is touched. Two rules subtraction
+ * adds:
+ *
+ * - **A line emptied is CLEARED, not written empty** — `applyConfig`'s own
+ *   meaning for `trustedOrigins: ""`, the `OPTIONAL_KEYS` rule `configure`
+ *   follows. A stale empty line would beat `.env` in the SETDEFAULT ladder
+ *   while naming nothing; clearing lets the built-in answer again, exactly
+ *   as though the publish had never written the line.
+ * - **No match is silence, not a write.** When the file holds none of those
+ *   origins — the Addresses card got there first, or an operator hand-edited
+ *   the line away — nothing lands and `changed` stays empty. Reporting a
+ *   change that did not happen is the same lie as a masked write.
+ */
+export function removePublishedConfig(origins: string[]): NetworkConfigWrite {
+  const deps = networkDeps();
+  const warnings: string[] = [];
+
+  let stored: Record<string, string>;
+  try {
+    stored = deps.configValues();
+  } catch (err) {
+    // The same shape `writePublishConfig` answers with: the act succeeded,
+    // the file could not be read, and the FILE is the thing to fix.
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      changed: [],
+      warnings: [`The server could not read its config file, so it will not overwrite it: ${reason}`],
+      written: false,
+      unwritableKey: "TRUSTED_ORIGINS",
+    };
+  }
+
+  if (stored.TRUSTED_ORIGINS === undefined) {
+    // The key is absent from the file. Whatever trusts that address today
+    // lives in the environment or in the built-in default, and neither is
+    // this write's to touch. Nothing changed; nothing failed. (The asymmetry
+    // against `writePublishConfig`, which DOES consult the environment here:
+    // the union would write a line the environment masks, while a subtraction
+    // from an absent file removes nothing — an env refusal would name a
+    // problem that does not exist.)
+    return { changed: [], warnings, written: true };
+  }
+
+  const applied = deps.appliedKeys();
+  const env = deps.env();
+  if (settingSource("TRUSTED_ORIGINS", env, applied, stored) === "process env") {
+    return {
+      changed: [],
+      warnings: [
+        "TRUSTED_ORIGINS is set in the server's environment, so config.env cannot remove these origins; remove them where the server is started.",
+      ],
+      written: false,
+      unwritableKey: "TRUSTED_ORIGINS",
+    };
+  }
+
+  const remaining = subtractOrigins(stored.TRUSTED_ORIGINS, origins);
+  if (remaining.length === subtractOrigins(stored.TRUSTED_ORIGINS, []).length) {
+    return { changed: [], warnings, written: true };
+  }
+
+  const result = deps.applyConfig({ trustedOrigins: remaining.join(",") });
+  if (!result.ok) {
+    const reason = result.kind === "unreadable" ? result.reason : `${result.key}: ${result.reason}`;
+    return {
+      changed: [],
+      warnings: [...warnings, `The publish was undone, but config.env could not be updated — ${reason}`],
+      written: false,
+      unwritableKey: "TRUSTED_ORIGINS",
+    };
+  }
+  return {
+    changed: result.changed.map((c) => c.key),
+    warnings: [...warnings, ...result.warnings],
+    written: true,
+  };
 }

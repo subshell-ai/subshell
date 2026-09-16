@@ -329,6 +329,22 @@ export function createInProcessRuntime(): PluginRuntime {
             stale,
           );
         }
+        // `publishImplicit` hands the WHOLE publish to the join: the host
+        // records and trusts the addresses the moment membership lands, with
+        // no separate press that could carry a public-exposure warning. That
+        // is sound precisely because the addresses of a `private` network are
+        // reachable only on that network — a `public-with-gate` exposure is
+        // the open internet, and the combination would auto-publish on it
+        // from a bare join, the guard armed or not. Refused at load like the
+        // other contradictions between declaration and reach: a first-party
+        // plugin cannot declare it, and neither can a third-party one.
+        if (manifest.network?.publishImplicit === true && manifest.network?.exposure !== "private") {
+          return broken(
+            manifest,
+            'it declares `publishImplicit: true` (joining records and trusts its addresses with no publish press) while `exposure` is not `"private"` — that combination publishes this server on the open internet from a bare join',
+            stale,
+          );
+        }
         return stale ? { manifest, plugin, stale: true } : { manifest, plugin };
       } catch (err) {
         return broken(manifest, describe(err), stale);

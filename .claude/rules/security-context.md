@@ -632,8 +632,17 @@ code. Full accounting: `docs/security.md` §11.13.
   behind the guard only.
 - **Publishing widens the address surface through `applyConfig` and nothing
   else** — §11.11's writer, so the component validation and the wildcard
-  refusal above apply unchanged. `TRUSTED_ORIGINS` is additive and
-  passkey-neutral, and it is now all a publish writes: the opt-in promotion of
+  refusal above apply unchanged — and unpublishing now subtracts the origins
+  its own publish added (amended 2026-09-16: origins have that publish's
+  lifecycle, subtracted BY VALUE not provenance — an origin equal to a
+  published address leaves with it — and no kind is exempt: the implicit-publish kind's record and
+  origins strip like every other's, and while its daemon may still answer
+  at its address after a disable, that address stops ACCEPTING sign-ins at
+  the restart, the stated cost (spec § 5.3, reversed 2026-09-16). And for
+  that kind the join IS the publish: the join route records it and unions
+  the origins through the same writer, auditing its own `network.publish`
+  row with `by: join`). `TRUSTED_ORIGINS` is otherwise
+  passkey-neutral, and origins are all a publish writes: the opt-in promotion of
   `APP_BASE_URL` the publish checkbox carried was removed 2026-09-16 (a
   checkbox moving the passkey rpID sat in a flow about reaching the server,
   not about identity). The base URL is changed on the Service page, where it

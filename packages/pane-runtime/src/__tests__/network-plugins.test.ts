@@ -87,6 +87,20 @@ describe("loading a network plugin", () => {
     expect(result.error).toContain("publishImplicit");
   });
 
+  it("refuses publishImplicit on a non-private exposure", async () => {
+    // `publishImplicit` moves the publish INTO the join — records, origins,
+    // the whole path — and there is deliberately no press left to warn at.
+    // On a `private` network that is safe because the addresses themselves
+    // are the network's; on `public-with-gate` it describes auto-publishing
+    // this server on the open internet from a bare `join()`. The refusal is
+    // the only place the two declarations meet before anything runs.
+    const result = await createInProcessRuntime().load(join(FIXTURES, "network-implicit-public"));
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toContain("publishImplicit");
+    expect(result.error).toContain("private");
+  });
+
   it("still refuses a harness missing ITS required members", async () => {
     // The type-conditional list must not have loosened the harness path.
     const result = await createInProcessRuntime().load(join(FIXTURES, "missing-validate"));

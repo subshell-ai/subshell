@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
-import type { NetworkStatus } from "@internal/pane-runtime";
+import type { NetworkPluginEntry, NetworkStatus } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
@@ -14,7 +14,7 @@ import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { clearNetworkState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { FAKE_ID, fakeDeps, fakeReport, makeFakePlugin } from "./fake-network-plugin.js";
+import { type ConfigRecorder, FAKE_ID, fakeDeps, fakeReport, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**
  * `/api/network` — the gate, the refusal table, the list row and the two
@@ -336,6 +336,244 @@ describe("/api/network", () => {
         withCookie(`/api/network/${FAKE_ID}/publish`, adminCookie, { method: "POST", body: "{}" }),
       );
       expect(res.status).toBe(404);
+    });
+  });
+
+  /**
+   * JOIN IS THE PUBLISH (spec §5.3, amended 2026-09-16, operator: "do we
+   * really need this?").
+   *
+   * For a `publishImplicit` network the join itself made the addresses
+   * answer, so the record and the origin write run inside the join stream —
+   * through the gate's own `writePublishConfig`, never a second writer. An
+   * explicit-publish network's join writes NOTHING to config.env: those
+   * presses carry real costs (public CT logs, a public tunnel) and stay
+   * user-decided.
+   */
+  describe("join as the publish", () => {
+    function recorder(): ConfigRecorder {
+      return {
+        calls: [],
+        result: {
+          ok: true,
+          path: "/tmp/config.env",
+          values: {},
+          warnings: [],
+          changed: [
+            { key: "TRUSTED_ORIGINS", from: undefined, to: "http://localhost:3080,https://host.example.ts.net" },
+          ],
+        },
+      };
+    }
+
+    it("records the publish and trusts its addresses through the one writer", async () => {
+      const config = recorder();
+      const { entry, calls } = makeFakePlugin({ publishImplicit: true });
+      setNetworkDepsForTests(
+        fakeDeps(entry, { config, configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080" }) }),
+      );
+      const res = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, { method: "POST", body: "{}" }),
+      );
+      expect(res.status).toBe(200);
+      const done = (await frames(res)).at(-1);
+      expect(done?.type).toBe("done");
+      expect(done?.restartRequired).toBe(true);
+      expect(done?.config).toEqual({ changed: ["TRUSTED_ORIGINS"], warnings: [], written: true });
+      // The record is what makes the row `published`, and the origins went
+      // through `unionOrigins` into the CLI writer — a union, not a
+      // replacement, exactly as the publish route's do.
+      const state = await readNetworkState(FAKE_ID);
+      expect(state.published).toBe(true);
+      expect(state.addresses.map((a) => a.url)).toEqual(["https://host.example.ts.net"]);
+      expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080,https://host.example.ts.net" }]);
+      // Fresh before-read, post-join read, post-write read. No repoll: the
+      // first post-join answer already had the address (§10.4 measured).
+      // These COUNTS are the non-vacuity proof of the auto-publish branch:
+      // were the `publishImplicit` read ever to miss where the parser puts
+      // the flag, the record and config assertions would fail FIRST — and a
+      // mis-set flag would show as 2 reads here, never as a passing 3.
+      expect(calls.status).toBe(3);
+    });
+
+    it("records, writes and audits the SAME address set; only the frame re-reads", async () => {
+      // The audit row must name the addresses the RECORD and the union
+      // trusted — the status read AFTER the config write is display-only and
+      // may legitimately differ. A drift between them is the second truth
+      // about one act that `by: "join"` exists to prevent.
+      // Every read answers with a DIFFERENT single address, so any of the
+      // three consumers reaching for the wrong one shows up as a wrong URL
+      // rather than a coincidence.
+      let read = 0;
+      const { entry } = makeFakePlugin({
+        publishImplicit: true,
+        status: () => {
+          read += 1;
+          return {
+            state: "joined" as const,
+            addresses: [
+              { url: `https://a${read}.example`, scheme: "https" as const, label: "IP", secureContext: false },
+            ],
+            hints: [],
+          };
+        },
+      });
+      const config = recorder();
+      setNetworkDepsForTests(
+        fakeDeps(entry, { config, configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080" }) }),
+      );
+      const done = (
+        await frames(
+          await app.fetch(withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, { method: "POST", body: "{}" })),
+        )
+      ).at(-1);
+      // reads: before(1), after-join(2), post-write display(3).
+      expect((await readNetworkState(FAKE_ID)).addresses.map((a) => a.url)).toEqual(["https://a2.example"]);
+      expect(config.calls.at(-1)).toEqual({
+        trustedOrigins: "http://localhost:3080,https://a2.example",
+      });
+      const publishes = await auditRows("network.publish");
+      expect(publishes[0]?.metadata).toEqual({ addresses: ["https://a2.example"], by: "join" });
+      // The done frame carries the THIRD read — proof the audit did not chase it.
+      const frameStatus = (done?.status ?? {}) as { addresses?: { url: string }[] };
+      expect((frameStatus.addresses ?? []).map((a) => a.url)).toEqual(["https://a3.example"]);
+    });
+
+    it("a failed auto-publish keeps the join: ok result, warning line, gap state", async () => {
+      // The machine IS on the network; rewriting the join as an error frame
+      // for a failure of OUR recording would be the louder lie. The row lands
+      // in the gap state — the card's one line and the idempotent press.
+      const config = recorder();
+      const { entry } = makeFakePlugin({ publishImplicit: true });
+      setNetworkDepsForTests(
+        fakeDeps(entry, {
+          config,
+          // The seam the record reaches through: port() is consulted inside
+          // writeNetworkState's payload, so its throw is the record failing.
+          port: () => {
+            throw new Error("state disk gone");
+          },
+        }),
+      );
+      const emitted = await frames(
+        await app.fetch(withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, { method: "POST", body: "{}" })),
+      );
+      const done = emitted.at(-1);
+      expect(done?.type).toBe("done");
+      expect(done?.config).toBeUndefined();
+      expect(emitted.some((f) => f.type === "line" && String(f.text).includes("could not record the publish"))).toBe(
+        true,
+      );
+      expect((await readNetworkState(FAKE_ID)).published).toBe(false);
+      expect(config.calls).toEqual([]);
+      const joins = await auditRows("network.join");
+      expect(joins[0]?.metadata).toEqual({ mode: "interactive", ok: true });
+    });
+
+    it("audits the auto-publish as its own act, naming the join as its cause", async () => {
+      const { entry } = makeFakePlugin({ publishImplicit: true });
+      setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
+      await frames(
+        await app.fetch(withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, { method: "POST", body: "{}" })),
+      );
+      // Two rows, one press: the audit vocabulary COUNTS `network.publish`,
+      // and an auto-publish that left no row would make that count wrong on
+      // exactly the networks where it fires most. `by: "join"` is what tells
+      // the two rows they were one act.
+      const publishes = await auditRows("network.publish");
+      expect(publishes[0]?.metadata).toEqual({ addresses: ["https://host.example.ts.net"], by: "join" });
+      const joins = await auditRows("network.join");
+      expect(joins[0]?.metadata).toEqual({ mode: "interactive", ok: true });
+    });
+
+    it("gives the address table one re-read, and a still-empty gap changes nothing", async () => {
+      // The gap this test stands in for: NetBird 0.66.4 answers `status` with
+      // its addresses the instant a join lands (§10.4), but one daemon on one
+      // day is not a promise. One honest second read; if the table has STILL
+      // not settled, the row goes on joined-and-unrecorded and the card's
+      // fallback line is the operator's window to press.
+      const config = recorder();
+      const { entry, calls } = makeFakePlugin({
+        publishImplicit: true,
+        status: { state: "joined", addresses: [], hints: [] },
+      });
+      setNetworkDepsForTests(fakeDeps(entry, { config }));
+      const res = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, { method: "POST", body: "{}" }),
+      );
+      const done = (await frames(res)).at(-1);
+      expect(done?.type).toBe("done");
+      expect(done?.config).toBeUndefined();
+      expect(done?.restartRequired).toBeUndefined();
+      expect((await readNetworkState(FAKE_ID)).published).toBe(false);
+      expect(config.calls).toEqual([]);
+      // before, after, and the ONE gap re-read — never a poll loop. If the
+      // implicit condition stopped holding, this drops to 2 and the test
+      // fails on the count rather than passing vacuously on "nothing was
+      // written", which the non-implicit path also produces.
+      expect(calls.status).toBe(3);
+    });
+
+    it("publishes nothing for a join that only started a sign-in", async () => {
+      // `needs-login` is a started flow, not a membership. The addresses do
+      // not answer yet, and recording a publish off the login URL would trust
+      // origins nobody has.
+      const config = recorder();
+      const { entry } = makeFakePlugin({
+        publishImplicit: true,
+        status: { state: "needs-login", addresses: [], hints: [], loginUrl: "https://login.example/a" },
+        join: { state: "needs-login", loginUrl: "https://login.example/a" },
+      });
+      setNetworkDepsForTests(fakeDeps(entry, { config }));
+      const done = (
+        await frames(
+          await app.fetch(withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, { method: "POST", body: "{}" })),
+        )
+      ).at(-1);
+      expect(done?.type).toBe("done");
+      expect(done?.config).toBeUndefined();
+      expect((await readNetworkState(FAKE_ID)).published).toBe(false);
+      expect(config.calls).toEqual([]);
+    });
+
+    it("400s a PRESENT-BUT-BLANK credential before the stream opens", async () => {
+      // The mode the audit records forks on absent-vs-present; a field
+      // present with nothing in it is neither flow, and silently reading it
+      // as "interactive" would start a sign-in nobody asked for (and record
+      // a mode the operator did not choose). Decided up front — a defect in
+      // the CALLER, not the daemon — and the refusal answer must be audited
+      // with it: no join row for an act that never started.
+      const { entry, calls } = makeFakePlugin();
+      setNetworkDepsForTests(fakeDeps(entry));
+      // The DB is shared across the whole run, so the claim is a DELTA:
+      // a refused request audits nothing, whatever rows neighbours left.
+      const joinsBefore = (await auditRows("network.join")).length;
+      const res = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, {
+          method: "POST",
+          body: JSON.stringify({ credential: "   " }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
+      expect(res.headers.get("content-type")).toContain("application/json");
+      expect(calls.join).toEqual([]);
+      expect((await auditRows("network.join")).length).toBe(joinsBefore);
+    });
+
+    it("writes NOTHING to config.env for an explicit-publish network's join", async () => {
+      const config = recorder();
+      const { entry } = makeFakePlugin();
+      setNetworkDepsForTests(fakeDeps(entry, { config, configValues: () => ({}) }));
+      const done = (
+        await frames(
+          await app.fetch(withCookie(`/api/network/${FAKE_ID}/join`, adminCookie, { method: "POST", body: "{}" })),
+        )
+      ).at(-1);
+      expect(done?.type).toBe("done");
+      expect(done?.config).toBeUndefined();
+      expect((await readNetworkState(FAKE_ID)).published).toBe(false);
+      expect(config.calls).toEqual([]);
     });
   });
 
@@ -754,7 +992,14 @@ describe("/api/network", () => {
       });
       const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
       expect(res.status).toBe(200);
-      expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: true });
+      // Nothing was recorded, so nothing was asked of the file: `config`
+      // null, no origins, no restart to offer.
+      expect((await res.json()) as { ok: boolean }).toMatchObject({
+        ok: true,
+        config: null,
+        restartRequired: false,
+        origins: [],
+      });
       expect(unpublished).toBe(1);
       expect((await auditRows("network.unpublish")).length).toBeGreaterThan(0);
     });
@@ -777,9 +1022,214 @@ describe("/api/network", () => {
       expect(body.message).toContain("SIGKILL did not reap it");
       expect(body.message).toContain("cloudflared: retrying");
     });
+
+    // — the origin subtraction (spec § 5.4, amended 2026-09-16): an origin a
+    // publish added now has that publish's lifecycle. The sequence captures
+    // the recorded addresses before clearing them and the gate's writer
+    // subtracts exactly them; these cases are the four answers it can give,
+    // and the `publishImplicit` kind — which strips like every other (the
+    // keeps-whole exception was reversed the same day, spec § 5.3).
+
+    const BOX = { url: "https://box.ts.net", scheme: "https" as const, label: "MagicDNS", secureContext: true };
+
+    function recorder(): ConfigRecorder {
+      return {
+        calls: [],
+        result: {
+          ok: true,
+          path: "/tmp/config.env",
+          values: {},
+          warnings: [],
+          changed: [{ key: "TRUSTED_ORIGINS", from: "https://box.ts.net", to: "" }],
+        },
+      };
+    }
+
+    function quietSequence(entry: NetworkPluginEntry) {
+      setUnpublishDepsForTests({
+        getPlugin: () => entry,
+        disarm: async () => {},
+        lastLines: () => [],
+        setPluginGuards: () => {},
+      });
+    }
+
+    it("strips the published origins from TRUSTED_ORIGINS and leaves a foreign one standing", async () => {
+      const config = recorder();
+      const { entry } = makeFakePlugin();
+      setNetworkDepsForTests(
+        fakeDeps(entry, {
+          config,
+          configValues: () => ({
+            TRUSTED_ORIGINS: "http://localhost:3080,https://box.ts.net/,https://elsewhere.example",
+          }),
+        }),
+      );
+      quietSequence(entry);
+      await writeNetworkState(FAKE_ID, { published: true, port: 3080, addresses: [BOX] });
+
+      const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        ok: true,
+        config: { changed: ["TRUSTED_ORIGINS"], written: true },
+        restartRequired: true,
+        origins: ["https://box.ts.net"],
+      });
+      // Canonical on BOTH sides — the stored entry carried a trailing slash —
+      // and the foreign origin this network never published stays verbatim.
+      // That is the whole subtraction rule: only what the publish wrote.
+      expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080,https://elsewhere.example" }]);
+      expect((await readNetworkState(FAKE_ID)).published).toBe(false);
+      expect((await auditRows("network.unpublish"))[0]?.metadata).toMatchObject({ origins: ["https://box.ts.net"] });
+    });
+
+    it("writes nothing when the file does not carry the origins", async () => {
+      // The union always writes the key, so this is the hand-edited or
+      // already-removed state: nothing to subtract, nothing written, and the
+      // honest report is `changed: []` with NO failure to explain.
+      const config = recorder();
+      const { entry } = makeFakePlugin();
+      setNetworkDepsForTests(fakeDeps(entry, { config, configValues: () => ({}) }));
+      quietSequence(entry);
+      await writeNetworkState(FAKE_ID, { published: true, port: 3080, addresses: [BOX] });
+
+      const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        ok: true,
+        config: { changed: [], written: true },
+        restartRequired: false,
+        origins: ["https://box.ts.net"],
+      });
+      expect(config.calls).toEqual([]);
+    });
+
+    it("refuses by name when the environment owns the key, and the unpublish still stands", async () => {
+      // The same honesty rule as the publish's union: a file line the next
+      // boot would mask is not a change, so the key is named and the act
+      // completes — the machine really did stop publishing.
+      const config = recorder();
+      const { entry } = makeFakePlugin();
+      setNetworkDepsForTests(
+        fakeDeps(entry, {
+          config,
+          env: () => ({ TRUSTED_ORIGINS: "http://env-owned.example" }),
+          configValues: () => ({ TRUSTED_ORIGINS: "https://box.ts.net" }),
+        }),
+      );
+      quietSequence(entry);
+      await writeNetworkState(FAKE_ID, { published: true, port: 3080, addresses: [BOX] });
+
+      const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        ok: true,
+        config: { changed: [], written: false, unwritableKey: "TRUSTED_ORIGINS" },
+        restartRequired: false,
+      });
+      expect(config.calls).toEqual([]);
+      expect((await readNetworkState(FAKE_ID)).published).toBe(false);
+    });
+
+    it("strips an implicit-publish network's origins too, however many times it published", async () => {
+      // The operator's sequence, one ruling later (spec § 5.3 REVERSED
+      // 2026-09-16): press the address twice, unpublish, and the host stops
+      // describing itself as published — the record clears and the origins
+      // it trusted leave with it. The daemon may go on answering at its
+      // NetBird address; what ends is this server ACCEPTING sign-ins there
+      // when the restart lands. That is the stated, chosen cost, and the
+      // row rendering `joined` afterwards is the truth, not a bug: leave —
+      // the verb that actually leaves — ends the addresses anyway.
+      const config = recorder();
+      const { entry } = makeFakePlugin({ publishImplicit: true, exposure: "private" });
+      setNetworkDepsForTests(
+        fakeDeps(entry, {
+          config,
+          configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080,https://host.example.ts.net" }),
+        }),
+      );
+      quietSequence(entry);
+
+      for (let press = 0; press < 2; press += 1) {
+        const res = await app.fetch(
+          withCookie(`/api/network/${FAKE_ID}/publish`, adminCookie, { method: "POST", body: "{}" }),
+        );
+        expect(res.status).toBe(200);
+        await frames(res);
+      }
+
+      const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        ok: true,
+        config: { changed: ["TRUSTED_ORIGINS"], written: true },
+        restartRequired: true,
+        origins: ["https://host.example.ts.net"],
+      });
+      const state = await readNetworkState(FAKE_ID);
+      expect(state.published).toBe(false);
+      expect(state.addresses).toEqual([]);
+      // The last write is the subtraction, and it names what survives.
+      expect(config.calls.at(-1)).toEqual({ trustedOrigins: "http://localhost:3080" });
+    });
   });
 
   describe("POST /api/network/:id/leave", () => {
+    it("returns the removal trio for the origins leave subtracted", async () => {
+      // For NetBird, LEAVE is the normal strip path — so it must carry the
+      // same {config, restartRequired, origins} the unpublish route answers
+      // with, and audit the origins it took back.
+      const config: ConfigRecorder = {
+        calls: [],
+        result: {
+          ok: true,
+          path: "/tmp/config.env",
+          values: {},
+          warnings: [],
+          changed: [
+            {
+              key: "TRUSTED_ORIGINS",
+              from: "http://localhost:3080,https://host.example.ts.net",
+              to: "http://localhost:3080",
+            },
+          ],
+        },
+      };
+      const { entry } = makeFakePlugin();
+      setNetworkDepsForTests(
+        fakeDeps(entry, {
+          config,
+          configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080,https://host.example.ts.net" }),
+        }),
+      );
+      setUnpublishDepsForTests({
+        getPlugin: () => entry,
+        disarm: async () => {},
+        lastLines: () => [],
+        setPluginGuards: () => {},
+      });
+      await writeNetworkState(FAKE_ID, {
+        published: true,
+        port: 3080,
+        addresses: [{ url: "https://host.example.ts.net", scheme: "https", label: "MagicDNS", secureContext: true }],
+      });
+
+      const res = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/leave`, adminCookie, {
+          method: "POST",
+          body: JSON.stringify({ confirm: FAKE_ID }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        ok: true,
+        config: { changed: ["TRUSTED_ORIGINS"], written: true },
+        restartRequired: true,
+        origins: ["https://host.example.ts.net"],
+      });
+      const leaves = await auditRows("network.leave");
+      expect(leaves[0]?.metadata).toEqual({ origins: ["https://host.example.ts.net"] });
+    });
+
     it("refuses a confirmation that is not the plugin id", async () => {
       const { entry, calls } = makeFakePlugin();
       setNetworkDepsForTests(fakeDeps(entry));

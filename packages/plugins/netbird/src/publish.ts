@@ -29,6 +29,14 @@ const NOT_READY: Partial<Record<NetworkState, string>> = {
  *
  * Refuses for anything short of `joined`, and for a joined machine that reported
  * no address at all (nothing to hand out), rather than fabricating a publish.
+ *
+ * **Pressing twice means what pressing once means.** The verb is a pure read:
+ * the same joined machine answers with the same addresses every time, the host
+ * rewrites its record to the same effect, and a union with a set it already
+ * holds writes nothing new. There is therefore no "recorded" second press to
+ * announce — an already-published NetBird is simply ALREADY REACHABLE HERE,
+ * which is what the page says. What the host makes of a second identical
+ * record is the host's § 5.3 business; this verb never sees it.
  */
 export async function publishServer(host: PluginHost, ctx: NetworkContext): Promise<PublishOutcome | PublishRefusal> {
   const read = await readNetwork(host, ctx);
@@ -62,10 +70,14 @@ export async function publishServer(host: PluginHost, ctx: NetworkContext): Prom
 /**
  * Takes the publish down. There is nothing on the machine to undo.
  *
- * A join is not undone here (§ 5): the addresses stay reachable because they were
- * reachable before the publish, and removing the trusted-origin entry is the
- * Addresses card's decision, not this plugin's. So this is a no-op that resolves
- * cleanly, which is what the `publish` pair's reversibility check needs.
+ * A join is not undone here (§ 5): the addresses stay reachable because they
+ * were reachable before the publish. What the HOST does on this call is its
+ * own § 5.3 business (reversed 2026-09-16): it clears the publish record and
+ * subtracts the trusted origins the publish added, so the address stops
+ * ACCEPTING sign-ins at the next restart even though this daemon goes on
+ * answering while the machine stays a member. This plugin's half stays the
+ * clean no-op it always was; the reversibility it never had is the host's to
+ * undo now.
  */
 export async function unpublishServer(): Promise<void> {
   // Deliberately does nothing. NetBird's reachability is a property of the join,

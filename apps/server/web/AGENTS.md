@@ -399,7 +399,22 @@ Three rules the card keeps, each with a defect behind it:
   rather than the network's — what a non-secure-context address costs, that
 `subshell-server backup` does not include a plugin secret. Publishing moves
 no boot-time identity: the base URL is the Service page's field, and a
-publish only widens `TRUSTED_ORIGINS`.
+publish only widens `TRUSTED_ORIGINS` — and unpublishing takes back exactly
+  what that publish added (spec § 5.4 amended 2026-09-16; every kind
+  subtracts, `publishImplicit` included — spec § 5.3 REVERSED the same day: a
+  disabled NetBird daemon still answers at its address, and what stripping
+  changes is that the address stops accepting sign-ins at the restart, the
+  stated and chosen cost of a publish owning an origin's lifecycle). And for
+  that implicit kind the JOIN is the
+  publish: the join route records it and unions the origins through the same
+  gate writer, its `done` frame carries the same `config`/`restartRequired`,
+  and the card's implicit box is gone — a joined-and-unrecorded implicit row
+  shows one gap line and the old button (spec § 5.3 amended 2026-09-16). Both results render through ONE block
+  (`config-write-outcome.tsx`), and when a write awaits a restart the block
+  carries the Service page's own restart button and dialog — the card holds
+  the single `useServerRestart`, folds its `waiting` outcome into `busy` so no
+  act runs against the outage, and refetches the list and the public settings
+  when the server is back.
 - **Nothing privileged is ever a button**, including the numbered install steps.
   Same rule as `TmuxRow`: this server has no terminal to answer a password
   prompt. Numbering runs only over hints that carry a COMMAND, so a plugin's

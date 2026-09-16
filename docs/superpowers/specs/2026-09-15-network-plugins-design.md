@@ -479,11 +479,11 @@ guarded seam every installer already uses.
 |---|---|---|---|
 | `GET /api/network` | — | one row per installed `network` plugin: `{ id, name, exposure, platforms, supported, enabled, status, settings, process?, hints }`. Live `status()` per enabled and supported plugin, memoised 3 s. Unsupported ⇒ `supported: false` and no probe. Secret fields report `{ set: boolean }`. | no |
 | `PATCH /api/network/:id/settings` | `Record<string,string>` | `validateSettings` (400 with field problems) → `secret` fields to `host.secrets.set`, the rest to `network.json`. Audit `network.configure` with `{ fields: [names] }`, never values. | no |
-| `POST /api/network/:id/join` | `JoinInput` | `join()`. Frames: `line`* then `done: { outcome, status }`. Audit `network.join` `{ mode: "credential" \| "interactive", ok }`. | yes |
-| `POST /api/network/:id/publish` | — (the `promoteBaseUrl` half was removed 2026-09-16, § 10e) | `publish()` → arm the guard → arm the process → `applyConfig({ trustedOrigins: existing ∪ addresses })` → `network.json.published = true`. `done: { addresses, config: { changed, warnings, written }, restartRequired: true }`. Audits `network.publish` `{ addresses }` plus the writer's own `server.config.update`. | yes |
-| `POST /api/network/:id/unpublish` | — | the §5.3 sequence. `TRUSTED_ORIGINS` is left alone; the response says so. Audit `network.unpublish`. | no |
-| `POST /api/network/:id/leave` | `{ confirm: string }` (the plugin id) | the §5.3 sequence, then `leave()`. Audit `network.leave`. | no |
-| `PATCH /api/plugins/:id { enabled: false }` (existing) | — | for a network plugin: the §5.3 sequence BEFORE `setEnabled`; 409 if it fails. | no |
+| `POST /api/network/:id/join` | `JoinInput` | `join()`. Frames: `line`* then `done: { outcome, status }` — **for a `publishImplicit` network the join IS the publish** (amended 2026-09-16, § 10e): it records the publish and runs the same `applyConfig` origin union the publish route drives, and its `done` also carries `{ config, restartRequired }`. Audit `network.join` `{ mode: "credential" \| "interactive", ok }`, plus `network.publish` `{ addresses, by: "join" }` on that auto-publish. An explicit-publish network's join writes nothing to config.env. | yes |
+| `POST /api/network/:id/publish` | — (the `promoteBaseUrl` half was removed 2026-09-16, § 10e) | `publish()` → arm the guard → arm the process → `applyConfig({ trustedOrigins: existing ∪ addresses })` → `network.json.published = true`. `done: { addresses, config: { changed, warnings, written }, restartRequired: changed.length > 0 }`. Audits `network.publish` `{ addresses }` — the config write itself carries no audit row of its own. | yes |
+| `POST /api/network/:id/unpublish` | — | the §5.3 sequence, subtraction included: the origins this network's publish added are subtracted from `TRUSTED_ORIGINS` through `applyConfig` (amended 2026-09-16). The response carries `{ config, restartRequired, origins }`; no kind is exempt — `publishImplicit` clears its record and subtracts its origins like every other (reversed 2026-09-16), `config: null` only when nothing was recorded. Audit `network.unpublish` `{ origins }`. | no |
+| `POST /api/network/:id/leave` | `{ confirm: string }` (the plugin id) | the §5.3 sequence, then `leave()`. The response carries the removal trio `{ config, restartRequired, origins }` — for a `publishImplicit` network leave is the NORMAL strip path — and the audit names the origins. | no |
+| `PATCH /api/plugins/:id { enabled: false }` (existing) | — | for a network plugin: the §5.3 sequence BEFORE `setEnabled`; 409 if it fails. It strips quietly — the same subtraction, answered in the plugins-route response shape rather than the trio — and the tell that it happened is the Server Settings → Service comparison of saved-versus-running `TRUSTED_ORIGINS`. Holds the per-plugin lock: 409 `EXISTS_ERROR` while a network act is running. | no |
 
 Every refusal is decided **before any body opens** — the tmux-route rule
 (§2.6):
@@ -539,6 +539,26 @@ ourselves keeps the credential in one 0600 file the host owns and makes
 2. `plugin.unpublish(ctx)`.
 3. Drop this plugin's guard from the active set.
 4. `network.json.published = false`.
+5. Subtract the origins this publish added from `TRUSTED_ORIGINS`, through
+   the same `applyConfig` writer as the union, against the addresses
+   captured BEFORE step 4 cleared them — an origin added by a publish has
+   that publish's lifecycle (amended 2026-09-16; §5.4 and the §14 non-goal
+   reversed with it).
+
+**Steps 4 and 5 run for a `publishImplicit` network too (REVERSED
+2026-09-16 the same day § 5.3 was first amended — the operator's ruling:
+auto-add AND auto-remove, with the lifecycle).** The first cut kept the record
+and the origins whole, arguing that an unpublish which cannot undo the
+reachability must not pretend to undo the permission. The reversal accepts the
+consequence instead: after an unpublish or disable a NetBird daemon MAY STILL
+ANSWER at its own address — membership is what makes it answer — but the
+stripped origins make that address stop ACCEPTING SIGN-INS once the restart
+lands. A server that no longer describes a network does not keep trusting that
+network's addresses, and that rule is worth more than the one exception it
+costs; `leave`, the verb that actually takes the machine off, ends the
+addresses anyway, so the common path loses nothing. A cleared record renders
+`joined`, which is the truth: the host stopped describing this network as one
+it publishes on.
 
 **Guard-off is last.** Any other order leaves an instant in which a tunnel is
 alive and unguarded, which for a `public-with-gate` plugin is the whole
@@ -557,9 +577,18 @@ The `TRUSTED_ORIGINS` union is the only write, and it is
 at restart; the `done` frame says so and the SPA offers the existing
 `RestartDialog`.
 
-Removal is not here. Unpublishing does not strip an origin from
-`TRUSTED_ORIGINS` — that is the Addresses card's act (§14), and the response
-says where to do it.
+Removal is here now (amended 2026-09-16): unpublishing subtracts the origins
+its own publish added (§5.3 step 5), canonical on both sides — and the
+subtraction is by VALUE, not provenance. A hand-added origin that equals a
+published address is indistinguishable from it in the file and leaves with
+it; only origins no publish ever matched — the dev list the union seeded,
+the addresses the Addresses card added by hand and no publish named —
+survive every cycle. The same rules as the union: the only writer is `applyConfig`, an
+environment-owned key is refused by name while the unpublish itself stands,
+and an empty result CLEARS the key rather than writing an empty line. The
+card's removal stays as the manual lever for origins this pair never wrote.
+`restartRequired` is true only when a write actually landed; the SPA offers
+the Service page's own `RestartDialog` beneath the result.
 
 ### 5.5 Boot and shutdown
 
@@ -1213,6 +1242,57 @@ refusal is the safe default until someone builds and tests the re-derive.
   server's config is set — Server Settings → Service — where moving the rpID
   is the field's own stated consequence.
 
+- **Origins have the lifecycle of the publish that added them, and the
+  restart that lands the change can be taken from the result that needs it
+  (amended 2026-09-16, operator: "we should just auto-add / remove to
+  trusted origins for the plugins. if it requires a restart then perform
+  that action after user confirmation in the same step if possible").**
+  Publishing already added; unpublishing now subtracts — the sequence
+  captures the recorded addresses before clearing them and the gate's
+  subtraction writer removes exactly them through `applyConfig`, with the
+  union's honesty rules whole: an environment-owned key is refused by name
+  while the unpublish stands, an absent or unmatched line writes nothing,
+  an emptied one CLEARS. The answer rides the response
+  (`config`/`restartRequired`/`origins`), and one result component serves
+  both acts: warnings, the refused key, and the Service page's own restart
+  button and pane-safety dialog beneath either, with the card holding the
+  one waiter — its `waiting` outcome locks every act on the card and its
+  `back` outcome refetches the rows and the public settings without a
+  reload. NetBird strips too — its press first kept its record and origins
+  whole, and the operator reversed that the same day: after a disable the
+  daemon may still answer at its address, and what stripping ends is
+  sign-in ACCEPTANCE there at the restart, the stated and chosen cost of
+  letting a publish own an origin's lifecycle (§ 5.3, amended twice
+  2026-09-16). §5.4 and the §14 non-goal are updated with it; the unpublish
+  route stayed a delegation to the one sequence throughout.
+
+- **Joining IS the publish for a `publishImplicit` network (2026-09-16,
+  operator read of the NetBird card next to the same sentence: "do we really
+  need this?").** The separate press was the box the previous bullets kept
+  redecorating; on NetBird it was recording what membership had already
+  done, under a heading the vendor has no word for. The join route now
+  does, on a successful join of an implicit network, exactly what the
+  publish route does — `writeNetworkState` and the gate's own
+  `writePublishConfig` (shared, deliberately: two writers would be two
+  sets of union and env-ownership rules to keep honest), reporting the
+  write and the restart answer on the join's `done` frame
+  (`config`/`restartRequired`), and auditing a `network.publish` row of
+  its own `{ addresses, by: "join" }` so the audit vocabulary stays
+  countable and the two rows say why they share one press. Measured
+  behaviour (§ 10.4: NetBird 0.66.4 answers `status` with its addresses
+  the instant a join lands) means no poll: ONE honest re-read after 1.2 s
+  covers the case the measurement cannot promise, and a row still empty
+  goes on joined-and-unrecorded. That gap state is all the card shows the
+  old affordance for now — one sentence and the existing button, no box,
+  no heading, no skip paragraph: the rare fallback must not wear the
+  furniture of the normal path. Explicit-publish networks are untouched
+  (their presses carry the real costs — public CT logs, a public tunnel —
+  and stay user-decided), and their join still writes nothing to
+  config.env. The § 5 join row and § 5.3's lifecycle text carry it;
+  NetBird's `labels.publish` — "Use this address", the box's whole
+  vocabulary — now serves only the fallback button, a copy call left to
+  the plugin.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,
@@ -1311,6 +1391,10 @@ network, or add the address on Settings → Service.*
   finish signing in. This page updates when you are done.*
 - joined: *This machine is on <network>.* Publish buttons, per plugin:
   **Publish with Tailscale Serve**, **Start tunnel**, **Use this address**.
+  Joined-and-unrecorded on an implicit-publish network — the gap only, since
+  joining now records it (§ 10e) — is one line, no section: *<Name> publishes
+  by joining — "Use this address" records its addresses and trusts them for
+  sign-in.*
 - published: *Subshell is published on <network>.*
 
 **Secure context**, under each address, verbatim:
@@ -1472,9 +1556,18 @@ are `ignore`d workspaces, and a changeset naming one wedges the version PR.
   `trycloudflare.com`.** Each is public exposure without a gate we verify,
   which is the one thing Cloudflare Tunnel is allowed here only because it has
   one.
-- **Removing an origin from `TRUSTED_ORIGINS` on unpublish.** The Addresses
-  card owns removal, and a publish that quietly edited someone's allowlist in
-  both directions would be a second writer with opinions.
+- **Removing an origin from `TRUSTED_ORIGINS` on unpublish — REVERSED
+  2026-09-16.** The Addresses card owned removal, and a publish that quietly
+  edited someone's allowlist in both directions would be a second writer
+  with opinions. The operator reversed it the same day: an origin added by a
+  publish now has that publish's lifecycle (§5.3 step 5). The "second writer"
+  fear is answered the way it always was — the subtraction runs through
+  `applyConfig`, under the same validator, never beside it. The accepted
+  consequence is the one this non-goal existed to avoid: an address a phone
+  was signed in on can stop accepting NEW sign-ins at the restart while the
+  daemon may still answer there — most of all on the implicit-publish kind,
+  whose first cut left its record and origins standing: the exception the
+  reversal knowingly costs — and lifecycle ownership was chosen over that.
 - **Encrypting the secrets store** (`SUBSHELL_SECRETS_KEY`, `docs/security.md`
   §8). Still deferred — now with one real customer, which is the condition that
   document named for revisiting it.
