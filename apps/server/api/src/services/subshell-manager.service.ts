@@ -736,6 +736,11 @@ export class SubshellManagerService {
       // Kill on the node the row lives on (row-based launcher, spec §6.3).
       try {
         await this.#launcherFor(row.nodeId).killSubshell(row.tmuxSocket, id);
+        // The pane is gone for good — a restart from here builds a NEW tmux
+        // server — so reclaim the socket file tmux leaves behind. Only after a
+        // VERIFIED kill: an offline node's pane may well still be running, and
+        // this host's idea of that socket path is not that machine's anyway.
+        await this.#launcherFor(row.nodeId).cleanSocket(row.tmuxSocket);
       } catch (err) {
         if (!isNodeOfflineError(err)) throw err;
         killUnverified = true;
@@ -813,6 +818,12 @@ export class SubshellManagerService {
       } catch {
         // pane already gone
       }
+      // Reclaim the socket file whether or not the kill found a pane: the row
+      // is about to cease existing, so nothing will ever bind this name again.
+      // Unconditional where terminate's is not, and that asymmetry is the
+      // point — a delete has no "maybe it is still running elsewhere" case to
+      // respect, because there will be no row left to respect it for.
+      await launcher.cleanSocket(row.tmuxSocket).catch(() => {});
     }
     // Before deletion: revoke resolves the key via the row. A failure here is
     // survivable — unlinking apiKeyId neutralises the key, and deleting the

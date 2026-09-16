@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildHarnessCommand, getHarness, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
+import { buildHarnessCommand, getHarness, TmuxRunner, tmuxSocketFor, tmuxSocketPath } from "@internal/pane-runtime";
 import type { NodeCommandBody, NodeProbeEntry } from "@internal/subshell-protocol";
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
@@ -299,6 +299,56 @@ describe("SubshellManagerService restart", () => {
     // A pane is running again under the SAME identity (the stub sleep re-spawned).
     expect(await paneAlive(created.tmuxSocket, created.id)).toBe(true);
     await subshellManager.terminateSubshell("u1", created.id);
+  });
+
+  it("terminate and delete RECLAIM the tmux socket file; restart does NOT", async () => {
+    // Each subshell gets its own tmux server (`tmuxSocketFor` = one socket per
+    // id), and tmux does not unlink the socket when its last session ends — so
+    // before this, every subshell ever created left a 0-byte file behind
+    // forever. 737 of them had accumulated on the author's machine by
+    // 2026-09-15, one per subshell since the beginning.
+    //
+    // The negative half is the one that matters. A restart kills the pane and
+    // respawns it on the SAME socket (the test above pins that), so reclaiming
+    // inside `killSubshell` — the obvious place, and the one shared by all
+    // three paths — would unlink a socket a live tmux server is about to bind,
+    // orphaning the pane. The signal has to come from the CALL SITE, which is
+    // why this asserts both directions in one test.
+    const presetId = await seedPresetFor("u1");
+    const created = await subshellManager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: "/tmp",
+    });
+    trackTmuxSocket(created.tmuxSocket);
+    const socketFile = tmuxSocketPath(created.tmuxSocket);
+    expect(existsSync(socketFile)).toBe(true);
+
+    // RESTART: the socket must survive, because a pane is running on it again.
+    const restarted = await subshellManager.restartSubshell("u1", created.id);
+    if (!restarted) throw new Error("expected a restarted subshell");
+    expect(restarted.tmuxSocket).toBe(created.tmuxSocket);
+    expect(existsSync(socketFile)).toBe(true);
+    expect(await paneAlive(created.tmuxSocket, created.id)).toBe(true);
+
+    // TERMINATE: the pane is gone for good, so the socket goes with it.
+    await subshellManager.terminateSubshell("u1", created.id);
+    expect(existsSync(socketFile)).toBe(false);
+
+    // DELETE: reclaims it too, which is the path that matters for a subshell
+    // whose pane exited on its own and was never terminated by hand.
+    const second = await subshellManager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: "/tmp",
+    });
+    trackTmuxSocket(second.tmuxSocket);
+    const secondFile = tmuxSocketPath(second.tmuxSocket);
+    expect(existsSync(secondFile)).toBe(true);
+    expect(await subshellManager.deleteSubshell("u1", second.id)).toBe(true);
+    expect(existsSync(secondFile)).toBe(false);
   });
 
   it("restartSubshell keeps the bell on the row (operator monitoring survives a restart)", async () => {

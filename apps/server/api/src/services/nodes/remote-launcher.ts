@@ -333,6 +333,23 @@ export class RemoteLauncher implements NodeLauncher {
     }
   }
 
+  /**
+   * A no-op, and deliberately: the socket file lives on the NODE's disk, and
+   * this process can only unlink paths on its own. Unlinking
+   * `tmuxSocketPath(socket)` here would delete nothing on a healthy plane, or
+   * — worse — a same-named socket belonging to a LOCAL subshell, since the
+   * name is derived from the subshell id alone and says nothing about which
+   * machine the pane runs on.
+   *
+   * So a remote node still accumulates one socket file per subshell. Closing
+   * that needs the node to reclaim its own, which it cannot infer from the
+   * frames it has: the plane sends `kill` for a restart and for a terminate
+   * alike, so the node cannot tell "respawn coming" from "gone for good"
+   * without a new frame or flag. Left as a known gap rather than papered over
+   * with a guess about which kill was final.
+   */
+  async cleanSocket(_socket: string): Promise<void> {}
+
   /** One-entry `probe` (5 s) → the row for `id` (the agent echoes subshellId). */
   async #probeEntry(subshellId: string): Promise<NodeProbeEntry | undefined> {
     const data = await this.#send({ type: "probe", subshellIds: [subshellId] }, PROBE_TIMEOUT_MS);

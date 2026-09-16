@@ -105,6 +105,11 @@ export class LocalLauncher implements NodeLauncher {
     this.#tmux.killSubshell(socket, id);
   }
 
+  /** Unlinks the dead server's socket file on THIS host. See {@link NodeLauncher.cleanSocket}. */
+  async cleanSocket(socket: string): Promise<void> {
+    await this.#tmux.cleanSocket(socket);
+  }
+
   async hasSubshell(socket: string, id: string): Promise<boolean> {
     return this.#tmux.hasSubshell(socket, id);
   }

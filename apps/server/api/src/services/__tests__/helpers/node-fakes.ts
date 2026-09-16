@@ -57,6 +57,11 @@ export class FakeNodeLauncher implements NodeLauncher {
     if (this.killError) throw this.killError;
     this.kills.push(id);
   }
+  /** Sockets reclaimed — recorded so a test can assert a RESTART reclaims none. */
+  cleanedSockets: string[] = [];
+  async cleanSocket(socket: string): Promise<void> {
+    this.cleanedSockets.push(socket);
+  }
   async hasSubshell(_socket: string, id: string): Promise<boolean> {
     this.hasSubshellCalls++;
     this.probedIds.push(id);

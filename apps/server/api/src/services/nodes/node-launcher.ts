@@ -75,6 +75,24 @@ export interface NodeLauncher {
   terminate(socket: string, id: string): Promise<void>;
   /** Raw kill of the tmux subshell; swallows "already gone". */
   killSubshell(socket: string, id: string): Promise<void>;
+  /**
+   * Reclaims the tmux socket FILE once the subshell is finished for good.
+   *
+   * Each subshell owns a tmux server (`tmuxSocketFor(id)`) and tmux does not
+   * unlink the socket when its last session ends, so without this every
+   * subshell ever created leaves a 0-byte file behind forever.
+   *
+   * **Only a caller can know it is safe.** A restart kills the pane and
+   * respawns it on the SAME socket, so reclaiming inside `killSubshell` —
+   * which all three paths share — would unlink a socket a live tmux server is
+   * about to bind. Call it only where the subshell is ending: terminate and
+   * delete.
+   *
+   * On the launcher rather than a bare `TmuxRunner` call because the file
+   * lives on the machine the PANE runs on: unlinking a remote subshell's
+   * socket path on the control plane would be the wrong disk.
+   */
+  cleanSocket(socket: string): Promise<void>;
   /** Whether a subshell with that name exists on the socket. */
   hasSubshell(socket: string, id: string): Promise<boolean>;
   /** The dead pane's exit code, null if unavailable. */
