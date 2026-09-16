@@ -30,6 +30,7 @@
     "@subshell-ai/plugin-claude-code": "workspace:*",
     "@subshell-ai/plugin-codex": "workspace:*",
     "@subshell-ai/plugin-hermes": "workspace:*",
+    "@subshell-ai/plugin-netbird": "workspace:*",
     "@subshell-ai/plugin-opencode": "workspace:*",
     "@subshell-ai/plugin-pi": "workspace:*",
     "@subshell-ai/plugin-tailscale": "workspace:*",

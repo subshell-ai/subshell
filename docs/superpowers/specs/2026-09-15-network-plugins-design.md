@@ -856,7 +856,7 @@ Anything still open is named as open rather than quietly treated as settled.
 | 1 | **open** | No live tailnet was available. The interactive join reads the URL off the output AND falls back to re-reading `AuthURL` from `status --json`, so it does not rest on which stream carries it. The fallback at `join.ts` exists precisely because this is unmeasured. |
 | 2 | **open** | No version floor is pinned anywhere in the plugin. If TS-2026-005's regression is present on an operator's install, `publish` fails and the refusal carries the CLI's own stderr — a bad message rather than a wrong state, but still unmeasured. |
 | 3 | deferred | Phase 2 (Headscale). |
-| 4 | deferred | Phase 2 (NetBird). |
+| 4 | **shipped, still open** | NetBird (phase 2) shipped, but this measurement is STILL UNMEASURED — see the amendments note below § 10a. The plugin degrades honestly: a socket error, a permission refusal and an unparseable body are ALL `daemon-down`, never `needs-privilege`, so it never relies on the peer-credential claim being true. |
 | 5 | deferred | Phase 3 (Cloudflare Tunnel). |
 | 6 | **measured** | Elysia 1.4.29 on Bun 1.4.2 DOES run `onRequest` for the WebSocket upgrade, and a `Response` returned from it prevents the upgrade: the socket's `open` hook never fires. So no `requireAccess` was threaded into the two upgrade hooks. Pinned by three tests in `access-guard.plugin.test.ts` against a REAL listener, which will say so if a version bump changes the answer. |
 | 7 | **partially settled, by avoidance** | Still unmeasured. The plugin no longer names the macOS app bundle in `knownPaths`, so it does not actively resolve the GUI variant a launchd-run server cannot drive; the Homebrew `tailscaled` formula is found on PATH. A machine with only the GUI variant installed therefore reports `not-installed` and renders the install hints, which is honest but is not the distinct state §8's table anticipates. |
@@ -874,6 +874,23 @@ above, and both changed code:
   matching no guard, so `normalizeHost` strips the root label and a value
   naming a guarded host anywhere is refused rather than admitted by the
   ambiguity.
+
+**Amendment while building phase 2 (NetBird), 2026-09-16.** `@subshell-ai/plugin-netbird`
+landed as the second network built-in. § 10.4 — the NetBird ≥ 0.76 peer-credential
+authorisation the "no `needs-privilege` state" claim rests on — is STILL UNMEASURED;
+no live NetBird daemon was available, and the plugin was written to not need it:
+a socket error, a permission refusal and an unparseable `status --json` all map to
+a single generic `daemon-down`, so the plugin never has to know which it saw, and
+the `status --json` field spellings (the peer IP under `peerIP`/`ip`/`netbirdIp`,
+the version under `netbirdVersion`/`version`) are each tried before the honest
+`daemon-down`. A second, structural finding: a plugin whose publish runs no
+command — NetBird's publish is host-side only, since a join already makes the peer
+reachable — cannot observe the `joined → published` transition, because that
+distinction lives in the host's trusted-origins config and `NetworkContext` carries
+no `published` flag. NetBird therefore reports `joined` at best; making the card
+read "Published" for such a plugin would need the host to merge its own `published`
+record into `status.state`, which is an `apps/server/api` change deliberately not
+made here. Recorded in the plugin's own `README.md` and `src/status.ts`.
 
 ### 10d. What phase 3 must re-derive, and the refusal holding the place
 

@@ -24,8 +24,17 @@ describe("seedBuiltIns", () => {
   it("seeds every built-in when the plugins directory is absent", async () => {
     const dir = tempDataDir();
     const seeded = await seedBuiltIns(dir);
-    expect(seeded.sort()).toEqual(["claude-code", "codex", "hermes", "opencode", "pi", "tailscale", "terminal"]);
-    expect((await listInstalled(dir)).length).toBe(7);
+    expect(seeded.sort()).toEqual([
+      "claude-code",
+      "codex",
+      "hermes",
+      "netbird",
+      "opencode",
+      "pi",
+      "tailscale",
+      "terminal",
+    ]);
+    expect((await listInstalled(dir)).length).toBe(8);
   });
 
   it("does NOTHING once a seed has COMPLETED, even with the directory emptied", async () => {
@@ -233,6 +242,8 @@ describe("prepareInstalledPlugins", () => {
     const dir = join(parent, "fresh-home");
     mkdirSync(dir);
     await expect(prepareInstalledPlugins(dir)).resolves.toBeUndefined();
-    expect(await listInstalled(dir)).toHaveLength(7);
+    // Six harnesses + two network plugins (tailscale, netbird). A third network
+    // built-in lands it to 9.
+    expect(await listInstalled(dir)).toHaveLength(8);
   });
 });
