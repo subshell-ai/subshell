@@ -494,10 +494,10 @@ Every refusal is decided **before any body opens** — the tmux-route rule
 | `process.platform` ∉ `network.platforms` | 409 | `PLATFORM_UNSUPPORTED` (new) |
 | another operation in flight on this plugin (a module `Set<string>`) | 409 | `EXISTS_ERROR` |
 | join or publish while the state is `not-installed` / `daemon-down` / `needs-privilege` | 409 | `NETWORK_NOT_READY` (new; the message is the first hint) |
-| a required settings field unset | 409 | `NETWORK_UNCONFIGURED` (new) |
+| a required settings field unset | 409 | `NETWORK_UNCONFIGURED` (new) — **except a `secret` at JOIN**, which is exempt because the join's credential is how secrets arrive (amended post-review, § 10e; `publish` still demands them) |
 | a `SupervisedProcessSpec` or a `run` argv would need sudo | 409 | `PRIVILEGE_REQUIRED` (new) |
 | a Cloudflare publish whose Access pre-flight fails | 409 | `ACCESS_UNCONFIGURED` (new) |
-| a malformed credential (the plugin's own shape check) | 400 | `INPUT_VALIDATION_ERROR` |
+| a malformed credential (the plugin's own shape check) | the join stream's terminal `error` frame, carrying the plugin's sentence | — (amended post-review: the body is open before the plugin runs, so no 400 can be chosen; the original row predates streaming) |
 | `TRUSTED_ORIGINS` or `APP_BASE_URL` has `source === "process env"` | publish COMPLETES; `done.config.written: false` names the key | — |
 
 That last row is the existing "a write the next read would mask is not a
@@ -996,6 +996,28 @@ The § 10d settings-write refusal **still stands**: phase 3's plugin works
 against the refusal (unpublish → edit → re-publish), and replacing it with
 the three-part re-derive is a server behavior change beyond this plugin. The
 refusal is the safe default until someone builds and tests the re-derive.
+- **The join gate exempted required secrets (post-review, same day).** The
+  phases-2/3 review found the Cloudflare Connect button structurally dead:
+  `configurationRefusal` gated JOIN on every required field, the token is a
+  required `secret`, and the join is the act that writes the store — so the
+  first press could only 409. The gate now takes the act; `"join"` skips
+  required secrets and only them (`network-gate.ts` docblock carries the
+  rule), `"publish"` stays strict. No plugin before cloudflare had a required
+  settings field AT ALL, which is why phase 1 never met the contradiction.
+- **The pre-flight passes on positive evidence at ANY status**, not only the
+  302/403 § 6 named: any response carrying a team-login `Location` or a
+  `cf-access-*` header passes. Only positive evidence passes either way —
+  the loosening is over status codes, never over the headers — and § 10.5's
+  unmeasuredness is exactly about which status the edge uses.
+- **Two paths write the tunnel token, with different strictness.** The join
+  shape-checks before storing; `PATCH /:id/settings` stores the raw string
+  (`validateSettings` deliberately never sees secret values — a plugin
+  cannot read one back to check it). A malformed token pasted into the
+  settings form therefore reaches the connector and fails there, which is
+  the failure the join's shape check exists to pre-empt. Accepted as
+  contract-inherent for now; the real fix is a host-run per-secret shape
+  check that never hands the plugin the value, and it is not this batch's.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,

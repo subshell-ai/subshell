@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/network-both-witnesses",
+  "version": "1.0.0",
+  "private": true,
+  "subshell": {
+    "apiVersion": 2,
+    "id": "network-both-witnesses",
+    "type": "network",
+    "name": "Both Witnesses",
+    "description": "declares the record AND the child as its witness of published",
+    "entry": "index.js",
+    "network": { "platforms": ["linux"], "exposure": "private", "publishImplicit": true }
+  }
+}

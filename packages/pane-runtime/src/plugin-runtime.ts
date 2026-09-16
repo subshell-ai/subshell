@@ -310,6 +310,25 @@ export function createInProcessRuntime(): PluginRuntime {
             stale,
           );
         }
+        // The two publish-state witnesses are mutually exclusive BY WHAT
+        // THEY CLAIM: `publishImplicit` says the publish leaves nothing the
+        // daemon can be asked about (the host's record is the witness), while
+        // a `supervisedProcess` means the host's own child is the daemon and
+        // its running is the witness. A plugin declaring both would be
+        // reported published by one merge while the other saw a parked child
+        // — a contradiction about a state the UI renders as one word. Refused
+        // at load, like every other disagreement between declaration and
+        // implementation.
+        if (
+          manifest.network?.publishImplicit === true &&
+          typeof (plugin as { supervisedProcess?: unknown }).supervisedProcess === "function"
+        ) {
+          return broken(
+            manifest,
+            "it declares `publishImplicit: true` (the host's record is the published state) AND implements `supervisedProcess` (the child's running is) — pick one witness",
+            stale,
+          );
+        }
         return stale ? { manifest, plugin, stale: true } : { manifest, plugin };
       } catch (err) {
         return broken(manifest, describe(err), stale);

@@ -12,6 +12,7 @@ import {
 } from "@subshell-ai/plugin-api";
 import { createScriptedHost, createTestHost } from "@subshell-ai/plugin-api/testing";
 import pkg from "../../package.json";
+import { httpOnlyHint } from "../hints.js";
 import createPlugin, { manifest } from "../index.js";
 
 /**
@@ -208,6 +209,32 @@ describe("headscale manifest", () => {
       },
     ]);
   });
+
+  it("ships the § 11 copy verbatim, pinned — the rule the drift would have broken", () => {
+    // § 11 declares every user-visible string verbatim; a reworded hint is
+    // invisible to every check except one that quotes the spec. So this
+    // quotes the spec. (The browser-consequence half is not this line's to
+    // say — the per-address secure-context line already states it.)
+    expect(httpOnlyHint().text).toBe(
+      "Headscale does not issue certificates, so this address is plain http over WireGuard.",
+    );
+    expect(httpOnlyHint().docsUrl).toBe("https://github.com/juanfont/headscale/issues/2527");
+  });
+
+  it("flags a malformed controlUrl on the form, not minutes later in a join frame", () => {
+    // The netbird twin's behavior, for a structurally identical field: an
+    // obviously-wrong URL gets a named field error where the form can point,
+    // instead of whichever DNS/TLS error the CLI will print at join time.
+    const plugin = createPlugin(createTestHost()) as NetworkPlugin;
+    const bad = plugin.validateSettings?.({ controlUrl: "headscale.example.com" }) ?? [];
+    expect(bad.length).toBe(1);
+    expect(bad[0]?.field).toBe("controlUrl");
+    expect(bad[0]?.message).toContain("http(s) URL");
+    expect(plugin.validateSettings?.({ controlUrl: "https://headscale.example.com" })).toEqual([]);
+    // Absent/blank is the settings route's CLEAR spelling, never a bad URL.
+    expect(plugin.validateSettings?.({ controlUrl: "  " })).toEqual([]);
+    expect(plugin.validateSettings?.({})).toEqual([]);
+  });
 });
 
 describe("HeadscalePlugin.status", () => {
@@ -346,8 +373,9 @@ describe("HeadscalePlugin.status", () => {
       { url: `http://100.101.102.103:${PORT}`, scheme: "http", label: "Tailnet IP", secureContext: false },
     ]);
     expect(status.hints.some((h) => h.text.includes("Certificate Transparency"))).toBe(false);
-    // And a hint SAYS WHY there is no https address (§ 4.5's status row).
-    expect(status.hints.some((h) => h.text.includes("HTTPS"))).toBe(true);
+    // And a hint SAYS WHY there is no https address (§ 4.5's status row),
+    // in § 11's verbatim words — quoted, not substring-guessed.
+    expect(status.hints.some((h) => h.text.includes("does not issue certificates"))).toBe(true);
     expect(status.identity).toEqual({ network: "example.net", hostname: "workshop", version: "1.76.1" });
   });
 
@@ -662,6 +690,11 @@ describe("copied source stays pinned to its origin", () => {
     { literal: '["serve", "reset"]', file: "publish.ts" },
     { literal: '["logout"]', file: "publish.ts" },
     { literal: 'TAILSCALE_BE_CLI: "1"', file: "cli.ts" },
+    // § 4 mandates the JOIN's URL capture be shared too: it is the same
+    // daemon printing the same login lines, so the reader of them is one
+    // reader — a tailscale-side tweak to either regex must go red here.
+    { literal: "const LOGIN_URL_RE = /https:\\/\\/login\\.tailscale\\.com\\/\\S+/;", file: "join.ts" },
+    { literal: "const ANY_URL_RE = /https:\\/\\/\\S+/;", file: "join.ts" },
   ];
 
   for (const { literal, file } of shared) {
@@ -676,4 +709,14 @@ describe("copied source stays pinned to its origin", () => {
       expect(readFrom(headscaleSrc, file)).toContain("@subshell-ai/plugin-tailscale");
     });
   }
+
+  it("the two manifests' detect blocks are byte-identical DATA", () => {
+    // § 4's decision — same binary, same env override, same knownPaths
+    // including the app route and the two Homebrew dirs. It is manifest
+    // data, so the pin compares the package.json files themselves, not
+    // whatever code parses them.
+    const detect = (pkg: "tailscale" | "headscale"): unknown =>
+      JSON.parse(readFileSync(join(pluginRoot, pkg, "package.json"), "utf8")).subshell.detect;
+    expect(detect("headscale")).toEqual(detect("tailscale"));
+  });
 });

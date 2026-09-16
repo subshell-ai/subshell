@@ -16,8 +16,12 @@ import { isTunnelTokenShape, TOKEN_SECRET } from "./cli.js";
  * minutes later, in a journal, instead of in this sentence.
  *
  * Throws rather than returning a refusal: `JoinOutcome` has no shape for
- * "this did not happen", and the host maps a throw to a 400 the operator
- * reads at the field.
+ * "this did not happen". The join route is streaming by the time a plugin's
+ * `join` runs — its NDJSON body is already open, so no status code can be
+ * re-chosen — and the throw arrives to the operator as the stream's terminal
+ * `error` frame carrying this sentence verbatim. (Spec § 5.1's "malformed
+ * credential → 400" row predates the streaming route; § 10e now records
+ * that the frame replaced the 400.)
  */
 export async function joinTunnel(host: PluginHost, input: JoinInput): Promise<JoinOutcome> {
   const credential = input.credential?.trim();

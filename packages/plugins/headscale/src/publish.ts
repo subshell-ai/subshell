@@ -92,7 +92,8 @@ export async function publishServer(host: PluginHost, ctx: NetworkContext): Prom
         text:
           `Tailscale Serve refused to publish this server${cliSaid ? `: ${cliSaid}` : " with no explanation"}. ` +
           `Whether Serve works against a given Headscale is unmeasured (design spec 2026-09-15 § 10.3) and a refusal is expected. ` +
-          `This server is reachable on your tailnet without it at http://${dnsName}:${ctx.port}.`,
+          `This server is reachable on your tailnet without it at http://${dnsName}:${ctx.port} — ` +
+          `add that address under Settings → Addresses before signing in there; this refused publish did not add it.`,
         docsUrl: HEADSCALE_SERVE_ISSUE_URL,
       },
     };

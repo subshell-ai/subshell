@@ -126,7 +126,7 @@ export function needsPrivilegeHints(userName: string): NetworkHint[] {
  */
 export function httpOnlyHint(): NetworkHint {
   return {
-    text: "Headscale tailnets issue no HTTPS certificates, so this server is reachable over http only — a browser there will block passkeys and Secure cookies.",
+    text: "Headscale does not issue certificates, so this address is plain http over WireGuard.",
     docsUrl: HEADSCALE_SERVE_ISSUE_URL,
   };
 }

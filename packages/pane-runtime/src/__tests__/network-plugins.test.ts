@@ -77,6 +77,16 @@ describe("loading a network plugin", () => {
     expect(result.error).toContain("requestGuard");
   });
 
+  it("refuses the two publish-state witnesses declared together", async () => {
+    // `publishImplicit` (record is the witness) + `supervisedProcess` (the
+    // child is) — the host's two merges would disagree about one rendered
+    // word. The contradiction is a plugin defect; it cannot load.
+    const result = await createInProcessRuntime().load(join(FIXTURES, "network-both-witnesses"));
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.error).toContain("publishImplicit");
+  });
+
   it("still refuses a harness missing ITS required members", async () => {
     // The type-conditional list must not have loosened the harness path.
     const result = await createInProcessRuntime().load(join(FIXTURES, "missing-validate"));

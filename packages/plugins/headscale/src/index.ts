@@ -1,15 +1,17 @@
-import type {
-  JoinInput,
-  JoinOutcome,
-  NetworkContext,
-  NetworkPlugin,
-  NetworkPluginFactory,
-  NetworkStatus,
-  PluginCapability,
-  PluginHost,
-  PublishOutcome,
-  PublishRefusal,
-  SettingsField,
+import {
+  isDocsUrl,
+  type JoinInput,
+  type JoinOutcome,
+  type NetworkContext,
+  type NetworkPlugin,
+  type NetworkPluginFactory,
+  type NetworkStatus,
+  type PluginCapability,
+  type PluginHost,
+  type PresetValidationIssue,
+  type PublishOutcome,
+  type PublishRefusal,
+  type SettingsField,
 } from "@subshell-ai/plugin-api";
 import { joinHeadscaleNetwork } from "./join.js";
 import { leaveTailnet, publishServer, unpublishServer } from "./publish.js";
@@ -92,6 +94,31 @@ const createPlugin: NetworkPluginFactory = (host: PluginHost): NetworkPlugin => 
       placeholder: "https://headscale.example.com",
     },
   ],
+
+  /**
+   * The settings form's named-field error, mirroring the netbird plugin's
+   * check of its structurally identical `managementUrl`.
+   *
+   * This is comfort, not a gate: `--login-server <url>` is a separate argv
+   * element, no shell ever sees it, and the CLI refuses a garbage URL with
+   * its own words at join time. What those words are cannot be predicted —
+   * a DNS miss, a TLS mismatch, a non-responding control server all read
+   * differently — so an obviously-wrong value gets caught where the form
+   * can point at the field instead of arriving minutes later inside a
+   * join's error frame.
+   */
+  validateSettings: (values: Record<string, string>): PresetValidationIssue[] => {
+    const url = values.controlUrl?.trim();
+    if (url && !isDocsUrl(url)) {
+      return [
+        {
+          field: "controlUrl",
+          message: "The control server URL must be a full http(s) URL, e.g. https://headscale.example.com.",
+        },
+      ];
+    }
+    return [];
+  },
 });
 
 export default createPlugin;

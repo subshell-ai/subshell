@@ -43,7 +43,9 @@ function managementArg(ctx: NetworkContext): string[] {
  * the network, and no key returns a URL someone has to open.
  *
  * Throws rather than returning for a refused `up`, because {@link JoinOutcome}
- * has no shape for "this did not happen". The host maps the throw to a 400.
+ * has no shape for "this did not happen". The streaming join route reaches the
+ * operator as the stream's terminal `error` frame, not a status code — the
+ * body is open before any plugin verb runs.
  *
  * **The setup key's shape is not validated.** NetBird setup keys are opaque
  * (account-scoped UUIDs in the current scheme), and a wrong-length guess would
