@@ -23,8 +23,13 @@ function secureContextLine(address: NetworkAddress): string {
 /**
  * The addresses this server answers on over one network.
  *
- * `copyable` is for the published state, where the address has stopped being
- * a preview and become the thing a person sends to their phone.
+ * Every address carries a copy button, in every state. The prop that used to
+ * gate this to the published state called an unpublished address "a preview",
+ * which the mesh networks made false: a joined NetBird or Headscale address
+ * ANSWERS — the thing that refuses is the sign-in, not the connection — so it
+ * is exactly the string a person reaches for on the way to their phone. And an
+ * address worth showing is an address worth taking with you even where it does
+ * not yet answer. One less state-dependent difference to notice as one.
  *
  * **Each row is the design system's line item: label above value.** The kind
  * tag used to sit AFTER the URL — a big bold address with a small muted word
@@ -47,18 +52,14 @@ function secureContextLine(address: NetworkAddress): string {
  * {@link secureContextLine} for why it appears on every address, the good one
  * included.
  */
-export function NetworkAddresses({ addresses, copyable = false }: { addresses: NetworkAddress[]; copyable?: boolean }) {
+export function NetworkAddresses({ addresses }: { addresses: NetworkAddress[] }) {
   if (addresses.length === 0) return null;
   return (
     <ul className="space-y-2 text-sm">
       {addresses.map((address) => (
         <li key={address.url} className="space-y-1">
           <p className="text-muted-foreground">{address.label}</p>
-          {copyable ? (
-            <CopyableValue value={address.url} label={address.label} />
-          ) : (
-            <span className="block min-w-0 break-all">{address.url}</span>
-          )}
+          <CopyableValue value={address.url} label={address.label} />
           <p className={address.secureContext ? "text-detail text-muted-foreground" : "text-detail text-warning"}>
             {secureContextLine(address)}
           </p>

@@ -677,7 +677,7 @@ export function NetworkPluginCard({
               {status.addresses.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="font-strong text-label">Addresses</h3>
-                  <NetworkAddresses addresses={status.addresses} copyable={state === "published"} />
+                  <NetworkAddresses addresses={status.addresses} />
                 </div>
               )}
               {/* The standing FACT of this state, in ONE slot for both halves

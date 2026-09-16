@@ -965,6 +965,16 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(shown[1]).toContain("http://100.64.0.1:3080");
   });
 
+  it("offers to copy every address, joined ones included", async () => {
+    // The copy button used to arrive only with `published`, on a prop that
+    // called an unpublished address "a preview". A joined mesh address
+    // ANSWERS — the sign-in is what refuses, not the connection — so it is
+    // exactly the string a person takes to their phone, and a state that
+    // hides the affordance made them hunt for a difference that was not there.
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    expect(screen.getAllByRole("button", { name: /copy/i }).length).toBe(ADDRESSES.length);
+  });
+
   it("the base-URL checkbox says what it costs and rides on the publish body", async () => {
     const calls = mockFetch((url) =>
       url.pathname === "/api/network/tailscale/publish"
