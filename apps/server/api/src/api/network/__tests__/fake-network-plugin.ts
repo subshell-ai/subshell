@@ -152,7 +152,7 @@ export function makeFakePlugin(options: FakeOptions = {}): { entry: NetworkPlugi
       interactiveLogin: true,
       exposure: options.exposure ?? "public-with-gate",
       privileged: {
-        darwin: [{ label: "Install the daemon", command: "sudo test-network install" }],
+        darwin: [{ label: "Install the daemon", command: "sudo test-network install", group: "The daemon" }],
         linux: [{ label: "Enable the service", command: "sudo systemctl enable test-network" }],
       },
     },

@@ -55,6 +55,13 @@ detect its binary without importing or running a line of your code:
 
 A preset is an optional saved customisation for one harness — the host builds
 a launch on no preset at all by handing `buildCommand` an empty one.
+
+`detect.knownPaths` names the install locations PATH may not reach from a
+service — HOME-relative (`.local/bin/mytool`), or absolute when an entry starts
+with `/` (`/opt/homebrew/bin/mytool`,
+`/Applications/MyTool.app/Contents/MacOS/MyTool`). Each entry is a candidate to
+search, so one that does not exist costs nothing and the ladder carries on.
+
 `src/index.ts` default-exports a factory:
 
 ```ts
@@ -222,6 +229,24 @@ to answer a password prompt — so the manifest parser refuses an
 `install.command` that starts with `sudo`, and `host.run` throws on an `argv[0]`
 whose basename is `sudo`, `doas` or `pkexec`. Put anything privileged under
 `network.privileged`, where a page prints it for a human to run.
+
+**A step that is one route among several takes a `group`.** Steps sharing a
+label are one sequence, printed in order under that heading; different groups
+are different ways to arrive at the same place, and a page prints an `or`
+between them rather than continuing the count. Omit it where there is one route:
+
+```json
+"privileged": {
+  "darwin": [
+    { "group": "The app (recommended)", "label": "Install the app", "command": "brew install --cask mytool" },
+    { "group": "The daemon", "label": "Install the daemon", "command": "sudo mynet service install" },
+    { "group": "The daemon", "label": "Start it", "command": "sudo systemctl start mynetd" }
+  ]
+}
+```
+
+That is macOS Tailscale's actual shape: the app and the command-line daemon are
+alternatives, and a flat 1-2-3 told a person to install both.
 
 `exposure` is never defaulted. `private` is a network only invited machines are
 on; `public-with-gate` reaches the open internet with an identity check in

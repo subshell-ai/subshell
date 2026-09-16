@@ -319,7 +319,13 @@ describe("/api/network", () => {
       expect(row.install.command).toBe("brew install test-network");
       // darwin's step only. Rendering the linux one to copy is how an operator
       // runs a systemd command on a Mac.
-      expect(row.privileged).toEqual([{ label: "Install the daemon", command: "sudo test-network install" }]);
+      //
+      // `group` rides along because it is the only thing that tells a page
+      // these steps are ALTERNATIVES rather than one long sequence, and the
+      // row is where the page reads from.
+      expect(row.privileged).toEqual([
+        { label: "Install the daemon", command: "sudo test-network install", group: "The daemon" },
+      ]);
       expect(row.settings).toEqual({ hostname: "box", token: { set: false } });
       expect(row.status.state).toBe("joined");
       expect(row.published).toBe(false);

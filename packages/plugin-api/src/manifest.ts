@@ -34,7 +34,15 @@ export interface DetectSpec {
   binaryName: string;
   /** Env var that overrides the lookup outright, e.g. "CLAUDE_PATH" */
   envOverride: string;
-  /** Well-known locations relative to HOME, tried after PATH */
+  /**
+   * Well-known locations, tried after PATH and before the version managers.
+   *
+   * HOME-relative (`.local/bin/mytool`), or ABSOLUTE when the entry starts
+   * with `/` — which is how a vendor's GUI install is named, since
+   * `/Applications/Tailscale.app/Contents/MacOS/Tailscale` is nobody's HOME.
+   * Each is a candidate to search, so an entry that does not resolve costs
+   * nothing and the ladder carries on.
+   */
   knownPaths: string[];
 }
 
@@ -67,6 +75,21 @@ export interface PrivilegedStep {
   command: string;
   /** Where the vendor documents it; `http:`/`https:` only, as {@link isDocsUrl} requires. */
   docsUrl?: string;
+  /**
+   * Which ALTERNATIVE this step belongs to, and the heading it renders under.
+   *
+   * Steps sharing a group are one sequence to run in order; different groups
+   * are different ways to arrive at the same place, and a surface renders an
+   * `or` between them rather than continuing the numbering. Steps with no
+   * group are one plain sequence, which is what every step was before this
+   * existed.
+   *
+   * It exists because a platform can genuinely offer two routes: on macOS
+   * Tailscale ships both a GUI app and a command-line daemon, and a page that
+   * numbered those 1..3 told a person to install both. Non-empty when present
+   * — it is a heading, so `""` is refused rather than coerced.
+   */
+  group?: string;
 }
 
 /**
@@ -427,11 +450,21 @@ function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | Ma
             s.label.trim() !== "" &&
             typeof s.command === "string" &&
             s.command.trim() !== "" &&
-            (s.docsUrl === undefined || typeof s.docsUrl === "string"),
+            (s.docsUrl === undefined || typeof s.docsUrl === "string") &&
+            (s.group === undefined || typeof s.group === "string"),
         )
       ) {
         return {
-          error: `\`subshell.network.privileged.${platform}\` must be an array of { label, command, docsUrl? }`,
+          error: `\`subshell.network.privileged.${platform}\` must be an array of { label, command, docsUrl?, group? }`,
+        };
+      }
+      // Refused rather than coerced, for the same reason an empty label is: a
+      // group is a HEADING, and one with no words renders as a gap above a
+      // sequence that then reads as a continuation of the group before it.
+      const badGroup = (steps as PrivilegedStep[]).find((s) => s.group !== undefined && s.group.trim() === "");
+      if (badGroup) {
+        return {
+          error: `\`subshell.network.privileged.${platform}\` has an empty \`group\`, which is a heading with no words: "${badGroup.label}"`,
         };
       }
       const badDocs = (steps as PrivilegedStep[]).find((s) => s.docsUrl !== undefined && !isDocsUrl(s.docsUrl));
@@ -444,6 +477,7 @@ function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | Ma
         label: s.label,
         command: s.command,
         ...(s.docsUrl ? { docsUrl: s.docsUrl } : {}),
+        ...(s.group ? { group: s.group } : {}),
       }));
     }
   }

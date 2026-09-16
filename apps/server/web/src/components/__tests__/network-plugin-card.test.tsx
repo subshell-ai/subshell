@@ -177,6 +177,76 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(2);
   });
 
+  it("not-installed renders grouped steps as ALTERNATIVES, with an `or` between them", async () => {
+    // The macOS Tailscale row: an app route of one step and a daemon route of
+    // two. Numbered as one sequence, the card told a person to install the app
+    // AND the daemon AND grant the operator — three steps where the first
+    // makes the other two pointless. The group is what says "or".
+    await renderCard(
+      row({
+        state: "not-installed",
+        privileged: [
+          {
+            label: "Install the app",
+            command: "brew install --cask tailscale-app",
+            group: "The Tailscale app (recommended)",
+          },
+          { label: "Install the daemon", command: "brew install --formula tailscale", group: "The daemon" },
+          {
+            label: "Allow this server to control Tailscale",
+            command: "sudo tailscale set --operator=$USER",
+            group: "The daemon",
+          },
+        ],
+        status: { state: "not-installed", addresses: [], hints: [] },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    const text = card.textContent ?? "";
+    // Groups appear in first-appearance order, with ONE `or` line BETWEEN them
+    // — after the first route's steps, before the second route's heading.
+    const appHeading = screen.getByText("The Tailscale app (recommended)");
+    const daemonHeading = screen.getByText("The daemon");
+    const ors = screen.getAllByText("or");
+    expect(ors).toHaveLength(1);
+    const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(follows(appHeading, ors[0] as Element)).toBe(true);
+    expect(follows(ors[0] as Element, daemonHeading)).toBe(true);
+    // Numbering restarts inside a group, and a group of one is not numbered —
+    // a lone "1." under a heading promises a second step that never comes.
+    expect(text).toContain("Install the app");
+    expect(text).not.toContain("1.Install the app");
+    expect(text).toContain("1.Install the daemon");
+    expect(text).toContain("2.Allow this server to control Tailscale");
+    // Still copy-only, and every command rendered exactly once.
+    expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(3);
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+  });
+
+  it("does not run a hint's number on from a grouped sequence", async () => {
+    // A continued number would belong to no group: "3." after a two-step
+    // daemon route reads as a third step of that route, when the hint is the
+    // plugin speaking about the machine rather than about either route.
+    await renderCard(
+      row({
+        state: "not-installed",
+        privileged: [
+          { label: "Install the app", command: "brew install --cask tailscale-app", group: "The app" },
+          { label: "Install the daemon", command: "brew install --formula tailscale", group: "The daemon" },
+        ],
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [{ text: "Tailscale is not installed on this machine." }],
+        },
+      }),
+    );
+    const text = screen.getByRole("group", { name: "Tailscale" }).textContent ?? "";
+    expect(text).toContain("Tailscale is not installed on this machine.");
+    expect(text).not.toContain("2.Install the daemon");
+    expect(text).not.toMatch(/\d+\./);
+  });
+
   it("not-installed runs the hints on from the privileged steps, as one sequence", async () => {
     // The shape the first shipped plugin actually has: every Tailscale
     // install path needs root, a manifest may not carry a `sudo` command, and

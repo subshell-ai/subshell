@@ -8,6 +8,7 @@ import {
   magicDnsName,
   parseStatusJson,
   resolveBinary,
+  runTailscale,
   type TailscaleStatusJson,
   tailnetIpv4s,
 } from "./cli.js";
@@ -65,7 +66,9 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
   // read" — and the bigger the tailnet, the more certain it was. Every field
   // this plugin reads is top-level: `BackendState`, `AuthURL`, `Self`,
   // `TailscaleIPs`, `CertDomains`, `CurrentTailnet`.
-  const result = await host.run([binary, "status", "--json", "--peers=false"], { timeoutMs: STATUS_TIMEOUT_MS });
+  const result = await runTailscale(host, binary, ["status", "--json", "--peers=false"], {
+    timeoutMs: STATUS_TIMEOUT_MS,
+  });
 
   // **Only a FAILED run is diagnosed, and only from stderr.** Both matchers
   // below are substring tests over loose vendor prose — `looksLikePermissionDenied`
@@ -205,7 +208,7 @@ function tailnetAddresses(json: TailscaleStatusJson, port: number): NetworkAddre
  * report itself as merely joined.
  */
 async function isServingThisPort(host: PluginHost, binary: string, port: number): Promise<boolean> {
-  const result = await host.run([binary, "serve", "status", "--json"], { timeoutMs: STATUS_TIMEOUT_MS });
+  const result = await runTailscale(host, binary, ["serve", "status", "--json"], { timeoutMs: STATUS_TIMEOUT_MS });
   if (result.code !== 0) return false;
   const parsed = parseStatusJson(result.stdout);
   // Re-serialize when it parses, so key order and whitespace cannot matter;

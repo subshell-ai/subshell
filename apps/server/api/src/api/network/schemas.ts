@@ -112,6 +112,12 @@ export const PrivilegedStepSchema = t.Object({
   label: t.String({ description: "What it does, in a few words" }),
   command: t.String({ description: "The command to copy. Usually sudo-prefixed" }),
   docsUrl: t.Optional(t.String({ description: "Where the vendor documents it" })),
+  group: t.Optional(
+    t.String({
+      description:
+        "Heading for the alternative this step belongs to. Steps sharing one are a sequence; different groups are ways to arrive at the same place, rendered with an `or` between them",
+    }),
+  ),
 });
 
 /** The host's view of the long-running child it supervises for a plugin. */

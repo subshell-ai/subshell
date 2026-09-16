@@ -1,5 +1,5 @@
 import type { NetworkContext, NetworkState, PluginHost, PublishOutcome, PublishRefusal } from "@subshell-ai/plugin-api";
-import { firstLine, magicDnsName, resolveBinary } from "./cli.js";
+import { firstLine, magicDnsName, resolveBinary, runTailscale } from "./cli.js";
 import { HTTPS_DOCS_URL } from "./hints.js";
 import { readNetwork } from "./status.js";
 
@@ -77,10 +77,10 @@ export async function publishServer(host: PluginHost, ctx: NetworkContext): Prom
   // Reset first, so publishing twice — or publishing after the server's port
   // changed — replaces the old handler instead of layering a second one under
   // the same name. A machine that was serving nothing is not an error here.
-  await host.run([binary, "serve", "reset"], { timeoutMs: SERVE_TIMEOUT_MS });
+  await runTailscale(host, binary, ["serve", "reset"], { timeoutMs: SERVE_TIMEOUT_MS });
 
   const target = `http://127.0.0.1:${ctx.port}`;
-  const result = await host.run([binary, "serve", "--bg", `--https=${HTTPS_PORT}`, target], {
+  const result = await runTailscale(host, binary, ["serve", "--bg", `--https=${HTTPS_PORT}`, target], {
     timeoutMs: SERVE_TIMEOUT_MS,
   });
   if (result.code !== 0) {
@@ -117,7 +117,7 @@ export async function publishServer(host: PluginHost, ctx: NetworkContext): Prom
 export async function unpublishServer(host: PluginHost): Promise<void> {
   const binary = await resolveBinary(host);
   if (!binary) return;
-  const result = await host.run([binary, "serve", "reset"], { timeoutMs: SERVE_TIMEOUT_MS });
+  const result = await runTailscale(host, binary, ["serve", "reset"], { timeoutMs: SERVE_TIMEOUT_MS });
   if (result.code !== 0) host.log.warn(`tailscale serve reset exited ${result.code}: ${firstLine(result.stderr)}`);
 }
 
@@ -130,6 +130,6 @@ export async function unpublishServer(host: PluginHost): Promise<void> {
 export async function leaveTailnet(host: PluginHost): Promise<void> {
   const binary = await resolveBinary(host);
   if (!binary) return;
-  const result = await host.run([binary, "logout"], { timeoutMs: SERVE_TIMEOUT_MS });
+  const result = await runTailscale(host, binary, ["logout"], { timeoutMs: SERVE_TIMEOUT_MS });
   if (result.code !== 0) host.log.warn(`tailscale logout exited ${result.code}: ${firstLine(result.stderr)}`);
 }

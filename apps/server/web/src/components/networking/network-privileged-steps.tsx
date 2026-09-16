@@ -1,0 +1,140 @@
+import { Fragment } from "react";
+import { CopyCommandRow } from "@/components/copy-command-row";
+import { safeHref } from "@/lib/safe-href";
+import type { NetworkRow } from "@/types/network";
+
+/** One privileged step, exactly as `GET /api/network` carries it on the row. */
+type PrivilegedStep = NetworkRow["privileged"][number];
+
+/** One ALTERNATIVE: a heading and the steps that belong under it. */
+export interface PrivilegedStepGroup {
+  /** The heading, from the manifest's `group`; undefined for an ungrouped step */
+  group: string | undefined;
+  /** Its steps, in manifest order */
+  steps: PrivilegedStep[];
+}
+
+/**
+ * Whether this row's steps are alternatives rather than one sequence.
+ *
+ * The card asks so it can stop running the hints' numbers on from a list that
+ * numbers per route — see {@link PrivilegedSteps}.
+ *
+ * @param steps - the row's privileged steps for THIS platform
+ */
+export function hasGroupedSteps(steps: PrivilegedStep[]): boolean {
+  return groupPrivilegedSteps(steps) !== undefined;
+}
+
+/**
+ * Collect the steps that share a `group`, in FIRST-APPEARANCE order.
+ *
+ * Returns `undefined` when no step is grouped rather than a one-element list,
+ * because the caller renders the two differently: a heading and an `or` mean
+ * nothing when there is one route, and the flat sequence every plugin without
+ * alternatives has must come out exactly as it did before groups existed.
+ *
+ * A step with no group among grouped ones becomes its own headingless group at
+ * the position it first appears, so a half-grouped manifest still renders every
+ * step rather than dropping the ones with nowhere to go.
+ *
+ * @param steps - the row's privileged steps for THIS platform
+ * @returns the groups, or undefined when the whole list is one sequence
+ */
+export function groupPrivilegedSteps(steps: PrivilegedStep[]): PrivilegedStepGroup[] | undefined {
+  if (!steps.some((step) => step.group !== undefined)) return undefined;
+  const groups: PrivilegedStepGroup[] = [];
+  const byLabel = new Map<string, PrivilegedStepGroup>();
+  for (const step of steps) {
+    // The ungrouped bucket is keyed on a string no manifest label can be, so a
+    // step whose group happened to be `""` (the parser refuses it, but the row
+    // is a wire object) cannot collide with it.
+    const key = step.group ?? "\u0000";
+    let bucket = byLabel.get(key);
+    if (!bucket) {
+      bucket = { group: step.group, steps: [] };
+      byLabel.set(key, bucket);
+      groups.push(bucket);
+    }
+    bucket.steps.push(step);
+  }
+  return groups;
+}
+
+/**
+ * The steps an operator runs themselves, rendered as a sequence or as
+ * alternatives.
+ *
+ * A platform with one route gets the numbered list it has always had — running
+ * the third step first does nothing, so the order is the information. A
+ * platform with `group`s gets one block per route, each with its heading, an
+ * `or` between them, and numbering only inside a route long enough to need it.
+ * Numbering those 1..3 across routes told a macOS operator to install the
+ * Tailscale app AND the command-line daemon, when the first makes the other two
+ * pointless.
+ *
+ * Copy-only either way, and that is the point of the whole surface: this server
+ * has no terminal to answer a password prompt, so nothing here is a button.
+ *
+ * @param steps - the row's privileged steps for THIS platform
+ * @param numbered - whether the UNGROUPED sequence is numbered, decided by the
+ *   caller because only it can see the hints that continue the same count. A
+ *   grouped list ignores it: its numbers are per route.
+ */
+export function PrivilegedSteps({ steps, numbered }: { steps: PrivilegedStep[]; numbered: boolean }) {
+  const groups = groupPrivilegedSteps(steps);
+
+  if (!groups) {
+    return (
+      <>
+        {steps.map((step, index) => (
+          <Step key={`${step.command}`} step={step} index={numbered ? index + 1 : undefined} />
+        ))}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {groups.map((group, groupIndex) => (
+        // A Fragment, so the card's `space-y-3` spaces these children the same
+        // way it spaces every other block in the section — a wrapper div here
+        // would tie each route's heading to its steps and leave the `or`
+        // floating in a gap of its own size.
+        <Fragment key={group.group ?? `ungrouped-${groupIndex}`}>
+          {groupIndex > 0 && <p className="text-detail text-muted-foreground">or</p>}
+          {group.group !== undefined && <p className="font-strong text-detail text-foreground">{group.group}</p>}
+          {group.steps.map((step, index) => (
+            <Step
+              key={`${group.group ?? ""}|${step.command}`}
+              step={step}
+              index={group.steps.length > 1 ? index + 1 : undefined}
+            />
+          ))}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/** One step: its label, its command to copy, and the vendor's page if it named one. */
+function Step({ step, index }: { step: PrivilegedStep; index?: number }) {
+  const docsUrl = safeHref(step.docsUrl);
+  return (
+    <div className="space-y-1.5">
+      <p className="text-detail text-muted-foreground">
+        {/* Numbered only where it belongs to a sequence — see the caller. A
+            step under a heading of its own with no siblings is not step 1 of
+            anything. */}
+        {index !== undefined && <span className="mr-1.5 font-strong text-foreground">{index}.</span>}
+        {step.label}
+      </p>
+      <CopyCommandRow text={step.command} />
+      {docsUrl && (
+        <a href={docsUrl} target="_blank" rel="noreferrer" className="text-detail underline">
+          Docs ↗
+        </a>
+      )}
+    </div>
+  );
+}

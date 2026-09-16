@@ -33,7 +33,8 @@ export type { DetectionReason, DetectionResult } from "@subshell-ai/plugin-api";
  *      (relative, unresolvable tilde) refuses with `override-invalid`, and a
  *      bare name is no pointer and falls through to rung 2
  *   2. `which`-style scan of PATH entries
- *   3. A couple of well-known install locations (resolved against HOME)
+ *   3. A couple of well-known install locations — HOME-relative, or absolute
+ *      when the entry starts with `/`
  *   4. Version-manager layouts, by glob (nvm, fnm, volta, asdf, mise, n)
  *   5. The LOGIN SHELL's PATH, as a last resort
  *
@@ -98,8 +99,14 @@ export async function detectBinaryWithOptions(
     const candidate = join(dir, name);
     if (await isExecutable(candidate)) return { path: candidate };
   }
+  // An entry that starts with `/` is a LOCATION, not a HOME-relative hint, and
+  // is used verbatim. Joining one onto HOME resolved
+  // `/Applications/Tailscale.app/…` to `$HOME/Applications/Tailscale.app/…`,
+  // which silently matches nothing — so the places a vendor's GUI installs
+  // itself could not be named here at all, and a Mac with the Tailscale app
+  // read as "not installed" while its CLI sat in the bundle.
   for (const rel of knownPaths) {
-    const candidate = join(home, rel);
+    const candidate = isAbsolute(rel) ? rel : join(home, rel);
     if (await isExecutable(candidate)) return { path: candidate };
   }
 

@@ -261,6 +261,46 @@ describe("parseManifest (network)", () => {
     expect("error" in result && result.error).toContain("http(s)");
   });
 
+  it("round-trips a privileged step's group, which makes the steps ALTERNATIVES", () => {
+    // Two ways onto the same network — the Tailscale app or the command-line
+    // daemon — are not one sequence, and a page that numbered them 1..3 told
+    // a person to do both. The group is what says "or".
+    const result = parseManifest(
+      networkPkg({
+        network: {
+          platforms: ["darwin"],
+          exposure: "private",
+          privileged: {
+            darwin: [
+              { label: "Install the app", command: "brew install --cask tailscale-app", group: "The app" },
+              { label: "Install the daemon", command: "brew install --formula tailscale", group: "The daemon" },
+            ],
+          },
+        },
+      }),
+    );
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.network?.privileged?.darwin?.map((s) => s.group)).toEqual(["The app", "The daemon"]);
+  });
+
+  it("refuses an empty group, naming the field and the step", () => {
+    // A group is rendered as a heading above its steps, so `""` is a heading
+    // with no words — refused rather than coerced, exactly as an empty label
+    // is.
+    const result = parseManifest(
+      networkPkg({
+        network: {
+          platforms: ["linux"],
+          exposure: "private",
+          privileged: { linux: [{ label: "Install the daemon", command: "sudo apt install x", group: "" }] },
+        },
+      }),
+    );
+    expect("error" in result && result.error).toContain("group");
+    expect("error" in result && result.error).toContain("Install the daemon");
+  });
+
   it("refuses a privileged step's docsUrl on the same rule, and names the step", () => {
     const result = parseManifest(
       networkPkg({

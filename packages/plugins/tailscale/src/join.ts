@@ -1,5 +1,5 @@
 import type { JoinInput, JoinOutcome, PluginHost } from "@subshell-ai/plugin-api";
-import { firstLine, loginUrl, parseStatusJson, resolveBinary } from "./cli.js";
+import { firstLine, loginUrl, parseStatusJson, resolveBinary, runTailscale } from "./cli.js";
 
 /**
  * How long `tailscale up` may block waiting for a human.
@@ -51,7 +51,7 @@ export async function joinTailnet(host: PluginHost, input: JoinInput): Promise<J
     // for the life of the command — the same accepted exposure as every other
     // credential this server passes to a CLI. It is never stored: a join
     // credential is transient by contract.
-    const result = await host.run([binary, "up", `--auth-key=${credential}`, ...hostnameArgs], {
+    const result = await runTailscale(host, binary, ["up", `--auth-key=${credential}`, ...hostnameArgs], {
       timeoutMs: LOGIN_TIMEOUT_MS,
     });
     if (result.code !== 0) {
@@ -80,7 +80,7 @@ async function interactiveJoin(host: PluginHost, binary: string, hostnameArgs: s
   // declaration, which is what this is for.
   const found: { url: string | null } = { url: null };
 
-  const result = await host.run([binary, "up", ...hostnameArgs], {
+  const result = await runTailscale(host, binary, ["up", ...hostnameArgs], {
     timeoutMs: LOGIN_TIMEOUT_MS,
     signal: controller.signal,
     onLine: (line) => {
@@ -110,7 +110,7 @@ async function interactiveJoin(host: PluginHost, binary: string, hostnameArgs: s
   // No URL on the stream. Two things can be true: the daemon already knows the
   // pending login (and reports it on `status`), or the machine was already up
   // and `up` simply returned. Ask, rather than guessing from the exit code.
-  const status = await host.run([binary, "status", "--json"], { timeoutMs: 15_000 });
+  const status = await runTailscale(host, binary, ["status", "--json"], { timeoutMs: 15_000 });
   const json = parseStatusJson(status.stdout);
   const authUrl = loginUrl(json?.AuthURL);
   if (authUrl) return { state: "needs-login", loginUrl: authUrl };

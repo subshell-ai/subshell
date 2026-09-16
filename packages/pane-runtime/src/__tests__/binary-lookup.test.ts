@@ -62,6 +62,47 @@ describe("findBinaryWithOptions", () => {
     ).toBe(join(bin, "thing"));
   });
 
+  it("uses an ABSOLUTE known path as-is, and still joins a relative one onto HOME", async () => {
+    // The two spellings live in one list, because that is how the Tailscale
+    // plugin carries them: `.local/bin/tailscale` beside
+    // `/Applications/Tailscale.app/Contents/MacOS/Tailscale`. Before this rung
+    // told them apart, an absolute entry was joined onto HOME — so it resolved
+    // to `$HOME/Applications/…`, silently matched nothing, and the plugin's own
+    // docblock had to explain that the locations which matter on a Mac could
+    // not be named here at all.
+    const abs = dirWith("thing");
+    const home = mkdtempSync(join(tmpdir(), "harness-home-"));
+    expect(
+      await findBinaryWithOptions("thing", "THING_PATH", [join(abs, "thing")], {
+        env: { HOME: home },
+        pathEntries: [],
+      }),
+    ).toBe(join(abs, "thing"));
+
+    mkdirSync(join(home, "bin"), { recursive: true });
+    writeFileSync(join(home, "bin", "thing"), "#!/bin/sh\n");
+    chmodSync(join(home, "bin", "thing"), 0o755);
+    expect(
+      await findBinaryWithOptions("thing", "THING_PATH", ["bin/thing"], { env: { HOME: home }, pathEntries: [] }),
+    ).toBe(join(home, "bin", "thing"));
+  });
+
+  it("skips an absolute known path that is not executable", async () => {
+    // This rung is a SEARCH, not a pin: an entry naming a file that exists and
+    // cannot be run is the "the app is not installed here" case, and it has to
+    // fall through to the rungs below rather than answer for them.
+    const dir = mkdtempSync(join(tmpdir(), "harness-abs-"));
+    const file = join(dir, "thing");
+    writeFileSync(file, "not a program\n");
+    chmodSync(file, 0o644);
+    expect(
+      await findBinaryWithOptions("thing", "THING_PATH", [file], {
+        env: { HOME: join(tmpdir(), "definitely-absent") },
+        pathEntries: [],
+      }),
+    ).toBeNull();
+  });
+
   it("does NOT consult the login shell when the caller injected pathEntries", async () => {
     // Every other test in this repo injects `pathEntries` to describe the world
     // it wants searched. If the login rung ran anyway, this machine's real PATH
