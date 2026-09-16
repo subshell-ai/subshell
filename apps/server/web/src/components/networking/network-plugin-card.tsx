@@ -102,6 +102,23 @@ export function NetworkPluginCard({
 
   const status = row.status;
   const state = status?.state;
+  /**
+   * Whether the `not-installed` row is a SEQUENCE worth numbering, and where
+   * the hints' own numbers carry on from.
+   *
+   * Counted over the hints that carry a COMMAND, matching what
+   * {@link NetworkHints} will actually number: a plugin opens this list with
+   * a sentence saying what is wrong before the steps that fix it, so counting
+   * every hint would turn one real step plus its explanation into a two-step
+   * sequence. With one command in total there is no sequence at all — a lone
+   * "1." promises a second step that never comes.
+   *
+   * Derived once because BOTH lists read it: the privileged steps take their
+   * numbers from the same count, and the two disagreeing would number the
+   * first list and not the second.
+   */
+  const commandSteps = row.privileged.length + (status?.hints ?? []).filter((hint) => hint.command).length;
+  const numberSteps = commandSteps > 1;
   const recheck = () => void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
   const begin = (run: () => void) => {
     setLine(undefined);
@@ -212,13 +229,13 @@ export function NetworkPluginCard({
 
           {state === "not-installed" && (
             <div className="space-y-3">
-              {/* The privileged steps, numbered, because they are a sequence
-                  and running the third one first does nothing. Copy-only: see
-                  the component docblock. */}
+              {/* The privileged steps, numbered when they are part of a
+                  sequence, because running the third one first does nothing.
+                  Copy-only: see the component docblock. */}
               {row.privileged.map((step, index) => (
                 <div key={step.command} className="space-y-1.5">
                   <p className="text-detail text-muted-foreground">
-                    <span className="mr-1.5 font-strong text-foreground">{index + 1}.</span>
+                    {numberSteps && <span className="mr-1.5 font-strong text-foreground">{index + 1}.</span>}
                     {step.label}
                   </p>
                   <CopyCommandRow text={step.command} />
@@ -250,22 +267,8 @@ export function NetworkPluginCard({
                   they are setup steps like the ones above — for a plugin
                   whose every install path needs root, they are the ENTIRE
                   install experience, since a manifest may not ship a `sudo`
-                  command and the host would refuse to run one anyway. Numbers
-                  only where there is more than one thing to do: a lone "1."
-                  promises a second step that never comes. */}
-              <NetworkHints
-                hints={status.hints}
-                startAt={
-                  // Counted over the hints that carry a COMMAND, matching what
-                  // `NetworkHints` will actually number. A plugin opens this
-                  // list with a sentence saying what is wrong before the steps
-                  // that fix it, so counting every hint would turn one real
-                  // step plus its explanation into a two-step sequence.
-                  row.privileged.length + status.hints.filter((hint) => hint.command).length > 1
-                    ? row.privileged.length + 1
-                    : undefined
-                }
-              />
+                  command and the host would refuse to run one anyway. */}
+              <NetworkHints hints={status.hints} startAt={numberSteps ? row.privileged.length + 1 : undefined} />
             </div>
           )}
 

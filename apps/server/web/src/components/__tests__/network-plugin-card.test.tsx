@@ -229,6 +229,33 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
   });
 
+  it("numbers nothing at all on a daemon that is down, however many hints there are", async () => {
+    // The shape the first shipped plugin emits: the platform's start command,
+    // then the daemon's own first line of stderr explaining a case that
+    // command does not fix. Numbering belongs to the `not-installed` row,
+    // which is a sequence a person walks; these are the state of a machine
+    // right now, and "2." in front of an explanation tells someone to go and
+    // do something that is not a thing to do. The card passes no `startAt`
+    // here, so there is nothing to get wrong — this pins that.
+    await renderCard(
+      row({
+        state: "daemon-down",
+        status: {
+          state: "daemon-down",
+          addresses: [],
+          hints: [
+            { text: "tailscaled is not running.", command: "sudo systemctl start tailscaled", privileged: true },
+            { text: "failed to connect to local tailscaled; is it running?" },
+          ],
+        },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(card.textContent).toContain("failed to connect to local tailscaled; is it running?");
+    expect(screen.queryByText("1.")).toBeNull();
+    expect(screen.queryByText("2.")).toBeNull();
+  });
+
   it("needs-privilege is the same shape as a daemon that is down — a hint and Re-check", async () => {
     await renderCard(
       row({
@@ -298,6 +325,18 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Unpublish" })).toBeNull();
+  });
+
+  it("renders the addresses in the order the server sent them", async () => {
+    // Load-bearing rather than cosmetic: the host promotes `addresses[0]`
+    // when asked to set the base URL, so a plugin puts its https origin first
+    // deliberately. Anything that re-sorted this list here — by scheme, by
+    // secure context, by label — would leave the page showing one order while
+    // the checkbox beneath it adopted another.
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    const shown = screen.getAllByRole("listitem").map((item) => item.textContent ?? "");
+    expect(shown[0]).toContain("https://box.tail1234.ts.net");
+    expect(shown[1]).toContain("http://100.64.0.1:3080");
   });
 
   it("the base-URL checkbox says what it costs and rides on the publish body", async () => {
@@ -563,6 +602,21 @@ describe("hint numbering", () => {
       }),
     );
     expect(screen.getByText("Install it")).toBeTruthy();
+    expect(screen.queryByText("1.")).toBeNull();
+  });
+
+  it("numbers nothing when the single command is a privileged step", async () => {
+    // The other half of the same rule. Both lists read ONE count, so they
+    // cannot disagree about whether this row is a sequence — before that was
+    // shared, the privileged list numbered itself unconditionally and a row
+    // with exactly one step opened with a "1." standing on its own.
+    await renderCard(
+      row({
+        privileged: [{ label: "Install the daemon", command: "brew install meshtool" }],
+        status: { state: "not-installed", addresses: [], hints: [] },
+      }),
+    );
+    expect(screen.getByText("Install the daemon")).toBeTruthy();
     expect(screen.queryByText("1.")).toBeNull();
   });
 });

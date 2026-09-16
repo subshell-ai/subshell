@@ -36,7 +36,7 @@ export function NetworkHintBlock({ hint, index }: { hint: NetworkHint; index?: n
 /**
  * Every hint a status carries, in the order the plugin put them in.
  *
- * `numberFrom` runs a step count through them, and only the hints carrying a
+ * `startAt` runs a step count through them, and only the hints carrying a
  * COMMAND take a number. That distinction is the whole rule: a plugin's list
  * opens with a sentence saying what is wrong ("Meshtool is not installed on
  * this machine.") and then the commands that fix it. Numbering the sentence
@@ -46,16 +46,16 @@ export function NetworkHintBlock({ hint, index }: { hint: NetworkHint; index?: n
  * of the sequence — the privileged steps above these hints are part of the
  * same count.
  *
- * @param numberFrom - the number to give the first hint that carries a
+ * @param startAt - the number to give the first hint that carries a
  *   command; unset renders no numbers at all
  */
-export function NetworkHints({ hints, numberFrom }: { hints: NetworkHint[]; numberFrom?: number }) {
+export function NetworkHints({ hints, startAt }: { hints: NetworkHint[]; startAt?: number }) {
   if (hints.length === 0) return null;
   // Assigned in one pass rather than inside the render, so the counter
   // advances over the hints that take a number and skips the ones that do not
   // — a `map` that incremented as it rendered would be a side effect in a
   // render function, and React is free to call one twice.
-  let next = numberFrom;
+  let next = startAt;
   const numbered = hints.map((hint) => {
     if (next === undefined || hint.command === undefined) return { hint, index: undefined };
     const index = next;
