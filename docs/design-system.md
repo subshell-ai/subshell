@@ -79,6 +79,14 @@ admitted here.
 
 - **Line item** — `label` over `detail`, differing by weight AND colour, never
   by tone alone. *(15px regular over 13px muted read as one paragraph.)*
+- **Quiet label vs control label** — a read-only data row labels over its value
+  with the label in `muted-foreground` at `body` size, the `Fact`/`dt` grammar,
+  and it takes that size from the list or `<dl>` around it rather than from the
+  label itself. `font-strong` label weight belongs to a control's label and to a
+  section heading, ONLY. *(A networking card set bold "NetBird FQDN" over its URL
+  six pixels above a quiet "Client version" over its — two label grammars in one
+  card, so one row read as a heading and the other as data, and neither was the
+  control the bold claimed it was.)*
 - **Help text** — everything a control says about itself is `detail`, at ONE
   size: its hint, "set by the environment", a saved-vs-running note, a
   validation error — the same role metadata uses, so a field never mixes sizes.

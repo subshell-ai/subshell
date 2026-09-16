@@ -719,7 +719,13 @@ export function NetworkPluginCard({
                       onChange={(event) => setPromoteBaseUrl(event.target.checked)}
                     />
                     <span>
-                      <span className="text-label">Set as this server's base URL</span>
+                      {/* `font-strong` is not decoration here: a control's label carries the
+                          `label` role at BOTH of its tokens (15/600), and this one had the size
+                          alone — a 400-weight label over a checkbox, while every other control
+                          on this page, including `SupervisionCard`'s radios, is 600. The quiet
+                          weight belongs to read-only data, which is what the audit in
+                          `network-addresses.tsx` was fixing on the other side. */}
+                      <span className="font-strong text-label">Set as this server's base URL</span>
                       {/* The consequence nobody guesses, and the one that is
                           not reversible for a credential already registered
                           against the old host. */}

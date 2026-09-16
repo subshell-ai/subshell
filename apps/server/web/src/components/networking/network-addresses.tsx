@@ -30,19 +30,30 @@ function secureContextLine(address: NetworkAddress): string {
  * tag used to sit AFTER the URL — a big bold address with a small muted word
  * trailing it — and an operator read the two as disjoint things, because a
  * tag that follows a bold value names nothing until you scan back from it.
- * The label now leads, in the same `font-strong text-label` grammar the form
- * labels use, and the URL drops its own weight: a value styled as a heading
- * competes with the section heading above it. The secure-context sentence
- * keeps its line below the value — see {@link secureContextLine} for why it
- * appears on every address, the good one included.
+ *
+ * **The label is a DATA label, not a control label** (amended 2026-09-16, same
+ * operator's second read). The first pass gave it the form-label grammar
+ * (`font-strong text-label`), and the card then held both grammars six pixels
+ * apart: bold "NetBird FQDN" over its URL, quiet "Client version" over its —
+ * one read as a heading and one as data, so the card looked like two systems
+ * rendering two kinds of thing. These rows are read-only facts, so they take
+ * the `Fact`/`dt` grammar verbatim: `text-muted-foreground`, no weight token.
+ * The `text-sm` sits on the list, exactly as it sits on the `<dl>` beside it,
+ * rather than on the label — that is what keeps the two from drifting if
+ * {@link Fact} ever changes. `font-strong` belongs to a control's label and to
+ * a section heading, and the "Addresses" heading above keeps it.
+ *
+ * The secure-context sentence keeps its line below the value — see
+ * {@link secureContextLine} for why it appears on every address, the good one
+ * included.
  */
 export function NetworkAddresses({ addresses, copyable = false }: { addresses: NetworkAddress[]; copyable?: boolean }) {
   if (addresses.length === 0) return null;
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-2 text-sm">
       {addresses.map((address) => (
         <li key={address.url} className="space-y-1">
-          <p className="font-strong text-label">{address.label}</p>
+          <p className="text-muted-foreground">{address.label}</p>
           {copyable ? (
             <CopyableValue value={address.url} label={address.label} />
           ) : (

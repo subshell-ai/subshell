@@ -35,7 +35,17 @@ export function NetworkRestartNotice() {
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/50 px-3 py-2 text-sm text-warning">
+      {/* `text-detail`, and it is load-bearing rather than a taste: this strip
+          renders the SAME sentence the `!view` branch above renders, so the two
+          sizes meant "Restart the server to apply the new address." sat at 13px
+          until `GET /api/admin/server` landed and then re-set at 14px a moment
+          after mount. A note about what a control just changed is the design
+          system's help text — `detail` at one size — which is also what every
+          other amber line on this card uses (`text-detail text-warning` for the
+          exposure note and for each publish warning). `AddressesCard` still
+          renders its own copy of this strip at `text-sm`; that half is the
+          service page's audit, not this component's. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/50 px-3 py-2 text-detail text-warning">
         <span>
           {view.restart.available
             ? "Restart the server to apply the new address."

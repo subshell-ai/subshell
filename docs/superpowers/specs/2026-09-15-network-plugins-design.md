@@ -1121,6 +1121,24 @@ refusal is the safe default until someone builds and tests the re-derive.
   repeating it is the same words read twice, and the panel sentence already says
   what the chosen path does.
 
+- **The two label grammars are named, and the address rows move to the quiet
+  one (amended 2026-09-16, same card read a third time).** The bullet above put
+  each kind label in the FORM-label grammar, and that was half wrong: the rows
+  are read-only data, so the card ended up holding both grammars six pixels
+  apart — bold "NetBird FQDN" over its URL beside quiet "Client version" over
+  its, from the `Fact` block above. The operator's question was the tell: "why
+  is one bold and the other not?" One component renders all four plugins, so one
+  change moved every address row to the `Fact`/`dt` grammar — `text-muted-foreground`,
+  no weight token, `text-sm` carried by the list exactly as the `<dl>` carries
+  it — value and secure-context sentence untouched. Two more elements came out of
+  the walk that followed, over every data-bearing element in the card: the
+  base-URL checkbox's label had the `label` size without its weight (a 400 over a
+  control where every other control on the page is 600), and the restart notice
+  rendered the same sentence at two sizes depending on whether
+  `GET /api/admin/server` had landed. `docs/design-system.md` now states the rule
+  — quiet labels for data, `font-strong` for a control's label and a section
+  heading — as a named pattern rather than as four local class choices.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,
