@@ -114,6 +114,19 @@ describe("host.run refusals", () => {
     expect(Date.now() - started).toBeLessThan(10_000);
   });
 
+  it("holds the deadline against a child that TRAPS sigterm", async () => {
+    // The orphaned-pipe case above cancels the reads, which is only half the
+    // guarantee: the call then awaits the child's real exit, and `kill()` sends
+    // SIGTERM, which a process may trap and ignore. Measured before the fix: a
+    // 500 ms deadline returned at 20010 ms. A vendor CLI trapping SIGTERM to
+    // clean up is ordinary, so the term is followed by a kill.
+    const started = Date.now();
+    const result = await host().run(["/bin/sh", "-c", "trap '' TERM; sleep 20"], { timeoutMs: 500 });
+    expect(result.timedOut).toBe(true);
+    // Deadline plus the kill grace plus slack — nowhere near the child's 20s.
+    expect(Date.now() - started).toBeLessThan(8_000);
+  });
+
   it("ends early on an abort without calling it a failure", async () => {
     // What an interactive login needs: the URL has already been printed, so
     // the plugin stops waiting rather than holding the request open.

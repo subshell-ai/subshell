@@ -51,13 +51,25 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
   }
 
   const result = await host.run([binary, "status", "--json"], { timeoutMs: STATUS_TIMEOUT_MS });
-  const output = `${result.stderr}\n${result.stdout}`;
+
+  // **Only a FAILED run is diagnosed, and only from stderr.** Both matchers
+  // below are substring tests over loose vendor prose — `looksLikePermissionDenied`
+  // matches the bare word "operator" — and a SUCCESSFUL `status --json` prints
+  // the whole tailnet document on stdout: ACL tags (`tag:operator` is a common
+  // one), peer names, user display names, health strings. Matching against that
+  // turned a perfectly healthy machine into `needs-privilege` with no
+  // addresses, publishing blocked, and a copyable `sudo tailscale set
+  // --operator=…` that changes nothing because the grant already exists. The
+  // permission and socket texts only ever appear on a failure, so failure is
+  // the only place worth looking.
+  const failed = result.code !== 0;
+  const diagnosis = failed ? result.stderr : "";
 
   // Permission first. See `looksLikePermissionDenied`: Tailscale's
   // access-denied text often also mentions a server that is not running, so
   // the more specific test has to win or every operator problem is reported as
   // a dead daemon.
-  if (looksLikePermissionDenied(output)) {
+  if (looksLikePermissionDenied(diagnosis)) {
     return {
       binary,
       json: null,
@@ -74,7 +86,7 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
   // is the only thing that can explain it.
   if (result.code !== 0 || json === null) {
     const detail = firstLine(result.stderr) || firstLine(result.stdout);
-    const hints = looksLikeDaemonDown(output)
+    const hints = looksLikeDaemonDown(diagnosis)
       ? daemonDownHints(host.platform, detail)
       : daemonDownHints(host.platform, detail || "Tailscale did not report a status this server could read.");
     return { binary, json, status: { state: "daemon-down", addresses: [], hints } };

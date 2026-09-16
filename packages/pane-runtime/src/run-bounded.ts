@@ -43,6 +43,15 @@ export const OUTPUT_CAP = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
+ * How long a child gets to honour SIGTERM before it is killed outright.
+ *
+ * The deadline this module promises is a deadline on the CALL, not a polite
+ * request to the child. A trapped SIGTERM would otherwise let a child hold the
+ * call open indefinitely past a timeout it has already been told about.
+ */
+const KILL_GRACE_MS = 2_000;
+
+/**
  * The ceiling on any caller's deadline.
  *
  * A plugin picks its own `timeoutMs` and a plugin is third-party code, so the
@@ -198,6 +207,9 @@ export async function runBounded(argv: readonly string[], options: BoundedRunOpt
   const stdoutReader = proc.stdout.getReader();
   const stderrReader = proc.stderr.getReader();
 
+  /** Escalation timer, cleared when the call returns however it returns. */
+  let sigkill: ReturnType<typeof setTimeout> | undefined;
+
   /**
    * Ends the run now and stops waiting on the pipes.
    *
@@ -205,11 +217,28 @@ export async function runBounded(argv: readonly string[], options: BoundedRunOpt
    * shell two children holding their own copies of fd 1 and 2, so the pipe
    * never reaches EOF and the reads below would wait for an orphan rather than
    * for the deadline.
+   *
+   * And SIGTERM alone is not enough for ANY child, because a process may trap
+   * it and take as long as it likes. Measured: a child running
+   * `trap '' TERM; sleep 20` against a 500 ms deadline had its reads cancelled
+   * at 501 ms and its `exited` resolve at 20010 ms — so the call returned
+   * twenty seconds after the deadline it reports. A vendor CLI that traps
+   * SIGTERM to clean up is not exotic. So the term is followed by a kill.
    */
   const stop = () => {
     proc.kill();
     void stdoutReader.cancel().catch(() => {});
     void stderrReader.cancel().catch(() => {});
+    sigkill ??= setTimeout(() => {
+      // SIGKILL cannot be trapped, so `exited` resolves promptly after this.
+      // Best-effort: a child that already exited has nothing to signal.
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // Already reaped.
+      }
+    }, KILL_GRACE_MS);
+    sigkill.unref?.();
   };
 
   const timer = setTimeout(() => {
@@ -243,6 +272,7 @@ export async function runBounded(argv: readonly string[], options: BoundedRunOpt
     };
   } finally {
     clearTimeout(timer);
+    if (sigkill !== undefined) clearTimeout(sigkill);
     options.signal?.removeEventListener("abort", onAbort);
   }
 }

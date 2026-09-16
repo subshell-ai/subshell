@@ -179,6 +179,24 @@ describe("TailscalePlugin.status", () => {
     expect(status.hints[0]?.command).toBe("sudo tailscale set --operator=test");
   });
 
+  it("does not read a HEALTHY tailnet's own document as a permission failure", async () => {
+    // The matchers are substring tests over loose vendor prose — the
+    // permission one matches the bare word "operator" — and a successful
+    // `status --json` prints the whole tailnet: ACL tags (`tag:operator` is a
+    // common name), peer names, health strings. Diagnosing a SUCCESSFUL run
+    // from its stdout turned a perfectly healthy machine into
+    // `needs-privilege` with no addresses, publishing blocked, and a copyable
+    // grant command that changes nothing because the grant already exists.
+    const healthy = JSON.parse(RUNNING_STATUS);
+    healthy.Self.Tags = ["tag:operator"];
+    healthy.Health = ["socket permission denied on some unrelated peer"];
+    const { plugin } = scripted({ "/usr/bin/tailscale status --json": { code: 0, stdout: JSON.stringify(healthy) } });
+    const status = await plugin.status(CTX);
+    expect(status.state).not.toBe("needs-privilege");
+    expect(status.state).not.toBe("daemon-down");
+    expect(status.addresses.length).toBeGreaterThan(0);
+  });
+
   it("reports needs-login and carries the AuthURL a human must open", async () => {
     const { plugin } = scripted({ "/usr/bin/tailscale status --json": { stdout: NEEDS_LOGIN_STATUS } });
     const status = await plugin.status(CTX);
