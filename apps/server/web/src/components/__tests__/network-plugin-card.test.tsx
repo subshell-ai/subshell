@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { setFetchRouter } from "@/test-setup";
 import type { NetworkRow, NetworkState } from "@/types/network";
 
 /**
@@ -121,8 +122,18 @@ function mockFetch(handler: (url: URL, init?: RequestInit) => Response | undefin
     }
     return Promise.resolve(handler(url, init) ?? new Response(JSON.stringify({})));
   }) as typeof fetch;
+  // ALSO route the preload's delegator, not just the global. Replacing
+  // `globalThis.fetch` only catches call-time users; anything that bound fetch
+  // at import (better-auth's client does) captured the delegator instead and
+  // goes straight to the real network. This suite was making 80 refused
+  // connections per CI run, to `127.0.0.1:80` for relative URLs and to
+  // `127.0.0.1:3080` for the configured base URL — and on a developer's own
+  // machine 3080 usually has a real server answering, so the suite was not
+  // merely leaky but leaky in a way that behaves differently per machine.
+  setFetchRouter(globalThis.fetch as typeof fetch);
   restore.push(() => {
     globalThis.fetch = original;
+    setFetchRouter(null);
   });
   return calls;
 }
@@ -523,6 +534,26 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.getByText("TRUSTED_ORIGINS")).toBeTruthy();
   });
 
+  /** Publish fails, then Disconnect succeeds — the fixture both halves share. */
+  function failedPublishThenLeave() {
+    return mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/publish"
+        ? ndjson({ type: "error", message: "the daemon went away" })
+        : url.pathname === "/api/network/tailscale/leave"
+          ? Response.json({ ok: true, status: { state: "needs-login", addresses: [], hints: [] } })
+          : undefined,
+    );
+  }
+
+  const JOINED = row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } });
+
+  it("a failed act says so", async () => {
+    failedPublishThenLeave();
+    await renderCard(JOINED);
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy(), { timeout: 1200 });
+  });
+
   it("a later act clears the previous one's failure", async () => {
     // A mutation's result outlives the state it describes. The error banner
     // takes the first non-null error across all five mutations, and `begin()`
@@ -531,21 +562,17 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // publish announcement had the same shape: it renders outside every state
     // branch, so after Unpublish the card went on announcing a publish above a
     // row that had gone back to `joined`.
-    mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/publish"
-        ? ndjson({ type: "error", message: "the daemon went away" })
-        : url.pathname === "/api/network/tailscale/leave"
-          ? Response.json({ ok: true, status: { state: "needs-login", addresses: [], hints: [] } })
-          : undefined,
-    );
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    //
+    // **Split from the assertion above deliberately.** As one test this was
+    // the only one in the file to fail in CI, four runs running, always as a
+    // bare timeout with no assertion attached even once every await carried
+    // its own budget — which says it was blocking rather than polling, and
+    // that the thing blocking it was not any single step. Two tests give each
+    // half its own budget and its own clean fixture, and make the next failure
+    // name which half it is.
+    failedPublishThenLeave();
+    await renderCard(JOINED);
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    // Each step waits on its OWN budget rather than sharing the test's. This
-    // test failed three CI runs in a row as a bare five-second timeout with no
-    // assertion attached, which says only that something never happened —
-    // useless for a failure that does not reproduce locally. Split, the step
-    // that stalls is the one that reports, and the total still sits well
-    // inside the default budget.
     await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy(), { timeout: 1200 });
 
     // A DIFFERENT mutation, which is the case that was broken: `leave` never
@@ -556,9 +583,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(disconnect);
     // Scoped to the dialog, which is what the two tests below already do. A
     // bare role query matches the CARD's Disconnect as well as the dialog's,
-    // so whichever the query reached first decided the outcome — and under CI
-    // load it reached the card's, re-toggling the dialog shut and leaving the
-    // assertion below to time out. Measured red on main at 7.7s.
+    // and whichever the query reached first decided the outcome.
     const dialog = await screen.findByRole("dialog", {}, { timeout: 1200 });
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull(), { timeout: 1200 });
