@@ -18,10 +18,7 @@
     "@internal/pane-runtime",
     "@internal/server-web",
     "@internal/subshell-protocol",
-    "@internal/tsconfig",
-    "@subshell-ai/plugin-cloudflare-tunnel",
-    "@subshell-ai/plugin-headscale",
-    "@subshell-ai/plugin-netbird"
+    "@internal/tsconfig"
   ],
   "privatePackages": {
     "version": true,
