@@ -271,6 +271,36 @@ export interface LogTail {
 
 export const probe = (): Promise<Probe> => invoke<Probe>("desktop_probe");
 
+/**
+ * What one loopback port looks like from here. `PortStatus`.
+ *
+ * One field today, and an object rather than a boolean because the interesting
+ * question is the one a connect cannot answer: WHAT is on the port. This app's
+ * own supervised child, a `subshell-server` started from a terminal, and an
+ * unrelated program are three different situations and look identical to a
+ * TCP connect. Telling them apart takes a second read; a field added here
+ * reaches a page that already destructures this.
+ */
+export interface PortStatus {
+  /** Whether anything accepted a connection on the port. */
+  inUse: boolean;
+}
+
+/**
+ * Whether something already answers on `127.0.0.1:<port>`.
+ *
+ * Deliberately NOT a probe field. The probe reports the machine; this reports
+ * a port the person may be typing into the address form, which changes without
+ * the machine changing — and re-answering it on the 1500 ms poll would be a
+ * connect attempt per tick for a question nothing had re-asked.
+ *
+ * Only a successful connect answers `inUse: true`. Rust reads a timeout and
+ * every other error as free, because a false positive disables Set Up on a
+ * machine that could have run a server; see `desktop_port_in_use` for that
+ * argument, and for why this says nothing about what answered.
+ */
+export const portInUse = (port: number): Promise<PortStatus> => invoke<PortStatus>("desktop_port_in_use", { port });
+
 export const logs = (): Promise<LogTail> => invoke<LogTail>("desktop_logs");
 
 export const service = (verb: ServiceVerb, force: boolean): Promise<ActionResult> =>

@@ -1276,7 +1276,12 @@
   }
   /* The tmux hard-stop notice: same amber as the facts warnings, full width
      of the action area because it explains why parts of it are disabled. */
-  .tmux-warning {
+  /* The port-conflict notice wears the same box on purpose. It is the other
+     thing that disables Set Up, and two explanations of "why is this button
+     dead" that looked different would read as two different KINDS of trouble
+     — one of them serious — when both are a machine fact with a way out. */
+  .tmux-warning,
+  .port-warning {
     width: 100%;
     border: 1px solid var(--warning);
     border-radius: 8px;
@@ -1284,9 +1289,15 @@
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
   }
-  .tmux-warning p {
+  .tmux-warning p,
+  .port-warning p {
     margin: 0 0 8px;
     color: var(--warning);
+  }
+  /* The port notice ends on a paragraph rather than on a row of controls, so
+     its last line would otherwise sit 8px off the bottom of its own box. */
+  .port-warning p:last-child {
+    margin-bottom: 0;
   }
   .tmux-warning-row {
     display: flex;

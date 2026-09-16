@@ -468,14 +468,40 @@ export function applySupervisionChoice(
 
 /**
  * Whether Set Up is live, and the reason beside it when not. An empty reason
- * means busy: a spinner is already on screen. The only machine gate is tmux
- * (`init` and `service install` both refuse without it); a missing server is
- * the chain's own first act.
+ * means busy: a spinner is already on screen. Two machine gates now: tmux
+ * (`init` and `service install` both refuse without it), and a port something
+ * else already holds; a missing server is the chain's own first act.
+ *
+ * The order is not cosmetic. The first three refusals are about whether the
+ * question can be asked at all — no probe, an act in flight, no tmux — and the
+ * port check is about the answer. A screen that named a port conflict while
+ * still waiting for its first probe would be reporting a measurement it has
+ * not taken.
+ *
+ * @param portConflict - The port the chain would bind, when something is
+ *   already answering there; `null` or omitted for "free, or not known yet".
+ *   An OBJECT rather than a port string, because what is on the port is the
+ *   question this cannot answer yet — this app's own child, a server someone
+ *   started by hand, and an unrelated program are three situations a connect
+ *   cannot tell apart. A classification arrives as another field here, and the
+ *   reason string grows with it; nothing about the refusal's place in the
+ *   order changes.
+ *   **Unknown must arrive as absent, never as a conflict.** The check is a
+ *   round trip that lands after the render asking for it, so the gate has to
+ *   be open while it is outstanding: a Set Up that stays dead for a beat after
+ *   every keystroke is indistinguishable from one that is dead for good.
  */
-export function canSetup(probe: Probe | null, busy: boolean): { ok: true } | { ok: false; reason: string } {
+export function canSetup(
+  probe: Probe | null,
+  busy: boolean,
+  portConflict?: { port: string } | null,
+): { ok: true } | { ok: false; reason: string } {
   if (probe === null) return { ok: false, reason: "Checking this machine…" };
   if (busy) return { ok: false, reason: "" };
   if (probe.tmux === null) return { ok: false, reason: "Waiting for tmux" };
+  // Short because it renders in a span beside the button; the screen itself
+  // carries the explanation and the two ways out.
+  if (portConflict) return { ok: false, reason: `Port ${portConflict.port} is in use` };
   return { ok: true };
 }
 

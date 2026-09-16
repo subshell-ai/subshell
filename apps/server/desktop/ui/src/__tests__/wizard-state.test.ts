@@ -246,6 +246,30 @@ describe("canSetup", () => {
     expect(canSetup(virgin(), false)).toEqual({ ok: false, reason: "Waiting for tmux" }));
   it("is ok once tmux answers, even with no server yet", () =>
     expect(canSetup(virgin(WITH_TMUX), false)).toEqual({ ok: true }));
+  it("refuses a port something else is holding, and names it", () =>
+    // The number is in the reason because the screen may never have been
+    // customized: "Port is in use" would leave the reader to work out WHICH
+    // port a form they have not opened is about to write.
+    expect(canSetup(virgin(WITH_TMUX), false, { port: "3080" })).toEqual({
+      ok: false,
+      reason: "Port 3080 is in use",
+    }));
+  it("is ok when the port is free", () => expect(canSetup(virgin(WITH_TMUX), false, null)).toEqual({ ok: true }));
+  it("is ok while the port answer is still outstanding", () =>
+    // The whole reason unknown is `undefined` rather than a third state: the
+    // check lands after the render that asked for it, and a Set Up that went
+    // dead for a beat after every keystroke would look broken, not careful.
+    expect(canSetup(virgin(WITH_TMUX), false, undefined)).toEqual({ ok: true }));
+  it("keeps the three earlier refusals ahead of the port", () => {
+    // They are about whether the question can be ASKED — no probe, an act in
+    // flight, no tmux — and a screen naming a port conflict while it is still
+    // waiting for its first probe would be reporting a measurement nobody
+    // took. Each is passed a conflict it must ignore.
+    const busy = { port: "3080" };
+    expect(canSetup(null, false, busy)).toEqual({ ok: false, reason: "Checking this machine…" });
+    expect(canSetup(virgin(WITH_TMUX), true, busy)).toEqual({ ok: false, reason: "" });
+    expect(canSetup(virgin(), false, busy)).toEqual({ ok: false, reason: "Waiting for tmux" });
+  });
 });
 
 describe("failureLine", () => {

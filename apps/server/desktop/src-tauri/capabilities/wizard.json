@@ -11,6 +11,7 @@
     "dialog:allow-open",
     "opener:allow-reveal-item-in-dir",
     "allow-desktop-probe",
+    "allow-desktop-port-in-use",
     "allow-desktop-setup",
     "allow-desktop-install-tmux",
     "allow-desktop-set-server-bin",

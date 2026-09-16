@@ -172,6 +172,29 @@ let supervision: SupervisionChoice = DEFAULT_SUPERVISION;
  */
 let supervisionForm: SupervisionChoice | null = null;
 let seeded = false;
+/**
+ * The last port this page asked about, and the answer for it.
+ *
+ * Not a probe field, for the same reason the app-update check is not one: the
+ * probe reports the MACHINE, and this reports a number the person may be
+ * typing into the address form, which changes without the machine changing.
+ * Re-asking on the 1500 ms poll would be a connect attempt per tick for a
+ * question nobody re-asked.
+ *
+ * Keyed by the port so an answer is only ever read back for the port it was
+ * measured on: the field moves while a check is in flight, and a cached `true`
+ * carried onto the next number would disable Set Up over a port nothing holds.
+ */
+let portCheck: { port: string; inUse: boolean } | null = null;
+/**
+ * The port the newest check was fired for.
+ *
+ * It does two jobs: one render's question is asked once (the poll and the
+ * input listener both reach {@link checkPort}), and an answer that arrives
+ * after a newer check was fired is DROPPED — two loopback connects race, and
+ * the slower one is the older question.
+ */
+let portAsked: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Frame helpers
@@ -512,6 +535,104 @@ function manualRouteSteps(route: ManualRoute): HTMLElement {
   return panel;
 }
 
+/**
+ * The port the setup chain would actually bind.
+ *
+ * Seeded the way {@link addressForm} seeds its own field, because the form may
+ * never have been opened: `form.port` stays empty until it renders once, so
+ * reading it alone would ask about port 3080 on a machine configured for 4000.
+ * `effectiveForm` is the one place that turns `status --json`'s settings into
+ * what the field would show, and the `"3080"` tail is `setupRows`' own
+ * fallback — a blank port means the CLI's default, not "no port".
+ */
+function chosenPort(p: Probe): string {
+  return (form.port || effectiveForm(p.status?.settings).port || "").trim() || "3080";
+}
+
+/**
+ * Whether something already holds the port this screen would bind, or `null`
+ * for "free — or not measured yet".
+ *
+ * The render is synchronous and the check is a round trip, so the two states
+ * this collapses are deliberate: an unknown port reads as free and Set Up
+ * stays live. A button that went dead for a beat after every keystroke would
+ * be worse than the failure being closed here, which is a server that cannot
+ * bind — a state this machine is already in when the question is asked at all.
+ */
+function portConflict(p: Probe): { port: string } | null {
+  const port = chosenPort(p);
+  if (portCheck?.port === port) return portCheck.inUse ? { port } : null;
+  checkPort(port);
+  return null;
+}
+
+/** Ask about one port, unless that answer is already in hand or on its way. */
+function checkPort(port: string): void {
+  if (portCheck?.port === port || portAsked === port) return;
+  const numeric = Number(port);
+  // A port that is not a port is the CLI's refusal to make, not this check's:
+  // `u16` would reject the invoke outright, and the config form already shows
+  // the server's own complaint about the value. Cached as free so the gate
+  // opens and the chain gets to report what is actually wrong.
+  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 65535) {
+    portCheck = { port, inUse: false };
+    return;
+  }
+  portAsked = port;
+  // Bound to a name so the call stays on one line: `ipc-acl.test.ts` reads
+  // which commands this page can reach by matching `ipc.<name>(`, and a chain
+  // long enough for the formatter to break after `ipc` would hide this one
+  // from that pin — which is the safe-LOOKING direction for it to fail in.
+  const asked = ipc.portInUse(numeric);
+  asked
+    // A refused command is not a busy port. The page has no way to tell them
+    // apart and only one of them is safe to assume, so a failed check reads as
+    // free and the chain reports the bind failure itself.
+    .catch(() => ({ inUse: false }))
+    .then(({ inUse }) => {
+      // Superseded: the field moved on while this was in flight, and the
+      // answer is about a port nothing is asking about.
+      if (portAsked !== port) return;
+      portCheck = { port, inUse };
+      // Never redraw under a hand typing in the address form — `tick()`'s own
+      // rule, for the same reason: `render()` rebuilds `#content`, which would
+      // take the cursor out of the field mid-port. The answer is cached, so
+      // the first render after the field is left carries it.
+      if (!isTextEntry(document.activeElement)) render();
+    });
+}
+
+/**
+ * Why Set Up is held back, and the two ways past it.
+ *
+ * The reason beside the button is four words, which is the right size for a
+ * button that is merely waiting and the wrong size for one that will not come
+ * back on its own. This says what is true of the machine, what setup would do
+ * with it, and both remedies — including the one already on this screen, named
+ * in the words its own link uses.
+ *
+ * **It does not say what is on the port, because this page cannot know.** A
+ * connect proves that something answered and nothing more, and the likeliest
+ * holders are benign — a `subshell-server` the person started from a terminal,
+ * or another copy of this app — so wording that implied a foreign or
+ * misbehaving program would be wrong in the ordinary case and alarming in all
+ * of them. "Something already answers" is the whole of what was measured.
+ */
+function portWarning(port: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "port-warning mb-4";
+  wrap.append(
+    text("p", `Something is already answering on port ${port}.`),
+    text(
+      "p",
+      "Setting up would write that port into this server's configuration and then start a server that cannot " +
+        "bind to it, so Set Up waits until the port is free. Stop whatever is using it, or choose a different " +
+        "port under “Customize port and addresses…”.",
+    ),
+  );
+  return wrap;
+}
+
 function renderSetup(p: Probe): void {
   if (running) {
     renderProgress(p);
@@ -523,6 +644,11 @@ function renderSetup(p: Probe): void {
   }
   setFrame("none", SETUP_TITLE, `Choose how the server runs on ${here()}.`);
   const content = el("content");
+  const conflict = portConflict(p);
+  // Above the question, not beside the button: it is the reason the screen
+  // cannot be completed, and a reader who starts at the top should meet it
+  // before choosing how a server they cannot start yet ought to run.
+  if (conflict) content.append(portWarning(conflict.port));
   content.append(supervisionGroup(p));
   const links = document.createElement("div");
   links.className = "mt-4 flex gap-4";
@@ -545,7 +671,7 @@ function renderSetup(p: Probe): void {
     links.append(button("Choose an existing server…", () => void pickBinary(), "linkish"));
   content.append(links);
   if (customizeOpen) content.append(addressForm(p));
-  const gate = canSetup(p, busy);
+  const gate = canSetup(p, busy, conflict);
   const list = screensFor(p, false);
   const prev = list[Math.max(0, list.indexOf("setup") - 1)] ?? "welcome";
   el("bar-left").append(button("Back", () => go(prev), "ghost"));
@@ -1371,10 +1497,18 @@ function addressForm(p: Probe): HTMLElement {
     input.addEventListener("input", () => {
       form[field.name] = input.value;
       explicit[field.name] = true;
-      if (field.name === "port" && explicit.baseUrl !== true) {
-        form.baseUrl = derivedBaseUrl(input.value);
-        const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
-        if (mirror) mirror.value = form.baseUrl;
+      if (field.name === "port") {
+        if (explicit.baseUrl !== true) {
+          form.baseUrl = derivedBaseUrl(input.value);
+          const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
+          if (mirror) mirror.value = form.baseUrl;
+        }
+        // Ask about the new number now rather than at the next render. The
+        // poll skips a tick while a text field has focus (`tick()`), so
+        // without this the answer for a port someone just typed would not
+        // start being measured until they left the field — and the screen
+        // would keep naming the old conflict while they looked at the fix.
+        checkPort(chosenPort(p));
       }
       // Nothing outside the form mirrors the port any more: the row that read
       // "Open your dashboard → http://…" is gone, and the baseUrl field above

@@ -153,6 +153,7 @@ pub fn run() {
         .manage(supervisor::Supervisor::new())
         .invoke_handler(tauri::generate_handler![
             control::desktop_probe,
+            control::desktop_port_in_use,
             control::desktop_logs,
             control::desktop_install_server,
             control::desktop_setup,

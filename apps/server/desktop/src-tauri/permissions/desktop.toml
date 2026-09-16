@@ -62,6 +62,11 @@ description = "Read what it would take to reach a running server. Read-only."
 commands.allow = ["desktop_probe"]
 
 [[permission]]
+identifier = "allow-desktop-port-in-use"
+description = "Ask whether something is already listening on one loopback port, so the setup screen can say so before it writes a config and starts a server that cannot bind. One TCP connect to 127.0.0.1 with a 300ms deadline: it reaches no other host, reads nothing, and changes nothing. Assistant-only, because the setup screen is the only place the question is asked."
+commands.allow = ["desktop_port_in_use"]
+
+[[permission]]
 identifier = "allow-desktop-install-server"
 description = "Install the bundled subshell-server to ~/.local/bin, stopping the managed service first."
 commands.allow = ["desktop_install_server"]
