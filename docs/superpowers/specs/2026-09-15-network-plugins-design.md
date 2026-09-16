@@ -1156,6 +1156,25 @@ refusal is the safe default until someone builds and tests the re-derive.
   that gated copying to `published` called a live mesh address "a preview"),
   and the address values settled to the list's size.
 
+- **The publish section speaks each network's truth, and a cross-network
+  base-URL move is confirmed (amended 2026-09-16, operator read of the live
+  NetBird card: "I don't think netbird has a publish concept?").** It does
+  not — `publishImplicit` was invented precisely because joining makes
+  NetBird's addresses answer and the press records them on THIS server's
+  side only; the "Publish" heading and "Subshell is not published on NetBird"
+  borrowed the Serve/tunnel vocabulary for a mechanism the vendor has no
+  name for. For implicit-publish networks the section is headed **Other
+  devices** and its sentences describe the allow-list act; the Serve/tunnel
+  wording stands where it describes a real vendor mechanism. The same read
+  asked what happens when TWO plugins both tick "Set as this server's base
+  URL": the checkbox is per-card and `APP_BASE_URL` is one value, so the
+  second press silently re-points the server and the passkey rpID with it.
+  Off loopback that is the checkbox's documented purpose and publishes
+  straight through; off another network's established address the press names
+  both hosts and asks (one pure function, `lib/base-url-move.ts`, tabled —
+  including WHATWG `URL.hostname` keeping brackets on IPv6, caught by its own
+  test).
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,
