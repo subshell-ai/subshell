@@ -314,10 +314,22 @@ export function NetworkPluginCard({
    * carry into install commands. The hook has already landed the deployment
    * view and admin status; these are the two the card owns.
    */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the outcome transition is the trigger — the reset handles are stable per mutation, and naming them (or the mutations) would re-run the whole effect on every render between presses, invalidating the lists anew each time.
   useEffect(() => {
     if (restart.outcome !== "back") return;
     void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
+    // A landed restart also RETIRES the run-announcement. The refetched row
+    // carries the durable sentence — "Published on Tailscale" — and the done
+    // frame has said all it had to say; leaving it mounted kept its notice
+    // and its button alive over a server that had already moved on. (The
+    // notice now also self-gates on the deployment view; this clears the
+    // whole block, because the announcement is the notice's only reason to
+    // be there. Operator's live read, 2026-09-16.)
+    publish.reset();
+    join.reset();
+    unpublish.reset();
+    leave.reset();
   }, [restart.outcome, queryClient]);
   /**
    * A 404 from the install route is not a failure.

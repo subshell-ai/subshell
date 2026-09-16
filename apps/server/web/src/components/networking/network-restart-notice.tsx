@@ -55,6 +55,22 @@ export function NetworkRestartNotice({
     return <p className="text-detail text-warning">Restart the server to apply {what}.</p>;
   }
 
+  // The notice ANNOTATES the act, but the question it asks — "does anything
+  // still await a restart?" — belongs to the server, and the view answers it
+  // from live fact: `restartRequired` is any saved setting differing from
+  // the running one (server-deployment.ts). Once that reads false — whoever
+  // restarted, this button, the Service page, the CLI — the notice retires
+  // on the render that saw the view. (Operator's live read, 2026-09-16: the
+  // card kept demanding the restart its own press had completed, beside a
+  // deployment view reporting nothing pending — the same page saying both
+  // halves of a contradiction.)
+  //
+  // The `restart.available === false` branch SURVIVES this gate, and must:
+  // when the write landed nowhere and cannot be applied from this page,
+  // `restartRequired` is true alongside `available: false`, and "Saved.
+  // {reason}" is the notice's only chance to say where the change is stuck.
+  if (!view.restartRequired) return null;
+
   return (
     <div className="space-y-2">
       {/* `text-detail`, and it is load-bearing rather than a taste: this strip

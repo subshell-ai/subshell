@@ -20,7 +20,15 @@ export function setting(saved: string, source: SettingSource = "config.env"): Se
  * The deployment view, with any settings overridden.
  * @param over - settings entries to replace
  */
-export function deploymentView(over: Partial<ServerDeployment["settings"]> = {}): ServerDeployment {
+export function deploymentView(
+  over: Partial<ServerDeployment["settings"]> = {},
+  /**
+   * View-level overrides (`restartRequired`, `restart`, …). The settings map
+   * is the common override; the network card's staleness gate reads
+   * `restartRequired`, which is not a setting.
+   */
+  viewOver: Partial<ServerDeployment> = {},
+): ServerDeployment {
   return {
     configEnv: { path: "/c/config.env", exists: true },
     settings: {
@@ -32,6 +40,7 @@ export function deploymentView(over: Partial<ServerDeployment["settings"]> = {})
       ...over,
     },
     restartRequired: false,
+    ...viewOver,
     authSecret: { state: "set", source: "config.env" },
     paths: {
       dataDir: "/c",

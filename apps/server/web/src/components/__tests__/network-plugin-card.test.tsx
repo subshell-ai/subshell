@@ -223,7 +223,12 @@ function mockFetch(handler: (url: URL, init?: RequestInit) => Response | Promise
     // from scratch underneath whatever ran next. That is what made a
     // neighbouring test time out in CI and pass everywhere else.
     if (url.pathname === "/api/admin/server") {
-      return Promise.resolve(handler(url, init) ?? Response.json(deploymentView()));
+      // The default answers `restartRequired: true` because every card test
+      // that reaches the restart notice does so while a write IS still
+      // pending — the notice now self-gates on the server's live saved-vs-
+      // running fact, and a false default would hide the very block these
+      // tests pin. The staleness tests override this route explicitly.
+      return Promise.resolve(handler(url, init) ?? Response.json(deploymentView({}, { restartRequired: true })));
     }
     return Promise.resolve(handler(url, init) ?? new Response(JSON.stringify({})));
   }) as typeof fetch;
@@ -1443,6 +1448,65 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.getByText("Restart the server to apply the new address.")).toBeTruthy();
   });
 
+  it("the notice retires the render the deployment view says nothing is pending", async () => {
+    // The staleness bug: the notice rendered off the ACT's done frame alone,
+    // so a completed restart — this card's, the Service page's, the CLI's —
+    // left the card demanding it again beside a server reporting nothing
+    // saved-but-unapplied. The notice now gates on the live
+    // `restartRequired`; this is that gate, with the act's frame still
+    // claiming a restart is owed.
+    mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/publish"
+        ? ndjson({
+            type: "done",
+            ok: true,
+            addresses: ADDRESSES,
+            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
+            restartRequired: true,
+            status: { state: "published", addresses: ADDRESSES, hints: [] },
+          })
+        : url.pathname === "/api/admin/server"
+          ? // The server's answer: applied. (A restart happened somewhere.)
+            Response.json(deploymentView({}, { restartRequired: false }))
+          : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    expect(await screen.findByText(/Published on Tailscale/)).toBeTruthy();
+    // The view lands a beat after the frame; the notice hides on THAT render.
+    await waitFor(() => expect(screen.queryByText(/Restart the server to apply/)).toBeNull());
+    // And the announcement itself stays — it is true, just no longer pending.
+    expect(screen.getByText(/your other devices can open this dashboard/)).toBeTruthy();
+  });
+
+  it("the notice stands, flicker-free, while the write genuinely awaits a restart", async () => {
+    // The other half of the gate: `restartRequired` still true must NOT make
+    // the notice blink — the view arrives, agrees with the frame, and the
+    // block persists exactly as rendered.
+    mockFetch(
+      (url) =>
+        url.pathname === "/api/network/tailscale/publish"
+          ? ndjson({
+              type: "done",
+              ok: true,
+              addresses: ADDRESSES,
+              config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
+              restartRequired: true,
+              status: { state: "published", addresses: ADDRESSES, hints: [] },
+            })
+          : undefined, // /api/admin/server: the mockFetch default — pending: true
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
+    const notice = await screen.findByText("Restart the server to apply the new address.");
+    // Several ticks — frame, pre-view, post-view — the notice never vanishes
+    // and reappears: pre-view it renders from the act's fact, post-view the
+    // server confirms it.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText("Restart the server to apply the new address.")).toBeTruthy();
+    expect(notice).toBeTruthy();
+  });
+
   it("a leave that stripped says what left and offers the restart", async () => {
     // NetBird's NORMAL strip path is the Disconnect press — no unpublish
     // button involved — so the leave result must render the same trio block
@@ -1484,7 +1548,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // definition without `KillMode=process` — one that SIGKILLs every live
     // tmux pane with the process — gets the Service page's warning and the
     // `force: true` the route demands, not a second copy of either.
-    const view = deploymentView();
+    const view = deploymentView({}, { restartRequired: true });
     view.service.paneSafety = "kills";
     const calls = mockFetch((url) =>
       url.pathname === "/api/network/tailscale/unpublish"
@@ -1519,7 +1583,10 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
   });
 
   it("renders no restart button where the server cannot restart itself", async () => {
-    const view = deploymentView();
+    // Pending write AND no way to apply it from the page: the notice must
+    // still speak — its "Saved. {reason}" branch is the only voice that says
+    // where the change is stuck, and the staleness gate must not eat it.
+    const view = deploymentView({}, { restartRequired: true });
     view.restart = { available: false, reason: "This server is not running under a service manager." };
     mockFetch((url) =>
       url.pathname === "/api/network/tailscale/unpublish"
@@ -1627,6 +1694,10 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     await waitFor(() => {
       expect(calls.some((c) => c.pathname === "/api/admin/status")).toBe(true);
     });
+    // The landed restart also retires the announcement itself: the refetched
+    // row is the durable sentence, and the done frame's notice must not go
+    // on nagging over a server that already moved on. (Operator live read.)
+    await waitFor(() => expect(screen.queryByText(/Asked this server to stop accepting/)).toBeNull());
     await waitFor(() => {
       expect(invalidated).toContain(JSON.stringify(NETWORK_QUERY_KEY));
       expect(invalidated).toContain(JSON.stringify(PUBLIC_SETTINGS_QUERY_KEY));
