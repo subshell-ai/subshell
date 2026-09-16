@@ -1043,6 +1043,14 @@ refusal is the safe default until someone builds and tests the re-derive.
   word on older CLIs. The measurement that started it: a Headscale row
   reading "Joined" on a host whose daemon serves the SaaS, with the machine's
   `debug prefs` naming `controlplane.tailscale.com`.
+- **The joined sentence quotes the row's own label (amended 2026-09-16).** The
+  card's standing sentence said "publishing is what lets your other devices open
+  this dashboard" on every row, silently assuming four plugins that name the act
+  four ways — Publish, Publish with Tailscale Serve, Start tunnel, Use this
+  address — share the word "publishing". NetBird's button reads **Use this
+  address**, and an operator met two names for one act and asked how to publish.
+  The sentence now renders `row.labels.publish ?? "Publish"` — the same expression
+  the button itself uses, in quoted form — so copy and control cannot disagree.
 
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 

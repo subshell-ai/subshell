@@ -9,13 +9,16 @@ import { manifest } from "./manifest.js";
  * is `?` and every reader copes with its absence rather than asserting a shape a
  * future NetBird might not produce.
  *
- * **The field spellings are UNMEASURED (§ 10.4).** No live NetBird daemon was
- * available to pin them, so the IP is read from several candidate keys
- * (`peerIP`, `ip`, `netbirdIp`) and the version from both `netbirdVersion` and
- * the plain `version`. The master spec's vendor table names `netbirdIp` where
- * the phase-2/3 spec names `peerIP`; rather than pick one and be silently wrong
- * about the other, every spelling is tried and the honest answer to a document
- * none of them match is `daemon-down` — a state with a hint, never a crash.
+ * **The spellings that matter are MEASURED (0.66.4, the operator's host,
+ * 2026-09-16).** The IP arrives under `netbirdIp` — CIDR-suffixed, verbatim
+ * `"100.71.129.37/16"` — the version under `daemonVersion` and `cliVersion`,
+ * the name under `fqdn`, and there is NO top-level `hostname` at all. The
+ * guesses the two specs named (`peerIP`, `ip`, `netbirdVersion`, `version`)
+ * were written before any live daemon was available and stay as fallbacks;
+ * § 10.4's other half — the peer-credential authorisation behind "no
+ * `needs-privilege` state" — is still unmeasured and is handled in `status.ts`.
+ * The honest answer to a document nothing matches remains `daemon-down`, a
+ * state with a hint, never a crash.
  */
 export interface NetbirdStatusJson {
   /** The daemon's link to the management service. Its `connected` gates join. */
@@ -23,19 +26,23 @@ export interface NetbirdStatusJson {
     /** False or absent means this machine has not been enrolled yet. */
     connected?: boolean;
   };
-  /** This peer's NetBird IP. Read from `peerIP`, `ip` or `netbirdIp`. */
+  /** This peer's NetBird IP. Measured spelling is `netbirdIp`, CIDR-suffixed. */
   peerIP?: string;
   /** Alternate spelling of the peer IP. */
   ip?: string;
-  /** Alternate spelling of the peer IP. */
+  /** The peer IP as the 0.66.4 daemon sends it: `"100.71.129.37/16"`. */
   netbirdIp?: string;
   /** This peer's fully-qualified name on the NetBird network, if DNS is set up. */
   fqdn?: string;
-  /** This machine's peer name. */
+  /** This machine's peer name. Absent on 0.66.4 — `fqdn` carries the name. */
   hostname?: string;
-  /** The running NetBird version. Read from `netbirdVersion` or `version`. */
+  /** The running daemon's version — measured, and the one worth reporting. */
+  daemonVersion?: string;
+  /** The CLI that asked. Reported only when the daemon does not answer. */
+  cliVersion?: string;
+  /** Guessed spelling of the version, kept as a fallback. */
   netbirdVersion?: string;
-  /** Alternate spelling of the version. */
+  /** Alternate guessed spelling of the version. */
   version?: string;
 }
 
@@ -105,17 +112,31 @@ export function isManagementConnected(status: NetbirdStatusJson): boolean {
 const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
 /**
+ * A CIDR prefix as the daemon spells it — a slash and digits, and nothing else.
+ *
+ * Narrow on purpose. `100.71.129.37/` and `100.71.129.37/x` are not a subnet
+ * suffix someone meant literally; they are a value this reader cannot interpret,
+ * and the honest answer for one is no address rather than a guess at a host.
+ */
+const CIDR_SUFFIX_RE = /\/\d+$/;
+
+/**
  * This peer's NetBird IPv4 address, from whichever spelling the document uses.
  *
- * Tried in the order the two specs name them (`peerIP` first, then the plain
- * `ip`, then the master table's `netbirdIp`). Only an IPv4 survives, for the
- * URL-safety reason Tailscale's reader gives; a document that carries none —
- * or an unparseable future shape — yields `null` and the caller lists just the
- * FQDN address.
+ * A trailing `/prefixlen` comes off first: **measured on 0.66.4**, the top-level
+ * `netbirdIp` is `"100.71.129.37/16"`, and an address with a subnet suffix is not
+ * a URL host. Rejecting it whole is what made the card show no IP under a hint
+ * telling the operator to use the IP address.
+ *
+ * The candidates are then tried in the order the two specs named them (`peerIP`,
+ * the plain `ip`, then `netbirdIp`) — a guess-order that survives as FALLBACK,
+ * since the measured spelling is the last of the three. Only an IPv4 survives,
+ * for the URL-safety reason Tailscale's reader gives; a document that carries
+ * none yields `null` and the caller lists just the FQDN address.
  */
 export function peerIpv4(status: NetbirdStatusJson): string | null {
   for (const candidate of [status.peerIP, status.ip, status.netbirdIp]) {
-    const trimmed = candidate?.trim();
+    const trimmed = candidate?.trim().replace(CIDR_SUFFIX_RE, "");
     if (trimmed && IPV4_RE.test(trimmed)) return trimmed;
   }
   return null;

@@ -161,7 +161,41 @@ Independent binary and daemon. Decisions:
 - **icon.svg:** simple placeholder mark (letter "N" monogram is acceptable);
   no trademarked artwork.
 - **§ 10.4 remains UNMEASURED** — say so in code and in the master spec's
-  amendments.
+  amendments. *(Amended below: the `status --json` field spellings are now
+  MEASURED on a live 0.66.4; the peer-credential half of § 10.4 still stands
+  unmeasured, and so does the generic `daemon-down` posture that rests on it.)*
+
+**Amendment — § 10.4's field spellings are CLOSED by measurement (2026-09-16,
+the operator's live host, NetBird 0.66.4, CLI `/usr/local/bin/netbird`).**
+`netbird status --json` answers at top level with: `cliVersion`, `daemonVersion`,
+`dnsServers`, `events`, `forwardingRules`, `fqdn`, `lazyConnectionEnabled`,
+`management`, `networks`, `peers`, `profileName`, `publicKey`,
+`quantumResistance`, `quantumResistancePermissive`, `relays`, `signal`,
+`sshServer`, `usesKernelInterface`, `netbirdIp`. Three of this section's guesses
+were wrong, and each wrong guess was a defect on screen rather than a nit:
+
+- **`netbirdIp` is CIDR-suffixed** — verbatim `"100.71.129.37/16"`. The anchored
+  IPv4 test rejected the whole value, so a joined NetBird listed no IP address
+  while the hint beside the addresses told the operator to use the IP address.
+  The reader strips a trailing `/prefixlen` (digits only — `100.71.129.37/` and
+  `::1/128` still yield nothing) before the test. `peerIP` and `ip`, the spellings
+  this section named, do not exist at top level; they survive as fallbacks behind
+  the measured one.
+- **The version is `daemonVersion`, with `cliVersion` beside it** — never
+  `netbirdVersion` or `version`, so the identity's Client version rendered empty.
+  The daemon leads the order: the version line describes the running process, not
+  the CLI that asked it.
+- **There is no `hostname` key**, so `fqdn` is the only name this document
+  answers and a 0.66.4 identity is honestly a version alone. `dnsServers` is an
+  array of `{servers, domains, enabled, error}` — unread here, recorded so the
+  next reader does not guess at it either.
+
+The copy this section specified for the nameserver caveat changed with the
+measurement too: it now reads "otherwise use the NetBird IP address", naming the
+row the card actually lists, and carries
+`docsUrl: https://docs.netbird.io/how-to/manage-dns-in-your-network` — a
+nameserver group is an account-console setting, so the hint links out rather than
+pointing at nothing.
 
 ## 6. Plugin 3 — `cloudflare-tunnel`
 

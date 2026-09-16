@@ -23,22 +23,34 @@ importing any of this code.
   to the trusted origins. Unpublish is therefore a no-op.
 - **Peer names need a nameserver group.** The FQDN address is offered alongside
   the IP, with a hint saying peer names only resolve when the NetBird account has
-  a nameserver group configured — otherwise use the IP.
+  a nameserver group configured — otherwise use the NetBird IP address — linked to
+  [the vendor's DNS page](https://docs.netbird.io/how-to/manage-dns-in-your-network)
+  because that group is an account-console setting, not something on this machine.
 
-## UNMEASURED
+## Measured, and what is still not
 
-These rest on claims that were **not verified against a live NetBird** (master
-spec § 10, item § 10.4). The code degrades honestly in each case rather than
-pretending the shape is settled:
+**Measured against a live daemon on 2026-09-16 (NetBird 0.66.4).** `netbird
+status --json` answers with `netbirdIp` **CIDR-suffixed** — verbatim
+`"100.71.129.37/16"` — the version under `daemonVersion` and `cliVersion`, and
+the machine's name under `fqdn` with no trailing dot; there is no `hostname` key
+at all. So the reader strips a trailing `/prefixlen` before accepting an IPv4
+(a CIDR value is not a URL host, and rejecting it whole left the card listing no
+IP under a hint telling the operator to use the IP), and the identity prefers the
+daemon's version over the CLI's. The spellings the two specs guessed — `peerIP`,
+`ip`, `netbirdVersion`, `version` — survive as fallbacks, and the guessed IP order
+puts them ahead of the measured one. That read ran as the server's unprivileged
+user and answered.
+
+These still rest on claims **not verified against a live NetBird** (master spec
+§ 10, item § 10.4). The code degrades honestly in each case rather than pretending
+the shape is settled:
 
 - **§ 10.4 — the peer-credential authorisation** behind "no `needs-privilege`
-  state" is unconfirmed. A socket error, a permission refusal, and an
-  unparseable status body are all reported as a **generic `daemon-down`** with the
-  same sentence; the plugin never guesses which one it saw.
-- **The `status --json` field spellings are unconfirmed.** The peer IP is read
-  from `peerIP`, `ip` and `netbirdIp` in turn (the two specs name it differently),
-  and the version from `netbirdVersion` or `version`. A document none of them
-  match is `daemon-down`, not a crash.
+  state" is unconfirmed as a mechanism (a working unprivileged `status` is not
+  proof of how it was authorised, and `up` was never probed unprivileged). A
+  socket error, a permission refusal, and an unparseable status body are all
+  reported as a **generic `daemon-down`** with the same sentence; the plugin never
+  guesses which one it saw.
 - **The device-flow output shape is unconfirmed.** The interactive join reads a
   login URL (and a device code if one appears) off the output stream, then aborts,
   falling back to a status re-read — mirroring the Tailscale interactive join. A

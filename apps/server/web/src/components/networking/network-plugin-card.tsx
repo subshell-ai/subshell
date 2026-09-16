@@ -172,6 +172,16 @@ export function NetworkPluginCard({
   const status = row.status;
   const state = status?.state;
   /**
+   * The word this row uses for the publish act, derived ONCE.
+   *
+   * The joined sentence and the button both read this expression because the
+   * vocabularies differ per plugin — Publish, Publish with Tailscale Serve,
+   * Start tunnel, Use this address — and the sentence explaining the button used
+   * to say "publishing" while the thing under it said something else. NetBird's
+   * "Use this address" made an operator ask how to publish.
+   */
+  const publishLabel = row.labels.publish ?? "Publish";
+  /**
    * Whether the `not-installed` row is a SEQUENCE worth numbering, and where
    * the hints' own numbers carry on from.
    *
@@ -534,7 +544,12 @@ export function NetworkPluginCard({
               {/* The standing FACT of this state, in ONE slot for both halves
                   of it, in the same words' shape — the two states differ by
                   one thing and the copy now says which. It sits above the
-                  Publish control because it explains the button, and above
+                  publish control because it explains the button — naming the act
+                  in that button's OWN word, quoted, since the four plugins use
+                  four words (Publish / Publish with Tailscale Serve / Start
+                  tunnel / Use this address) and this sentence used to say
+                  "publishing" whatever was under it: NetBird's "Use this
+                  address" made an operator ask how to publish. And above
                   Unpublish/Disconnect because the published half used to have
                   no standing sentence at all: the post-publish block says what
                   just happened and is cleared by the next act, so after a
@@ -543,7 +558,7 @@ export function NetworkPluginCard({
               <p className="text-detail text-muted-foreground">
                 {state === "published"
                   ? `Subshell is published on ${row.name}.`
-                  : `Subshell is not published on ${row.name} yet — publishing is what lets your other devices open this dashboard over the network.`}
+                  : `Subshell is not published on ${row.name} yet — “${publishLabel}” is what lets your other devices open this dashboard over the network.`}
               </p>
               {/* Hints do not stop at the door. A network that has joined can
                   still have something to say about the addresses it did NOT
@@ -582,7 +597,7 @@ export function NetworkPluginCard({
                     onClick={() => begin(() => publish.mutate({ id: row.id, promoteBaseUrl }))}
                   >
                     {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
-                    {publish.isPending ? "Publishing…" : (row.labels.publish ?? "Publish")}
+                    {publish.isPending ? "Publishing…" : publishLabel}
                   </Button>
                 </div>
               )}

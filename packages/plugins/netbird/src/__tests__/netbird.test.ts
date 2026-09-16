@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { NetworkContext, NetworkPlugin, PluginHost, RunOptions, RunResult } from "@subshell-ai/plugin-api";
 import { createScriptedHost, createTestHost } from "@subshell-ai/plugin-api/testing";
+import { peerIpv4 } from "../cli.js";
 import createPlugin, { manifest } from "../index.js";
 
 /** The port the host says this server listens on. Every address uses it. */
@@ -50,6 +51,29 @@ const NOT_CONNECTED = JSON.stringify({
   netbirdVersion: "0.76.1",
 });
 
+/**
+ * The shape a LIVE NetBird answers with — transcribed from a real
+ * `netbird status --json` on 0.66.4 (measured 2026-09-16).
+ *
+ * Real in every spelling that matters, because each one is a defect the guessed
+ * shapes did not catch: the IP is CIDR-suffixed (`netbirdIp` carries `/16`), the
+ * version lives in `daemonVersion`/`cliVersion`, there is NO `hostname` key, and
+ * this FQDN carries no trailing dot. Noise the readers ignore (`dnsServers`,
+ * `peers`) rides along so nobody quietly shrinks this back to the minimal shape.
+ */
+const MEASURED_0_66_4 = JSON.stringify({
+  cliVersion: "0.66.4",
+  daemonVersion: "0.66.4",
+  management: { url: "https://controller.example.com:443", connected: true, error: "" },
+  signal: { url: "https://controller.example.com:443", connected: true, error: "" },
+  netbirdIp: "100.71.129.37/16",
+  publicKey: "6h475w1aTAm8+TLmPy1D7qWWdISYdlpffSKvEhzwOGw=",
+  usesKernelInterface: false,
+  fqdn: "studio.example.internal",
+  dnsServers: [{ servers: ["8.8.8.8:53", "8.8.4.4:53"], domains: null, enabled: true, error: "" }],
+  peers: { total: 14, connected: 7 },
+});
+
 /** Builds the plugin over a scripted host, and hands back both so calls can be asserted. */
 function scripted(
   answers: Record<string, Partial<RunResult>>,
@@ -82,6 +106,33 @@ function recording(
   };
   return { plugin: createPlugin(host) as NetworkPlugin, host, runs };
 }
+
+describe("peerIpv4", () => {
+  it("drops the subnet suffix the daemon actually sends", () => {
+    // Measured on 0.66.4: the top-level `netbirdIp` is "100.71.129.37/16". A
+    // CIDR-suffixed value is not a URL host, so the prefix comes off before the
+    // IPv4 test — and this is the spelling the live daemon uses, not a fallback.
+    expect(peerIpv4({ netbirdIp: "100.71.129.37/16" })).toBe("100.71.129.37");
+  });
+
+  it("still takes a bare address", () => {
+    expect(peerIpv4({ netbirdIp: "100.64.0.9" })).toBe("100.64.0.9");
+  });
+
+  it("refuses an IPv6 address, a missing prefix and a non-numeric one", () => {
+    // Stripping the suffix must not turn garbage into an address. `::1/128` is
+    // IPv6 (needs brackets in a URL, so it was never wanted here); a bare slash
+    // or letters after it are not a prefix length.
+    expect(peerIpv4({ netbirdIp: "::1/128" })).toBeNull();
+    expect(peerIpv4({ netbirdIp: "100.71.129.37/" })).toBeNull();
+    expect(peerIpv4({ netbirdIp: "100.71.129.37/x" })).toBeNull();
+    expect(peerIpv4({ netbirdIp: "" })).toBeNull();
+  });
+
+  it("keeps the candidate order when the measured spelling is the second one", () => {
+    expect(peerIpv4({ peerIP: "100.64.0.5", netbirdIp: "100.71.129.37/16" })).toBe("100.64.0.5");
+  });
+});
 
 describe("netbird manifest", () => {
   it("declares its identity and network facts as DATA, not in code", () => {
@@ -231,10 +282,51 @@ describe("NetBirdPlugin.status", () => {
     expect(status.identity).toEqual({ hostname: "workshop", version: "0.76.1" });
   });
 
-  it("explains the FQDN caveat alongside the address list", async () => {
+  it("explains the FQDN caveat alongside the address list, linked to the DNS docs", async () => {
     const { plugin } = scripted({ "/usr/bin/netbird status --json": { stdout: CONNECTED } });
     const status = await plugin.status(CTX);
+    const hint = status.hints.find((h) => h.text.includes("nameserver group"));
+    // The sentence names the address the card now actually lists — the measured
+    // daemon sends one — and the link is where a nameserver group is configured.
+    expect(hint?.text).toBe(
+      "Peer names resolve only if your NetBird account has a nameserver group — otherwise use the NetBird IP address.",
+    );
+    expect(hint?.docsUrl).toBe("https://docs.netbird.io/how-to/manage-dns-in-your-network");
+  });
+
+  it("lists both addresses for a live 0.66.4 read, the CIDR IP among them", async () => {
+    // The defect this closes: the daemon reports `netbirdIp` as
+    // "100.71.129.37/16", the IPv4 test rejected the whole value, and the card
+    // showed no IP while its own hint told the operator to use the IP address.
+    const { plugin } = scripted({ "/usr/bin/netbird status --json": { stdout: MEASURED_0_66_4 } });
+    const status = await plugin.status(CTX);
+    expect(status.state).toBe("joined");
+    expect(status.addresses).toEqual([
+      { url: `http://studio.example.internal:${PORT}`, scheme: "http", label: "NetBird FQDN", secureContext: false },
+      { url: `http://100.71.129.37:${PORT}`, scheme: "http", label: "NetBird IP", secureContext: false },
+    ]);
+    // No `hostname` key exists on this shape, so the identity carries the
+    // version — from `daemonVersion`, the process that is actually running.
+    expect(status.identity).toEqual({ version: "0.66.4" });
     expect(status.hints.some((h) => h.text.includes("nameserver group"))).toBe(true);
+  });
+
+  it("reads the version from `daemonVersion`, and from `cliVersion` when the daemon does not answer", async () => {
+    // Both spellings are measured on 0.66.4, and the daemon leads: the version
+    // line describes the running process, not the CLI that asked it. The guessed
+    // `netbirdVersion`/`version` spellings stay behind them.
+    const cases = [
+      [{ cliVersion: "0.66.4", daemonVersion: "0.66.3" }, "0.66.3"],
+      [{ cliVersion: "0.66.4" }, "0.66.4"],
+      [{ netbirdVersion: "0.76.1" }, "0.76.1"],
+    ] as const;
+    for (const [fields, version] of cases) {
+      const { plugin } = scripted({
+        "/usr/bin/netbird status --json": { stdout: JSON.stringify({ management: { connected: false }, ...fields }) },
+      });
+      const status = await plugin.status(CTX);
+      expect(status.identity).toEqual({ version });
+    }
   });
 
   it("reads the peer IP from the netbirdIp spelling and the version from `version`", async () => {

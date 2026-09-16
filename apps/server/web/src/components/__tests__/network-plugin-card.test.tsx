@@ -697,15 +697,50 @@ describe("NetworkPluginCard: the state matrix", () => {
     // Both halves of this state now answer the standing question in the same
     // slot. Joined had no sentence at all — a person met a Publish button and
     // had to already know that joining put the MACHINE on the network while
-    // publishing is what puts the DASHBOARD on it.
+    // publishing is what puts the DASHBOARD on it. The act is named in the
+    // button's own words, so this row — whose label is Tailscale's — reads
+    // “Publish with Tailscale Serve”, not a word the plugin never used.
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     expect(
       screen.getByText(
-        "Subshell is not published on Tailscale yet — publishing is what lets your other devices open this dashboard over the network.",
+        "Subshell is not published on Tailscale yet — “Publish with Tailscale Serve” is what lets your other devices open this dashboard over the network.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Publish/ })).toBeTruthy();
     expect(screen.queryByText("Subshell is published on Tailscale.")).toBeNull();
+  });
+
+  it("names the act by the label the button under it actually carries", async () => {
+    // The defect: the sentence said "publishing" while the button said
+    // something else — NetBird's "Use this address" made an operator ask how to
+    // publish. One expression feeds both, so a plugin's own vocabulary is what
+    // the reader is told to press, and a plugin that names no label still gets
+    // the fallback in both places.
+    const netbird = row({
+      id: "netbird",
+      name: "NetBird",
+      state: "joined",
+      labels: { credential: "Setup key", publish: "Use this address" },
+      status: { state: "joined", addresses: ADDRESSES, hints: [] },
+    });
+    await renderCard(netbird);
+    expect(
+      screen.getByText(
+        "Subshell is not published on NetBird yet — “Use this address” is what lets your other devices open this dashboard over the network.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use this address" })).toBeTruthy();
+    cleanup();
+
+    await renderCard(
+      row({ state: "joined", labels: {}, status: { state: "joined", addresses: ADDRESSES, hints: [] } }),
+    );
+    expect(
+      screen.getByText(
+        "Subshell is not published on Tailscale yet — “Publish” is what lets your other devices open this dashboard over the network.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
   });
 
   it("renders the addresses in the order the server sent them", async () => {

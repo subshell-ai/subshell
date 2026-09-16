@@ -10,6 +10,17 @@ import type { NetworkHint } from "@subshell-ai/plugin-api";
 export const INSTALL_DOCS_URL = "https://docs.netbird.io/how-to/installation";
 
 /**
+ * Where NetBird documents nameserver groups — the account setting this plugin's
+ * FQDN caveat depends on ("DNS in NetBird").
+ *
+ * Linked rather than merely named because the fix is not on this machine: it is
+ * a console setting, and an operator reading "your NetBird account has a
+ * nameserver group" next to an address list wants the page that says how to make
+ * one, not a sentence to google.
+ */
+export const DNS_DOCS_URL = "https://docs.netbird.io/how-to/manage-dns-in-your-network";
+
+/**
  * What to say when there is no `netbird` binary at all.
  *
  * ONE sentence and no commands: the install sequence lives in
@@ -78,9 +89,17 @@ export function needsLoginHints(loginUrl: string | undefined): NetworkHint[] {
  * peer, and the IP is the address that actually works. Stated as a hint on a
  * joined/published read (not folded into the address) because the operator
  * deciding which address to try needs the caveat where the addresses are.
+ *
+ * The second half names the address by the label the card gives it ("NetBird
+ * IP"), which it did not always have: on the measured daemon the IP row was
+ * missing entirely — `netbirdIp` arrives CIDR-suffixed and the reader rejected
+ * it — so this sentence pointed at an address not on screen. The link goes to
+ * the page where the group is configured, since that is elsewhere: an account
+ * console, not this machine.
  */
 export function nameserverGroupHint(): NetworkHint {
   return {
-    text: "Peer names resolve only if your NetBird account has a nameserver group — otherwise use the IP address.",
+    text: "Peer names resolve only if your NetBird account has a nameserver group — otherwise use the NetBird IP address.",
+    docsUrl: DNS_DOCS_URL,
   };
 }

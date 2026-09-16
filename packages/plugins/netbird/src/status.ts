@@ -101,12 +101,19 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
  *
  * Hostname and version, and ONLY where the status document answers them — the
  * spec reads them from the JSON rather than probing, so no second `host.run`
- * happens just to fill a label. `version` is tried under both field spellings the
- * field notes in {@link NetbirdStatusJson} name.
+ * happens just to fill a label.
+ *
+ * **Measured on 0.66.4**, the version lives in `daemonVersion` and `cliVersion`,
+ * and the daemon leads: the version line describes the process that is running,
+ * not the CLI that asked it. The two spellings the specs guessed
+ * (`netbirdVersion`, `version`) follow as fallbacks. `hostname` is absent from
+ * that document entirely — `fqdn` carries the name — so a 0.66.4 identity is
+ * honestly a version and nothing else.
  */
 function readIdentity(json: NetbirdStatusJson): NetworkStatus["identity"] {
   const hostname = json.hostname?.trim();
-  const version = json.netbirdVersion?.trim() || json.version?.trim();
+  const version =
+    json.daemonVersion?.trim() || json.cliVersion?.trim() || json.netbirdVersion?.trim() || json.version?.trim();
   return {
     ...(hostname ? { hostname } : {}),
     ...(version ? { version } : {}),
