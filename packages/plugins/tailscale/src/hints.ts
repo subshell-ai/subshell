@@ -149,3 +149,28 @@ export function certificateTransparencyHint(dnsName: string): NetworkHint {
     docsUrl: HTTPS_DOCS_URL,
   };
 }
+
+/**
+ * The words for Tailscale's own hosted control service, for the sentence that
+ * must name it without naming its URL.
+ */
+export const TAILSCALE_SERVICE_LABEL = "Tailscale's own service";
+
+/**
+ * What to say when the daemon positively reports a SELF-HOSTED control server
+ * (the 2026-09-16 amendment to § 8's non-policing, mirroring the headscale
+ * plugin's ownership gate with the answer inverted).
+ *
+ * One sentence and NO command: `tailscale logout` would tear down someone
+ * else's enrollment, and this plugin was not asked to manage that tailnet.
+ * The machine is not broken — it is just not on the network this row covers,
+ * which is the whole sentence.
+ * @param where - the host the daemon named, from `controlServerHost`
+ */
+export function foreignControlServerHint(where: string): NetworkHint[] {
+  return [
+    {
+      text: `This machine's Tailscale belongs to ${where}, not to ${TAILSCALE_SERVICE_LABEL}. This row covers only machines connected to Tailscale's own service.`,
+    },
+  ];
+}

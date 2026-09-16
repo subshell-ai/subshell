@@ -34,10 +34,15 @@ import { readNetwork } from "./status.js";
  * the rule — this file is its sibling, not its restatement.
  *
  * **One machine, one tailnet.** A host running BOTH plugins reads the SAME
- * daemon twice, and the plugin's status cannot tell after the fact which
- * control server the daemon belongs to — so exactly one of the two rows can be
- * true at a time. The rule belongs to the user and lives in this package's
- * README.md; the code deliberately does not police it.
+ * daemon twice, and `status --json` cannot tell after the fact which control
+ * server the daemon belongs to — but `tailscale debug prefs` can: its
+ * `ControlURL` is the daemon's own word for who it serves. So the code now
+ * polices that POSITIVE evidence (spec 2026-09-16 amendment): a daemon naming
+ * another control server reports `needs-login` on this row, never `joined`,
+ * and its serve config is never read. Where the daemon cannot say, the read
+ * fails open to the old behavior — so exactly one of the two rows can still be
+ * true at a time, and the rule for a human lives on in this package's
+ * README.md.
  *
  * Identity, platforms, exposure, the privileged steps and the `controlUrl`
  * field's shape live in this package's package.json and the one field list

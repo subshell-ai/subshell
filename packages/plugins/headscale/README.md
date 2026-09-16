@@ -25,11 +25,21 @@ what executes, bounds and audits every act.
 ## One machine, one tailnet — the pick-one rule
 
 A machine can be on **one tailnet at a time**. With both the Tailscale and the
-Headscale plugins enabled, each row reads the *same* daemon, and the status
-cannot see `--login-server` after the fact: whichever control server the
-daemon actually belongs to answers `joined`, and the other row may read it as
-joined too. Enable both if you switch machines between tailnets; expect one
-green row per machine.
+Headscale plugins enabled, each row reads the *same* daemon, and `tailscale
+status --json` cannot see `--login-server` after the fact (no `LoginServer`
+key, measured on CLI 1.102.4). Since 2026-09-16 the rows do not have to guess:
+`tailscale debug prefs` reports the daemon's own `ControlURL`, and **each row
+checks it.** This row answers `joined` only when that URL canonicalizes to your
+configured Control server URL; a daemon reporting Tailscale's own service — or
+any other control server — reports needs-login here instead, and its serve
+config is never read, so a foreign machine can neither phantom-"Join" nor
+phantom-"Publish" (the measured case that forced this). What stays ambiguous is
+what the read cannot answer: a CLI too old for `debug prefs`, a refused read or
+an unparseable body leaves a Running daemon reading `joined` on whichever row
+asks, exactly as before — the fail-open the rule lives on. Nothing else can
+make the two rows agree on one daemon, because a Headscale configured at
+`https://controlplane.tailscale.com` would not be a Headscale. Enable both if
+you switch machines between tailnets; expect one green row per machine.
 
 ## Publishing
 

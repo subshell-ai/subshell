@@ -1018,6 +1018,32 @@ refusal is the safe default until someone builds and tests the re-derive.
   contract-inherent for now; the real fix is a host-run per-secret shape
   check that never hands the plugin the value, and it is not this batch's.
 
+- **Both Tailscale-family rows now police daemon ownership (amended
+  2026-09-16, on the operator's live host).** § 8 pairs the two rows as one
+  binary pointed at two control servers, and the shipped posture was that the
+  status cannot tell which control server a daemon belongs to, so the code
+  deliberately did not police it. The first half is true of the call it was
+  measured on — `status --json` has no `LoginServer` key on CLI 1.102.4 — but
+  `tailscale debug prefs` (unprivileged, same binary, small JSON) does answer:
+  `ControlURL` is `https://controlplane.tailscale.com` for a machine enrolled
+  the ordinary way and the operator's URL for one enrolled with
+  `--login-server`. So the non-policing decision is REVERSED where the
+  evidence is positive and STANDS where it is not. Each row now asks prefs
+  before claiming a `Running` daemon: the Headscale row owns it only when the
+  reported `ControlURL` canonicalizes (trailing slash and host case folded)
+  to the configured `controlUrl` — unset or unparseable counts as not-a-match,
+  since a join requires the URL — and the Tailscale row only when it
+  canonicalizes to the service default. A daemon naming the other network
+  answers `needs-login` with a hint naming where it actually goes (the
+  Headscale one offers a copyable `tailscale logout`, suggested and never
+  run), with empty addresses, and neither row reads the foreign daemon's
+  serve config — a phantom "Publish" was the same defect one state further.
+  Prefs unreadable or `ControlURL` absent/empty fails OPEN to the
+  pre-amendment read, which is what keeps the README's pick-one rule the last
+  word on older CLIs. The measurement that started it: a Headscale row
+  reading "Joined" on a host whose daemon serves the SaaS, with the machine's
+  `debug prefs` naming `controlplane.tailscale.com`.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,

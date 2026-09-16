@@ -150,3 +150,46 @@ export function adminHint(): NetworkHint {
     text: "Ask your Headscale admin to register this machine (headscale nodes register …) once you have opened the sign-in link.",
   };
 }
+
+/** The words for Tailscale's own hosted service, shared with the tailscale plugin's copy. */
+export const TAILSCALE_SERVICE_LABEL = "Tailscale's own service";
+
+/**
+ * What to say when the daemon positively belongs to a control server OTHER
+ * than the one this row covers (the 2026-09-16 amendment to § 8's
+ * non-policing, which the operator's live host forced: a Headscale row said
+ * "Joined" on a machine enrolled to Tailscale's SaaS).
+ *
+ * Two shapes, because the missing piece differs:
+ *
+ * - **Configured:** the sentence names BOTH control servers — where the
+ *   daemon goes and the URL this row wanted — and the remedy is the sentence
+ *   to type in a terminal. `tailscale logout` is an unprivileged vendor verb,
+ *   offered as a copyable `command` hint like the file's other command hints
+ *   and NEVER run: moving this machine is the human's act, and this plugin
+ *   does not tear down a tailnet it was not asked to leave.
+ * - **Unconfigured:** the row has nothing to compare against and nothing it
+ *   could join, so the version points at the setting instead.
+ *
+ * @param where - {@link TAILSCALE_SERVICE_LABEL}, or the host the daemon named
+ * @param configuredUrl - this plugin's controlUrl, canonicalized, or null
+ */
+export function foreignControlServerHints(where: string, configuredUrl: string | null): NetworkHint[] {
+  if (configuredUrl) {
+    return [
+      {
+        text: `This machine's Tailscale belongs to ${where}, not to your configured control server (${configuredUrl}).`,
+      },
+      {
+        text: "To move this machine onto your control server, sign it out of that one first.",
+        command: "tailscale logout",
+      },
+    ];
+  }
+  return [
+    {
+      text: `This machine's Tailscale belongs to ${where}, and this plugin has no control server URL to check it against.`,
+    },
+    { text: "Set the control server URL for this plugin, then re-check." },
+  ];
+}

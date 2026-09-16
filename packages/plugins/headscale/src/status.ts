@@ -1,21 +1,36 @@
 import type { NetworkAddress, NetworkContext, NetworkHint, NetworkStatus, PluginHost } from "@subshell-ai/plugin-api";
 import {
+  controlServerHost,
   firstLine,
+  isTailscaleServiceControlUrl,
   likelyUserName,
   loginUrl,
   looksLikeDaemonDown,
   looksLikePermissionDenied,
+  normalizeControlUrl,
   parseStatusJson,
+  readControlUrl,
   resolveBinary,
   runTailscale,
   type TailscaleStatusJson,
   tailnetIpv4s,
   tailnetName,
 } from "./cli.js";
-import { adminHint, daemonDownHints, httpOnlyHint, needsPrivilegeHints, notInstalledHints } from "./hints.js";
+import {
+  adminHint,
+  daemonDownHints,
+  foreignControlServerHints,
+  httpOnlyHint,
+  needsPrivilegeHints,
+  notInstalledHints,
+  TAILSCALE_SERVICE_LABEL,
+} from "./hints.js";
 
 /** A status read is one CLI call, so it is bounded well below the host's 30s default. */
 const STATUS_TIMEOUT_MS = 15_000;
+
+/** The ownership read is a local socket round trip answering one field; shorter still. */
+const PREFS_TIMEOUT_MS = 5_000;
 
 /**
  * Everything one status read learned, not just what the contract reports.
@@ -45,6 +60,12 @@ export interface HeadscaleRead {
  *    serve work against a given Headscale at all) is UNMEASURED.
  * 3. A `Running` daemon with no `CurrentTailnet.Name` reports joined with the
  *    hostname only; the name is not guessed from `MagicDNSSuffix`.
+ *
+ * Plus the read BOTH plugins gained on 2026-09-16 (the amendment to § 8's
+ * non-policing, not a fourth difference): a `Running` daemon must also name
+ * this plugin's control server in its own prefs before this row may claim
+ * `joined` — see {@link ownsDaemon}. The tailscale plugin asks the same
+ * `debug prefs` call and inverts the answer.
  *
  * NEVER throws, which is the whole shape of it: an absent binary, a dead
  * daemon, a refused socket and a body that will not parse are all states with
@@ -113,6 +134,31 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
     };
   }
 
+  // **Ownership (the 2026-09-16 amendment to § 8's non-policing).** This row
+  // may only claim a `Running` daemon that claims this control server back:
+  // `debug prefs` names it, and the operator's live host was the bug report —
+  // a Headscale row reading `Joined` (and publishable, since the serve check
+  // reads the same foreign daemon) on a machine enrolled to Tailscale's SaaS.
+  // FAIL-OPEN by design: prefs unreadable — no verb yet, refused, unparseable,
+  // field absent — behaves exactly as § 8 left it, so the README's pick-one
+  // rule survives on every CLI that cannot positively say otherwise.
+  const prefsUrl = await readControlUrl(host, binary, { timeoutMs: PREFS_TIMEOUT_MS });
+  if (prefsUrl !== undefined && !ownsDaemon(prefsUrl, ctx.settings.controlUrl)) {
+    return {
+      binary,
+      json,
+      status: {
+        state: "needs-login",
+        addresses: [],
+        identity,
+        hints: foreignControlServerHints(
+          isTailscaleServiceControlUrl(prefsUrl) ? TAILSCALE_SERVICE_LABEL : controlServerHost(prefsUrl),
+          normalizeControlUrl(ctx.settings.controlUrl),
+        ),
+      },
+    };
+  }
+
   // Difference 1, applied once and for everything downstream: the document's
   // `CertDomains` is not consulted at all. An https address is therefore
   // unconstructible here even when a future Headscale starts issuing
@@ -126,6 +172,20 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
     json,
     status: { state: published ? "published" : "joined", addresses, identity, hints },
   };
+}
+
+/**
+ * Whether the daemon's own `ControlURL` names the control server this plugin
+ * is configured with.
+ *
+ * An unset or unparseable setting is NOT a match, by decision: a Headscale
+ * join requires the URL, so without one there is no daemon this row could
+ * possibly own — and a preference the plugin cannot canonicalize cannot be
+ * demonstrated equal to anything.
+ */
+function ownsDaemon(prefsUrl: string, setting: string | undefined): boolean {
+  const wanted = normalizeControlUrl(setting);
+  return wanted !== null && normalizeControlUrl(prefsUrl) === wanted;
 }
 
 /**

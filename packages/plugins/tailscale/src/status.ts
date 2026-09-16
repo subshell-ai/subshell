@@ -1,12 +1,15 @@
 import type { NetworkAddress, NetworkContext, NetworkHint, NetworkStatus, PluginHost } from "@subshell-ai/plugin-api";
 import {
+  controlServerHost,
   firstLine,
+  isTailscaleServiceControlUrl,
   likelyUserName,
   loginUrl,
   looksLikeDaemonDown,
   looksLikePermissionDenied,
   magicDnsName,
   parseStatusJson,
+  readControlUrl,
   resolveBinary,
   runTailscale,
   type TailscaleStatusJson,
@@ -15,6 +18,7 @@ import {
 import {
   certificateTransparencyHint,
   daemonDownHints,
+  foreignControlServerHint,
   httpsUnavailableHint,
   needsPrivilegeHints,
   notInstalledHints,
@@ -22,6 +26,9 @@ import {
 
 /** A status read is one CLI call, so it is bounded well below the host's 30s default. */
 const STATUS_TIMEOUT_MS = 15_000;
+
+/** The ownership read is a local socket round trip answering one field; shorter still. */
+const PREFS_TIMEOUT_MS = 5_000;
 
 /**
  * Everything one status read learned, not just what the contract reports.
@@ -47,6 +54,12 @@ export interface TailscaleRead {
  * daemon, a refused socket and a body that will not parse are all states with
  * a hint, because this runs on every page load and a rejection there is a page
  * that says nothing at all.
+ *
+ * A `Running` daemon is also asked WHO IT SERVES before this row may claim it
+ * (the 2026-09-16 amendment to § 8's non-policing): `debug prefs` names the
+ * control server, and a machine enrolled against a self-hosted one belongs to
+ * that tailnet's row, not this one. Absent, empty or unreadable prefs fail
+ * open to exactly the pre-amendment read.
  */
 export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promise<TailscaleRead> {
   const binary = await resolveBinary(host);
@@ -123,6 +136,29 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
         ...(authUrl ? { loginUrl: authUrl } : {}),
         identity,
         hints: needsLoginHints(json.BackendState, authUrl),
+      },
+    };
+  }
+
+  // **Ownership (the 2026-09-16 amendment to § 8's non-policing).** This row
+  // covers Tailscale's own service, so the daemon is this row's when its prefs
+  // carry the service default (or no `ControlURL` to contradict it — that
+  // lands in `undefined` and fails open). A `ControlURL` naming anything else
+  // is POSITIVE evidence of a self-hosted tailnet — someone's `tailscale up
+  // --login-server …` — and reporting that machine `joined` HERE is the ghost
+  // the headscale plugin's mirror of this gate was measured into existence by.
+  // No serve check and no addresses on that path; the foreign daemon's config
+  // is not this row's business.
+  const prefsUrl = await readControlUrl(host, binary, { timeoutMs: PREFS_TIMEOUT_MS });
+  if (prefsUrl !== undefined && !isTailscaleServiceControlUrl(prefsUrl)) {
+    return {
+      binary,
+      json,
+      status: {
+        state: "needs-login",
+        addresses: [],
+        identity,
+        hints: foreignControlServerHint(controlServerHost(prefsUrl)),
       },
     };
   }

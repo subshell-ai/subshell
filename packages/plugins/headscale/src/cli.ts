@@ -232,3 +232,89 @@ export function loginUrl(raw: string | undefined): string | undefined {
   if (!trimmed || !isDocsUrl(trimmed)) return undefined;
   return trimmed;
 }
+
+/**
+ * The control server Tailscale's own hosted service runs.
+ *
+ * The daemon's prefs carry this verbatim for a machine enrolled the ordinary
+ * way, and `tailscale up --login-server <url>` REPLACES it. It is the constant
+ * both plugins compare against: `status --json` has no control-server field at
+ * all (measured 2026-09-16 on 1.102.4 — no `LoginServer` key), so
+ * {@link readControlUrl} asks the one command that does answer.
+ */
+export const TAILSCALE_SERVICE_CONTROL_URL = "https://controlplane.tailscale.com";
+
+/**
+ * The control server the DAEMON says it serves, or `undefined` when it cannot say.
+ *
+ * `tailscale debug prefs` is unprivileged, prints the daemon's prefs as JSON,
+ * and its `ControlURL` is the ownership answer the 2026-09-16 amendment to
+ * § 8 needed: the phantom this exists for was a Headscale row reading `Joined`
+ * on a machine whose daemon actually serves Tailscale's SaaS.
+ *
+ * `undefined` covers every way the daemon cannot answer — a non-zero exit (an
+ * old CLI without the verb), an empty body, a body that will not parse, a
+ * missing or empty field — so every caller fails open to whatever it did
+ * before this read existed. NEVER throws: `status` runs on every page load.
+ */
+export async function readControlUrl(
+  host: PluginHost,
+  binary: string,
+  opts: RunOptions = {},
+): Promise<string | undefined> {
+  const result = await runTailscale(host, binary, ["debug", "prefs"], opts);
+  if (result.code !== 0 || result.stdout.trim() === "") return undefined;
+  try {
+    const value: unknown = JSON.parse(result.stdout);
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const url = (value as { ControlURL?: unknown }).ControlURL;
+    if (typeof url !== "string") return undefined;
+    return url.trim() === "" ? undefined : url.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A control URL in the one spelling equality can be checked in, or `null`.
+ *
+ * `new URL` canonicalizes host case and a default port, and the single
+ * trailing slash is the difference between `https://hs.example.net` and the
+ * same URL as typed with one — a difference in nothing a human means. An
+ * empty, unparseable or non-http(s) value answers `null`, and `null` equals
+ * nothing: a URL that cannot be canonicalized can never be DEMONSTRATED to be
+ * the configured one, which is the safe direction for both plugins' ownership
+ * comparisons.
+ */
+export function normalizeControlUrl(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.href.replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a reported control URL is Tailscale's own service, in any spelling of it. */
+export function isTailscaleServiceControlUrl(value: string): boolean {
+  return normalizeControlUrl(value) === TAILSCALE_SERVICE_CONTROL_URL;
+}
+
+/**
+ * The host (with its port when it has one) a control URL names, for a hint.
+ *
+ * A value that will not parse comes back as its own trimmed text: the hint
+ * then quotes whatever the daemon reported, which is still the truth about
+ * where this machine goes.
+ */
+export function controlServerHost(value: string): string {
+  const trimmed = value.trim();
+  try {
+    return new URL(trimmed).host || trimmed;
+  } catch {
+    return trimmed;
+  }
+}

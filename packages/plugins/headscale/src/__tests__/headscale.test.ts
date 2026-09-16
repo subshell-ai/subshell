@@ -90,6 +90,20 @@ const SERVE_PUBLISHED = JSON.stringify({
 /** The same command on a machine serving nothing. */
 const SERVE_EMPTY = "{}";
 
+/**
+ * `tailscale debug prefs` answers — the daemon's own word for the control
+ * server it serves (the ownership read of the 2026-09-16 amendment). Every
+ * test whose status reaches `Running` scripts one, so its happy path runs on
+ * positive evidence of belonging rather than on the fail-open default.
+ */
+const PREFS_MINE = JSON.stringify({ ControlURL: CONTROL_URL });
+
+/** The same command on a machine enrolled the ordinary way, into Tailscale's SaaS. */
+const PREFS_SERVICE = JSON.stringify({ ControlURL: "https://controlplane.tailscale.com" });
+
+/** The same command on a machine enrolled against SOME OTHER self-hosted server. */
+const PREFS_OTHER = JSON.stringify({ ControlURL: "https://hs.internal.example" });
+
 /** Builds the plugin over a scripted host, and hands back both so calls can be asserted. */
 function scripted(
   answers: Record<string, Partial<RunResult>>,
@@ -313,8 +327,11 @@ describe("HeadscalePlugin.status", () => {
     const healthy = JSON.parse(RUNNING_STATUS);
     healthy.Self.Tags = ["tag:operator"];
     healthy.Health = ["socket permission denied on some unrelated peer"];
-    const { plugin } = scripted({ "/usr/bin/tailscale status --json": { code: 0, stdout: JSON.stringify(healthy) } });
-    const status = await plugin.status(CTX);
+    const { plugin } = scripted({
+      "/usr/bin/tailscale status --json": { code: 0, stdout: JSON.stringify(healthy) },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
+    });
+    const status = await plugin.status(CTX_CFG);
     expect(status.state).not.toBe("needs-privilege");
     expect(status.state).not.toBe("daemon-down");
     expect(status.addresses.length).toBeGreaterThan(0);
@@ -361,10 +378,11 @@ describe("HeadscalePlugin.status", () => {
       {
         "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
         "/usr/bin/tailscale serve status --json": { stdout: SERVE_EMPTY },
+        "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
       },
       { probeVersion: async () => "1.76.1\n  tailscale commit: abc123" },
     );
-    const status = await plugin.status(CTX);
+    const status = await plugin.status(CTX_CFG);
     expect(status.state).toBe("joined");
     expect(status.addresses).toEqual([
       // The DNS name first: the host promotes addresses[0], and the name is
@@ -387,10 +405,11 @@ describe("HeadscalePlugin.status", () => {
       {
         "/usr/bin/tailscale status --json": { stdout: RUNNING_NO_TAILNET_NAME },
         "/usr/bin/tailscale serve status --json": { stdout: SERVE_EMPTY },
+        "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
       },
       { probeVersion: async () => "1.76.1" },
     );
-    const status = await plugin.status(CTX);
+    const status = await plugin.status(CTX_CFG);
     expect(status.state).toBe("joined");
     // toEqual, not toMatchObject: the ABSENCE of `network` is the assertion.
     expect(status.identity).toEqual({ hostname: "workshop", version: "1.76.1" });
@@ -403,8 +422,9 @@ describe("HeadscalePlugin.status", () => {
     const { plugin } = scripted({
       "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
       "/usr/bin/tailscale serve status --json": { stdout: SERVE_PUBLISHED },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
     });
-    expect((await plugin.status(CTX)).state).toBe("published");
+    expect((await plugin.status(CTX_CFG)).state).toBe("published");
   });
 
   it("stays joined when serve names a different port", async () => {
@@ -412,17 +432,117 @@ describe("HeadscalePlugin.status", () => {
     const { plugin } = scripted({
       "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
       "/usr/bin/tailscale serve status --json": { stdout: other },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
     });
-    expect((await plugin.status(CTX)).state).toBe("joined");
+    expect((await plugin.status(CTX_CFG)).state).toBe("joined");
   });
 
   it("asks the daemon to leave out the peer map", async () => {
     // Copied defense: a real headscale's peer map can overrun the host's
     // 64 KiB output cap and a truncated document does not parse.
-    const { plugin, host } = scripted({ "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS } });
-    await plugin.status(CTX);
+    const { plugin, host } = scripted({
+      "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
+    });
+    await plugin.status(CTX_CFG);
     const statusCall = host.calls.find((c) => c[1] === "status");
     expect(statusCall).toEqual(["/usr/bin/tailscale", "status", "--json", "--peers=false"]);
+  });
+
+  // **The ownership gate (spec 2026-09-16 amendment to § 8's non-policing).**
+  // Measured on the operator's live host (tailscale CLI 1.102.4): `status
+  // --json` has no `LoginServer` key — the reason § 8 abstained — but
+  // `tailscale debug prefs` reports `ControlURL`, the daemon's own word for
+  // who it serves. The rows police that POSITIVE evidence now; the tests
+  // below pin both the refusal and the fail-open that the README's pick-one
+  // rule still lives on.
+
+  it("will not call a daemon belonging to Tailscale's own service JOINED when no control server is set", async () => {
+    const { plugin, host } = scripted({
+      "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_SERVICE },
+    });
+    const status = await plugin.status(CTX);
+    expect(status.state).toBe("needs-login");
+    expect(status.addresses).toEqual([]);
+    expect(status.identity?.hostname).toBe("workshop");
+    expect(status.hints).toEqual([
+      {
+        text: "This machine's Tailscale belongs to Tailscale's own service, and this plugin has no control server URL to check it against.",
+      },
+      { text: "Set the control server URL for this plugin, then re-check." },
+    ]);
+    // The foreign daemon's serve config is never read — a phantom
+    // "Published" was the same defect one state further.
+    expect(lines(host).some((l) => l.includes("serve status"))).toBe(false);
+  });
+
+  it("names the setting it wanted and offers `tailscale logout` when one IS configured", async () => {
+    const { plugin, host } = scripted({
+      "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_SERVICE },
+    });
+    const status = await plugin.status(CTX_CFG);
+    expect(status.state).toBe("needs-login");
+    expect(status.hints).toEqual([
+      {
+        text: `This machine's Tailscale belongs to Tailscale's own service, not to your configured control server (${CONTROL_URL}).`,
+      },
+      {
+        text: "To move this machine onto your control server, sign it out of that one first.",
+        command: "tailscale logout",
+      },
+    ]);
+    // Suggested as a copyable command; the plugin runs no logout of its own.
+    expect(lines(host).some((l) => l.includes("logout"))).toBe(false);
+    expect(lines(host).some((l) => l.includes("serve status"))).toBe(false);
+  });
+
+  it("names the other host when the daemon reports a self-hosted server that is not this one", async () => {
+    const { plugin } = scripted({
+      "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_OTHER },
+    });
+    const status = await plugin.status(CTX_CFG);
+    expect(status.state).toBe("needs-login");
+    expect(status.hints[0]?.text).toBe(
+      "This machine's Tailscale belongs to hs.internal.example, not to your configured control server (https://hs.example.net).",
+    );
+  });
+
+  it("reads a ControlURL differing only by trailing slash or host case as its own", async () => {
+    // The comparison is by canonical URL, because both spellings are what
+    // people type and what `URL` stores.
+    for (const reported of ["https://hs.example.net/", "HTTPS://HS.Example.NET"]) {
+      const { plugin, host } = scripted({
+        "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
+        "/usr/bin/tailscale serve status --json": { stdout: SERVE_EMPTY },
+        "/usr/bin/tailscale debug prefs": { stdout: JSON.stringify({ ControlURL: reported }) },
+      });
+      const status = await plugin.status(CTX_CFG);
+      expect(status.state).toBe("joined");
+      expect(status.addresses.length).toBeGreaterThan(0);
+      expect(lines(host).some((l) => l.includes("serve status"))).toBe(true);
+    }
+  });
+
+  it("fails OPEN to the pre-amendment read when `debug prefs` cannot answer", async () => {
+    // A CLI with no `debug prefs`, a refused read, an empty body and a body
+    // that will not parse all leave the Running branch exactly where § 8
+    // left it: joined, serve config consulted, README rule the human's.
+    for (const prefs of [
+      { code: 1, stderr: 'unknown command "debug" for "tailscale"' },
+      { stdout: "" },
+      { stdout: "not json" },
+    ]) {
+      const { plugin, host } = scripted({
+        "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
+        "/usr/bin/tailscale serve status --json": { stdout: SERVE_PUBLISHED },
+        "/usr/bin/tailscale debug prefs": prefs,
+      });
+      expect((await plugin.status(CTX_CFG)).state).toBe("published");
+      expect(lines(host).some((l) => l.includes("serve status"))).toBe(true);
+    }
   });
 });
 
@@ -544,10 +664,11 @@ describe("HeadscalePlugin.publish", () => {
     const { plugin, host } = scripted({
       "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
       "/usr/bin/tailscale serve status --json": { stdout: SERVE_EMPTY },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
       "/usr/bin/tailscale serve reset": { code: 0 },
       "/usr/bin/tailscale serve --bg": { code: 0 },
     });
-    const outcome = await plugin.publish?.(CTX);
+    const outcome = await plugin.publish?.(CTX_CFG);
     expect(outcome).toEqual({
       addresses: [
         // http, not https — the serve is `--http=80`, and a headscale tailnet
@@ -583,10 +704,11 @@ describe("HeadscalePlugin.publish", () => {
     const { plugin } = scripted({
       "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
       "/usr/bin/tailscale serve status --json": { stdout: SERVE_EMPTY },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
       "/usr/bin/tailscale serve reset": { code: 0 },
       "/usr/bin/tailscale serve --bg": { code: 1, stderr: "cannot serve: no HTTPS certificate\nsee docs" },
     });
-    const outcome = await plugin.publish?.(CTX);
+    const outcome = await plugin.publish?.(CTX_CFG);
     expect(outcome).toBeDefined();
     expect("addresses" in (outcome ?? {})).toBe(false);
     // Direct property reads, not `toMatchObject` with nested matchers: bun
@@ -604,8 +726,9 @@ describe("HeadscalePlugin.publish", () => {
     const { plugin, host } = scripted({
       "/usr/bin/tailscale status --json": { stdout: noName },
       "/usr/bin/tailscale serve status --json": { stdout: SERVE_EMPTY },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
     });
-    const outcome = await plugin.publish?.(CTX);
+    const outcome = await plugin.publish?.(CTX_CFG);
     expect(outcome).toMatchObject({ refused: { text: expect.stringContaining("name") } });
     expect(lines(host).some((l) => l.includes("serve --bg"))).toBe(false);
   });
@@ -643,12 +766,13 @@ describe("every run asks for CLI mode", () => {
     const { plugin, runs } = recording({
       "/usr/bin/tailscale status --json": { stdout: RUNNING_STATUS },
       "/usr/bin/tailscale serve status --json": { stdout: SERVE_EMPTY },
+      "/usr/bin/tailscale debug prefs": { stdout: PREFS_MINE },
       "/usr/bin/tailscale up": { code: 0 },
       "/usr/bin/tailscale serve reset": { code: 0 },
       "/usr/bin/tailscale serve --bg": { code: 0 },
       "/usr/bin/tailscale logout": { code: 0 },
     });
-    await plugin.status(CTX);
+    await plugin.status(CTX_CFG);
     await plugin.join({ credential: "tskey-auth-k123-abc" }, CTX_CFG);
     await plugin.join({}, CTX_CFG);
     await plugin.publish?.(CTX);
@@ -656,7 +780,7 @@ describe("every run asks for CLI mode", () => {
     await plugin.leave(CTX);
 
     const verbs = new Set(runs.map((run) => run.argv[1]));
-    expect([...verbs].sort()).toEqual(["logout", "serve", "status", "up"]);
+    expect([...verbs].sort()).toEqual(["debug", "logout", "serve", "status", "up"]);
     expect(runs.length).toBeGreaterThanOrEqual(8);
     for (const run of runs) {
       expect(run.env?.TAILSCALE_BE_CLI).toBe("1");
@@ -687,6 +811,9 @@ describe("copied source stays pinned to its origin", () => {
   const shared: { literal: string; file: string }[] = [
     { literal: '["status", "--json", "--peers=false"]', file: "status.ts" },
     { literal: '["serve", "status", "--json"]', file: "status.ts" },
+    // The ownership read (spec 2026-09-16 amendment): both plugins ask the
+    // same daemon the same question with the same two tokens.
+    { literal: '["debug", "prefs"]', file: "cli.ts" },
     { literal: '["serve", "reset"]', file: "publish.ts" },
     { literal: '["logout"]', file: "publish.ts" },
     { literal: 'TAILSCALE_BE_CLI: "1"', file: "cli.ts" },
