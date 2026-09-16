@@ -1,5 +1,203 @@
 # @internal/server
 
+## 0.7.2
+
+### Patch Changes
+
+- [`0799db9`](https://github.com/subshell-ai/subshell/commit/0799db9a6eee4f0a1f272d1b74c31d78f048c150) Thanks [@theogravity](https://github.com/theogravity)! - Trusted origins now have the lifecycle of the publish that added them, and the restart that lands a change can be taken from the result that needs it
+  
+  Publishing already added its addresses to `TRUSTED_ORIGINS`; unpublishing now takes exactly those back through the same config writer — origins no publish ever matched survive every cycle — the subtraction is by value, so a hand-added entry equal to a published address leaves with it, and a key the server's environment owns is refused by name while the unpublish itself completes. No kind is exempt: a NetBird unpublish clears its record and takes its origins back too — after a disable the daemon may still answer at its address, and what changes is that the address stops accepting sign-ins when the restart lands, the stated and chosen cost of letting a publish own an origin's lifecycle.
+  
+  Network plugin manifests that pair `publishImplicit: true` with a non-`private` exposure are now refused at load: implicit publishing means the JOIN records and trusts the addresses with no press to warn at, and that is only sound on a network whose addresses cannot reach the open internet.
+  
+  Joining NetBird now completes the whole path to "other devices can open this dashboard" in one press plus one confirmation: the join itself records the publish and widens `TRUSTED_ORIGINS` through that same writer, so the separate box under "Publish" is gone — the rare gap where the address table never settled still shows a single line and the press.
+  
+  And where a publish or unpublish ends with `restartRequired`, the card's result offers the Service page's own restart button and confirmation — the one that names what it costs running subshells — locks the card's acts while the server is out, and refetches the row and the public settings the moment it is back.
+
+- [`2da286d`](https://github.com/subshell-ai/subshell/commit/2da286d9ea9156c38cc36584838878c68ea7279f) Thanks [@theogravity](https://github.com/theogravity)! - The Networking page now prints the server's own address, and the chips legend is gone
+  
+  The base URL is one value, so the page that lists the network cards now
+  states it: the address the server is RUNNING as and which network's published
+  address it is ("http://… — over Tailscale"). The value is written on Server
+  Settings → Service; when a saved change is newer than the running one, the
+  line names the pending address and its network as awaiting the restart,
+  because APP_BASE_URL is read at boot — the saved value is not the live one
+  until then.
+  
+  The "Joined means… Published means…" sentence above the network lists is
+  removed; the cards and the publish section now carry that difference where
+  the states actually appear.
+
+- [`844ceb2`](https://github.com/subshell-ai/subshell/commit/844ceb2b6a3d1853fa237036ff5a8b795f2792ab) Thanks [@theogravity](https://github.com/theogravity)! - The first-run Network step now sets its way-round in the control-label weight
+  
+  "You can set it up later under **Settings → Networking**" — the destination a
+  person should remember when they skip is the one place in the sentence that
+  now reads as a pointer rather than as prose. `SetupAssistant`'s subtitle
+  takes markup, which is what `PageHeader`'s already did.
+
+- [`dbccc29`](https://github.com/subshell-ai/subshell/commit/dbccc29d411a519039d15197b08c9d063fa892f3) Thanks [@theogravity](https://github.com/theogravity)! - Cloudflare Tunnel: publish this server on a hostname you own, behind Cloudflare Access
+  
+  The third network plugin for Settings → Networking, and the first built-in to
+  actually use the `supervise` and `guard` capabilities — the supervisor that
+  holds a plugin's long-running child, and the Access front door that refuses
+  every request whose Host names the tunnel hostname without a valid assertion,
+  both shipped by phase 1 and unexercised until now. `cloudflared` is the one
+  connector needing no root anywhere, so this is also the one plugin with an
+  Install button the server may press (`brew install cloudflared`, macOS); the
+  Linux apt-repo step prints for a human to copy.
+  
+  The shape is the contract's: joining stores the connector token in the
+  write-only secret store and spawns nothing; publishing refuses unless the
+  hostname, team domain and AUD are set and a pre-flight at Cloudflare's edge
+  confirms an Access application covers the hostname — failing CLOSED, since
+  the whole exposure of `public-with-gate` is bounded by that check; and the
+  tunnel itself runs as a supervised child, authenticating through its
+  `TUNNEL_TOKEN` environment so the credential is never an argv element and
+  never visible in `ps`. Unpublish and Disconnect follow the host's existing
+  ordering: the process stops first, the guard drops last.
+  
+  The token is a new credential class at rest, and `subshell-server backup`
+  does not include it — the field says so, and after a restore it needs pasting
+  again. § 10.5 (cloudflared's `--token-file` version floor, the pre-flight's
+  exact status and header shapes) remains UNMEASURED: no live Access team was
+  available, so the pre-flight passes only on positive evidence of Access and
+  treats every other answer — including a failed check — as a refusal.
+
+- [`b68c249`](https://github.com/subshell-ai/subshell/commit/b68c2495e2beea0b470d089dd9ec705f46d669e8) Thanks [@theogravity](https://github.com/theogravity)! - The networking page reads like a form now
+  
+  Three copy fixes from an operator working through the live Headscale and
+  NetBird cards. Each address in the Addresses list leads with its kind label
+  above the URL — "NetBird FQDN", then the address — instead of a big bold URL
+  with a small muted tag trailing it, which read as two disjoint things. The
+  disabled Connect/Sign-in reason now says `Save the Control server URL first.`
+  — naming the button that actually delivers the value, and keeping the label's
+  own casing so the sentence names the same box the form does. And every
+  credential box that can — all four built-ins now do — carries a Docs link
+  beside its label, pointing at the vendor page where that key is minted:
+  "Auth key" told you what to paste, and nothing on the card said where to get
+  one. The link is new manifest data (`labels.credentialDocsUrl`, http(s)
+  refused at parse), so third-party network plugins can carry one too.
+
+- [`9756793`](https://github.com/subshell-ai/subshell/commit/975679394759252b016ed68c1d5ae18d1f432239) Thanks [@theogravity](https://github.com/theogravity)! - Network results speak the product, not the config file
+  
+  The card's green lines used to append what the write changed — ENV-key names concatenated into a success sentence nobody reading it asked for. They now say what the person can do ("Published on Tailscale — your other devices can open this dashboard over it once the server restarts"), removals name the ending rather than a subtraction, and the refused-write notes lead with the outcome and keep the key (`TRUSTED_ORIGINS`, `config.env`) only as a mono pointer naming where the change has to be made instead — because a symptom that names nothing is the defect the original 403 story taught us. Tense is honest throughout: nothing says "can" while a restart is still owed.
+
+- [`295bad3`](https://github.com/subshell-ai/subshell/commit/295bad38588537e863fac33688287d1c252b5c09) Thanks [@theogravity](https://github.com/theogravity)! - A new built-in network plugin: **Headscale**. Settings → Networking gains a row for reaching this server over your own self-hosted tailnet — the same `tailscale` client as the Tailscale plugin, pointed at a control server you run. It asks for the control server URL before it will join, finishes interactive logins with the hint that a Headscale admin must approve the machine, lists `http://` addresses (Headscale tailnets issue no HTTPS certificates, and the page says so), and tries Tailscale Serve for publishing — where the CLI refuses, it says that serve-against-Headscale is unmeasured rather than pretending. Installing it is the same admin act as every plugin: one install arms every node.
+
+- [`2b4060b`](https://github.com/subshell-ai/subshell/commit/2b4060bd864f4f65fa8c01cd1d193b4fa7749ecc) Thanks [@theogravity](https://github.com/theogravity)! - Signing in or pasting a key is now a choice, not a form with two buttons
+  
+  An operator working through the Headscale card read it backwards, and the card
+  was why. The auth key box sat at the top as a big empty field — with Connect and
+  "Sign in with Headscale" as two buttons underneath — so the optional path's
+  credential looked required, and two buttons side by side looked like related
+  steps rather than two exclusive ways to join.
+  
+  The card now asks which way you mean, using the same segmented control the view
+  toggle and the add-subshell dialog use: **Sign in** or **Use auth key** ("Use
+  setup key" on NetBird, the vendor's own word lower-cased). Exactly one panel
+  shows beneath it, so the thing you did not choose is not on screen — an empty
+  box can no longer read as a field you owe somebody. Sign in is the default,
+  because the person at this page usually wants the browser flow; a pasted key is
+  what an automation or a headless host brings. The choice and what it chooses
+  between now sit inside one box, sized to its own labels rather than stretched
+  across the card, so it reads as a single question rather than a strip of tabs
+  above loose text. Either way the sign-in link and
+  its code stay visible below the choice, since they arrive from the network
+  whichever panel you were looking at, and a machine with only one way in —
+  Cloudflare Tunnel — is offered no fork at all.
+  
+  The reason a join would be refused ("Save the Control server URL first.") moved
+  under the choice, because the server refuses either path while a required
+  setting is unset, and both buttons still carry it for a screen reader.
+
+- [`37d73ba`](https://github.com/subshell-ai/subshell/commit/37d73ba2b7a854e7795d1274d40fad989094b3a9) Thanks [@theogravity](https://github.com/theogravity)! - A joined network card leads with what is pending, not with setup fields
+  
+  The settings fields — a self-hosted network's "Management URL" and its disabled save button — opened every network card, including one whose network had long since joined, above the one press still waiting there. On joined and published rows they now sit behind a "Change settings" disclosure at the bottom of the card, refusal reasons and disabled inputs intact. A row still setting up keeps its fields inline, and a row with a required field unset always shows that field and why it blocks; the first-run wizard is unchanged.
+
+- [`4b2c05e`](https://github.com/subshell-ai/subshell/commit/4b2c05ea9972cd3ff30dd12b0ecbd840f19b53f4) Thanks [@theogravity](https://github.com/theogravity)! - Networking cards read as one system: the join options sit inside one bordered group with the pills hugging their labels, the address rows take the same quiet label-over-value grammar as the other facts on the card, and the design system now names the two label grammars (quiet for read-only data, bold for a control's label and a section heading).
+
+- [`f374ad3`](https://github.com/subshell-ai/subshell/commit/f374ad3a1a7a41eedb319323f590d83954dfda41) Thanks [@theogravity](https://github.com/theogravity)! - NetBird's card reads a live daemon, and the publish sentence names its own button
+  
+  A NetBird that had joined now lists its **NetBird IP** address beside the FQDN.
+  The daemon reports that address with its subnet suffix attached —
+  `100.71.129.37/16` — and the plugin rejected the whole value rather than reading
+  past the slash, so the card showed no IP at all while its own hint told you to
+  use the IP address. The prefix now comes off before the address is checked. The
+  **Client version** appears for the same reason: the daemon answers it under
+  `daemonVersion` (falling back to `cliVersion`), where the plugin had been looking
+  for fields guessed before any live NetBird was available.
+  
+  The nameserver-group hint now names the address it points at — "otherwise use the
+  NetBird IP address" — and links to NetBird's own DNS page, because a nameserver
+  group is an account-console setting and not something on this machine.
+  
+  And the sentence above the publish button quotes the button. It used to say
+  "publishing is what lets your other devices open this dashboard" whatever the
+  button under it read, which on NetBird is **Use this address** — an operator read
+  two different words for one act and asked how to publish. The row's own label is
+  now that word, so the sentence and the button cannot disagree: "Use this address"
+  on NetBird, "Publish with Tailscale Serve" on Tailscale, "Start tunnel" on
+  Cloudflare Tunnel.
+
+- [`af48663`](https://github.com/subshell-ai/subshell/commit/af48663369dd779ba1baa96a712f0172bec639ae) Thanks [@theogravity](https://github.com/theogravity)! - Add the NetBird network plugin
+  
+  Settings → Networking now offers NetBird beside Tailscale: reach this server
+  from your other devices over a NetBird network you already use. It is a second
+  `type: "network"` built-in with its own binary and daemon, so nothing about its
+  argv or status parsing is shared with Tailscale.
+  
+  NetBird needs root once to install its service, which the server cannot do from
+  a browser — so the install steps are printed to copy (the app or the command-line
+  daemon on macOS, the official script on Linux), and there is no install button.
+  It has no `needs-privilege` state: once the daemon is installed the CLI
+  authorises callers by kernel peer credentials, so the ladder runs from
+  not-installed to daemon-down to needs-login.
+  
+  Publishing runs no command: a NetBird join already makes the machine reachable at
+  its WireGuard address, so "Use this address" records the FQDN and peer-IP
+  addresses and admits them to the trusted origins. Peer names resolve only if the
+  NetBird account has a nameserver group — otherwise use the IP address.
+  
+  Because that publish leaves nothing the daemon can later be asked about, the
+  host records it instead: a NetBird row reads **Published** once it has been
+  published, from the host's own record rather than a state the plugin could not
+  honestly claim to have seen (the new `publishImplicit` manifest flag says which
+  plugins work this way; plugins without it are unaffected).
+
+- [`0fbb9e8`](https://github.com/subshell-ai/subshell/commit/0fbb9e891567aaa35040368ec320bb4518ff9844) Thanks [@theogravity](https://github.com/theogravity)! - The networking cards' publish act becomes a section, and three spacing fixes
+  
+  A joined network card answered "what is true about this machine" and "press
+  this to publish" in one undifferentiated column, and an operator could not
+  tell whether publishing was required. It is its own section now — under its
+  own heading, below the plugin's cost notes — and it says outright when
+  skipping is fine: use of Subshell on this machine only, or at an address the
+  server already allows. A published row states its fact without re-asking.
+  
+  Also: the membership facts keep the fact card's columns (three short strings
+  were spending three rows each); every network address is copyable in every
+  state, not only published; and address rows, labels, and the sign-in link
+  now share one grammar.
+
+- [`f17238e`](https://github.com/subshell-ai/subshell/commit/f17238efc5de634284125ea71772cd5c915ba06e) Thanks [@theogravity](https://github.com/theogravity)! - The publish flow no longer offers to set the server's base URL
+  
+  One checkbox that moved the passkey rpID turned out to be the most confusing
+  control on the Networking page: it sat in a flow about REACHING the server
+  while its consequence was about the server's IDENTITY, and every card carried
+  its own copy competing for the instance's single `APP_BASE_URL`. Publishing
+  now only widens `TRUSTED_ORIGINS`, as it always did. The base URL is set
+  where the rest of the server's config is set — Server Settings → Service —
+  and that field names the passkey consequence the checkbox buried.
+
+- [`70c7084`](https://github.com/subshell-ai/subshell/commit/70c708431a81d4d4f9ad592aa136f690d1d8af2b) Thanks [@theogravity](https://github.com/theogravity)! - The publish section speaks each network's truth
+  
+  NetBird has no vendor-side publish — joining already makes its addresses
+  answer; the press only records them as how this server is reached. Its joined
+  card now says exactly that under an "Other devices" heading, instead of
+  borrowing the Serve/tunnel networks' "Publish" framing for a concept its
+  vendor does not have.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 0.7.1
 
 ### Patch Changes
