@@ -1,5 +1,184 @@
 # @internal/server
 
+## 0.7.0
+
+### Minor Changes
+
+- [`023d795`](https://github.com/subshell-ai/subshell/commit/023d795a57bfba90430b632844c8b05b1709f658) Thanks [@theogravity](https://github.com/theogravity)! - Connect this server to a private network, from a page instead of a config file
+  
+  Subshell has always been meant to be reached remotely across a perimeter you
+  already own — a VPN, a mesh, a tunnel. Building that perimeter was yours to do,
+  and the server only told you about it afterwards, as a `403 Invalid origin` on
+  the sign-in page that named nothing you could change. The Add-node dialog's
+  advice was "replace the host with this machine's VPN/LAN address".
+  
+  **Settings → Networking**, and an optional first-run step, now do it. Connect
+  the server to a network, publish it there, and the address flows into the
+  trusted origins and the enroll command by itself. **Tailscale** ships first:
+  paste an auth key or sign in through a link the page shows you, then publish at
+  `https://<host>.<tailnet>.ts.net`.
+  
+  It is a new kind of PLUGIN rather than four integrations wired into the stack,
+  so the same store, install door and admin gate that govern agent plugins govern
+  these, and anyone can publish one for a network we have not thought of. A
+  network plugin describes and the host executes: it returns commands, parses
+  their output and names a credential, but never spawns a process, writes a file,
+  edits your config or reads a credential back.
+  
+  Three things it will tell you rather than let you discover:
+  
+  - **What needs root, and that this server will not do it.** Every mesh VPN
+    installs a daemon as root, and the server has no terminal to answer a
+    password prompt. Those commands are shown to copy, never run behind a button
+    that could only fail. For Tailscale that is the whole install.
+  - **What a browser will refuse at each address.** A mesh address over plain
+    http is encrypted end to end and still will not do passkeys or `Secure`
+    cookies. Publishing adds an address to the trusted origins, which is safe;
+    promoting one to the server's base URL moves where passkeys work, which is
+    opt-in and says so.
+  - **Which networks work on this machine at all.** Support is declared per
+    platform, so a row reads "not available on macOS" instead of offering a
+    button that returns an error.
+  
+  Headscale, NetBird and Cloudflare Tunnel follow. Cloudflare will refuse to
+  publish until a Cloudflare Access application covers the hostname, and the
+  server will verify that assertion itself — it reaches the public internet,
+  which the rest of these do not.
+
+- [`5b0e8e0`](https://github.com/subshell-ai/subshell/commit/5b0e8e058a071832305777b66bdc08e87ce54a92) Thanks [@theogravity](https://github.com/theogravity)! - An enrolled node can be updated from the dashboard — including one this server refuses to talk to.
+  
+  `POST /api/nodes/:id/update` replaces a node's agent binary with the release
+  this server can speak to, and restarts it into the new version. Owner or
+  `edit`, cookie only, audited.
+  
+  The part that makes it useful is what happens to a refused agent. An agent
+  below the version floor or speaking a different protocol used to be closed
+  4406, which left an ordinary-looking offline row and a machine only a shell
+  could fix. It is now **held**: the socket stays open, the node stays offline
+  for every other purpose, and the plane can still send it the one command that
+  repairs it. Node views carry `held` so a page can say which machines are in
+  that state and why.
+  
+  The agent has no REST credential, so the download link carries a single-use
+  token good for one file, one platform and ten minutes — rather than widening
+  what a node key can do.
+
+- [`80eaa2b`](https://github.com/subshell-ai/subshell/commit/80eaa2bea9c08cda0203014ea0d87a31f17b8009) Thanks [@theogravity](https://github.com/theogravity)! - `subshell-server update` and `subshell-server backup`, and the transaction that makes an update reversible
+  
+  Until now there was no update path at all for a headless install: nothing ever
+  told an operator that a newer server existed, and nothing had ever copied the
+  database before running a migration over it. This is the foundation of the one
+  described in `docs/superpowers/specs/2026-09-15-updates-design.md` — the server's
+  own half; the dashboard, the node half and the desktop apps build on it.
+  
+  **`subshell-server update`** installs a newer server over this one. It replaces
+  the binary the SERVICE DEFINITION names — never a path by convention, because
+  writing `~/.local/bin/subshell-server` on a host whose unit points elsewhere is
+  an update that reports success and changes nothing. Ten steps and nine of them
+  refusals: a checkout (update it with git), an unwritable directory, an empty
+  release source, a downgrade without `--force`, a transaction already open, a
+  downloaded binary that will not say what it is, and a restart that would close
+  every live subshell. `--check --to <version> --from <file> --force --yes --json
+  --no-restart --rollback`.
+  
+  **The new binary finishes or reverts the transaction.** An updater process
+  cannot see the future boot, but the booting binary can see the past update — so
+  the backup, the `.previous` binary and a marker are written by whoever swaps,
+  and consumed by whoever boots. Migrations pass and the server listens: audited
+  (`server.update`, actor null), `.previous` and the marker deleted. Migrations
+  fail: the database is restored from the backup, the previous binary is renamed
+  back, the failure is recorded, and the process exits so the service manager
+  brings the old version up on the old database. That last part is not belt and
+  braces — Kysely refuses a database carrying migration names it does not know,
+  so an old binary cannot boot on a new database at all.
+  
+  **`subshell-server backup`** takes a snapshot on demand: `VACUUM INTO` a single
+  file with no `-wal`/`-shm` beside it, 0600 in a 0700 `<dataDir>/backups/`,
+  newest `SUBSHELL_DB_BACKUPS_KEEP` kept (default 5, `0` = keep forever). Every
+  update takes one first.
+  
+  **`status --json` gains `paths.binary`, `paths.backups`, `binary` and
+  `backups`** — which file an update would replace and how that was decided, and
+  what there is to roll back to. Nothing in TypeScript knew the first of those
+  before; only the desktop app's Rust read a service definition.
+  
+  **`SUBSHELL_NODE_RELEASE_URL` is now `SUBSHELL_RELEASE_URL`,** with no alias:
+  the same release list answers for the server's own update, so the name stopped
+  being the node agent's. Empty still means air-gapped and still disables every
+  network fetch. Every app release now also publishes a `release-manifest.json`,
+  and the node release a plane offers is the newest one whose manifest says it
+  speaks this server's protocol — not merely the newest above the agent floor,
+  which could install an agent the plane cannot talk to.
+
+- [`7206636`](https://github.com/subshell-ai/subshell/commit/72066364b0742d9f25374423a5dd215725ace33e) Thanks [@theogravity](https://github.com/theogravity)! - An admin updates the server from the dashboard, and sees the whole instance's versions in one place
+  
+  **Server Settings → Updates** is a new page: what this server is running, what
+  it could be running, one press to change it, and — beside it — every enrolled
+  node and both desktop apps.
+  
+  The Server card is the one with a button. It runs the same steps
+  `subshell-server update` runs, in this process: download the release asset,
+  verify the digest the same release published, prove the binary says what it is,
+  back up the database, swap with two `rename(2)`s, and exit for the service
+  manager. The page follows the job by phase (downloading with its byte count,
+  verifying, backing up, installing, restarting), then waits for the server to
+  come back — and it is the RETURN that decides the outcome, not the swap: the
+  new binary either completes the transaction at boot or reverts it, and the page
+  reports "the update to 0.7.0 failed and 0.6.0 was restored" when it reverted.
+  
+  What it refuses is most of what it does. `POST /api/admin/server/update` is
+  cookie-admin only, bearer keys refused, audited with the admin as actor before
+  anything starts, and answers 409 for each of: no release source configured,
+  nothing supervising this process, a checkout or an unwritable binary, a
+  transaction already open (including one a `subshell-server update` opened in a
+  terminal), no newer release, a downgrade, and a service definition that would
+  close every running subshell — the last being the only one a press can
+  override, exactly as the restart dialog's forced path does.
+  
+  `GET /api/admin/updates` answers the whole page in one read, so the three cards
+  cannot disagree about which release list they saw. Node rows report their
+  version, platform triple and state; updating one from here arrives with the
+  node half of this work, and until then every row says so rather than offering a
+  button that does nothing.
+  
+  The bundled-server offer that lived on Server Settings → Service has moved here
+  as a line inside the Server card. "This app ships a newer server" and "the
+  release source has a newer server" are two answers to one question, and on two
+  pages a person had to choose which to believe.
+
+### Patch Changes
+
+- [`563346b`](https://github.com/subshell-ai/subshell/commit/563346b0b4bbe1c6ed0345fd558ead9cbb808400) Thanks [@theogravity](https://github.com/theogravity)! - The registration gate counts ACCOUNTS, not `user_meta` rows
+  
+  "Has anybody registered yet" decides three things: whether an absent
+  `allow_registrations` row means open, whether `GET /api/setup/status` still
+  reports `needsSetup`, and whether the first-run `/api/setup/*` window is
+  public. All three counted `user_meta`, which is a ROLE side-table written by a
+  separate better-auth `after` hook, rather than the accounts themselves.
+  
+  Nothing was reopened by this in practice, and the fix is worth describing
+  precisely rather than alarmingly. The two tables do diverge on every instance
+  — `ensureSystemUser` INSERTs straight into `user` and mints no meta row — but
+  that divergence is in the safe direction, so a healthy instance's gate behaved
+  correctly. What the old counter could not survive was a REAL account whose meta
+  row was missing: it would have read as an empty instance, reopening
+  registration and re-publishing the public setup window with no settings row and
+  no audit event to show for it. A latent hole, closed before anything grew into
+  it.
+  
+  One counter now answers the question — `UsersRepository.countRealAccounts()`,
+  over `user`, excluding the service account, which can never sign in — and the
+  registration gate, the setup probe, the boot handoff line and
+  `subshell-server status` all read it. `UserMetaRepository.countUsers()` is
+  gone; a second "how many users" counter is exactly the drift this closes.
+  
+  `subshell-server status` also stops calling a readable database unreadable: it
+  reads better-auth's `user` table now, which is created one line later at boot
+  than the app tables, so a boot that died between the two is reported as an
+  instance with no admin account rather than as disk corruption.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 0.6.0
 
 ### Minor Changes

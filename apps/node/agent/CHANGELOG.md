@@ -1,5 +1,58 @@
 # @internal/node
 
+## 0.10.0
+
+### Minor Changes
+
+- [`5b0e8e0`](https://github.com/subshell-ai/subshell/commit/5b0e8e058a071832305777b66bdc08e87ce54a92) Thanks [@theogravity](https://github.com/theogravity)! - The agent can replace its own binary, and a refused one can be rescued from a browser.
+  
+  `subshell update` installs a newer agent over this one and restarts into it —
+  `--check` to see what is available, `--from` to install a local file, `--to` to
+  pick a published release, `--rollback` to put the previous binary back. The
+  plane can drive the same thing with a signed `update` command.
+  
+  Every install is a transaction the next process completes: the swap keeps the
+  old binary as `<binary>.previous` and writes a marker, and the agent that boots
+  either finishes it (the plane accepted this version) or reverts it (the plane
+  refused with 4406 — the previous binary goes back and the service manager
+  brings it up, on a machine nobody had to visit).
+  
+  Which file gets replaced is read from **the installed service definition
+  first** — the unit's `ExecStart=` or the plist's `ProgramArguments` — and only
+  from the running process when no definition names one. That distinction is the
+  whole game on a host where `subshell` on your PATH is not the copy the service
+  manager runs: resolving from the running process there swapped a binary nobody
+  executes, reported success, and let the manager bring the old version back up
+  on the next restart. A definition naming an interpreter and a script is refused
+  (replacing token one would overwrite `bun` itself), and a definition naming a
+  file that is not there is refused too rather than quietly falling back.
+  
+  Node protocol 10, and the minimum agent version this server family talks to
+  rises to 0.9.0 with it. `subshell status --json` now reports the binary an
+  update would replace — through that same ladder, so status and update cannot
+  name different files — alongside `binarySource` saying which rung answered,
+  and the state of any transaction.
+
+### Patch Changes
+
+- [`80eaa2b`](https://github.com/subshell-ai/subshell/commit/80eaa2bea9c08cda0203014ea0d87a31f17b8009) Thanks [@theogravity](https://github.com/theogravity)! - Every agent release now publishes a `release-manifest.json`
+  
+  A fifth asset beside the three binaries and their digests: the component id,
+  the version, this build's `NODE_PROTOCOL_VERSION` and `MIN_AGENT_VERSION`, and
+  the commit it was cut from.
+  
+  It exists so a control plane can answer "can I talk to the agent in this
+  release" from 200 bytes rather than by downloading an 80 MB binary — and that
+  question was previously not asked at all. The plane offered a node the newest
+  release above its agent floor, which on a plane one version behind installs an
+  agent speaking a protocol the plane does not: that node enrols, reconnects, and
+  is closed 4406 forever. A release carrying no manifest is now refused BY NAME
+  rather than guessed at, so the first cut after this is the first one plane-side
+  node updates can use.
+- Updated dependencies [[`023d795`](https://github.com/subshell-ai/subshell/commit/023d795a57bfba90430b632844c8b05b1709f658)]:
+  - @subshell-ai/plugin-api@2.1.0
+  - @internal/pane-runtime@1.0.0
+
 ## 0.8.0
 
 ### Minor Changes
