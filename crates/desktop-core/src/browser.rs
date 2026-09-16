@@ -85,6 +85,16 @@ pub fn validate_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The scheme gate for a link a page asks to open OUTSIDE the app.
+///
+/// The system browser is a safe destination for `http:` and `https:`; every
+/// other scheme — `file:`, `javascript:`, `data:`, a custom protocol handler —
+/// is the OS launching whatever it launches for that string, which no page
+/// gets to ask for by clicking what renders as an ordinary docs link.
+pub fn browsable_scheme(scheme: &str) -> bool {
+    scheme == "http" || scheme == "https"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +196,14 @@ mod tests {
     fn refuses_an_empty_origin() {
         assert!(browser_url("", "/").is_err());
         assert!(browser_url("/", "/").is_err());
+    }
+
+    #[test]
+    fn only_http_and_https_reach_the_system_browser() {
+        assert!(browsable_scheme("http"));
+        assert!(browsable_scheme("https"));
+        for no in ["file", "javascript", "data", "mailto", "tailscale", "", "HTTP"] {
+            assert!(!browsable_scheme(no), "{no} must not be browsable");
+        }
     }
 }

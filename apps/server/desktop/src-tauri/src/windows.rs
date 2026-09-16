@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use subshell_desktop_core::zoom::assistant_frame;
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::control::is_loopback;
 
@@ -261,6 +262,23 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
     }
     WebviewWindowBuilder::new(app, "wizard", WebviewUrl::App("wizard.html".into()))
         .title(title)
+        .on_new_window({
+            // Tauri DENIES a page's request for a new window (`target="_blank"`,
+            // `window.open`) unless a handler answers it, and it denies SILENTLY —
+            // every docs link on the served page looked broken (operator,
+            // 2026-09-16). The answer: never a second in-app webview (these
+            // windows' capabilities were written for one page each), and http(s)
+            // handed to the person's own browser, which is both what a browser
+            // would have done and strictly safer than hosting the link here.
+            // Anything else is dropped, not handed to the OS.
+            let opener = app.clone();
+            move |url, _features| {
+                if subshell_desktop_core::browser::browsable_scheme(url.scheme()) {
+                    let _ = opener.opener().open_url(url.as_str(), None::<&str>);
+                }
+                tauri::webview::NewWindowResponse::Deny
+            }
+        })
         .inner_size(width, height)
         .resizable(false)
         .center()
@@ -318,6 +336,23 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         // in rendered content, an injected script — must not carry those
         // anywhere else. Same-origin navigation is the SPA doing its job.
         .on_navigation(move |u| u.origin() == allowed)
+        .on_new_window({
+            // Tauri DENIES a page's request for a new window (`target="_blank"`,
+            // `window.open`) unless a handler answers it, and it denies SILENTLY —
+            // every docs link on the served page looked broken (operator,
+            // 2026-09-16). The answer: never a second in-app webview (these
+            // windows' capabilities were written for one page each), and http(s)
+            // handed to the person's own browser, which is both what a browser
+            // would have done and strictly safer than hosting the link here.
+            // Anything else is dropped, not handed to the OS.
+            let opener = app.clone();
+            move |url, _features| {
+                if subshell_desktop_core::browser::browsable_scheme(url.scheme()) {
+                    let _ = opener.opener().open_url(url.as_str(), None::<&str>);
+                }
+                tauri::webview::NewWindowResponse::Deny
+            }
+        })
         // The app's own name, which the console window carries too: they are
         // two windows of one app, and this one's title is hidden under the
         // Overlay title bar the handshake below negotiates.

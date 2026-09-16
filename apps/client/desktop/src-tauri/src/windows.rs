@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use subshell_desktop_core::tray::tray_support;
 use subshell_desktop_core::zoom::assistant_frame;
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_opener::OpenerExt;
 
 /// The label of the window showing a control plane's own page.
 ///
@@ -221,6 +222,23 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
     let level = crate::zoom::level(app);
     let (width, height) = assistant_frame(level, work_area(app));
     WebviewWindowBuilder::new(app, NODE_LABEL, WebviewUrl::App("index.html".into()))
+        .on_new_window({
+            // Tauri DENIES a page's request for a new window (`target="_blank"`,
+            // `window.open`) unless a handler answers it, and it denies SILENTLY —
+            // every docs link on the served page looked broken (operator,
+            // 2026-09-16). The answer: never a second in-app webview (these
+            // windows' capabilities were written for one page each), and http(s)
+            // handed to the person's own browser, which is both what a browser
+            // would have done and strictly safer than hosting the link here.
+            // Anything else is dropped, not handed to the OS.
+            let opener = app.clone();
+            move |url, _features| {
+                if subshell_desktop_core::browser::browsable_scheme(url.scheme()) {
+                    let _ = opener.opener().open_url(url.as_str(), None::<&str>);
+                }
+                tauri::webview::NewWindowResponse::Deny
+            }
+        })
         // "Node", not "this machine": the two windows sit side by side in a
         // screenshot and in the window list, where "this machine" does not say
         // WHICH of them it means — and the word this app uses for a machine
@@ -297,6 +315,23 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
                 .is_some_and(|origin| &u.origin().ascii_serialization() == origin)
+        })
+        .on_new_window({
+            // Tauri DENIES a page's request for a new window (`target="_blank"`,
+            // `window.open`) unless a handler answers it, and it denies SILENTLY —
+            // every docs link on the served page looked broken (operator,
+            // 2026-09-16). The answer: never a second in-app webview (these
+            // windows' capabilities were written for one page each), and http(s)
+            // handed to the person's own browser, which is both what a browser
+            // would have done and strictly safer than hosting the link here.
+            // Anything else is dropped, not handed to the OS.
+            let opener = app.clone();
+            move |url, _features| {
+                if subshell_desktop_core::browser::browsable_scheme(url.scheme()) {
+                    let _ = opener.opener().open_url(url.as_str(), None::<&str>);
+                }
+                tauri::webview::NewWindowResponse::Deny
+            }
         })
         .title("Subshell Client")
         .inner_size(1280.0, 860.0)
