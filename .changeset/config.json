@@ -9,7 +9,6 @@
   "access": "restricted",
   "baseBranch": "main",
   "ignore": [
-    "@subshell-ai/plugin-tailscale",
     "@internal/backend-client",
     "@internal/backend-errors",
     "@internal/brand",

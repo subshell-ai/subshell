@@ -814,7 +814,7 @@ which is why they share their own smoke, parameterized by app id.
   desktop cut, which is why a security-relevant release should be dispatched as
   `app=all`.
 - **Never write a changeset for an `ignore`d package — it is inert and it
-  wedges the version PR.** `.changeset/config.json` ignores eleven workspaces,
+  wedges the version PR.** `.changeset/config.json` ignores ten workspaces,
   `@internal/server-web` among them, because they are not independently
   released: the SPA ships EMBEDDED in the server binary, so a version on it
   would name nothing a user can install. A changeset naming one of them can

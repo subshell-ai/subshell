@@ -902,11 +902,21 @@ instead of at five call sites.
 Reachable by nobody today: the shipping Tailscale plugin declares no settings
 fields, so every key in such a write is unknown and the route 400s before this.
 
-### 10c. The one operator action phase 1 leaves outstanding
+### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
-`@subshell-ai/plugin-tailscale` is an eighth `@subshell-ai/*` package and npm
+**Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,
+its trusted publisher was configured with
+`npm trust github @subshell-ai/plugin-tailscale --file release.yml --repository
+subshell-ai/subshell --allow-publish --allow-stage-publish` (matching what the
+other seven carry, no environment), and the ignore entry was removed. So the
+next push publishes `0.1.0` from CI with provenance, and `0.0.1` is the only
+version of it without an attestation — the same shape as the other seven. The
+rest of this section is why it was needed and is kept because the reasoning
+applies to the ninth package, not just the eighth.
+
+`@subshell-ai/plugin-tailscale` was an eighth `@subshell-ai/*` package and npm
 trusted publishing cannot be configured for a package that does not exist. It
-is therefore in `.changeset/config.json`'s ignore list — beside ten workspaces
+was therefore in `.changeset/config.json`'s ignore list — beside ten workspaces
 ignored for the opposite reason, which are not independently released at all.
 
 **Two separate mechanisms, and an earlier draft of this section conflated
@@ -920,9 +930,12 @@ metered, so that is a bill rather than a nuisance. The probe now skips
 packages the changesets config ignores, which is what makes the two agree.
 
 **Publish it by hand once, configure the trusted publisher, then remove it from
-the ignore list.** Until that happens it ships inside the server binary (it is
-a compiled-in built-in, so nothing a user does depends on the registry) and is
-simply not separately installable.
+the ignore list** — in that order, because `changeset publish` will sweep up any
+workspace package whose version the registry lacks, and the publish job holds no
+token to fall back on when OIDC is not yet configured. Until all three are done
+the plugin ships inside the server binary (it is a compiled-in built-in, so
+nothing a user does depends on the registry) and is simply not separately
+installable.
 
 ### 10b. Deviations from this spec, as built
 
