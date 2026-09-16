@@ -1084,6 +1084,30 @@ refusal is the safe default until someone builds and tests the re-derive.
   `network-routes.test.ts` now pins the whole block survives. The card renders
   it through `safeHref` as a `Docs ↗` sibling on the label row — the Label
   keeps pointing at the input. All four built-ins carry their page.
+- **How to join is a mode choice, rendered by `Segmented` (amended
+  2026-09-16, on the operator's live Headscale card).** The `needs-login` block
+  was a credential box above two sibling buttons — Connect, and Sign in with
+  Headscale — and the operator read it exactly backwards: the big empty field
+  at the top looked required, when it is the OPTIONAL path's credential, and two
+  buttons side by side looked like related acts on one form rather than two
+  mutually exclusive ways to join. Now one control carries the choice
+  (`Sign in` | `Use auth key`, the credential word lower-cased out of the same
+  `labels.credential` the Label uses) and exactly ONE panel sits under it: a
+  thing absent until asked for cannot be misread as a thing to fill in.
+  `Segmented` rather than a tab strip because it is this app's established mode
+  switch — the tiled/list view toggle, the add-subshell dialog, the
+  split-placement picker — and this is that kind of thing: two ways to do one
+  act, not two pages. Default `signin`, because the human sitting at this page
+  is the common case and a pasted key is what an automation or a headless host
+  brings. `blocker` — the server refuses EITHER join while a required setting is
+  unset — moved under the choice and stays on one paragraph wired to both
+  buttons. A single-path plugin (`cloudflare-tunnel`: no interactive path, and
+  the only built-in with a secret settings field, so the "paste it into the
+  Connect box" note never sits above a panel someone may be looking away from)
+  gets no choice at all — one road needs no fork drawn on it. The login URL and
+  code stay OUTSIDE the choice, below it: they arrive from the join stream or
+  the poll regardless of which panel is up, and switching tabs mid-sign-in must
+  not hide the link the person was told about.
 
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 

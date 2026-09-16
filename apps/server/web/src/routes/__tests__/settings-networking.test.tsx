@@ -120,15 +120,19 @@ describe("the networking page", () => {
       // no card chrome exists until a press.
       expect(await screen.findByRole("listitem", { name: "Tailscale" })).toBeTruthy();
       expect(screen.getByRole("listitem", { name: "NetBird" })).toBeTruthy();
-      // The needs-login card's credential field is the body's own landmark:
-      // the whole card, not the wizard's stripped frame.
-      expect(screen.queryByText("Access key")).toBeNull();
+      // The needs-login card's join-mode choice is the body's own landmark: the
+      // whole card, not the wizard's stripped frame. (This was the "Access key"
+      // label until the mode choice landed — the credential box is now the
+      // second panel, absent until the person asks for it, so it marks nothing.)
+      expect(screen.queryByRole("group", { name: "How to connect" })).toBeNull();
       // Scoped: both rows offer Configure, and the press belongs to ONE.
       const row = screen.getByRole("listitem", { name: "Tailscale" });
       fireEvent.click(within(row).getByRole("button", { name: "Configure" }));
-      expect(await within(row).findByText("Access key")).toBeTruthy();
+      expect(await within(row).findByRole("button", { name: "Sign in with Tailscale" })).toBeTruthy();
       // One press opens ONE card.
-      expect(within(screen.getByRole("listitem", { name: "NetBird" })).queryByText("Access key")).toBeNull();
+      expect(
+        within(screen.getByRole("listitem", { name: "NetBird" })).queryByRole("group", { name: "How to connect" }),
+      ).toBeNull();
     } finally {
       m.restore();
     }

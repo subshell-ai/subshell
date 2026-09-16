@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CopyableValue } from "@/components/ui/copyable-value";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Segmented } from "@/components/ui/segmented";
 import {
   NETWORK_QUERY_KEY,
   useInstallNetwork,
@@ -128,6 +129,15 @@ export function NetworkPluginCard({
 }) {
   const queryClient = useQueryClient();
   const [credential, setCredential] = useState("");
+  /**
+   * Which of the two join paths the `needs-login` card shows.
+   *
+   * Nothing else reads it: the choice is this block's, and the two panels are
+   * two ways of asking the SAME `join` route for the same thing — a URL, or a
+   * key. It is state rather than derived because neither path is "the real
+   * one" — a person comes to this card intending one of them.
+   */
+  const [joinMode, setJoinMode] = useState<"signin" | "key">("signin");
   const [promoteBaseUrl, setPromoteBaseUrl] = useState(false);
   /**
    * The most recent line the running act printed.
@@ -181,6 +191,14 @@ export function NetworkPluginCard({
    * "Use this address" made an operator ask how to publish.
    */
   const publishLabel = row.labels.publish ?? "Publish";
+  /**
+   * The credential's name in the join-mode choice's grammar: "Use auth key",
+   * "Use setup key", "Use access key".
+   *
+   * Lower-cased because the option names the thing rather than quoting the
+   * field — the Label above the input keeps the vendor's own casing.
+   */
+  const credentialLabel = (row.labels.credential ?? "Access key").toLowerCase();
   /**
    * Where this plugin's credential is minted, when the manifest names a page.
    *
@@ -323,6 +341,46 @@ export function NetworkPluginCard({
     </p>
   );
 
+  /**
+   * The credential box: the vendor's own word for the key, the page that mints
+   * one where the plugin names it, and the input itself.
+   *
+   * A value rather than markup written once at its use site, because the
+   * join-mode choice seats it in one of two places: inside the key panel of an
+   * interactive row, or — for a plugin with no choice to make — above the
+   * blocker, where it has sat since before the choice existed. A second copy of
+   * the box would be a second input `id`, and the `aria-describedby` wiring
+   * below counts on there being exactly one of each.
+   */
+  const credentialBox = (
+    <div className="space-y-1.5">
+      {/* The label row: the box's name, and — where the plugin names one — the
+          vendor page that mints the thing the box asks for. A card could tell
+          you WHAT to paste ("Auth key", "Setup key", "Tunnel token") while
+          saying nothing about WHERE it comes from, and the four vendors word and
+          mint that differently enough that only the plugin can say. The Label
+          keeps pointing at the input; this is a sibling on the row, styled as
+          every other plugin link (hints). */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+        <Label htmlFor={`network-${row.id}-credential`}>{row.labels.credential ?? "Access key"}</Label>
+        {credentialDocs && (
+          <a href={credentialDocs} target="_blank" rel="noreferrer" className="text-detail underline">
+            Docs ↗
+          </a>
+        )}
+      </div>
+      <Input
+        id={`network-${row.id}-credential`}
+        type="password"
+        autoComplete="off"
+        placeholder={row.settingsFields.find((f) => f.type === "secret")?.placeholder}
+        value={credential}
+        disabled={busy}
+        onChange={(event) => setCredential(event.target.value)}
+      />
+    </div>
+  );
+
   const body = (
     <div className="space-y-4">
       {exposureNote}
@@ -451,76 +509,87 @@ export function NetworkPluginCard({
                   says which THIS act writes. (`compact` drops the form's
                   secret row: the wizard renders only what a join cannot
                   proceed without, and a join IS the delivery, so the box is
-                  the only door there.) */}
+                  the only door there.)
+
+                  It speaks of the Connect BOX, and it renders for exactly the
+                  plugins that keep one permanently on screen: a secret settings
+                  field and an interactive path do not coexist among the
+                  built-ins (Cloudflare Tunnel has the only secret, and no
+                  interactive path), so this sentence never sits above a panel
+                  the person may be looking away from. Were that ever to change,
+                  it belongs inside the key panel. */}
               {row.settingsFields.some((field) => field.type === "secret") && (
                 <p className="text-detail text-muted-foreground">
                   To connect for the first time, paste it into the Connect box below.
                 </p>
               )}
-              <div className="space-y-1.5">
-                {/* The label row: the box's name, and — where the plugin
-                    names one — the vendor page that mints the thing the box
-                    asks for. A card could tell you WHAT to paste ("Auth key",
-                    "Setup key", "Tunnel token") while saying nothing about
-                    WHERE it comes from, and the four vendors word and mint
-                    that differently enough that only the plugin can say.
-                    The Label keeps pointing at the input; this is a sibling
-                    on the row, styled as every other plugin link (hints). */}
-                <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-                  <Label htmlFor={`network-${row.id}-credential`}>{row.labels.credential ?? "Access key"}</Label>
-                  {credentialDocs && (
-                    <a href={credentialDocs} target="_blank" rel="noreferrer" className="text-detail underline">
-                      Docs ↗
-                    </a>
-                  )}
-                </div>
-                <Input
-                  id={`network-${row.id}-credential`}
-                  type="password"
-                  autoComplete="off"
-                  placeholder={row.settingsFields.find((f) => f.type === "secret")?.placeholder}
-                  value={credential}
-                  disabled={busy}
-                  onChange={(event) => setCredential(event.target.value)}
+              {/* HOW TO JOIN IS A MODE CHOICE, and it now reads as one
+                  (amended 2026-09-16, on the operator's live Headscale card).
+                  The two mutually exclusive paths used to be a credential box
+                  above two sibling buttons, which got both halves wrong: the
+                  OPTIONAL path's empty box read as a required field, and two
+                  buttons side by side read as related-but-different acts on one
+                  form rather than as one-or-the-other. Now one control carries
+                  the choice and exactly one panel sits under it — a thing that
+                  is absent until you ask for it cannot be misread as a thing you
+                  have to fill in.
+
+                  `Segmented` rather than a tab strip because it is this app's
+                  established mode switch (the tiled/list toggle, the
+                  add-subshell dialog, the split-placement picker) and this is
+                  the same kind of thing: two ways to do ONE act, not two pages.
+                  "Sign in" is the default because the human sitting at this page
+                  is the common case; a pasted key is what an automation or a
+                  headless host brings.
+
+                  A single-path plugin gets no choice at all — one road does not
+                  need a fork drawn on it. */}
+              {row.interactiveLogin && (
+                <Segmented
+                  ariaLabel="How to connect"
+                  options={[
+                    { value: "signin", label: "Sign in" },
+                    { value: "key", label: `Use ${credentialLabel}` },
+                  ]}
+                  value={joinMode}
+                  onChange={setJoinMode}
                 />
-              </div>
-              {/* Attached rather than merely placed above: these buttons are
-                  disabled, and a screen reader skips disabled controls — the
-                  people most likely to wonder why reach a bare paragraph
-                  least. Same pattern the settings form uses for its own
-                  disabled reason. */}
+              )}
+              {/* A single-path plugin's box keeps its seat ABOVE the blocker,
+                  exactly where it sat before the choice existed; an interactive
+                  row's box lives inside the key panel, below it, because there
+                  the blocker explains the CHOICE and has to sit where both
+                  panels read under it. */}
+              {row.interactiveLogin ? null : credentialBox}
+              {/* The server refuses EITHER join while a required setting is
+                  unset, so this gates both paths and both buttons. Attached
+                  rather than merely placed above: both are disabled, and a
+                  screen reader skips disabled controls — the people most likely
+                  to wonder why reach a bare paragraph least. Same pattern the
+                  settings form uses for its own disabled reason. */}
               {blocker && (
                 <p id={blockerId} className="text-detail text-muted-foreground">
                   {blocker}
                 </p>
               )}
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  {...blockerProps}
-                  disabled={busy || blocker !== null || credential.trim() === ""}
-                  onClick={() =>
-                    begin(() =>
-                      join.mutate(
-                        { id: row.id, credential: credential.trim() },
-                        // Cleared on success, so a later return to this state
-                        // does not re-populate the field with a key that has
-                        // already been spent. A failed join keeps it: the
-                        // usual cause is a typo worth correcting rather than
-                        // retyping.
-                        { onSuccess: () => setCredential("") },
-                      ),
-                    )
-                  }
-                >
-                  Connect
-                </Button>
-                {/* The other half of the same act, not a second act: an empty
-                    body asks the vendor for a URL instead of presenting a key.
-                    Offered only where the plugin says that path exists. */}
-                {row.interactiveLogin && (
+              {row.interactiveLogin && joinMode === "signin" ? (
+                <div className="space-y-1.5">
+                  {/* Not "opens … in a new tab": nothing here opens a tab. The
+                      press ASKS the vendor, the link arrives on this card, and
+                      the person opens it wherever they are — possibly on
+                      another device, which is why the link below is copyable
+                      and its code set in large type. A promise this control
+                      cannot keep would be the same defect as the empty box
+                      that read as required. */}
+                  <p className="text-detail text-muted-foreground">
+                    Asks {row.name} for a sign-in link to open in your browser. This card updates when you are done.
+                  </p>
+                  {/* Not a second act but one `join` with an EMPTY body: that is
+                      what asks the vendor for a URL instead of presenting a key.
+                      Primary-styled like its sibling in the other panel — they
+                      are two answers to one question, and neither is the
+                      secondary thing now that only one of them is on screen. */}
                   <Button
-                    variant="outline"
                     size="sm"
                     {...blockerProps}
                     disabled={busy || blocker !== null}
@@ -528,8 +597,36 @@ export function NetworkPluginCard({
                   >
                     Sign in with {row.name}
                   </Button>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {row.interactiveLogin ? credentialBox : null}
+                  <Button
+                    size="sm"
+                    {...blockerProps}
+                    disabled={busy || blocker !== null || credential.trim() === ""}
+                    onClick={() =>
+                      begin(() =>
+                        join.mutate(
+                          { id: row.id, credential: credential.trim() },
+                          // Cleared on success, so a later return to this state
+                          // does not re-populate the field with a key that has
+                          // already been spent. A failed join keeps it: the
+                          // usual cause is a typo worth correcting rather than
+                          // retyping.
+                          { onSuccess: () => setCredential("") },
+                        ),
+                      )
+                    }
+                  >
+                    Connect
+                  </Button>
+                </div>
+              )}
+              {/* OUTSIDE the mode choice, deliberately: a login URL arrives from
+                  the join stream or the poll regardless of which panel is up,
+                  and the sign-in panel's second sentence points at exactly this
+                  block. Switching tabs under a live URL must not hide it. */}
               {loginUrl && (
                 <div className="space-y-1.5 rounded-md border p-3">
                   <p className="text-detail text-muted-foreground">

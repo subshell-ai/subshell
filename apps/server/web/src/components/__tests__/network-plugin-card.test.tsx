@@ -117,6 +117,14 @@ function cloudflareRow(over: Partial<NetworkRow> & { state?: NetworkState } = {}
     labels: { credential: "Tunnel token", publish: "Start tunnel" },
     settingsFields: CLOUDFLARE_FIELDS,
     exposure: "public-with-gate",
+    // Verbatim from `packages/plugins/cloudflare-tunnel/package.json`, which is
+    // what this fixture is for. It used to inherit `interactiveLogin: true`
+    // from the Tailscale-shaped base and nothing noticed — on the pre-choice
+    // card that flag only added a Sign-in button no Cloudflare test asserted
+    // the absence of. Under the mode choice it decides whether the card offers
+    // a choice AT ALL, so an inherited value would be testing a plugin that
+    // does not exist.
+    interactiveLogin: false,
     ...over,
   });
 }
@@ -157,6 +165,17 @@ async function renderCard(value: NetworkRow, compact = false): Promise<void> {
   render(<RouterProvider router={router} />);
   await waitFor(() => expect(router.state.status).toBe("idle"));
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Switches an interactive row's `needs-login` card to its credential panel.
+ *
+ * The card opens on the sign-in panel, so every test that wants the key box
+ * has to ask for it — which is the point of the mode choice, and why this is
+ * one named line rather than a click each test forgets.
+ */
+function showKeyPanel(label = "Use auth key"): void {
+  fireEvent.click(screen.getByRole("button", { name: label }));
 }
 
 /** An NDJSON stream: some progress, then one terminal frame. */
@@ -529,6 +548,7 @@ describe("NetworkPluginCard: the state matrix", () => {
         : undefined,
     );
     await renderCard(row({ state: "needs-login" }));
+    showKeyPanel();
     const field = screen.getByLabelText("Auth key") as HTMLInputElement;
     expect(field.type).toBe("password");
     fireEvent.change(field, { target: { value: "tskey-auth-abc" } });
@@ -562,10 +582,91 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.getByText(/Open this link to finish signing in/)).toBeTruthy();
   });
 
+  it("how to join is a CHOICE, and the unused path's box is not on screen", async () => {
+    // The defect this closes, reported from the live Headscale card: the auth
+    // key box — the OPTIONAL path's credential — was a big empty field at the
+    // top of the card, with "Connect" and "Sign in with Headscale" as sibling
+    // buttons under it. An empty box above two buttons reads as a required
+    // field, and two buttons side by side read as related acts on one form
+    // rather than as one-or-the-other. Now one control carries the choice and
+    // exactly one panel sits under it.
+    await renderCard(
+      row({
+        id: "headscale",
+        name: "Headscale",
+        state: "needs-login",
+        status: { state: "needs-login", addresses: [], hints: [] },
+      }),
+    );
+    // Sign-in is the default: the human sitting at this page is the common
+    // case, a pasted key what an automation or a headless host brings.
+    const signIn = screen.getByRole("button", { name: "Sign in with Headscale" });
+    expect(signIn).toBeTruthy();
+    expect(screen.getByText(/Asks Headscale for a sign-in link/)).toBeTruthy();
+    // The other path is ABSENT, not greyed — that absence is the fix.
+    expect(screen.queryByLabelText("Auth key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    // The choice itself is the app's `Segmented`, not a new primitive.
+    const segmented = screen.getByRole("group", { name: "How to connect" });
+    expect((screen.getByRole("button", { name: "Sign in" }) as HTMLButtonElement).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(
+      (screen.getByRole("button", { name: "Use auth key" }) as HTMLButtonElement).getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(segmented).toBeTruthy();
+
+    showKeyPanel();
+    expect(screen.getByLabelText("Auth key")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sign in with Headscale" })).toBeNull();
+    expect(
+      (screen.getByRole("button", { name: "Use auth key" }) as HTMLButtonElement).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect((screen.getByRole("button", { name: "Sign in" }) as HTMLButtonElement).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  it("a single-path plugin is offered no choice", async () => {
+    // Cloudflare Tunnel has no interactive path, so a fork on its card would
+    // draw a road that does not exist. Its block renders as it did before the
+    // mode choice: box, Connect — and one sentence, not a panel switch.
+    await renderCard(cloudflareRow({ state: "needs-login" }));
+    expect(screen.queryByRole("group", { name: "How to connect" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use tunnel token" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
+    // Box and Connect button are simply there, with no panel to switch to.
+    // The exact string names ONLY the box — the settings form's other door
+    // reads "Tunnel token (required)" (see the two-doors test below), which is
+    // what makes this assertion about the credential box rather than about
+    // whichever of the two came first.
+    expect(screen.getByLabelText("Tunnel token")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
+  });
+
   it("a plugin with no interactive path offers only the credential", async () => {
     await renderCard(row({ state: "needs-login", interactiveLogin: false }));
     expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
+  });
+
+  it("a login URL that arrives is shown whichever panel is up", async () => {
+    // The URL comes from the join stream OR the poll, and a person who clicked
+    // over to the key panel mid-sign-in must not lose the link they were told
+    // about — the sign-in panel's second sentence points at this block.
+    const status = {
+      state: "needs-login" as const,
+      addresses: [],
+      hints: [],
+      loginUrl: "https://login.tailscale.com/a/abc",
+      loginCode: "WXYZ-1234",
+    };
+    await renderCard(row({ state: "needs-login", status }));
+    expect(screen.getByText("https://login.tailscale.com/a/abc")).toBeTruthy();
+    showKeyPanel();
+    expect(screen.getByText("https://login.tailscale.com/a/abc")).toBeTruthy();
+    expect(screen.getByText("WXYZ-1234")).toBeTruthy();
   });
 
   it("the credential box links the vendor page where the key is minted", async () => {
@@ -578,6 +679,7 @@ describe("NetworkPluginCard: the state matrix", () => {
         labels: { credential: "Auth key", credentialDocsUrl: "https://tailscale.com/kb/1085/auth-keys" },
       }),
     );
+    showKeyPanel();
     const docs = screen.getByRole("link", { name: "Docs ↗" }) as HTMLAnchorElement;
     expect(docs.href).toBe("https://tailscale.com/kb/1085/auth-keys");
     expect(docs.getAttribute("rel")).toBe("noreferrer");
@@ -592,20 +694,26 @@ describe("NetworkPluginCard: the state matrix", () => {
     // at load: this field crosses the wire, and `safeHref` is the layer that
     // cannot be bypassed by anything upstream.
     await renderCard(row({ state: "needs-login" }));
+    showKeyPanel();
     expect(screen.queryByRole("link", { name: "Docs ↗" })).toBeNull();
     cleanup();
     await renderCard(
       row({ state: "needs-login", labels: { credential: "Auth key", credentialDocsUrl: "javascript:alert(1)" } }),
     );
+    showKeyPanel();
     expect(screen.queryByRole("link", { name: "Docs ↗" })).toBeNull();
   });
 
-  it("Connect waits for the field the server would refuse on, and names it", async () => {
+  it("the blocker gates BOTH join paths, in BOTH panels", async () => {
     // Headscale's real shape: one required non-secret. The route answers a
     // join on an unset one with 409 NETWORK_UNCONFIGURED and a sentence
     // pointing at the page the press came from — so the buttons wait instead,
     // each carrying the reason through aria-describedby (disabled controls are
     // skipped by a screen reader's tab order, so placement is not reaching).
+    //
+    // It is the SERVER's refusal, not one panel's, so the mode choice cannot
+    // put it under one button and leave the other unexplained: the sentence
+    // sits directly under the choice and survives switching panels.
     await renderCard(
       row({
         id: "headscale",
@@ -622,13 +730,18 @@ describe("NetworkPluginCard: the state matrix", () => {
         ],
       }),
     );
-    const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
-    const signIn = screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement;
-    expect(connect.disabled).toBe(true);
-    expect(signIn.disabled).toBe(true);
     const sentence = screen.getByText("Save the Control server URL first.");
-    expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
+    const signIn = screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement;
+    expect(signIn.disabled).toBe(true);
     expect(signIn.getAttribute("aria-describedby")).toBe(sentence.id);
+
+    showKeyPanel();
+    const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    expect(connect.disabled).toBe(true);
+    expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
+    // ONE paragraph for both panels — a second copy would be two ids and a
+    // screen reader reading the same refusal twice.
+    expect(screen.getAllByText("Save the Control server URL first.")).toHaveLength(1);
   });
 
   it("the same row unblocks once the field is set", async () => {
@@ -1014,8 +1127,24 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
   it("uses the vendor's own words for the credential and for publishing", async () => {
     // A generic word is WRONG rather than bland here: NetBird takes a setup
     // key and Cloudflare a tunnel token, so a field labelled "Auth key" on
-    // either row asks for something that network does not have.
+    // either row asks for something that network does not have. The mode
+    // choice takes the same word — "Use setup key", not a generic "Use key" —
+    // so the panel and the option name the same thing.
+    await renderCard(
+      row({
+        id: "netbird",
+        name: "NetBird",
+        state: "needs-login",
+        labels: { credential: "Setup key", publish: "Use this address" },
+        status: { state: "needs-login", addresses: [], hints: [] },
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Use setup key" })).toBeTruthy();
+    showKeyPanel("Use setup key");
+    expect(screen.getByLabelText("Setup key")).toBeTruthy();
+    cleanup();
     await renderCard(row({ state: "needs-login", status: { state: "needs-login", addresses: [], hints: [] } }));
+    showKeyPanel();
     expect(screen.getByLabelText("Auth key")).toBeTruthy();
     cleanup();
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
