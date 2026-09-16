@@ -251,3 +251,36 @@ describe("parseManifest (network)", () => {
     expect("error" in result).toBe(false);
   });
 });
+
+describe("parseManifest (network labels)", () => {
+  it("accepts the vendor's own words for the two acts", () => {
+    const result = parseManifest(
+      networkPkg({
+        network: {
+          platforms: ["linux"],
+          exposure: "private",
+          labels: { credential: "Setup key", publish: "Start tunnel" },
+        },
+      }),
+    );
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.network?.labels).toEqual({ credential: "Setup key", publish: "Start tunnel" });
+  });
+
+  it("refuses an empty label rather than coercing it", () => {
+    // An empty string renders as a control with no name, which is worse than
+    // the generic default it was meant to replace.
+    const result = parseManifest(
+      networkPkg({ network: { platforms: ["linux"], exposure: "private", labels: { credential: "  " } } }),
+    );
+    expect("error" in result && result.error).toContain("non-empty");
+  });
+
+  it("leaves labels absent when the plugin says nothing", () => {
+    const result = parseManifest(networkPkg());
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.network?.labels).toBeUndefined();
+  });
+});

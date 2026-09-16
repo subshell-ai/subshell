@@ -152,6 +152,16 @@ export interface NetworkRow {
   install?: { command: string; docsUrl: string };
   /** Steps needing root ON THIS PLATFORM — copy-only, never run from here */
   privileged: { label: string; command: string; docsUrl?: string }[];
+  /**
+   * The vendor's own words for the two acts, from the manifest.
+   *
+   * Either may be absent, and the card supplies a generic default — but a
+   * generic word is WRONG rather than bland for the credential: Tailscale
+   * takes an auth key, NetBird a setup key, Cloudflare a tunnel token, and a
+   * field labelled "Auth key" on a NetBird row asks for something NetBird does
+   * not have.
+   */
+  labels: { credential?: string; publish?: string };
   /** The plugin's settings schema; empty means the card shows no form */
   settingsFields: SettingsFieldWire[];
   /** Current values, secrets as `{ set }` */

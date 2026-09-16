@@ -319,7 +319,7 @@ export function NetworkPluginCard({
             <div className="space-y-3">
               <NetworkHints hints={status.hints} />
               <div className="space-y-1.5">
-                <Label htmlFor={`network-${row.id}-credential`}>Auth key</Label>
+                <Label htmlFor={`network-${row.id}-credential`}>{row.labels.credential ?? "Access key"}</Label>
                 <Input
                   id={`network-${row.id}-credential`}
                   type="password"
@@ -426,9 +426,18 @@ export function NetworkPluginCard({
                     onClick={() => begin(() => publish.mutate({ id: row.id, promoteBaseUrl }))}
                   >
                     {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
-                    {publish.isPending ? "Publishing…" : "Publish"}
+                    {publish.isPending ? "Publishing…" : (row.labels.publish ?? "Publish")}
                   </Button>
                 </div>
+              )}
+
+              {/* The standing FACT, not the outcome of the last act. The
+                  post-publish block says what just happened and is cleared by
+                  the next act, so after a reload an admin saw addresses, hints
+                  and an Unpublish button with nothing stating the row's
+                  status. */}
+              {state === "published" && (
+                <p className="text-detail text-muted-foreground">Subshell is published on {row.name}.</p>
               )}
 
               <div className="flex flex-wrap items-center gap-2">
@@ -437,7 +446,18 @@ export function NetworkPluginCard({
                     variant="outline"
                     size="sm"
                     disabled={busy}
-                    onClick={() => begin(() => unpublish.mutate({ id: row.id }))}
+                    onClick={async () => {
+                      // The last sentence is the point. Leaving the trusted
+                      // origin behind is deliberate (spec §5.4) — removing one
+                      // is the Addresses card's act — and it is surprising
+                      // enough that discovering it later reads as a bug.
+                      const proceed = await confirmAction({
+                        title: `Stop publishing Subshell on ${row.name}?`,
+                        description: `This server stops answering at the addresses ${row.name} gave it. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.`,
+                        confirmLabel: "Unpublish",
+                      });
+                      if (proceed) begin(() => unpublish.mutate({ id: row.id }));
+                    }}
                   >
                     {unpublish.isPending ? "Unpublishing…" : "Unpublish"}
                   </Button>

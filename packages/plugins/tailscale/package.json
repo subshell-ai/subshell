@@ -93,6 +93,10 @@
             "docsUrl": "https://tailscale.com/kb/1080/cli"
           }
         ]
+      },
+      "labels": {
+        "credential": "Auth key",
+        "publish": "Publish with Tailscale Serve"
       }
     }
   }

@@ -37,6 +37,7 @@ function row(over: Partial<NetworkRow> & { state?: NetworkState } = {}): Network
     name: "Tailscale",
     description: "A private network for your own devices.",
     exposure: "private",
+    labels: { credential: "Auth key", publish: "Publish with Tailscale Serve" },
     platforms: ["darwin", "linux"],
     supported: true,
     enabled: true,
@@ -226,7 +227,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     // own daemon.
     expect(screen.getByText("tailscaled is not running.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
   });
 
   it("numbers nothing at all on a daemon that is down, however many hints there are", async () => {
@@ -288,7 +289,7 @@ describe("NetworkPluginCard: the state matrix", () => {
       expect(join && JSON.parse(String(join.body))).toEqual({ credential: "tskey-auth-abc" });
     });
     // No addresses yet, so nothing to publish.
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
   });
 
   it("an interactive sign-in asks with an EMPTY body and renders the URL and code it comes back with", async () => {
@@ -322,7 +323,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     expect(screen.getByText("Passkeys and secure cookies work at this address.")).toBeTruthy();
     expect(screen.getByText(/your browser sees plain http/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Publish/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Unpublish" })).toBeNull();
   });
@@ -355,7 +356,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     expect(screen.getByText(/Passkeys registered at the current address stop working there/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText(/Set as this server's base URL/));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
     await waitFor(() => {
       const call = calls.find((c) => c.pathname === "/api/network/tailscale/publish");
       expect(call && JSON.parse(String(call.body))).toEqual({ promoteBaseUrl: true });
@@ -392,7 +393,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     await renderCard(row({ state: "published", status: { state: "published", addresses: ADDRESSES, hints: [] } }));
     expect(screen.getByRole("button", { name: "Unpublish" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
   });
 
   it("published shows the supervised process, including how the last run ended", async () => {
@@ -452,7 +453,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
         : undefined,
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
     await waitFor(() => expect(screen.getByText("Enable HTTPS certificates in the admin console first.")).toBeTruthy());
     // The server answered correctly and said why not. An alert would call
     // that a failure of ours.
@@ -473,7 +474,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
         : undefined,
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
     await waitFor(() => expect(screen.getByText(/config.env was not changed/)).toBeTruthy());
     expect(screen.getByText("TRUSTED_ORIGINS")).toBeTruthy();
   });
@@ -494,7 +495,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
           : undefined,
     );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
     await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy());
 
     // A DIFFERENT mutation, which is the case that was broken: `leave` never
@@ -503,6 +504,34 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect", hidden: false }));
     await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull());
+  });
+
+  it("uses the vendor's own words for the credential and for publishing", async () => {
+    // A generic word is WRONG rather than bland here: NetBird takes a setup
+    // key and Cloudflare a tunnel token, so a field labelled "Auth key" on
+    // either row asks for something that network does not have.
+    await renderCard(row({ state: "needs-login", status: { state: "needs-login", addresses: [], hints: [] } }));
+    expect(screen.getByLabelText("Auth key")).toBeTruthy();
+    cleanup();
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    expect(screen.getByRole("button", { name: "Publish with Tailscale Serve" })).toBeTruthy();
+  });
+
+  it("falls back to a generic word when a plugin names none", async () => {
+    await renderCard(
+      row({ state: "joined", labels: {}, status: { state: "joined", addresses: ADDRESSES, hints: [] } }),
+    );
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+  });
+
+  it("says the row is published, which survives a reload", async () => {
+    // The post-publish block reports the last ACT and is cleared by the next
+    // one, so after a reload an admin saw addresses and an Unpublish button
+    // with nothing stating the row's status.
+    await renderCard(
+      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
+    );
+    expect(screen.getByText("Subshell is published on Tailscale.")).toBeTruthy();
   });
 
   it("does not invite a settings edit the server would refuse", async () => {
@@ -597,7 +626,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
       true,
     );
     const item = screen.getByRole("listitem", { name: "Tailscale" });
-    expect(within(item).getByRole("button", { name: "Publish" })).toBeTruthy();
+    expect(within(item).getByRole("button", { name: /^Publish/ })).toBeTruthy();
     expect(within(item).getByRole("button", { name: "Disconnect" })).toBeTruthy();
     // The description and the supervisor detail are what `compact` drops —
     // first run is not where a person reads a pid.

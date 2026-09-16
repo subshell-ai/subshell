@@ -2,6 +2,7 @@ export {
   type DetectSpec,
   type InstallSpec,
   type ManifestError,
+  type NetworkLabels,
   type NetworkManifest,
   PLUGIN_API_VERSION,
   type PrivilegedStep,

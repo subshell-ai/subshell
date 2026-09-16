@@ -435,6 +435,7 @@ function network(over: { id: string; name: string; state?: string; installed?: b
     name: over.name,
     description: `${over.name} network`,
     exposure: "private",
+    labels: {},
     platforms: ["darwin", "linux"],
     supported: true,
     enabled: true,

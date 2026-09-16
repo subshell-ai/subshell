@@ -110,6 +110,30 @@ export interface NetworkManifest {
    * button for one and a copy row for the other without inspecting the string.
    */
   privileged?: Partial<Record<PluginPlatform, PrivilegedStep[]>>;
+  /**
+   * What this network calls the two things a person acts on.
+   *
+   * Vendors name the same act differently and a generic word is wrong rather
+   * than merely bland: Tailscale takes an "auth key", NetBird a "setup key",
+   * Cloudflare a "tunnel token", and a field labelled "Auth key" on the
+   * NetBird row asks for something NetBird does not have. Likewise publishing
+   * is "Tailscale Serve" on one network and starting a tunnel on another.
+   *
+   * MANIFEST data rather than something the plugin returns, for the same
+   * reason `platforms` is: a surface renders these before any plugin code has
+   * been loaded, and before the vendor's CLI is anywhere on the machine. Both
+   * are optional and both have a sensible generic default, so a plugin that
+   * says nothing is merely plain rather than broken.
+   */
+  labels?: NetworkLabels;
+}
+
+/** The vendor's own words for the two acts a person takes. See {@link NetworkManifest.labels}. */
+export interface NetworkLabels {
+  /** What to call the pasted credential: "Auth key", "Setup key", "Tunnel token". */
+  credential?: string;
+  /** What to call publishing: "Publish with Tailscale Serve", "Start tunnel". */
+  publish?: string;
 }
 
 /** The parsed `subshell` block. */
@@ -374,10 +398,28 @@ function parseNetworkBlock(raw: unknown, type: PluginType): NetworkManifest | Ma
     }
   }
 
+  let labels: NetworkLabels | undefined;
+  if (raw.labels !== undefined) {
+    if (!isRecord(raw.labels)) return { error: "`subshell.network.labels` must be an object" };
+    for (const key of ["credential", "publish"]) {
+      const value = raw.labels[key];
+      // Refused rather than coerced: an empty label renders as a control with
+      // no name, which is worse than the generic default it replaced.
+      if (value !== undefined && (typeof value !== "string" || value.trim() === "")) {
+        return { error: `\`subshell.network.labels.${key}\` must be a non-empty string` };
+      }
+    }
+    labels = {
+      ...(typeof raw.labels.credential === "string" ? { credential: raw.labels.credential } : {}),
+      ...(typeof raw.labels.publish === "string" ? { publish: raw.labels.publish } : {}),
+    };
+  }
+
   return {
     platforms: [...(raw.platforms as PluginPlatform[])],
     exposure: raw.exposure,
     ...(raw.interactiveLogin === true ? { interactiveLogin: true } : {}),
     ...(privileged ? { privileged } : {}),
+    ...(labels && Object.keys(labels).length > 0 ? { labels } : {}),
   };
 }

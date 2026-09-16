@@ -28,6 +28,7 @@ function network(over: Partial<NetworkRow> & { id: string; name: string }): Netw
   return {
     description: "",
     exposure: "private",
+    labels: {},
     platforms: ["darwin", "linux"],
     supported: true,
     enabled: true,

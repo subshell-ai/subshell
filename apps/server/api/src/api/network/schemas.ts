@@ -179,6 +179,23 @@ export const NetworkRowSchema = t.Object({
     description:
       "Steps the host can never perform, for THIS platform only, in the order to run them. Rendered to copy, never executed",
   }),
+  labels: t.Object(
+    {
+      credential: t.Optional(
+        t.String({
+          description:
+            'What this network calls the credential a person pastes: "Auth key", "Setup key", "Tunnel token". Absent means the UI picks a generic word',
+        }),
+      ),
+      publish: t.Optional(
+        t.String({
+          description:
+            'What this network calls publishing: "Publish with Tailscale Serve", "Start tunnel". Absent means the UI picks a generic word',
+        }),
+      ),
+    },
+    { description: "The vendor's own words for the two acts a person takes, from the manifest" },
+  ),
   settingsFields: t.Array(NetworkSettingsFieldSchema, {
     description: "The plugin's settings editor schema; empty when it declares none",
   }),
