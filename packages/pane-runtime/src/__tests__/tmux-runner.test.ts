@@ -733,12 +733,20 @@ echo "server exited unexpectedly" >&2; exit 1
   });
 });
 
-afterAll(() => {
+afterAll(async () => {
   // kill-server (not kill-session) on every socket this file touched: tears
   // the daemon down even when a failed assertion skipped the per-test kill.
   // Already-dead sockets error out; that is expected and ignored.
+  //
+  // Then UNLINK, because killing the server does not remove its socket file —
+  // that is the same leak `cleanSocket` exists to close in production, and
+  // this suite has no throwaway `TMUX_TMPDIR` the way the server's does, so
+  // its sockets land in the developer's real tmux dir and stayed there. A few
+  // hundred had accumulated by 2026-09-15.
+  const runner = new TmuxRunner();
   for (const socket of spawnedSockets) {
     spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
+    await runner.cleanSocket(socket);
   }
   spawnedSockets.clear();
 });
