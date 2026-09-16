@@ -28,11 +28,18 @@ export interface InstancePluginRow {
   /** Why the plugin will not load in the control-plane process; present means every launch of it fails */
   broken?: string;
   /**
-   * Manifest plugin type: an agent CLI, or a plain shell. The Agent picker's
-   * default rule puts terminal last. Optional for an older server's payload;
-   * absent reads as agent.
+   * Manifest plugin type: an agent CLI, a plain shell, or a NETWORK — a
+   * plugin that connects this control plane to a private network and drives
+   * no pane at all.
+   *
+   * The launch surfaces branch on this, and `network` is why they now test
+   * for `agent-harness` rather than for "not terminal": a network plugin is
+   * not a slower agent, it is not an agent, and a rule written as an
+   * exclusion silently admitted every type invented after it.
+   *
+   * Optional for an older server's payload; absent reads as agent.
    */
-  type?: "agent-harness" | "terminal";
+  type?: "agent-harness" | "terminal" | "network";
 }
 
 /** What an uninstall would touch — mirrors the server's ImpactResponseSchema. */

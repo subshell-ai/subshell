@@ -101,6 +101,14 @@ describe("checklistItems", () => {
       expect(item?.id).toBe("lan-origin");
       expect(item?.consequence).toMatch(/Invalid origin/);
       expect(item?.remedy).toEqual({ kind: "link", to: "/settings/service", label: "Addresses" });
+      // Two honest ways out of the same problem, in the order of how much
+      // they ask for: name the address yourself, or put this server on a
+      // network that hands it one.
+      expect(item?.alternative).toEqual({
+        kind: "link",
+        to: "/settings/networking",
+        label: "Or reach it over a network",
+      });
     });
 
     it("still fires when the only trusted origins are the built-in loopback defaults", () => {

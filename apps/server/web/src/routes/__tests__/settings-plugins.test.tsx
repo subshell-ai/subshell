@@ -28,6 +28,8 @@ interface RowFixture {
   builtIn?: boolean;
   version?: string;
   broken?: string;
+  /** Manifest type — decides which heading the row lands under */
+  type?: "agent-harness" | "terminal" | "network";
 }
 
 interface PageFixture {
@@ -50,6 +52,7 @@ function row(f: RowFixture): InstancePluginRow {
     builtIn: f.builtIn ?? !installed,
     ...(f.version ? { version: f.version } : {}),
     ...(f.broken ? { broken: f.broken } : {}),
+    ...(f.type ? { type: f.type } : {}),
   };
 }
 
@@ -381,6 +384,83 @@ describe("instance plugins page", () => {
       // The sweep covers EVERY user's presets; a presets list left stale
       // until refetch-on-focus is a phantom.
       await waitFor(() => expect(presetsGets()).toBeGreaterThanOrEqual(2));
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("groups the installed rows by what they ARE, once there is more than one kind", async () => {
+    const m = mockServer({
+      admin: true,
+      installed: [
+        { id: "claude-code", name: "Claude Code", type: "agent-harness" },
+        { id: "terminal", name: "Terminal", type: "terminal" },
+        { id: "tailscale", name: "Tailscale", type: "network" },
+      ],
+    });
+    try {
+      renderPage();
+      expect(await screen.findByRole("heading", { name: "Agents" })).toBeDefined();
+      expect(screen.getByRole("heading", { name: "Terminal" })).toBeDefined();
+      // The one that earns the grouping: disabling a network is not the same
+      // kind of act as disabling an agent, and an undifferentiated list
+      // invites the same shrug for both.
+      expect(screen.getByRole("heading", { name: "Networks" })).toBeDefined();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("does not head a list that is all one kind", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "pi", name: "Pi", type: "agent-harness" }] });
+    try {
+      renderPage();
+      await screen.findByText("Pi");
+      // A heading above the only list names a distinction the reader cannot
+      // be confusing anything with.
+      expect(screen.queryByRole("heading", { name: "Agents" })).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("disabling a NETWORK asks first and says what it stops", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "tailscale", name: "Tailscale", type: "network" }] });
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("switch", { name: /enabled/i }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Disabling stops publishing this server on Tailscale.")).toBeDefined();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Disable" }));
+      await waitFor(() => expect(m.patched()).toEqual({ enabled: false }));
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("cancelling that question changes nothing", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "tailscale", name: "Tailscale", type: "network" }] });
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("switch", { name: /enabled/i }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(m.calls.some((c) => c.method === "PATCH")).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("disabling an AGENT still asks nothing", async () => {
+    // Every other type is a launch option that stops being offered, and
+    // asking about those is the ask nobody reads.
+    const m = mockServer({ admin: true, installed: [{ id: "pi", name: "Pi", type: "agent-harness" }] });
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("switch", { name: /enabled/i }));
+      await waitFor(() => expect(m.patched()).toEqual({ enabled: false }));
+      expect(screen.queryByRole("dialog")).toBeNull();
     } finally {
       m.restore();
     }

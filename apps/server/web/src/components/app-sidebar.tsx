@@ -8,6 +8,7 @@ import {
   KeyRound,
   LayoutDashboard,
   type LucideIcon,
+  Network,
   Plus,
   Power,
   Puzzle,
@@ -103,6 +104,10 @@ const NAV_ENTRIES: NavEntry[] = [
       // named Server by default, and every card on this page is about the
       // running process — where it listens, who supervises it, what it logged.
       { to: "/settings/service", label: "Service", icon: Power, short: "Svc" },
+      // After Service, because it answers the question Service leaves open:
+      // that page says where this server listens, this one says how anything
+      // that is not on this machine gets to it.
+      { to: "/settings/networking", label: "Networking", icon: Network, short: "Net" },
       // Beside Service, because the two are about the same machine: Service is
       // the process as it runs now, Updates is what it could be running next.
       { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },

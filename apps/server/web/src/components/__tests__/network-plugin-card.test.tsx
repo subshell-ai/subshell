@@ -1,0 +1,476 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
+import type { NetworkRow, NetworkState } from "@/types/network";
+
+/**
+ * The card's state matrix (one test per state), plus the three rules that are
+ * not about any single state: a secret is never echoed, a refusal is an
+ * answer rather than an error, and a `public-with-gate` network says what
+ * publishing it means before anything else on the row.
+ *
+ * Each state test asserts a control that MUST be there and one that must NOT.
+ * The second half is the half that catches a regression: a state machine that
+ * leaks Publish into `needs-login` still renders everything the first half
+ * looks for.
+ */
+
+const restore: (() => void)[] = [];
+afterEach(() => {
+  cleanup();
+  for (const undo of restore.splice(0)) undo();
+});
+
+function row(over: Partial<NetworkRow> & { state?: NetworkState } = {}): NetworkRow {
+  const { state, ...rest } = over;
+  return {
+    id: "tailscale",
+    name: "Tailscale",
+    description: "A private network for your own devices.",
+    exposure: "private",
+    platforms: ["darwin", "linux"],
+    supported: true,
+    enabled: true,
+    interactiveLogin: true,
+    privileged: [],
+    settingsFields: [],
+    settings: {},
+    published: state === "published",
+    status: {
+      state: state ?? "needs-login",
+      addresses: [],
+      hints: [],
+    },
+    ...rest,
+  };
+}
+
+/** The two addresses a joined network reports: one secure, one not. */
+const ADDRESSES = [
+  { url: "https://box.tail1234.ts.net", scheme: "https" as const, label: "MagicDNS name", secureContext: true },
+  { url: "http://100.64.0.1:3080", scheme: "http" as const, label: "Tailscale IP", secureContext: false },
+];
+
+/** Renders the card inside a throwaway router + query client (it uses both). */
+async function renderCard(value: NetworkRow, compact = false): Promise<void> {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const rootRoute = createRootRoute();
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => (
+      <QueryClientProvider client={client}>
+        {compact ? (
+          <ul>
+            <NetworkPluginCard row={value} compact />
+          </ul>
+        ) : (
+          <NetworkPluginCard row={value} />
+        )}
+      </QueryClientProvider>
+    ),
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  await router.load();
+  render(<RouterProvider router={router} />);
+  await waitFor(() => expect(router.state.status).toBe("idle"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** An NDJSON stream: some progress, then one terminal frame. */
+function ndjson(done: unknown, lines: string[] = []): Response {
+  const body = [...lines.map((text) => JSON.stringify({ type: "line", text })), JSON.stringify(done)].join("\n");
+  return new Response(body, { status: 200 });
+}
+
+/** Routes every request this card can make; records what went out. */
+function mockFetch(handler: (url: URL, init?: RequestInit) => Response | undefined) {
+  const calls: { method: string; pathname: string; body?: string }[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    calls.push({ method: init?.method ?? "GET", pathname: url.pathname, body: init?.body as string | undefined });
+    return Promise.resolve(handler(url, init) ?? new Response(JSON.stringify({})));
+  }) as typeof fetch;
+  restore.push(() => {
+    globalThis.fetch = original;
+  });
+  return calls;
+}
+
+describe("NetworkPluginCard: the state matrix", () => {
+  it("a platform this plugin cannot drive offers nothing at all", async () => {
+    await renderCard(row({ supported: false, platforms: ["linux"], status: undefined }));
+    expect(screen.getByText(/Not available on this server's platform/)).toBeTruthy();
+    expect(screen.getByText(/runs on Linux/)).toBeTruthy();
+    // No act is possible here, so none is offered — not even Re-check.
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("a disabled plugin points at the page that re-enables it, and acts on nothing", async () => {
+    await renderCard(row({ enabled: false, status: undefined }));
+    expect(screen.getByRole("link", { name: /Settings → Plugins/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+  });
+
+  it("not-installed numbers the privileged steps and never offers to run one", async () => {
+    await renderCard(
+      row({
+        state: "not-installed",
+        privileged: [
+          { label: "Install the daemon", command: "brew install tailscale" },
+          { label: "Start it at boot", command: "sudo tailscaled install-system-daemon", docsUrl: "https://ts.net" },
+        ],
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(card.textContent).toContain("1.Install the daemon");
+    expect(card.textContent).toContain("2.Start it at boot");
+    // Copy-only: the server has no terminal to answer a password prompt, so a
+    // button here would be a control that always fails.
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(2);
+  });
+
+  it("not-installed runs the hints on from the privileged steps, as one sequence", async () => {
+    // The shape the first shipped plugin actually has: every Tailscale
+    // install path needs root, a manifest may not carry a `sudo` command, and
+    // the steps therefore arrive as privileged HINTS. They are the whole
+    // install experience, so they have to read as steps rather than as
+    // footnotes under the two numbered ones.
+    await renderCard(
+      row({
+        state: "not-installed",
+        privileged: [{ label: "Install the daemon", command: "brew install tailscale" }],
+        status: {
+          state: "not-installed",
+          addresses: [],
+          hints: [
+            {
+              text: "Then register it as a system daemon.",
+              command: "sudo tailscaled install-system-daemon",
+              privileged: true,
+            },
+            { text: "Then come back and re-check.", privileged: true },
+          ],
+        },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(card.textContent).toContain("1.Install the daemon");
+    expect(card.textContent).toContain("2.Then register it as a system daemon.");
+    expect(card.textContent).toContain("3.Then come back and re-check.");
+    // Still copy-only, however they arrived.
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+  });
+
+  it("a single thing to do is not numbered", async () => {
+    await renderCard(
+      row({
+        state: "not-installed",
+        status: { state: "not-installed", addresses: [], hints: [{ text: "Install Tailscale on this machine." }] },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(card.textContent).toContain("Install Tailscale on this machine.");
+    // A lone "1." promises a second step that never comes.
+    expect(card.textContent).not.toContain("1.Install Tailscale");
+  });
+
+  it("not-installed offers Install only where the server may run the command, and streams it", async () => {
+    const calls = mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/install"
+        ? ndjson({ type: "done", ok: true, exitCode: 0 }, ["fetching tailscale…"])
+        : undefined,
+    );
+    await renderCard(
+      row({ state: "not-installed", install: { command: "brew install tailscale", docsUrl: "https://ts.net" } }),
+    );
+    expect(screen.getByText(/Runs/).textContent).toContain("brew install tailscale");
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(calls.some((c) => c.pathname === "/api/network/tailscale/install")).toBe(true));
+  });
+
+  it("a daemon that is down renders the plugin's own hint and offers only Re-check", async () => {
+    await renderCard(
+      row({
+        state: "daemon-down",
+        status: {
+          state: "daemon-down",
+          addresses: [],
+          hints: [{ text: "tailscaled is not running.", command: "sudo systemctl start tailscaled" }],
+        },
+      }),
+    );
+    // Verbatim: this page does not paraphrase what a plugin says about its
+    // own daemon.
+    expect(screen.getByText("tailscaled is not running.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+  });
+
+  it("needs-privilege is the same shape as a daemon that is down — a hint and Re-check", async () => {
+    await renderCard(
+      row({
+        state: "needs-privilege",
+        status: {
+          state: "needs-privilege",
+          addresses: [],
+          hints: [{ text: "This server may not talk to tailscaled.", privileged: true }],
+        },
+      }),
+    );
+    expect(screen.getByText("This server may not talk to tailscaled.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+  });
+
+  it("needs-login takes a credential, never shows it, and Connect sends it", async () => {
+    const calls = mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/join"
+        ? ndjson({ type: "done", outcome: { state: "joined" }, status: { state: "joined", addresses: [], hints: [] } })
+        : undefined,
+    );
+    await renderCard(row({ state: "needs-login" }));
+    const field = screen.getByLabelText("Auth key") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    fireEvent.change(field, { target: { value: "tskey-auth-abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await waitFor(() => {
+      const join = calls.find((c) => c.pathname === "/api/network/tailscale/join");
+      expect(join && JSON.parse(String(join.body))).toEqual({ credential: "tskey-auth-abc" });
+    });
+    // No addresses yet, so nothing to publish.
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+  });
+
+  it("an interactive sign-in asks with an EMPTY body and renders the URL and code it comes back with", async () => {
+    const calls = mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/join"
+        ? ndjson({
+            type: "done",
+            outcome: { state: "needs-login", loginUrl: "https://login.tailscale.com/a/abc", loginCode: "WXYZ-1234" },
+            status: { state: "needs-login", addresses: [], hints: [] },
+          })
+        : undefined,
+    );
+    await renderCard(row({ state: "needs-login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Tailscale" }));
+    await waitFor(() => expect(screen.getByText("https://login.tailscale.com/a/abc")).toBeTruthy());
+    // Absence, never `credential: ""` — an empty body is what asks for the
+    // interactive path.
+    const join = calls.find((c) => c.pathname === "/api/network/tailscale/join");
+    expect(join && JSON.parse(String(join.body))).toEqual({});
+    expect(screen.getByText("WXYZ-1234")).toBeTruthy();
+    expect(screen.getByText(/Open this link to finish signing in/)).toBeTruthy();
+  });
+
+  it("a plugin with no interactive path offers only the credential", async () => {
+    await renderCard(row({ state: "needs-login", interactiveLogin: false }));
+    expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
+  });
+
+  it("joined states what each address costs, and offers Publish rather than Unpublish", async () => {
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    expect(screen.getByText("Passkeys and secure cookies work at this address.")).toBeTruthy();
+    expect(screen.getByText(/your browser sees plain http/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Unpublish" })).toBeNull();
+  });
+
+  it("the base-URL checkbox says what it costs and rides on the publish body", async () => {
+    const calls = mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/publish"
+        ? ndjson({
+            type: "done",
+            ok: true,
+            addresses: ADDRESSES,
+            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
+            restartRequired: false,
+            status: { state: "published", addresses: ADDRESSES, hints: [] },
+          })
+        : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    expect(screen.getByText(/Passkeys registered at the current address stop working there/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Set as this server's base URL/));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => {
+      const call = calls.find((c) => c.pathname === "/api/network/tailscale/publish");
+      expect(call && JSON.parse(String(call.body))).toEqual({ promoteBaseUrl: true });
+    });
+  });
+
+  it("a joined network still says why an address is missing", async () => {
+    // The gap this closes: hints used to stop at the door. A tailnet with no
+    // certificates hands out no https address at all, and the list alone is
+    // just quietly one address short with the reason nowhere on screen.
+    await renderCard(
+      row({
+        state: "joined",
+        status: {
+          state: "joined",
+          addresses: [ADDRESSES[1]],
+          hints: [
+            {
+              text: "Enable HTTPS certificates in the admin console to get an https address.",
+              docsUrl: "https://ts.net/https",
+            },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByText("Enable HTTPS certificates in the admin console to get an https address.")).toBeTruthy();
+    // Not numbered: this is a standing fact about the machine, not step one
+    // of anything.
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(card.textContent).not.toContain("1.Enable HTTPS");
+  });
+
+  it("published offers Unpublish and Disconnect, and no second Publish", async () => {
+    await renderCard(row({ state: "published", status: { state: "published", addresses: ADDRESSES, hints: [] } }));
+    expect(screen.getByRole("button", { name: "Unpublish" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+  });
+
+  it("published shows the supervised process, including how the last run ended", async () => {
+    await renderCard(
+      row({
+        state: "published",
+        status: { state: "published", addresses: ADDRESSES, hints: [] },
+        process: {
+          running: false,
+          restarts: 3,
+          lastExit: { code: 1, at: new Date(Date.now() - 120_000).toISOString() },
+          lastLines: ["tunnel closed: context canceled"],
+        },
+      }),
+    );
+    const card = screen.getByRole("group", { name: "Tailscale" });
+    expect(card.textContent).toContain("Stopped");
+    expect(card.textContent).toContain("3 restarts");
+    expect(card.textContent).toContain("with code 1");
+    expect(card.textContent).toContain("tunnel closed: context canceled");
+  });
+});
+
+describe("NetworkPluginCard: the rules that are not about one state", () => {
+  it("a secret setting reports whether it is set and never renders a value", async () => {
+    await renderCard(
+      row({
+        state: "joined",
+        status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        settingsFields: [{ key: "authKey", label: "Auth key", type: "secret", placeholder: "tskey-auth-…" }],
+        // Exactly what the server sends in a secret's place — the value never
+        // travels, so there is nothing here that COULD be echoed.
+        settings: { authKey: { set: true } },
+      }),
+    );
+    const field = screen.getByLabelText("Auth key") as HTMLInputElement;
+    expect(field.value).toBe("");
+    expect(field.type).toBe("password");
+    expect(screen.getByText(/Set — typing here replaces it\./)).toBeTruthy();
+  });
+
+  it("a refused publish renders the plugin's reason inline, not as an error", async () => {
+    mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/publish"
+        ? ndjson({
+            type: "done",
+            ok: false,
+            refused: { text: "Enable HTTPS certificates in the admin console first.", docsUrl: "https://ts.net/https" },
+            addresses: [],
+            config: { changed: [], warnings: [], written: false },
+            restartRequired: false,
+            status: { state: "joined", addresses: ADDRESSES, hints: [] },
+          })
+        : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => expect(screen.getByText("Enable HTTPS certificates in the admin console first.")).toBeTruthy());
+    // The server answered correctly and said why not. An alert would call
+    // that a failure of ours.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a publish that could not write config.env names the key the environment holds", async () => {
+    mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/publish"
+        ? ndjson({
+            type: "done",
+            ok: true,
+            addresses: ADDRESSES,
+            config: { changed: [], warnings: [], written: false, unwritableKey: "TRUSTED_ORIGINS" },
+            restartRequired: false,
+            status: { state: "published", addresses: ADDRESSES, hints: [] },
+          })
+        : undefined,
+    );
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => expect(screen.getByText(/config.env was not changed/)).toBeTruthy());
+    expect(screen.getByText("TRUSTED_ORIGINS")).toBeTruthy();
+  });
+
+  it("a public-with-gate network says so permanently, above everything else", async () => {
+    await renderCard(row({ exposure: "public-with-gate", state: "joined" }));
+    expect(screen.getByText(/puts this server on the public internet with an identity check in front/)).toBeTruthy();
+  });
+
+  it("a private network carries no such note", async () => {
+    await renderCard(row({ state: "joined" }));
+    expect(screen.queryByText(/public internet/)).toBeNull();
+  });
+
+  it("disconnecting asks for the network to be named before it sends anything", async () => {
+    const calls = mockFetch(() => undefined);
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    const dialog = await screen.findByRole("dialog");
+    // The confirming button is inert until something is typed, and nothing
+    // has gone to the server.
+    const confirm = within(dialog).getByRole("button", { name: "Disconnect" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    expect(calls.some((c) => c.pathname.endsWith("/leave"))).toBe(false);
+    fireEvent.change(within(dialog).getByLabelText(/to confirm/), { target: { value: "tailscale" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => {
+      const leave = calls.find((c) => c.pathname === "/api/network/tailscale/leave");
+      // Verbatim: the server owns the rule about what confirms.
+      expect(leave && JSON.parse(String(leave.body))).toEqual({ confirm: "tailscale" });
+    });
+  });
+
+  it("the compact variant keeps every act and drops the chrome", async () => {
+    await renderCard(
+      row({
+        state: "joined",
+        status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        process: { running: true, pid: 99, restarts: 0, lastLines: ["up"] },
+      }),
+      true,
+    );
+    const item = screen.getByRole("listitem", { name: "Tailscale" });
+    expect(within(item).getByRole("button", { name: "Publish" })).toBeTruthy();
+    expect(within(item).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+    // The description and the supervisor detail are what `compact` drops —
+    // first run is not where a person reads a pid.
+    expect(item.textContent).not.toContain("A private network for your own devices.");
+    expect(item.textContent).not.toContain("pid 99");
+  });
+});

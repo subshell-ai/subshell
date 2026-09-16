@@ -10,6 +10,7 @@ import {
 } from "@/components/account/new-account-fields";
 import { ErrorBanner } from "@/components/error-banner";
 import { AgentRow } from "@/components/setup/agent-row";
+import { NetworkStep } from "@/components/setup/network-step";
 import { SetupAssistant } from "@/components/setup/setup-assistant";
 import { TmuxRow } from "@/components/setup/tmux-row";
 import {
@@ -34,7 +35,14 @@ export const Route = createFileRoute("/setup")({
   component: SetupPage,
 });
 
-const STEPS = ["Account", "Agent", "Launch"] as const;
+/**
+ * The wizard's own screens, in order. The Network step sits SECOND — before
+ * the agent — because it is about reaching this server at all, and a person
+ * who is going to open the dashboard on their phone wants that decided before
+ * they start choosing what runs on it. It is optional, and skipping it costs
+ * nothing: every act on it is on `/settings/networking` afterwards.
+ */
+const STEPS = ["Account", "Network", "Agent", "Launch"] as const;
 
 function SetupPage() {
   const navigate = useNavigate();
@@ -98,7 +106,9 @@ function SetupPage() {
    * step 0 created the admin account, so a cookie exists by the time this
    * screen mounts, and `runtime.tmuxPath` is the same fact Settings → Status
    * shows. Enabled from step 1 for that reason: on step 0 there is no session
-   * and the request would 403.
+   * and the request would 403. (Step 1 is the Network screen now, which does
+   * not read it — the gate is about when a cookie EXISTS, not about which
+   * screen wants the answer.)
    */
   const { data: adminStatus } = useAdminStatus(step >= 1);
   const [tmuxLine, setTmuxLine] = useState<string | undefined>(undefined);
@@ -138,7 +148,7 @@ function SetupPage() {
     isLoading: harnessesLoading,
     isError: harnessesError,
     refetch: refetchHarnesses,
-  } = useHarnesses({ refetchInterval: step === 1 && !install.isPending ? 4000 : undefined });
+  } = useHarnesses({ refetchInterval: step === 2 && !install.isPending ? 4000 : undefined });
   const agents = (harnesses ?? []).filter((h) => h.type === "agent-harness");
 
   // Launch step. The form defaults itself (node `local`, a usable agent, the
@@ -280,9 +290,24 @@ function SetupPage() {
     return (
       <SetupAssistant
         key={step}
+        title="Connect a Network"
+        subtitle="Reach this server from your other devices over a network you already use."
+        dots={dotsFor(1)}
+        skip={{ label: "Skip for now", onClick: () => setStep(2) }}
+        primary={{ label: "Continue", onClick: () => setStep(2) }}
+      >
+        <NetworkStep active={step === 1} />
+      </SetupAssistant>
+    );
+  }
+
+  if (step === 2) {
+    return (
+      <SetupAssistant
+        key={step}
         title="Add an Agent"
         subtitle="A plain terminal is always available with nothing to install. Add an agent CLI now, or later in Settings."
-        dots={dotsFor(1)}
+        dots={dotsFor(2)}
         // An install is a `curl … | bash` on this machine that takes tens of
         // seconds. Continuing out from under it left the progress line and any
         // failure on a screen nobody was looking at any more, and the next
@@ -290,7 +315,7 @@ function SetupPage() {
         // bar says what for (operator report, 2026-09-14).
         primary={{
           label: "Continue",
-          onClick: () => setStep(2),
+          onClick: () => setStep(3),
           disabled: busy || install.isPending || installTmux.isPending,
         }}
       >
@@ -357,7 +382,7 @@ function SetupPage() {
       key={step}
       title="Start Your First Subshell"
       subtitle="Everything below is already filled in. Change anything you like."
-      dots={dotsFor(2)}
+      dots={dotsFor(3)}
       skip={{ label: "Skip", onClick: finish, disabled: create.isPending }}
       primary={{
         label: "Start",

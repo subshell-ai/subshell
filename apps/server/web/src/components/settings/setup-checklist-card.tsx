@@ -105,6 +105,9 @@ export function SetupChecklistCard() {
               <p className="font-strong text-label">{item.title}</p>
               <p className="text-detail text-muted-foreground">{item.consequence}</p>
               {item.remedy && <Remedy remedy={item.remedy} autostart={autostart} />}
+              {/* Rendered under the first, not instead of it: two ways out of
+                  one problem, in the order of how much they ask for. */}
+              {item.alternative && <Remedy remedy={item.alternative} autostart={autostart} />}
             </li>
           ))}
         </ul>

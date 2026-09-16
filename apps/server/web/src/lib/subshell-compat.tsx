@@ -56,33 +56,43 @@ const STALE_HEDGE = " (inventory may be outdated)";
  */
 export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | null): ComboboxOption[] {
   return usableFirst(
-    plugins.map((p) => {
-      const opt: ComboboxOption = { value: p.id, label: p.name, disabled: false };
-      // Every option gets a mark: `PluginIcon` draws the plugin's own when it
-      // declares one and a monogram when it does not, so the labels in this
-      // list stay vertically aligned either way.
-      opt.icon = <PluginIcon pluginId={p.id} name={p.name} />;
-      // Server-side refusals first (they hold no matter what the node says),
-      // then the node's own verdict — the precedence is the frozen table's.
-      if (!p.installed) {
-        opt.disabled = true;
-        opt.reason = "not installed on this server";
-      } else if (p.broken !== undefined) {
-        opt.disabled = true;
-        opt.reason = "failed to load";
-      } else if (!p.enabled) {
-        opt.disabled = true;
-        opt.reason = "disabled on this server";
-      } else if (node !== null) {
-        const fit = harnessFitsNode(node, p.id);
-        if (fit !== null) {
+    // Networks are DROPPED, not greyed — the one exception to greyed-never-
+    // hidden, and it is not an exception to the rule so much as a statement
+    // that they were never on the list. Greying exists to say "this agent
+    // could run here, but not right now"; a plugin that drives no pane can
+    // never be launched under any conditions, so a greyed row with a reason
+    // would be inventing a story about a choice that does not exist.
+    plugins
+      .filter((p) => p.type !== "network")
+      .map((p) => {
+        const opt: ComboboxOption = { value: p.id, label: p.name, disabled: false };
+        // Every option gets a mark: `PluginIcon` draws the plugin's own when it
+        // declares one and a monogram when it does not, so the labels in this
+        // list stay vertically aligned either way.
+        opt.icon = <PluginIcon pluginId={p.id} name={p.name} />;
+        // Server-side refusals first (they hold no matter what the node says),
+        // then the node's own verdict — the precedence is the frozen table's.
+        if (!p.installed) {
           opt.disabled = true;
-          opt.reason =
-            fit === "offline" ? "node offline" : `not installed on this node${node.inventoryStale ? STALE_HEDGE : ""}`;
+          opt.reason = "not installed on this server";
+        } else if (p.broken !== undefined) {
+          opt.disabled = true;
+          opt.reason = "failed to load";
+        } else if (!p.enabled) {
+          opt.disabled = true;
+          opt.reason = "disabled on this server";
+        } else if (node !== null) {
+          const fit = harnessFitsNode(node, p.id);
+          if (fit !== null) {
+            opt.disabled = true;
+            opt.reason =
+              fit === "offline"
+                ? "node offline"
+                : `not installed on this node${node.inventoryStale ? STALE_HEDGE : ""}`;
+          }
         }
-      }
-      return opt;
-    }),
+        return opt;
+      }),
     (o) => !o.disabled,
   );
 }
@@ -106,9 +116,14 @@ export function defaultAgentId(
   const usable = options.filter((o) => !o.disabled);
   if (recentHarnessId !== null && usable.some((o) => o.value === recentHarnessId)) return recentHarnessId;
   const typeById = new Map(plugins.map((p) => [p.id, p.type]));
-  // An absent `type` reads as an agent, not a terminal — the client-side
-  // default rule for a payload older than the field (frozen contract).
-  return (usable.find((o) => typeById.get(o.value) !== "terminal") ?? usable[0])?.value ?? null;
+  // Tested POSITIVELY for `agent-harness`, not negatively against
+  // `terminal`. The exclusion was correct while two types existed and became
+  // wrong the moment a third did: a network plugin is not a slower agent, and
+  // "not a terminal" would have made one the headline default. An absent
+  // `type` (a payload older than the field) therefore no longer WINS the
+  // first tier — it still reaches the `usable[0]` fallback below, so nothing
+  // becomes unpickable, it just stops outranking a declared agent.
+  return (usable.find((o) => typeById.get(o.value) === "agent-harness") ?? usable[0])?.value ?? null;
 }
 
 /**

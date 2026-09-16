@@ -3,7 +3,11 @@ import { groupOpen, isNavGroup, visibleNavEntries, visibleNavItems } from "@/com
 
 /**
  * The pages that live inside the admin group (spec 2026-09-11 §2.1, plus the
- * Service page of spec 2026-09-12 §4.1).
+ * Service page of spec 2026-09-12 §4.1 and Networking beside it).
+ *
+ * ORDER is part of the assertion: Networking sits after Service because it
+ * answers the question that page leaves open — Service says where this server
+ * listens, Networking says how anything not on this machine reaches it.
  */
 const GROUP_PAGES = [
   "/settings",
@@ -11,6 +15,7 @@ const GROUP_PAGES = [
   "/settings/api-keys",
   "/settings/plugins",
   "/settings/service",
+  "/settings/networking",
   "/settings/updates",
   "/settings/status",
   "/settings/audit",

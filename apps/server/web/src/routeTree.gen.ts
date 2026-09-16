@@ -23,6 +23,7 @@ import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
 import { Route as SettingsAuditRouteImport } from './routes/settings_.audit'
+import { Route as SettingsNetworkingRouteImport } from './routes/settings_.networking'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
 import { Route as SettingsServiceRouteImport } from './routes/settings_.service'
 import { Route as SettingsStatusRouteImport } from './routes/settings_.status'
@@ -104,6 +105,11 @@ const SettingsAuditRoute = SettingsAuditRouteImport.update({
   path: '/settings/audit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsNetworkingRoute = SettingsNetworkingRouteImport.update({
+  id: '/settings_/networking',
+  path: '/settings/networking',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsPluginsRoute = SettingsPluginsRouteImport.update({
   id: '/settings_/plugins',
   path: '/settings/plugins',
@@ -170,6 +176,7 @@ export interface FileRoutesByFullPath {
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
+  '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
   '/settings/status': typeof SettingsStatusRoute
@@ -196,6 +203,7 @@ export interface FileRoutesByTo {
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/audit': typeof SettingsAuditRoute
+  '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
   '/settings/status': typeof SettingsStatusRoute
@@ -223,6 +231,7 @@ export interface FileRoutesById {
   '/presets_/$id': typeof PresetsIdRoute
   '/settings_/api-keys': typeof SettingsApiKeysRoute
   '/settings_/audit': typeof SettingsAuditRoute
+  '/settings_/networking': typeof SettingsNetworkingRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
   '/settings_/service': typeof SettingsServiceRoute
   '/settings_/status': typeof SettingsStatusRoute
@@ -251,6 +260,7 @@ export interface FileRouteTypes {
     | '/presets/$id'
     | '/settings/api-keys'
     | '/settings/audit'
+    | '/settings/networking'
     | '/settings/plugins'
     | '/settings/service'
     | '/settings/status'
@@ -277,6 +287,7 @@ export interface FileRouteTypes {
     | '/presets/$id'
     | '/settings/api-keys'
     | '/settings/audit'
+    | '/settings/networking'
     | '/settings/plugins'
     | '/settings/service'
     | '/settings/status'
@@ -303,6 +314,7 @@ export interface FileRouteTypes {
     | '/presets_/$id'
     | '/settings_/api-keys'
     | '/settings_/audit'
+    | '/settings_/networking'
     | '/settings_/plugins'
     | '/settings_/service'
     | '/settings_/status'
@@ -330,6 +342,7 @@ export interface RootRouteChildren {
   PresetsIdRoute: typeof PresetsIdRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
   SettingsAuditRoute: typeof SettingsAuditRoute
+  SettingsNetworkingRoute: typeof SettingsNetworkingRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
   SettingsServiceRoute: typeof SettingsServiceRoute
   SettingsStatusRoute: typeof SettingsStatusRoute
@@ -439,6 +452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAuditRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings_/networking': {
+      id: '/settings_/networking'
+      path: '/settings/networking'
+      fullPath: '/settings/networking'
+      preLoaderRoute: typeof SettingsNetworkingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings_/plugins': {
       id: '/settings_/plugins'
       path: '/settings/plugins'
@@ -542,6 +562,7 @@ const rootRouteChildren: RootRouteChildren = {
   PresetsIdRoute: PresetsIdRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
   SettingsAuditRoute: SettingsAuditRoute,
+  SettingsNetworkingRoute: SettingsNetworkingRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,
   SettingsServiceRoute: SettingsServiceRoute,
   SettingsStatusRoute: SettingsStatusRoute,

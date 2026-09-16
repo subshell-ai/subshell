@@ -34,7 +34,7 @@ export type ChecklistRemedy =
    * the route tree: a `to: string` would force a cast at the render site,
    * which is exactly where a route renamed later should fail to compile.
    */
-  | { kind: "link"; to: "/settings/service"; label: string }
+  | { kind: "link"; to: "/settings/service" | "/settings/networking"; label: string }
   | { kind: "link"; to: "/nodes/$id"; params: { id: string }; label: string }
   /**
    * The supervision remedy, passed through from `lib/supervision.ts` so this
@@ -53,6 +53,22 @@ export interface ChecklistItem {
   consequence: string;
   /** How to do it, or null when this build cannot name a way */
   remedy: ChecklistRemedy | null;
+  /**
+   * A SECOND way out, where the same problem has two honest answers.
+   *
+   * One item has that shape and it is the reason this field exists: an
+   * unreachable LAN address is fixed either by naming the address people
+   * will use, or by putting this server on a network that hands it a name —
+   * and the second is now a page rather than a research project. Offering
+   * only the first would send every operator to hand-edit a list of origins
+   * when the machinery to avoid that is one click away; replacing the first
+   * with the second would be worse, since a network is a bigger commitment
+   * than typing a hostname.
+   *
+   * Deliberately not a list: every other item has exactly one way out, and a
+   * `remedies: []` on all five would make four of them read as a menu.
+   */
+  alternative?: ChecklistRemedy;
 }
 
 /**
@@ -158,6 +174,10 @@ export function checklistItems(input: ChecklistInputs): ChecklistItem[] {
       consequence:
         'This server accepts connections from the network, but trusts only its own loopback addresses: a browser on another machine is refused at sign-in with 403 "Invalid origin", which names nothing you could change.',
       remedy: { kind: "link", to: "/settings/service", label: "Addresses" },
+      // The other way out, and often the better one: publishing on a network
+      // writes a reachable origin into config.env as part of the act, so
+      // nobody has to know what an origin is.
+      alternative: { kind: "link", to: "/settings/networking", label: "Or reach it over a network" },
     });
   }
 

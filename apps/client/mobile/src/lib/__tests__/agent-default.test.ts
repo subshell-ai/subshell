@@ -47,9 +47,30 @@ describe("defaultAgentId", () => {
     expect(defaultAgentId([TERMINAL, CLAUDE, CODEX], ALL_INSTALLED, null)).toBe("claude-code");
   });
 
-  it("a missing type (older server) reads as non-terminal, not last", () => {
+  it("a missing type (older server) is still pickable, but no longer outranks a declared agent", () => {
+    // The middle tier reads `=== "agent-harness"` rather than
+    // `!== "terminal"` now, because a third type exists (network) and an
+    // exclusion admitted it. The cost is exactly this: an untyped row loses
+    // the first tier. It keeps the "anything usable" fallback, so nothing
+    // becomes unpickable.
     const legacy: PluginView = { id: "legacy", name: "Legacy", description: "", installed: true, enabled: true };
-    expect(defaultAgentId([TERMINAL, legacy], ALL_INSTALLED, null)).toBe("legacy");
+    expect(defaultAgentId([TERMINAL, legacy], ALL_INSTALLED, null)).toBe("terminal");
+    expect(defaultAgentId([legacy], ALL_INSTALLED, null)).toBe("legacy");
+    expect(defaultAgentId([legacy, CLAUDE], ALL_INSTALLED, null)).toBe("claude-code");
+  });
+
+  it("never picks a network plugin — it drives no pane", () => {
+    const net = plugin({ id: "tailscale", name: "Tailscale", type: "network" });
+    expect(defaultAgentId([net, CLAUDE], ALL_INSTALLED, null)).toBe("claude-code");
+    // Last resort included: a catalog of nothing but networks fills nothing.
+    // (The chips never see one either — `hooks/use-plugins.ts` filters them
+    // out of the catalog, because there is no screen on a phone where a
+    // network belongs.)
+    expect(defaultAgentId([net], ALL_INSTALLED, null)).toBeNull();
+    // Not even as the RECENT pick, which is the one tier that bypasses the
+    // ordering: a subshell's harness id can never be a network's, but the
+    // rule must not be the thing that assumes it.
+    expect(defaultAgentId([net], ALL_INSTALLED, "tailscale")).toBeNull();
   });
 
   it("falls back to the terminal when it is all that is usable", () => {

@@ -11,7 +11,12 @@ export function usePlugins() {
   return useQuery({
     enabled: Boolean(client),
     queryKey: ["plugins"],
-    queryFn: () => client?.plugins(),
+    // Networks are filtered out HERE rather than at the chips, because there
+    // is no screen on a phone where one belongs: joining a network is an act
+    // on the server's own machine, and this catalog is read for one purpose —
+    // which agent to launch. A network row reaching the Agent chips would be
+    // an unlaunchable choice.
+    queryFn: async () => (await client?.plugins())?.filter((plugin) => plugin.type !== "network"),
     staleTime: 60_000,
   });
 }

@@ -4,8 +4,17 @@
  * fields the New screen's Agent chips and the default rule read.
  */
 
-/** Manifest plugin type: an agent CLI, or a plain shell (spec 2026-09-13 §4). */
-export type PluginType = "agent-harness" | "terminal";
+/**
+ * Manifest plugin type: an agent CLI, a plain shell (spec 2026-09-13 §4), or
+ * a NETWORK — a plugin that connects a control plane to a private network and
+ * drives no pane at all.
+ *
+ * Mobile has no network surface and never will have one from here: joining a
+ * network is an act on the SERVER's machine. The type exists in this union so
+ * the catalog can be FILTERED by it (`hooks/use-plugins.ts`), not so anything
+ * on a phone can render it.
+ */
+export type PluginType = "agent-harness" | "terminal" | "network";
 
 /** One plugin as the instance list returns it. */
 export interface PluginView {

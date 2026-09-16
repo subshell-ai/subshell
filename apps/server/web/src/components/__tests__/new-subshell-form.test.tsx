@@ -63,7 +63,7 @@ function node(overrides: Partial<Node>): Node {
 function plugin(p: {
   id: string;
   name?: string;
-  type?: "agent-harness" | "terminal";
+  type?: "agent-harness" | "terminal" | "network";
   installed?: boolean;
   enabled?: boolean;
 }): InstancePluginRow {
@@ -96,7 +96,11 @@ function preset(p: { id: string; harnessId: string; name?: string }) {
 
 const CLAUDE_ON = { harnessId: "claude-code", name: "Claude Code", installed: true };
 const TERM_ON = { harnessId: "terminal", name: "Terminal", installed: true };
-const CLAUDE = plugin({ id: "claude-code", name: "Claude Code" });
+// Typed, because the default rule tests for `agent-harness` POSITIVELY now
+// (a network plugin is neither an agent nor a terminal, so "not terminal"
+// stopped meaning "an agent"). An untyped row is still pickable; it just no
+// longer outranks Terminal, which is what this fixture is about.
+const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", type: "agent-harness" });
 const TERM = plugin({ id: "terminal", name: "Terminal", type: "terminal" });
 
 const LOCAL = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [CLAUDE_ON] });
@@ -277,7 +281,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
     });
     const restore = mockFetch(
       [host],
-      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
       [],
       [
         { id: "s1", harnessId: "claude-code", createdAt: "2026-09-01T00:00:00.000Z" },
@@ -297,7 +301,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
     // the recents rule releases rather than parking the form on a refusal.
     const restore = mockFetch(
       [LOCAL],
-      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
       [],
       [{ id: "s2", harnessId: "pi", createdAt: "2026-09-12T00:00:00.000Z" }],
     );
@@ -328,7 +332,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
     });
     const restore = mockFetch(
       [host],
-      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
       [],
       [{ id: "s2", harnessId: "pi", createdAt: "2026-09-12T00:00:00.000Z" }],
       undefined,
@@ -403,7 +407,7 @@ describe("NewSubshellForm preset row", () => {
   it("lists None first and keeps a foreign preset from surviving the guard", async () => {
     const restore = mockFetch(
       [LOCAL, AGENT_ONLINE],
-      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
       [
         preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
         preset({ id: "p-pi", harnessId: "pi", name: "Pi one" }),
@@ -490,7 +494,7 @@ describe("NewSubshellForm preset row", () => {
     });
     const restore = mockFetch(
       [host, AGENT_ONLINE],
-      [CLAUDE, plugin({ id: "pi", name: "Pi" })],
+      [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
       [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
     );
     try {

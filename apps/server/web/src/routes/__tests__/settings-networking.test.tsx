@@ -1,0 +1,206 @@
+import { afterEach, describe, expect, it } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { Route } from "@/routes/settings_.networking";
+import type { NetworkRow } from "@/types/network";
+
+/**
+ * Server Settings → Networking.
+ *
+ * The page itself is thin — a gate, a list, and one card that offers what
+ * this build ships — so these tests are about the gate and the composition.
+ * What a row can DO is the card's own suite
+ * (`components/__tests__/network-plugin-card.test.tsx`).
+ */
+
+interface PageFixture {
+  admin: boolean;
+  networks?: NetworkRow[];
+  /** What GET /api/plugins answers — the "Add a network" card's source */
+  plugins?: unknown[];
+  /** Fail GET /api/network with this status */
+  failStatus?: number;
+}
+
+function network(over: Partial<NetworkRow> & { id: string; name: string }): NetworkRow {
+  return {
+    description: "",
+    exposure: "private",
+    platforms: ["darwin", "linux"],
+    supported: true,
+    enabled: true,
+    interactiveLogin: true,
+    privileged: [],
+    settingsFields: [],
+    settings: {},
+    published: false,
+    status: { state: "needs-login", addresses: [], hints: [] },
+    ...over,
+  };
+}
+
+interface Call {
+  method: string;
+  pathname: string;
+  body?: string;
+}
+
+function mockServer(fx: PageFixture) {
+  const calls: Call[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    const method = init?.method ?? "GET";
+    calls.push({ method, pathname: url.pathname, body: init?.body as string | undefined });
+    const json = (obj: unknown) => Promise.resolve(new Response(JSON.stringify(obj)));
+    if (url.pathname === "/api/settings/public") {
+      return json({
+        allowRegistrations: false,
+        emergencyLoginActive: false,
+        instanceName: "test",
+        appBaseUrl: "http://localhost:3080",
+        viewerIsAdmin: fx.admin,
+        serverVersion: "1.6.0",
+      });
+    }
+    if (url.pathname === "/api/network") {
+      if (fx.failStatus) {
+        return Promise.resolve(new Response(JSON.stringify({ message: "nope" }), { status: fx.failStatus }));
+      }
+      return json({ networks: fx.networks ?? [] });
+    }
+    if (url.pathname === "/api/plugins") return json({ plugins: fx.plugins ?? [] });
+    return json({});
+  }) as typeof fetch;
+  return { calls, restore: () => (globalThis.fetch = original) };
+}
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const rootRoute = createRootRoute({
+    component: () => (
+      <ConfirmProvider>
+        <Outlet />
+      </ConfirmProvider>
+    ),
+  });
+  const page = Route.update({
+    id: "/settings_/networking",
+    path: "/settings/networking",
+    getParentRoute: () => rootRoute,
+  } as never);
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([page]),
+    history: createMemoryHistory({ initialEntries: ["/settings/networking"] }),
+    defaultPreload: false,
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+}
+
+afterEach(cleanup);
+
+describe("the networking page", () => {
+  it("lists one card per network for an admin", async () => {
+    const m = mockServer({
+      admin: true,
+      networks: [network({ id: "tailscale", name: "Tailscale" }), network({ id: "netbird", name: "NetBird" })],
+    });
+    try {
+      renderPage();
+      expect(await screen.findByRole("group", { name: "Tailscale" })).toBeTruthy();
+      expect(screen.getByRole("group", { name: "NetBird" })).toBeTruthy();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("shows a member nothing and asks the server for nothing", async () => {
+    // Every route in this group 403s a member, the READ included — so an
+    // `enabled`-gated query is the difference between a quiet page and a
+    // doomed request on every mount.
+    const m = mockServer({ admin: false, networks: [network({ id: "tailscale", name: "Tailscale" })] });
+    try {
+      renderPage();
+      expect(await screen.findByText(/Networking is for instance admins/)).toBeTruthy();
+      expect(screen.queryByRole("group", { name: "Tailscale" })).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(m.calls.some((c) => c.pathname === "/api/network")).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("offers a Retry when the read fails, and nothing else pretends to work", async () => {
+    const m = mockServer({ admin: true, failStatus: 500 });
+    try {
+      renderPage();
+      expect(await screen.findByText(/Could not load this server's networks/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("offers the networks this build ships that the instance has not installed", async () => {
+    const m = mockServer({
+      admin: true,
+      plugins: [
+        {
+          id: "netbird",
+          name: "NetBird",
+          description: "",
+          installed: false,
+          enabled: true,
+          builtIn: true,
+          type: "network",
+        },
+        // Neither of these belongs on this page: one is already in the store,
+        // the other is not a network at all.
+        {
+          id: "tailscale",
+          name: "Tailscale",
+          description: "",
+          installed: true,
+          enabled: true,
+          builtIn: true,
+          type: "network",
+        },
+        {
+          id: "claude-code",
+          name: "Claude Code",
+          description: "",
+          installed: false,
+          enabled: true,
+          builtIn: true,
+          type: "agent-harness",
+        },
+      ],
+    });
+    try {
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Install NetBird" }));
+      await waitFor(() => expect(m.calls.some((c) => c.method === "POST" && c.pathname === "/api/plugins")).toBe(true));
+      expect(screen.queryByRole("button", { name: "Install Claude Code" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Install Tailscale" })).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("says nothing about adding a network when there is nothing to add", async () => {
+    const m = mockServer({ admin: true, plugins: [] });
+    try {
+      renderPage();
+      await screen.findByText("Networking");
+      expect(screen.queryByText("Add a network")).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+});

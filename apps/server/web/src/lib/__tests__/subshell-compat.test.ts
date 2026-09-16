@@ -47,7 +47,7 @@ function plugin(p: {
   installed?: boolean;
   enabled?: boolean;
   broken?: string;
-  type?: "agent-harness" | "terminal";
+  type?: "agent-harness" | "terminal" | "network";
   icon?: string;
 }): LaunchAgent {
   const row: InstancePluginRow = {
@@ -63,9 +63,11 @@ function plugin(p: {
   };
   return row;
 }
-const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", icon: "icon.svg" });
-const PI = plugin({ id: "pi", name: "Pi" });
+const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", type: "agent-harness", icon: "icon.svg" });
+const PI = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
 const TERM = plugin({ id: "terminal", name: "Terminal", type: "terminal" });
+/** A network plugin: it drives no pane, so it is not a launch option at all. */
+const NET = plugin({ id: "tailscale", name: "Tailscale", type: "network" });
 
 describe("harnessFitsNode", () => {
   it("fits when the node declared the plugin and its program was found", () => {
@@ -189,17 +191,31 @@ describe("defaultAgentId", () => {
     const options = buildAgentOptions(plugins, HERE);
     expect(defaultAgentId(options, plugins, "gone")).toBe("claude-code");
   });
-  it("falls to the first usable NON-terminal agent even when Terminal ranks first", () => {
+  it("falls to the first usable agent harness even when Terminal ranks first", () => {
     // The default rule of spec 2026-09-13 §5: a plain shell is a fallback,
     // not the headline, whatever order the catalog happens to arrive in.
     // (Both usable here: no node, so nothing greys.)
     const plugins = [TERM, CLAUDE];
     expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("claude-code");
   });
-  it("a plugin with no type reads as an agent, not a terminal", () => {
-    // Older payload without the field: nothing is deprioritized.
-    const plugins = [plugin({ id: "mystery", name: "Mystery" })];
-    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("mystery");
+  it("a plugin with no type is still pickable, but no longer outranks a declared agent", () => {
+    // The rule reads `=== "agent-harness"` rather than `!== "terminal"` now,
+    // because a third type exists and an exclusion admitted it. The cost is
+    // this: an older server's untyped row loses the first tier. It keeps the
+    // fallback, so nothing becomes unpickable.
+    const alone = [plugin({ id: "mystery", name: "Mystery" })];
+    expect(defaultAgentId(buildAgentOptions(alone, null), alone, null)).toBe("mystery");
+    const withAgent = [plugin({ id: "mystery", name: "Mystery" }), CLAUDE];
+    expect(defaultAgentId(buildAgentOptions(withAgent, null), withAgent, null)).toBe("claude-code");
+  });
+  it("never defaults to a network plugin — it is not on the list to begin with", () => {
+    // Both halves matter: the option list drops it, so `defaultAgentId`
+    // cannot see it even as a last resort, and a catalog of nothing but
+    // networks fills nothing rather than filling a plugin that drives no pane.
+    const plugins = [NET, CLAUDE];
+    expect(buildAgentOptions(plugins, null).map((o) => o.value)).toEqual(["claude-code"]);
+    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("claude-code");
+    expect(defaultAgentId(buildAgentOptions([NET], null), [NET], null)).toBeNull();
   });
   it("when only Terminal is usable, Terminal is the default", () => {
     const plugins = [plugin({ id: "claude-code", name: "Claude Code", installed: false }), TERM];

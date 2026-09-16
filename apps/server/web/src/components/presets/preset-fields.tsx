@@ -133,7 +133,12 @@ export function PresetFields({
                       ? "Loading agents…"
                       : pluginsFailed
                         ? "Couldn't load agents."
-                        : (plugins ?? []).length === 0
+                        : // The OPTIONS, not the catalog: a network plugin is
+                          // installed and is not an agent, so an instance
+                          // holding one and no agent has a full catalog and an
+                          // empty picker — which read as "Choose an agent"
+                          // above a list with nothing in it.
+                          agentOptions.length === 0
                           ? "No agent installed"
                           : "Choose an agent"
                   }

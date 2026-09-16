@@ -8,8 +8,14 @@ export interface HarnessInfo {
   id: string;
   /** Human-readable name, e.g. "Claude Code" */
   name: string;
-  /** Manifest plugin type: an agent CLI or a plain shell */
-  type: "agent-harness" | "terminal";
+  /**
+   * Manifest plugin type: an agent CLI, a plain shell, or a network — a
+   * plugin that connects this control plane to a private network and drives
+   * no pane. Every surface that lists agents tests for `agent-harness`
+   * POSITIVELY, because an exclusion (`!== "terminal"`) admits every type
+   * added after it was written.
+   */
+  type: "agent-harness" | "terminal" | "network";
   /** Executable command name, e.g. "claude" — what a launch command starts with */
   binary: string;
   /** Environment variable that overrides binary lookup, e.g. "CLAUDE_PATH"; "" when the plugin declares no detection */

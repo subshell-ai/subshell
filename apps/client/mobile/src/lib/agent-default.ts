@@ -16,9 +16,15 @@ import type { SubshellView } from "@/types/subshell";
  * stays the backstop for the race.
  *
  * The order: the harness of the user's most recent subshell while usable →
- * the first usable NON-terminal agent (the manifest `type` puts Terminal
- * last; a missing `type` from an older server reads as non-terminal, the same
- * old-build posture as `canLaunch`) → anything usable → null.
+ * the first usable plugin whose type IS `agent-harness` → anything usable →
+ * null.
+ *
+ * That middle tier is a positive test, not the old `!== "terminal"`. The
+ * exclusion was right while two types existed and became wrong the moment a
+ * third did — a network plugin drives no pane, and "not a terminal" would
+ * have made one the headline default. A missing `type` (an older server) no
+ * longer wins that tier; it still reaches the "anything usable" fallback, so
+ * nothing becomes unpickable.
  *
  * @param plugins - the instance catalog (`GET /api/plugins`)
  * @param nodeHarnessInstalled - whether the SELECTED node reports this
@@ -31,13 +37,19 @@ export function defaultAgentId(
   nodeHarnessInstalled: (harnessId: string) => boolean,
   recentHarnessId: string | null,
 ): string | null {
-  const usable = (p: PluginView) => p.installed && p.enabled && !p.broken && nodeHarnessInstalled(p.id);
+  // A network plugin is not "an agent that cannot run here" — it drives no
+  // pane at all, so it is not usable under any conditions and never reaches
+  // the last-resort tier below. The catalog read already filters these out
+  // (`hooks/use-plugins.ts`); this is the rule itself being true rather than
+  // relying on its one caller.
+  const usable = (p: PluginView) =>
+    p.type !== "network" && p.installed && p.enabled && !p.broken && nodeHarnessInstalled(p.id);
   if (recentHarnessId) {
     const recent = plugins.find((p) => p.id === recentHarnessId);
     if (recent && usable(recent)) return recent.id;
   }
   const usableAgents = plugins.filter(usable);
-  return usableAgents.find((p) => p.type !== "terminal")?.id ?? usableAgents[0]?.id ?? null;
+  return usableAgents.find((p) => p.type === "agent-harness")?.id ?? usableAgents[0]?.id ?? null;
 }
 
 /**
