@@ -33,7 +33,7 @@ import type { HarnessPlugin } from "./types.js";
  *
  * **Construction is lazy and contained**, per `.claude/rules/code-style.md`
  * ("Construct lazily, never at import"). Building the list at module scope
- * would run six factories during the evaluation of anything that imports
+ * would run every factory during the evaluation of anything that imports
  * this, so one plugin throwing would take `subshell-server` and `subshell`
  * down at boot rather than being reported and skipped. That is the same fault
  * boundary the disk loader gives, and there is no reason a built-in should
