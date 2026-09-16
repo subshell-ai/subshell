@@ -3,10 +3,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { AddNetworkCard } from "@/components/networking/add-network-card";
 import { PageHeader } from "@/components/page-header";
-import { NETWORK_STATE_LEGEND, NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
+import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
 import { Button } from "@/components/ui/button";
 import { NETWORK_MUTATION_KEY, NETWORK_QUERY_KEY, useNetwork } from "@/hooks/use-network";
 import { usePublicSettings } from "@/hooks/use-public-settings";
+import { useServerDeployment } from "@/hooks/use-server-deployment";
+import { baseUrlLine } from "@/lib/network-base-url";
 import type { NetworkList, NetworkRow } from "@/types/network";
 
 export const Route = createFileRoute("/settings_/networking")({ component: NetworkingPage });
@@ -74,6 +76,22 @@ function NetworkingPage() {
     isAdmin,
     acting || awaitingLogin(cached?.networks) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
   );
+  // The base URL's SAVED value, for the "what am I addressed as" line.
+  // 60 s, not this hook's 5 s default, for the `/settings/status` Locations
+  // card's reason: every read of `/api/admin/server` runs the service-manager
+  // and port probes synchronously in the server process, and nothing this
+  // page does changes the saved value more often than a publish — which
+  // invalidates this key itself (see use-network), so the line moves the
+  // moment the act that moves it completes.
+  const deployment = useServerDeployment(isAdmin, 60_000);
+  // `settings?.` because a server older than the view sends `{}` where the
+  // type says a full record — this page must degrade to no pending half, not
+  // to a crash, exactly the rule `use-public-settings` follows.
+  const base = baseUrlLine(
+    publicSettings?.appBaseUrl,
+    deployment.data?.settings?.APP_BASE_URL?.saved,
+    data?.networks ?? [],
+  );
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
@@ -101,19 +119,31 @@ function NetworkingPage() {
               WHO is here (name, state chip) and Configure opens the card.
               The difference is only what expands — here it is the whole
               card, fields and supervisor detail included. */}
+          {/* Where this server says it lives, and which network's address
+              that is — the value every card's promote checkbox competes for,
+              printed once on the page that shows the cards. A saved change
+              names itself as pending rather than pretending the boot-time
+              constants have moved: the restart notice on the publishing card
+              is what actually moves it. */}
+          {base && (
+            <p className="text-detail text-muted-foreground">
+              This server's address: <span className="font-mono">{base.running}</span>
+              {base.runningOn ? ` — over ${base.runningOn}` : ""}.
+              {base.pending !== null && (
+                <>
+                  {" "}
+                  Saved for the next restart: <span className="font-mono">{base.pending}</span>
+                  {base.pendingOn ? ` — over ${base.pendingOn}` : ""}.
+                </>
+              )}
+            </p>
+          )}
           {data && data.networks.length > 0 && (
-            <>
-              {/* The wizard's step and this page show the same chips, so they
-                  say what those chips mean in one sentence owned by the file
-                  that renders them — a second copy here would be a second
-                  definition to drift from. */}
-              <p className="text-detail text-muted-foreground">{NETWORK_STATE_LEGEND}</p>
-              <ul className="space-y-3">
-                {data.networks.map((row) => (
-                  <NetworkRowItem key={row.id} row={row} full />
-                ))}
-              </ul>
-            </>
+            <ul className="space-y-3">
+              {data.networks.map((row) => (
+                <NetworkRowItem key={row.id} row={row} full />
+              ))}
+            </ul>
           )}
           <AddNetworkCard />
         </>

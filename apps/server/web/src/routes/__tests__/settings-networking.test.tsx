@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { NETWORK_STATE_LEGEND } from "@/components/setup/network-row";
+import { deploymentView, setting } from "@/components/__tests__/helpers/deployment-view";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { awaitingLogin, Route } from "@/routes/settings_.networking";
 import type { NetworkRow, NetworkStatus } from "@/types/network";
+import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
  * Server Settings → Networking.
@@ -23,6 +24,10 @@ interface PageFixture {
   plugins?: unknown[];
   /** Fail GET /api/network with this status */
   failStatus?: number;
+  /** Override GET /api/settings/public's appBaseUrl (the RUNNING base URL) */
+  appBaseUrl?: string;
+  /** Override the deployment view — its APP_BASE_URL entry is the SAVED one */
+  deployment?: ServerDeployment;
 }
 
 function network(over: Partial<NetworkRow> & { id: string; name: string }): NetworkRow {
@@ -63,11 +68,15 @@ function mockServer(fx: PageFixture) {
         allowRegistrations: false,
         emergencyLoginActive: false,
         instanceName: "test",
-        appBaseUrl: "http://localhost:3080",
+        appBaseUrl: fx.appBaseUrl ?? "http://localhost:3080",
         viewerIsAdmin: fx.admin,
         serverVersion: "1.6.0",
       });
     }
+    // The page mounts `useServerDeployment` for the saved base URL. A `{}`
+    // for it is survivable (the page reads `settings?.`), but the pending-
+    // half tests need the real shape, so it answers properly by default.
+    if (url.pathname === "/api/admin/server") return json(fx.deployment ?? deploymentView());
     if (url.pathname === "/api/network") {
       if (fx.failStatus) {
         return Promise.resolve(new Response(JSON.stringify({ message: "nope" }), { status: fx.failStatus }));
@@ -138,32 +147,77 @@ describe("the networking page", () => {
     }
   });
 
-  it("defines the two chips above the rows, in the wizard's words", async () => {
-    // "Joined" and "Published" look like synonyms for a status colour and are
-    // not — one of them is the difference between a dashboard that opens over
-    // the network and one that 403s on sign-in. The sentence belongs to
-    // `network-row.tsx`, which owns the chips, so this asserts the shared
-    // constant rather than retyping it: a second definition would be a second
-    // sentence to drift from the wizard's.
-    const m = mockServer({ admin: true, networks: [network({ id: "tailscale", name: "Tailscale" })] });
+  it("names the running base URL and the network whose address it is", async () => {
+    // The base URL is one value every card competes to set, so the page that
+    // lists the cards prints the answer and names which network's address list
+    // contains it — the promotion's whole point, stated where it can be seen.
+    const tailnet = "http://box.tail1234.ts.net:3080";
+    const m = mockServer({
+      admin: true,
+      appBaseUrl: tailnet,
+      // Saved EQUALS running — the no-pending case. Left at the helper's
+      // localhost default it would disagree with the running tailnet URL and
+      // correctly render the pending clause, failing the wrong assertion.
+      deployment: deploymentView({ APP_BASE_URL: setting(tailnet) }),
+      networks: [
+        network({
+          id: "tailscale",
+          name: "Tailscale",
+          status: {
+            state: "published",
+            addresses: [{ url: tailnet, scheme: "http", label: "MagicDNS", secureContext: false }],
+            hints: [],
+          },
+        }),
+      ],
+    });
     try {
       renderPage();
-      expect(await screen.findByText(NETWORK_STATE_LEGEND)).toBeTruthy();
+      expect(await screen.findByText(/This server's address/)).toBeTruthy();
+      expect(screen.getByText(/— over Tailscale/)).toBeTruthy();
+      // Nothing saved-but-not-running, so no pending clause.
+      expect(screen.queryByText(/Saved for the next restart/)).toBeNull();
     } finally {
       m.restore();
     }
   });
 
-  it("explains nothing when there is no chip to explain", async () => {
-    const m = mockServer({ admin: true, networks: [] });
+  it("prints a saved base URL as pending the restart, not as the running one", async () => {
+    // The constants are read at boot, so a fresh promote is SAVED, not live.
+    // Showing it as the address would promise sign-in works over NetBird when
+    // it does not yet; the line names the running one and flags the pending.
+    const running = "http://box.tail1234.ts.net:3080";
+    const pending = "http://nb.disaresta.internal:3080";
+    const m = mockServer({
+      admin: true,
+      appBaseUrl: running,
+      deployment: deploymentView({ APP_BASE_URL: { saved: pending, source: "config.env", running } }),
+      networks: [
+        network({
+          id: "tailscale",
+          name: "Tailscale",
+          status: {
+            state: "published",
+            addresses: [{ url: running, scheme: "http", label: "MagicDNS", secureContext: false }],
+            hints: [],
+          },
+        }),
+        network({
+          id: "netbird",
+          name: "NetBird",
+          status: {
+            state: "joined",
+            addresses: [{ url: pending, scheme: "http", label: "NetBird IP", secureContext: false }],
+            hints: [],
+          },
+        }),
+      ],
+    });
     try {
       renderPage();
-      // Settled rather than merely mounted: an unanswered read has no rows
-      // either, so a legend absent at t=0 would prove nothing. The list
-      // answering with NOTHING is the case being asserted.
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(m.calls.some((c) => c.pathname === "/api/network")).toBe(true);
-      expect(screen.queryByText(NETWORK_STATE_LEGEND)).toBeNull();
+      expect(await screen.findByText(/This server's address/)).toBeTruthy();
+      expect(screen.getByText(/Saved for the next restart/)).toBeTruthy();
+      expect(screen.getByText(/— over NetBird/)).toBeTruthy();
     } finally {
       m.restore();
     }

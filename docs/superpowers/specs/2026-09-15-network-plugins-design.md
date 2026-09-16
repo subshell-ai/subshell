@@ -1175,6 +1175,29 @@ refusal is the safe default until someone builds and tests the re-derive.
   including WHATWG `URL.hostname` keeping brackets on IPv6, caught by its own
   test).
 
+- **The page states the server's address; the legend that explained the states
+  is gone (amended 2026-09-16, operator read of the finished page).** Two
+  halves of one request. The sentence above the network lists — "Joined means
+  this machine is on the network. Published means…" — was deleted rather than
+  reworded: by this point the cards and the publish section explain that
+  difference where the states actually appear, and a definition read once
+  above a list of rows explains a legend nobody consults. What the page prints
+  instead is the answer every card's promote checkbox competes for, in one
+  line: the address the server is RUNNING as and which network's address list
+  contains it ("This server's address: http://box… — over Tailscale"), plus a
+  second clause only when a saved promote has not taken effect yet
+  ("Saved for the next restart: …"). The split is honest about the mechanism —
+  `APP_BASE_URL` is a boot-time constant, which is exactly why the publish
+  flow's `restartRequired` is always true — and the line reads the SAVED value
+  from the deployment view at 60 s, the `/settings/status` Locations card's
+  reason: `/api/admin/server` runs its service and port probes synchronously,
+  and the publish mutation already invalidates that key, so the pending half
+  appears the moment the act that writes it lands. The attribution is a pure
+  function, `lib/network-base-url.ts`, comparing ORIGINS not strings (a serve
+  address carries `:3080`, a base URL usually does not) and attributing
+  nothing when no address list claims the origin or the stored value will not
+  parse.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,

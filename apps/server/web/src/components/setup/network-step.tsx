@@ -1,5 +1,5 @@
 import { ErrorBanner } from "@/components/error-banner";
-import { NETWORK_STATE_LEGEND, NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
+import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
 import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/hooks/use-network";
 import type { NetworkRow } from "@/types/network";
@@ -79,17 +79,11 @@ export function NetworkStep({ active }: { active: boolean }) {
         />
       )}
       {rows.length > 0 && (
-        <>
-          {/* These rows carry two green chips, and the difference between them
-              is the whole point of this step. Said once, above the list, in
-              the words the constant that owns the chips exports. */}
-          <p className="text-detail text-muted-foreground">{NETWORK_STATE_LEGEND}</p>
-          <ul>
-            {rows.map((row) => (
-              <NetworkRowItem key={row.id} row={row} />
-            ))}
-          </ul>
-        </>
+        <ul>
+          {rows.map((row) => (
+            <NetworkRowItem key={row.id} row={row} />
+          ))}
+        </ul>
       )}
       {data !== undefined && networks.length === 0 && (
         <p className="text-muted-foreground text-sm">

@@ -86,19 +86,6 @@ export function NetworkRow({ row, full = false }: { row: NetworkRowData; full?: 
 }
 
 /**
- * What the two green chips mean.
- *
- * "Joined" and "Published" are words the product cannot drop — they name two
- * real and different states, and a machine that is on the network is not a
- * machine whose dashboard opens over it. So the list that shows them defines
- * them, once, above the rows. It lives here because this file owns the chip
- * words, and it is ONE constant because two surfaces rendering two sentences
- * is how they start to disagree.
- */
-export const NETWORK_STATE_LEGEND =
-  "Joined means this machine is on the network. Published means your other devices can open this dashboard over it.";
-
-/**
  * The state chip's text and colour for one network.
  *
  * Derived from the row in the same order {@link NetworkPluginCard} derives

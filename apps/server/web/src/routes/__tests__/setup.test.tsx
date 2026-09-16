@@ -591,19 +591,6 @@ describe("setup wizard: the Network step", () => {
     await waitFor(() => expect(screen.getByText("Add an Agent")).toBeTruthy());
   });
 
-  it("says what the two green chips mean, above the rows that show them", async () => {
-    // Joined = this machine is reachable; Published = this dashboard opens
-    // over the network. The step exists to get a person to the second, so a
-    // row reading "Joined" next to one reading "Published" with no sentence
-    // anywhere is the exact confusion this screen cannot afford.
-    await renderSetup({ networks: [network({ id: "tailscale", name: "Tailscale", state: "joined" })] }, 1);
-    expect(
-      await screen.findByText(
-        "Joined means this machine is on the network. Published means your other devices can open this dashboard over it.",
-      ),
-    ).toBeTruthy();
-  });
-
   it("renders every network as a collapsed row with a state chip", async () => {
     await renderSetup(
       {
@@ -679,9 +666,6 @@ describe("setup wizard: the Network step", () => {
   it("says so plainly when this build ships no networks at all", async () => {
     await renderSetup({}, 1);
     expect(await screen.findByText(/ships no network plugins/)).toBeTruthy();
-    // The legend belongs to the rows: with nothing listed, defining two words
-    // nobody can see is a paragraph about another screen.
-    expect(screen.queryByText(/^Joined means this machine is on the network/)).toBeNull();
   });
 });
 
