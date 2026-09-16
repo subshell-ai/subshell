@@ -523,106 +523,125 @@ export function NetworkPluginCard({
                   To connect for the first time, paste it into the Connect box below.
                 </p>
               )}
-              {/* HOW TO JOIN IS A MODE CHOICE, and it now reads as one
-                  (amended 2026-09-16, on the operator's live Headscale card).
-                  The two mutually exclusive paths used to be a credential box
-                  above two sibling buttons, which got both halves wrong: the
-                  OPTIONAL path's empty box read as a required field, and two
-                  buttons side by side read as related-but-different acts on one
-                  form rather than as one-or-the-other. Now one control carries
-                  the choice and exactly one panel sits under it — a thing that
-                  is absent until you ask for it cannot be misread as a thing you
-                  have to fill in.
+              {/* THE CHOICE AND ITS PANEL ARE ONE UNIT (the operator's second
+                  read of the live Headscale card, 2026-09-16). A pill strip
+                  with content loose beneath it reads as a widget floating above
+                  orphaned text, so the control, the refusal line and whichever
+                  panel is up share one border — the same bounded-control
+                  language the sign-in-link block below already uses. A
+                  single-path plugin has nothing to scope, so for it the wrapper
+                  is the plain flow it always was: the box appears exactly where
+                  there is a choice to scope.
 
-                  `Segmented` rather than a tab strip because it is this app's
-                  established mode switch (the tiled/list toggle, the
-                  add-subshell dialog, the split-placement picker) and this is
-                  the same kind of thing: two ways to do ONE act, not two pages.
-                  "Sign in" is the default because the human sitting at this page
-                  is the common case; a pasted key is what an automation or a
-                  headless host brings.
+                  No visible caption above the pills: `Segmented` names the
+                  group for a screen reader already ("How to connect"), so a
+                  heading saying it again is the same words read twice, and the
+                  pills name the two ways in the vendors' own verbs. The border
+                  is what makes it one unit; the panel sentence says what the
+                  chosen one does. */}
+              <div className={row.interactiveLogin ? "join-group space-y-3 rounded-md border p-4" : "space-y-3"}>
+                {/* HOW TO JOIN IS A MODE CHOICE, and it now reads as one
+                    (amended 2026-09-16, on the operator's live Headscale card).
+                    The two mutually exclusive paths used to be a credential box
+                    above two sibling buttons, which got both halves wrong: the
+                    OPTIONAL path's empty box read as a required field, and two
+                    buttons side by side read as related-but-different acts on one
+                    form rather than as one-or-the-other. Now one control carries
+                    the choice and exactly one panel sits under it — a thing that
+                    is absent until you ask for it cannot be misread as a thing you
+                    have to fill in.
 
-                  A single-path plugin gets no choice at all — one road does not
-                  need a fork drawn on it. */}
-              {row.interactiveLogin && (
-                <Segmented
-                  ariaLabel="How to connect"
-                  options={[
-                    { value: "signin", label: "Sign in" },
-                    { value: "key", label: `Use ${credentialLabel}` },
-                  ]}
-                  value={joinMode}
-                  onChange={setJoinMode}
-                />
-              )}
-              {/* A single-path plugin's box keeps its seat ABOVE the blocker,
-                  exactly where it sat before the choice existed; an interactive
-                  row's box lives inside the key panel, below it, because there
-                  the blocker explains the CHOICE and has to sit where both
-                  panels read under it. */}
-              {row.interactiveLogin ? null : credentialBox}
-              {/* The server refuses EITHER join while a required setting is
-                  unset, so this gates both paths and both buttons. Attached
-                  rather than merely placed above: both are disabled, and a
-                  screen reader skips disabled controls — the people most likely
-                  to wonder why reach a bare paragraph least. Same pattern the
-                  settings form uses for its own disabled reason. */}
-              {blocker && (
-                <p id={blockerId} className="text-detail text-muted-foreground">
-                  {blocker}
-                </p>
-              )}
-              {row.interactiveLogin && joinMode === "signin" ? (
-                <div className="space-y-1.5">
-                  {/* Not "opens … in a new tab": nothing here opens a tab. The
-                      press ASKS the vendor, the link arrives on this card, and
-                      the person opens it wherever they are — possibly on
-                      another device, which is why the link below is copyable
-                      and its code set in large type. A promise this control
-                      cannot keep would be the same defect as the empty box
-                      that read as required. */}
-                  <p className="text-detail text-muted-foreground">
-                    Asks {row.name} for a sign-in link to open in your browser. This card updates when you are done.
+                    `Segmented` rather than a tab strip because it is this app's
+                    established mode switch (the tiled/list toggle, the
+                    add-subshell dialog, the split-placement picker) and this is
+                    the same kind of thing: two ways to do ONE act, not two pages.
+                    "Sign in" is the default because the human sitting at this page
+                    is the common case; a pasted key is what an automation or a
+                    headless host brings.
+
+                    A single-path plugin gets no choice at all — one road does not
+                    need a fork drawn on it. */}
+                {row.interactiveLogin && (
+                  <Segmented
+                    ariaLabel="How to connect"
+                    className="w-fit"
+                    options={[
+                      { value: "signin", label: "Sign in" },
+                      { value: "key", label: `Use ${credentialLabel}` },
+                    ]}
+                    value={joinMode}
+                    onChange={setJoinMode}
+                  />
+                )}
+                {/* A single-path plugin's box keeps its seat ABOVE the blocker,
+                    exactly where it sat before the choice existed; an interactive
+                    row's box lives inside the key panel, below it, because there
+                    the blocker explains the CHOICE and has to sit where both
+                    panels read under it. */}
+                {row.interactiveLogin ? null : credentialBox}
+                {/* The server refuses EITHER join while a required setting is
+                    unset, so this gates both paths and both buttons. Attached
+                    rather than merely placed above: both are disabled, and a
+                    screen reader skips disabled controls — the people most likely
+                    to wonder why reach a bare paragraph least. Same pattern the
+                    settings form uses for its own disabled reason. */}
+                {blocker && (
+                  <p id={blockerId} className="text-detail text-muted-foreground">
+                    {blocker}
                   </p>
-                  {/* Not a second act but one `join` with an EMPTY body: that is
-                      what asks the vendor for a URL instead of presenting a key.
-                      Primary-styled like its sibling in the other panel — they
-                      are two answers to one question, and neither is the
-                      secondary thing now that only one of them is on screen. */}
-                  <Button
-                    size="sm"
-                    {...blockerProps}
-                    disabled={busy || blocker !== null}
-                    onClick={() => begin(() => join.mutate({ id: row.id }))}
-                  >
-                    Sign in with {row.name}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {row.interactiveLogin ? credentialBox : null}
-                  <Button
-                    size="sm"
-                    {...blockerProps}
-                    disabled={busy || blocker !== null || credential.trim() === ""}
-                    onClick={() =>
-                      begin(() =>
-                        join.mutate(
-                          { id: row.id, credential: credential.trim() },
-                          // Cleared on success, so a later return to this state
-                          // does not re-populate the field with a key that has
-                          // already been spent. A failed join keeps it: the
-                          // usual cause is a typo worth correcting rather than
-                          // retyping.
-                          { onSuccess: () => setCredential("") },
-                        ),
-                      )
-                    }
-                  >
-                    Connect
-                  </Button>
-                </div>
-              )}
+                )}
+                {row.interactiveLogin && joinMode === "signin" ? (
+                  <div className="space-y-1.5">
+                    {/* Not "opens … in a new tab": nothing here opens a tab. The
+                        press ASKS the vendor, the link arrives on this card, and
+                        the person opens it wherever they are — possibly on
+                        another device, which is why the link below is copyable
+                        and its code set in large type. A promise this control
+                        cannot keep would be the same defect as the empty box
+                        that read as required. */}
+                    <p className="text-detail text-muted-foreground">
+                      Asks {row.name} for a sign-in link to open in your browser. This card updates when you are done.
+                    </p>
+                    {/* Not a second act but one `join` with an EMPTY body: that is
+                        what asks the vendor for a URL instead of presenting a key.
+                        Primary-styled like its sibling in the other panel — they
+                        are two answers to one question, and neither is the
+                        secondary thing now that only one of them is on screen. */}
+                    <Button
+                      size="sm"
+                      {...blockerProps}
+                      disabled={busy || blocker !== null}
+                      onClick={() => begin(() => join.mutate({ id: row.id }))}
+                    >
+                      Sign in with {row.name}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {row.interactiveLogin ? credentialBox : null}
+                    <Button
+                      size="sm"
+                      {...blockerProps}
+                      disabled={busy || blocker !== null || credential.trim() === ""}
+                      onClick={() =>
+                        begin(() =>
+                          join.mutate(
+                            { id: row.id, credential: credential.trim() },
+                            // Cleared on success, so a later return to this state
+                            // does not re-populate the field with a key that has
+                            // already been spent. A failed join keeps it: the
+                            // usual cause is a typo worth correcting rather than
+                            // retyping.
+                            { onSuccess: () => setCredential("") },
+                          ),
+                        )
+                      }
+                    >
+                      Connect
+                    </Button>
+                  </div>
+                )}
+              </div>
               {/* OUTSIDE the mode choice, deliberately: a login URL arrives from
                   the join stream or the poll regardless of which panel is up,
                   and the sign-in panel's second sentence points at exactly this

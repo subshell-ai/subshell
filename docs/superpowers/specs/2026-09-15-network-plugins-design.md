@@ -1108,6 +1108,18 @@ refusal is the safe default until someone builds and tests the re-derive.
   code stay OUTSIDE the choice, below it: they arrive from the join stream or
   the poll regardless of which panel is up, and switching tabs mid-sign-in must
   not hide the link the person was told about.
+  The same card, read again a few minutes later, asked for two more things. The
+  strip and its panel now share ONE border (`rounded-md border p-4`, the
+  sign-in-link block's own bounded-control language) because a pill group with
+  content loose beneath it reads as a widget floating above orphaned text — and
+  the border appears only where there is a choice to scope, so Cloudflare's
+  single-path block keeps the plain flow. The strip also hugs its labels
+  (`className="w-fit"`), since every other `Segmented` in the app sizes to its
+  content and a card-wide bar with two buttons at one end reads as a tab strip
+  for pages that do not exist. No visible "How to connect" caption above the
+  pills: the fieldset already carries that as its accessible name, so a heading
+  repeating it is the same words read twice, and the panel sentence already says
+  what the chosen path does.
 
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 

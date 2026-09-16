@@ -178,6 +178,20 @@ function showKeyPanel(label = "Use auth key"): void {
   fireEvent.click(screen.getByRole("button", { name: label }));
 }
 
+/**
+ * The bordered box that scopes a mode choice to the panel beneath it.
+ *
+ * Located through `.join-group`, a utility-like hook the component carries
+ * beside the real classes (the repo's own `overflow-y-auto` precedent). The
+ * alternative was reading `className` for `rounded-md` and `p-4`, which passes
+ * the day a restyle keeps the box and fails the day it earns one — and the box
+ * is the point: the operator's read of the live card was a pill strip floating
+ * above orphaned text.
+ */
+function modeGroups(): Element[] {
+  return Array.from(document.querySelectorAll(".join-group"));
+}
+
 /** An NDJSON stream: some progress, then one terminal frame. */
 function ndjson(done: unknown, lines: string[] = []): Response {
   const body = [...lines.map((text) => JSON.stringify({ type: "line", text })), JSON.stringify(done)].join("\n");
@@ -606,15 +620,29 @@ describe("NetworkPluginCard: the state matrix", () => {
     // The other path is ABSENT, not greyed — that absence is the fix.
     expect(screen.queryByLabelText("Auth key")).toBeNull();
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
-    // The choice itself is the app's `Segmented`, not a new primitive.
+    // The choice itself is the app's `Segmented`, not a new primitive — and it
+    // HUGS its two labels. Every other use of that control sizes to its
+    // content; stretched card-wide with both buttons at one end it read as a
+    // tab bar for a page with no other pages.
     const segmented = screen.getByRole("group", { name: "How to connect" });
+    expect(segmented.className).toContain("w-fit");
     expect((screen.getByRole("button", { name: "Sign in" }) as HTMLButtonElement).getAttribute("aria-pressed")).toBe(
       "true",
     );
     expect(
       (screen.getByRole("button", { name: "Use auth key" }) as HTMLButtonElement).getAttribute("aria-pressed"),
     ).toBe("false");
-    expect(segmented).toBeTruthy();
+
+    // ONE UNIT, not a strip floating above orphaned text — the operator's
+    // second read of the same card. The control and the panel under it share
+    // one border, and exactly one such box exists on the row.
+    const groups = modeGroups();
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.contains(segmented)).toBe(true);
+    expect(groups[0]?.contains(screen.getByRole("button", { name: "Sign in with Headscale" }))).toBe(true);
+    // No visible caption above the pills: the fieldset already names the group
+    // for a screen reader, so a heading saying it again is those words twice.
+    expect(screen.queryByText("How to connect")).toBeNull();
 
     showKeyPanel();
     expect(screen.getByLabelText("Auth key")).toBeTruthy();
@@ -626,6 +654,10 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect((screen.getByRole("button", { name: "Sign in" }) as HTMLButtonElement).getAttribute("aria-pressed")).toBe(
       "false",
     );
+    // The panels swap INSIDE the box, which stays the only one on the row.
+    expect(modeGroups()).toHaveLength(1);
+    expect(groups[0]?.contains(screen.getByLabelText("Auth key"))).toBe(true);
+    expect(groups[0]?.contains(screen.getByRole("button", { name: "Connect" }))).toBe(true);
   });
 
   it("a single-path plugin is offered no choice", async () => {
@@ -634,6 +666,9 @@ describe("NetworkPluginCard: the state matrix", () => {
     // mode choice: box, Connect — and one sentence, not a panel switch.
     await renderCard(cloudflareRow({ state: "needs-login" }));
     expect(screen.queryByRole("group", { name: "How to connect" })).toBeNull();
+    // Nothing to scope, so no box: the border is what groups a CHOICE with what
+    // it chooses, and a single path has one thing to do.
+    expect(modeGroups()).toHaveLength(0);
     expect(screen.queryByRole("button", { name: "Use tunnel token" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
     // Box and Connect button are simply there, with no panel to switch to.
@@ -740,8 +775,10 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(connect.disabled).toBe(true);
     expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
     // ONE paragraph for both panels — a second copy would be two ids and a
-    // screen reader reading the same refusal twice.
+    // screen reader reading the same refusal twice. And it sits INSIDE the
+    // group, because the sentence explains the choice rather than one panel.
     expect(screen.getAllByText("Save the Control server URL first.")).toHaveLength(1);
+    expect(modeGroups()[0]?.contains(sentence)).toBe(true);
   });
 
   it("the same row unblocks once the field is set", async () => {
