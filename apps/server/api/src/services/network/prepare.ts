@@ -151,7 +151,16 @@ export async function prepareNetworkGuards(): Promise<void> {
     const guards: OwnedGuard[] = [];
     unguarded.clear();
     for (const { id, entry, ctx } of await eligible()) {
-      if (!entry.plugin.requestGuard) continue;
+      if (!entry.plugin.requestGuard) {
+        // A plugin that declares a PUBLIC exposure and implements no guard at
+        // all is the same refusal as one whose guard threw, and this early
+        // return used to run before the test — so that plugin was never added
+        // to `unguarded` and its tunnel was armed with nothing in front of it.
+        // The two cases are one rule: whatever the reason, no guard means no
+        // process for an exposure whose guard IS the perimeter.
+        if (needsGuard(entry)) unguarded.add(id);
+        continue;
+      }
       try {
         const guard = entry.plugin.requestGuard(ctx);
         if (guard) guards.push({ pluginId: id, spec: guard });

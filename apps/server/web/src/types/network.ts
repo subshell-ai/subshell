@@ -199,7 +199,12 @@ export interface NetworkConfigOutcome {
   warnings: string[];
   /** False when config.env could not be written at all */
   written: boolean;
-  /** The key that blocked the write — it is set in the environment */
+  /**
+   * The first key this publish could not write. The REASON is in `warnings`:
+   * the server sets this on three paths — the environment owning the key, an
+   * unreadable config file, a validator refusal — so naming the environment
+   * here would be the same false claim the card stopped making.
+   */
   unwritableKey?: string;
 }
 

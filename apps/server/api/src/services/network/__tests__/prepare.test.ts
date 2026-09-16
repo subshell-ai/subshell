@@ -388,6 +388,18 @@ describe("a public exposure may not run unguarded", () => {
     expect(rec.armed).toEqual([]);
   });
 
+  it("does not arm it when the plugin implements NO guard member at all", async () => {
+    // A third way to have no guard, and the one the early return skipped: the
+    // `if (!entry.plugin.requestGuard) continue` ran BEFORE the exposure test,
+    // so such a plugin never reached `unguarded` and its tunnel was armed with
+    // nothing in front of it. Measured by the reviewer.
+    const rec = recorder();
+    await publish(rec, entry({ supervisedProcess: () => processSpec }, ["darwin", "linux"], "public-with-gate"));
+    await prepareNetworkGuards();
+    await prepareNetworkProcesses();
+    expect(rec.armed).toEqual([]);
+  });
+
   it("does not arm it when the guard is merely absent either", async () => {
     // The same hole by omission rather than by throw.
     const rec = recorder();

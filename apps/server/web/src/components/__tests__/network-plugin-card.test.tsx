@@ -758,3 +758,24 @@ describe("NetworkPluginCard: a way back from every state that needs one", () => 
   // refetch here would be asserting TanStack Query's behaviour through a
   // component that never fetches.
 });
+
+describe("NetworkPluginCard: the disable reason reaches a screen reader", () => {
+  it("associates the reason with every field rather than only placing it above", async () => {
+    // A screen reader tabbing this form skips disabled inputs entirely, so a
+    // bare paragraph is a reason the people most likely to be confused by the
+    // disabled state never reach.
+    await renderCard(
+      row({
+        state: "published",
+        published: true,
+        settingsFields: [{ key: "hostname", label: "Hostname", type: "string" }],
+        settings: { hostname: "box.example.com" },
+        status: { state: "published", addresses: ADDRESSES, hints: [] },
+      }),
+    );
+    const field = screen.getByLabelText("Hostname");
+    const describedBy = field.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy ?? "")?.textContent).toContain("Unpublish Tailscale to change these");
+  });
+});

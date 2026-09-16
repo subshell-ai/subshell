@@ -37,7 +37,7 @@ const ACTIVE_POLL_MS = 5_000;
  * one case where the answer arrives out of band and polling is the only way to
  * see it.
  */
-function awaitingLogin(networks: NetworkRow[] | undefined): boolean {
+export function awaitingLogin(networks: NetworkRow[] | undefined): boolean {
   return (networks ?? []).some((row) => row.status?.loginUrl !== undefined);
 }
 

@@ -240,18 +240,30 @@ export function setPluginGuards(pluginId: string, specs: RequestGuardSpec[]): vo
 function normalizeHost(value: string): string {
   // The first of several, not the joined string: see the docstring.
   const first = value.split(",")[0] ?? "";
-  const host = first.trim().toLowerCase();
-  const bare = host.startsWith("[")
-    ? (() => {
-        const end = host.indexOf("]");
-        return end === -1 ? host : host.slice(0, end + 1);
-      })()
-    : (() => {
-        const colon = host.indexOf(":");
-        return colon === -1 ? host : host.slice(0, colon);
-      })();
+  const host = first.trim();
+  // **The URL parser does the normalizing**, and hand-rolling it was a
+  // measured bypass: `Host: 127%2E0.0.1` reached a guarded listener with a
+  // 200, because nothing here percent-decoded, so neither the map lookup nor
+  // the comma refusal fired and the loopback belt was never consulted. Any
+  // character can be encoded, so that was a FAMILY of spellings rather than
+  // one. Bun itself disagreed with the hand-rolled version — it builds
+  // `request.url` from the decoded host — so the runtime serving the request
+  // and the guard in front of it named different hosts.
+  //
+  // Parsing also subsumes the three things this used to do by hand:
+  // lowercasing, stripping the port, and keeping an IPv6 literal's brackets.
+  const parsed = (() => {
+    try {
+      return new URL(`http://${host}`).hostname;
+    } catch {
+      // Not a host the parser will accept, so it is not one a guard can match
+      // either. Returned lowercased so the comparison is still total, and it
+      // simply will not equal anything in the map.
+      return host.toLowerCase();
+    }
+  })();
   // The root label. `example.com.` and `example.com` name the same host.
-  return bare.endsWith(".") ? bare.replace(/\.+$/, "") : bare;
+  return parsed.replace(/\.+$/, "");
 }
 
 /**

@@ -203,6 +203,20 @@ describe("access-guard plugin", () => {
     expect(res.status).toBe(403);
   });
 
+  it("is not skipped by a PERCENT-ENCODED host", async () => {
+    // Measured before the fix: `Host: 127%2E0.0.1` and `%31%32%37.0.0.1` both
+    // reached a guarded listener with a 200, because the hand-rolled
+    // normalizer never decoded — so neither the map lookup nor the comma
+    // refusal fired and the loopback belt was never consulted. Bun itself
+    // decodes when it builds `request.url`, so the runtime serving the request
+    // and the guard in front of it named different hosts. Any character can be
+    // encoded, so this is a family of spellings rather than one.
+    for (const host of [`127%2E0.0.1`, `%31%32%37.0.0.1`]) {
+      const res = await fetch(`http://${GUARDED_HOST}:${PORT}/ping`, { headers: { host } });
+      expect([host, res.status]).toEqual([host, 403]);
+    }
+  });
+
   it("is not skipped by a trailing dot on the Host header", async () => {
     // `guarded.example.com.` is the fully-qualified spelling of the same name
     // and resolves identically, so a comparison that only lowercases and

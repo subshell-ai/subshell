@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,6 +58,7 @@ function savedBoolean(row: NetworkRow, field: SettingsFieldWire): boolean {
 export function NetworkSettingsForm({
   row,
   disabled = false,
+  onPendingChange,
   reason,
   requiredOnly = false,
 }: {
@@ -65,6 +66,15 @@ export function NetworkSettingsForm({
   row: NetworkRow;
   /** True while an act is in flight on this row */
   disabled?: boolean;
+  /**
+   * Reports this form's own save as it starts and finishes.
+   *
+   * The card gates every OTHER act on "is anything happening to this row", and
+   * this mutation is the one it cannot see for itself. Without this a publish
+   * could start on top of a settings write, which is the staleness the route
+   * refuses anyway — the two gates are supposed to agree.
+   */
+  onPendingChange?: (pending: boolean) => void;
   /**
    * Why the fields are disabled, when the reason is worth stating.
    *
@@ -86,6 +96,9 @@ export function NetworkSettingsForm({
   requiredOnly?: boolean;
 }) {
   const fields = requiredOnly ? row.settingsFields.filter((field) => field.required) : row.settingsFields;
+  const reasonId = `network-${row.id}-settings-reason`;
+  /** Points a disabled field at the sentence explaining why. */
+  const describedBy = reason ? { "aria-describedby": reasonId } : {};
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const update = useUpdateNetworkSettings();
   const touched = Object.keys(drafts);
@@ -98,6 +111,14 @@ export function NetworkSettingsForm({
     update.error && issues.length === 0 ? errMessage(update.error, "The settings were not saved.") : null;
 
   const set = (key: string, value: string) => setDrafts((prev) => ({ ...prev, [key]: value }));
+
+  // Mirrored upward on every change of the flag, never inside `save`: a
+  // mutation that settles through an error path would otherwise leave the
+  // card believing a write is still running.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the callback is the subscriber, not a dependency of the value
+  useEffect(() => {
+    onPendingChange?.(update.isPending);
+  }, [update.isPending]);
 
   function save(): void {
     update.mutate(
@@ -112,7 +133,15 @@ export function NetworkSettingsForm({
 
   return (
     <div className="space-y-4">
-      {reason && <p className="text-detail text-muted-foreground">{reason}</p>}
+      {/* Associated with every field, not merely placed above them. A screen
+          reader tabbing this form skips disabled inputs entirely, so a bare
+          paragraph is a reason the people most likely to be confused by the
+          disabled state never reach. */}
+      {reason && (
+        <p id={reasonId} className="text-detail text-muted-foreground">
+          {reason}
+        </p>
+      )}
       {fields.map((field) => {
         const id = `network-${row.id}-${field.key}`;
         const problem = issueFor(field.key);
@@ -126,6 +155,7 @@ export function NetworkSettingsForm({
               <Switch
                 id={id}
                 aria-label={field.label}
+                {...describedBy}
                 checked={drafts[field.key] !== undefined ? drafts[field.key] === "true" : savedBoolean(row, field)}
                 disabled={disabled || update.isPending}
                 onCheckedChange={(checked) => set(field.key, checked ? "true" : "false")}
@@ -136,7 +166,7 @@ export function NetworkSettingsForm({
                 onValueChange={(value) => value !== null && set(field.key, String(value))}
                 disabled={disabled || update.isPending}
               >
-                <SelectTrigger id={id} aria-label={field.label}>
+                <SelectTrigger id={id} aria-label={field.label} {...describedBy}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -157,6 +187,7 @@ export function NetworkSettingsForm({
                   id={id}
                   type="password"
                   autoComplete="off"
+                  {...describedBy}
                   placeholder={field.placeholder}
                   value={drafts[field.key] ?? ""}
                   disabled={disabled || update.isPending}
@@ -168,6 +199,7 @@ export function NetworkSettingsForm({
                 id={id}
                 type={field.type === "number" ? "number" : "text"}
                 placeholder={field.placeholder}
+                {...describedBy}
                 value={drafts[field.key] ?? savedValue(row, field)}
                 disabled={disabled || update.isPending}
                 onChange={(event) => set(field.key, event.target.value)}

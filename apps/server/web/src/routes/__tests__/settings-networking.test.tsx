@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
-import { Route } from "@/routes/settings_.networking";
-import type { NetworkRow } from "@/types/network";
+import { awaitingLogin, Route } from "@/routes/settings_.networking";
+import type { NetworkRow, NetworkStatus } from "@/types/network";
 
 /**
  * Server Settings → Networking.
@@ -203,5 +203,35 @@ describe("the networking page", () => {
     } finally {
       m.restore();
     }
+  });
+});
+
+describe("awaitingLogin: what makes this page poll a CLI every five seconds", () => {
+  const withStatus = (over: Partial<NetworkStatus>): NetworkRow =>
+    network({
+      id: "tailscale",
+      name: "Tailscale",
+      status: { state: "needs-login", addresses: [], hints: [], ...over },
+    });
+
+  it("is false for a row merely resting in needs-login", () => {
+    // `needs-login` is the RESTING state of any installed, running, unjoined
+    // network. Keying on it made an admin who opened this page with Tailscale
+    // installed and not signed in run `tailscale status --json` every five
+    // seconds for as long as the tab stayed open, for a row nobody was acting
+    // on. Nothing else pins this, so a revert to the state test is silent.
+    expect(awaitingLogin([withStatus({})])).toBe(false);
+  });
+
+  it("is true only once an interactive login has actually started", () => {
+    // A login URL exists only while a sign-in is pending, and it is the one
+    // case where the answer arrives out of band — on another device — so
+    // polling is the only way this page learns.
+    expect(awaitingLogin([withStatus({ loginUrl: "https://login.example/a" })])).toBe(true);
+  });
+
+  it("is false for an empty or unanswered list", () => {
+    expect(awaitingLogin([])).toBe(false);
+    expect(awaitingLogin(undefined)).toBe(false);
   });
 });

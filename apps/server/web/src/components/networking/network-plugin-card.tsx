@@ -98,7 +98,25 @@ export function NetworkPluginCard({
   const publish = usePublishNetwork(note);
   const unpublish = useUnpublishNetwork();
   const leave = useLeaveNetwork();
-  const busy = install.isPending || join.isPending || publish.isPending || unpublish.isPending || leave.isPending;
+  /**
+   * True while a settings write the FORM owns is in flight.
+   *
+   * Reported upward because the mutation lives inside `NetworkSettingsForm`
+   * and this component never sees it, so a publish could be started on top of
+   * a settings write — exactly the staleness § 10d refuses, and exactly what
+   * the route's own in-flight gate already counts. These two are supposed to
+   * agree. A shared `useIsMutating` key would have been simpler and wrong:
+   * every mutation here carries the same key, so one row's write would disable
+   * every other row's buttons.
+   */
+  const [savingSettings, setSavingSettings] = useState(false);
+  const busy =
+    install.isPending ||
+    join.isPending ||
+    publish.isPending ||
+    unpublish.isPending ||
+    leave.isPending ||
+    savingSettings;
 
   const status = row.status;
   const state = status?.state;
@@ -252,6 +270,7 @@ export function NetworkPluginCard({
           <NetworkSettingsForm
             row={row}
             disabled={busy || row.published}
+            onPendingChange={setSavingSettings}
             requiredOnly={compact}
             {...(row.published
               ? { reason: `Unpublish ${row.name} to change these — a change cannot reach a running tunnel.` }
@@ -544,7 +563,7 @@ export function NetworkPluginCard({
                   unreadable config file, a validator refusal — so naming the
                   first unconditionally sent an admin to edit a unit file over
                   what was really a validation error; the true reason is in
-                  `config.warnings` just below, in the server's own words.
+                  `config.warnings` just above, in the server's own words.
                   And a write is PARTIAL more often than not: `written` is
                   false whenever ANY key was refused, so a publish that added
                   the trusted origin and could not promote the base URL said
