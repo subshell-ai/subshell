@@ -437,7 +437,27 @@ pub(crate) fn bundled_version() -> Option<String> {
 /// and `probe_now` itself untouched and still pure.
 #[tauri::command(async)]
 pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Probe {
-    let mut p = probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
+    // The value this probe's whole answer is DERIVED from. Everything below
+    // compares against THIS rather than against a fresh read, and that is the
+    // entire fix for a lost update that cost a working setup run its record.
+    //
+    // `probe_now` spends a second or more in three CLI spawns. The page polls
+    // this every 1500 ms and, unlike the watch thread, does not pause while a
+    // setup chain is running — so a probe routinely lands after a write it
+    // started before. It used to compare `p.supervision` (derived from the
+    // stale read) against `settings.get().supervision` (fresh), which is not a
+    // comparison between two versions of the same thing: it reads a
+    // disagreement with a NEWER writer as a correction this probe discovered,
+    // and then persists the older value over it.
+    //
+    // Measured on 2026-09-15: `RunWithApp` wrote `App` and spawned a healthy
+    // server; a probe already in flight finished holding `Service`, saw the
+    // mismatch, and wrote `Service` back in the same second the child was
+    // spawned. From then on the state was self-consistent, so it never healed
+    // — no supervisor attached, the supervision row never completing, and the
+    // assistant giving up 30 s later with nothing to show.
+    let observed = settings.get().supervision;
+    let mut p = probe_now(settings.get().binary_path.as_deref(), observed);
     p.hostname = machine_hostname();
     p.onboarded = settings.get().onboarded;
     if p.next == ProbeStep::Ready && !p.onboarded {
@@ -448,9 +468,37 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
     // The disk may have corrected the preference (a service installed from a
     // terminal); write that back so one probe settles it rather than every
     // probe re-deciding it. Same single-writer shape as `mark_onboarded`.
-    if p.supervision != settings.get().supervision {
+    //
+    // `!= observed`, never `!= settings.get()`: a probe that derived the value
+    // it was handed corrected NOTHING and must write nothing. That is the case
+    // that bit — with no service installed `effective_supervision` returns the
+    // stored value unchanged, so there was never a correction to persist.
+    if p.supervision != observed {
         let corrected = p.supervision;
-        let _ = settings.update(|s| s.supervision = corrected);
+        // Compare-and-swap inside the closure, because `get` and `update` take
+        // the mutex separately: written as a read then a write this would be a
+        // narrower race rather than a closed one. `update` already holds the
+        // lock across edit and save, so the check belongs in there.
+        //
+        // A probe that finds the preference changed underneath is answering
+        // about a machine that no longer exists. It discards rather than
+        // writes: whoever moved it knows something this answer does not. The
+        // returned `p` is stale in `supervision`, `next` and `supervisor` for
+        // this one tick, which the next poll 1500 ms later corrects — cheaper
+        // and far safer than recomputing the whole probe under the lock.
+        let mut applied = false;
+        if let Err(err) = settings.update(|s| {
+            if s.supervision == observed {
+                s.supervision = corrected;
+                applied = true;
+            }
+        }) {
+            // A failed persist used to be indistinguishable from a successful
+            // one, and the next probe simply re-derived the same answer. Say
+            // it once, where the row that depends on it is rendered.
+            p.error
+                .get_or_insert(format!("This app could not record how the server runs here: {err}"));
+        }
         // And if the correction took the machine OUT of app mode while this
         // app's own child is still running, stop it. Two servers racing for
         // one port is the immediate damage; the durable damage is that every
@@ -458,7 +506,12 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
         // child again — and a reset from that state would take the
         // `service_now(Stop)` branch and begin deleting the database out from
         // under a live process.
-        if corrected == Supervision::Service {
+        // `applied`, not `corrected`: without it a correction this probe
+        // DECLINED to write could still stop the child — and under the stale
+        // read above that meant SIGTERMing a server `RunWithApp` had spawned
+        // milliseconds earlier. Stopping a live child is the most destructive
+        // thing on this path, so it hangs off the write actually landing.
+        if applied && corrected == Supervision::Service {
             // The spawner, not the pid: during the respawn window the pid is
             // None while the loop still wants a server, and skipping the stop
             // there leaves a child racing the service for the port.
@@ -475,6 +528,68 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
         }
     }
     p
+}
+
+/// How long a loopback connect may take before the answer is "nobody home".
+///
+/// Loopback either refuses immediately or accepts immediately; 300 ms is two
+/// orders of magnitude of slack over either. It is a timeout rather than a
+/// blocking connect because a port owned by a firewall rule, or by a socket
+/// whose accept queue is full, hangs instead of answering — and this runs on
+/// the render path.
+const PORT_PROBE_TIMEOUT: Duration = Duration::from_millis(300);
+
+/// What one loopback port looks like from here.
+///
+/// A STRUCT rather than a bare `bool`, and today it carries exactly the one
+/// fact a connect can establish. The reason for the shape is what it does not
+/// yet say: "in use" has more than one meaning — this app's own supervised
+/// child, a `subshell-server` someone started from a terminal, or a program
+/// with nothing to do with Subshell — and telling those apart needs a second
+/// read (the anonymous `GET /api/settings/instance`), not a second guess. A
+/// classification lands here as another field, on a page that already
+/// destructures a result object, rather than as a rewrite of every caller of a
+/// boolean.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortStatus {
+    /// Whether anything accepted a connection on the port.
+    pub in_use: bool,
+}
+
+/// Whether something already answers on `127.0.0.1:<port>`.
+///
+/// The setup chain writes a port into `config.env` and then starts a server on
+/// it, and a port already taken makes that server die on bind. Nothing on the
+/// Set Up screen says so today, so asking first is what turns a chain that
+/// cannot succeed into a sentence before anything is written.
+///
+/// It says nothing about WHAT answered, and must not be read as though it
+/// did: a healthy `subshell-server` the person started themselves answers here
+/// exactly as a foreign program does.
+///
+/// **Only a successful connect counts as "in use".** A timeout, an unreachable
+/// address, a refused-for-some-other-reason error — all of it reads as free.
+/// A false "in use" disables Set Up on a machine that is perfectly able to run
+/// a server, with no way forward from the screen; a false "free" costs the
+/// failure this check exists to explain, which is exactly where the machine
+/// already was. So the doubt goes to letting setup proceed.
+///
+/// Loopback only, deliberately: the bind address may be `0.0.0.0`, but a
+/// server that binds every interface still binds loopback, so a listener there
+/// is the collision — and connecting to a LAN address would be this app
+/// reaching out onto the network to answer a local question.
+#[tauri::command(async)]
+pub fn desktop_port_in_use(port: u16) -> PortStatus {
+    PortStatus {
+        in_use: port_in_use(port),
+    }
+}
+
+/// The connect itself, outside the command wrapper so a test can call it.
+fn port_in_use(port: u16) -> bool {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    std::net::TcpStream::connect_timeout(&addr, PORT_PROBE_TIMEOUT).is_ok()
 }
 
 /// Attach what the app's own supervisor is doing, in app mode only.
@@ -3608,6 +3723,70 @@ mod tests {
         assert_eq!(effective_supervision(Supervision::Service, None), Supervision::Service);
     }
 
+    /// **A probe that corrected nothing must write nothing**, and that is the
+    /// whole of the lost update measured on 2026-09-15.
+    ///
+    /// `RunWithApp` wrote `App` and spawned a healthy server. A probe already
+    /// in flight had been handed `Service`, and with no service installed
+    /// `effective_supervision` hands `Service` straight back — so it had
+    /// discovered NOTHING. The old condition compared that answer to a fresh
+    /// read, saw `Service != App`, and persisted `Service` over the newer
+    /// value in the same second the child was spawned. The app then had no
+    /// record of the server it was running: no supervisor attached, the
+    /// supervision row never completing, and a silent give-up 30 s later.
+    ///
+    /// The two assertions below are the before and after of that comparison.
+    /// The first is what the code now asks and the second is what it used to,
+    /// and only the second mistakes a concurrent write for a discovery.
+    #[test]
+    fn a_probe_that_corrected_nothing_has_nothing_to_persist() {
+        let observed = Supervision::Service;
+        let derived = effective_supervision(observed, Some(false));
+        assert_eq!(
+            derived, observed,
+            "nothing installed: the preference is handed straight back"
+        );
+
+        // What the code asks now: did THIS probe change the value it was given?
+        assert!(derived == observed, "so there is no correction, and no write");
+
+        // What it asked before, against a preference another writer had moved
+        // to `App` while the three CLI spawns were running.
+        let written_meanwhile = Supervision::App;
+        assert_ne!(
+            derived, written_meanwhile,
+            "which looked like a correction and clobbered the newer value"
+        );
+    }
+
+    /// A correction is discarded when the stored value moved under it.
+    ///
+    /// The compare-and-swap lives inside `SettingsState::update`'s closure
+    /// because `get` and `update` take the mutex separately; this pins the
+    /// DECISION that closure makes, and that a declined write leaves the
+    /// child-stop arm unreachable — SIGTERMing a server this app had just
+    /// spawned is the most destructive thing on that path.
+    #[test]
+    fn a_correction_is_discarded_when_the_preference_moved_underneath() {
+        fn apply(stored: &mut Supervision, observed: Supervision, corrected: Supervision) -> bool {
+            if *stored != observed {
+                return false;
+            }
+            *stored = corrected;
+            true
+        }
+
+        // Nobody wrote while we probed: the correction lands.
+        let mut stored = Supervision::App;
+        assert!(apply(&mut stored, Supervision::App, Supervision::Service));
+        assert_eq!(stored, Supervision::Service);
+
+        // Somebody did: the answer is about a machine that no longer exists.
+        let mut stored = Supervision::App;
+        assert!(!apply(&mut stored, Supervision::Service, Supervision::Service));
+        assert_eq!(stored, Supervision::App, "the newer writer's value survives");
+    }
+
     /// The branch that gives app mode a steady state at all.
     ///
     /// Without it `!installed` sends an app-mode machine to `InstallService`
@@ -3661,5 +3840,23 @@ mod tests {
         } else {
             assert!(path.ends_with("subshell-server/console.log"), "{path:?}");
         }
+    }
+
+    /// The port check answers about a listener that really exists, and stops
+    /// answering when it goes away.
+    ///
+    /// Port 0 asks the OS for a free one rather than naming a number: a
+    /// hardcoded port is a test that fails on whichever developer's machine
+    /// happens to be running something there, which is the very condition this
+    /// check exists to detect and would be indistinguishable from a real pass.
+    /// The second half is why the release matters — a check that only ever said
+    /// "in use" would pass the first assertion and gate every setup forever.
+    #[test]
+    fn a_bound_port_reads_as_in_use_and_a_free_one_does_not() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
+        let port = listener.local_addr().expect("read the bound port").port();
+        assert!(port_in_use(port), "a port this process is listening on");
+        drop(listener);
+        assert!(!port_in_use(port), "the same port once nothing holds it");
     }
 }
