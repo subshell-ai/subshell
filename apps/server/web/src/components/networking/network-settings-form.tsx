@@ -58,12 +58,22 @@ function savedBoolean(row: NetworkRow, field: SettingsFieldWire): boolean {
 export function NetworkSettingsForm({
   row,
   disabled = false,
+  reason,
   requiredOnly = false,
 }: {
   /** The network whose settings these are */
   row: NetworkRow;
   /** True while an act is in flight on this row */
   disabled?: boolean;
+  /**
+   * Why the fields are disabled, when the reason is worth stating.
+   *
+   * A form disabled while an act runs explains itself — the act is on screen.
+   * A form disabled because the SERVER would refuse the write does not, and
+   * leaving that unsaid puts the explanation after the edit instead of in
+   * front of it.
+   */
+  reason?: string;
   /**
    * Render only the fields the plugin marks `required`.
    *
@@ -102,6 +112,7 @@ export function NetworkSettingsForm({
 
   return (
     <div className="space-y-4">
+      {reason && <p className="text-detail text-muted-foreground">{reason}</p>}
       {fields.map((field) => {
         const id = `network-${row.id}-${field.key}`;
         const problem = issueFor(field.key);

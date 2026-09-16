@@ -245,7 +245,18 @@ export function NetworkPluginCard({
         </div>
       ) : (
         <>
-          <NetworkSettingsForm row={row} disabled={busy} requiredOnly={compact} />
+          {/* Disabled while published, because the server refuses the write
+              (nothing re-derives the guard, the argv or the hydrated secret
+              from it) and a form that invites an act the server will refuse
+              puts the explanation AFTER the edit. */}
+          <NetworkSettingsForm
+            row={row}
+            disabled={busy || row.published}
+            requiredOnly={compact}
+            {...(row.published
+              ? { reason: `Unpublish ${row.name} to change these — a change cannot reach a running tunnel.` }
+              : {})}
+          />
 
           {state === "not-installed" && (
             <div className="space-y-3">
@@ -323,7 +334,19 @@ export function NetworkPluginCard({
                 <Button
                   size="sm"
                   disabled={busy || credential.trim() === ""}
-                  onClick={() => begin(() => join.mutate({ id: row.id, credential: credential.trim() }))}
+                  onClick={() =>
+                    begin(() =>
+                      join.mutate(
+                        { id: row.id, credential: credential.trim() },
+                        // Cleared on success, so a later return to this state
+                        // does not re-populate the field with a key that has
+                        // already been spent. A failed join keeps it: the
+                        // usual cause is a typo worth correcting rather than
+                        // retyping.
+                        { onSuccess: () => setCredential("") },
+                      ),
+                    )
+                  }
                 >
                   Connect
                 </Button>
@@ -343,7 +366,9 @@ export function NetworkPluginCard({
               </div>
               {loginUrl && (
                 <div className="space-y-1.5 rounded-md border p-3">
-                  <p className="text-detail text-muted-foreground">Open this link to finish signing in.</p>
+                  <p className="text-detail text-muted-foreground">
+                    Open this link to finish signing in. This page updates when you are done.
+                  </p>
                   <CopyableValue value={loginUrl} label="Sign-in link" />
                   {/* Prominent because a person is about to read it off this
                       screen and type it into another device. */}
@@ -389,7 +414,9 @@ export function NetworkPluginCard({
                           not reversible for a credential already registered
                           against the old host. */}
                       <span className="block text-detail text-muted-foreground">
-                        Moves where passkeys work. Passkeys registered at the current address stop working there.
+                        Moves where passkeys work. Passkeys registered at the current address stop working there. Adding
+                        this address to trusted origins does not have that effect, and is enough to sign in from it —
+                        which publishing has already done.
                       </span>
                     </span>
                   </label>

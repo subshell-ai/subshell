@@ -505,6 +505,23 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull());
   });
 
+  it("does not invite a settings edit the server would refuse", async () => {
+    // The server refuses a settings write while published, because nothing
+    // re-derives the guard, the argv or the hydrated secret from it. A form
+    // that accepted the edit would put that explanation after the typing.
+    await renderCard(
+      row({
+        state: "published",
+        published: true,
+        settingsFields: [{ key: "hostname", label: "Hostname", type: "string" }],
+        settings: { hostname: "box.example.com" },
+        status: { state: "published", addresses: ADDRESSES, hints: [] },
+      }),
+    );
+    expect(screen.getByText(/Unpublish Tailscale to change these/)).toBeTruthy();
+    expect((screen.getByLabelText("Hostname") as HTMLInputElement).disabled).toBe(true);
+  });
+
   it("a public-with-gate network says so permanently, above everything else", async () => {
     await renderCard(row({ exposure: "public-with-gate", state: "joined" }));
     expect(screen.getByText(/puts this server on the public internet with an identity check in front/)).toBeTruthy();

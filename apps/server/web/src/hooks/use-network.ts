@@ -265,8 +265,11 @@ export function useUnpublishNetwork() {
       apiFetch<{ ok: true; status: NetworkStatus }>(`/api/network/${id}/unpublish`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
-      // Unpublishing takes an address back out of the config the publish put
-      // in, so the same two views are stale for the same reason.
+      // NOT because the origin is removed — it deliberately is not (spec
+      // §5.4): unpublishing stops serving an address, and removing a trusted
+      // origin is the Addresses card's act. The deployment view is invalidated
+      // because `restartRequired` and the running-vs-saved comparison can both
+      // have moved, which is a different reason for the same refetch.
       void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
     },

@@ -1838,9 +1838,12 @@ this project did not write.
   at the checkbox. Both go through `applyConfig`, so the component validation
   and the wildcard refusal in §8 apply unchanged, and a key whose source is the
   process environment is reported as not written rather than silently masked.
-  Audit rows (`network.configure`, `network.join`, `network.publish`,
-  `network.unpublish`, `network.leave`) name origins and field NAMES, never
-  values.
+  Audit rows (`network.configure`, `network.install`, `network.join`,
+  `network.publish`, `network.unpublish`, `network.leave`) name origins and
+  field NAMES, never values. **`network.install` is the §11.10-class act in
+  that list**: it runs a plugin manifest's install command as the server's own
+  OS user, with the plugin id as the only caller input, and is reachable for
+  exactly the plugins whose installer needs no root.
 
 **What gets better.**
 

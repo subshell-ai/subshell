@@ -123,7 +123,13 @@ export interface NetworkRow {
   name: string;
   /** One-line description */
   description: string;
-  /** Icon label (an emoji), when it declares one */
+  /**
+   * The manifest's icon PATH, relative to the plugin package — not an emoji.
+   * The server serves the file at `/api/plugins/:id/icon`, which is what
+   * `PluginIcon` fetches by id, so nothing in this app reads this field. It
+   * stays because the wire carries it and a mirror that omitted it would look
+   * like a field this page had decided to drop.
+   */
   icon?: string;
   /**
    * What publishing here exposes.

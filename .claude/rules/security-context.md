@@ -636,7 +636,8 @@ code. Full accounting: `docs/security.md` §11.13.
   passkey-neutral; promoting to `APP_BASE_URL` MOVES the passkey rpID and is
   opt-in with that warning. A key sourced from `process env` reports
   `written:false` rather than a write the next read would mask. Audit rows
-  (`network.configure|join|publish|unpublish|leave`) name origins and field
+  (`network.configure|install|join|publish|unpublish|leave`) name origins and
+  field
   NAMES, never values.
 - **Tailscale Serve puts the machine's name in public CT logs** (a real Let's
   Encrypt certificate for `<host>.<tailnet>.ts.net`). Said on the publish
