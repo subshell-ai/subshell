@@ -8,6 +8,20 @@ export const HTTPS_DOCS_URL = "https://tailscale.com/kb/1153/enabling-https";
 export const CLI_DOCS_URL = "https://tailscale.com/kb/1080/cli";
 
 /**
+ * Where Tailscale documents INSTALLING, per platform.
+ *
+ * Separate from {@link CLI_DOCS_URL} because they answer different questions
+ * and the reader of a "not installed" row is asking the first one. Linux used
+ * to get the CLI reference here — a page that assumes the thing is already
+ * installed — while the manifest's own privileged step pointed at the right
+ * page two lines below it.
+ */
+const INSTALL_DOCS_URL: Record<PluginPlatform, string> = {
+  darwin: "https://tailscale.com/kb/1016/install-mac",
+  linux: "https://tailscale.com/kb/1031/install-linux",
+};
+
+/**
  * The manifest's privileged steps for one platform, as hints.
  *
  * The steps live in package.json so a page can print them before any of this
@@ -41,7 +55,7 @@ export function notInstalledHints(platform: PluginPlatform): NetworkHint[] {
   return [
     {
       text: "Tailscale is not installed on this machine. Install it, then let this server drive it.",
-      docsUrl: platform === "darwin" ? "https://tailscale.com/kb/1016/install-mac" : CLI_DOCS_URL,
+      docsUrl: INSTALL_DOCS_URL[platform],
     },
     ...privilegedHints(platform),
   ];

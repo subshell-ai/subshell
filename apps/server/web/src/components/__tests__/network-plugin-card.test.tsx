@@ -693,3 +693,31 @@ describe("hint numbering", () => {
     expect(screen.queryByText("1.")).toBeNull();
   });
 });
+
+describe("NetworkPluginCard: a way back from every state that needs one", () => {
+  // Installing the vendor's tool happens in a terminal — every step the card
+  // shows is copy-only, because the server has no way to run a privileged
+  // command — so the person leaves, does the work, and comes back. A state
+  // that offers no Re-check makes reloading the page the only way to say so,
+  // and a row still reporting "not installed" about a machine where it now IS
+  // reads as the feature being broken rather than as stale.
+  const needsAWayBack: NetworkState[] = ["not-installed", "daemon-down", "needs-privilege"];
+
+  for (const state of needsAWayBack) {
+    it(`offers Re-check in ${state}`, async () => {
+      await renderCard(
+        row({
+          state,
+          privileged: [{ label: "Install it", command: "sudo apt install meshtool" }],
+          status: { state, addresses: [], hints: [{ text: "Something is not right yet." }] },
+        }),
+      );
+      expect(screen.getByRole("button", { name: "Re-check" })).toBeTruthy();
+    });
+  }
+
+  // What Re-check DOES is invalidate the list query, which the page owns and
+  // this component does not: the card takes its row as a prop. Asserting the
+  // refetch here would be asserting TanStack Query's behaviour through a
+  // component that never fetches.
+});

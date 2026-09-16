@@ -293,6 +293,13 @@ export function NetworkPluginCard({
                   </Button>
                 </div>
               )}
+              {/* The way back, and the state that most needs one. Installing
+                  the vendor's tool happens in a TERMINAL — every step above is
+                  copy-only, because this server has no way to run a privileged
+                  command — so the person leaves this page, does the work
+                  elsewhere, and returns. Without this their only option is to
+                  reload, and a row that says "not installed" about a machine
+                  where it now IS reads as the feature being broken. */}
               {/* The hints continue the numbered sequence rather than
                   starting a second list. On a machine with nothing installed
                   they are setup steps like the ones above — for a plugin
@@ -300,6 +307,9 @@ export function NetworkPluginCard({
                   install experience, since a manifest may not ship a `sudo`
                   command and the host would refuse to run one anyway. */}
               <NetworkHints hints={status.hints} startAt={numberSteps ? row.privileged.length + 1 : undefined} />
+              <Button variant="outline" size="sm" onClick={recheck}>
+                Re-check
+              </Button>
             </div>
           )}
 

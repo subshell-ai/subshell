@@ -483,3 +483,33 @@ describe("TailscalePlugin.unpublish and leave", () => {
     expect(host.calls).toEqual([]);
   });
 });
+
+describe("TailscalePlugin: a machine without the CLI", () => {
+  it("points at the INSTALL page for each platform, not the CLI reference", async () => {
+    // The reader of a "not installed" row has not installed anything yet, so
+    // the CLI reference is a page that assumes the answer. Linux got that
+    // page while the manifest's own step two lines below pointed at the right
+    // one.
+    for (const [platform, expected] of [
+      ["darwin", "install-mac"],
+      ["linux", "install-linux"],
+    ] as const) {
+      const { plugin } = scripted({}, { platform, findBinary: async () => null });
+      const status = await plugin.status(CTX);
+      expect(status.state).toBe("not-installed");
+      expect(status.hints[0]?.docsUrl).toContain(expected);
+    }
+  });
+
+  it("carries a copyable command and a doc link for every install step", async () => {
+    // Detection alone is not help: a row that says "not installed" and stops
+    // leaves the operator to find the vendor's site themselves.
+    const { plugin } = scripted({}, { platform: "linux", findBinary: async () => null });
+    const status = await plugin.status(CTX);
+    expect(status.hints.length).toBeGreaterThan(1);
+    for (const hint of status.hints.slice(1)) {
+      expect(hint.command).toBeTruthy();
+      expect(hint.privileged).toBe(true);
+    }
+  });
+});
