@@ -61,7 +61,7 @@ function JoinedFacts({ row, status, compact }: { row: NetworkRow; status: Networ
   const identity = status.identity;
   if (!identity && !process) return null;
   return (
-    <dl className="grid gap-x-6 gap-y-3 text-sm">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
       {identity?.network && <Fact label="Network">{identity.network}</Fact>}
       {identity?.hostname && <Fact label="Machine">{identity.hostname}</Fact>}
       {identity?.version && (
