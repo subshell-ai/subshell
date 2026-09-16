@@ -50,6 +50,7 @@ describe("the control-plane host's plugins", () => {
     const reports = await localPluginReports();
     expect(reports.map((r) => r.id).sort()).toEqual([
       "claude-code",
+      "cloudflare-tunnel",
       "codex",
       "hermes",
       "opencode",

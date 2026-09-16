@@ -302,6 +302,7 @@
         "@internal/subshell-protocol": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
         "@subshell-ai/plugin-claude-code": "workspace:*",
+        "@subshell-ai/plugin-cloudflare-tunnel": "workspace:*",
         "@subshell-ai/plugin-codex": "workspace:*",
         "@subshell-ai/plugin-hermes": "workspace:*",
         "@subshell-ai/plugin-opencode": "workspace:*",
@@ -331,6 +332,18 @@
     "packages/plugins/claude-code": {
       "name": "@subshell-ai/plugin-claude-code",
       "version": "2.0.0",
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@subshell-ai/plugin-api": "workspace:*",
+        "@types/bun": "1.3.14",
+        "hash-runner": "4.0.0",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/plugins/cloudflare-tunnel": {
+      "name": "@subshell-ai/plugin-cloudflare-tunnel",
+      "version": "0.1.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -1244,6 +1257,8 @@
     "@subshell-ai/plugin-api": ["@subshell-ai/plugin-api@workspace:packages/plugin-api"],
 
     "@subshell-ai/plugin-claude-code": ["@subshell-ai/plugin-claude-code@workspace:packages/plugins/claude-code"],
+
+    "@subshell-ai/plugin-cloudflare-tunnel": ["@subshell-ai/plugin-cloudflare-tunnel@workspace:packages/plugins/cloudflare-tunnel"],
 
     "@subshell-ai/plugin-codex": ["@subshell-ai/plugin-codex@workspace:packages/plugins/codex"],
 

@@ -708,8 +708,18 @@ export interface NetworkPlugin {
    * Asked again at every boot rather than remembered from the publish, so a
    * rotated credential or a changed port takes effect on the next spawn
    * without anyone re-publishing.
+   *
+   * May return a promise, and every real implementation will: the spec's
+   * `command` must be an ABSOLUTE path resolved through the host's lookup
+   * ladder ({@link PluginHost.findBinary}), that resolution is async, and the
+   * boot re-ask happens on a FRESH process where no earlier call cached
+   * anything. A purely synchronous member would force plugins to remember the
+   * path from a previous run — state the contract forbids — and arm nothing
+   * after a restart, which is the one guarantee this member exists to make.
+   * The host awaits it; a plugin that needs no lookup may return the spec
+   * directly.
    */
-  supervisedProcess?(ctx: NetworkContext): SupervisedProcessSpec | null;
+  supervisedProcess?(ctx: NetworkContext): SupervisedProcessSpec | null | Promise<SupervisedProcessSpec | null>;
   /**
    * The front-door check the host should be applying while published, or null.
    * Declare `guard` with it. Re-asked at boot, like the process, and installed

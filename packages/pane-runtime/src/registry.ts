@@ -7,6 +7,7 @@ import {
   type SubshellPlugin,
 } from "@subshell-ai/plugin-api";
 import claudeCodeFactory, { manifest as claudeCodeManifest } from "@subshell-ai/plugin-claude-code";
+import cloudflareTunnelFactory, { manifest as cloudflareTunnelManifest } from "@subshell-ai/plugin-cloudflare-tunnel";
 import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-codex";
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
@@ -56,8 +57,11 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: piManifest, factory: piFactory },
   { manifest: codexManifest, factory: codexFactory },
   { manifest: terminalManifest, factory: terminalFactory },
-  // The first NETWORK built-in. It goes in the same list because the store is
-  // one store; `build()` sorts it into the network half by manifest type.
+  // The NETWORK built-ins go in the same list because the store is one
+  // store; `build()` sorts them into the network half by manifest type.
+  // Name order among themselves, so three parallel phase-2/3 branches each
+  // added exactly one line here.
+  { manifest: cloudflareTunnelManifest, factory: cloudflareTunnelFactory },
   { manifest: tailscaleManifest, factory: tailscaleFactory },
 ];
 

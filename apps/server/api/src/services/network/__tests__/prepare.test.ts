@@ -71,6 +71,7 @@ function recorderDeps(
   recorder: Recorder,
   plugins: Record<string, NetworkPluginEntry | undefined>,
   platform: PluginPlatform = "darwin",
+  over: Partial<NetworkPrepareDeps> = {},
 ): NetworkPrepareDeps {
   return {
     listPlugins: async () => Object.keys(plugins).map((id) => ({ id })),
@@ -83,6 +84,10 @@ function recorderDeps(
     },
     trustOrigins: (id, addresses) => recorder.origins.push({ id, addresses }),
     warn: (message) => recorder.warnings.push(message),
+    // The default is the honest "nothing is armed": only the cases about the
+    // supervised-child health line say otherwise.
+    childArmed: () => false,
+    ...over,
   };
 }
 
@@ -199,6 +204,23 @@ describe("prepareNetworkProcesses", () => {
 
     await prepareNetworkProcesses();
     expect(rec.armed).toEqual([]);
+  });
+
+  it("arms the spec a supervisedProcess that resolves asynchronously returns", async () => {
+    // The first supervised plugin's absolute command comes from the host's own
+    // async `findBinary` ladder, and boot re-asks this member BEFORE anything
+    // else has run — so the only correct host behaviour is to await it. A
+    // Promise handed to `arm` as if it were a spec is an update that arms a
+    // crash loop against a value that is not a command.
+    const plugin = id();
+    const rec = recorder();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, { [plugin]: entry({ supervisedProcess: async () => processSpec }) }),
+    );
+
+    await prepareNetworkProcesses();
+    expect(rec.armed).toEqual([{ id: plugin, spec: processSpec }]);
   });
 
   it("does not throw when a plugin's supervisedProcess throws", async () => {
@@ -508,6 +530,54 @@ describe("a published network that is not actually up", () => {
     await published(rec, "published");
     await prepareNetworkProcesses();
     expect(rec.warnings).toEqual([]);
+  });
+
+  it("says nothing about a supervised plugin whose child is armed", async () => {
+    // For a plugin whose daemon IS the supervised child, the supervisor is the
+    // health line — `status()` cannot see it (the plugin holds no handle, by
+    // design) and honestly answers `joined` for a tunnel that just started.
+    // Warning "NOT publishing, re-publish it" about a child the supervisor is
+    // holding would send an admin to press a button that changes nothing, at
+    // boot, every boot, forever.
+    const rec = recorder();
+    const plugin = id();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(
+        rec,
+        {
+          [plugin]: entry({
+            status: async () => ({ state: "joined", addresses: [], hints: [] }),
+            supervisedProcess: () => processSpec,
+          }),
+        },
+        "darwin",
+        { childArmed: (p) => p === plugin },
+      ),
+    );
+
+    await prepareNetworkProcesses();
+    expect(rec.warnings).toEqual([]);
+  });
+
+  it("still warns about a supervised plugin whose child was never armed", async () => {
+    // The realistic supervised failure survives the skip: reboot into a data
+    // dir whose binary is gone, `supervisedProcess` answers null, nothing is
+    // armed, and the row really is a published network answering nothing.
+    const rec = recorder();
+    const plugin = id();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, {
+        [plugin]: entry({
+          status: async () => ({ state: "joined", addresses: [], hints: [] }),
+          supervisedProcess: () => processSpec,
+        }),
+      }),
+    );
+
+    await prepareNetworkProcesses();
+    expect(rec.warnings.some((w) => w.includes("NOT publishing"))).toBe(true);
   });
 
   it("does not let a throwing status stop the boot", async () => {

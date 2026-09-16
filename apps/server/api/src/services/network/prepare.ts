@@ -16,7 +16,7 @@ import { type OwnedGuard, setAccessGuards } from "@/plugins/access-guard.plugin.
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
 import { networkContext, readNetworkState, writeNetworkState } from "@/services/network/state.js";
-import { armProcess } from "@/services/network/supervisor.js";
+import { armProcess, processState } from "@/services/network/supervisor.js";
 import { enabledNetworkPlugins } from "@/services/nodes/local-plugins.js";
 import { settingSource } from "@/services/server-deployment.js";
 import { getLogger } from "@/utils/logger.js";
@@ -50,6 +50,16 @@ export interface NetworkPrepareDeps {
   platform(): PluginPlatform;
   /** Hand a child to the supervisor. */
   arm(pluginId: string, spec: SupervisedProcessSpec): void;
+  /**
+   * Whether the supervisor currently holds an entry for this plugin.
+   *
+   * "An entry", not "a running child": for a plugin whose daemon IS the
+   * supervised child, the supervisor is the health line — a `status()` that
+   * cannot see it must not out-shout it at boot. Armed-but-not-yet-ready and
+   * armed-and-parked both belong to the supervisor, whose own last lines
+   * render on the row.
+   */
+  childArmed(pluginId: string): boolean;
   /** Install the complete guard set. */
   setGuards(guards: OwnedGuard[]): void;
   /** Record an event. */
@@ -77,6 +87,7 @@ const defaultDeps: NetworkPrepareDeps = {
   getPlugin: getNetworkPlugin,
   platform: hostPlatform,
   arm: armProcess,
+  childArmed: (pluginId) => processState(pluginId) !== null,
   setGuards: setAccessGuards,
   audit,
   trustOrigins: writeTrustedOrigins,
@@ -233,7 +244,7 @@ export async function prepareNetworkProcesses(prepared?: Prepared[]): Promise<vo
     // keep.
     const armable = republished ? await prepareNetworkGuards() : rows;
     for (const row of armable) {
-      armFrom(row, republishedProcess.get(row.id));
+      await armFrom(row, republishedProcess.get(row.id));
     }
     // ...and then ask each of them whether it is actually carrying traffic.
     for (const row of armable) {
@@ -268,6 +279,16 @@ export async function prepareNetworkProcesses(prepared?: Prepared[]): Promise<vo
  */
 async function reportIfDown({ id, entry, ctx }: Eligible): Promise<void> {
   try {
+    // A supervised plugin's daemon IS the host's child, and `status()` cannot
+    // see it — honest answers top out at `joined` no matter how healthy the
+    // tunnel is. When the supervisor holds an entry for this plugin, the
+    // child's own state is the health line and it already renders on the row
+    // (running, parked, last exit, last lines); warning "NOT publishing,
+    // re-publish it" at boot would send an admin to press a button that
+    // changes nothing, every boot, about a tunnel that is fine. When NOTHING
+    // is armed — the binary gone under a restored data dir, the settings
+    // unreadable — the warning below is the honest last word.
+    if (entry.plugin.supervisedProcess && deps().childArmed(id)) return;
     const status = await entry.plugin.status(ctx);
     if (status.state === "published") return;
     const because = status.hints[0]?.text ?? `it reports "${status.state}"`;
@@ -295,7 +316,7 @@ async function reportIfDown({ id, entry, ctx }: Eligible): Promise<void> {
  * @param row - the eligible plugin, with its guard question already answered
  * @param republished - the process a port-change republish just described, if any
  */
-function armFrom(row: Prepared, republished?: SupervisedProcessSpec): void {
+async function armFrom(row: Prepared, republished?: SupervisedProcessSpec): Promise<void> {
   const { id, entry, ctx, refuseProcess } = row;
   // The refusal, applied to BOTH sources of a process. A publish that reaches
   // the public internet is allowed exactly one enforcement point, and starting
@@ -313,7 +334,13 @@ function armFrom(row: Prepared, republished?: SupervisedProcessSpec): void {
   }
   if (!entry.plugin.supervisedProcess) return;
   try {
-    const spec = entry.plugin.supervisedProcess(ctx);
+    // AWAITED, and that await is the whole point: the member may return a
+    // promise because its absolute `command` comes from the host's async
+    // `findBinary` ladder, and a boot has no earlier call whose cache a
+    // synchronous member could have been fed by. Handing `armProcess` a
+    // Promise as if it were a spec would arm a crash loop against a value
+    // that is not a command.
+    const spec = await entry.plugin.supervisedProcess(ctx);
     if (spec) deps().arm(id, spec);
   } catch (err) {
     getLogger().withError(err).warn(`network plugin "${id}" failed to describe its supervised process`);
