@@ -1,4 +1,5 @@
-import { ChevronUp, Info, LogOut, SlidersHorizontal, UserRound } from "lucide-react";
+import { SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
+import { ChevronUp, Info, LogOut, MessageSquare, SlidersHorizontal, UserRound } from "lucide-react";
 import type { JSX } from "react";
 import {
   DropdownMenu,
@@ -95,6 +96,19 @@ export function UserMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onAccountSettings}>
           <UserRound className="h-4 w-4" /> Account settings
+        </DropdownMenuItem>
+        {/* Feedback lands on the project's GitHub issue list, so this row IS
+            that link — not an in-app form, not mailto. A real anchor with
+            `target="_blank"`: in a browser tab it opens beside the app, and in
+            a desktop shell's webview `lib/desktop-links.ts` intercepts exactly
+            this markup and hands the URL to the system browser. Above About
+            because both explain the product — one to its authors, one to
+            anyone. */}
+        <DropdownMenuItem
+          render={<a href={`https://github.com/${SUBSHELL_REPO_SLUG}/issues`} target="_blank" rel="noreferrer" />}
+          nativeButton={false}
+        >
+          <MessageSquare className="h-4 w-4" /> Feedback
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onAbout}>
           <Info className="h-4 w-4" /> About Subshell

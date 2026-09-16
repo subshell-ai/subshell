@@ -51,4 +51,28 @@ describe("UserMenu", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(signed).toEqual(["s"]);
   });
+
+  it("offers Feedback as a real link to the project's issue list, above About", async () => {
+    render(
+      <UserMenu
+        name="Thea"
+        email="thea@example.com"
+        collapsed={false}
+        onPreferences={() => {}}
+        onAccountSettings={() => {}}
+        onAbout={() => {}}
+        onSignOut={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Thea|thea@example.com/ }));
+    const feedback = await screen.findByRole("menuitem", { name: "Feedback" });
+    // A real anchor, not a button that fakes one: `lib/desktop-links.ts`
+    // claims `a[target="_blank"]` in a desktop webview and hands the URL to
+    // the system browser, so this markup is what makes the row work there.
+    expect(feedback.tagName).toBe("A");
+    expect(feedback.getAttribute("href")).toBe("https://github.com/subshell-ai/subshell/issues");
+    expect(feedback.getAttribute("target")).toBe("_blank");
+    const items = screen.getAllByRole("menuitem").map((i) => i.textContent?.trim());
+    expect(items.indexOf("Feedback")).toBe(items.indexOf("About Subshell") - 1);
+  });
 });
