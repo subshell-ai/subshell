@@ -64,10 +64,19 @@ function platformList(platforms: string[]): string {
  */
 export function NetworkPluginCard({
   row,
+  headerless = false,
   compact = false,
 }: {
   /** The network, as `GET /api/network` listed it */
   row: NetworkRow;
+  /**
+   * Suppress this component's own header — the name and description line.
+   *
+   * For the settings page's collapsed row, which renders that header itself
+   * and expands this card underneath it: two names, one above the other,
+   * would say the same word twice.
+   */
+  headerless?: boolean;
   /**
    * First-run shape: no card chrome, no header — the caller renders the name —
    * no description, no supervisor detail, and only the settings a join cannot
@@ -612,6 +621,12 @@ export function NetworkPluginCard({
   // moving between networks, and by a test asserting that one card carries a
   // control and another does not. A bare div with an aria-label exposes
   // neither.
+  if (headerless) {
+    // The caller's row IS the card: its frame surrounds this header row and
+    // the body below. A second Card (or a second name) inside would nest one
+    // border inside another.
+    return <CardContent className="px-6 pt-2 pb-6">{body}</CardContent>;
+  }
   return (
     <Card role="group" aria-label={row.name}>
       <CardHeader>

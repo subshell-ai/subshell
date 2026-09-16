@@ -2,8 +2,8 @@ import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { AddNetworkCard } from "@/components/networking/add-network-card";
-import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
 import { PageHeader } from "@/components/page-header";
+import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
 import { Button } from "@/components/ui/button";
 import { NETWORK_MUTATION_KEY, NETWORK_QUERY_KEY, useNetwork } from "@/hooks/use-network";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -97,9 +97,17 @@ function NetworkingPage() {
             />
           )}
           {isLoading && !data && <p className="text-muted-foreground text-sm">Loading…</p>}
-          {data?.networks.map((row) => (
-            <NetworkPluginCard key={row.id} row={row} />
-          ))}
+          {/* Collapsed rows, same as the wizard's Network step: the list says
+              WHO is here (name, state chip) and Configure opens the card.
+              The difference is only what expands — here it is the whole
+              card, fields and supervisor detail included. */}
+          {data && data.networks.length > 0 && (
+            <ul className="space-y-3">
+              {data.networks.map((row) => (
+                <NetworkRowItem key={row.id} row={row} full />
+              ))}
+            </ul>
+          )}
           <AddNetworkCard />
         </>
       ) : (

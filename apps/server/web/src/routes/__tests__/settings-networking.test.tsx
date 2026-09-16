@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { awaitingLogin, Route } from "@/routes/settings_.networking";
 import type { NetworkRow, NetworkStatus } from "@/types/network";
@@ -107,15 +107,26 @@ function renderPage() {
 afterEach(cleanup);
 
 describe("the networking page", () => {
-  it("lists one card per network for an admin", async () => {
+  it("lists one collapsed row per network for an admin, and Configure opens the card", async () => {
     const m = mockServer({
       admin: true,
       networks: [network({ id: "tailscale", name: "Tailscale" }), network({ id: "netbird", name: "NetBird" })],
     });
     try {
       renderPage();
-      expect(await screen.findByRole("group", { name: "Tailscale" })).toBeTruthy();
-      expect(screen.getByRole("group", { name: "NetBird" })).toBeTruthy();
+      // Rows, not cards: the list names each network and answers for itself;
+      // no card chrome exists until a press.
+      expect(await screen.findByRole("listitem", { name: "Tailscale" })).toBeTruthy();
+      expect(screen.getByRole("listitem", { name: "NetBird" })).toBeTruthy();
+      // The needs-login card's credential field is the body's own landmark:
+      // the whole card, not the wizard's stripped frame.
+      expect(screen.queryByText("Access key")).toBeNull();
+      // Scoped: both rows offer Configure, and the press belongs to ONE.
+      const row = screen.getByRole("listitem", { name: "Tailscale" });
+      fireEvent.click(within(row).getByRole("button", { name: "Configure" }));
+      expect(await within(row).findByText("Access key")).toBeTruthy();
+      // One press opens ONE card.
+      expect(within(screen.getByRole("listitem", { name: "NetBird" })).queryByText("Access key")).toBeNull();
     } finally {
       m.restore();
     }
