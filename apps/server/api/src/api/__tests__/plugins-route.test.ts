@@ -233,6 +233,16 @@ describe("/api/plugins", () => {
     }
   });
 
+  it("serves a network plugin's icon", async () => {
+    // The icon path is resolved from the manifest, and network plugins live
+    // in their own registry list — so a lookup that only asked `getHarness`
+    // answered `undefined` here, 404'd, and left the row on its monogram.
+    const res = await get("/api/plugins/tailscale/icon", aliceCookie);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await res.text()).toStartWith("<svg");
+  });
+
   it("an id this instance does not know is a 404, and a traversal attempt is the same 404", async () => {
     expect((await get("/api/plugins/not-a-plugin/icon", aliceCookie)).status).toBe(404);
     expect((await get("/api/plugins/..%2f..%2fetc/icon", aliceCookie)).status).toBe(404);

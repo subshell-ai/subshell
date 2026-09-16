@@ -428,7 +428,7 @@ describe("setup wizard: the tmux row", () => {
  * the card's state matrix has its own suite next door
  * (`components/__tests__/network-plugin-card.test.tsx`).
  */
-function network(over: { id: string; name: string; state?: string; installed?: boolean }) {
+function network(over: { id: string; name: string; state?: string; supported?: boolean }) {
   const state = over.state ?? "not-installed";
   return {
     id: over.id,
@@ -437,13 +437,15 @@ function network(over: { id: string; name: string; state?: string; installed?: b
     exposure: "private",
     labels: {},
     platforms: ["darwin", "linux"],
-    supported: true,
+    supported: over.supported ?? true,
     enabled: true,
     interactiveLogin: true,
     privileged: [{ label: `Install ${over.name}`, command: `brew install ${over.id}` }],
     settingsFields: [],
     settings: {},
-    status: { state, addresses: [], hints: [] },
+    // An unsupported network has no status to report: the server attaches one
+    // only for a plugin this host can actually run.
+    ...(over.supported === false ? {} : { status: { state, addresses: [], hints: [] } }),
     published: state === "published",
   };
 }
@@ -464,7 +466,7 @@ describe("setup wizard: the Network step", () => {
     await waitFor(() => expect(screen.getByText("Add an Agent")).toBeTruthy());
   });
 
-  it("leads with a network this machine already has and files the rest under Other networks", async () => {
+  it("renders every network as a collapsed row with a state chip", async () => {
     await renderSetup(
       {
         networks: [
@@ -475,14 +477,65 @@ describe("setup wizard: the Network step", () => {
       1,
     );
     const rows = await screen.findAllByRole("listitem");
-    // Ordering is the whole layout decision: a network the machine has is a
-    // question a person can answer right now.
+    expect(rows).toHaveLength(2);
+    expect(screen.getByRole("listitem", { name: "Tailscale" }).textContent).toContain("Joined");
+    expect(screen.getByRole("listitem", { name: "Later" }).textContent).toContain("Not installed");
+    // Nothing is expanded, so the two sudo commands, the Docs links and the
+    // Re-check button this step used to OPEN with are not on screen at all —
+    // that was the whole defect: a step framed as optional led with a page of
+    // instructions relative to nothing.
+    expect(screen.queryByText(/brew install/)).toBeNull();
+    expect(screen.queryByText("Other networks")).toBeNull();
+  });
+
+  it("sorts networks the machine already has first", async () => {
+    await renderSetup(
+      {
+        networks: [
+          network({ id: "later", name: "Later" }),
+          network({ id: "tailscale", name: "Tailscale", state: "joined" }),
+        ],
+      },
+      1,
+    );
+    const rows = await screen.findAllByRole("listitem");
+    // Still the layout decision, now as a sort rather than a grouping: a
+    // network the machine has is a question a person can answer right now.
     expect(rows[0]?.getAttribute("aria-label")).toBe("Tailscale");
-    // The one needing an install is present but folded away, with its own
-    // privileged step to copy.
-    const later = screen.getByRole("listitem", { name: "Later" });
-    expect(later.textContent).toContain("brew install later");
-    expect(screen.getByText("Other networks")).toBeTruthy();
+  });
+
+  it("Configure expands the row to the card, and Hide folds it away", async () => {
+    await renderSetup({ networks: [network({ id: "later", name: "Later" })] }, 1);
+    const row = await screen.findByRole("listitem", { name: "Later" });
+    const button = within(row).getByRole("button", { name: "Configure" });
+    fireEvent.click(button);
+    await waitFor(() => expect(row.textContent).toContain("brew install later"));
+    // The label says what the button does NEXT, so a person can fold the
+    // instructions away again.
+    const hide = within(row).getByRole("button", { name: "Hide" });
+    expect(hide.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(hide);
+    await waitFor(() => expect(row.textContent).not.toContain("brew install later"));
+  });
+
+  it("offers Manage on a published row and nothing on an unsupported one", async () => {
+    await renderSetup(
+      {
+        networks: [
+          network({ id: "cloudflared", name: "Cloudflared", state: "published" }),
+          network({ id: "netbird", name: "NetBird", supported: false }),
+        ],
+      },
+      1,
+    );
+    const published = await screen.findByRole("listitem", { name: "Cloudflared" });
+    // A published network still owns unpublish and leave, so the row has
+    // somewhere to go — it is just not "configure" any more.
+    expect(within(published).getByRole("button", { name: "Manage" })).toBeTruthy();
+    const unsupported = screen.getByRole("listitem", { name: "NetBird" });
+    expect(unsupported.textContent).toContain("Not available on this platform");
+    // There is nothing to configure from here and the chip already says why.
+    expect(within(unsupported).queryByRole("button")).toBeNull();
   });
 
   it("says so plainly when this build ships no networks at all", async () => {

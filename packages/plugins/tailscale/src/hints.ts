@@ -28,8 +28,8 @@ const INSTALL_DOCS_URL: Record<PluginPlatform, string> = {
  * this code is imported — so a host already has it, and a status that
  * re-emitted the same steps did not keep the two from drifting (the reason
  * first given for doing it) but made the card render the whole sequence
- * TWICE: "1. Install … 2. Let this server drive it", then this sentence, then
- * "3. Install … 4. Let this server drive it".
+ * TWICE: "1. Install … 2. Allow this server to control Tailscale", then this
+ * sentence, then "3. Install … 4. Allow this server to control Tailscale".
  *
  * What a status knows and a manifest cannot is which state this machine is in.
  * That is this sentence, and it is the whole contribution.
@@ -37,7 +37,7 @@ const INSTALL_DOCS_URL: Record<PluginPlatform, string> = {
 export function notInstalledHints(platform: PluginPlatform): NetworkHint[] {
   return [
     {
-      text: "Tailscale is not installed on this machine. Install it, then let this server drive it.",
+      text: "Tailscale is not installed on this machine.",
       docsUrl: INSTALL_DOCS_URL[platform],
     },
   ];
@@ -84,7 +84,7 @@ export function daemonDownHints(platform: PluginPlatform, detail: string): Netwo
 export function needsPrivilegeHints(userName: string): NetworkHint[] {
   return [
     {
-      text: "This server may not drive Tailscale yet. Grant its user access to the daemon, then re-check.",
+      text: "This server is not allowed to control Tailscale yet. Grant its user access to the daemon, then re-check.",
       command: `sudo tailscale set --operator=${userName}`,
       docsUrl: CLI_DOCS_URL,
       privileged: true,

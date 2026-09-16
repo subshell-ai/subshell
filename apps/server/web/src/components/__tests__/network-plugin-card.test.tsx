@@ -76,8 +76,13 @@ async function renderCard(value: NetworkRow, compact = false): Promise<void> {
             app's one confirmation mechanism rather than a dialog of its own. */}
         <ConfirmProvider>
           {compact ? (
+            // The list item and the name are `NetworkRow`'s, not the card's:
+            // in `compact` the card renders its body alone, so the wizard's
+            // row can own both. This stands in for that row.
             <ul>
-              <NetworkPluginCard row={value} compact />
+              <li aria-label={value.name}>
+                <NetworkPluginCard row={value} compact />
+              </li>
             </ul>
           ) : (
             <NetworkPluginCard row={value} />
@@ -220,7 +225,7 @@ describe("NetworkPluginCard: the state matrix", () => {
         state: "not-installed",
         privileged: [
           { label: "Install the daemon", command: "brew install tailscale" },
-          { label: "Let this server drive it", command: "sudo tailscale set --operator=$USER" },
+          { label: "Allow this server to control Tailscale", command: "sudo tailscale set --operator=$USER" },
         ],
         status: {
           state: "not-installed",
@@ -236,7 +241,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     );
     // A lead sentence is not step 1 of anything, so the steps still start at 1.
     expect(text).toContain("1.Install the daemon");
-    expect(text).toContain("2.Let this server drive it");
+    expect(text).toContain("2.Allow this server to control Tailscale");
     // Each manifest command is rendered exactly ONCE.
     expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(2);
   });
@@ -807,6 +812,10 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // first run is not where a person reads a pid.
     expect(item.textContent).not.toContain("A private network for your own devices.");
     expect(item.textContent).not.toContain("pid 99");
+    // And the HEADER, name included: the caller renders it. Nothing here may
+    // carry the plugin's name as its own text, or the wizard's row prints
+    // "Tailscale" twice, once per component.
+    expect(within(item).queryByText("Tailscale")).toBeNull();
   });
 });
 
@@ -823,7 +832,11 @@ describe("hint numbering", () => {
           addresses: [],
           hints: [
             { text: "Meshtool is not installed on this machine." },
-            { text: "Let this server drive it", command: "sudo meshtool set --operator=$USER", privileged: true },
+            {
+              text: "Allow this server to control Meshtool",
+              command: "sudo meshtool set --operator=$USER",
+              privileged: true,
+            },
           ],
         },
       }),

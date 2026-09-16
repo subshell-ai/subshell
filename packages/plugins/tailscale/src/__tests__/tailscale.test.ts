@@ -92,6 +92,19 @@ describe("tailscale manifest", () => {
     expect(manifest.network?.privileged?.darwin?.length).toBe(2);
   });
 
+  it("says what the operator grant DOES, in both platforms' step two", () => {
+    // These labels are the only words a person reads beside a `sudo` command,
+    // and they used to read "Let this server drive it" — spec vocabulary for
+    // Tailscale's `--operator` grant that nobody reads that way. Pinned on
+    // both platforms so a rewording is a decision made here and in the
+    // manifest together.
+    for (const platform of ["darwin", "linux"] as const) {
+      const steps = manifest.network?.privileged?.[platform] ?? [];
+      expect(steps[1]?.label).toBe("Allow this server to control Tailscale");
+      expect(steps[1]?.command).toBe("sudo tailscale set --operator=$USER");
+    }
+  });
+
   it("detects the vendor CLI by name, with an env override", () => {
     expect(manifest.detect?.binaryName).toBe("tailscale");
     expect(manifest.detect?.envOverride).toBe("TAILSCALE_PATH");
@@ -178,6 +191,10 @@ describe("TailscalePlugin.status", () => {
     });
     const status = await plugin.status({ ...CTX });
     expect(status.state).toBe("needs-privilege");
+    // Says what is not allowed, in the same words as the manifest's step two.
+    expect(status.hints[0]?.text).toBe(
+      "This server is not allowed to control Tailscale yet. Grant its user access to the daemon, then re-check.",
+    );
     expect(status.hints[0]?.command).toBe("sudo tailscale set --operator=test");
   });
 
@@ -541,8 +558,8 @@ describe("TailscalePlugin: a machine without the CLI", () => {
     // a page renders it from those bytes before any of this code is imported.
     // Re-emitting the same steps as hints therefore did not prevent drift (the
     // reason first given for it); it made the card render every step TWICE, as
-    // "1. Install … 2. Let this server drive it" followed by the sentence and
-    // then "3. Install … 4. Let this server drive it".
+    // "1. Install … 2. Allow this server to control Tailscale" followed by the
+    // sentence and then "3. Install … 4. Allow this server to control Tailscale".
     //
     // So the status contributes the one thing the manifest cannot: the
     // sentence saying which state this machine is in.
@@ -550,7 +567,10 @@ describe("TailscalePlugin: a machine without the CLI", () => {
       const { plugin } = scripted({}, { platform, findBinary: async () => null });
       const status = await plugin.status(CTX);
       expect(status.hints).toHaveLength(1);
-      expect(status.hints[0]?.text).toContain("not installed");
+      // ONE sentence, naming the state and nothing else: the numbered steps
+      // render directly beneath it, so a clause previewing them is the
+      // duplication this hint exists to have removed.
+      expect(status.hints[0]?.text).toBe("Tailscale is not installed on this machine.");
       expect(status.hints[0]?.command).toBeUndefined();
       expect(status.hints[0]?.docsUrl).toBeTruthy();
 

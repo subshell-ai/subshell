@@ -1,5 +1,5 @@
 import { ErrorBanner } from "@/components/error-banner";
-import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
+import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
 import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/hooks/use-network";
 import type { NetworkRow } from "@/types/network";
@@ -17,9 +17,10 @@ const SETUP_POLL_MS = 4000;
 /**
  * Whether this network has got past "nothing is installed" on this host.
  *
- * The split it drives is the whole layout of this screen: a network the
- * machine already has is a question a person can ANSWER right now, and one
- * they would have to go and install first is a decision for a quieter moment.
+ * The SORT key, and nothing more: a network the machine already has is a
+ * question a person can ANSWER right now, so it leads. It used to be a
+ * GROUPING key, which put everything else behind an "Other networks"
+ * disclosure — a heading relative to an empty group on every fresh install.
  * Unsupported and disabled rows count as not started — there is nothing to do
  * about either of them here.
  */
@@ -40,9 +41,11 @@ function hasStarted(row: NetworkRow): boolean {
  * **It reuses `NetworkPluginCard` rather than reimplementing the states.** A
  * person meets these two surfaces minutes apart, and a wizard that answered
  * "what can I do from here" differently from the settings page would be two
- * products. What `compact` changes is the frame — no card chrome, no
- * description, no supervisor detail, only the settings a join cannot proceed
- * without — never the acts.
+ * products. What `compact` changes is the frame — no card chrome, no header,
+ * no description, no supervisor detail, only the settings a join cannot
+ * proceed without — never the acts. Here it is what a row expands INTO: the
+ * step itself shows one collapsed row per network, so nothing on screen asks
+ * anything until a person presses Configure.
  *
  * Skipping is always available and costs nothing: every one of these acts is
  * on `/settings/networking` afterwards, and a first run that traps someone
@@ -51,8 +54,10 @@ function hasStarted(row: NetworkRow): boolean {
 export function NetworkStep({ active }: { active: boolean }) {
   const { data, isLoading, isError, refetch } = useNetwork(active, active ? SETUP_POLL_MS : undefined);
   const networks = data?.networks ?? [];
-  const started = networks.filter(hasStarted);
-  const others = networks.filter((row) => !hasStarted(row));
+  // Stable within each half, so the server's own id order survives: `sort` is
+  // stable in every runtime this ships to, and the comparator answers 0 for
+  // two rows on the same side.
+  const rows = [...networks].sort((a, b) => Number(hasStarted(b)) - Number(hasStarted(a)));
 
   return (
     <div className="space-y-4">
@@ -73,26 +78,12 @@ export function NetworkStep({ active }: { active: boolean }) {
           }
         />
       )}
-      {started.length > 0 && (
-        <ul className="space-y-3">
-          {started.map((row) => (
-            <NetworkPluginCard key={row.id} row={row} compact />
+      {rows.length > 0 && (
+        <ul>
+          {rows.map((row) => (
+            <NetworkRowItem key={row.id} row={row} />
           ))}
         </ul>
-      )}
-      {others.length > 0 && (
-        // A disclosure, not a second list: these are the ones asking the
-        // person to go and install something, which is not the shape of a
-        // step they are meant to finish in a minute. Open by default when
-        // there is nothing else, because then it is the only answer there is.
-        <details open={started.length === 0}>
-          <summary className="cursor-pointer text-detail text-muted-foreground">Other networks</summary>
-          <ul className="mt-3 space-y-3">
-            {others.map((row) => (
-              <NetworkPluginCard key={row.id} row={row} compact />
-            ))}
-          </ul>
-        </details>
       )}
       {data !== undefined && networks.length === 0 && (
         <p className="text-muted-foreground text-sm">

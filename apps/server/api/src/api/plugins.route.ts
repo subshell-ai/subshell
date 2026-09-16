@@ -5,6 +5,7 @@ import {
   builtInIds,
   getBuiltInHarness,
   getHarness,
+  getNetworkPlugin,
   PLUGIN_TYPES,
   type PluginType,
   parsePackageSpec,
@@ -258,7 +259,10 @@ const ICON_TYPES: Record<string, string> = {
  */
 async function readPluginIcon(id: string): Promise<{ body: Uint8Array; type: string } | undefined> {
   if (!SAFE_PLUGIN_ID.test(id)) return undefined;
-  const rel = getHarness(id)?.icon;
+  // BOTH registries: the two shapes share this store and nothing else, so a
+  // network plugin is absent from the harness list — and asking only that one
+  // 404'd Tailscale's mark and left the row on its monogram.
+  const rel = getHarness(id)?.icon ?? getNetworkPlugin(id)?.manifest.icon;
   if (!rel) return undefined;
   const type = ICON_TYPES[extname(rel).toLowerCase()];
   // An extension `parseManifest` admits but this table does not is a bug in

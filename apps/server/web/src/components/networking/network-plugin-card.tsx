@@ -69,10 +69,10 @@ export function NetworkPluginCard({
   /** The network, as `GET /api/network` listed it */
   row: NetworkRow;
   /**
-   * First-run shape: no card chrome, no description, no supervisor detail,
-   * and only the settings a join cannot proceed without. The states and the
-   * controls are identical — this changes what surrounds them, never what a
-   * person can do.
+   * First-run shape: no card chrome, no header — the caller renders the name —
+   * no description, no supervisor detail, and only the settings a join cannot
+   * proceed without. The states and the controls are identical — this changes
+   * what surrounds them, never what a person can do.
    */
   compact?: boolean;
 }) {
@@ -602,14 +602,10 @@ export function NetworkPluginCard({
     </div>
   );
 
-  if (compact) {
-    return (
-      <li aria-label={row.name} className="space-y-3 rounded-lg border p-3">
-        {header}
-        {body}
-      </li>
-    );
-  }
+  // The caller owns the list item AND the name: `NetworkRow` renders both,
+  // and nesting a second `<li aria-label>` inside its row would have named
+  // every network twice.
+  if (compact) return <div className="space-y-3">{body}</div>;
 
   // `role="group"` so the row is addressable as a whole — by a screen reader
   // moving between networks, and by a test asserting that one card carries a

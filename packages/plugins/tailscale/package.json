@@ -76,7 +76,7 @@
             "docsUrl": "https://tailscale.com/kb/1031/install-linux"
           },
           {
-            "label": "Let this server drive it",
+            "label": "Allow this server to control Tailscale",
             "command": "sudo tailscale set --operator=$USER",
             "docsUrl": "https://tailscale.com/kb/1080/cli"
           }
@@ -88,7 +88,7 @@
             "docsUrl": "https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS"
           },
           {
-            "label": "Let this server drive it",
+            "label": "Allow this server to control Tailscale",
             "command": "sudo tailscale set --operator=$USER",
             "docsUrl": "https://tailscale.com/kb/1080/cli"
           }
