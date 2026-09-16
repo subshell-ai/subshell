@@ -44,8 +44,15 @@ export function tunnelSettingsFields(): SettingsField[] {
       type: "secret",
       required: true,
       label: "Tunnel token",
-      description:
-        "Stored on this host in a file only the server can read. `subshell-server backup` does not include it — after a restore, paste it again. It reaches the tunnel through the connector's own environment, never a command line.",
+      // Where to find it, spelled the way the Zero Trust console spells it.
+      // The card's credential box borrows this string verbatim, so it is the
+      // one place the path is written down.
+      placeholder: "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
+      // The plugin's own sentence, and only that. The backup caveat belongs to
+      // the PAGE — the settings form states it under every secret, because
+      // `subshell-server backup` is the server's fact and no manifest should
+      // have to repeat it (review, 2026-09-16).
+      description: "It reaches the tunnel through the connector's own environment, never a command line.",
     },
   ];
 }

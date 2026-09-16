@@ -72,7 +72,7 @@ export function AddNetworkCard() {
           </div>
         ))}
         {install.isError && failedId !== null && (
-          <p className="text-destructive text-sm">
+          <p className="text-destructive text-detail">
             {errMessage(install.error, "The install failed. Nothing changed.")}
           </p>
         )}

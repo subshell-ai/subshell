@@ -33,6 +33,7 @@ function network(over: Partial<NetworkRow> & { id: string; name: string }): Netw
     supported: true,
     enabled: true,
     interactiveLogin: true,
+    publishImplicit: false,
     privileged: [],
     settingsFields: [],
     settings: {},

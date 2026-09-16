@@ -47,7 +47,11 @@ export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promis
       });
     }
     if (settings === null) {
-      hints.push({ text: "Set the hostname, team domain and application AUD before publishing." });
+      // "connecting", because the required settings gate the join as well as
+      // the publish (`configurationRefusal`'s join half exempts only the
+      // secret) — a hint naming only the far end sent people to press Connect
+      // first and eat the 409.
+      hints.push({ text: "Set the hostname, team domain and application AUD before connecting or publishing." });
     }
     return { state: "needs-login", addresses: [], hints, ...(identity ? { identity } : {}) };
   }

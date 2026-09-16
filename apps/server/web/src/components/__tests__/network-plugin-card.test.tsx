@@ -12,7 +12,7 @@ import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { setFetchRouter } from "@/test-setup";
-import type { NetworkRow, NetworkState } from "@/types/network";
+import type { NetworkRow, NetworkState, SettingsFieldWire } from "@/types/network";
 
 /**
  * The card's state matrix (one test per state), plus the three rules that are
@@ -44,6 +44,7 @@ function row(over: Partial<NetworkRow> & { state?: NetworkState } = {}): Network
     supported: true,
     enabled: true,
     interactiveLogin: true,
+    publishImplicit: false,
     privileged: [],
     settingsFields: [],
     settings: {},
@@ -62,6 +63,63 @@ const ADDRESSES = [
   { url: "https://box.tail1234.ts.net", scheme: "https" as const, label: "MagicDNS name", secureContext: true },
   { url: "http://100.64.0.1:3080", scheme: "http" as const, label: "Tailscale IP", secureContext: false },
 ];
+
+/**
+ * Cloudflare's four settings fields, VERBATIM from
+ * `packages/plugins/cloudflare-tunnel/src/settings.ts`.
+ *
+ * The credential box's placeholder is looked up from exactly this shape, and
+ * the wizard's one-door rule is decided by exactly this mix of required
+ * non-secrets and one required secret — a fixture that invented its own field
+ * would be testing a plugin that does not exist.
+ */
+const CLOUDFLARE_FIELDS: SettingsFieldWire[] = [
+  {
+    key: "hostname",
+    type: "string",
+    required: true,
+    label: "Hostname",
+    placeholder: "subshell.example.com",
+    description:
+      "The public hostname the tunnel answers on. Its DNS record and its Access application are created in the Cloudflare dashboard; publishing is refused until Access covers it.",
+  },
+  {
+    key: "teamDomain",
+    type: "string",
+    required: true,
+    label: "Access team domain",
+    placeholder: "myteam",
+    description: "Your Cloudflare Access team. Assertions are verified against <team>.cloudflareaccess.com.",
+  },
+  {
+    key: "aud",
+    type: "string",
+    required: true,
+    label: "Access application Audience tag",
+    description:
+      "The AUD tag of the Access application that guards this hostname. It is in that application's summary, and every assertion is verified against it.",
+  },
+  {
+    key: "tunnel-token",
+    type: "secret",
+    required: true,
+    label: "Tunnel token",
+    placeholder: "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
+    description: "It reaches the tunnel through the connector's own environment, never a command line.",
+  },
+];
+
+/** A needs-login cloudflare row, in the shape the wire actually carries. */
+function cloudflareRow(over: Partial<NetworkRow> & { state?: NetworkState } = {}): NetworkRow {
+  return row({
+    id: "cloudflare-tunnel",
+    name: "Cloudflare Tunnel",
+    labels: { credential: "Tunnel token", publish: "Start tunnel" },
+    settingsFields: CLOUDFLARE_FIELDS,
+    exposure: "public-with-gate",
+    ...over,
+  });
+}
 
 /** Renders the card inside a throwaway router + query client (it uses both). */
 async function renderCard(value: NetworkRow, compact = false): Promise<void> {
@@ -510,6 +568,81 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
   });
 
+  it("Connect waits for the field the server would refuse on, and names it", async () => {
+    // Headscale's real shape: one required non-secret. The route answers a
+    // join on an unset one with 409 NETWORK_UNCONFIGURED and a sentence
+    // pointing at the page the press came from — so the buttons wait instead,
+    // each carrying the reason through aria-describedby (disabled controls are
+    // skipped by a screen reader's tab order, so placement is not reaching).
+    await renderCard(
+      row({
+        id: "headscale",
+        name: "Headscale",
+        state: "needs-login",
+        settingsFields: [
+          {
+            key: "controlUrl",
+            label: "Control server URL",
+            type: "string",
+            required: true,
+            placeholder: "https://headscale.example.com",
+          },
+        ],
+      }),
+    );
+    const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    const signIn = screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement;
+    expect(connect.disabled).toBe(true);
+    expect(signIn.disabled).toBe(true);
+    const sentence = screen.getByText("Set the control server url first.");
+    expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
+    expect(signIn.getAttribute("aria-describedby")).toBe(sentence.id);
+  });
+
+  it("the same row unblocks once the field is set", async () => {
+    // The other half: the gate is the SERVER's rule, not a permanent "this
+    // plugin needs settings" notice. With the value stored, the join is
+    // offerable and nothing explains an absence.
+    await renderCard(
+      row({
+        id: "headscale",
+        name: "Headscale",
+        state: "needs-login",
+        settingsFields: [{ key: "controlUrl", label: "Control server URL", type: "string", required: true }],
+        settings: { controlUrl: "https://headscale.example.com" },
+      }),
+    );
+    expect(screen.queryByText(/Set the control server url first\./)).toBeNull();
+    expect((screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("the wizard asks for the token ONCE: the credential box is the secret's door", async () => {
+    // Two inputs labelled "Tunnel token" was the defect. The join gate exempts
+    // required SECRETS because joining is the act that delivers them, so the
+    // settings form's secret row is a question the wizard asks twice — and the
+    // box is the door this act actually writes through.
+    await renderCard(cloudflareRow({ state: "needs-login" }), true);
+    expect(screen.getAllByLabelText(/Tunnel token/)).toHaveLength(1);
+    // The required NON-secrets stay: dropping one would leave a Connect button
+    // nothing on screen can satisfy.
+    expect(screen.getByLabelText(/^Hostname/)).toBeTruthy();
+  });
+
+  it("the full card keeps both token doors and says which the act writes", async () => {
+    await renderCard(cloudflareRow({ state: "needs-login" }));
+    // Two doors, one credential: the settings row replaces what is stored, the
+    // box delivers the first one.
+    const doors = screen.getAllByLabelText(/Tunnel token/);
+    expect(doors).toHaveLength(2);
+    expect(screen.getByText("To connect for the first time, paste it into the Connect box below.")).toBeTruthy();
+    // The second is the credential box (the settings form renders above the
+    // state branch), and the placeholder lookup resolves through the plugin's
+    // real field — the one sentence telling an admin where to copy the token.
+    expect((doors[1] as HTMLInputElement).getAttribute("placeholder")).toBe(
+      "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
+    );
+  });
+
   it("joined states what each address costs, and offers Publish rather than Unpublish", async () => {
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     expect(screen.getByText("Passkeys and secure cookies work at this address.")).toBeTruthy();
@@ -610,19 +743,29 @@ describe("NetworkPluginCard: the state matrix", () => {
 
 describe("NetworkPluginCard: the rules that are not about one state", () => {
   it("a secret setting reports whether it is set and never renders a value", async () => {
+    // Through cloudflare's REAL field rather than an invented one — the
+    // credential box's placeholder, the wizard's one-door rule and the
+    // disconnect prompt's credential sentence all key off the exact shape a
+    // manifest actually ships, so a fixture with its own fake `authKey` would
+    // prove nothing about any of them.
     await renderCard(
-      row({
+      cloudflareRow({
         state: "joined",
         status: { state: "joined", addresses: ADDRESSES, hints: [] },
-        settingsFields: [{ key: "authKey", label: "Auth key", type: "secret", placeholder: "tskey-auth-…" }],
         // Exactly what the server sends in a secret's place — the value never
         // travels, so there is nothing here that COULD be echoed.
-        settings: { authKey: { set: true } },
+        settings: { "tunnel-token": { set: true } },
       }),
     );
-    const field = screen.getByLabelText("Auth key") as HTMLInputElement;
+    // Regex, not the exact text: a required field's label carries
+    // "(required)" after the name, which an exact match reads as a
+    // different label.
+    const field = screen.getByLabelText(/^Tunnel token/) as HTMLInputElement;
     expect(field.value).toBe("");
     expect(field.type).toBe("password");
+    expect(field.getAttribute("placeholder")).toBe(
+      "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
+    );
     expect(screen.getByText(/Set — typing here replaces it\./)).toBeTruthy();
     // The caveat the page owns rather than the plugin: the backup snapshots
     // the database, and a plugin secret does not live there.
@@ -753,6 +896,48 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.getByText("Subshell is published on Tailscale.")).toBeTruthy();
   });
 
+  it("unpublishing an implicit-publish network promises no shutdown", async () => {
+    // NetBird's `unpublish` is a documented no-op — the addresses became
+    // reachable by JOINING and stay reachable while the machine is a member.
+    // The blanket sentence this replaces promised a server going quiet, which
+    // is a thing that does not happen on this row.
+    await renderCard(
+      row({
+        id: "netbird",
+        name: "NetBird",
+        state: "published",
+        published: true,
+        publishImplicit: true,
+        status: { state: "published", addresses: ADDRESSES, hints: [] },
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        "NetBird's addresses stay reachable while this machine is a member of the network — unpublishing removes the published record, it does not disconnect the machine. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.",
+      ),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/stops answering at the addresses/)).toBeNull();
+  });
+
+  it("unpublishing a serve-style network names which addresses stop", async () => {
+    // The other kind: the record names the mechanism, so the published
+    // addresses DO go down — but a mesh IP in the same list answers on
+    // membership and keeps answering, which the old sentence also claimed
+    // would stop.
+    await renderCard(
+      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        "The published addresses stop answering — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("does not invite a settings edit the server would refuse", async () => {
     // The server refuses a settings write while published, because nothing
     // re-derives the guard, the argv or the hydrated secret from it. A form
@@ -818,6 +1003,15 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     // The question names the network the person is looking at…
     expect(within(dialog).getByText("Disconnect this server from Tailscale?")).toBeTruthy();
+    // …and the answer says what leaving DOES, machine-wide — `tailscale
+    // logout` is not "this server goes quiet". With no stored credential on
+    // this row it says nothing about deleting one.
+    expect(
+      within(dialog).getByText(
+        "This machine leaves the Tailscale network, and the addresses this server answered on stop working.",
+      ),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/Stored credentials/)).toBeNull();
     // …and nothing has gone to the server yet.
     expect(calls.some((c) => c.pathname.endsWith("/leave"))).toBe(false);
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
@@ -838,6 +1032,27 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls.some((c) => c.pathname.endsWith("/leave"))).toBe(false);
+  });
+
+  it("disconnect names the stored credential it is about to delete", async () => {
+    // Every plugin's leave is machine-wide, and where a credential is stored
+    // it goes with the rest — cloudflare's leave deletes the tunnel token.
+    // Reconnecting then means pasting it again, which belongs before the
+    // press rather than discovered at the next attempt.
+    await renderCard(
+      cloudflareRow({
+        state: "joined",
+        status: { state: "joined", addresses: ADDRESSES, hints: [] },
+        settings: { "tunnel-token": { set: true } },
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        "This machine leaves the Cloudflare Tunnel network, and the addresses this server answered on stop working. Stored credentials for this network are deleted; reconnecting means pasting them again.",
+      ),
+    ).toBeTruthy();
   });
 
   it("an install route that is not there leaves the hints standing", async () => {

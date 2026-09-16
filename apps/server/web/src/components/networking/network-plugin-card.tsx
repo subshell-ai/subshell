@@ -7,7 +7,7 @@ import { NetworkHintBlock, NetworkHints, NetworkNotice, splitLeadHints } from "@
 import { hasGroupedSteps, PrivilegedSteps } from "@/components/networking/network-privileged-steps";
 import { NetworkProcessLine } from "@/components/networking/network-process-line";
 import { NetworkRestartNotice } from "@/components/networking/network-restart-notice";
-import { NetworkSettingsForm } from "@/components/networking/network-settings-form";
+import { NetworkSettingsForm, secretIsSet } from "@/components/networking/network-settings-form";
 import { PluginIcon } from "@/components/plugin-icon";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
 } from "@/hooks/use-network";
 import { ApiError, errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
+import { connectBlocker } from "@/lib/network-connect";
 import { safeHref } from "@/lib/safe-href";
 import type { NetworkRow } from "@/types/network";
 
@@ -194,15 +195,27 @@ export function NetworkPluginCard({
   const joinOutcome = join.data?.outcome;
   const loginUrl = (joinOutcome?.state === "needs-login" ? joinOutcome.loginUrl : undefined) ?? status?.loginUrl;
   const loginCode = (joinOutcome?.state === "needs-login" ? joinOutcome.loginCode : undefined) ?? status?.loginCode;
+  /**
+   * Why the join would fail whatever gets typed, when it would: the first
+   * required non-secret field the SERVER's own gate (`configurationRefusal`)
+   * refuses an unconfigured row on. Rendered as the buttons' attached reason
+   * rather than discovered as a 409 naming the page the press came from.
+   */
+  const blocker = connectBlocker(row);
+  const blockerId = `network-${row.id}-connect-blocker`;
+  const blockerProps = blocker ? { "aria-describedby": blockerId } : {};
 
   const published = publish.data;
   /**
    * A 404 from the install route is not a failure.
    *
    * It means this plugin ships no installer — which is a fact the row is
-   * already rendering, as the privileged steps a person copies instead. No
-   * plugin available today HAS one (every Tailscale install path needs root,
-   * and the manifest parser refuses a `sudo` install command), so a button
+   * already rendering, as the privileged steps a person copies instead. Three
+   * of the four built-ins are in that case today: their every install path
+   * needs root, and the manifest parser refuses a `sudo` install command.
+   * `cloudflared` is the one that needs no root anywhere, so it is the one
+   * that ships an `install.command` — which makes the route's absence the
+   * per-plugin fact rather than the per-build rule. Either way, a button
    * somehow pressed against a route that is not there must leave the hints
    * standing rather than cover them with an error about them.
    */
@@ -293,7 +306,7 @@ export function NetworkPluginCard({
             onPendingChange={setSavingSettings}
             requiredOnly={compact}
             {...(row.published
-              ? { reason: `Unpublish ${row.name} to change these — a change cannot reach a running tunnel.` }
+              ? { reason: `Unpublish ${row.name} to change these — a change cannot reach the running publish.` }
               : {})}
           />
 
@@ -374,6 +387,18 @@ export function NetworkPluginCard({
           {state === "needs-login" && (
             <div className="space-y-3">
               <NetworkHints hints={status.hints} />
+              {/* The full card ALSO shows this plugin's secret in the settings
+                  form, so two doors carry one credential and read alike —
+                  which is the sentence that tells them apart, and the one that
+                  says which THIS act writes. (`compact` drops the form's
+                  secret row: the wizard renders only what a join cannot
+                  proceed without, and a join IS the delivery, so the box is
+                  the only door there.) */}
+              {row.settingsFields.some((field) => field.type === "secret") && (
+                <p className="text-detail text-muted-foreground">
+                  To connect for the first time, paste it into the Connect box below.
+                </p>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor={`network-${row.id}-credential`}>{row.labels.credential ?? "Access key"}</Label>
                 <Input
@@ -386,10 +411,21 @@ export function NetworkPluginCard({
                   onChange={(event) => setCredential(event.target.value)}
                 />
               </div>
+              {/* Attached rather than merely placed above: these buttons are
+                  disabled, and a screen reader skips disabled controls — the
+                  people most likely to wonder why reach a bare paragraph
+                  least. Same pattern the settings form uses for its own
+                  disabled reason. */}
+              {blocker && (
+                <p id={blockerId} className="text-detail text-muted-foreground">
+                  {blocker}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
-                  disabled={busy || credential.trim() === ""}
+                  {...blockerProps}
+                  disabled={busy || blocker !== null || credential.trim() === ""}
                   onClick={() =>
                     begin(() =>
                       join.mutate(
@@ -413,7 +449,8 @@ export function NetworkPluginCard({
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={busy}
+                    {...blockerProps}
+                    disabled={busy || blocker !== null}
                     onClick={() => begin(() => join.mutate({ id: row.id }))}
                   >
                     Sign in with {row.name}
@@ -508,13 +545,27 @@ export function NetworkPluginCard({
                     size="sm"
                     disabled={busy}
                     onClick={async () => {
-                      // The last sentence is the point. Leaving the trusted
-                      // origin behind is deliberate (spec §5.4) — removing one
-                      // is the Addresses card's act — and it is surprising
-                      // enough that discovering it later reads as a bug.
+                      // The LAST sentence is the point on both branches:
+                      // leaving the trusted origin behind is deliberate (spec
+                      // §5.4) — removing one is the Addresses card's act — and
+                      // it is surprising enough that discovering it later
+                      // reads as a bug.
+                      //
+                      // The FIRST depends on what unpublishing even IS here.
+                      // For a `publishImplicit` network (NetBird) the
+                      // addresses follow membership: unpublishing removes the
+                      // host's RECORD and the machine keeps answering, so the
+                      // blanket promise this used to make described a
+                      // shutdown that does not happen. For the serve/tunnel
+                      // kinds the record names the mechanism and the published
+                      // addresses do go down — but a mesh IP in the same list
+                      // answers on membership too, so even that sentence names
+                      // which addresses stop.
                       const proceed = await confirmAction({
                         title: `Stop publishing Subshell on ${row.name}?`,
-                        description: `This server stops answering at the addresses ${row.name} gave it. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.`,
+                        description: row.publishImplicit
+                          ? `${row.name}'s addresses stay reachable while this machine is a member of the network — unpublishing removes the published record, it does not disconnect the machine. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.`
+                          : `The published addresses stop answering — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network, and the address stays in the trusted origins — remove it under Settings → Service if you want it gone.`,
                         confirmLabel: "Unpublish",
                       });
                       if (proceed) begin(() => unpublish.mutate({ id: row.id }));
@@ -538,9 +589,24 @@ export function NetworkPluginCard({
                   className="text-destructive hover:text-destructive"
                   disabled={busy}
                   onClick={async () => {
+                    // Every plugin's leave is MACHINE-wide — `tailscale
+                    // logout`, `netbird down`, cloudflare deletes the stored
+                    // token — so the sentence says this machine leaves the
+                    // network, not merely that this server went quiet. And
+                    // where a credential is stored, leaving deletes it with
+                    // the rest: reconnecting then means pasting it again,
+                    // which belongs before the press rather than at the next
+                    // attempt.
+                    const storesSecret = row.settingsFields.some(
+                      (field) => field.type === "secret" && secretIsSet(row, field.key),
+                    );
                     const proceed = await confirmAction({
                       title: `Disconnect this server from ${row.name}?`,
-                      description: `The addresses this server answered on over ${row.name} stop working, and anything reaching it through them — a phone, another laptop — loses it until you connect again.`,
+                      description:
+                        `This machine leaves the ${row.name} network, and the addresses this server answered on stop working.` +
+                        (storesSecret
+                          ? " Stored credentials for this network are deleted; reconnecting means pasting them again."
+                          : ""),
                       confirmLabel: "Disconnect",
                       danger: true,
                     });

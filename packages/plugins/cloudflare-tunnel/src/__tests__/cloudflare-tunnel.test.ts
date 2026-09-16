@@ -201,16 +201,25 @@ describe("settingsFields", () => {
     expect(fields.find((f) => f.key === "hostname")?.placeholder).toBe("subshell.example.com");
     expect(fields.find((f) => f.key === "teamDomain")?.placeholder).toBe("myteam");
     expect(fields.find((f) => f.key === "tunnel-token")?.label).toBe("Tunnel token");
+    // The card's credential box reads this string off the field list, so a
+    // manifest that drops it silently empties the paste box's hint.
+    expect(fields.find((f) => f.key === "tunnel-token")?.placeholder).toBe(
+      "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
+    );
   });
 
-  it("names the secret's limits beside the field, not after a restore", () => {
-    // `subshell-server backup` snapshots the database alone (§ 9), so a
-    // restored instance needs the token pasted again. The spec makes that a
-    // UI promise; this is what makes it true.
+  it("says how the token reaches the tunnel, and nothing about the backup", () => {
+    // The plugin owns the ONE sentence only it can say — the token travels in
+    // the connector's environment, never argv. The backup caveat is the
+    // PAGE's: the settings form renders it under every secret, because
+    // `subshell-server backup` is the server's fact (§ 9), and a manifest that
+    // restated it would be the copy that goes stale. (Review, 2026-09-16.)
     const plugin = createPlugin(createTestHost()) as NetworkPlugin;
     const token = plugin.settingsFields?.().find((f) => f.key === "tunnel-token");
-    expect(token?.description).toContain("subshell-server backup");
-    expect(token?.description).toContain("paste it again");
+    expect(token?.description).toBe(
+      "It reaches the tunnel through the connector's own environment, never a command line.",
+    );
+    expect(token?.description).not.toContain("subshell-server backup");
   });
 
   it("keys the secret a dashed name, because the store says so", () => {
@@ -333,7 +342,9 @@ describe("status", () => {
     const status = await plugin.status(ctx({ settings: {}, tokenSet: true }));
     expect(status.state).toBe("needs-login");
     expect(
-      status.hints.some((h) => h.text === "Set the hostname, team domain and application AUD before publishing."),
+      status.hints.some(
+        (h) => h.text === "Set the hostname, team domain and application AUD before connecting or publishing.",
+      ),
     ).toBe(true);
   });
 

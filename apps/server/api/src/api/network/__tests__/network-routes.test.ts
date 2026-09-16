@@ -361,6 +361,9 @@ describe("/api/network", () => {
       expect(row.supported).toBe(true);
       expect(row.enabled).toBe(true);
       expect(row.interactiveLogin).toBe(true);
+      // The unpublish confirmation branches on this, so the row must always
+      // carry an answer — absence is Elysia dropping an undeclared field.
+      expect(row.publishImplicit).toBe(false);
       expect(row.install.command).toBe("brew install test-network");
       // darwin's step only. Rendering the linux one to copy is how an operator
       // runs a systemd command on a Mac.
@@ -393,6 +396,7 @@ describe("/api/network", () => {
       const { networks } = (await res.json()) as { networks: Record<string, any>[] };
       expect(networks[0].status.state).toBe("published");
       expect(networks[0].published).toBe(true);
+      expect(networks[0].publishImplicit).toBe(true);
     });
 
     it("leaves a joined row joined for a plugin that never declared publishImplicit", async () => {

@@ -12,11 +12,13 @@ import type { NetworkRow, SettingsFieldWire } from "@/types/network";
  * Whether the server holds a value for a secret field.
  *
  * A secret's value NEVER comes back — the list sends `{ set }` in its place —
- * so "Set" and "Not set" is the whole of what this form may know, and the
- * input beside it replaces rather than edits. Anything else here would be a
- * form echoing a credential back onto a screen.
+ * so "Set" and "Not set" is the whole of what ANY surface may know: this form
+ * shows it beside an input that replaces rather than edits, and the card's
+ * disconnect confirmation asks it before promising that leaving will delete a
+ * stored credential. Anything more here would be echoing a credential back
+ * onto a screen.
  */
-function secretIsSet(row: NetworkRow, key: string): boolean {
+export function secretIsSet(row: NetworkRow, key: string): boolean {
   const value = row.settings[key];
   return typeof value === "object" && value !== null ? value.set : false;
 }
@@ -85,17 +87,27 @@ export function NetworkSettingsForm({
    */
   reason?: string;
   /**
-   * Render only the fields the plugin marks `required`.
+   * Render only the fields a join cannot proceed without.
    *
    * The first-run step asks the shortest question that can still succeed: an
    * optional field there is a decision nobody has the context to make yet,
-   * and the full form lives one page away under Settings. A REQUIRED field
-   * cannot be dropped the same way — hiding it would leave a Connect button
-   * that refuses with no way on screen to satisfy it.
+   * and the full form lives one page away under Settings.
+   *
+   * Required fields split by KIND, because they have two different doors.
+   * A required NON-SECRET cannot be dropped — nothing else writes it, so
+   * hiding it leaves a Connect button that refuses with no way on screen to
+   * satisfy it. A required SECRET can, and is: the credential box the card
+   * renders in `needs-login` IS that field's delivery door — the server's
+   * join gate exempts secrets precisely because joining is what delivers them
+   * (`configurationRefusal`) — and rendering both put two identically
+   * labelled "Tunnel token" inputs in front of a first-run admin, one of them
+   * writing to a store the wizard is about to fill anyway.
    */
   requiredOnly?: boolean;
 }) {
-  const fields = requiredOnly ? row.settingsFields.filter((field) => field.required) : row.settingsFields;
+  const fields = requiredOnly
+    ? row.settingsFields.filter((field) => field.required && field.type !== "secret")
+    : row.settingsFields;
   const reasonId = `network-${row.id}-settings-reason`;
   /** Points a disabled field at the sentence explaining why. */
   const describedBy = reason ? { "aria-describedby": reasonId } : {};

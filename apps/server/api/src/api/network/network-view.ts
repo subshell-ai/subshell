@@ -86,6 +86,7 @@ export async function buildNetworkRow(entry: NetworkPluginEntry, inputs: RowInpu
     supported,
     enabled: inputs.enabled,
     interactiveLogin: network?.interactiveLogin === true,
+    publishImplicit: network?.publishImplicit === true,
     ...(entry.manifest.install
       ? { install: { command: entry.manifest.install.command, docsUrl: entry.manifest.install.docsUrl } }
       : {}),

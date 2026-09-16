@@ -148,6 +148,19 @@ export interface NetworkRow {
   enabled: boolean;
   /** Whether signing in means visiting a URL the vendor mints */
   interactiveLogin: boolean;
+  /**
+   * Whether the network routes addresses to this machine by membership alone.
+   *
+   * The two kinds of published are NOT the same act to undo, and the row is
+   * where the card learns which it is offering. NetBird is `true`: its publish
+   * left nothing the daemon can be re-asked about, so unpublishing removes the
+   * host's record while the machine's addresses keep answering for as long as
+   * it stays a member. The serve/tunnel plugins are `false`: there the record
+   * names the mechanism (serve reset, tunnel stop) and the published addresses
+   * really do go down. A confirmation that promised a shutdown on the first
+   * kind would be describing an act that does not happen.
+   */
+  publishImplicit: boolean;
   /** An install command the SERVER may run, absent where it may not */
   install?: { command: string; docsUrl: string };
   /**

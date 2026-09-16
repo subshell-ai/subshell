@@ -172,6 +172,10 @@ export const NetworkRowSchema = t.Object({
   interactiveLogin: t.Boolean({
     description: "True when joining with no credential can yield a URL a human finishes",
   }),
+  publishImplicit: t.Boolean({
+    description:
+      "True when the network routes addresses to this machine by the fact of membership alone, so `published` is a record the host keeps rather than a state the daemon can be re-asked about (NetBird). The unpublish confirmation says which kind this is, because the two stop answering different things",
+  }),
   install: t.Optional(
     t.Object(
       {
