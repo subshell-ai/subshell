@@ -1755,6 +1755,125 @@ window only, in `wizard.json` and `node.json`, and each app's `ipc-acl.test.ts`
 pins that. The server app's remote window still holds its six commands and the
 client app's still holds its one.
 
+## 11.13 Network plugins publish this server on a network
+
+Spec 2026-09-15. A **network plugin** (`type: "network"`) connects the
+control-plane host to one private network — Tailscale, Headscale, NetBird,
+Cloudflare Tunnel — and publishes Subshell on it, so the address an operator
+used to discover through a 403 becomes something the product knows and writes
+down. It is the same store, the same admin install door and the same seeding
+marker as a harness plugin (§6, §11.9); what differs is what it implements and
+therefore what it costs.
+
+**The rule the whole design rests on: a network plugin DESCRIBES, and the host
+EXECUTES.** A plugin returns argv, parses output and names a secret. It never
+spawns, never writes a file, never touches config.env, and never reads a
+credential back. That is not tidiness — it is what keeps the admin-only,
+bounded, env-allowlisted, audited properties of §11.10 and §11.10b true of code
+this project did not write.
+
+**What gets worse.**
+
+- **The argv is a plugin's, not a compiled-in table's.** §11.10 takes a plugin
+  id and §11.10b takes nothing; here a plugin decides what runs, through one
+  host member (`PluginHost.run`). This adds no trust that §11.9 has not already
+  accounted for — plugin code runs in the control-plane process with that
+  user's privileges and no sandbox, so a plugin that can be loaded can already
+  do worse — but it is the first time plugin-chosen argv reaches a spawn, and
+  it is worth saying rather than filing under "plugins are trusted". A
+  third-party network plugin's commands are exactly as trusted as its install
+  was. The bounds are the existing ones, not second copies: the
+  `INSTALLER_ENV_KEYS` allowlist (so `BETTER_AUTH_SECRET` and the database path
+  are not in the child's environment), stdin closed, the 64 KiB output cap, a
+  30 s default deadline capped at ten minutes, and a refusal of any `argv[0]`
+  that is not absolute or whose basename is `sudo`, `doas` or `pkexec`.
+- **Plugins now make outbound requests from the control plane.** §11.9 already
+  granted the network; the Cloudflare Access pre-flight is the first built-in
+  that uses it.
+- **A new credential class at rest.** The Cloudflare tunnel token IS the
+  tunnel's identity and must survive restarts, so it is stored on disk:
+  `<SUBSHELL_SERVER_DATA_DIR>/plugins-state/<id>/secrets/<name>`, 0600 inside
+  0700 directories, same protection as `BETTER_AUTH_SECRET` and the node key,
+  and inside the data dir the desktop reset already deletes. A stolen data dir
+  is a stolen tunnel. Two narrowing facts and one gap: the store is
+  **write-only to plugins** (`set`, `has`, `delete` — there is deliberately no
+  `get`, because a plugin that could read a credential could put it in argv, a
+  log line or a hint that renders in a browser), the value is hydrated only
+  into a process the HOST spawns (a 0600 file named by a flag, or an
+  environment variable), and **`subshell-server backup` does not include it** —
+  that verb snapshots the database alone (§11.12). After a restore the token
+  must be re-entered, and the UI says so at the field rather than leaving it to
+  be discovered.
+- **Mesh keys transit argv once.** A Tailscale auth key or a NetBird setup key
+  is passed to the vendor CLI as an argv element and is `ps`-visible for the
+  life of that one short command. Same accepted class as
+  `subshell enroll --key <nsk_…>` (§8b): single-use, consumed by the join, and
+  the daemon owns the identity afterwards. Subshell stores nothing.
+- **Cloudflare Tunnel inverts §0**, and it is the only thing here that does: a
+  `public-with-gate` plugin reaches the open internet. What bounds it is stated
+  in three places rather than assumed. The exposure is manifest DATA, rendered
+  before any button, so nobody publishes without reading it. The plugin
+  **refuses to publish** until a pre-flight confirms a Cloudflare Access
+  application covers the hostname (Access evaluates at the edge, before the
+  origin, so the check passes before the tunnel is up and fails on a bare
+  public hostname). And the server verifies the assertion itself, in its own
+  middleware mounted ahead of everything: keyed on the **`Host` header** and
+  not on a `CF-Ray`-style header a LAN client can simply omit, `jose`'s
+  `jwtVerify` against the team's JWKS with the issuer and `aud` pinned,
+  failing closed with `403 ACCESS_REQUIRED` on **every path with no
+  exemptions**, plus a belt refusal of a matching Host arriving from a
+  non-loopback address (`cloudflared` always connects from 127.0.0.1). Stopping
+  is ordered for the same reason: disabling or unpublishing stops the tunnel
+  process FIRST and drops the guard LAST, so there is no instant in which a
+  live tunnel is unguarded.
+- **Tailscale Serve puts this machine's name in public Certificate
+  Transparency logs.** The certificate is a real Let's Encrypt one for
+  `<host>.<tailnet>.ts.net`, so the NAME becomes public even though the server
+  stays private to the tailnet. Stated on the publish button, not discovered
+  afterwards.
+- **The address surface widens from a browser**, through §11.11's writer and no
+  other. Publishing adds the new origin to `TRUSTED_ORIGINS`, which is additive
+  and **passkey-neutral**; promoting it to `APP_BASE_URL` is a separate,
+  opt-in act that **moves the passkey rpID** (§2, §8) and carries that warning
+  at the checkbox. Both go through `applyConfig`, so the component validation
+  and the wildcard refusal in §8 apply unchanged, and a key whose source is the
+  process environment is reported as not written rather than silently masked.
+  Audit rows (`network.configure`, `network.join`, `network.publish`,
+  `network.unpublish`, `network.leave`) name origins and field NAMES, never
+  values.
+
+**What gets better.**
+
+- The trusted perimeter §0 assumes stops being something an operator builds by
+  hand and then fights the config about. The address that works and the address
+  the server trusts become the same decision, made once.
+- An `http://` origin over a WireGuard mesh is now LABELLED rather than
+  inferred: each address carries whether a browser will treat it as a secure
+  context, so "passkeys do not work here" is said before someone tries to
+  register one, not after.
+- Every privileged step is printed and never run. Every mesh daemon needs one
+  root install, and the server has no terminal to answer a password prompt —
+  the same refusal §11.10b turns on, applied to a second family of installers.
+  `cloudflared` is the one binary that needs no root anywhere, which is why it
+  is the only plugin carrying an `install.command` the server may run itself.
+
+**What is not claimed.**
+
+- **The server still trusts no proxy header.** `X-Forwarded-*`,
+  `Tailscale-User-Login` and `Cf-Access-Authenticated-User-Email` are all
+  ignored. Only the signed Access assertion is verified, and only as a **front
+  door**: the verified email is attached for audit metadata and is never a
+  session. Subshell's own cookie is still required behind it.
+- **Login backoff stays per-email** (§8). Under a tunnel every request appears
+  to arrive from 127.0.0.1, which costs nothing today because nothing is
+  rate-limited per IP — and is precisely why a per-IP limit added later must
+  read `CF-Connecting-IP`, and only behind the guard, where the header has been
+  vouched for.
+- **The secrets store is not encrypted.** `SUBSHELL_SECRETS_KEY` (§8) remains
+  designed and unbuilt; it now has one real customer, which is the condition
+  that section named for revisiting it.
+- No plugin is sandboxed, and none of this changes §11.9.
+
 ## 12. Hardening checklist for a wider deployment
 
 If this is ever exposed beyond a trusted network, the posture in §0 no longer
@@ -1792,3 +1911,9 @@ holds and the following are prerequisites, not improvements:
 - [ ] **Add an operator switch for `POST /api/setup/agents/:id/install`** (§11.10)
       or disable it outright — it runs a vendor's install script as the
       server's own OS user on request from any admin.
+- [ ] **If a `public-with-gate` network plugin is published, the guard IS the
+      perimeter** (§11.13). Verify that the Access application covers the whole
+      hostname rather than a path prefix, that its `aud` matches the one
+      configured here, and that no bypass or service-token policy is attached —
+      §0's trusted network is no longer what stands between the internet and
+      this instance.

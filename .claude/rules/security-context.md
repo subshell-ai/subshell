@@ -575,6 +575,76 @@ origin" — with nothing naming the key that fixes it. Two properties to keep:
   pinned to loopback. Adding a LAN name to `TRUSTED_ORIGINS` does NOT have that
   effect and is the right lever for "also reachable at".
 
+## Network plugins publish this server on a network (spec 2026-09-15)
+
+A `type: "network"` plugin connects the control-plane host to one network
+(Tailscale, Headscale, NetBird, Cloudflare Tunnel) and publishes Subshell on
+it. Same store, same admin install door, same seeding marker as a harness
+plugin. **The rule to code by: a network plugin DESCRIBES, the host
+EXECUTES** — it returns argv, parses output and names a secret; it never
+spawns, never writes a file, never touches config.env, never reads a credential
+back. Everything goes through `PluginHost`. That is what keeps the admin-only,
+bounded, audited properties of the existing installers true of third-party
+code. Full accounting: `docs/security.md` §11.13.
+
+- **Same gate and the same bounded executor** as the two installers above:
+  `/api/network/*` is cookie-admin only (`resolveSetupActor === "admin"`),
+  bearer refused, never public — no no-users carve-out, which is why the wizard
+  step sits after Create Your Account. The spawn core is the one
+  `runInstaller` uses: the `INSTALLER_ENV_KEYS` allowlist (no
+  `BETTER_AUTH_SECRET`, no database path), stdin closed, 64 KiB cap, 30 s
+  default deadline capped at ten minutes. **The one difference from §11.10b:
+  the argv comes from plugin code rather than a compiled-in table** — no new
+  trust beyond §11.9, but say it rather than filing it under "plugins are
+  trusted".
+- **The sudo boundary is absolute.** `host.run` throws on an `argv[0]` that is
+  not absolute or whose basename is `sudo`/`doas`/`pkexec`, and the manifest
+  parser refuses an `install.command` starting with `sudo`. Every mesh daemon
+  needs one root install; those are manifest DATA (`network.privileged`),
+  PRINTED for a human and never run. `cloudflared` is the one binary needing no
+  root anywhere, which is why it is the only `install.command` the server may
+  run itself.
+- **`host.secrets` has no `get`, deliberately.** A plugin that could read a
+  credential could put it in argv, a log line or a hint that renders in a
+  browser. Stored 0600 under
+  `<dataDir>/plugins-state/<id>/secrets/<name>` in 0700 dirs; hydrated only
+  into a host-spawned child (a 0600 file named by a flag, or an env var).
+  **`subshell-server backup` does NOT cover it** — that snapshots the database
+  alone, so a restore needs the token re-entered, and the UI says so at the
+  field. Short-lived mesh keys never go here: they transit argv once (the
+  accepted `enroll --key` class) and the daemon owns the identity after.
+- **Cloudflare Tunnel inverts the posture and is bounded in three places.**
+  `exposure: "public-with-gate"` is manifest data rendered before the button;
+  the plugin REFUSES to publish until a pre-flight confirms an Access
+  application covers the hostname; and the server verifies the assertion
+  itself, keyed on the **`Host` header** (never a `CF-Ray`-style presence rule
+  a LAN client can omit), `jwtVerify` against the team JWKS with issuer and
+  `aud` pinned, failing closed with `403 ACCESS_REQUIRED` on every path with no
+  exemptions, plus a refusal of a matching Host from a non-loopback address.
+  Disable and unpublish stop the process FIRST and drop the guard LAST, so a
+  live tunnel is never unguarded. **The assertion is a front door, never a
+  session**: the verified email is audit metadata, and Subshell's own cookie is
+  still required behind it.
+- **No proxy header is trusted.** `X-Forwarded-*`, `Tailscale-User-Login` and
+  `Cf-Access-Authenticated-User-Email` are ignored. Login backoff stays
+  per-email, which costs nothing under a tunnel today (every request looks like
+  127.0.0.1) and is why a per-IP limit added later must read `CF-Connecting-IP`
+  behind the guard only.
+- **Publishing widens the address surface through `applyConfig` and nothing
+  else** — §11.11's writer, so the component validation and the wildcard
+  refusal above apply unchanged. `TRUSTED_ORIGINS` is additive and
+  passkey-neutral; promoting to `APP_BASE_URL` MOVES the passkey rpID and is
+  opt-in with that warning. A key sourced from `process env` reports
+  `written:false` rather than a write the next read would mask. Audit rows
+  (`network.configure|join|publish|unpublish|leave`) name origins and field
+  NAMES, never values.
+- **Tailscale Serve puts the machine's name in public CT logs** (a real Let's
+  Encrypt certificate for `<host>.<tailnet>.ts.net`). Said on the publish
+  button, not discovered.
+- Each address carries `secureContext`, which is a statement about the BROWSER
+  and not about encryption: a WireGuard mesh encrypts an `http://` origin end
+  to end, but passkeys and `Secure` cookies still will not work there.
+
 ## The desktop apps (`apps/server/desktop`, `apps/client/desktop`)
 
 Two Tauri v2 shells. `apps/server/desktop` ("Subshell Server") installs, runs

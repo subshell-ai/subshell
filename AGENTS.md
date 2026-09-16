@@ -102,8 +102,9 @@ Package names follow the same words: `@internal/server`, `@internal/server-web`,
 
 ### Plugins are packages, and the control plane loads them
 
-A **plugin** teaches Subshell how to drive one thing in a pane — an agent
-CLI, or a plain shell. Six ship built in (`packages/plugins/*`, published as
+A **plugin** teaches Subshell how to drive one thing in a pane — an agent CLI,
+or a plain shell — **or how to connect this host to one network**. Six harness
+plugins ship built in (`packages/plugins/*`, published as
 `@subshell-ai/plugin-<id>`; `terminal` is the one that drives no agent and
 needs nothing installed, which is what makes a clean machine launchable), and
 the contract a third party builds against is `@subshell-ai/plugin-api`.
@@ -155,11 +156,32 @@ The store seeds its built-ins once at boot, keyed on a **completion marker**,
 never on emptiness: an empty directory is an operator who uninstalled
 everything, and re-seeding that would undo it on every restart.
 
-**`type` is for humans, `capabilities()` is for code.** The type
-(`agent-harness`, `terminal`) groups and labels; the launch pipeline branches
-on capabilities, which are validated at load, so a plugin claiming `resume`
-without one is refused rather than producing a restart that silently begins a
-fresh conversation.
+**`type` is for humans, `capabilities()` is for code — with one structural
+exception.** The type (`agent-harness`, `terminal`, `network`) groups and
+labels, and the launch pipeline branches on capabilities, which are validated
+at load, so a plugin claiming `resume` without one is refused rather than
+producing a restart that silently begins a fresh conversation. The exception is
+that **`network` plugins implement a different interface**, so the loader picks
+WHICH members to require from the manifest's type, and the capability union is
+shared while the applicable SUBSET is per type — a harness claiming `publish`
+and a network plugin claiming `resume` are both refused by name.
+
+**A network plugin describes; the host executes** (spec 2026-09-15). It
+connects the control-plane host to one network (Tailscale, Headscale, NetBird,
+Cloudflare Tunnel) and publishes Subshell on it, so the address an operator
+used to discover through a 403 flows into `TRUSTED_ORIGINS` and the enroll
+command. It returns argv, parses output and names a secret; it never spawns,
+never writes a file, never touches config.env and never reads a credential
+back — every effect goes through a `PluginHost` member the server owns, which
+is what keeps the admin-only, bounded, env-allowlisted, audited properties of
+the existing installers true of code we did not write. Two consequences worth
+holding: **platform support is manifest DATA** (`subshell.network.platforms`),
+so a page says "not available on macOS" without loading plugin code; and **the
+sudo boundary is absolute** — every mesh daemon needs one root install, the
+server has no terminal to answer a password prompt, so privileged steps are
+declared under `network.privileged` and PRINTED, never run. `install.command`
+is refused outright if it starts with `sudo`, because that is the one field a
+host may run on request. The accounting is `docs/security.md` §11.13.
 
 A plugin runs in the **control plane's** process with the server's privileges
 and no sandbox, and a malicious one therefore reaches every enrolled node
