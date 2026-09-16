@@ -16,6 +16,7 @@ import { useDesktopShellReady } from "@/hooks/use-desktop-shell-ready";
 import { useHasSidebar } from "@/hooks/use-has-sidebar";
 import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
 import { useServerOffline } from "@/hooks/use-server-offline";
+import { useSetupProgress } from "@/hooks/use-setup-progress";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
@@ -111,6 +112,13 @@ function Shell() {
     staleTime: Infinity,
   });
   const needsSetup = setupStatus?.needsSetup;
+  // The signed-in user's own wizard bookmark (spec 2026-09-16): fetched ONCE
+  // per document — enabled only when a user exists, since a bookmark
+  // presupposes one and the route answers an anonymous caller with 401 — and
+  // cached hard, because the wizard's writes go through the same key. The gate
+  // holds first paint until it answers so a resume never flashes the dashboard
+  // first, and the wizard reads this cached result as its initial step.
+  const { data: setupProgress, isLoading: progressLoading } = useSetupProgress(!!user);
   // See the gate below: the redirect elements need identities stable across
   // renders, so the one that carries per-location state is memoized on the
   // only input it reads.
@@ -130,6 +138,8 @@ function Shell() {
     needsSetup,
     bare,
     pathname: location.pathname,
+    progressLoading,
+    resumeSetup: setupProgress?.step != null,
   });
   if (gate === "blank" || gate === "holdSetup") return null;
   if (gate === "offlineHold") return <OfflineBanner />;

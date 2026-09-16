@@ -7,6 +7,7 @@ import { HarnessInfoSchema } from "@/api/models.js";
 import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { asSetupStep, SETUP_STEPS } from "@/db/types/setup-step.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
@@ -22,6 +23,34 @@ const SetupStatusSchema = t.Object({
     description: "True until the first account is registered (the service account does not count)",
   }),
   hasUsers: t.Boolean({ description: "Whether any account exists other than the internal service account" }),
+});
+
+/**
+ * The wizard step value — the same three literals as {@link SETUP_STEPS}.
+ *
+ * Spelled as an explicit tuple, not `SETUP_STEPS.map((s) => t.Literal(s))`:
+ * `.map()` returns an array rather than a tuple, so `t.Union` cannot infer the
+ * union of literal types and the schema's static type collapses, which in turn
+ * breaks the route handlers' response type-checking. A hand-written union is a
+ * second list beside `SETUP_STEPS` and can drift from it; the drift is not
+ * silent-dangerous because `asSetupStep` narrows on READ and an unknown stored
+ * value reads as "no bookmark", and `SETUP_STEPS` remains the source the
+ * repository validates against.
+ */
+const SetupStepValueSchema = t.Union([t.Literal("network"), t.Literal("agent"), t.Literal("launch")], {
+  description: "The wizard screen the first-run flow left off on",
+});
+
+/**
+ * One user's wizard bookmark (spec 2026-09-16): the step, or `null` for "no
+ * wizard in progress". Doubles as the PATCH body — a write answers with what
+ * it stored, and clearing is `null` the same way reading absent is `null`.
+ * An unrecognised string is a 400 from this schema, never a stored value.
+ */
+const SetupProgressSchema = t.Object({
+  step: t.Nullable(SetupStepValueSchema, {
+    description: "The caller's wizard step, or null when no wizard is in progress",
+  }),
 });
 
 /**
@@ -69,6 +98,37 @@ async function realHasUsers(): Promise<boolean> {
 let hasUsersProbe: () => Promise<boolean> = realHasUsers;
 
 /**
+ * The session behind a cookie credential, with the role classified: what the
+ * gate answers AND whose row it is. {@link resolveSetupActor} is this, minus
+ * the user — kept as the exported shape because the harness gate and the
+ * existing suite speak in actor kinds, while the progress routes act ON the
+ * caller's own row and need the id that produced the answer.
+ */
+async function classifySetupCredential(
+  request: Request,
+): Promise<{ actor: "cookie" | "admin" | "machine"; userId?: string }> {
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  if (extractSessionToken(cookieHeader)) {
+    const session = await resolveCookieSession(cookieHeader);
+    if (!session) throw new UnauthorizedError();
+    // The role lives in the app's `user_meta`, NOT on better-auth's session
+    // user — the same source `requireAdmin` reads, so the two gates cannot
+    // disagree about who is an admin.
+    const role = await new UserMetaRepository(db).getRole(session.user.id);
+    return { actor: role === "admin" ? "admin" : "cookie", userId: session.user.id };
+  }
+  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (bearer) {
+    // Same accept-set as authGuard (subshell keys must match their row's
+    // apiKeyId; non-subshell keys must be system-owned) — a self-minted or
+    // unlinked key that 401s everywhere else must not 200 here.
+    const issued = await isIssuedCredential(bearer).catch(() => false);
+    if (issued) return { actor: "machine" };
+  }
+  throw new UnauthorizedError();
+}
+
+/**
  * Classify a request's credential the way `authGuard` does, minimally:
  * "cookie" (live better-auth session), "machine" (a bearer key the guard
  * itself would accept — see `isIssuedCredential`; raw `verifyApiKey` is
@@ -80,25 +140,24 @@ let hasUsersProbe: () => Promise<boolean> = realHasUsers;
  * first-run window is public — which a static guard cannot express.
  */
 export async function resolveSetupActor(request: Request): Promise<"cookie" | "admin" | "machine"> {
-  const cookieHeader = request.headers.get("cookie") ?? "";
-  if (extractSessionToken(cookieHeader)) {
-    const session = await resolveCookieSession(cookieHeader);
-    if (!session) throw new UnauthorizedError();
-    // The role lives in the app's `user_meta`, NOT on better-auth's session
-    // user — the same source `requireAdmin` reads, so the two gates cannot
-    // disagree about who is an admin.
-    const role = await new UserMetaRepository(db).getRole(session.user.id);
-    return role === "admin" ? "admin" : "cookie";
-  }
-  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
-  if (bearer) {
-    // Same accept-set as authGuard (subshell keys must match their row's
-    // apiKeyId; non-subshell keys must be system-owned) — a self-minted or
-    // unlinked key that 401s everywhere else must not 200 here.
-    const issued = await isIssuedCredential(bearer).catch(() => false);
-    if (issued) return "machine";
-  }
-  throw new UnauthorizedError();
+  return (await classifySetupCredential(request)).actor;
+}
+
+/**
+ * The progress routes' gate: a browser session, or nothing.
+ *
+ * `cookie`/`admin` answer the caller's own row, so the gate must also produce
+ * WHOSE; `machine` is 403 — a bookmark is a person's place in a wizard and no
+ * machine consumer exists, the same reasoning that keeps bearer keys off the
+ * plugin writes. And unlike {@link requireHarnessAccess} there is NO no-users
+ * carve-out: a bookmark presupposes a user, so with no credential there is
+ * nobody whose step to read or write, and an anonymous request is the 401
+ * `classifySetupCredential` already throws.
+ */
+async function requireOwnSession(request: Request): Promise<string> {
+  const { actor, userId } = await classifySetupCredential(request);
+  if (actor === "machine" || !userId) throw new ForbiddenError();
+  return userId;
 }
 
 /**
@@ -159,6 +218,50 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
         operationId: "getSetupStatus",
         tags: ["setup"],
         description: "Whether the initial setup wizard should be shown",
+      },
+    },
+  )
+  .get(
+    "/progress",
+    async ({ request }) => {
+      // The caller's OWN bookmark — the id comes from the session, never from
+      // the request, the way `/api/notifications/settings` reads its own row.
+      const userId = await requireOwnSession(request);
+      return { step: await new UserMetaRepository(db).getSetupStep(userId) } as const;
+    },
+    {
+      response: { 200: SetupProgressSchema, 401: "ApiErrorResponse", 403: "ApiErrorResponse" },
+      detail: {
+        operationId: "getSetupProgress",
+        tags: ["setup"],
+        description: "The caller's own first-run wizard bookmark (browser sessions only)",
+      },
+    },
+  )
+  .patch(
+    "/progress",
+    async ({ request, body }) => {
+      const userId = await requireOwnSession(request);
+      // The schema has already refused anything outside the enum, so this
+      // narrowing cannot fail — it is here so the SAME list (`SETUP_STEPS`,
+      // which the schema itself maps over) is the one type that reaches the
+      // repository, and the response answers with what was actually stored.
+      const step = asSetupStep(body.step);
+      await new UserMetaRepository(db).setSetupStep(userId, step);
+      return { step } as const;
+    },
+    {
+      body: SetupProgressSchema,
+      response: {
+        200: SetupProgressSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "setSetupProgress",
+        tags: ["setup"],
+        description: "Advance or clear the caller's own first-run wizard bookmark (browser sessions only)",
       },
     },
   )

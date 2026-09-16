@@ -32,14 +32,26 @@ export interface UserMetaTable {
    * every pre-existing account out on upgrade.
    */
   disabled: Generated<number>;
+  /**
+   * Where the first-run wizard left off for this user, or NULL for "no wizard
+   * in progress" — which is every account but the first one, and every account
+   * that finished. Typed as a plain string rather than {@link SetupStep}
+   * because a row can hold anything a hand edit put there; readers narrow it
+   * with `asSetupStep`, which answers null for the rest.
+   *
+   * Written by `promoteFirstUserAtomically` (`'network'` for the first user)
+   * and by `PATCH /api/setup/progress` as the wizard moves. Spec 2026-09-16.
+   */
+  setupStep: Generated<string | null>;
 }
 
 /**
- * Insert shape. `notifyEnabled` and `disabled` are optional so registration
- * (which knows only id + role) stays valid; an omitted value takes the DB
- * default (1 = notifications on, 0 = not disabled).
+ * Insert shape. `notifyEnabled`, `disabled` and `setupStep` are optional so
+ * registration (which knows only id + role) stays valid; an omitted value
+ * takes the DB default (1 = notifications on, 0 = not disabled, NULL = no
+ * wizard in progress).
  */
-export type NewUserMeta = Omit<UserMetaTable, "notifyEnabled" | "terminalReplayLines" | "disabled"> & {
+export type NewUserMeta = Omit<UserMetaTable, "notifyEnabled" | "terminalReplayLines" | "disabled" | "setupStep"> & {
   notifyEnabled?: number;
   terminalReplayLines?: number | null;
   disabled?: number;

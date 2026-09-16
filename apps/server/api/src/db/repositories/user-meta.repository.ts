@@ -1,5 +1,6 @@
 import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
+import { asSetupStep, type SetupStep } from "@/db/types/setup-step.js";
 import type { NewUserMeta } from "@/db/types/user-meta.db-types.js";
 import type { UserRole } from "@/db/types/user-role.js";
 
@@ -153,6 +154,43 @@ export class UserMetaRepository extends BaseRepository {
       await sql`DELETE FROM session WHERE userId = ${userId}`.execute(trx);
       return { ok: true, sessionsRevoked: Number(counted.rows[0]?.n ?? 0) } as const;
     });
+  }
+
+  /**
+   * The wizard's resume bookmark for this user (spec 2026-09-16), or `null`
+   * when there is none — an absent row, a NULL column, or a stored value
+   * outside the {@link SetupStep} enum all read the same way.
+   *
+   * The enum narrowing on read is the fail-safe half of the design: nothing
+   * acts on this value but a redirect, so a hand-edited string must read as
+   * "no bookmark" rather than become a step the wizard cannot render.
+   *
+   * @param userId - better-auth user id
+   */
+  async getSetupStep(userId: string): Promise<SetupStep | null> {
+    const row = await this.db
+      .selectFrom("userMeta")
+      .select("setupStep")
+      .where("userId", "=", userId)
+      .executeTakeFirst();
+    return asSetupStep(row?.setupStep);
+  }
+
+  /**
+   * Writes (or, with `null`, clears) the wizard's resume bookmark. Upserts for
+   * the same reason {@link setNotifyEnabled} does — a user whose `user_meta`
+   * row was never created still has to be bookmarkable — and `role` falls back
+   * to its DB default on insert only, never touching an existing row's role.
+   *
+   * @param userId - better-auth user id
+   * @param step - the step to remember, or `null` to clear the bookmark
+   */
+  async setSetupStep(userId: string, step: SetupStep | null): Promise<void> {
+    await this.db
+      .insertInto("userMeta")
+      .values({ userId, role: "user", setupStep: step })
+      .onConflict((oc) => oc.column("userId").doUpdateSet({ setupStep: step }))
+      .execute();
   }
 
   async getRole(userId: string): Promise<string | null> {

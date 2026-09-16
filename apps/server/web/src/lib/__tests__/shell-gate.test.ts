@@ -9,6 +9,11 @@ const base = {
   needsSetup: false as boolean | undefined,
   bare: false,
   pathname: "/",
+  // Spec 2026-09-16: the wizard's resume bookmark. Both default to "a signed-in
+  // user with no wizard in progress, fully read", which is what every
+  // pre-existing case was implicitly about.
+  progressLoading: false,
+  resumeSetup: false,
 };
 
 describe("shellGate", () => {
@@ -46,5 +51,34 @@ describe("shellGate", () => {
   it("renders the frame for a signed-in user, outage or not", () => {
     expect(shellGate({ ...base, hasUser: true })).toBe("render");
     expect(shellGate({ ...base, hasUser: true, offline: true })).toBe("render");
+  });
+});
+
+/**
+ * The wizard resume (spec 2026-09-16 § 2.4): a signed-in user whose bookmark
+ * names a step is kept ON /setup, and first paint holds until the bookmark
+ * has answered — the two rules that replace "the wizard's step lived only in
+ * React state".
+ */
+describe("shellGate: the wizard bookmark", () => {
+  it("sends a signed-in user with a bookmark back to /setup", () => {
+    expect(shellGate({ ...base, hasUser: true, resumeSetup: true })).toBe("toSetup");
+  });
+
+  it("renders /setup itself for a bookmarked user, rather than redirecting in place", () => {
+    expect(shellGate({ ...base, hasUser: true, resumeSetup: true, pathname: "/setup", bare: true })).toBe("render");
+  });
+
+  it("holds first paint while a signed-in user's bookmark is still loading", () => {
+    expect(shellGate({ ...base, hasUser: true, progressLoading: true })).toBe("blank");
+  });
+
+  it("leaves a signed-in user with NO bookmark at every existing outcome", () => {
+    // The regression this pins: a completed setup must not become a loop.
+    expect(shellGate({ ...base, hasUser: true, resumeSetup: false, progressLoading: false })).toBe("render");
+    expect(shellGate({ ...base, hasUser: true, progressLoading: true, offline: true })).toBe("render");
+    // Offline: the hold and the redirect both stand down, exactly as the
+    // no-users check does — a read that cannot answer is not a state.
+    expect(shellGate({ ...base, hasUser: true, resumeSetup: true, offline: true })).toBe("render");
   });
 });

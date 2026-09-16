@@ -61,6 +61,14 @@ async function roleFor(userId: string): Promise<string | null> {
   return row?.role ?? null;
 }
 
+/** The wizard bookmark the promotion statement wrote, read raw. */
+async function setupStepFor(userId: string): Promise<string | null> {
+  const { rows } = await sql<{
+    setup_step: string | null;
+  }>`SELECT setup_step FROM user_meta WHERE user_id = ${userId}`.execute(db);
+  return rows[0]?.setup_step ?? null;
+}
+
 async function userExists(email: string): Promise<boolean> {
   // Raw SQL: better-auth's `user` table has literal camelCase columns that
   // the app Kysely instance's CamelCasePlugin would rewrite through a builder.
@@ -76,9 +84,22 @@ async function setRegistrationSetting(value: string): Promise<void> {
     .execute();
 }
 
+/**
+ * The `user_meta` DDL the promotion statement needs, spelled once.
+ *
+ * `setup_step` is part of it because that statement writes the column
+ * (spec 2026-09-16): a scratch table without it makes the INSERT throw, which
+ * would read as a broken promotion rather than a stale fixture.
+ */
+const USER_META_DDL = `CREATE TABLE user_meta (
+  user_id TEXT PRIMARY KEY,
+  role TEXT NOT NULL DEFAULT 'user',
+  setup_step TEXT
+)`;
+
 /** A private in-memory DB with the real `user_meta` DDL from migration 0001. */
 function scratchDb(): Kysely<Database> {
-  const scratch = new Kysely<{ userMeta: { userId: string; role: string } }>({
+  const scratch = new Kysely<{ userMeta: { userId: string; role: string; setupStep: string | null } }>({
     dialect: new BunSqliteDialect({ database: openSqliteDatabase(":memory:") }),
     plugins: [new CamelCasePlugin()],
   });
@@ -117,7 +138,7 @@ describe("cookieCache bound (F5)", () => {
 describe("first-admin promotion is atomic (F6b)", () => {
   it("two concurrent promotions of an EMPTY user_meta mint exactly one admin", async () => {
     const scratch = scratchDb();
-    await sql`CREATE TABLE user_meta (user_id TEXT PRIMARY KEY, role TEXT NOT NULL DEFAULT 'user')`.execute(scratch);
+    await sql.raw(USER_META_DDL).execute(scratch);
 
     const u1 = crypto.randomUUID();
     const u2 = crypto.randomUUID();
@@ -133,7 +154,7 @@ describe("first-admin promotion is atomic (F6b)", () => {
 
   it("re-running the promotion never flips an existing admin (no role-overwrite)", async () => {
     const scratch = scratchDb();
-    await sql`CREATE TABLE user_meta (user_id TEXT PRIMARY KEY, role TEXT NOT NULL DEFAULT 'user')`.execute(scratch);
+    await sql.raw(USER_META_DDL).execute(scratch);
 
     const first = crypto.randomUUID();
     await promoteFirstUserAtomically(scratch, first);
@@ -167,6 +188,56 @@ describe("first-admin promotion is atomic (F6b)", () => {
     await setRegistrationSetting("true");
     const r = await signUpEmail(newEmail());
     expect(await roleFor(r.user.id)).toBe("user");
+  });
+});
+
+/**
+ * The wizard's resume bookmark is written by the SAME statement that decides
+ * who is admin (spec 2026-09-16 § 2.2).
+ *
+ * The defect it closes: the wizard's step lived only in React state, and the
+ * account is created on its FIRST screen — so from that moment the server
+ * reported setup as done and reopening the app landed on the dashboard. The
+ * bookmark has to exist the instant the account does, or closing the app
+ * between sign-up and the wizard's own first write loses the place anyway,
+ * which is why it rides the promotion rather than a follow-up call.
+ */
+describe("the first user is bookmarked on the wizard's Network step", () => {
+  it("writes 'network' for the first user and NULL for the second", async () => {
+    const scratch = scratchDb();
+    await sql.raw(USER_META_DDL).execute(scratch);
+
+    const first = crypto.randomUUID();
+    const second = crypto.randomUUID();
+    await promoteFirstUserAtomically(scratch, first);
+    await promoteFirstUserAtomically(scratch, second);
+
+    const rows = await scratch.selectFrom("userMeta").select(["userId", "role", "setupStep"]).execute();
+    expect(rows.find((r) => r.userId === first)).toEqual({ userId: first, role: "admin", setupStep: "network" });
+    // Every later account — an admin's invite, or a sign-up while
+    // registrations are open — lands on the dashboard as it does today.
+    expect(rows.find((r) => r.userId === second)).toEqual({ userId: second, role: "user", setupStep: null });
+  });
+
+  it("gives the bookmark to the WINNER of two concurrent first promotions, and only them", async () => {
+    const scratch = scratchDb();
+    await sql.raw(USER_META_DDL).execute(scratch);
+
+    await Promise.all([
+      promoteFirstUserAtomically(scratch, crypto.randomUUID()),
+      promoteFirstUserAtomically(scratch, crypto.randomUUID()),
+    ]);
+
+    const rows = await scratch.selectFrom("userMeta").select(["role", "setupStep"]).execute();
+    // One statement decides both columns, so they cannot disagree: whoever
+    // is admin is whoever resumes the wizard.
+    expect(rows.filter((r) => r.setupStep === "network").map((r) => r.role)).toEqual(["admin"]);
+  });
+
+  it("the real sign-up hook bookmarks nobody once users exist", async () => {
+    await setRegistrationSetting("true");
+    const r = await signUpEmail(newEmail());
+    expect(await setupStepFor(r.user.id)).toBeNull();
   });
 });
 

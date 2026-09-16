@@ -4,6 +4,7 @@ import { betterAuth } from "better-auth";
 import { sql } from "kysely";
 import { authDatabase } from "@/auth/database.js";
 import { APP_BASE_URL, AUTH_SECRET, TRUSTED_ORIGINS } from "@/constants.js";
+import { FIRST_SETUP_STEP } from "@/db/types/setup-step.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { registrationOpen } from "@/services/registration-gate.js";
 import { normalizeUserName } from "@/services/user-name.js";
@@ -207,6 +208,14 @@ async function signInAllowed(userId: string): Promise<boolean> {
  * with role 'user'; re-running for an existing user is a no-op
  * (`ON CONFLICT DO NOTHING`), so a role is never overwritten here.
  *
+ * **It also writes the wizard's resume bookmark** (spec 2026-09-16): the same
+ * CASE decides `setup_step`, so the account that becomes admin is bookmarked
+ * on the wizard's Network step and every later account on nothing. It rides
+ * this statement rather than a follow-up call because the wizard's FIRST
+ * screen is what creates the account — from that moment the server reports
+ * setup as done — so a bookmark written any later loses the place of anyone
+ * who closes the app in between.
+ *
  * Exported for the concurrency test, which runs it against a private
  * scratch database (the shared test DB can never be observed empty).
  *
@@ -222,9 +231,10 @@ export async function promoteFirstUserAtomically(
   // this shape only re-introduces noise). CamelCasePlugin leaves snake_case
   // text untouched.
   await sql`
-    INSERT INTO user_meta (user_id, role)
+    INSERT INTO user_meta (user_id, role, setup_step)
     SELECT ${userId},
-           CASE WHEN NOT EXISTS (SELECT 1 FROM user_meta) THEN 'admin' ELSE 'user' END
+           CASE WHEN NOT EXISTS (SELECT 1 FROM user_meta) THEN 'admin' ELSE 'user' END,
+           CASE WHEN NOT EXISTS (SELECT 1 FROM user_meta) THEN ${FIRST_SETUP_STEP} ELSE NULL END
     ON CONFLICT (user_id) DO NOTHING
   `.execute(db);
 }

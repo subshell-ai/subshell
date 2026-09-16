@@ -63,3 +63,9 @@ export const UPDATES_QUERY_KEY = ["updates"] as const;
  * and it answers nothing at all in a browser.
  */
 export const DESKTOP_PERMISSIONS_QUERY_KEY = ["desktop-permissions"] as const;
+
+/**
+ * The caller's own wizard bookmark (`GET /api/setup/progress`); read via
+ * `useSetupProgress`, written via `useSetSetupProgress`. Spec 2026-09-16.
+ */
+export const SETUP_PROGRESS_QUERY_KEY = ["setup-progress"] as const;

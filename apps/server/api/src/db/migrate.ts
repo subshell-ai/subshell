@@ -31,6 +31,7 @@ import * as presetNameUniqueMigration from "@/db/migrations/0028-preset-name-uni
 import * as workspaceDraftsMigration from "@/db/migrations/0029-workspace-drafts.js";
 import * as userDisabledMigration from "@/db/migrations/0030-user-disabled.js";
 import * as nodeMaintenanceMigration from "@/db/migrations/0031-node-maintenance.js";
+import * as setupStepMigration from "@/db/migrations/0032-setup-step.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -83,6 +84,9 @@ export async function runMigrations(): Promise<void> {
           // Node maintenance: the flag that answers WHETHER anyone may launch
           // on a node, beside the shares that answer who (spec 2026-09-14).
           "0031-node-maintenance": nodeMaintenanceMigration,
+          // The first-run wizard's resume bookmark: `user_meta.setup_step`,
+          // NULL = no wizard in progress (spec 2026-09-16).
+          "0032-setup-step": setupStepMigration,
         };
       },
     },

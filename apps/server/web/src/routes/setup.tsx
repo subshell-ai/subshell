@@ -25,11 +25,14 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { useInstallAgent } from "@/hooks/use-install-agent";
 import { useInstallTmux } from "@/hooks/use-install-tmux";
+import { useSetSetupProgress, useSetupProgress } from "@/hooks/use-setup-progress";
 import { apiFetch, errMessage } from "@/lib/api";
+import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
+import type { SetupStep } from "@/types/setup";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -44,6 +47,44 @@ export const Route = createFileRoute("/setup")({
  */
 const STEPS = ["Account", "Network", "Agent", "Launch"] as const;
 
+/**
+ * The wizard screen a bookmark names, or 0 (Account) for none.
+ *
+ * `account` is deliberately unaddressable: the wizard's first screen creates
+ * the account, so the earliest a bookmark can exist is the screen AFTER it
+ * (`spec 2026-09-16` §2.1).
+ *
+ * @param step - the caller's bookmark, `GET /api/setup/progress`'s `step`
+ */
+function stepFromBookmark(step: SetupStep | null | undefined): number {
+  switch (step) {
+    case "network":
+      return 1;
+    case "agent":
+      return 2;
+    case "launch":
+      return 3;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * The wizard screen a NAVIGATION onto index `n` must bookmark.
+ *
+ * The bookmark names the step to REOPEN on — the step the person is arriving
+ * at, so leaving and reopening resumes exactly there. The Account step is not
+ * reachable by a nav write: advancing to it from registration is the sign-up
+ * hook's job (it writes `network`, the FIRST resumable screen), and the walk
+ * never goes back to it. Returns undefined for the account step so callers
+ * skip the write rather than store a step that cannot resume.
+ *
+ * @param n - the wizard index navigated TO
+ */
+function bookmarkFor(n: number): SetupStep | undefined {
+  return n === 1 ? "network" : n === 2 ? "agent" : n === 3 ? "launch" : undefined;
+}
+
 function SetupPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -51,14 +92,34 @@ function SetupPage() {
     queryKey: ["setup-status"],
     queryFn: () => apiFetch<{ needsSetup: boolean }>("/api/setup/status"),
   });
-  const [step, setStep] = useState(0);
-
+  // The wizard gates its bookmark read on a live session — a bookmark
+  // presupposes a user (there is no no-users carve-out on the route), so a
+  // first-run visitor fires no doomed request. It reads the SAME
+  // `setup-progress` query the root shell holds first paint on, so a resumed
+  // landing has the answer already cached (spec 2026-09-16 §2.4).
+  const { data: currentUser } = useCurrentUser();
+  const { data: progress } = useSetupProgress(!!currentUser);
+  const setProgress = useSetSetupProgress();
+  // The step opens ON the bookmark where there is one; a first-run visitor
+  // (no session, no bookmark) starts on Account as before.
+  const [step, setStep] = useState(() => stepFromBookmark(progress?.step));
   // Registration (better-auth sign-up). The fields are the shared
   // `NewAccountFields` — the same form the admin's Add user dialog renders —
   // so this screen holds one value and none of the rules about it.
   const [account, setAccount] = useState<NewAccountValue>(EMPTY_NEW_ACCOUNT);
   const [regError, setRegError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // A bookmark arriving after mount (a direct load of /setup where the read
+  // was not yet cached): apply it ONLY while still on the account screen and
+  // nothing has been typed, so a late answer never yanks someone who has
+  // already begun. `account === EMPTY_NEW_ACCOUNT` is exact — the shared form
+  // replaces the whole value on any edit, so the reference is the untouched
+  // constant until the first keystroke.
+  useEffect(() => {
+    const target = stepFromBookmark(progress?.step);
+    if (step === 0 && target > 0 && account === EMPTY_NEW_ACCOUNT) setStep(target);
+  }, [progress?.step, step, account]);
 
   // Add an Agent: a detection-first list, no toggle. Every harness's install
   // is a separate step (Settings → Plugins); this screen only says what's on
@@ -168,13 +229,37 @@ function SetupPage() {
   // launch.
   const launchedRef = useRef(false);
 
+  // A visitor, and ONLY a visitor, bounces. Before the resume bookmark
+  // (spec 2026-09-16) this was `needsSetup === false && !launchedRef` — which
+  // read the account's existence as "setup done", because the account is
+  // created on the FIRST screen. Now a signed-in first admin whose bookmark
+  // names a step IS the resumed wizard, not a visitor, and the `step === 0`
+  // guard makes the whole stale-setup-status window irrelevant: once anyone
+  // has moved off Account they are not bounced.
+  const resumeSetup = progress?.step != null;
   useEffect(() => {
-    if (status?.needsSetup === false && !launchedRef.current) {
+    if (status?.needsSetup === false && step === 0 && !resumeSetup && !launchedRef.current) {
       navigate({ to: "/" });
     }
-  }, [status, navigate]);
+  }, [status, step, resumeSetup, navigate]);
 
   if (!status) return null;
+
+  /**
+   * Moves the wizard to step `n` and bookmarks it.
+   *
+   * Fire-and-forget (spec 2026-09-16 §2.3): the optimistic cache write in
+   * `useSetSetupProgress` is what the root gate reads on the re-render, so the
+   * wizard never contradicts itself; a failed PATCH costs a resume at the
+   * PREVIOUS step, the harmless direction, so the error is deliberately not
+   * surfaced. Account (n=0) writes nothing — advancing to Network is the
+   * sign-up hook's job, and the walk never returns to Account.
+   */
+  function goTo(n: number) {
+    setStep(n);
+    const bookmark = bookmarkFor(n);
+    if (bookmark) setProgress.mutate(bookmark);
+  }
 
   async function register() {
     setBusy(true);
@@ -217,6 +302,10 @@ function SetupPage() {
    */
   function completeSetup() {
     queryClient.setQueryData(["setup-status"], { needsSetup: false });
+    // Finish and launch both CLEAR the bookmark (spec 2026-09-16 §2.3): a
+    // completed wizard must not reopen, and this also retracts the optimistic
+    // `launch` write so a reopen lands on the dashboard, not a spent wizard.
+    setProgress.mutate(null);
   }
 
   function finish() {
@@ -293,8 +382,8 @@ function SetupPage() {
         title="Connect a Network"
         subtitle="Reach this server from your other devices over a network you already use."
         dots={dotsFor(1)}
-        skip={{ label: "Skip for now", onClick: () => setStep(2) }}
-        primary={{ label: "Continue", onClick: () => setStep(2) }}
+        skip={{ label: "Skip for now", onClick: () => goTo(2) }}
+        primary={{ label: "Continue", onClick: () => goTo(2) }}
       >
         <NetworkStep active={step === 1} />
       </SetupAssistant>
@@ -316,7 +405,7 @@ function SetupPage() {
         // be walked out of in either direction. There is deliberately no Back
         // to the account screen from Network: step 0 advances only once
         // `signUp` has SUCCEEDED, so that form is for an account that exists.
-        back={{ onClick: () => setStep(1), disabled: busy || install.isPending || installTmux.isPending }}
+        back={{ onClick: () => goTo(1), disabled: busy || install.isPending || installTmux.isPending }}
         // An install is a `curl … | bash` on this machine that takes tens of
         // seconds. Continuing out from under it left the progress line and any
         // failure on a screen nobody was looking at any more, and the next
@@ -324,7 +413,7 @@ function SetupPage() {
         // bar says what for (operator report, 2026-09-14).
         primary={{
           label: "Continue",
-          onClick: () => setStep(3),
+          onClick: () => goTo(3),
           disabled: busy || install.isPending || installTmux.isPending,
         }}
       >
@@ -394,7 +483,7 @@ function SetupPage() {
       dots={dotsFor(3)}
       // Disabled while the launch is in flight, exactly as Skip is: the
       // subshell is already being created and leaving would orphan the report.
-      back={{ onClick: () => setStep(2), disabled: create.isPending }}
+      back={{ onClick: () => goTo(2), disabled: create.isPending }}
       skip={{ label: "Skip", onClick: finish, disabled: create.isPending }}
       primary={{
         label: "Start",

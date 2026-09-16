@@ -9,8 +9,10 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetDesktopShellForTests } from "@/lib/desktop";
+import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 import { setFetchRouter } from "@/test-setup";
 import type { HarnessInfo } from "@/types/harness";
+import type { SetupStep } from "@/types/setup";
 
 /**
  * The setup wizard, driven the way a user drives it: register, walk the
@@ -76,6 +78,18 @@ interface SetupMocks {
   os?: string;
   /** What POST /api/setup/tmux/install answers */
   tmuxInstall?: { status: number; body: unknown };
+  /**
+   * What GET /api/setup/status reports. Default true (a first run) because
+   * every pre-resume test walks the wizard from the account screen; the
+   * resume tests set it false — an instance with an account, which is every
+   * state a reopened wizard is ever in.
+   */
+  needsSetup?: boolean;
+  /**
+   * What GET /api/setup/progress answers — the caller's bookmark
+   * (spec 2026-09-16). Default null: a user with no wizard in progress.
+   */
+  progressStep?: SetupStep | null;
 }
 
 /**
@@ -85,6 +99,13 @@ interface SetupMocks {
  * that endpoint is answered; cleared in `afterEach` with the router itself.
  */
 const signUpBodies: unknown[] = [];
+
+/**
+ * The `step` values PATCH /api/setup/progress received, in order — the
+ * wizard's write-through, observable. Same module-level reason as
+ * `signUpBodies`; cleared with it.
+ */
+const progressPatches: (SetupStep | null)[] = [];
 
 function routeFetch(opts: SetupMocks): void {
   // Set once an install POST succeeds, so the following harness refetch (the
@@ -97,7 +118,19 @@ function routeFetch(opts: SetupMocks): void {
     const url = new URL(String(input), "http://localhost");
     const path = url.pathname;
     const method = init?.method ?? "GET";
-    if (path === "/api/setup/status") return Promise.resolve(new Response(JSON.stringify({ needsSetup: true })));
+    if (path === "/api/setup/status") {
+      return Promise.resolve(new Response(JSON.stringify({ needsSetup: opts.needsSetup ?? true })));
+    }
+    if (path === "/api/setup/progress") {
+      // The wizard's write-through: record what it asked to store, and answer
+      // with what the real route answers — the step it just wrote.
+      if (method === "PATCH") {
+        const step = (JSON.parse(String(init?.body)) as { step: SetupStep | null }).step;
+        progressPatches.push(step);
+        return Promise.resolve(new Response(JSON.stringify({ step })));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ step: opts.progressStep ?? null })));
+    }
     if (path === "/api/setup/harnesses") {
       const base = opts.harnesses ?? [CLAUDE_ABSENT];
       const withInstall = installedId
@@ -267,10 +300,93 @@ async function renderSetup(opts: SetupMocks, upto: 0 | 1 | 2 | 3) {
   return { client, history };
 }
 
+/**
+ * Mounts the wizard at `/setup` WITHOUT walking registration — the resume
+ * path. A signed-in first admin reopening the app lands here with a bookmark,
+ * not through the account form, so the walk helper (which registers) cannot
+ * reach this state. `opts.needsSetup` is what the server reports (false for a
+ * resumed instance) and `opts.progressStep` the caller's own bookmark.
+ */
+async function renderResume(opts: SetupMocks) {
+  // A resume presupposes a signed-in user, and the wizard gates its bookmark
+  // read on one — so the shared current-user query must answer with a user.
+  routeFetch(opts);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  client.setQueryData(CURRENT_USER_QUERY_KEY, { id: "u1", email: "ada@example.com", name: "Ada" });
+  const rootRoute = createRootRoute();
+  const setupRoute = Route.update({ id: "/setup", path: "/setup", getParentRoute: () => rootRoute } as never);
+  const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <div>dashboard</div> });
+  const history = createMemoryHistory({ initialEntries: ["/setup"] });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([setupRoute, homeRoute]),
+    history,
+    defaultPreload: false,
+  });
+  await router.load();
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  await settle();
+  return { client, history };
+}
+
 afterEach(() => {
   cleanup();
   setFetchRouter(null);
   signUpBodies.length = 0;
+  progressPatches.length = 0;
+});
+
+/**
+ * Resuming the wizard (spec 2026-09-16).
+ *
+ * The defect: the step lived only in React state, and the account is created
+ * on the FIRST screen — so the server reported setup done and reopening the
+ * app landed on the dashboard. The bookmark is the fix; these drive the
+ * resumed landing, the write-through, and the visitor that must STILL bounce.
+ */
+describe("setup wizard: resume", () => {
+  it("opens a resumed bookmark on its step instead of the account screen", async () => {
+    // needsSetup false is the state the whole defect turns on — it used to
+    // mean "bounce to /"; now a bookmark names where to reopen instead.
+    await renderResume({ needsSetup: false, progressStep: "agent" });
+    expect(await screen.findByText("Add an Agent")).toBeTruthy();
+    // No bounce: still on /setup, not the dashboard.
+    expect(screen.queryByText("dashboard")).toBeNull();
+  });
+
+  it("opens 'launch' on the launch step", async () => {
+    const { history } = await renderResume({
+      needsSetup: false,
+      progressStep: "launch",
+      nodes: [LAUNCH_NODE],
+      plugins: LAUNCH_PLUGINS,
+      recent: { paths: [], home: "/home/ada" },
+    });
+    expect(await screen.findByText("Start Your First Subshell")).toBeTruthy();
+    expect(history.location.pathname).toBe("/setup");
+  });
+
+  it("bounces a signed-in visitor with NO bookmark to the dashboard", async () => {
+    // The other half of the rule: `needsSetup === false` AND no bookmark IS a
+    // visitor. Without this the wizard would trap anyone who finished.
+    const { history } = await renderResume({ needsSetup: false, progressStep: null });
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
+  });
+
+  it("Skip on the Network step writes the 'agent' bookmark", async () => {
+    await renderSetup({}, 1);
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    await waitFor(() => expect(progressPatches).toContain("agent"));
+  });
+
+  it("finishing on the last step clears the bookmark", async () => {
+    await renderSetup({ nodes: [LAUNCH_NODE], plugins: LAUNCH_PLUGINS, recent: { paths: [], home: "/home/ada" } }, 3);
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(progressPatches).toContain(null));
+  });
 });
 
 /**
