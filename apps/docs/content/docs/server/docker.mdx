@@ -3,13 +3,65 @@ title: Docker
 description: Run the control plane in a container — compose setup, volume layout, and what dies with the container.
 ---
 
-This page will cover the Docker deployment: `docker compose build && up`, the bind mounts (data at `~/.config/subshell-server` so SQLite, pane logs and channel keypairs survive; `~/projects` at its real path so stored paths resolve; the harness binary and its state mounted in, since it is not bundled), the port and reverse-proxy caveat, and the honest limits: a container restart ends tmux state, so running subshells die and surface as dead rows, and git-from-panes needs the SSH/gitconfig mounts the compose file sketches. It will link the compose file as the source of truth rather than restating it.
+The repository ships a Docker recipe: a multi-stage build ending in a slim image with the built SPA and tmux, plus a compose file that wires it to your disk. The [compose file](https://github.com/subshell-ai/subshell/blob/main/docker-compose.yaml) is the source of truth for the mounts — this page explains what each one is for, and what this deployment shape costs you.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Before the first up
 
-## Sources
+Two prerequisites the recipe will not paper over:
 
-- `README.md` §Docker — the walkthrough with every mount and caveat as maintained today
-- `docker-compose.yaml` — the compose file itself
-- `docs/superpowers/specs/2026-08-31-docker-deploy-design.md` — why the volume layout is what it is
+```bash
+cp .env.example .env         # set BETTER_AUTH_SECRET (>= 32 chars) + APP_BASE_URL
+cp docker/gitconfig.example docker/gitconfig   # your git identity + signing key
+mkdir -p ~/.config/subshell-server
+docker compose build
+docker compose up -d         # http://localhost:3080
+```
+
+- **`BETTER_AUTH_SECRET` is hard-required.** The compose file refuses to start without it (`NODE_ENV=production`, and production will not sign sessions with the public placeholder). It lives in `.env` beside the compose file — put the **same value** here as the old instance used and existing browser sessions survive the move.
+- **`docker/gitconfig` must exist before `up`.** It is a bind-mount source, and Docker silently creates a missing source as an *empty directory* — so copy the example and edit it (your commit identity; ssh-format signing uses the `ssh` binary in the image). The host's `~/.gitconfig` is deliberately not used: an external signing program configured there does not exist inside the image and would break commits.
+- `mkdir` the data directory for the same reason — it is a bind source too.
+
+## What the container sees
+
+| Mount | Host side | Why |
+|---|---|---|
+| `/data` | `~/.config/subshell-server` (`SUBSHELL_DATA_HOST_DIR`) | SQLite, pane logs, channel keypairs — everything that must survive. |
+| your projects | `~/projects` at its **real path** (`PROJECTS_DIR`) | Stored working-directory paths in the database resolve unchanged inside the container. |
+| `claude` binary | `CLAUDE_BIN`, read-only | The harness CLI is **not bundled in the image** — adjust these three mounts for a different harness. |
+| `~/.claude`, `~/.claude.json` | read-write | Where the harness keeps its session records. |
+| `~/.ssh` | read-only, plus `docker/ssh-config` over `config` | Git push and signed commits from panes. |
+| `docker/gitconfig` | read-only | Commit identity, as above. |
+
+Three details that took field-measurement to get right:
+
+- **The container runs as your host uid** (`user:` from `$UID:$GID`), so SQLite files, logs, and harness edits on the bind mounts keep sane ownership with no fixups.
+- **Harness and SSH state mount at the *container's* home** (`/home/subshell`), not at your host paths — the image pins `HOME` there because the numeric uid has no passwd entry, and panes inherit it. Mounting at the host spelling instead leaves every pane reading an empty directory.
+- **Any harness pane can read the mounted SSH keys.** That is deliberate on the same trusted-host posture as everything else here, not an oversight — decide it before enrolling this machine to a shared instance.
+
+## Ports and boot
+
+`3080:3080` is **published**, not loopback-bound: remote access runs through a reverse proxy that connects to this host's reachable IP, and a `127.0.0.1` publish makes every proxied request a 502. Inside, the server binds `0.0.0.0`; `APP_BASE_URL` from `.env` should be the URL people actually open, with any other names they browse on added as trusted origins — a container is no exception to [Networking & Addresses](/server/networking). `restart: unless-stopped` brings the service back with the Docker daemon, which assumes the daemon itself is enabled.
+
+## What dies with the container
+
+The container owns its tmux server, and tmux state is process state: **a container restart ends every running subshell.** The database row survives; the pane does not. Running subshells surface as dead rows and you restart them from the UI. Everything persistent — database, logs, keypairs — is on the bind mounts and survives; it is the live sessions that are the cost of this shape. If "restarts don't kill my panes" matters more than container discipline, the [systemd user service](/server/service) is the same binary with that property.
+
+Also: after editing `docker/gitconfig`, recreate the container — a single-file bind mount pins the inode, so edits to the file never arrive. Host-specific extras (a `gh` config, say) belong in `docker-compose.override.yaml` beside the base file: gitignored, merged automatically by every `docker compose` command.
+
+## Moving a host-run instance in
+
+Stop the instance holding `:3080`, copy the two things that are state, and keep the secret identical:
+
+```bash
+sqlite3 data/subshell.db ".backup ~/.config/subshell-server/subshell.db"
+cp -a data/subshells ~/.config/subshell-server/
+```
+
+With the same `BETTER_AUTH_SECRET` in `.env`, existing browser sessions keep working on the new container. A pane log the container has never seen is just a file; new `ssh` hosts need an `ssh-keyscan` on the host first, since the mounted `known_hosts` is all the container trusts.
+
+## See also
+
+- [Networking & Addresses](/server/networking) — `APP_BASE_URL` and trusted origins for a container behind a proxy
+- [Running as a Service](/server/service) — the non-container deployment, and why its restarts spare the panes
+- [Environment Variables](/reference/environment-variables) — every setting the container reads
+- [The compose recipe](https://github.com/subshell-ai/subshell/blob/main/docker-compose.yaml) — the mounts, verbatim
