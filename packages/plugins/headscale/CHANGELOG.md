@@ -1,5 +1,13 @@
 # @subshell-ai/plugin-headscale
 
+## 0.1.2
+
+### Patch Changes
+
+- [`4a4fc56`](https://github.com/subshell-ai/subshell/commit/4a4fc56193477bc72ae09ceb40eb07415222b676) Thanks [@theogravity](https://github.com/theogravity)! - Headscale hints now say the page notices, not "then re-check"
+  
+  The same five sentences as Tailscale's plugin (Headscale drives the same client) end "… — this page will notice when you do." instead of "…, then re-check.", matching the card that removed the button (operator's sixth live read, 2026-09-16). The ownership hint keeps its no-tail form, and its comment now records why neither tail ever fit it.
+
 ## 0.1.1
 
 ### Patch Changes
