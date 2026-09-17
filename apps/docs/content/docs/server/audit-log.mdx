@@ -3,13 +3,37 @@ title: Audit Log
 description: The instance's record of consequential acts — installs, role changes, restarts, repoints — and what each row names.
 ---
 
-This page will cover the audit trail: what lands in it (admin acts on users, roles and password resets; plugin and agent-CLI installs; config updates with before/after values; restarts; node service, config and maintenance acts; network publishes — and an update's completing boot, recorded with no actor because the binary answered for itself), where an admin reads it (`GET /api/audit`, and the dashboard's view of the same rows), and its discipline: rows name origins, keys and field names — never secret values, never the content of a reset password. It will be the reference an operator reaches for when asking "who did this to my instance, and when".
+The audit trail is the answer to "who did this to my instance, and when". Every consequential act writes a row: **who** (the admin's user id, or `null` when a system moment answered for itself), **what** (a machine-readable action name like `user.role_change`), **to which target** (its kind and id), **context** (per-action metadata), and **when**. Writing is best-effort by design: if the audit insert itself fails, the act it describes still completes — a logging problem never undoes or blocks an operator's action.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Reading it
 
-## Sources
+- **Settings → Audit** — a read-only admin page showing the latest fifty events: when, action, target, context. Refreshing is reopening.
+- `GET /api/audit?limit=50` — the same rows as JSON, for an admin cookie session (up to 500).
 
-- `docs/security.md` §10 "Audit and observability" — the event accounting
-- `apps/server/api/src/api/audit.route.ts` — the route and its parameters
-- `.claude/rules/security-context.md` — every audited event name as the rules cite them
+## What lands in it
+
+Not every request — only **acts**. The families, with their shape:
+
+- **People.** Accounts created, role changes (with the before and after), password resets, and disable/enable. A password reset records **that** it happened and **how many sessions it cut** — never the password, in any form.
+- **The instance's own switches.** Flips of registration, of node-enrollment permission, of the instance display name, and of debug logging — each audited only on a *real* change, with the old and new values, so the log reconstructs decisions rather than page visits.
+- **Credentials.** System API keys created, enabled, disabled, deleted; node setup keys created and revoked. Plaintext never appears — the rows name the key's id and label.
+- **Subshell lifecycle.** Create, restart, terminate, delete.
+- **Nodes.** Enroll, delete, rename, key rotation, directory-allowlist changes, share changes, service verbs (start/stop/restart/install/uninstall, with whether `force` was used), repointing to another control plane (the row names the new address — that is the disclosure the act makes), logging toggles, maintenance flips, and binary updates. A maintenance row can carry a `null` actor: that is the machine's own `subshell maintenance on|off`, deciding for itself.
+- **The server, to itself.** Config writes (key, old value, new value — and this surface cannot write secrets), restarts, autostart armed or disarmed, supervision switches — though the supervision row is the table's one soft spot: it is posted by the desktop app itself as a record of intent, so the sanctioned path always leaves one and a direct command invocation would leave none. And **updates**, which are recorded twice: once when an admin presses the button (actor: the admin) and once at the completing boot (actor: `null` — the new binary answering for itself). A job that dies mid-download still leaves the first half.
+- **Break-glass.** A recovery login that rewrote an admin's credential is audited as such, alongside the banner every signed-in user sees.
+- **Plugins and networks.** Installs, enables, disables, uninstalls; and for network plugins, configure (field **names** only, never the secret values), install, join (mode and outcome — never the credential used), publish, unpublish, leave (the rows name the affected origins).
+- **Software installed on this host on request.** An agent CLI's installer run, and a tmux install — both admin acts that put code on the control-plane host, both audited.
+
+## What deliberately does not
+
+- **Sign-in and sign-out.** The auth flow is a better-auth passthrough; session lifecycle is not audited (creating a user and resetting a password are). This is a recorded gap in the threat model, not an oversight to rediscover.
+- **Reads and re-checks.** Nothing that changes no state earns a row — including the Updates page's Re-check button, so the `server.update` row that matters does not drown beside it.
+- **Request lines.** Those are the *log file*'s world, not this one (see [Logs & Debugging](/server/logs-debug)), and even there they stay off unless debug logging is explicitly on.
+- **Secret values.** This is the row-writing discipline behind the whole table, and it is what makes the audit trail safe to screenshot, paste into an issue, or hand to whoever is helping you debug: rows name origins, keys, field names, counts and before/after values for things that are not credentials — never a password, a token, or a secret.
+
+## See also
+
+- [Users & Roles](/server/users-roles) — the acts on accounts that write the people rows
+- [Registration & Enrollment](/server/registration-enrollment) — the switches whose flips you can now trace
+- [API Keys](/server/api-keys) — why the plaintext your key showed you once is nowhere in this table
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#10-audit-and-observability) — the event accounting, section by section
