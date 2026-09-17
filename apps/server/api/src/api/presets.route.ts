@@ -5,7 +5,7 @@ import { getAllHarnessIds } from "@/api/harness-utils.js";
 import { HarnessSchemaResponseSchema, PresetSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
-import { resolveMcpLaunchForDisplay } from "@/services/mcp-resolve.js";
+import { PORTABLE_MCP_LAUNCH } from "@/services/mcp-resolve.js";
 
 /**
  * A settings field the preset editor can actually hold.
@@ -239,9 +239,11 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         settingsFields: harness.settingsFields().filter(isPresetSettingsField),
         suggestedEnv: harness.suggestedEnv(),
         suggestedFlags: harness.suggestedFlags(),
-        // The manual steps embed this deployment's real `subshell mcp` launch
-        // (display variant: an editor page must never fail on resolution).
-        mcp: harness.mcpSetup(resolveMcpLaunchForDisplay()),
+        // The manual steps embed the PORTABLE launch, never this plane's
+        // resolved one: the registration is pasted onto every machine that
+        // hosts a pane, and an absolute SELF path is wrong on all but this
+        // (issue #57). {@link PORTABLE_MCP_LAUNCH} carries the argument.
+        mcp: harness.mcpSetup(PORTABLE_MCP_LAUNCH),
       };
     },
     {

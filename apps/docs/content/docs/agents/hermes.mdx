@@ -20,10 +20,10 @@ Hermes reads MCP servers only from its fixed global config file, `~/.hermes/conf
 Open the preset editor for Hermes (the Presets page) and its MCP section shows what to do: one labeled step to register `subshell`, and one to undo it. The registration is a single non-interactive command of this shape:
 
 ```
-hermes mcp add subshell --command <mcp launch command> --args <mcp launch args>
+hermes mcp add subshell --command 'subshell' --args 'mcp'
 ```
 
-The editor does not make you fill anything in — the command it shows embeds this deployment's real resolved `subshell mcp` launch, ready to copy and paste. Run it **once on each machine where Hermes panes run**: the entry lands in that machine's `~/.hermes/config.yaml`, so the control-plane host and every node that hosts Hermes subshells wants its own. One caveat off the control-plane host: the shown command names the *server's* launch program — on a node, swap that path for the node's own `subshell` binary (`subshell mcp …`) before running it.
+The editor does not make you fill anything in. The command is deliberately the portable PATH spelling rather than one machine's absolute launch path, because the entry lands in whichever machine's `~/.hermes/config.yaml` you run it on: `subshell` is every enrolled node's own daemon binary, so what you paste is correct on every node — run it **once on each machine where Hermes panes run**. The one machine the PATH spelling can miss is a control-plane host that runs the server with no agent installed; there, `subshell-server status` prints that host's own resolved MCP entrypoint, and you can paste its `command` and `args` in place of the two names shown above.
 
 > [!note] Why one global entry is per-subshell-correct
 > The registered command only names how to start `subshell mcp`. The process inherits the environment of the pane that spawned it — including that subshell's own baked-in API key — so one registration serves every Hermes subshell on the machine, and no pane can authenticate as another. This is what makes the shared-host case safe: the credential is per-pane, not per-config-entry.

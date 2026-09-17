@@ -39,10 +39,7 @@
     "tsdown": "0.22.14",
     "typescript": "7.0.2"
   },
-  "files": [
-    "dist",
-    "icon.svg"
-  ],
+  "files": ["dist"],
   "publishConfig": {
     "access": "public"
   },

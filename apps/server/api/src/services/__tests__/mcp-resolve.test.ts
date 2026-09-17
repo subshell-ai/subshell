@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import {
-  MCP_LAUNCH_PLACEHOLDER,
   type McpProbeOutcome,
+  PORTABLE_MCP_LAUNCH,
   probeMcpLaunch,
   probeReporterLaunch,
   resolveMcpLaunch,
@@ -145,14 +145,15 @@ describe("probeMcpLaunch", () => {
   });
 });
 
-describe("resolveMcpLaunchForDisplay / placeholder", () => {
-  it("never throws; the unresolved-fallback constant names the real self command", () => {
-    // Pins the fallback CONSTANT (the catch branch's value, unforceable from
-    // tests): it must name a command a current deployment actually runs
-    // (`subshell-server mcp`, spec 2026-09-03). An invented name once shipped
-    // here and would have poisoned every operator's manual registration.
-    expect(resolveMcpLaunch({})).toBeDefined();
-    expect(MCP_LAUNCH_PLACEHOLDER).toEqual({ command: "subshell-server", args: ["mcp"] });
+describe("PORTABLE_MCP_LAUNCH", () => {
+  it("names the agent's bare PATH command, not a machine-specific one", () => {
+    // The manual registration steps (hermes, pi) embed THIS, not the ladder:
+    // the command is pasted onto every pane host, so the constant must stay
+    // the PATH spelling — no directory component, no plane-host product name.
+    // An invented binary name here would poison every manual registration
+    // (issue #57 reversed the earlier display-resolution behavior).
+    expect(PORTABLE_MCP_LAUNCH).toEqual({ command: "subshell", args: ["mcp"] });
+    expect(PORTABLE_MCP_LAUNCH.command).not.toContain("/");
   });
 });
 

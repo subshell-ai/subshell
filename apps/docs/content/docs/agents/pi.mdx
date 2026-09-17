@@ -15,7 +15,7 @@ A bare launch opens the pi TUI. The [preset editor](/use/presets) offers pi's pe
 
 ## Registering Subshell once
 
-Because MCP arrives in pi's world as an extension, the setup is two labeled steps, both shown in the MCP section of the pi preset editor, both copy-paste ready — the editor embeds your deployment's real resolved launch, so the values you paste are the correct ones *for the server's machine* — on a node, swap that launch path for the node's own `subshell` binary first. Run them **once on each machine where pi panes run**:
+Because MCP arrives in pi's world as an extension, the setup is two labeled steps, both shown in the MCP section of the pi preset editor, both copy-paste ready. The snippet names `subshell mcp` as a PATH command rather than one machine's absolute path, so the text you paste is correct on every machine that has the `subshell` agent installed — which every enrolled node does, because that is its own daemon's binary. Run them **once on each machine where pi panes run**:
 
 1. **Install the adapter extension** — `pi install npm:pi-mcp-adapter`. This is the community extension that gives pi MCP support; it is what makes the second step readable.
 2. **Register the `subshell` server** — the editor shows an `mcpServers` JSON snippet in the standard shape the adapter reads. Put it in `~/.config/mcp/mcp.json`, or a project's `.mcp.json` if you want it scoped to one repository.

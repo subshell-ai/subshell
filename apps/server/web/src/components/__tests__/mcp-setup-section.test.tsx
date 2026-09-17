@@ -5,8 +5,9 @@ import { McpSetupSection } from "@/components/mcp-setup-section";
 /**
  * The preset-form block that answers "how does THIS harness get cross-subshell
  * comms" — the question the UI used to leave unanswered. Auto harnesses get a
- * plain statement; manual harnesses must show their steps VERBATIM so the
- * operator can copy the exact command the backend resolved.
+ * plain statement; manual harnesses must show their steps VERBATIM — the copy
+ * is a command pasted onto the node that runs the harness (portable PATH form
+ * since issue #57), and this component has no way to know how to rewrite it.
  */
 describe("McpSetupSection", () => {
   afterEach(cleanup);

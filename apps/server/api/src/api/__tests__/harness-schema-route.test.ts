@@ -54,7 +54,7 @@ describe("harness schema route", () => {
     expect(typeof body.mcp.summary).toBe("string");
   });
 
-  it("manual harness -> copy-paste mcp setup steps with the resolved launch", async () => {
+  it("manual harness -> copy-paste mcp setup steps in the portable PATH form", async () => {
     const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/hermes/schema", token));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -63,15 +63,27 @@ describe("harness schema route", () => {
     expect(body.mcp.mode).toBe("manual");
     const steps = body.mcp.steps ?? [];
     expect(steps.length).toBeGreaterThan(0);
-    // The add command must embed the launch RESOLVED BY THE BACKEND (under
-    // bun test that is the SELF rung: this very bun + an absolute entry + the
-    // `mcp` subcommand) — not the degraded `subshell-server mcp` display
-    // placeholder, which the prefix check alone cannot tell apart.
-    expect(steps[0].command).toContain("hermes mcp add subshell --command ");
-    expect(steps[0].command).toContain(process.execPath);
-    expect(steps[0].command.endsWith("'mcp'")).toBe(true);
+    // Issue #57: the registration is pasted onto EVERY machine that hosts a
+    // pane (the section copy says so, and presets name no node), so the shown
+    // command must be machine-agnostic. The control plane's RESOLVED launch
+    // — the SELF rung's absolute path, or the `subshell-server` placeholder —
+    // is the one wrong answer off the plane host: it names a program that
+    // machine does not have. `subshell` is every enrolled node's own binary,
+    // on its PATH by install; the harness resolves it at spawn time there.
+    expect(steps[0].command).toContain("hermes mcp add subshell --command 'subshell' --args 'mcp'");
+    expect(steps[0].command).not.toContain(process.execPath);
     expect(steps[0].command).not.toContain("subshell-server");
     for (const s of steps) expect(s.label.length).toBeGreaterThan(0);
+  });
+
+  it("pi -> the manual snippet registers the portable `subshell mcp` command", async () => {
+    const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/pi/schema", token));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { mcp: { mode: string; steps?: { command: string }[] } };
+    expect(body.mcp.mode).toBe("manual");
+    const snippet = (body.mcp.steps ?? [])[1]?.command ?? "";
+    const parsed = JSON.parse(snippet) as { mcpServers: Record<string, { command: string; args: string[] }> };
+    expect(parsed.mcpServers.subshell).toEqual({ command: "subshell", args: ["mcp"] });
   });
 
   it("opencode harness -> settings map to flags", async () => {
