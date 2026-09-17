@@ -1,15 +1,64 @@
 ---
 title: Ports & Firewalls
-description: Which port the server listens on, what else opens, and what a firewall actually needs to allow.
+description: Which port the control plane listens on, what else opens, and exactly which outbound connections the server and the agent make — so a firewall rule can be derived, not guessed.
 ---
 
-This page will list the network ports and their owners: `:3080` the control plane's single port (SPA, API, WS, docs — one door, so one firewall rule), `:5174` and `:5173` the dev Vite servers, the CLI-e2e and test-suite ports (:3199, :31998/31999) that only exist during test runs. It will state the directions: nodes and clients dial IN to the server's port (a node opens nothing), outbound is the release source for updates and artifact fetches plus push services, and a mesh network or reverse proxy changes which address that port is reachable at without changing the port. Open question to settle while writing: the definitive outbound-destination list the page should publish.
+The short answer: **one port in, nothing else in, and every outbound path opt-in.** Nodes and clients dial the control plane; the control plane never dials anything on its own. A node opens no port at all — that is what makes nodes work behind NAT, on laptops, and on machines with no public address.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Listening
 
-## Sources
+| Port | Owner | When it listens |
+| --- | --- | --- |
+| `3080` | The control plane — **one port for everything**: SPA, REST API, WebSockets, docs | Always (change with `SERVER_PORT`; `subshell-server status` tells you whether the port is already answering). Docker publishes `3080:3080` on the host's IP, not loopback — a `127.0.0.1` bind makes every proxied request 502. |
+| `5174` | The SPA's Vite dev server | Development only (`bun run dev` in `apps/server/web`). The production binary serves the embedded SPA itself, so no second port exists on a real deployment. |
+| `3400` | The docs site dev server | Development only (`bun run dev:docs`). |
 
-- `README.md` §Configuration table and §Production — port defaults and the single-port claim
-- `.claude/rules/verification.md` §"The CLI end-to-end suite" — the test ports and their temp-home discipline
-- `AGENTS.md` §Testing — e2e's :3199 backend
+The bind address is `HOST`, default `0.0.0.0` — all interfaces, IPv4. That default is why the origin allowlist exists: anything that can reach the port can *knock*, and the allowlist decides which browser origins get answered. tmux, which actually runs the panes, communicates over local Unix sockets and opens nothing.
+
+The built-in `TRUSTED_ORIGINS` default carries two localhost Vite ports (`5174` and Vite's default `5173`) so a development browser session can sign in; they name no listener until one is started.
+
+**Test ports are listed so you can ignore them:** the Playwright suite boots its own backend on `3199` (fake registry `3198`, onboarding fixture `3200`), and the CLI end-to-end suite uses `31996`–`31999` with throwaway homes. None of it touches `:3080`, and none of it runs outside a test.
+
+## Outbound, derived from code
+
+What the control plane reaches for, and the switch each path answers to:
+
+| Destination | Why | Opt-in |
+| --- | --- | --- |
+| The release source (`SUBSHELL_RELEASE_URL`; default GitHub's releases API plus the asset hosts its links point at) | Lazily fetching an agent binary the instance does not have — the first machine of a platform to ask pays for it — streamed while hashed. And `subshell-server update` / the Updates page reading the release list. | On by default; **empty `SUBSHELL_RELEASE_URL` disables every fetch** (the air-gapped configuration). Nothing is fetched until something asks — no warm-up, no poll. |
+| The plugin registry (`SUBSHELL_PLUGIN_REGISTRY_URL`; default npm) | Downloading a registry plugin you install, and verifying its hash. | Only when you install from the registry. |
+| A Cloudflare team's JWKS endpoint (`https://<team>/cdn-cgi/access/certs`) | Verifying the Access assertion in front of a published Cloudflare Tunnel. | Only while a Cloudflare Tunnel publish is live. |
+| The vendor network each enabled network plugin drives (Tailscale, Headscale, NetBird, Cloudflare — whatever that vendor's own daemons talk to) | The plugin's `join`/`publish` run those vendor CLIs on this host. | Only while that plugin is joined/published. |
+| The vendor install hosts inside the built-in harness manifests (`claude.ai`, `chatgpt.com`, `opencode.ai`, `pi.dev`, `hermes-agent.nousresearch.com`) | The dashboard's *Install CLI* action runs the selected built-in's own install script as the server's user. | Only when you press Install — and only for built-ins; a registry plugin's install block is metadata, never run. |
+| This platform's package manager (macOS Homebrew; every Linux entry is `sudo`-prefixed and therefore refused before anything runs) | The wizard's *Install tmux* action, same executor. | Only when you press Install; in practice Homebrew only. |
+| Expo (`exp.host`) and each browser-push service named by a stored subscription | Mobile and web push notifications. | Only when devices have subscribed. |
+| Nothing for authentication | Better-auth runs in-process; there is no external identity provider to call. | — |
+
+What a **node** reaches for is shorter still:
+
+- Its control plane: one WebSocket to the configured address (`wss://` when the plane is HTTPS). This is the only connection the agent keeps, and it is always outbound.
+- **Its own updates only:** `subshell update` reads the same release list directly from its own `SUBSHELL_RELEASE_URL` (default GitHub) because a node key can do nothing on the plane's REST API — and empty disables it, leaving `--from`. When the *plane* drives the update instead, the agent downloads from the plane itself over a single-use token: the URL inside the signed command names the control plane's own download route, so an update the browser started adds no outbound destination on the node.
+
+## What your firewall actually needs
+
+For a plain LAN install: **allow the machines that need to reach Subshell to reach the control plane's port, and nothing else in either direction.** Nodes need no inbound rule; clients are just browsers. If you reach the plane over a mesh network (Tailscale and friends), "the port" is the address the mesh gives the host — see [Networking](/server/networking) for which spellings of it a browser may use.
+
+What each feature you enable adds:
+
+- **Update fetching / artifact fetching** (server and agents): outbound TCP 443 from each host that updates to the release source you configured.
+- **Registry plugin installs**: outbound TCP 443 from the control-plane host to the registry.
+- **A network plugin**: whatever that vendor's client needs (most mesh daemons need outbound 443 plus their discovery/relay traffic). It changes which *address* the one port is reachable at; it never adds a listening port for Subshell itself. A Cloudflare Tunnel is the unusual shape — an outbound-only connection to Cloudflare's edge, which is why it needs no port forward, and why it counts as public exposure.
+- **Push notifications**: outbound TCP 443 to the push services. None of it is payload-bearing beyond what [Notifications](/use/notifications) documents.
+
+Reverse proxies change the address, not the port arithmetic: terminate TLS wherever you like and send it to the one port, then name the public origin in `APP_BASE_URL` / `TRUSTED_ORIGINS` so the browser checks agree.
+
+> [!tip] Diagnosing "node won't connect"
+> The direction tells you where to look: a node with no socket has failed an *outbound* hop (wrong `serverUrl`, DNS, a closed egress, a captive network), never an inbound rule. `subshell status` reads local truth; `subshell status --probe` dials the plane — but it kicks any agent running elsewhere for this node, so treat it as a last resort.
+
+## See also
+
+- [Networking](/server/networking) — `HOST` vs `APP_BASE_URL` vs the origin allowlist.
+- [Running as a Service](/server/service) — what binds the port, and the pane-safety of restarting it.
+- [Docker](/server/docker) — the published port and the bind that breaks proxies.
+- [Environment Variables](/reference/environment-variables) — `SERVER_PORT`, `HOST`, `SUBSHELL_RELEASE_URL`.
+- [Security Model](/about/security-model) — the trusted-network posture this page presumes.

@@ -1,15 +1,229 @@
 ---
 title: Node Protocol
-description: The control-plane to agent wire — enrollment, signed commands, every command and event, close codes.
+description: The wire contract between the control plane and an enrolled node — enrollment, the two connect gates, the signed command envelope, every command and event, close codes, and versioning.
 ---
 
-This page will port the wire contract: the repository maintains `docs/node-protocol.md` as the authoritative reference for the `/ws/node` link — enrollment and setup keys, the two connect gates, the JWS-signed command envelope and its replay defense, every command and event type, dispatch ordering, terminal attach over a node, offline semantics, and close codes. Rather than fork it, this page will present it for its actual audience — the operator debugging a node, and the contributor implementing something node-side — with the security accounting cross-linked to the threat model where each section earns it.
+This is the reference for the link between the control plane and a **node**: a machine running the `subshell` agent. It is written for the operator debugging a node and the contributor implementing something node-side. What the link is *for*, and what it defends against, is [How It Works](/about/how-it-works) and the [Security Model](/about/security-model); the command payloads an agent answers with are the concern of [Managing the agent](/nodes/managing-the-agent). The contract itself lives in the shared protocol package — frames, validators, the envelope, the version gates — and both sides import it, so there is no second copy to drift.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## 1. Shape of the link
 
-## Sources
+One WebSocket per node, **dialed out by the agent** (`/ws/node`). The control plane never connects to a node. That direction is the whole reason nodes work behind NAT and on laptops: nothing has to be reachable except the control plane.
 
-- `docs/node-protocol.md` — the whole reference; this page is its home in the site, not a second copy
-- `docs/architecture.md` §9 "Nodes" — where the protocol sits in the system
-- `docs/security.md` §4 (command signing) — what the signature proves and does not
+The trust is asymmetric on purpose:
+
+- **Commands (control plane → agent) are signed.** The agent verifies every envelope before executing anything. It holds the control plane's public key from enrollment, so a compromised relay cannot forge work for it.
+- **Events (agent → control plane) are not signed.** The bearer node key authenticated the socket at upgrade; events inherit exactly that key's trust and nothing more. Signing them would prove nothing the connection did not already.
+
+Both directions cap frames at 1 MiB (1,048,576 bytes). Each handler enforces the ceiling by byte length rather than trusting server config — the inbound rule on the control plane closes the socket with `1009`; the agent's rule drops the frame and keeps talking (an oversize frame from the plane is a bug to log, not a reason to drop the link).
+
+## 2. Enrollment
+
+A node is enrolled once, with a **single-use setup key** — `nsk_…`, valid 24 hours, shown once, stored only as a hash, revocable, audited. Mint one on the Nodes page ([Add a node](/nodes/add-node)).
+
+1. The agent checks for tmux first — an unenrollable box should not burn a setup key — then generates its own **identity keypair** (P-256, for sealed channel delivery; a present-but-corrupt key file is quarantined, never silently rotated).
+2. It posts `POST /api/nodes/enroll` with the setup key, a name (≤ 64 characters), `os`/`arch`/`hostname`/`agentVersion`, and its public JWK. This is the one node route with **no auth guard** — the setup key *is* the credential.
+3. The route peeks the key's state before consuming it, so an invalid, expired, or spent key answers with a specific error rather than a generic one. Consumption itself is a single-winner transaction; the steps after it are not atomic, so a failure past that point honestly reports the key as spent and a new one is needed.
+4. The response carries, exactly once: the assigned `nodeId`, the long-lived bearer `nodeKey` (only its hash is stored server-side), the control plane's command-signing public JWK, and the `wsUrl` the plane says it lives at (persisted, so a reverse-proxy subpath mount is dialed as described rather than re-derived).
+5. The agent writes all of it to `config.json` (0600). That file is the node key's only home; no CLI command echoes it, `--json` included.
+
+**A node key can do nothing on the REST API.** The auth guard rejects node-kind bearer keys outright and permanently; its entire blast radius is "impersonate this node on its WebSocket."
+
+## 3. Connect and the two gates
+
+The agent dials `/ws/node` with `Authorization: Bearer <nodeKey>`. The upgrade authenticates before any socket exists: an absent, disabled, expired, or wrong-kind key refuses with HTTP 401; so does a key whose node row has vanished. A valid node key aimed at the **local** node (the control-plane host's own row, which never runs an agent) and a key no longer bound to the node row it names (rotation flips the binding; deletion disables it) both refuse with 403. A socket that somehow reaches the handler without a verified identity is closed `4401`.
+
+The agent's first frame is `ready`:
+
+```jsonc
+{
+  "type": "ready",
+  "agentVersion": "0.9.0",
+  "protocolVersion": 10,
+  "os": "darwin",              // linux | darwin | unknown
+  "arch": "arm64",
+  "hostname": "mac-mini",
+  "dataDir": "/Users/x/.config/subshell/data",
+  "capabilities": ["uploads", "mcp"],
+  "selfInvoke": { "command": "/Users/x/.local/bin/subshell", "args": [] },
+  "homeDir": "/Users/x",                      // resume-path defaults hang off it
+  "runtime": { /* how this process runs — see below */ },
+  "maintenance": { "on": false, "changedAt": "2026-09-15T09:00:00.000Z" }
+}
+```
+
+- `selfInvoke` is how to re-enter this agent's binary: the `{ command, args }` **prefix** a subcommand is appended to. A compiled binary answers `{ command: <self>, args: [] }`; a bun-interpreted run answers `{ command: <bun>, args: [<absolute entry>] }` — the plane cannot derive this from any single path, because under an interpreter run the process's exec path is `bun`, and `bun mcp` is not a command. Absent, the plane falls back to `subshell` on PATH.
+- `runtime` is the supervision snapshot — service manager state, pid, autostart, Linux linger, pane safety, config/log/binary paths, debug-logging state, tmux — shown on the node's detail page to its owner and edit-grantees. A malformed one is dropped without refusing the connection; so is a malformed `maintenance` mirror (a node whose file is unreadable must still reach a plane that can repair it). Both are optional on the wire.
+
+The identity is persisted **before** either gate below, so a refused agent still shows its version on the Nodes page instead of being invisible. The row briefly reads online; the refusal then puts it back to offline.
+
+**Gate 1 — the version floor.** `MIN_AGENT_VERSION` (currently `0.9.0`): "this server needs subshell ≥ X". Refused when the reported version is lower, unparseable, or absent — a build that cannot say what it is cannot be assumed current. It runs first because it is the gate a person can act on: the refusal names both the required and the found version.
+
+**Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from `NODE_PROTOCOL_VERSION` (currently `10`) fails **in either direction**. No window, no per-feature gating — the pair ships together, so a mismatch is a deployment out of step, not a node to be carried. This gate is a backstop: at or above the floor an agent should always speak the current protocol, and if it does not, the floor is set wrong.
+
+**Neither gate closes the socket.** A refused agent is **held**: moved out of the live registry (so every liveness answer, launch path and tail treats the node as offline exactly as before) but kept connected for exactly one command — `update`, whose wire shape is frozen so any older agent can parse it. Only the `result` frame of that command is accepted from a held socket; everything else the agent sends is dropped unread. After **ten idle minutes** the plane closes it with `4406` and the refusal reason, so an operator at the machine still reads "update required" in its log — ten minutes later rather than at once, which is the price of the window in which the browser could fix it instead. A held socket is superseded by a newer connection (4409), and evicted by key rotation or node deletion, exactly as a live one is. On the `4406` the agent exits; if the refused binary is one it just installed, it first rolls itself back (see §7).
+
+Both gates are logged on the node's side too: the agent relays the plane's reason into its own log, which is where a headless machine explains itself.
+
+## 4. Command envelope and replay defense
+
+Every command is a **compact JWS** signed ES256 (ECDSA, P-256) by the control plane's keypair, sent as `{"jws": "<compact>"}`. The payload:
+
+```jsonc
+{
+  "iss": "subshell-control",
+  "aud": "node:<nodeId>",     // bound to ONE node
+  "jti": "<unique per command>",
+  "iat": 1757030400,
+  "exp": 1757030430,          // 30 s lifetime
+  "seq": 42,                  // per-connection ordering hint
+  "cmd": { "type": "…", /* … */ }
+}
+```
+
+Signing proves **authenticity, freshness and target**. It does not provide confidentiality (that is WSS and your deployment) and not resilience to control-plane compromise (the signing key rules every enrolled node).
+
+Verification order is load-bearing:
+
+1. **Signature + compact-JWS format**, with the accepted algorithm pinned to ES256 so a header swap cannot downgrade the check. The payload is parsed from the bytes that call just verified — never by a second unverified decode of the wire string.
+2. **Registered claims**: `iss`, `aud` (must name this node), `exp`, `iat` (with 5 seconds of skew tolerance).
+3. **`jti` replay**, against a bounded LRU (2,048 entries).
+4. **`seq`**, the ordering hint.
+5. **`cmd` well-formedness**, via hand-rolled structural validators. An unknown frame type or a wrong-shaped field is dropped at the parse, before dispatch.
+
+| | Lifetime | Why |
+| --- | --- | --- |
+| The `jti` LRU | **per node / per process**, surviving every reconnect | a fresh LRU per socket reopens the full 30-second replay window on every reconnect |
+| The `seq` tracker | **per connection**, reset when a new socket opens | ordering only means anything within one stream |
+
+`seq` is explicitly **not** the replay defense — `exp` and `jti` are; a reconnect resets `seq`, so a replayed command carries a "fresh" value. `seq` catches reordering and stale replays inside the TTL window on one socket. A frame rejected on `seq` still records its `jti` — stale or hostile, it must never get a second evaluation. And a seq *regression* is expensive from the agent's side: its frame handling is serialized precisely because concurrent verifies land out of order, and the agent treats a genuine regression as a broken stream and drops the connection to start a fresh one.
+
+Verification failures are reported as an `error` frame (`code: "verify"`, reason in `message`) so the control plane sees the anomaly; a replay of a command that already ran re-sends the cached answer — a jti that ran once never runs twice.
+
+## 5. Commands
+
+Every command is dispatched with a `ref` (its `jti`) and answered by exactly one `result` event. Subshell ids interpolated into node-side paths are gated both ways: hex and hyphen, ≤ 64 characters — `../../../../x` must never reach a path.
+
+**Lifecycle**
+
+| Command | |
+| --- | --- |
+| `launch` | Start a harness pane. The node builds nothing itself since protocol 3: `argv` (required) is the complete command line **the control plane built**, with `@@HARNESS_BINARY@@` in the binary slot, and `resolve` (required) is the plugin manifest's lookup rule (`binaryName`, optional `envOverride`, optional `knownPaths`) the node runs at the moment of spawn to fill that slot — late binding of the one fact the node owns. Alongside: `cwd` (absolute, stat-verified), `harnessId`, the `preset` (env, flags, settings, config isolation), the `SUBSHELL_*` credential env, an optional MCP registration file (`path`, `fileContent`, and the harness-dialect `args`/`env`, written 0600 before spawn), an optional resume pin, initial geometry, and `bestEffortLog` (downgrade a log-attach failure to a note instead of failing a live pane). |
+| `terminate` / `kill` | Graceful stop / hard kill of a subshell's tmux tree. |
+| `prompt_deliver` | Agent-side settle loop: capture-poll until the pane is quiet, then type the text and Enter. |
+
+**Pane I/O**
+
+| Command | |
+| --- | --- |
+| `input` | Keystrokes into the pane. |
+| `resize` | Set the pane grid. |
+| `capture` | Pane snapshot; optional `lines` prepends reflowed history for attach replay. |
+| `pane_size` | The pane's **real** grid as tmux reports it. Answering `null` (pane gone) is a legal result, distinct from an error. |
+| `log_read` | Byte-ranged read of the pane log. |
+| `tail_start` / `tail_stop` | Subscribe/unsubscribe a byte-offset tail, keyed by `subId`. |
+
+**Filesystem.** The writes and deletions are path-policy enforced on the agent; the probes deliberately are not — a probe is not a launch, and gating `stat_dir` once made an allowlist rule unaddable.
+
+| Command | |
+| --- | --- |
+| `stat_dir` | Verify a directory exists and is usable; answers the realpath. |
+| `path_exists` | Does this path exist? `{ exists }` answers; absent is a successful `false`, never an error. The path arrives **computed**: the plane builds it with the plugin's pure `resumePath` against this node's reported home and detection env. |
+| `fs_ls` | One-level listing for the folder picker. Empty `path` means the **agent's** home — the plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at 1,000 entries. |
+| `write_file` | Chunked base64 write — the terminal-uploads relay: `chunk_b64`, `chunk`, `eof`. |
+| `remove_paths` | Delete paths (same policy). |
+| `set_allowed_dirs` | Replace this node's persisted directory allowlist. The node checks every launch against **its own copy**, because signing proves who sent a launch, never whether the directory is permitted. An empty array means unrestricted. Pushed on every owner edit and again after each `ready` — that reconnect push is what heals an edit made while the node was offline. |
+
+**Operations**
+
+| Command | |
+| --- | --- |
+| `service` | Drive this machine's own service manager: `start`, `stop`, `restart`, `install`, `uninstall`, optional `force`. One command for five verbs because they are one manager and one set of refusals — and the agent decides every refusal, since signing proves who asked, not what this machine can survive: `not supervised` (exiting would not be a restart), `kills panes` (the definition predates the pane-sparing directive; `stop`/`restart`/`uninstall` answer this without `force`), `no service definition` (`start`/`stop` on a hand-launched agent; `uninstall` is a no-op, not a refusal). |
+| `agent_log_read` | Read a slice of the agent's **own** log file (`fromByte`, `maxBytes`) — never the same thing as `log_read`, which reads a pane's transcript. |
+| `set_server_url` | Rewrite `serverUrl` in the agent's own `config.json`, keeping the identity — the remote twin of `subshell configure --server`, gated on node **ownership**, not the edit grant. |
+| `set_log_level` | Flip the agent's log-file debug level live and persist it, refused while `SUBSHELL_DEBUG_LOGGING` forces the answer in that machine's environment. |
+| `set_maintenance` | Write this machine's maintenance mirror with the plane's `{ on, changedAt }` bytes verbatim — re-stamping a relayed value would make the two copies differ by exactly the delay between them. It kills nothing: a plane-side flip has already terminated the rows it knew about through the ordinary path, which does the bookkeeping a blind kill on the machine would not. |
+| `update` | Replace this agent's own binary: `{ version, url, sha256, force? }`. The agent streams the download, checks the digest **before the first `chmod`**, refuses to install a binary that does not answer `version` with the named one, applies the same supervision and pane-safety refusals as `service restart`, answers `{ ok: true }` *before* exiting so the plane reads a success rather than a timeout, and keeps the old binary as `<binary>.previous` under the update marker. Its shape is **frozen across all future protocol bumps** because it is the one command the plane sends across a protocol boundary — to a held agent whose wire it does not share. |
+
+**Status**
+
+| Command | |
+| --- | --- |
+| `probe` | Liveness of a set of subshell ids. |
+| `inventory` | Pull the harness inventory on demand. Since protocol 3 the agent holds no plugin concept, so its answer is an empty `harnesses` list — protocol filler; the plane treats empty as "nothing to apply" and the real rows arrive via `detect`. |
+| `detect` | Probe this node for the binaries the plane's named detection rules point at, and answer values for exactly the environment variables the plane names (`envNames`, required; the node never scans its whole environment). Answers raw version text — parsing it is plugin code, and plugin code runs on the control plane. Detection happens **only when asked**: page load, Re-check, or a launch kick. There is no sweep. |
+| `ping` | Liveness. |
+
+## 6. Events
+
+All unsigned (the socket is the authentication):
+
+| Event | |
+| --- | --- |
+| `ready` | First frame — identity, versions, capabilities, `selfInvoke`, `homeDir`, and optionally the `runtime` supervision snapshot and the `maintenance` mirror (§3). Malformed optionals are dropped; the connection still comes up. |
+| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp. Pushed once on connect and every 5 minutes; since protocol 3 it carries no plugin set and the post-inversion agent's harness list is empty — the node's real harness facts are its `detect` answers. |
+| `maintenance` | `{ on, changedAt }` — the machine flipped its own flag at the keyboard. It exists because a CLI process cannot talk to the running daemon: the verb writes the mirror file and the daemon notices. Sent on the heartbeat tick when the file moved, and — load-bearing — immediately before the `exit` frames a flip causes, so the plane records "the operator took this machine down", not N crashes. |
+| `heartbeat` | Every 15 seconds. |
+| `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }` — the answer to one command. Refusals the plane maps are exact strings: `not supervised`, `kills panes`, `no service definition`, `in maintenance`, `not a compiled agent`, `download failed`, `digest mismatch`, `installed binary reports a different version`, `unsupported`. |
+| `output` | Tail bytes: `subId`, `fromByte`, `toByte`, `data_b64`. |
+| `exit` | A pane died: `exitCode` (or `null` when the socket was not answering) + timestamp. |
+| `subshells_report` | Connect-time census of panes that survived an agent restart, so the plane heals its rows before anything else reads them. |
+| `error` | `{ code, message }` — including `verify` anomalies from §4. |
+
+**The launch gate** demands a fresh **detection** answer, not an inventory claim: a harness is launchable on a node when the instance has the plugin installed and enabled *and* that node's detection (inside a 10-minute TTL) found the binary. And exit detection is a 2-second tick per socket group: an authoritative "no such pane" reports death immediately with the real exit code, while **two consecutive** failed probes report `exitCode: null` — a tmux blip never kills a live pane, and a relaunch resets the count.
+
+## 7. Dispatch ordering and results
+
+- **Commands are serialized per node in call order.** Signing is async, so without one promise-chain mutex per connection two back-to-back sends could emit `seq 2` before `seq 1` — and a chunked upload or a type-before-launch could land out of order. On the agent's side, verified commands also queue for **execution** in arrival order across the whole daemon life, surviving reconnects.
+- **Newest socket wins.** A second agent dialing with the same identity kicks the older socket with `4409`; the kicked agent exits rather than reconnecting into a fight (which is why `subshell status --probe` warns so loudly).
+- **Inbound frames are queued per socket on the control plane**, because an agent sends events (`inventory`) interleaved with the `result` that answers a command, and concurrent handling could settle the RPC before the event's write landed.
+- **Results correlate by `ref`** and are settled only on the connection the command left on. Each result payload — probe entries, stat/ls/log/prompt/path-exists/write-file/pane-size/detect answers — is **parsed, never cast**: a node's answer is untrusted input like any other.
+- **Deadlines are the plane's.** A command must answer within **10 seconds** — one tmux call or stat or less — except `update`, which gets **five minutes** because it downloads ~70 MB over whatever link a node has. Raising the default would let a hung `launch` look alive for five minutes; per-command overrides are the shape instead.
+- **A swap is a transaction the new binary settles.** The agent's update writes a marker and keeps `.previous`; its boot treats an accepted plane (any verified command that is not `update`, or 15 quiet minutes — a number deliberately above the plane's ten-minute hold budget, because an open socket alone no longer proves acceptance) as completion, and treats a `4406` refusal as the rollback signal: restore `.previous`, record the failure, exit for the service manager.
+
+## 8. Terminal attach over a node
+
+The launcher interface is the **only** local-vs-remote branch in the system: the local path wraps tmux and the filesystem directly; the remote path implements every method as a signed command. The browser's WebSocket contract is byte-identical either way — xterm.js cannot tell a remote pane from a local one.
+
+Both attach paths follow the same four steps in order: subscribe to the shared pump **before** reading the pane; fit to the smallest shared grid; send the replay capture; open the subscription and broadcast presence. Subscribing before admitting is the join-point rule as a subscription; a refusal after subscribing must tear it down.
+
+Geometry is **confirmed on both paths**: the pane's real grid is asked (`pane_size` remotely), and `null` means "could not be read" — never a guess. An earlier revision had a remote pane announce the size it had been *asked* for; that asymmetry is gone.
+
+## 9. Offline semantics
+
+**Absence of a socket is not absence of the process.** The agent may be down while its panes keep running under tmux. So:
+
+- Launching onto an offline node returns `409 NODE_OFFLINE`.
+- The reconcile sweep **skips** rows whose node is offline — it must not mark panes dead that it simply cannot see.
+- Subshell views carry a "node unreachable" state, distinct from "crashed".
+- On reconnect, `subshells_report` re-projects surviving panes and the plane heals.
+
+## 10. Close codes
+
+| Code | Meaning | Emitted by |
+| --- | --- | --- |
+| `4401` | a socket that reached the handler without a verified identity; also the courtesy close when a node's key is rotated or deleted mid-connection | control plane |
+| `4406` | the update-required refusal (below floor, or protocol mismatch) — **carried by the held socket's ten-minute idle close**, and terminal for the agent, which logs the reason (and rolls back a just-installed binary) before exiting | control plane |
+| `4409` | newest-wins replace — a second agent dialed with this node's identity; terminal for the superseded agent | control plane registry |
+| `1009` | an inbound frame exceeded 1 MiB | control plane |
+| `1000` | graceful on both ends: the agent's own shutdown or seq-regression drop; a control-plane self-restart closes node sockets with a reason the agent's reconnect loop treats as ordinary | either |
+
+`4406` and `4409` are shared constants precisely because the agent decides *whether to exit* rather than reconnect based on them.
+
+## 11. Versioning
+
+Two numbers, changed on different schedules, both defined in the shared protocol package:
+
+- **`NODE_PROTOCOL_VERSION`** — bump whenever a frame changes, additive or not, and release both sides. **Server first**: an agent that leads the server is refused, and one that lags is refused just as clearly; the Nodes page names which. The numbering **restarted at 1 on 2026-09-09** (the old numbers predated any deployment). Since then: **1 → 2** registry installs; **2 → 3** the inversion — plugins left the wire, `launch` began requiring the plane-built `argv` and its `resolve` rule, `detect` arrived, the inventory event lost its plugin set (the first breaking bump, and the point of exact match); **3 → 4** `ready.selfInvoke` replaced the MCP-specific launch field so `mcp` and `report` compose from one fact; **4 → 5** the node Service surface — `restart` folded into `service`, `agent_log_read` and `set_server_url` added; **5 → 6** `set_log_level`; **6 → 7** the preset rename (`profile` → `preset`, wire-shaped only); **7 → 8** node maintenance (three frames: `ready.maintenance`, the `maintenance` event, `set_maintenance`); **8 → 9** `service.linger` — the Linux fact that decides whether a headless node comes back after a reboot; **9 → 10** the `update` command, whose shape is now frozen.
+- **`MIN_AGENT_VERSION`** — currently `0.9.0`. Raise it in the same commit as a protocol bump that changes what an agent must do or report, and raise the agent package to the same value alongside, so the refusal an operator sees always names a version that exists.
+
+The current floor rides protocol 10: an agent below `0.9.0` speaks no `update`, which is the one thing a refused agent must be able to hear — the plane holds such a socket precisely so it can still be rescued from a browser, and an agent too old to know the command answers `unsupported`, which the route turns into "update this node by hand".
+
+Settings → Updates lists held nodes and agents under the floor in one place, since a refused agent otherwise looks like an ordinary offline node.
+
+## See also
+
+- [Version Compatibility](/reference/version-compatibility) — the gates from the operator's chair.
+- [Managing the agent](/nodes/managing-the-agent) and [Updating a node](/nodes/updating) — driving this link from the dashboard.
+- [Security Model](/about/security-model) — what signing proves and what it does not.
+- [Files & Paths](/reference/files-and-paths) — the files this link maintains on the node.
+- [subshell CLI](/reference/node-cli) — the verbs that compose with this protocol.
