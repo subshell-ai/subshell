@@ -29,8 +29,20 @@ interface DeclaredIcon {
   name: string;
   /** `subshell.icon` as written, or undefined when the plugin declares none. */
   icon: string | undefined;
-  /** The npm `files` array (empty when absent — then nothing beyond package defaults ships). */
-  files: string[];
+  /** The npm `files` array, or undefined when absent (npm then ships the whole directory). */
+  files: string[] | undefined;
+}
+
+/**
+ * Manifests whose declared icon would NOT reach the npm tarball.
+ *
+ * A `files` array decides what ships; npm's ABSENT-array default ships the
+ * whole directory, so an absent array can never leave an icon out. An EMPTY
+ * array is the opposite: it is an explicit list of nothing, and only package
+ * defaults ship — so a declared icon IS left out, and that is a violation.
+ */
+function iconsLeftOutOfTarball(manifests: DeclaredIcon[]): DeclaredIcon[] {
+  return manifests.filter((m) => m.icon !== undefined && m.files !== undefined && !m.files.includes(m.icon));
 }
 
 /** Reads every built-in's package.json from `packages/plugins/`. */
@@ -49,11 +61,31 @@ function readBuiltInManifests(): DeclaredIcon[] {
           dir: entry.name,
           name: pkg.name ?? entry.name,
           icon: typeof pkg.subshell?.icon === "string" ? pkg.subshell.icon : undefined,
-          files: Array.isArray(pkg.files) ? (pkg.files as string[]) : [],
+          files: Array.isArray(pkg.files) ? (pkg.files as string[]) : undefined,
         };
       })
   );
 }
+
+describe("iconsLeftOutOfTarball", () => {
+  const WITH_ICON = { dir: "x", name: "@subshell-ai/plugin-x", icon: "icon.png" };
+
+  it("treats an ABSENT `files` array as shipping everything — npm ships the whole directory", () => {
+    // Review nit on the #64 guard: the absent-array default was read backwards,
+    // so a future icon-bearing built-in with no `files` would fail the guard
+    // for a reason that is not true of its tarball.
+    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: undefined }])).toEqual([]);
+  });
+
+  it("treats an EMPTY `files` array as shipping nothing — the icon is left out", () => {
+    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: [] }])).toHaveLength(1);
+  });
+
+  it("passes the icon only when `files` names it", () => {
+    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: ["dist", "icon.png"] }])).toEqual([]);
+    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: ["dist", "icon.svg"] }])).toHaveLength(1);
+  });
+});
 
 describe("built-in plugin icon manifests", () => {
   it("pins the number of plugins declaring an icon, so a silent disappearance is loud", () => {
@@ -63,20 +95,17 @@ describe("built-in plugin icon manifests", () => {
   });
 
   it("declares no icon that is absent from the npm `files` list", () => {
-    for (const m of readBuiltInManifests()) {
-      if (!m.icon) continue;
-      expect(
-        m.files,
-        `${m.name} declares icon "${m.icon}" but its files array would leave it out of the tarball`,
-      ).toContain(m.icon);
-    }
+    const violations = iconsLeftOutOfTarball(readBuiltInManifests()).map(
+      (m) => `${m.name} declares icon "${m.icon}" but its files array would leave it out of the tarball`,
+    );
+    expect(violations).toEqual([]);
   });
 
   it("lists in `files` no icon that is absent from the package directory", () => {
     for (const m of readBuiltInManifests()) {
       // The tarball is built from the package directory, so a `files` entry
       // matching nothing ships nothing — the other half of issue #64.
-      for (const entry of m.files) {
+      for (const entry of m.files ?? []) {
         if (!entry.startsWith("icon.")) continue;
         expect(
           existsSync(join(PLUGINS_DIR, m.dir, entry)),
