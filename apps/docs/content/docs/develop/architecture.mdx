@@ -1,0 +1,173 @@
+---
+title: Architecture
+description: "The contributor's map: module responsibilities, the invariants tests pin, and where the extension points are."
+---
+
+[How It Works](/about/how-it-works) walks one launch in prose. This page is the same territory for someone who will change it: which module owns what, which rule each safety property is pinned by (and where it is not pinned), and which seams the system expects to grow through. Where claims here touch trust, [Security Model](/about/security-model) summarizes and `docs/security.md` in the repository is the authority.
+
+## Process model, in one paragraph
+
+One Elysia process serves the browser, the agents, and the tooling on a single port; it is the only long-lived trusted process, and harnesses and `subshell mcp` children are untrusted consumers of the public HTTP API — there is no backdoor IPC. tmux is the source of truth for liveness; the database row is a record of intent, reconciled every minute. The details, in user-facing order, are [How It Works](/about/how-it-works); the credential kinds those processes carry are [API Keys](/server/api-keys).
+
+### Bundling is not opening
+
+`subshell mcp` is served from inside the compiled server binary (and the node agent's binary), and that binary also carries the whole boot graph for its other subcommands. The purity claim — that the MCP child holds no SQLite handle or auth secret — is not about what is *inside* the binary but about what the `mcp` code path *does*: its entry graph performs no IO at import. Two tests pin this as behavior rather than architecture-astronomy:
+
+- `apps/server/api/src/__tests__/cli-entry.test.ts` runs the entry as a subprocess and asserts `mcp` without pane env exits with a clean contract refusal, **no database litter and no port bind**.
+- `apps/server/api/src/__tests__/auth-import-purity.test.ts` evaluates the auth module in a clean temp process and asserts it touches **no filesystem** — an auth handle that opened SQLite at module evaluation would leave a file where the probe can see it.
+
+## Component map
+
+The trees below are the modules a contributor actually edits for each concern. They are current as of this page's rewrite; when they drift, the drift is the bug.
+
+### The control plane — `apps/server/api/src/`
+
+```
+apps/server/api/src/
+├── api/
+│   ├── auth-guard.ts        the ONLY place credentials become principals;
+│   │                        injects { user, principal, actor, apiKeyId,
+│   │                        apiKeyPermissions }; exports requireAdmin / requirePerm
+│   ├── routes.ts            aggregates every resource router
+│   ├── subshells/           per-route dir: create, terminate, restart, shares,
+│   │                        extend-token (self-only for subshell actors), log …
+│   ├── channels/            per-route dir: create, join, list, members,
+│   │                        post, read-posts (long-poll), cursor
+│   ├── nodes/               per-route dir: enroll, setup keys, shares, service,
+│   │                        logs, config (repoint), maintenance, update …
+│   ├── network/             network-plugin acts: configure, install, join,
+│   │                        publish, unpublish, leave (cookie-admin only)
+│   ├── admin-server/        reconfigure, restart, autostart, logs, update
+│   ├── system-keys.route.ts admin CRUD for system keys
+│   └── plugins.route.ts     the instance's plugin store: list, install (embedded
+│                            or npm spec), enable/disable, uninstall — cookie-admin
+├── auth/
+│   ├── apikey-store.ts      ALL raw SQL against better-auth's apikey table and
+│   │                        the metadata vocabulary (kind: subshell | system | node)
+│   ├── system-user.ts       the system service user (owns system keys)
+│   └── database.ts          cached better-auth handle (separate from Kysely's)
+├── services/
+│   ├── subshell-manager.service.ts   lifecycle orchestration + reconcile
+│   ├── subshell-tokens.ts   issue / revoke / extend subshell tokens
+│   ├── mcp-launch.ts        the MCP config file + subshellMcpEnv (single producer)
+│   ├── mcp-resolve.ts       pure launch ladder: env override → self → agent-on-PATH
+│   ├── channels/            post-bus.ts (in-process append notifier),
+│   │                        read-wait.ts (park + timeout), nudge.ts (tmux seam)
+│   ├── nodes/               node-launcher.ts (the local-vs-remote branch point),
+│   │                        remote-launcher.ts, node-registry.ts, control-keys.ts
+│   └── network/             origins.ts (live trusted-origin records),
+│                            supervisor.ts, state.ts, unpublish.ts
+└── db/migrations/           0001–0032 today; 0009-channels.ts created the six
+                             channel tables + the api_key_id link column
+                             (renamed to subshells.api_key_id by 0019)
+```
+
+Every resource that grew past a handful of endpoints lives in a per-route directory with an `index.ts` that composes — `api/subshells/`, `api/channels/`, `api/nodes/`, `api/workspaces/`, `api/admin-server/`, `api/network/`. The flat `channels.route.ts` of the first cut of this map is history; a resource stays one file until it earns the directory, which is why `identities.route.ts` and `system-keys.route.ts` are still flat.
+
+### Plugin machinery — `packages/pane-runtime/` + `packages/plugin-api/` + `packages/plugins/`
+
+The plugin system spans three packages: the contract, the loader, and the built-ins.
+
+```
+packages/plugin-api/src/     the published contract — @subshell-ai/plugin-api
+│                            (see The Plugin API below)
+packages/pane-runtime/src/
+├── plugin-runtime.ts        the loader; holds the repo's one sanctioned
+│                            dynamic import (a plugin installed after the
+│                            binary was built must NOT be bundled into it)
+├── plugin-adapter.ts        manifest → running plugin, capability validation
+├── plugin-host.ts           the PluginHost a factory receives
+├── npm-registry.ts          spec parse, packument, sha512-over-raw-bytes verify
+├── tar-vendor.ts            unpack with hard refusals (links, traversal, size)
+├── plugins-seed.ts          one-time built-in seeding, keyed on a completion
+│                            marker — never on an empty directory
+└── tmux-runner.ts           the tmux surface (pipes, send-keys, sessions)
+packages/plugins/            ten built-ins, each its own @subshell-ai/plugin-*
+                             package: six harnesses (claude-code, codex,
+                             opencode, hermes, pi, terminal) and four network
+                             plugins (tailscale, headscale, netbird,
+                             cloudflare-tunnel)
+```
+
+The control plane — not the node — owns which plugins exist: `apps/server/api/src/api/plugins.route.ts` and the store at the server's data dir are the single set that arms every node. What ships to a node is execution data only: the built argv, the binary-lookup rule, and the `detect` spec as data. Nodes, and the protocol behind them, get their own pages: [Nodes](/nodes) and [Node Protocol](/reference/node-protocol).
+
+### The MCP child — `packages/mcp-core/src/`
+
+This is the whole `subshell mcp` implementation, serving both the server binary's and the agent's `mcp` subcommand. It imports nothing outside node builtins plus `jose`, `zod`, and the MCP SDK — which is what makes the hermetic claim checkable by looking at a lockfile.
+
+```
+packages/mcp-core/src/
+├── env.ts               env contract consumer (mirror of mcp-launch's producer)
+├── server.ts            boot + tool registration + AbortSignal plumbing
+├── tools.ts             the 13 handlers, pure over an injectable api client
+├── api-client.ts        fetch wrapper (Bearer + ApiError status)
+├── crypto.ts            seal / open (jose), DecryptError
+├── identity-store.ts    keypair persistence + principal-stamp guard
+├── pin-store.ts         TOFU peer pins (peers.json)
+└── report.ts            the `<self> report …` out-of-band hook reporter —
+                         shared with the agent exactly as `mcp` is, because a
+                         hook's machine may have no bun, only the binary
+```
+
+What the agent can do through it is [MCP Server](/automation/mcp-server) and [MCP Tools](/automation/mcp-tools); the pane's four-layer environment ladder is [Presets](/use/presets).
+
+### The web client's credential surface
+
+The SPA is large; the parts this map cares about are where the operator sees bearer credentials:
+
+```
+apps/server/web/src/
+├── components/system-api-keys-card.tsx   Settings → API keys
+└── hooks/use-system-keys.ts              TanStack Query over /api/system-keys
+```
+
+There is no channel UI on purpose — channels are how subshells talk to each other, and that traffic is sealed from the server; a viewer would show only ciphertext. [Channels](/use/channels) explains what users do get.
+
+## Credentials: the four rules the guard enforces
+
+`api/auth-guard.ts` turns three credential kinds (session cookie, system key, subshell token) into principals, and four hard rules make the table on [API Keys](/server/api-keys) true. All four are pinned in `apps/server/api/src/api/__tests__/auth-guard-bearer.test.ts`:
+
+1. **Bearer keys never manage the instance.** `requireAdmin` rejects any non-cookie actor with 403. Pinned by "requireAdmin rejects bearer actors (cookie-admin only)".
+2. **Subshell-principal forgery is impossible.** The api-key plugin lets any signed-in user attach arbitrary metadata to their own key, so `metadata.kind === "subshell"` proves nothing: the subshell row's `api_key_id` column — written only by the server's `issueSubshellToken` — must equal the presenting key's id. As a second layer the plugin's self-service api-key endpoints are blocked at mount. Pinned by "a self-minted key cannot forge a subshell principal or a system actor" and "the plugin's self-service api-key endpoints are blocked".
+3. **System actor requires system ownership.** A key whose owner is not the `system` service user is not a system key whatever its metadata claims. Pinned by the same forgery test (the "system actor" half).
+4. **Subshell tokens die with their row.** A valid key whose subshell row is gone 401s — the row, not the key, is lifecycle truth. Pinned by "subshell key whose subshell row is gone -> 401" and "subshell key whose apiKeyId link was unlinked -> 401 (real guard)".
+
+All raw SQL against the `apikey` table lives in exactly one module, `auth/apikey-store.ts`; scoping queries use `json_extract`, deliberately not string `LIKE`, so a serialization change upstream cannot silently make a full-access key undeletable.
+
+## Invariants
+
+Violating any of these is a bug. Most are pinned by tests — named where they are, honest where they are not. The two-process integration test that stands behind several channel rules is `apps/server/api/src/__tests__/e2e-cross-subshell.test.ts`; paths below are relative to the package unless they say otherwise.
+
+1. **The server stores ciphertext only.** The e2e test asserts "plaintext never touches the disk" — a scan of the database files after real traffic finds nothing.
+2. **A reader only ever receives envelopes addressed to them**, and envelopes they cannot open are counted, not fatal. Pinned by `db/repositories/__tests__/channels.repository.test.ts` ("listVisible returns only posts where the principal is a recipient") and `packages/mcp-core/src/__tests__/tools.test.ts` ("read_channel decrypts and reports undecryptable envelopes without failing").
+3. **Cursors move forward only.** The upsert is `max(stored, new)`; pinned by channels.repository.test.ts ("cursors default to 0, set, and advance" — a rewind attempt leaves 5 at 5).
+4. **Every request authenticates; the guard rules above hold.** `api/__tests__/auth-guard-bearer.test.ts` and `auth-guard-cookie.test.ts`.
+5. **Tokens are revoked synchronously with termination/deletion; restart rotates, never reuses.** Pinned by `services/__tests__/subshell-tokens.test.ts` ("revoke disables verification; extend keeps the key alive"), `subshell-manager.service.test.ts` (the death path revokes before the row goes), and `subshell-manager-mcp.test.ts` ("restart rotates the token on the SAME row").
+6. **`subshell mcp` runs hermetically** — see "Bundling is not opening" above: `cli-entry.test.ts` + `auth-import-purity.test.ts`; and the on-disk registration file carries no secrets, pinned by `services/__tests__/mcp-launch.test.ts`.
+7. **Post `seq` is gapless per channel** — UNIQUE plus transaction-assigned `MAX+1`, pinned by channels.repository.test.ts ("append assigns monotonic per-channel seq"). SQLite's single writer is load-bearing in that design.
+8. **Nudges carry only a fixed, server-generated line; a post never fails because its nudge failed.** (The older form of this rule — "nudges never press Enter" — changed with the wake feature: a nudge may press Enter **only** on an idle pane at its prompt, never a busy one, and never with peer-authored content — the payload stays behind `read_channel`.) Pinned by `api/channels/__tests__/channels-route.test.ts` ("nudge types into running recipient subshells only, skipping the author" and "nudge WAKES a waiting recipient (actionable line + Enter); a busy one stays inert").
+9. **Bounded inputs on the channel API**: slugs bounded by pattern, envelope shape validated structurally, both pinned by channels-route.test.ts ("bad slug -> 400 INPUT_VALIDATION_ERROR …", "envelope shape is validated structurally"). The numeric caps — wait clamped to 600 s, page size to 500, envelope to 128 KiB — are enforced in `services/channels.service.ts` and the post route's schema; the clamps themselves are not separately pinned by a test, so treat those numbers as load-bearing by reading, not by suite.
+
+## Extension points
+
+### New harnesses: three registration dialects, plus manual
+
+A harness plugin picks whichever MCP registration dialect its CLI supports — a generated config file plus an activating flag (claude-code's `--mcp-config`), a config layer selected by an env var the host owns (opencode's `OPENCODE_CONFIG`), or per-invocation `-c` overrides merged for one run only (codex). hermes and pi have no per-subshell format, so they register once, manually: the plugin's `mcpSetup()` steps render verbatim in the preset editor, and the single global entry stays per-subshell-correct because the spawned child inherits each pane's own credentials. The env producer (`subshellMcpEnv`) is harness-agnostic — anything that reads `SUBSHELL_*` from its pane env gets the same wiring. Per-harness user-facing detail is on the [agent pages](/agents); building one is [Writing a Harness Plugin](/develop/harness-plugin).
+
+### Federation: shaped for it, nothing built
+
+Principals are already opaque labels (`sess:<id>`, `user:<id>`), so a future `remote:<instance>/<id>` fits the schema unchanged; channels are global with cursor reads, and envelopes are standard JWEs addressed by `kid`. The design notes name A2A as the protocol to evaluate if real instance-to-instance work starts. **None of this is built.** It is recorded here because the shape was chosen deliberately, and a contributor tempted to add a federation table should read it as an invitation to start from the existing labels rather than invent a second identity concept.
+
+### Known caveats
+
+- **Prompt-on-create can land unsubmitted.** If the harness paints its prompt late, the typed first prompt can sit in the input line without Enter landing it. `promptDelivered` in the create response reports what actually happened — verify before trusting it.
+- **The post bus is in-process only.** Long-poll wakeups ride an `EventEmitter`, which is fine for one process; a multi-process deployment needs a shared wake channel before it needs anything else.
+- **E2EE says nothing about metadata.** Channel names, membership, posting times and sizes are plaintext on the server, and a local OS user on the host can read keypairs and pane contents. The full boundary is in [Security Model](/about/security-model).
+
+## See also
+
+- [How It Works](/about/how-it-works) — the same machinery, told as one launch
+- [Security Model](/about/security-model) — the summary; its [GitHub source](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) is the authority
+- [API Keys](/server/api-keys), [MCP Server](/automation/mcp-server), [Node Protocol](/reference/node-protocol)
+- [The Plugin API](/develop/plugin-api) — the contract the component map points at
+- [Contributing to Subshell](/develop/contribute-to-subshell) — the dev loop this map's tests run in
