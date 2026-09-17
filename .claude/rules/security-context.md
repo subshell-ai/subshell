@@ -360,7 +360,7 @@ shares and subshell shares are two independent axes:
   manager respawns you" is the narrowest thing it could be asked to do. The
   agent applies the same two refusals the server applies to itself — not
   supervised, and a definition that would kill its panes without `force`.
-  Cookie only, owner or `edit`, `local` refused, audited as `node.restart`.
+  Cookie only, owner or `edit`, `local` refused, audited as `node.service` with `{ verb: "restart", forced }` — no `node.restart` action exists.
   The honest note is about AVAILABILITY, not confidentiality: an `edit`
   grantee may restart a machine they do not own, briefly taking every subshell
   running there offline, the owner's and other grantees' included.
@@ -642,7 +642,7 @@ code. Full accounting: `docs/security.md` §11.13.
   application covers the hostname; and the server verifies the assertion
   itself, keyed on the **`Host` header** (never a `CF-Ray`-style presence rule
   a LAN client can omit), `jwtVerify` against the team JWKS with issuer and
-  `aud` pinned, failing closed with `403 ACCESS_REQUIRED` on every path with no
+  `aud` pinned, failing closed with `403 ACCESS_DENIED` (the generic 403 code — `access-guard.plugin.ts:323`) on every path with no
   exemptions, plus a refusal of a matching Host from a non-loopback address.
   Disable and unpublish stop the process FIRST and drop the guard LAST, so a
   live tunnel is never unguarded. **The assertion is a front door, never a

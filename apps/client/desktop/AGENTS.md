@@ -148,8 +148,8 @@ Three things about it are load-bearing:
 
 ## Native prerequisites
 
-**Neither the root `README.md`'s Requirements list nor `bun install` covers
-these.** Every workflow that builds this app runs INSIDE
+**`bun install` covers none of these, and the root README no longer keeps a
+prerequisites list** — this section is the list. Every workflow that builds this app runs INSIDE
 `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`
 (`docker/desktop-builder.Dockerfile`), which already carries them — so CI can
 never discover that a bare machine cannot build here, and the list lived only
