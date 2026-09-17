@@ -160,9 +160,8 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
           after = await readNetworkStatus(entry, ctx, { fresh: true });
         }
         if (resolved.manifest.publishImplicit === true && after.state === "joined" && after.addresses.length > 0) {
-          // ONE captured set, pinned: the record, the config write and the
-          // audit row ALL speak of `addresses` — the read that confirmed
-          // membership. The reload below exists only to put a fresh status on
+          // ONE captured set, pinned: the record and the audit row BOTH speak
+          // of `addresses` — the read that confirmed membership. The reload below exists only to put a fresh status on
           // the done frame; a future refactor must never widen `addresses`
           // back onto that third read, because an audit row naming addresses
           // different from the ones actually recorded and trusted is a

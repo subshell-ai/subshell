@@ -12,6 +12,7 @@ import type { PluginReportWire } from "@internal/subshell-protocol";
 import { SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
+import { liftNetworkPluginTombstone } from "@/services/network/origins.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
@@ -139,6 +140,12 @@ export async function installLocalPlugin(
   registryUrl: string = SUBSHELL_PLUGIN_REGISTRY_URL,
 ): Promise<void> {
   await installPlugin(SUBSHELL_SERVER_DATA_DIR, { id: pluginId, spec, registryUrl });
+  // A successful install lifts any uninstall tombstone (`origins.ts`): a
+  // reinstalled network plugin re-earns trust through a fresh observation,
+  // which is the tombstone's whole contract. Harmless for harness ids — they
+  // are never tombstoned. Lift BEFORE the overlay refresh so an observation
+  // that resolves the just-installed plugin is already unblocked.
+  liftNetworkPluginTombstone(pluginId);
   // A caller that gets a 200 back must be able to launch immediately, and
   // that is the dialog's whole promise — the overlay is what makes it true.
   await syncPluginRegistry();

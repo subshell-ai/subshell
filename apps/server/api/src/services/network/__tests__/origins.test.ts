@@ -6,10 +6,12 @@ import { runMigrations } from "@/db/migrate.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import {
   forgetNetworkOrigins,
+  liftNetworkPluginTombstone,
   observeNetworkStatus,
   originsOf,
   setNetworkOriginsResolveForTests,
   syncNetworkOrigins,
+  tombstoneNetworkPlugin,
 } from "@/services/network/origins.js";
 import { clearNetworkState, networkStatePath, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
@@ -153,6 +155,27 @@ describe("observeNetworkStatus", () => {
     await observation;
     expect(originRegistry().pluginOrigins(plugin)).toEqual([]);
     await state.clear(plugin);
+    await clearNetworkState(plugin);
+  });
+});
+
+describe("the tombstone guard", () => {
+  it("refuses a TOMBSTONED plugin's observation, and a lift re-earns trust", async () => {
+    // The built-in-uninstall case, isolated: this id's seam answers
+    // resolvable (beforeEach), its `plugin_state` row is absent (enabled) —
+    // the refusal is the tombstone alone, which is exactly what the other
+    // two guards structurally cannot see of a built-in.
+    const plugin = id();
+    tombstoneNetworkPlugin(plugin);
+    await observeNetworkStatus(plugin, { exposure: "private" }, status("joined"));
+    expect(existsSync(networkStatePath(plugin))).toBe(false);
+    expect(originRegistry().pluginOrigins(plugin)).toEqual([]);
+    // A reinstall lifts the declaration (installLocalPlugin does it in
+    // production) and a fresh observation learns like any other install.
+    liftNetworkPluginTombstone(plugin);
+    await observeNetworkStatus(plugin, { exposure: "private" }, status("joined"));
+    expect((await readNetworkState(plugin)).addresses).toEqual([magic, ip]);
+    expect(originRegistry().pluginOrigins(plugin)).toEqual([magic.url, ip.url]);
     await clearNetworkState(plugin);
   });
 });

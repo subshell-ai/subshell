@@ -1,4 +1,7 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { existsSync } from "node:fs";
+import type { NetworkAddress } from "@internal/pane-runtime";
+import { getNetworkPlugin } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import {
@@ -13,8 +16,14 @@ import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { clearNetworkState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
+import {
+  isNetworkPluginTombstoned,
+  observeNetworkStatus,
+  setNetworkOriginsResolveForTests,
+} from "@/services/network/origins.js";
+import { clearNetworkState, networkStatePath, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
+import { installLocalPlugin } from "@/services/nodes/local-plugins.js";
 import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 
 /**
@@ -206,5 +215,115 @@ describe("disabling a network plugin", () => {
     const res = await app.fetch(patch(HARNESS_PLUGIN_ID, false));
     expect(res.status).toBe(200);
     expect(disarms).toBe(0);
+  });
+});
+
+const joinedAddress: NetworkAddress = {
+  url: "http://100.64.0.9:3080",
+  scheme: "http",
+  label: "Tailscale IP",
+  secureContext: false,
+};
+
+function patchUninstall(id: string): Request {
+  return new Request(`http://localhost:3080/api/plugins/${id}`, {
+    method: "DELETE",
+    headers: { cookie: `better-auth.session_token=${adminCookie}` },
+  });
+}
+
+describe("uninstalling a network plugin", () => {
+  // The finding: BOTH shipped guards structurally miss a BUILT-IN's
+  // uninstall — `getNetworkPlugin` answers the compiled set forever, and the
+  // row is cleared, whose absent default is enabled. The tombstone is the
+  // state that survives both, and these cases pin that the ROUTE declares
+  // it (inside the lock, before the forget) and that the observation honors
+  // it for a probe whose `status()` spanned the uninstall.
+
+  beforeAll(async () => {
+    // The disable suite's afterAll DELETED the admin when that describe
+    // completed (bun runs afterAll per-describe), so this one mints its own
+    // session over the same fixture path.
+    await setupAuthTables();
+    await seedLocalPluginsForTests();
+    await new UsersRepository(db).createUser({
+      email: adminEmail,
+      name: adminEmail,
+      passwordHash: await hashPassword(password),
+      role: "admin",
+    });
+    adminCookie = await signIn(adminEmail, password);
+  });
+
+  beforeEach(() => {
+    // Loadability PINNED true: whatever the tombstone refuses here,
+    // resolvability provably did not. (The real registry answers built-ins
+    // forever anyway — asserted below, after the bytes are gone.)
+    setNetworkOriginsResolveForTests(() => true);
+  });
+
+  afterEach(() => {
+    setNetworkOriginsResolveForTests(null);
+    setUnpublishDepsForTests(null);
+    resetOriginRegistryForTests();
+    void clearNetworkState(NETWORK_PLUGIN_ID);
+  });
+
+  afterAll(async () => {
+    // Restore the built-in's copy for the rest of the run — through the
+    // production installer, which is also what lifts the tombstone
+    // (`installLocalPlugin`), pinning the reinstall half of the contract.
+    await installLocalPlugin(NETWORK_PLUGIN_ID);
+    expect(isNetworkPluginTombstoned(NETWORK_PLUGIN_ID)).toBe(false);
+    await deleteUserByEmailOrId(adminEmail);
+  });
+
+  it("refuses leave the plugin undeclared: a failed stop 409s before the tombstone", async () => {
+    setUnpublishDepsForTests({
+      getPlugin: () => undefined,
+      disarm: async () => {
+        throw new Error("the tunnel would not stop");
+      },
+      lastLines: () => ["tailscale: still up"],
+      setPluginGuards: () => {},
+    });
+    const res = await app.fetch(patchUninstall(NETWORK_PLUGIN_ID));
+    expect(res.status).toBe(409);
+    expect(isNetworkPluginTombstoned(NETWORK_PLUGIN_ID)).toBe(false);
+  });
+
+  it("tombstones the built-in the bytes went with, and an observation that spanned the uninstall relearns nothing", async () => {
+    setUnpublishDepsForTests({
+      getPlugin: () => undefined,
+      disarm: async () => {},
+      lastLines: () => [],
+      setPluginGuards: () => {},
+    });
+    // A plugin the registry DOES trust and the record DOES describe, so
+    // "refuses" has a non-empty thing to protect (the non-vacuity demand).
+    originRegistry().setPluginOrigins(NETWORK_PLUGIN_ID, [joinedAddress.url]);
+    await writeNetworkState(NETWORK_PLUGIN_ID, { published: false, addresses: [joinedAddress] });
+    const status = { state: "joined" as const, addresses: [joinedAddress], hints: [] };
+
+    // The probe already in flight, whose read spanned the whole uninstall:
+    // started before the DELETE, awaited after it. Its fingerprint matches
+    // the record, so it cannot be the writer racing the route's own file
+    // clear — the only writer under test is the guarded one below.
+    const inFlight = observeNetworkStatus(NETWORK_PLUGIN_ID, { exposure: "private" }, status);
+    const res = await app.fetch(patchUninstall(NETWORK_PLUGIN_ID));
+    expect(res.status).toBe(200);
+    await inFlight;
+
+    // The declaration landed — and neither other guard could have:
+    expect(isNetworkPluginTombstoned(NETWORK_PLUGIN_ID)).toBe(true);
+    expect(getNetworkPlugin(NETWORK_PLUGIN_ID)).toBeDefined(); // compiled set, bytes gone
+    expect(await new PluginStateRepository(db).isEnabled(NETWORK_PLUGIN_ID)).toBe(true); // row cleared
+
+    // The in-flight probe that OBSERVES AFTER the uninstall (the refresher's
+    // real shape: capture pre-uninstall, a seconds-long status(), observe
+    // post-uninstall) must recreate neither the record nor the trust.
+    await observeNetworkStatus(NETWORK_PLUGIN_ID, { exposure: "private" }, status);
+    expect(existsSync(networkStatePath(NETWORK_PLUGIN_ID))).toBe(false);
+    expect(originRegistry().pluginOrigins(NETWORK_PLUGIN_ID)).toEqual([]);
   });
 });

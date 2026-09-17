@@ -24,7 +24,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { refreshNetworkOrigins } from "@/services/network/origin-refresh.js";
-import { forgetNetworkOrigins, syncNetworkOrigins } from "@/services/network/origins.js";
+import { forgetNetworkOrigins, syncNetworkOrigins, tombstoneNetworkPlugin } from "@/services/network/origins.js";
 import { clearNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
 import {
@@ -590,6 +590,16 @@ const adminRoutes = new Elysia()
           if (!stopped.ok) {
             throw new HarnessStateError([stopped.message, ...stopped.lastLines].join("\n"), 409);
           }
+          // Tombstone BEFORE the forget — the disable branch's ordering, one
+          // guard over. Neither of the observation's other guards can see a
+          // BUILT-IN's uninstall: the compiled set answers `getNetworkPlugin`
+          // forever, and the `plugin_state` row is about to be CLEARED, whose
+          // absent default is enabled. A status probe that captured the
+          // plugin list before the uninstall and lands after the forget would
+          // otherwise recreate `network.json` and re-trust its addresses for
+          // the life of the process. A reinstall lifts the declaration
+          // (`installLocalPlugin`), and the fresh record learns afresh.
+          tombstoneNetworkPlugin(params.pluginId);
           // The state file too, or the settings and the publish stamp survive
           // the package and a later reinstall of the same id silently inherits
           // them. The SECRETS beside it are deliberately left alone: destroying
