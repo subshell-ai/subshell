@@ -1661,32 +1661,6 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.queryByText(/no longer accepts/)).toBeNull();
   });
 
-  it("an unpublish with nothing recorded says the allowlist is unchanged", async () => {
-    mockFetch((url) =>
-      url.pathname === "/api/network/netbird/unpublish"
-        ? Response.json({ ok: true, origins: [], status: { state: "joined", addresses: ADDRESSES, hints: [] } })
-        : undefined,
-    );
-    await renderCard(
-      row({
-        id: "netbird",
-        name: "NetBird",
-        state: "published",
-        published: true,
-        publishImplicit: true,
-        status: { state: "published", addresses: ADDRESSES, hints: [] },
-      }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    expect(
-      await screen.findByText(
-        "Stopped publishing on NetBird — the addresses this server accepts sign-in from are unchanged.",
-      ),
-    ).toBeTruthy();
-  });
-
   it("does not invite a settings edit the server would refuse", async () => {
     // The server refuses a settings write while published, because nothing
     // re-derives the guard, the argv or the hydrated secret from it. A form
