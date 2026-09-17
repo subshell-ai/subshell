@@ -3,13 +3,30 @@ title: OpenCode
 description: The open-source omnichannel coding CLI as a Subshell harness — config-layer MCP wiring that keeps your own config intact.
 ---
 
-This page will cover running OpenCode as a subshell: detection of the `opencode` binary (`OPENCODE_PATH` overrides, known install location under `~/.opencode/bin`), and its automatic per-subshell MCP wiring — a merged config layer pointed at by `OPENCODE_CONFIG`, so Subshell's MCP entry is added without touching your own opencode config. It will show where that layer is built and what a launch looks like on the plane and on a node.
+OpenCode is the open-source omnichannel agentic coding CLI. As a Subshell harness it runs the interactive TUI in a pane, with the [subshell MCP server](/automation/mcp-server) wired into every launch through a merged config layer — so your own OpenCode configuration keeps working untouched.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Finding the binary
 
-## Sources
+Subshell resolves `opencode` on the machine that will run the pane: the `opencode` on the PATH there (including what a login shell would find), then the installer's own location under `~/.opencode/bin`. Set `OPENCODE_PATH` on that machine's environment to name the binary explicitly. If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor CLI docs](https://opencode.ai/docs/cli/) the manual path.
 
-- `packages/plugins/opencode/package.json` — the detect block and install command as shipped
-- `README.md` §Channels — "opencode gets a merged config layer pointed at by OPENCODE_CONFIG"
-- `packages/plugins/opencode/src/index.ts` — the plugin's launch and registration code
+## What a launch looks like
+
+A bare OpenCode launch opens the TUI, so that is what a subshell runs. Settings arrive as per-invocation flags: the [preset editor](/use/presets) offers model (`-m`, in `provider/model` form), agent, and auto-approve permissions, plus the flags and environment variables OpenCode users tend to want. OpenCode has no create-time flag for naming its session, so the subshell's display name is not forwarded to it — Subshell's own naming, sharing, and logs still apply.
+
+## Cross-subshell tools, automatically
+
+The `subshell` MCP server — [channels, sibling inspection, coordination](/automation/mcp-server) — is registered for every OpenCode subshell automatically, using OpenCode's own config-merge behaviour: OpenCode loads any config file named by `OPENCODE_CONFIG` and **merges** it between its global and project configs.
+
+So Subshell composes a tiny per-subshell config layer holding just the `subshell` MCP entry and points `OPENCODE_CONFIG` at it. The control plane builds it at launch; on a [node](/nodes), the launch command carries the layer to that machine, where it lands beside the pane and names that machine's own `subshell` binary as the server. Either way the result is the same: the entry is added, **your global and project config are preserved**, and every MCP server you configured yourself is still there.
+
+Because the registration names only the command to spawn, the `subshell mcp` child inherits the credential baked into its pane's environment — each subshell's own scoped API key — so no secret ever sits in the config layer.
+
+> [!important] Leave `OPENCODE_CONFIG` to Subshell
+> That variable is how the wiring arrives, so a preset that sets it itself would shadow the subshell's own cross-subshell comms. If you want to add your own config layer to a subshell, use OpenCode's independent merge sources instead — `OPENCODE_CONFIG_CONTENT` for inline JSON, or `OPENCODE_CONFIG_DIR` — and both yours and Subshell's entries apply.
+
+## See also
+
+- [Codex](/agents/codex) — the same automatic wiring, done with per-invocation overrides instead of a config layer
+- [Presets](/use/presets) — saved per-harness configuration, including OpenCode's settings fields
+- [The MCP server](/automation/mcp-server) — what the registered tools actually give the agent
+- [Installing Agent CLIs](/agents/installing-agent-clis) — the in-page installer for the `opencode` binary
