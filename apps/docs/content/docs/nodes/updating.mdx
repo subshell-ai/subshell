@@ -3,13 +3,56 @@ title: Updating a Node
 description: Move an enrolled agent to a newer binary — from the page or the machine — and what rollback means there.
 ---
 
-This page will cover the node half of updates: `subshell update --check` to see what the release source offers, the update that downloads the newer agent binary and restarts into it, and the transaction that makes it safe — the old binary is kept as `.previous`, the new one must boot clean to keep, and a failed boot puts the old binary back on its own. It will cover the same update driven from the node's page (an edit-grantee act: the URL and digest ride inside the signed command) and the honest risk class: an update replaces an executable from the release source, so an empty `SUBSHELL_RELEASE_URL` (air-gapped) disables the path entirely.
+A node's agent replaces its own binary and restarts into the new one — from the machine's keyboard or from the control plane's page, and both routes run one implementation. An update is a restart with a file swap in front of it, so it carries the restart's permissions, the restart's refusals, and one addition: the safety transaction that means a bad update puts the old binary back by itself.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## First: is there a newer agent, and can you use it?
 
-## Sources
+On the machine:
 
-- `docs/superpowers/specs/2026-09-15-updates-design.md` §5 — the node update design
-- `apps/node/agent/AGENTS.md` §Update — markers, the `.previous` revert, and the frozen command shape
-- `.claude/rules/security-context.md` §"Updating is a new class of act" — the edit-grantee route and the held-socket download token
+```bash
+subshell update --check
+```
+
+It names the newest release the release source publishes. One thing it cannot tell you is whether **your** plane can talk to that version — the binary holds no REST credential, so it cannot ask. The control plane knows: [Settings → Updates](/server/updating) lists every node's version against what it offers, and a node's own page says in plain words when the installed agent is too old or speaks a protocol the plane does not — the version floors are [explained here](/reference/version-compatibility). `--to <version>` is how you act on an answer you read there.
+
+## Updating from the machine
+
+```bash
+subshell update            # move to the newest release
+subshell update --to 0.9.0 --yes
+subshell update --from ./subshell-node-cli-linux-x64 --yes
+```
+
+`--from` installs a local file instead of downloading — the path for an air-gapped fleet (with `SUBSHELL_RELEASE_URL` set empty, every networked update refuses and names `--from` instead of failing quietly). `--force` allows a downgrade. Note where the caution lives: it is the **page-commanded** update that refuses before downloading anything when the restart it will request cannot mean what it says — an unsupervised agent, or a service definition that would close live panes without `force` — because a refusal there arrives before 70 MB has crossed the wire. The CLI at the keyboard is less paranoid: it installs first, and if the manager cannot or should not be restarted, it says so honestly with the new binary already in place. What the CLI checks before downloading is what the machine can answer locally: no downgrades without `--force`, an installed binary that can actually be resolved, and — always — the candidate proving its identity: a downloaded binary is hashed and checked against the published digest, and any candidate, downloaded or copied with `--from`, must run and report the exact version it claims.
+
+## Updating from the page
+
+The **Nodes** card under Settings → Updates offers the same thing remotely: owner or `edit` grantee, browser session only, never the control plane host's own row, and audited as a node update. The version it offers is **the newest your plane can actually talk to**, not simply the newest published.
+
+What crosses the wire is a signed `update` command naming a download URL and a digest; the node downloads, hashes, and verifies against values the plane chose — not against anything it is told mid-flight. The URL embeds a one-time download token: held in memory, single-use, ten minutes, bound to that one node and one platform, and refused on the checksum routes. It is not a credential in any general sense — the node key still does nothing on the REST API; this token buys exactly one download of a file the release source publishes publicly anyway.
+
+Two honest consequences:
+
+- The download URL is built from the plane's configured address, so an instance configured with a loopback base URL will tell remote nodes to fetch from `127.0.0.1` — the enrollment trap, in a new place. If remote updates fail at the download step on an instance whose base URL is loopback, that is the reason.
+- A plane restart forgets outstanding tokens. The agent's download then fails, and the update is reported as failed — which is the accurate report, not a silent retry.
+
+## The update is a transaction the new binary completes
+
+Whoever swaps the files cannot see whether the new agent works; the next boot can. So the updater writes a pending marker, keeps the old binary as `<binary>.previous`, and swaps. The agent that boots next settles it:
+
+- **The plane accepts it** — the new agent connects and is treated as a working node — and the marker and the `.previous` are deleted. Update over.
+- **The plane refuses it** (wrong version, wrong protocol) and the marker says the refusal followed an update — the agent renames `.previous` back, records the failure, and exits so the service manager respawns **the version that worked**, on a machine nobody visited. That swap-back is the node's entire rollback: a node has no database, so unlike [a server update](/server/updating) there is no data half to restore.
+- A refusal with no marker is just the ordinary "your node is too old" case, and the agent does not invent a rollback for an update that never happened.
+
+At any point afterwards, `subshell update --rollback` puts the kept `.previous` binary back, if one exists.
+
+## What an update actually trusts
+
+The plane downloads and executes code from the release source, and the digest it checks comes from that same source — integrity is "these are the bytes it published"; authenticity is that host's TLS and the repository's access controls. That is the same trust the install one-liner places from day one. If your `SUBSHELL_RELEASE_URL` points somewhere else, you have moved that trust with it. Setting it **empty** disables every update and fetch path by name — the air-gapped configuration, where `--from` and hand-installed binaries are the whole story.
+
+## See also
+
+- [Updating the Server](/server/updating) — the same transaction with a database rollback added.
+- [Version Compatibility](/reference/version-compatibility) — protocol versions and minimum agent versions.
+- [Managing the Agent](/nodes/managing-the-agent) — the service controls an update rides on.
+- [The updates accounting](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1112-updates) — what replacing an executable costs.

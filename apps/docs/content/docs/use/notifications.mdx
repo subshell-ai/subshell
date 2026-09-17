@@ -3,14 +3,55 @@ title: Notifications
 description: Push alerts when an agent needs attention — the harness bell, per-user switches, and the mobile companion.
 ---
 
-This page will explain how an agent flags you when it is done or stuck: a harness reports attention through the subshell's own credential, and pushes go only to the subshell's owner's devices — sharing widens who can watch, never who gets pushed. It will cover the two switches (the per-user master toggle and the per-subshell bell), delivery to the native mobile companion, and the desktop app's own notifications. Open question to settle while writing: exactly which harness hooks report which attention states today, since the report surface is driven per plugin.
+The point of an agent is that it works while you do not. The point of notifications is to tell you when that stops being true — when a turn is done, when a permission prompt is waiting, when the process died. They are targeted, gated, and they ring only your devices.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## What can ring
 
-## Sources
+Six events exist, and you can tell exactly which happened by the words:
 
-- `docs/security.md` §5 — "Notifications do not follow shares"
-- `docs/superpowers/specs/2026-08-30-harness-notifications-design.md` — the attention-reporting design
-- `apps/server/api/src/api/notifications.route.ts` — the subscription endpoints behind push delivery
-- `apps/client/mobile/AGENTS.md` — how the companion receives and displays them
+| What you receive | When it fires |
+|---|---|
+| **Done, waiting for you** | the agent finished its turn and the pane sits idle |
+| **Needs your approval** | the agent paused mid-turn, waiting for a permission or an answer |
+| **Subshell exited** | the pane's process ended and no auto-restart is configured |
+| **Crashed, auto-restarting** | the process died on a subshell that will be brought back |
+| **Crashed** | it died and the auto-restart ladder has given up |
+| **Stopped for node maintenance** | the [node's owner](/nodes/maintenance) took the machine out of service — not a fault of yours or the agent's |
+
+The first two come from the agent. The last four come from the server watching the pane and the node, which is why they describe deaths nobody clicked.
+
+## How an agent knows when to say so
+
+There are two tiers, and which one applies depends on the agent:
+
+- **Native hooks.** Claude Code launches with hooks that report each turn's end (`Done, waiting for you`) and each pause for input (`Needs your approval`) directly, precisely at the moment they happen. Only Claude Code reports `Needs your approval` — it is the only built-in agent with a way to.
+- **The quiet-output fallback.** Every other built-in agent (Codex, opencode, Hermes, Pi, and a plain terminal) is covered by a heuristic: when its pane's output has been silent for 20 seconds, the turn is over. It reports `Done, waiting for you` — the fallback never claims approval is needed, because it cannot know what the silence means.
+
+Either way the report is the subshell speaking **about itself with its own credential** — a harness can ring its own bell and no other subshell's. When a report lands, the subshell also wears a "waiting for you" marker, pinned to the top of your sidebar, and typing in its pane — or new output once the turn has settled for a few seconds — clears it.
+
+## Two switches
+
+Nothing is pushed unless both agree:
+
+1. **Your account-wide switch** — Preferences → Notifications. Off means total silence, whatever any bell says.
+2. **A subshell's bell** — its ⋯ menu toggles it — the item reads **Mute notifications** while the bell rings and **Notify when done** while it is quiet. New subshells start with the bell on; mute the noisy ones individually. Restarting keeps whichever setting the subshell had.
+
+The bell is owner-only: sharing a subshell never hands its bell to the grantee, and pushes never go to anyone but the owner's devices — sharing widens who can watch, never who gets rung.
+
+## Where they arrive
+
+- **From a browser** — enable push on the device (Preferences → Notifications); each browser/device subscribes for its account, and the server's keys are generated per instance with nothing to configure. On iPhone, web push only exists for a web app **added to the Home Screen** — a normal Safari tab cannot be pushed; Android and desktop browsers push from the site directly.
+- **From the [mobile companion](/get-started/mobile)** — native push with the app-icon badge and lock-screen actions.
+- **From the Subshell Server desktop app** — when one of your belled subshells starts waiting, the app posts its own native notification. No push subscription is involved; the desktop app needs none.
+
+A tap lands on that subshell's page, and a newer event for the same subshell replaces its earlier notification rather than stacking.
+
+> [!note] One notification per subshell, one audience: you
+> Delivery failures never break a launch or a pane — notifications are the least important thing in their own pipeline. An endpoint the push gateway reports as dead is pruned automatically; the subshell keeps working regardless.
+
+## See also
+
+- [Subshells](/use/subshells) — the states these events describe
+- [Sharing](/use/sharing) — why grants never widen the audience
+- [Mobile companion](/get-started/mobile) — push, badge, and lock-screen actions
+- [Claude Code](/agents/claude-code) — the agent with native turn/approval hooks

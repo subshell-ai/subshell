@@ -1,15 +1,43 @@
 ---
 title: Presets
-description: Saved launch settings per harness — environment variables, CLI flags, and config isolation.
+description: Saved launch settings per agent — environment variables, CLI flags, and auto-restart.
 ---
 
-This page will cover presets: optional saved launch settings for a harness — env vars, CLI flags, settings JSON, and config-source isolation so two subshells of the same agent can keep separate state. It will show where they are edited, how a launch uses one (a launch needs only an agent and a folder; a preset is always optional), the preset env vars merging on top of the curated environment, and that a fresh instance has none and every preset is deletable. For hermes and pi, the preset editor is also where the one-time MCP registration command is shown.
+A preset is saved launch settings for one agent: environment variables, command-line flags, and an auto-restart choice. It exists so "how I always run Hermes" is written once. The rule that shapes everything else: **a preset is always optional.** A launch needs only an agent and a folder; a fresh instance has zero presets and needs none, and every preset you make is deletable.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## What the editor holds
 
-## Sources
+Presets live on the Presets page, and the launch form carries a **+** that creates one with the agent you just picked already chosen. A preset's agent is fixed when it is created — the editor names it, then offers:
 
-- `docs/superpowers/specs/2026-09-13-presets-design.md` — the preset model as designed and built
-- `README.md` §Presets bullet — the user-facing field list
-- `apps/server/api/src/api/presets.route.ts` — the API surface the settings screens drive
+- **Environment variables** — key/value rows, each key a valid shell name (anything stranger is refused before storage, because these reach the launch command), with the current agent's useful variables suggested as you type.
+- **CLI flags** — each row is one option and its value; the pair is spliced into the agent's argv as stored.
+- **Auto-restart** — subshells launched from this preset are brought back automatically when their pane dies: the restart ladder and its give-up rule are on [Subshells](/use/subshells).
+
+Names must be unique per user and agent. Preset edits apply to the next launch — a running subshell keeps what it was started with.
+
+## How a launch uses one
+
+The launch form picks the agent first; the Preset row then lists only that agent's presets, **None** selected by default. At launch the environment is built in four layers, lowest first: the curated host environment, Subshell's credentials for this pane, the preset's env, and — deliberately last — Subshell's MCP-wiring environment. The middle two matter: the preset lands **above** the pane's credentials, so a preset that sets `SUBSHELL_API_KEY` or `SUBSHELL_BASE_URL` *can* redirect or silence the agent's phone line. That is exactly why saving a preset is browser-only work no machine token can do, and why your own preset environment is a thing you type, not a thing a running subshell can read back. The MCP-wiring layer is the one a preset cannot override. Flags are spliced into the agent's command exactly as stored.
+
+Two properties of scope matter when you run more than one machine:
+
+- A preset is **instance-wide**, not per-node. Saving one requires the harness *plugin* to be installed and enabled in the control plane — but not the agent binary anywhere: compatibility is decided at each launch, where the node picker shows what can run there.
+- Managing presets is a browser act. Machine credentials cannot write them, and a machine caller reading the preset list does not see their environment values — preset env sits above the credential layer of the pane, so it is yours to set and read, not a token's.
+
+## Separate state for two subshells of the same agent
+
+Sometimes you want two subshells running the same agent from different accounts, models, or config files. The tool for that today is the agent's own config-directory environment variable, which the editor suggests for the agents that read one — `HERMES_HOME`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR` and so on: give each preset its own directory and the two subshells never share state. The preset model also carries a dedicated *config isolation* flag and a per-agent *settings* JSON on the API; no built-in agent consumes the isolation flag yet, so the editor offers no switch for it, and no editor control writes the settings JSON — where an agent reads a settings value, it is a field you set through the API today.
+
+## Registering MCP for Hermes and Pi
+
+Three of the built-in agents — Claude Code, opencode, and Codex — get Subshell's MCP wiring automatically at launch. [Hermes](/agents/hermes) and [Pi](/agents/pi) register once, globally, by design — and the preset editor is where their one-time registration command is shown, with this instance's real launch paths filled in. Copy it once into a terminal on the machine; per-subshell correctness follows on its own, because each launched agent inherits that pane's own credentials.
+
+## Deleting
+
+Deleting a preset changes nothing that is already running: subshells launched from it keep running with the settings they started with, and restarting one falls back to launching without a preset. If a dead subshell's preset is gone, it starts again as a plain agent run.
+
+## See also
+
+- [Subshells](/use/subshells) — what auto-restart does when a pane dies
+- [Agents](/agents) — what each agent's flags and variables mean
+- [Sharing](/use/sharing) — a different per-subshell control: who can watch
