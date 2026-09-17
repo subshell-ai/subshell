@@ -103,16 +103,24 @@ Three rules it keeps:
 ## The assistant
 
 One fixed frame, one screen at a time. `screensFor(probe, onboarded)` decides
-the family and `dots(probe, screen)` where the six dots stand, both in
-`ui/src/lib/wizard-state.ts`, pure and tested without a webview.
+the family — pure and tested without a webview in `ui/src/lib/wizard-state.ts`.
+The dot row is gone (spec 2026-09-17): with one automatic screen there is no
+journey to count, and the row that counted screens the person never saw was
+the defect the removal closed.
 
-**First run** is unchanged (spec 2026-09-11): Welcome, Install tmux (shown only
-while tmux is missing, and it advances itself the moment the poll sees one),
-and Set Up Your Server, whose press replaces the screen with a progress
-checklist and then opens the dashboard by itself. `setupRows`/`canSetup`/
-`failureLine` hold the checklist, the gate and the failure line. Agents are not
-asked about here; the SPA's `/setup` owns that question, because detection
-lives in the server.
+**First run is zero-touch** (spec 2026-09-17 § 4): the page FIRES the setup
+chain itself — the progress checklist is the first screen, and it opens the
+dashboard by itself when done. The one stop is Install tmux, shown ONLY while
+tmux is missing (the old always-shown rule existed to keep the dots honest;
+the dots are gone); the poll seeing tmux re-resolves to the chain and it
+fires. Welcome left the journey and `ScreenId`; permissions left the first run
+and stays request-only (§ "macOS permissions"). A port conflict, a
+busy gate, or a no-bundled build lands on the pre-filled form instead of
+failing a chain nobody pressed — `autoSetupDecision` is the pure fork,
+`canSetup` the one refusal predicate, and the page holds fire until the port
+is MEASURED. `setupRows`/`failureLine` hold the checklist and the failure
+line. Agents are not asked about here; the SPA's `/setup` owns that question,
+because detection lives in the server.
 
 **Recovery** is ONE screen, where the console was five sections. The title IS
 the diagnosis — *No Server Found*, *Your Server Isn't Responding*, *Your Server
@@ -141,18 +149,13 @@ and relaunches. Both can be waiting at once, they cost different amounts, and
 the enum keeps them apart (`Screen::Update` vs `Screen::AppUpdate`,
 `"update"` vs `"app-update"`) — see "Updating the app itself" below.
 
-**Update Server**, **Update Subshell Server**, **Reset** and **How Your Server Runs** are never in `screensFor`'s list. They are
+**Update Server**, **Update Subshell Server**, **Reset**, **How Your Server Runs** and **What macOS Will Ask** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update` | `supervision`) — which is what lets either
+`reset::Screen` enum (`home` | `reset` | `update` | `app-update` | `supervision` | `permissions`; `home` parses to "whatever the probe implies") — which is what lets one
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
 dashboard it was asked to leave.
-
-**`dots` has no position for the requested screens.** `indexOf` answers -1 for
-recovery, update, reset and supervision, and the renderer hides the row on a negative
-`current`. That falls out of one list rather than a branch: a screen is either
-on the journey or it is not.
 
 **Show Details keeps its openness in PAGE state**, not the element's.
 `#content` is rebuilt on every render and the poll renders every 1500 ms, so a
@@ -161,8 +164,9 @@ a second. The failure screen had exactly that defect from the day it shipped.
 
 The window is **1024x720, fixed and not resizable**, and `open_main` takes its
 position and size when the dashboard is created, so the swap reads as one
-window changing screen; the SPA continues the dot row (six dots, three filled)
-when it sees the desktop UA marker.
+window changing screen. The SPA's `/setup` no longer continues a native dot
+row when it sees the desktop UA marker — there is no native row to continue
+(spec 2026-09-17); its row counts its own steps on every shell.
 
 
 ## Who runs the server
@@ -609,11 +613,14 @@ the app's own to raise: Notifications, and — since 2026-09-17 — Photos.
 Files-and-Folders is attributed to whichever process lists the folder
 (`subshell-server` under launchd, this app under "runs with this app"), and
 Background Items is a banner, not a permission. So the `permissions` screen —
-macOS only, between Install tmux and Set Up — shows THREE rows, REQUESTS the
-two it owns, EXPLAINS the one it cannot, and never blocks Continue. It is also a
-REQUESTED screen (the one in both lists): the dashboard raises it as the fix for
-every missing-permission notice, and it tells a requested visit from a
-first-run one by whether `screensFor` already holds it.
+macOS only — shows THREE rows, REQUESTS the
+two it owns, EXPLAINS the one it cannot, and never blocks Continue. It is
+REQUEST-ONLY since spec 2026-09-17 (it left the first run; the TCC prompt it
+explains belongs at the moment a permission is first wanted, not at launch):
+the dashboard raises it as the fix for every missing-permission notice, and
+`isRequestedScreen(screen)` is the whole routing — there is no first-run visit
+left to distinguish it from, and the render's old dual-role disambiguator is
+gone with the journey.
 
 **The fourth row — Background Items — was removed on the operator's request,
 and the reason is worth keeping** (it is the same reason the second rule below
@@ -931,7 +938,7 @@ ui/
 │   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
 │   │   ├── config-form.ts    # the pure form contract (see below)
 │   │   ├── installers.ts     # the pure install plans
-│   │   ├── wizard-state.ts   # screensFor, dots, recoveryTitle/Action, RESET_LABEL, the checklist
+│   │   ├── wizard-state.ts   # screensFor, autoSetupDecision, recoveryTitle/Action, RESET_LABEL, the checklist
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
 │   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
@@ -1066,7 +1073,7 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
+| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grants: `core:default` and `core:window:allow-close` (spec 2026-09-17's **Later** button; `core:default` does NOT include it — verified against `gen/schemas/acl-manifests.json`, and pinned in `ipc-acl.test.ts`, which also pins that `main` holds NEITHER close nor the update verbs) |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
 Six of `main`'s seven commands are chosen for what they cannot do: raise a

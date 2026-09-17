@@ -150,7 +150,11 @@ describe("DesktopAppUpdateRow", () => {
     setUA(SERVER_UA);
     const invocations = fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
     renderRow(true);
-    const button = await screen.findByRole("button", { name: "Update Subshell Server to v0.8.0" });
+    // The label names the offer, not an act the row never performs —
+    // clicking opens the update screen, it does not update.
+    const button = await screen.findByRole("button", {
+      name: "Update Subshell Server — v0.8.0 available",
+    });
     expect(screen.queryByText("v0.8.0 available")).toBeNull();
     fireEvent.click(button);
     expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "app-update" } });

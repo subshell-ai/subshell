@@ -283,15 +283,13 @@ export function recoveryAction(step: ProbeStep): { label: string; kind: Recovery
   }
 }
 
-/**
- * The dot row is GONE (spec 2026-09-17 § 4.1). It counted a journey, and the
- * first run is no longer a journey — it is one automatic screen, and a dot
- * row over a screen that fires itself has nothing to count. The function that
- * computed positions lived here precisely so the row's arithmetic was testable
- * without a webview; with the row gone there is no arithmetic to test, and
- * keeping the function would keep the fiction that the positions mean
- * something.
- */
+// The dot row is GONE (spec 2026-09-17 § 4.1). It counted a journey, and the
+// first run is no longer a journey — it is one automatic screen, and a dot
+// row over a screen that fires itself has nothing to count. The function that
+// computed positions lived here precisely so the row's arithmetic was testable
+// without a webview; with the row gone there is no arithmetic to test, and
+// keeping the function would keep the fiction that the positions mean
+// something.
 
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";
 

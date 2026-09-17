@@ -314,13 +314,40 @@ pub fn check_now(app: &AppHandle) {
     tauri::async_runtime::spawn(async move { run_check(&handle).await });
 }
 
+/// Whether a check is already in flight (the tray press and the launch timer
+/// are two askers for the SAME answer). A second overlapping check was benign
+/// — last-write-wins on the same two settings fields — but it also bought
+/// nothing: the one running will write just as fresh an answer. So a press
+/// during a check is a no-op, and the RAII clear means the NEXT press works.
+/// This is deliberately NOT `control::ActionGuard`: that flag serializes
+/// MACHINE MUTATIONS, and a network read has no business refusing a
+/// supervision press for the seconds a release page takes to answer.
+static CHECK_IN_FLIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn try_begin_check() -> bool {
+    use std::sync::atomic::Ordering::SeqCst;
+    !CHECK_IN_FLIGHT.swap(true, SeqCst)
+}
+
+struct CheckGuard;
+
+impl Drop for CheckGuard {
+    fn drop(&mut self) {
+        CHECK_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// One check against the release source, whatever asked for it.
 ///
 /// A press and a launch owe the person the same bookkeeping, so there is one
 /// body: stamp the clock and record the answer only when the source actually
 /// ANSWERED, and otherwise keep showing whatever the last check that did
-/// found.
+/// found. One at a time — see [`CHECK_IN_FLIGHT`].
 async fn run_check(handle: &AppHandle) {
+    if !try_begin_check() {
+        return;
+    }
+    let _guard = CheckGuard;
     let settings = handle.state::<SettingsState>();
     // A check that could not REACH the source is not a check that found
     // nothing, and `.ok()` cannot tell them apart: `check_app_update`
@@ -350,6 +377,20 @@ async fn run_check(handle: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two askers (a press during the launch check) collapse to one run, and
+    /// the flag never sticks closed — a stuck flag would silently kill the
+    /// tray press for the rest of the app's life, which is a worse failure
+    /// than the benign overlap it replaces. Sole toucher of the flag: cargo
+    /// runs tests in threads, so no other test may call `try_begin_check`.
+    #[test]
+    fn one_check_at_a_time_and_never_stuck() {
+        assert!(try_begin_check());
+        assert!(!try_begin_check(), "a second concurrent check must skip");
+        drop(CheckGuard);
+        assert!(try_begin_check(), "a press after a finished check must work");
+        drop(CheckGuard);
+    }
 
     /// The tag prefix is the release-component ID, and getting it wrong points
     /// this app at a different component's releases — which would parse and

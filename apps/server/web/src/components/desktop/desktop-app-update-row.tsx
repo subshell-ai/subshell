@@ -61,7 +61,7 @@ export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
         type="button"
         onClick={openAssistant}
         title={`Subshell Server ${data.currentVersion} — v${available} available`}
-        aria-label={`Update Subshell Server to v${available}`}
+        aria-label={`Update Subshell Server — v${available} available`}
         className="flex w-full cursor-pointer items-center justify-center rounded-md py-1.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
       >
         <ArrowUpCircle className="h-4 w-4 shrink-0 -translate-y-px" />
