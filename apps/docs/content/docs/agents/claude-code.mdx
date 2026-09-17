@@ -31,7 +31,7 @@ Two things about that file are worth knowing:
 Claude Code is the one harness that exposes hooks, and Subshell uses them for two things:
 
 - **Attention.** The `Stop` and `Notification` hooks report "this turn finished" and "this turn is waiting for you" to the control plane, which is what makes the notification bell and the waiting state work. Delivery is still gated by the subshell's bell and your account switch — a hook firing never bypasses them. See [Notifications](/use/notifications).
-- **Conversation identity.** The `SessionStart` hook reports the transcript id whenever the in-pane session changes (`/clear`, `/resume`, `/fork`), so Subshell always knows which conversation to resume.
+- **Conversation identity.** The `SessionStart` hook reports the transcript id whenever the in-pane session changes (`/clear`, `/resume`, `/fork`, `/compact`), so Subshell always knows which conversation to resume.
 
 The hook commands are not guesses: the control plane resolves, per machine, the `subshell report` command line that actually exists on the host running the pane, and hands the plugin that. On a desktop install with nothing but the Subshell binary beside the pane, the hooks still reach home. If a launch ever cannot resolve that command, Subshell omits the hooks entirely rather than wiring a command the machine cannot run — one launch without notifications instead of an error on every turn.
 

@@ -23,7 +23,7 @@ Open the preset editor for Hermes (the Presets page) and its MCP section shows w
 hermes mcp add subshell --command <mcp launch command> --args <mcp launch args>
 ```
 
-The editor does not make you fill anything in — the command it shows embeds this deployment's real resolved `subshell mcp` launch, ready to copy and paste. Run it **once on each machine where Hermes panes run**: the entry lands in that machine's `~/.hermes/config.yaml`, so the control-plane host and every node that hosts Hermes subshells wants its own.
+The editor does not make you fill anything in — the command it shows embeds this deployment's real resolved `subshell mcp` launch, ready to copy and paste. Run it **once on each machine where Hermes panes run**: the entry lands in that machine's `~/.hermes/config.yaml`, so the control-plane host and every node that hosts Hermes subshells wants its own. One caveat off the control-plane host: the shown command names the *server's* launch program — on a node, swap that path for the node's own `subshell` binary (`subshell mcp …`) before running it.
 
 > [!note] Why one global entry is per-subshell-correct
 > The registered command only names how to start `subshell mcp`. The process inherits the environment of the pane that spawned it — including that subshell's own baked-in API key — so one registration serves every Hermes subshell on the machine, and no pane can authenticate as another. This is what makes the shared-host case safe: the credential is per-pane, not per-config-entry.
