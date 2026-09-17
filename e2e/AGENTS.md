@@ -56,8 +56,9 @@ against ONE shared database:
 - `01-setup-wizard` creates the admin (`.test` email TLD — better-auth rejects
   digit TLDs like `.e2e`) and writes `.auth/admin.json`.
 - The specs after it load that storage state via `ADMIN_STATE` from
-  `helpers.ts` (`04`–`18`; `02` deliberately stays anonymous — it pins the
-  401 boundary itself).
+  `helpers.ts` (`04`–`18`, less `15` — which boots its own clean
+  machine and loads no state; `02` deliberately stays anonymous — it pins
+  the 401 boundary itself).
 - Two files share the `06-` prefix: `06-split-to-workspace` sorts before
   `06-subshell-lifecycle` and so runs between `05` and it. Both depend only on
   `01`, and the split spec closes the subshells it launches, so the order
@@ -66,7 +67,7 @@ against ONE shared database:
 
 `.auth/admin.json` is path-portable: `ADMIN_STATE` in `helpers.ts` resolves it
 to an absolute path from `import.meta.url` (always `e2e/.auth/admin.json`), and
-both the writer (spec `01`) and the readers (`04`–`18`) use that same constant —
+both the writer (spec `01`) and the readers (`04`–`18`, less `15`) use that same constant —
 so the CWD the run is launched from never matters.
 
 ## What the terminal assertions may use

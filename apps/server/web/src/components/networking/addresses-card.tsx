@@ -1,6 +1,11 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { useState } from "react";
+// Deliberate (review, 2026-09-17): the card moved to `networking/`, but
+// RESTARTING is service-domain and these two are shared with ServiceCard —
+// copying them per-page would fork the one sentence that says "the server
+// has not come back".
 import { RestartDialog } from "@/components/service/restart-dialog";
+import { RestartStrip } from "@/components/service/restart-strip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -326,6 +331,13 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
           </Button>
           {update.isSuccess && touched.length === 0 && <span className="text-detail text-success">saved</span>}
         </div>
+
+        {/* The restart this button can start needs its failure face HERE, not
+            only on Service (review, 2026-09-17): a timed-out restart used to
+            leave this page as if nothing had been pressed. One component,
+            same sentence as ServiceCard — quiet unless the press errored or
+            never landed. */}
+        <RestartStrip view={view} restart={restart} />
 
         {update.error && !fieldFailure && (
           <p className="text-destructive text-sm">

@@ -75,7 +75,8 @@ own — so the poll is `src-tauri/src/watch.rs` now: one thread, `probe_now`
 every five seconds for the life of the app.
 
 Its duty is the case the inventory found unhandled: **re-point `main` when the
-server's origin moved.** A port changed from the SPA's Service page and a
+server's origin moved.** A port changed from the SPA's Networking page (the
+Addresses card, there since 2026-09-17; on Service before it) and a
 restart later, the dashboard is a window fetching a dead port, and nothing was
 watching for it. `origin_changed(current, probe)` is pure and tested; the
 navigate goes through `windows::open_main`'s existing existing-window branch,
@@ -1172,7 +1173,7 @@ the CLI's `service status --json → logPath`: a null is the journal-hint case,
 an absent field is an old server, and this side never re-derives a platform
 path. `desktop_open_web` is the same shape for the About block's three links
 (`website | license | company`). `desktop_open_control_plane` is GONE — the
-base URL is the SPA's Service page to show and to copy now, and no URL crossed
+base URL is the SPA's Networking page to show and to copy now (the Addresses card, since 2026-09-17), and no URL crossed
 the IPC boundary from the page in either design. The
 `opener:allow-reveal-item-in-dir` grant in `capabilities/wizard.json` covers
 the plugin side; the app commands are gated by their own permission entries

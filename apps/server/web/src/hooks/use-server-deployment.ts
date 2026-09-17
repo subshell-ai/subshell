@@ -29,20 +29,25 @@ import type { ServerConfigPatch, ServerConfigUpdate, ServerDeployment } from "@/
  * memoized the collection for ~2 s, so N open tabs cost ONE probe per window
  * instead of N. Do not raise the rate past that window without moving it too.
  *
- * It stays `enabled`-gated to admins, and it has TWO consumers, which want
+ * It stays `enabled`-gated to admins, and it has THREE consumers, which want
  * different cadences over the same data:
  *
  * - `/settings/service` takes the 5 s default. It renders the fields that
- *   actually move — `restartRequired`, `settings.saved`, the service state,
- *   `logging.debug` — and it is the page an operator watches WHILE changing
- *   the machine from somewhere else, where a slower cadence reads as a page
- *   that is not updating at all. The Refresh button that used to paper over
- *   that is gone.
+ *   actually move without a save on that page — the service state,
+ *   `logging.debug`, the supervision answer — and it is the page an operator
+ *   watches WHILE changing the machine from somewhere else, where a slower
+ *   cadence reads as a page that is not updating at all. The Refresh button
+ *   that used to paper over that is gone.
  * - `/settings/status` passes 60 s. It renders only `configEnv.path`,
  *   `paths.*`, `service.definitionPath` and the manager log path — every one
  *   of them fixed for the life of the process, per the paragraph above. At
  *   the default it would have tripled the probe load for data that cannot
  *   change while the page is open.
+ * - `/settings/networking` passes 60 s with the Addresses card's move
+ *   (2026-09-17). It renders the moving fields too — `restartRequired`,
+ *   `settings.saved`/`running` — but every one of those changes HERE by a
+ *   save that writes the fresh view into this cache itself, so the poll only
+ *   catches up with an edit made over ssh, and 60 s is honest for that.
  *
  * The two genuinely poll at different rates on one shared query key:
  * TanStack Query keeps `refetchInterval` per OBSERVER, so each mount runs its
