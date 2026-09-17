@@ -9,8 +9,9 @@ import { clamp } from "@/utils/number.js";
 /**
  * Structural + recipient validation of the opaque envelope (spec §6: never
  * parse ct). Inspecting the plaintext `header.kid` of each recipient slot is
- * explicitly sanctioned — apps/docs/content/docs/use/channels.mdx carries
- * the why, and reads already filter on it), and here the kid SET is pinned to the declared `recipientIds`: without
+ * explicitly sanctioned — apps/docs/content/docs/develop/architecture.mdx
+ * invariant 1 carries the why, and reads themselves already filter on the
+ * recipients table) — and here the kid SET is pinned to the declared `recipientIds`: without
  * it a sender could address `[B]` while sealing only to itself, leaving B a
  * row that open() can never decrypt and that cursor-advancing reads silently
  * skip.

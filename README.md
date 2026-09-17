@@ -21,11 +21,13 @@ agents.
   web UI; Add to Home Screen makes it a standalone app with push notifications,
   and the native Subshell Server / Subshell Client apps wrap the install and
   your day-to-day window onto a control plane.
-- **Workspaces** — tile subshells side by side, split from any pane's menu or by
-  dragging; the same workspace becomes tabs on a small screen.
+- **Workspaces** — tile subshells side by side: add one into the layout from
+  its header, split from a subshell's own page, or drag; the same workspace
+  becomes tabs on a small screen.
 - **Agents that coordinate** — end-to-end-encrypted channels (the server stores
   only ciphertext it cannot read) plus a `subshell mcp` server wired into every
-  subshell, so sibling agents can read each other's panes and post to each other.
+  agent subshell, so siblings can read each other's panes and post to each
+  other.
 - **Sharing with disclosure** — a subshell is private to its owner by default;
   grant view or edit to Everyone or named users, and anything shared — or
   running on a node you don't own — carries a permanent indicator on its pane.
