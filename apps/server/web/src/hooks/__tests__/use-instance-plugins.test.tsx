@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
   useInstallInstancePlugin,
   useSetPluginEnabled,
   useUninstallInstancePlugin,
 } from "@/hooks/use-instance-plugins";
+import { useNetwork } from "@/hooks/use-network";
 import { usePresets } from "@/hooks/use-presets";
+import { usePublicSettings } from "@/hooks/use-public-settings";
 
 /**
  * The coupling this pins: availability became the instance STORE (spec
@@ -96,6 +98,37 @@ describe("instance plugin mutations refresh the preset list", () => {
       await waitFor(() => expect(presetFetches(calls)).toBe(1));
       result.current.mutation.mutate({ id: "codex", mode: "delete" });
       await waitFor(() => expect(presetFetches(calls)).toBe(2));
+    } finally {
+      restore();
+    }
+  });
+
+  it("enabling/disabling a plugin refetches the network list and the public settings — a network's addresses join or leave the allowlist with the flag", async () => {
+    // The Networking card's Disable/Enable action rides THIS mutation (one
+    // plugin toggle, not two), and what the flag changes is visible in two
+    // other reads: `GET /api/network` (the row's state) and
+    // `GET /api/settings/public → trustedOrigins` (the effective allowlist).
+    const { wrapper } = makeWrapper();
+    const { calls, restore } = mockFetch({
+      "GET /api/presets": () => json([]),
+      "GET /api/network": () => json({ networks: [] }),
+      "GET /api/settings/public": () => json({ viewerIsAdmin: true, trustedOrigins: [] }),
+    });
+    const fetches = (path: string) => calls.filter((c) => c.method === "GET" && c.url === path).length;
+    try {
+      const { result } = renderHook(
+        () => ({ network: useNetwork(true), settings: usePublicSettings(), mutation: useSetPluginEnabled() }),
+        { wrapper },
+      );
+      await waitFor(() => {
+        expect(fetches("/api/network")).toBe(1);
+        expect(fetches("/api/settings/public")).toBe(1);
+      });
+      act(() => result.current.mutation.mutate({ id: "tailscale", enabled: false }));
+      await waitFor(() => {
+        expect(fetches("/api/network")).toBe(2);
+        expect(fetches("/api/settings/public")).toBe(2);
+      });
     } finally {
       restore();
     }

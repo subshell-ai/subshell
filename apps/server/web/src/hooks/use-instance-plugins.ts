@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { NETWORK_QUERY_KEY } from "@/hooks/use-network";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
+import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
 import { apiFetch } from "@/lib/api";
 
 /** Query key of the instance plugin catalog (`GET /api/plugins`). */
@@ -97,6 +99,9 @@ export function useInstallInstancePlugin() {
  * so disabling hides this plugin's presets exactly as an uninstall does and
  * enabling brings them back. Rows and visibility are different questions;
  * only the first is what "never touched" was ever about.
+ *
+ * A network plugin's toggle also changes what the server offers and trusts;
+ * the Networking card's Disable/Enable action is this same mutation.
  */
 export function useSetPluginEnabled() {
   const queryClient = useQueryClient();
@@ -109,6 +114,17 @@ export function useSetPluginEnabled() {
       // so a mounted /presets page or an open launch dialog is stale the
       // moment this returns.
       void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+      // A NETWORK plugin's flag decides whether its addresses are offered and
+      // trusted at all: the server's allowlist is local origins ∪ config.env
+      // extras ∪ every ENABLED network plugin's addresses (2026-09-16), and
+      // disabling runs the unpublish sequence first (`plugins.route.ts`). So
+      // the row's state on the Networking page and the effective allowlist
+      // the mobile dialog and the setup checklist read both moved. Refreshed
+      // for every plugin type rather than branched on `type`: the two GETs are
+      // cheap, and a rule keyed on the row's type would be one more place for
+      // "network" to be spelled.
+      void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
     },
   });
 }
