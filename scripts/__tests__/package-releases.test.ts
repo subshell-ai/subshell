@@ -8,10 +8,14 @@ describe("publishedPackages", () => {
     expect(names).toEqual([
       "@subshell-ai/plugin-api",
       "@subshell-ai/plugin-claude-code",
+      "@subshell-ai/plugin-cloudflare-tunnel",
       "@subshell-ai/plugin-codex",
+      "@subshell-ai/plugin-headscale",
       "@subshell-ai/plugin-hermes",
+      "@subshell-ai/plugin-netbird",
       "@subshell-ai/plugin-opencode",
       "@subshell-ai/plugin-pi",
+      "@subshell-ai/plugin-tailscale",
       "@subshell-ai/plugin-terminal",
     ]);
     // Private workspaces must never appear: a release for `@internal/*` would
