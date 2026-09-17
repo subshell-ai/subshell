@@ -19,15 +19,15 @@ In the sidebar, the **Subshell for Mobile** dialog picks up from there: it lists
 | --- | --- |
 | iPhone / iPad | Open the address in **Safari** (Chrome and Firefox on iOS can't install it) → Share → **Add to Home Screen** → Add |
 | Android | Open the address in Chrome → ⋮ → **Add to Home screen** → Install app |
-| Desktop browser | Chrome/Edge: the install icon in the address bar; Safari on macOS: File → Add to Dock |
+| Desktop browser | Chrome/Edge: the install icon in the address bar; Firefox and Safari on macOS offer no install — use a bookmark or pin the tab |
 
-The installed app opens fullscreen under its own icon, and it is the place notifications live — a push that an agent needs you arrives for the installed app, not for a stray tab. One caveat with teeth: notifications need a **secure** (https) address. Plain `http://192.168.x.x:3080` still installs to the Home Screen, but iOS will never deliver a notification to it; publishing the server behind a network plugin's https address fixes both at once. [Notifications](/use/notifications) covers the bell, the master switch, and which events ring.
+The installed app opens fullscreen under its own icon, and on Apple devices it is how notifications arrive: iOS and iPadOS deliver web push only to an installed web app, never to a browser tab. (Desktop and Android browsers can push to a plain tab; the install is about the fullscreen shell there.) One caveat with teeth: notifications need a **secure** (https) address. Plain `http://192.168.x.x:3080` still installs to the Home Screen, but iOS will never deliver a notification to it; publishing the server behind a network plugin's https address fixes both at once. [Notifications](/use/notifications) covers the bell, the master switch, and which events ring.
 
 ## The native companion
 
 There is also a real React Native app in the repository, built with Expo — and to be honest about what that means today: it is a from-source project. The release pipeline publishes the server, the node agent, and the two desktop apps; nothing mobile ships through it, and the app's own docs say push cannot even be end-to-end tested without your own EAS project and Firebase credentials. If you are evaluating Subshell on a phone, the Home Screen app above is the supported path.
 
-What the companion adds, when built, is the set of things a web page cannot do: background push, an app-icon badge, lock-screen actions, and a session credential kept in the Keychain behind Face ID rather than in browser storage. It authenticates as the same kind of user your browser does — you type your server's address and sign in — and it shows the subshell list, the launch form, and a live xterm pane, with the same "who else is watching" device strip as the web. It is not a second web app and the app's docs forbid it from becoming one; it exists for the four native-only capabilities, no more.
+What the companion adds, when built, is OS-level presence: push delivered with no browser in the chain, an app-icon badge, lock-screen actions, and a session credential kept in the Keychain — optionally gated behind Face ID — rather than in browser storage. It authenticates as the same kind of user your browser does — you type your server's address and sign in — and it shows the subshell list, the launch form, and a live xterm pane, with the same "who else is watching" device strip as the web. It is not a second web app and the app's docs forbid it from becoming one; it exists for those OS-level capabilities, no more.
 
 ## See also
 

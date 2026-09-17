@@ -27,7 +27,7 @@ Open that `/setup` URL now. Until the first account exists the setup endpoints a
 
 ## 3. Confirm tmux and an agent
 
-The wizard's **Add an Agent** screen pins a tmux row above the list of agent CLIs it can see on the server's machine — Claude Code, Codex, OpenCode, Hermes, pi. A missing tmux gets an Install button where the command needs no password (Homebrew on macOS); where it would need `sudo`, the screen shows you the command to run instead. A missing agent CLI gets the same: **Install** runs the vendor's own install command on this machine. And **Terminal** — a plain shell pane — is always available with nothing installed. See [Agents](/agents) and [Installing agent CLIs](/agents/installing-agent-clis).
+The wizard's **Add an Agent** screen pins a tmux row above the list of agent CLIs it can see on the server's machine — Claude Code, Codex, OpenCode, Hermes Agent, pi. A missing tmux gets an Install button where the command needs no password (Homebrew on macOS); where it would need `sudo`, the screen shows you the command to run instead. A missing agent CLI gets the same: **Install** runs the vendor's own install command on this machine. And **Terminal** — a plain shell pane — is always available with nothing installed. See [Agents](/agents) and [Installing agent CLIs](/agents/installing-agent-clis).
 
 ## 4. Launch your first subshell
 
@@ -35,6 +35,6 @@ The wizard's last screen is a launch form already filled in: the server's own ma
 
 ## 5. Open it from a second device
 
-On a laptop or tablet, browse to the same address from step 1 and sign in — the same live pane, yours to type into. On a phone, open the **Subshell for Mobile** dialog in the sidebar: it offers the addresses this server accepts sign-ins from, with a QR code, and installing to the Home Screen makes it a standalone app with notifications. [Mobile and Tablet](/get-started/mobile) covers the split; [Networking & Addresses](/server/networking) explains what makes an address reachable, including the mesh options under [Server](/server).
+On a laptop or tablet, browse to an address the server accepts sign-ins from — the loopback URL from step 1 is only this machine's own spelling, and the wizard's Network step or Server settings add the LAN or mesh addresses — and sign in: the same live pane, yours to type into. On a phone, open the **Subshell for Mobile** dialog in the sidebar: it offers the addresses this server accepts sign-ins from, with a QR code, and installing to the Home Screen makes it a standalone app with notifications. [Mobile and Tablet](/get-started/mobile) covers the split; [Networking & Addresses](/server/networking) explains what makes an address reachable, including the mesh options under [Server](/server).
 
 Once this works and you want another machine running agents, that is what [Nodes](/nodes) is for.
