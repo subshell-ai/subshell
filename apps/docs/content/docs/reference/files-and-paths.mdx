@@ -45,7 +45,7 @@ Installed by the service verbs, on the control-plane host and on every node:
 | launchd's stdout/stderr file | `~/Library/Logs/subshell-server.log` | `~/Library/Logs/subshell.log` |
 | journald (Linux) | `journalctl --user -u subshell-server.service` | `journalctl --user -u subshell.service` |
 
-The launchd files are where the **service manager** redirects console output; the `logs/` files above are what each product writes itself, and they exist on every platform. The unit/plist bakes in the installing shell's `PATH` (so a Homebrew tmux is still found at boot), the config home as the working directory, and the pane-sparing kill behavior (`KillMode=process` / `AbandonProcessGroup=true`).
+The launchd files are where the **service manager** redirects console output; the `logs/` files above are what each product writes itself, and they exist on every platform. The unit/plist bakes in the installing shell's `PATH` (so a Homebrew tmux is still found at boot) and the pane-sparing kill behavior (`KillMode=process` / `AbandonProcessGroup=true`); the server's own definitions additionally set the config home as the working directory.
 
 An update replaces **the binary the service definition names** — commonly `~/.local/bin/subshell-server` or `~/.local/bin/subshell`, but never by assumption — and keeps the displaced copy beside it as `<binary>.previous` until the new boot settles the transaction.
 

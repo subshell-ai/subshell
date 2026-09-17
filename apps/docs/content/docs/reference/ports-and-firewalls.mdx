@@ -29,6 +29,8 @@ What the control plane reaches for, and the switch each path answers to:
 | The plugin registry (`SUBSHELL_PLUGIN_REGISTRY_URL`; default npm) | Downloading a registry plugin you install, and verifying its hash. | Only when you install from the registry. |
 | A Cloudflare team's JWKS endpoint (`https://<team>/cdn-cgi/access/certs`) | Verifying the Access assertion in front of a published Cloudflare Tunnel. | Only while a Cloudflare Tunnel publish is live. |
 | The vendor network each enabled network plugin drives (Tailscale, Headscale, NetBird, Cloudflare — whatever that vendor's own daemons talk to) | The plugin's `join`/`publish` run those vendor CLIs on this host. | Only while that plugin is joined/published. |
+| The vendor install hosts inside the built-in harness manifests (`claude.ai`, `chatgpt.com`, `opencode.ai`, `pi.dev`, `hermes-agent.nousresearch.com`) | The dashboard's *Install CLI* action runs the selected built-in's own install script as the server's user. | Only when you press Install — and only for built-ins; a registry plugin's install block is metadata, never run. |
+| This platform's package manager (macOS Homebrew; every Linux entry is `sudo`-prefixed and therefore refused before anything runs) | The wizard's *Install tmux* action, same executor. | Only when you press Install; in practice Homebrew only. |
 | Expo (`exp.host`) and each browser-push service named by a stored subscription | Mobile and web push notifications. | Only when devices have subscribed. |
 | Nothing for authentication | Better-auth runs in-process; there is no external identity provider to call. | — |
 

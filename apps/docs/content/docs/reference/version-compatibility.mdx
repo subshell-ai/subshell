@@ -21,14 +21,14 @@ A refused agent's socket is **not closed**. The plane moves it to a held registr
 
 - The node's row goes back to offline and carries the refusal's reason — "needs an update, below floor" or "protocol mismatch" — with the versions it reported.
 - Only the `result` of an `update` the plane sent is accepted from a held socket; every other frame it sends (its heartbeat, its `ready` on a reconnect) is dropped unread.
-- After **ten idle minutes** the plane closes it with the update-required code; the agent logs the reason on its side, then its own backoff reconnects and it is held again — unless the operator pressed Update in the meantime, which is what the ten minutes are for.
+- After **ten idle minutes** the plane closes it with the update-required code; the agent logs the reason and **exits** — a 4406 is terminal. The next dial comes from the service manager's respawn (a bare foreground `run` stays exited), and a still-old agent is held again; the ten minutes exist so pressing Update can land inside them.
 - Rotating or deleting the node's key evicts a held socket too. If a held update's replacement binary is then refused too, the agent rolls itself back to `<binary>.previous` automatically — the refusal is the rollback signal.
 
 An agent nobody just updated is the ordinary "your node is too old" case; the remedy either way is [updating it](/nodes/updating) — from the browser now, or by walking to the machine if the plane cannot reach its own release source.
 
 ## The release manifest
 
-Every published app release carries a `release-manifest.json` asset with five fields: `component` (one of `server`, `node`, `desktop-server`, `desktop-client`), `version`, `nodeProtocol`, `minAgentVersion`, and the commit `sha` it was cut from.
+Every published app release carries a `release-manifest.json` asset with five fields: `component` (one of `server`, `node`, `desktop-server`, `desktop-client`), `version`, `nodeProtocol`, `minAgentVersion`, and `commit`, the commit sha it was cut from.
 
 It exists so a control plane can answer "which node release can *I* offer" without downloading anything: the Updates page offers the newest `node-v*` release whose `nodeProtocol` equals its own, and a release with **no manifest is never offered** — every cut before 2026-09-15 predates it, so the page says "unknown" rather than guessing. Releases are compared by semver, never by date: four components share one repository, and whichever tag was cut most recently is very often not the newest of any one of them.
 

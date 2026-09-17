@@ -72,7 +72,7 @@ Interactive unless you pass `--yes`. It owns five keys in `config.env` — `SERV
 - `--trusted-origins <origin,origin>` sets the extra browser origins; an **empty** value is the only way to clear the list non-interactively.
 - `--yes` answers every question with its default and prints nothing but results.
 
-A key the environment already sets is refused rather than masked — writing it would be a success report for a change the next boot undoes.
+`configure` will write a key the environment already sets — it consults only `config.env`, its flags and your answers. The environment still outranks the file at the next boot, so the write has no effect until the variable goes; the refuse-instead-of-mask guard is the dashboard's Service-page writer, which answers 409 for exactly this reason.
 
 ## status — what would this boot with
 
