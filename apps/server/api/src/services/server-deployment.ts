@@ -191,7 +191,11 @@ export function settingSource(
 const RESTART_UNSUPERVISED_REASON =
   "This server is not running under a service manager; restart it where you started it.";
 
-/** The value THIS process booted with, per key, from the same constants the server runs on. */
+/**
+ * The value THIS process runs with, per key: the boot-time constant for the
+ * four keys really read at boot, and the LIVE registry's operator list for
+ * `TRUSTED_ORIGINS` — which is why that key never asks for a restart.
+ */
 function runningValue(key: DeploymentSettingKey): string {
   switch (key) {
     case "SERVER_PORT":
