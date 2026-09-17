@@ -3,14 +3,36 @@ title: Mobile and Tablet
 description: Use Subshell on a phone or tablet — the adaptive web shell, Add to Home Screen, and the native companion app.
 ---
 
-This page will cover running Subshell on a phone or tablet: opening the same URL your desktop uses (which means getting origins and `APP_BASE_URL` right first — the networking page owns that), the mobile web shell with its drawer navigation, tab-style workspaces and terminal key bar, Add to Home Screen for a chrome-free app on iOS, and the native Subshell for Mobile companion for what a web page cannot do — push notifications, badge counts, and lock-screen actions with a credential kept in the Keychain. It will be honest about the split: the browser is the terminal; the companion is the bell.
+The phone is one way in, not the point — the same instance you watch at the desk answers from anywhere. On a phone or tablet you have three things, in order of how most people use them: the same web UI, adapted to the screen; Add to Home Screen, which makes it a standalone app with notifications; and the native companion, which is a builder's project, not a store download.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Same URL, adapted shell
 
-## Sources
+Browse to the address your desktop uses and sign in — the web UI reshapes itself: the sidebar becomes a drawer, a workspace's grid becomes **tabs** (one subshell at a time, finger-sized panes), and the terminal grows a key bar, because a touch keyboard has no way to send `Esc`, `Ctrl-C`, `Tab`, or arrow keys: the bar carries `Esc`, `^C`, `Tab` and `⇧Tab`, `⏎` and `⇧⏎` (newline), `/`, the four arrows, scroll-to-top/bottom, and an image-attach button. Everything else is the same pane you type into at the desk.
 
-- `README.md` §Mobile-ready — the phone shell's features and the "no service worker" rule
-- `docs/superpowers/specs/2026-08-30-mobile-support-design.md` — the responsive web shell's design
-- `docs/superpowers/specs/2026-08-31-mobile-native-app-design.md` — why the companion exists and what only it does
-- `apps/client/mobile/AGENTS.md` — the companion app's auth, layout and push behaviour as built
+Getting the URL right is the networking page's job, not this one: a browser may sign in only from an address the instance knows, so a phone on your Wi-Fi or tailnet needs that address in the trusted-origin list — the `403 "Invalid origin"` failure is diagnosed in [Networking & Addresses](/server/networking), and the mesh networks under [Network plugins](/server/network-plugins) are the durable fix.
+
+## Add to Home Screen — the install everyone should do
+
+In the sidebar, the **Subshell for Mobile** dialog picks up from there: it lists every address this server accepts sign-ins from (its own, any you added under Settings → Service, every network it has joined), flags the ones that are "this device only", and puts a QR code beside a reachable one. Then the install is one gesture, per platform:
+
+| Platform | Steps |
+| --- | --- |
+| iPhone / iPad | Open the address in **Safari** (Chrome and Firefox on iOS can't install it) → Share → **Add to Home Screen** → Add |
+| Android | Open the address in Chrome → ⋮ → **Add to Home screen** → Install app |
+| Desktop browser | Chrome/Edge: the install icon in the address bar; Firefox and Safari on macOS offer no install — use a bookmark or pin the tab |
+
+The installed app opens fullscreen under its own icon, and on Apple devices it is how notifications arrive: iOS and iPadOS deliver web push only to an installed web app, never to a browser tab. (Desktop and Android browsers can push to a plain tab; the install is about the fullscreen shell there.) One caveat with teeth: notifications need a **secure** (https) address. Plain `http://192.168.x.x:3080` still installs to the Home Screen, but iOS will never deliver a notification to it; publishing the server behind a network plugin's https address fixes both at once. [Notifications](/use/notifications) covers the bell, the master switch, and which events ring.
+
+## The native companion
+
+There is also a real React Native app in the repository, built with Expo — and to be honest about what that means today: it is a from-source project. The release pipeline publishes the server, the node agent, and the two desktop apps; nothing mobile ships through it, and the app's own docs say push cannot even be end-to-end tested without your own EAS project and Firebase credentials. If you are evaluating Subshell on a phone, the Home Screen app above is the supported path.
+
+What the companion adds, when built, is OS-level presence: push delivered with no browser in the chain, an app-icon badge, lock-screen actions, and a session credential kept in the Keychain — optionally gated behind Face ID — rather than in browser storage. It authenticates as the same kind of user your browser does — you type your server's address and sign in — and it shows the subshell list, the launch form, and a live xterm pane, with the same "who else is watching" device strip as the web. It is not a second web app and the app's docs forbid it from becoming one; it exists for those OS-level capabilities, no more.
+
+## See also
+
+- [Networking & Addresses](/server/networking) — bind, base URL, trusted origins, the 403 by name
+- [Network plugins](/server/network-plugins) — Tailscale, NetBird, Headscale, Cloudflare Tunnel
+- [Notifications](/use/notifications) — the bell, delivery, and the owner-only rule
+- [Devices](/use/devices) — what the device strip is and why the smallest screen matters
+- [Security model](/about/security-model) — [the threat model on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) for the authority

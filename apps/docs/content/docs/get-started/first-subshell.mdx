@@ -3,13 +3,33 @@ title: Your First Subshell
 description: Create the admin account, get an agent CLI detected, and launch a subshell from a folder.
 ---
 
-This page will walk the browser-side half of day one: creating the admin account in the setup wizard, adding or detecting an agent CLI (the wizard's last screen pre-fills the agent it found, with Terminal as the fallback that needs nothing installed), choosing a working folder in the in-app file browser, and launching. It will show what the terminal page is — a live tmux pane you can detach from and reattach to — and end with the terminate button and what it does. A launch needs only an agent and a folder: no preset exists on a fresh instance, and none is needed.
+The [install](/get-started/install-server) ended with an address: `http://localhost:3080/setup`. Everything from there happens in the browser. A launch needs only an agent and a folder — no preset exists on a fresh instance, and none is needed.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## The wizard: four screens
 
-## Sources
+**Create Your Account.** The first account on an instance becomes its admin, and the setup endpoints are public only until it exists — on a shared network, open the URL before anyone else does. Sign-up is closed by default after that; an admin reopens it later under [Registration & enrollment](/server/registration-enrollment) if they want more people.
 
-- `docs/overview.md` §Key flows — the wizard sequence and the create-subshell steps verbatim
-- `README.md` §Dev — the first-visit setup-assistant description ("a launch needs only an agent and a folder")
-- `docs/superpowers/specs/2026-09-10-onboarding-to-first-subshell-design.md` — the wizard's design, including the agent pre-fill rule
+**Connect a Network.** Optional, and skipping costs nothing: this screen offers mesh networks (Tailscale, Headscale, NetBird, Cloudflare Tunnel) so other devices can reach this server on an address that stays private or gets published behind an Access gate. Every act on it is repeatable at Settings → Networking — see [Network plugins](/server/network-plugins).
+
+**Add an Agent.** One question, answered live: what is on this machine? A **tmux** row is pinned above the list because every local pane launches through it — nothing launches without one. If it is missing, the row installs it where the command needs no password (Homebrew on macOS); where `sudo` would be needed, the server has no terminal to type the password into, so you get the command to run yourself. Below it, one row per supported agent CLI — Claude Code, Codex, OpenCode, Hermes Agent, pi — each with a detected / not-found chip, and not-found rows carry an **Install** button that runs the vendor's own install command on this machine (the exact command is spelled out under the button before you press it). If nothing is installed yet, that is fine: a plain **Terminal** pane is always available with nothing to install, and you can add agents later under Settings.
+
+**Start Your First Subshell.** The last screen embeds the launch form, already filled in: the server's own machine (its node row is named "Server" by default), an agent that was detected, and a starting directory. Change any of it or just press **Start** — you leave the wizard inside a running subshell. Left the wizard early? Reopen `/setup` and it resumes at the step you'd reached.
+
+## Launching from the app any other time
+
+The same form is the dashboard's create-subshell dialog. Four fields: **agent**, optional **preset** (a fresh instance has none — the wizard drops the row entirely, and a presetless launch simply starts the agent bare), **node** (defaults to the server's own machine until you [enroll others](/nodes)), and **working directory** — an in-app browser of the machine the subshell will start on, so launching on a remote node lets you pick a folder there. Nothing is remembered between launches — the form starts fresh every time, and that wizard pre-fill is a first-run convenience. Launching the same shape daily is what [presets](/use/presets) are for.
+
+## The terminal page
+
+What opens is a live terminal into the pane — not a screenshot, not a log tail. You type, the agent responds; resize the window and the pane resizes. Close the tab and the agent keeps working: the pane is a tmux session on the machine running it, not a child of your browser, and reopening replays you back into the live screen. That's the whole point of the product — start something before dinner, finish it from the couch. [Subshells](/use/subshells) covers statuses and restarts; [Devices](/use/devices) covers who else is watching the same pane.
+
+## When it's done: Terminate
+
+Terminate kills the pane's tmux session and the harness with it, revokes that subshell's API token, and leaves the pane's log on disk — the row stays listed as terminated, and restarting it builds a fresh tmux session (a new conversation unless your agent supports resuming one). Delete removes the row too. Both are yours alone as owner; [Sharing](/use/sharing) explains what `edit` grants do and do not include.
+
+## See also
+
+- [Agents](/agents) — what Subshell can drive and how each one plugs in
+- [Installing agent CLIs](/agents/installing-agent-clis) — per-agent install and auth notes
+- [Subshells](/use/subshells) — the day-to-day lifecycle page
+- [Security model](/about/security-model) — what the trusted-network posture does and doesn't defend
