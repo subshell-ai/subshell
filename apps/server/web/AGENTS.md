@@ -449,15 +449,20 @@ Connect button nothing on screen could satisfy.
 **The page itself is two cards and a form, since 2026-09-17.** The
 `AddressesCard` moved in from `/settings/service` — where this server listens
 and which addresses a browser may use is the same question this page answers,
-asked of config.env — so the page now owns its 60 s `useServerDeployment`
-poll's second consumer (the card's save writes the fresh view into that cache
-itself, which is why the cadence did not move with the card) and mounts
+asked of config.env — so its 60 s `useServerDeployment` poll now feeds the
+card alone (the card's save writes the fresh view into that cache itself,
+which is why the cadence did not move with the card; the "This server's
+address" summary line the read used to feed is GONE — the card states the
+value in its field, saved-vs-running included), and the page mounts
 `useServerRestart` + `useAdminStatus` for its restart half. Below it sits ONE
 grouped **Networks** card holding the installed plugins as collapsed rows —
 `NetworkRow`'s `full` prop became `body="compact"|"full"` because the group
 drew the distinction the per-network card frame used to: two surfaces, one
-flat row frame, different bodies. The card renders only when something is
-installed; `AddNetworkCard` owns the nothing-yet case.
+flat row frame, different bodies. The card is UNCONDITIONAL — a failed
+deployment read renders it with the failure and a Retry inside rather than
+losing the page's main form, as it first did (review, 2026-09-17) — and an
+answered-empty networks list answers in place ("No networks installed yet");
+`AddNetworkCard` below carries the install affordance.
 
 Three rules the card keeps, each with a defect behind it:
 

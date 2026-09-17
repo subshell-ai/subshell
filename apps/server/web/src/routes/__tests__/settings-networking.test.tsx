@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { deploymentView, setting } from "@/components/__tests__/helpers/deployment-view";
+import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { awaitingLogin, Route } from "@/routes/settings_.networking";
 import type { NetworkRow, NetworkStatus } from "@/types/network";
@@ -25,6 +25,8 @@ interface PageFixture {
   plugins?: unknown[];
   /** Fail GET /api/network with this status */
   failStatus?: number;
+  /** Fail GET /api/admin/server — the Addresses card's read */
+  failDeployment?: boolean;
   /** Override GET /api/settings/public's appBaseUrl (the RUNNING base URL) */
   appBaseUrl?: string;
   /** Override the deployment view — its APP_BASE_URL entry is the SAVED one */
@@ -77,7 +79,12 @@ function mockServer(fx: PageFixture) {
     // The page mounts `useServerDeployment` for the saved base URL. A `{}`
     // for it is survivable (the page reads `settings?.`), but the pending-
     // half tests need the real shape, so it answers properly by default.
-    if (url.pathname === "/api/admin/server") return json(fx.deployment ?? deploymentView());
+    if (url.pathname === "/api/admin/server") {
+      if (fx.failDeployment) {
+        return Promise.resolve(new Response(JSON.stringify({ message: "down" }), { status: 500 }));
+      }
+      return json(fx.deployment ?? deploymentView());
+    }
     if (url.pathname === "/api/network") {
       if (fx.failStatus) {
         return Promise.resolve(new Response(JSON.stringify({ message: "nope" }), { status: fx.failStatus }));
@@ -150,78 +157,22 @@ describe("the networking page", () => {
     }
   });
 
-  it("names the running base URL and the network whose address it is", async () => {
-    // Every card's publish can hand the base URL an address it might name,
-    // so the page that lists the cards prints the answer and names which
-    // network's address list contains it — stated where it can be seen.
-    const tailnet = "http://box.tail1234.ts.net:3080";
-    const m = mockServer({
-      admin: true,
-      appBaseUrl: tailnet,
-      // Saved EQUALS running — the no-pending case. Left at the helper's
-      // localhost default it would disagree with the running tailnet URL and
-      // correctly render the pending clause, failing the wrong assertion.
-      deployment: deploymentView({ APP_BASE_URL: setting(tailnet) }),
-      networks: [
-        network({
-          id: "tailscale",
-          name: "Tailscale",
-          status: {
-            state: "published",
-            addresses: [{ url: tailnet, scheme: "http", label: "MagicDNS", secureContext: false }],
-            hints: [],
-          },
-        }),
-      ],
-    });
-    try {
-      renderPage();
-      expect(await screen.findByText(/This server's address/)).toBeTruthy();
-      expect(screen.getByText(/— over Tailscale/)).toBeTruthy();
-      // Nothing saved-but-not-running, so no pending clause.
-      expect(screen.queryByText(/Saved for the next restart/)).toBeNull();
-    } finally {
-      m.restore();
-    }
-  });
-
-  it("prints a saved base URL as pending the restart, not as the running one", async () => {
-    // The constants are read at boot, so a fresh config write is SAVED, not
-    // live — whichever page wrote it.
-    // Showing it as the address would promise sign-in works over NetBird when
-    // it does not yet; the line names the running one and flags the pending.
+  it("states the saved-vs-running base URL on the card, not on a page line", async () => {
+    // The 'This server's address' line is gone (2026-09-17): the base URL's
+    // value, and the fact a fresh write is SAVED rather than running, are
+    // the Addresses card's own field and warning line.
     const running = "http://box.tail1234.ts.net:3080";
     const pending = "http://nb.disaresta.internal:3080";
     const m = mockServer({
       admin: true,
       appBaseUrl: running,
       deployment: deploymentView({ APP_BASE_URL: { saved: pending, source: "config.env", running } }),
-      networks: [
-        network({
-          id: "tailscale",
-          name: "Tailscale",
-          status: {
-            state: "published",
-            addresses: [{ url: running, scheme: "http", label: "MagicDNS", secureContext: false }],
-            hints: [],
-          },
-        }),
-        network({
-          id: "netbird",
-          name: "NetBird",
-          status: {
-            state: "joined",
-            addresses: [{ url: pending, scheme: "http", label: "NetBird IP", secureContext: false }],
-            hints: [],
-          },
-        }),
-      ],
     });
     try {
       renderPage();
-      expect(await screen.findByText(/This server's address/)).toBeTruthy();
-      expect(screen.getByText(/Saved for the next restart/)).toBeTruthy();
-      expect(screen.getByText(/— over NetBird/)).toBeTruthy();
+      expect(await screen.findByText("Addresses")).toBeTruthy();
+      expect(screen.queryByText(/This server's address/)).toBeNull();
+      expect(screen.getByText(/Saved .* · running .*/)).toBeTruthy();
     } finally {
       m.restore();
     }
@@ -242,12 +193,36 @@ describe("the networking page", () => {
     }
   });
 
-  it("shows no Networks card when nothing is installed — Add a network owns that case", async () => {
+  it("says so inside the Networks card when nothing is installed", async () => {
     const m = mockServer({ admin: true, plugins: [] });
     try {
       renderPage();
       await screen.findByText("Addresses");
-      expect(screen.queryByText("Networks")).toBeNull();
+      // The card is unconditional now; the empty list answers in place.
+      expect(screen.getByText("Networks")).toBeTruthy();
+      expect(screen.getByText(/No networks installed yet/)).toBeTruthy();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("keeps the Addresses card on screen when the deployment read fails", async () => {
+    // The card used to be gated on `deployment.data`, so a failed read hid
+    // the page's main form AND the failure statement the Service page used
+    // to carry. Both halves survive: the card renders, its error names
+    // itself, and a Retry answers the case the 60 s poll cannot.
+    const m = mockServer({ admin: true, failDeployment: true });
+    try {
+      renderPage();
+      // The failure statement + Retry belong to the Networks card; the form
+      // it used to gate cannot render without the read, but nothing else
+      // disappears — the page is not blank.
+      expect(await screen.findByText("The server addresses could not be loaded.")).toBeTruthy();
+      expect(screen.queryByText("Addresses")).toBeNull();
+      expect(screen.queryByLabelText("Port", { exact: true })).toBeNull();
+      expect(screen.getByText("Networks")).toBeTruthy();
+      // The networks read succeeded, so no ErrorBanner: this Retry is the card's.
+      expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
     } finally {
       m.restore();
     }

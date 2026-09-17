@@ -58,14 +58,22 @@ test.describe("server networking page", () => {
     const origins = page.getByLabel("Other addresses browsers will use", { exact: true });
     await expect(origins).not.toHaveAttribute("readonly", "");
     await expect(origins).toBeEditable();
+
+    // The card is FULLY mounted on this page — the Save button is the proof
+    // it has its mutation, not just its inputs. (On this hand-started stack
+    // the button reads "Save", never "Save and restart": `restart.available`
+    // is false, which is the gated label working, and the label itself
+    // belongs to the mocked unit test.)
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
   });
 
-  test("prints this server's address line above the fields that write it", async ({ page }) => {
-    // The line and the Addresses card are two views of one value, and the
-    // pair is the page's whole story: what the server runs as, and what a
-    // save would change after a restart.
+  test("states the addresses in the cards, with no page-level summary line", async ({ page }) => {
+    // The 'This server's address' line was removed on 2026-09-17 — the card
+    // states the value in its field, so the line only restated it. Pinning
+    // the absence, because the value and the line are easy to want back.
     await page.goto("/settings/networking");
-    await expect(page.getByText(/This server's address/)).toBeVisible();
     await expect(page.getByText("Addresses", { exact: true })).toBeVisible();
+    await expect(page.getByText(/This server's address/)).toHaveCount(0);
+    await expect(page.getByText("Networks", { exact: true })).toBeVisible();
   });
 });

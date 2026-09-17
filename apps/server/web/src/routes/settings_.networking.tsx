@@ -12,7 +12,6 @@ import { NETWORK_MUTATION_KEY, NETWORK_QUERY_KEY, useNetwork } from "@/hooks/use
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useServerDeployment } from "@/hooks/use-server-deployment";
 import { useServerRestart } from "@/hooks/use-server-restart";
-import { baseUrlLine } from "@/lib/network-base-url";
 import type { NetworkList, NetworkRow } from "@/types/network";
 
 export const Route = createFileRoute("/settings_/networking")({ component: NetworkingPage });
@@ -84,30 +83,27 @@ function NetworkingPage() {
     isAdmin,
     acting || awaitingLogin(cached?.networks) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
   );
-  // Two consumers: the 'what am I addressed as' line (the base URL's SAVED
-  // value) and the Addresses card, which moved here from `/settings/service`
-  // on 2026-09-17 — where this server listens and which addresses a browser
-  // may use is the same question the page answers, asked of config.env.
-  // 60 s, not this hook's 5 s default, for the `/settings/status` Locations
-  // card's reason: every read of `/api/admin/server` runs the service-manager
-  // and port probes synchronously. The card writing config.env from here does
-  // not change the cadence: a save writes the fresh view into the cache
-  // itself, so the poll only ever catches up with an edit made over ssh.
+  // One consumer now that the Addresses card moved here from
+  // `/settings/service` on 2026-09-17: where this server listens and which
+  // addresses a browser may use is the same question the page answers, asked
+  // of config.env. 60 s, not this hook's 5 s default, for the
+  // `/settings/status` Locations card's reason: every read of
+  // `/api/admin/server` runs the service-manager and port probes
+  // synchronously. The card writing config.env from here does not change the
+  // cadence: a save writes the fresh view into the cache itself, so the poll
+  // only ever catches up with an edit made over ssh. (The 'what am I
+  // addressed as' line this read used to feed is gone — the card states the
+  // value, its saved-vs-running half included.)
   const deployment = useServerDeployment(isAdmin, 60_000);
-  // The Addresses card's restart half: press, 202, wait for the new boot.
-  // `useAdminStatus` supplies the `bootedAt` baseline the waiter compares
-  // against — the same reason `/settings/service` mounts it; without it the
-  // first answer after the press would count as "back" whatever it was.
+  // The restart press + wait the Addresses card offers: press, 202, wait
+  // for the new boot. `useAdminStatus` supplies the `bootedAt` baseline the
+  // waiter compares against — mounted here for the same reason
+  // `/settings/service` mounts it for its own restart cards (those did NOT
+  // move, so this is a second mount of one admin read; the shared cache and
+  // per-observer intervals are what make that cheap). Without the baseline
+  // the first answer after the press would count as "back" whatever it was.
   const restart = useServerRestart();
   useAdminStatus(isAdmin);
-  // `settings?.` because a server older than the view sends `{}` where the
-  // type says a full record — this page must degrade to no pending half, not
-  // to a crash, exactly the rule `use-public-settings` follows.
-  const base = baseUrlLine(
-    publicSettings?.appBaseUrl,
-    deployment.data?.settings?.APP_BASE_URL?.saved,
-    data?.networks ?? [],
-  );
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
@@ -131,30 +127,16 @@ function NetworkingPage() {
             />
           )}
           {isLoading && !data && <p className="text-muted-foreground text-sm">Loading…</p>}
-          {/* Where this server says it lives, and which network's address
-              that is — printed once, above the fields that write it. A saved
-              change names itself as pending rather than pretending the
-              boot-time constant has moved: `APP_BASE_URL` is still read at
-              boot, even though the allowlist no longer is. */}
-          {base && (
-            <p className="text-detail text-muted-foreground">
-              This server's address: <span className="font-mono">{base.running}</span>
-              {base.runningOn ? ` — over ${base.runningOn}` : ""}.
-              {base.pending !== null && (
-                <>
-                  {" "}
-                  Saved for the next restart: <span className="font-mono">{base.pending}</span>
-                  {base.pendingOn ? ` — over ${base.pendingOn}` : ""}.
-                </>
-              )}
-            </p>
-          )}
           {/* Where the server listens and which addresses a browser may use,
               moved from `/settings/service` on 2026-09-17: this page's whole
               subject is reaching this server, and the base URL and origin
               list are that subject's config.env half — the Networks card
               below is the live half. It leads because you join a network to
-              reach an address, not the other way round. */}
+              reach an address, not the other way round. The one-line "This
+              server's address" summary that used to sit above it is GONE:
+              the card states the value in its field, the saved-vs-running
+              line beside it, and each network's own addresses inside its
+              expanded card — the line restated all three. */}
           {deployment.data && <AddressesCard view={deployment.data} restart={restart} />}
           {/* One card grouping the networks, so the page reads as two
               sections — the addresses this server has, and the networks that
@@ -163,20 +145,39 @@ function NetworkingPage() {
               opens the card body in place; the difference is only what
               expands — here the whole card, fields and supervisor detail
               included. */}
-          {data && data.networks.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Networks</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>Networks</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {/* Rendered on the unanswered read too: the page's error
+                  statement lives inside this card now, and a card that
+                  carried a failure on the Service page but loses it here
+                  would move the form and drop the honesty. */}
+              {deployment.error && (
+                <div className="mb-4 space-y-2">
+                  <p className="text-destructive text-detail">The server addresses could not be loaded.</p>
+                  <Button variant="outline" size="sm" onClick={() => void deployment.refetch()}>
+                    Retry
+                  </Button>
+                </div>
+              )}
+              {data && data.networks.length > 0 ? (
                 <ul>
                   {data.networks.map((row) => (
                     <NetworkRowItem key={row.id} row={row} body="full" />
                   ))}
                 </ul>
-              </CardContent>
-            </Card>
-          )}
+              ) : data ? (
+                // Only once the networks read ANSWERED: while it is in
+                // flight the card waits rather than declaring "nothing
+                // installed" about a list that may be about to arrive.
+                <p className="text-detail text-muted-foreground">
+                  No networks installed yet — add one below to reach this server over a VPN or tunnel.
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
           <AddNetworkCard />
         </>
       ) : (
