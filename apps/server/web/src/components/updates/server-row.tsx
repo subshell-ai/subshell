@@ -115,7 +115,7 @@ export function ServerRow({
   return (
     <div className="contents">
       <div className="min-w-0">
-        <p className="truncate font-strong">Server</p>
+        <p className="truncate font-strong text-label">Server</p>
         <MobilePair running={view.current} newest={view.latest?.version ?? DASH} />
       </div>
       <VersionCell value={view.current} />

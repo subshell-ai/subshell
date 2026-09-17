@@ -48,7 +48,7 @@ export function DesktopRows({ desktop }: { desktop: UpdatesView["desktop"] }) {
           <div key={app} className="contents">
             {index > 0 && <RowRule />}
             <div className="min-w-0">
-              <p className="truncate font-strong">{name}</p>
+              <p className="truncate font-strong text-label">{name}</p>
               <MobilePair running={running} newest={newest} />
             </div>
             <VersionCell value={running} />

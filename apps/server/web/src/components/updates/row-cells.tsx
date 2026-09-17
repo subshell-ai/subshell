@@ -12,8 +12,11 @@ export const DASH = "—";
 
 /**
  * One version cell (Running or Newest). Hidden below `sm`, where the pair
- * folds into the name cell instead — the same two-track collapse
- * `installed-plugins-card.tsx` gives its badge and switch.
+ * refolds into the name cell as `MobilePair`. This DIVERGES from
+ * `installed-plugins-card.tsx` on purpose: that card's cells WRAP to a second
+ * line below `sm` and still show themselves, while a version is one half of a
+ * comparison — "0.7.2" alone on a phone answers nothing, so both columns hide
+ * and the row shows `0.7.2 → 0.7.2` as one line instead.
  */
 export function VersionCell({ value }: { value: string }) {
   return <div className="hidden font-mono text-detail text-muted-foreground sm:block">{value}</div>;

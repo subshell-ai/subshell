@@ -75,6 +75,10 @@ describe("inside Subshell Server", () => {
     // The other app is a release a person can fetch elsewhere, but this page
     // cannot act on it and links are the browser's answer, not the app's.
     expect(screen.queryByRole("link")).toBeNull();
+    // Exactly two "—" cells, both the Client row's: its Running cell (this
+    // window cannot know the other app's version) and its act cell — a row
+    // this surface can neither act on nor link out of says so with a dash.
+    expect(screen.getAllByText("—", { exact: true }).length).toBe(2);
     // Its own Running cell is the app version, which the old sentence carried.
     expect(screen.getByText("0.6.0", { exact: true })).toBeTruthy();
   });

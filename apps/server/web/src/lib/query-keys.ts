@@ -52,8 +52,9 @@ export const SERVER_LOGS_QUERY_KEY = ["server-logs"] as const;
 
 /**
  * Everything the Updates page renders (`GET /api/admin/updates`); read via
- * `useUpdates`. ONE key for all three cards, because it is one read — splitting
- * it would leave the cards disagreeing about which release list they saw.
+ * `useUpdates`. ONE key for the whole Components table, because it is one
+ * read — splitting it would leave the rows disagreeing about which release
+ * list they saw.
  */
 export const UPDATES_QUERY_KEY = ["updates"] as const;
 
