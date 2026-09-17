@@ -951,6 +951,26 @@
     opacity: 0.55;
   }
 
+  /* The dashboard address at the top of the Set Up screen: name left, value
+     right — the checklist row's form, because a URL is a value. It updates
+     while the port field is typed in, so it must never wrap onto a second
+     line mid-edit; `overflow-wrap` breaks the value inside its own column
+     instead of moving it under the label. */
+  .dashboard-url {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0 16px;
+    margin-bottom: 16px;
+  }
+  .dashboard-url .detail {
+    color: var(--muted-foreground);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
   .checklist .detail {
     color: var(--muted-foreground);
     font-size: var(--text-detail);

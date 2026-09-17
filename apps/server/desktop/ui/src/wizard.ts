@@ -27,6 +27,7 @@ import { buildTmuxWarning, type TmuxWarning } from "./assistant/tmux-warning";
 import {
   CONFIG_FIELDS,
   configPayload,
+  dashboardUrl,
   derivedBaseUrl,
   type ExplicitMap,
   effectiveForm,
@@ -549,6 +550,64 @@ function chosenPort(p: Probe): string {
   return (form.port || effectiveForm(p.status?.settings).port || "").trim() || "3080";
 }
 
+/** The URL row's one handle, shared by the render and the input mirror. */
+const DASHBOARD_URL_ID = "dashboard-url";
+
+/**
+ * What the dashboard row says right now — the address a save would leave the
+ * server answering on, in the same three steps `configure` takes:
+ *
+ * 1. the baseUrl FIELD, once the form exists and holds something — it is what
+ *    the save sends;
+ * 2. else a STORED base URL — but only one somebody chose. A `default`-sourced
+ *    `APP_BASE_URL` is the CLI's own derivation of the port, and letting its
+ *    frozen `"…:3080"` outrank the port would recreate the exact stale-port
+ *    display `configPayload`'s `explicit` map exists to prevent;
+ * 3. else the derivation from `chosenPort`, which is the port field, else the
+ *    stored port, else 3080.
+ *
+ * (A cleared field over a *chosen* stored value shows the stored one, and is
+ * honest: `baseUrl` is not the emptyable flag, so that save omits it and the
+ * disk value survives.)
+ */
+function dashboardUrlValue(p: Probe): string {
+  const typed = seeded ? form.baseUrl : "";
+  const setting = p.status?.settings?.APP_BASE_URL;
+  const stored = setting && setting.source !== "default" ? (setting.value ?? "") : "";
+  return dashboardUrl(typed || stored, chosenPort(p));
+}
+
+/**
+ * The address the dashboard will run at — the Set Up screen's first row.
+ *
+ * The plan rows this screen once carried were deleted because the checklist
+ * said them again (see {@link supervisionGroup}); this one came back (the
+ * operator's call, 2026-09-17) because it is the different half of what was
+ * deleted: not a promise of what setup will DO, but the address the reader
+ * will dial afterwards — and the one fact on this screen the Customize link
+ * below actually changes. It wears the checklist row's shape (label left,
+ * value right) because a URL is a value.
+ */
+function dashboardLine(p: Probe): HTMLElement {
+  const value = text("span", dashboardUrlValue(p), "detail");
+  value.id = DASHBOARD_URL_ID;
+  const row = document.createElement("div");
+  row.className = "dashboard-url";
+  row.append(text("span", "Dashboard URL", "label"), value);
+  return row;
+}
+
+/**
+ * Re-text the row in place. The port and base-URL fields never re-render while
+ * a hand is in them — `render()` rebuilds `#content` and would take the cursor
+ * out mid-keystroke — so the row follows the same rule the baseUrl mirror
+ * already follows: update the one element, leave the typing alone.
+ */
+function syncDashboardUrl(p: Probe): void {
+  const node = document.getElementById(DASHBOARD_URL_ID);
+  if (node) node.textContent = dashboardUrlValue(p);
+}
+
 /**
  * Whether something already holds the port this screen would bind, or `null`
  * for "free — or not measured yet".
@@ -644,6 +703,7 @@ function renderSetup(p: Probe): void {
   }
   setFrame("none", SETUP_TITLE, `Choose how the server runs on ${here()}.`);
   const content = el("content");
+  content.append(dashboardLine(p));
   const conflict = portConflict(p);
   // Above the question, not beside the button: it is the reason the screen
   // cannot be completed, and a reader who starts at the top should meet it
@@ -684,12 +744,16 @@ function renderSetup(p: Probe): void {
  *
  * **It used to sit under a plan**: two rows promising "Install the server →
  * ~/.local/bin/subshell-server" and "Open your dashboard → http://…". Both
- * are gone, and nothing replaced them, because they were already said twice.
- * `setupRows` feeds the progress checklist on the VERY NEXT screen, which
- * names each act with the same detail as it happens; Settings → Service holds
- * the same facts permanently afterwards. Promising them beforehand made a
- * screen whose one real question — who runs this server — read as a footnote
- * under a list of things the reader could not act on.
+ * were deleted, because they were already said twice — `setupRows` feeds the
+ * progress checklist on the VERY NEXT screen, which names each act with the
+ * same detail as it happens. Promising them beforehand made a screen whose one
+ * real question — who runs this server — read as a footnote under a list of
+ * things the reader could not act on. The install row stays deleted for that
+ * reason. The address came back (operator's call, 2026-09-17) as
+ * {@link dashboardLine}, which is the different half: not a promise of what
+ * setup will do, but the address the reader dials afterwards — and the one
+ * fact on this screen the Customize link below actually changes, moving while
+ * they type it.
  *
  * `apps/server/web`'s supervision card is the shape this follows; see the
  * radio/login split there and in `lib/supervision.ts`.
@@ -1510,9 +1574,12 @@ function addressForm(p: Probe): HTMLElement {
         // would keep naming the old conflict while they looked at the fix.
         checkPort(chosenPort(p));
       }
-      // Nothing outside the form mirrors the port any more: the row that read
-      // "Open your dashboard → http://…" is gone, and the baseUrl field above
-      // is updated in place. Re-rendering here would only interrupt typing.
+      // Two things mirror the port as it is typed: the baseUrl field,
+      // updated in place above, and the dashboard row at the top of the
+      // screen — neither may force a re-render, which would take the cursor
+      // out of the field mid-keystroke. The next poll's render picks the
+      // values up from `form` regardless.
+      if (field.name === "port" || field.name === "baseUrl") syncDashboardUrl(p);
     });
     cell.append(label, input);
     if (field.hint) cell.append(text("p", field.hint, "hint"));

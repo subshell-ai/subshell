@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
   CONFIG_FIELDS,
   configPayload,
+  dashboardUrl,
   derivedBaseUrl,
   effectiveForm,
   explicitFields,
@@ -92,6 +93,23 @@ describe("derivedBaseUrl", () => {
 
   test("falls back to the default port for an empty field mid-edit", () => {
     expect(derivedBaseUrl("")).toBe("http://localhost:3080");
+  });
+});
+
+describe("dashboardUrl", () => {
+  test("follows the port while no base URL is chosen", () => {
+    // The Set Up screen's URL row must move with the port field, so the pure
+    // half of it has to be derivation and nothing else.
+    expect(dashboardUrl("", "")).toBe("http://localhost:3080");
+    expect(dashboardUrl("", "4000")).toBe("http://localhost:4000");
+    expect(dashboardUrl("   ", " 9000 ")).toBe("http://localhost:9000");
+  });
+
+  test("a chosen base URL outranks the port, because that is what the save does", () => {
+    // The row names where the dashboard ANSWERS, and `APP_BASE_URL` decides
+    // that once it exists — the port only moves the dashboard when nobody has
+    // named an address.
+    expect(dashboardUrl("https://subshell.example.com", "4000")).toBe("https://subshell.example.com");
   });
 });
 
