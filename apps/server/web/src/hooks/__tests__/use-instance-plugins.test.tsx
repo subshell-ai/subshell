@@ -12,13 +12,17 @@ import { usePresets } from "@/hooks/use-presets";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 
 /**
- * The coupling this pins: availability became the instance STORE (spec
+ * The TWO couplings this pins. Availability became the instance STORE (spec
  * 2026-09-13 amendment), so `GET /api/presets` filters on installed ∧ enabled
- * ∧ ¬broken. Every plugin mutation therefore changes what that list answers —
+ * ∧ ¬broken: every plugin mutation changes what that list answers —
  * including the two that touch no preset row at all — and a mounted /presets
- * page or an open launch dialog is stale the moment one returns.
+ * page or an open launch dialog is stale the moment one returns. And the
+ * trusted-origins registry is LIVE (spec 2026-09-16): enabling or disabling a
+ * network plugin moves its addresses onto or off the allowlist, so the
+ * network list and the public settings the mobile dialog reads must refetch
+ * on the very same mutations.
  *
- * It is asserted as a REFETCH on the wire rather than as a call to
+ * Both are asserted as a REFETCH on the wire rather than as a call to
  * `invalidateQueries`, so a hook that stops refreshing cannot pass by
  * invalidating some other key.
  */
@@ -63,7 +67,7 @@ function renderWithPresets<T>(useMutationHook: () => T, wrapper: ReturnType<type
 
 afterEach(cleanup);
 
-describe("instance plugin mutations refresh the preset list", () => {
+describe("instance plugin mutations refresh the preset list and the network/allowlist surfaces", () => {
   it("enabling/disabling a plugin refetches presets — no row changes, but the LIST does", async () => {
     const { wrapper } = makeWrapper();
     const { calls, restore } = mockFetch({ "GET /api/presets": () => json([]) });

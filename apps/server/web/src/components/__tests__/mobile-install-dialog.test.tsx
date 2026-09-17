@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { setFetchRouter } from "@/test-setup";
 
@@ -65,7 +65,18 @@ function renderDialog(options: {
   return { ...view, calls };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  // The dialog refetches public settings on open and the assertions read the
+  // CACHED payload while that promise is still in flight; react-query's
+  // notify lands on a scheduled tick, and unmounting with it pending lets it
+  // fire outside an acting scope. Draining a few turns INSIDE act() before
+  // cleanup is the settle. (The positioner's own update is settled at its
+  // source — where the Select is opened.)
+  await act(async () => {
+    for (let tick = 0; tick < 3; tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  });
   cleanup();
   const nav = globalThis.navigator as unknown as Record<string, unknown>;
   if (previousUserAgent) Object.defineProperty(nav, "userAgent", previousUserAgent);
@@ -105,7 +116,7 @@ describe("MobileInstallDialog", () => {
     expect(screen.queryByRole("button", { name: /copy address/i })).toBeNull();
   });
 
-  it("keeps every row selectable — a loopback-only instance can still be operated", () => {
+  it("keeps every row selectable — a loopback-only instance can still be operated", async () => {
     // The defect this closes: loopback rows were `disabled`, and on a stock
     // instance EVERY address is loopback, so the picker refused every choice
     // and could not be operated at all. It still SAYS what the choice costs —
@@ -114,7 +125,13 @@ describe("MobileInstallDialog", () => {
       origin: "http://localhost:3080",
       trustedOrigins: ["http://localhost:3080", "http://127.0.0.1:3080", "http://localhost:5174"],
     });
-    fireEvent.click(document.querySelector('[data-slot="select-trigger"]') as HTMLElement);
+    // async act, not the sync fireEvent: opening the Select arms Radix's
+    // positioner, whose floating update lands a microtask AFTER the sync
+    // dispatch returns. Awaiting inside act() is what lets it render there
+    // rather than emitting "not wrapped in act" into the suite's output.
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-slot="select-trigger"]') as HTMLElement);
+    });
 
     const rows = [...document.querySelectorAll('[data-slot="select-item"]')];
     const other = rows.find((r) => r.textContent?.includes("127.0.0.1:3080")) as HTMLElement;

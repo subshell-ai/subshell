@@ -410,9 +410,10 @@ wrong, and nothing in the type or the call site says so.
 ### `TRUSTED_ORIGINS` is live, and env-ownership is decided once
 
 The PATCH route rewrites config.env and the registry then RE-READS the key from
-the file (`originRegistry().reloadStored()` in `patch-config.route.ts`), because
-the allowlist is assembled per request rather than frozen at boot — a trusted
-origin that changed takes effect with no restart. Two seams in
+the file (`originRegistry().reloadStored()` in `patch-config.route.ts`): the
+stored extras are RELOADED ON WRITE, because the assembled set is what every
+request CONSULTS — so a reload at the write is what makes a trusted origin that
+changed take effect with no restart. Two seams in
 `services/trusted-origins.ts` (`productionDeps`) make that hold on the primary
 Linux deployment:
 

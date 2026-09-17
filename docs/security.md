@@ -823,8 +823,8 @@ boot runs on the placeholder `BETTER_AUTH_SECRET`, so on a network you do not
 own, bind loopback or set the env before first boot. Browsers on a LAN address
 also need `APP_BASE_URL` pointed at the name they use (or `TRUSTED_ORIGINS`) —
 the derived allowlist covers loopback spellings, not arbitrary host IPs. Both
-are now settable from the CLI and the desktop console; see the allowlist note
-below.
+are now settable from the CLI and from the dashboard's Server Settings →
+Service; see the allowlist note below.
 
 **CORS is an allowlist with STATIC SOURCES and a LIVE READ.** Three sources,
 none of them the request: the instance's own origins (derived from
@@ -914,8 +914,9 @@ Six properties of that surface are load-bearing:
 - **The bypass is diagnosed, not blocked.** `subshell-server status` reports
   per-entry `problems` for `TRUSTED_ORIGINS` and `APP_BASE_URL` — what a
   browser will do with a value the boot accepted — together with the LAYER
-  that supplied it, and the desktop console renders it beside the field. That
-  is deliberately a diagnostic rather than a boot check: a throw in
+  that supplied it, and the dashboard's Server Settings → Service renders it
+  beside the field. That is deliberately a diagnostic rather than a boot
+  check: a throw in
   `constants.ts` would brick the `configure` that repairs the value, and a boot
   warning could not name the layer, so it would send an operator to edit a
   `config.env` that was already right. Wildcards are excluded from the

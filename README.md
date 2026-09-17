@@ -265,11 +265,11 @@ start your first subshell.
 ### Browsing from another machine
 
 The default bind is `0.0.0.0`, so the server is reachable on the LAN — but a
-browser's `Origin` still has to be on a **static allowlist**, deliberately not
-"whatever host the request claims" (that is the DNS-rebinding hole the list
-exists to close). Sign-in from an address the instance does not know answers
-**403 "Invalid origin"**, which names nothing on its own. Name the address you
-actually browse from:
+browser's `Origin` still has to be on this instance's **allowlist** — static
+sources, live read — deliberately not "whatever host the request claims" (that
+is the DNS-rebinding hole the list exists to close). Sign-in from an address
+the instance does not know answers **403 "Invalid origin"**, which names
+nothing on its own. Name the address you actually browse from:
 
 ```bash
 subshell-server configure --trusted-origins http://192.168.1.5:3080

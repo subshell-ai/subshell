@@ -226,7 +226,9 @@ export interface NetworkJoinResult {
  * and `origins` names the addresses that stopped accepting sign-ins with it
  * — as of this answer, not a restart. Leave is NetBird's normal path off the
  * allowlist (a joined implicit row shows no Unpublish button), and its
- * `origins` is the FULL snapshot of what the forget ended (ruling R-D-lite).
+ * `origins` is the full snapshot of what the WHOLE act ended, taken at request
+ * start — a gated network's trust dies at the inner unpublish step, but this
+ * act is what ends it (ruling R-D-lite v2).
  */
 export interface NetworkLeaveResult {
   ok: true;
