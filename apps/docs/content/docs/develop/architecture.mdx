@@ -59,7 +59,7 @@ apps/server/api/src/
 │                            supervisor.ts, state.ts, unpublish.ts
 └── db/migrations/           0001–0032 today; 0009-channels.ts created the six
                              channel tables + the api_key_id link column
-                             (renamed to subshells.api_key_id by 0019)
+                             (carried onto `subshells` by 0019's table rename)
 ```
 
 Every resource that grew past a handful of endpoints lives in a per-route directory with an `index.ts` that composes — `api/subshells/`, `api/channels/`, `api/nodes/`, `api/workspaces/`, `api/admin-server/`, `api/network/`. The flat `channels.route.ts` of the first cut of this map is history; a resource stays one file until it earns the directory, which is why `identities.route.ts` and `system-keys.route.ts` are still flat.
@@ -132,18 +132,18 @@ There is no channel UI on purpose — channels are how subshells talk to each ot
 3. **System actor requires system ownership.** A key whose owner is not the `system` service user is not a system key whatever its metadata claims. Pinned by the same forgery test (the "system actor" half).
 4. **Subshell tokens die with their row.** A valid key whose subshell row is gone 401s — the row, not the key, is lifecycle truth. Pinned by "subshell key whose subshell row is gone -> 401" and "subshell key whose apiKeyId link was unlinked -> 401 (real guard)".
 
-All raw SQL against the `apikey` table lives in exactly one module, `auth/apikey-store.ts`; scoping queries use `json_extract`, deliberately not string `LIKE`, so a serialization change upstream cannot silently make a full-access key undeletable.
+All raw SQL against the `apikey` table outside the one-time data migrations lives in exactly one module, `auth/apikey-store.ts`; scoping queries use `json_extract`, deliberately not string `LIKE`, so a serialization change upstream cannot silently make a full-access key undeletable.
 
 ## Invariants
 
-Violating any of these is a bug. Most are pinned by tests — named where they are, honest where they are not. The two-process integration test that stands behind several channel rules is `apps/server/api/src/__tests__/e2e-cross-subshell.test.ts`; paths below are relative to the package unless they say otherwise.
+Violating any of these is a bug. Most are pinned by tests — named where they are, honest where they are not. The cross-subshell integration test (one backend, two real `subshell mcp` children) that stands behind several channel rules is `apps/server/api/src/__tests__/e2e-cross-subshell.test.ts`; paths below are relative to the package unless they say otherwise.
 
 1. **The server stores ciphertext only.** The e2e test asserts "plaintext never touches the disk" — a scan of the database files after real traffic finds nothing.
 2. **A reader only ever receives envelopes addressed to them**, and envelopes they cannot open are counted, not fatal. Pinned by `db/repositories/__tests__/channels.repository.test.ts` ("listVisible returns only posts where the principal is a recipient") and `packages/mcp-core/src/__tests__/tools.test.ts` ("read_channel decrypts and reports undecryptable envelopes without failing").
 3. **Cursors move forward only.** The upsert is `max(stored, new)`; pinned by channels.repository.test.ts ("cursors default to 0, set, and advance" — a rewind attempt leaves 5 at 5).
 4. **Every request authenticates; the guard rules above hold.** `api/__tests__/auth-guard-bearer.test.ts` and `auth-guard-cookie.test.ts`.
-5. **Tokens are revoked synchronously with termination/deletion; restart rotates, never reuses.** Pinned by `services/__tests__/subshell-tokens.test.ts` ("revoke disables verification; extend keeps the key alive"), `subshell-manager.service.test.ts` (the death path revokes before the row goes), and `subshell-manager-mcp.test.ts` ("restart rotates the token on the SAME row").
-6. **`subshell mcp` runs hermetically** — see "Bundling is not opening" above: `cli-entry.test.ts` + `auth-import-purity.test.ts`; and the on-disk registration file carries no secrets, pinned by `services/__tests__/mcp-launch.test.ts`.
+5. **Tokens are revoked synchronously with termination/deletion; restart rotates, never reuses.** Pinned by `services/__tests__/subshell-tokens.test.ts` ("revoke disables verification; extend keeps the key alive"), and `subshell-manager-mcp.test.ts` ("restart rotates the token on the SAME row"; terminate and delete each revoke, and the unlink lands before the row goes even when revoke throws).
+6. **`subshell mcp` runs hermetically** — see "Bundling is not opening" above: `cli-entry.test.ts` + `auth-import-purity.test.ts`; and the on-disk registration file carries no secrets — the written config is byte-checked not to contain the issued token (`services/__tests__/subshell-manager-mcp.test.ts`), while `mcp-launch.test.ts` pins its 0600 mode and the manual-harness writes-nothing case.
 7. **Post `seq` is gapless per channel** — UNIQUE plus transaction-assigned `MAX+1`, pinned by channels.repository.test.ts ("append assigns monotonic per-channel seq"). SQLite's single writer is load-bearing in that design.
 8. **Nudges carry only a fixed, server-generated line; a post never fails because its nudge failed.** (The older form of this rule — "nudges never press Enter" — changed with the wake feature: a nudge may press Enter **only** on an idle pane at its prompt, never a busy one, and never with peer-authored content — the payload stays behind `read_channel`.) Pinned by `api/channels/__tests__/channels-route.test.ts` ("nudge types into running recipient subshells only, skipping the author" and "nudge WAKES a waiting recipient (actionable line + Enter); a busy one stays inert").
 9. **Bounded inputs on the channel API**: slugs bounded by pattern, envelope shape validated structurally, both pinned by channels-route.test.ts ("bad slug -> 400 INPUT_VALIDATION_ERROR …", "envelope shape is validated structurally"). The numeric caps — wait clamped to 600 s, page size to 500, envelope to 128 KiB — are enforced in `services/channels.service.ts` and the post route's schema; the clamps themselves are not separately pinned by a test, so treat those numbers as load-bearing by reading, not by suite.

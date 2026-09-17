@@ -34,7 +34,7 @@ The `subshell` block IS the plugin's identity, and it is read as data — a mach
 }
 ```
 
-`detect.knownPaths` names install locations PATH may not reach from a service: HOME-relative entries, or absolute ones. Each is a candidate — one that does not exist costs nothing. The `install` block is what an admin can run from the browser to put the CLI itself on the control-plane host; an optional plugin like `terminal` (which needs nothing installed) omits it.
+`detect.knownPaths` names install locations PATH may not reach from a service: HOME-relative entries, or absolute ones. Each is a candidate — one that does not exist costs nothing. The `install` block drives the browser's install-CLI action on the control-plane host — **built-ins only**: the route refuses any id the build does not ship before spawning anything, so a third-party plugin's `install` block is metadata, never a command the plane runs. An optional plugin like `terminal` (which needs nothing installed) omits it.
 
 ## The factory and its required three
 

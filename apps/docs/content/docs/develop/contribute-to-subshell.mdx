@@ -50,7 +50,7 @@ All three, after any modification — not when you feel confident. Notes that bi
 - **Changes under `packages/` need `bunx turbo build`.** `verify-types` and friends run against source and stay green while the workspace build is broken; the trap that has bitten twice is adding a `node:*` import to a package barrel that the React Native app resolves through Metro, which cannot see it — the mobile build dies in CI and nothing local objects.
 - **Never test against the live instance** (a dev :3080 you may have running). Scripted tests get their own backend on :3199 with a temp database; the shared `bun test` suites stub service seams.
 
-Git hooks are wired by `bun install` (lefthook): `pre-commit` formats staged files, `pre-push` runs **only** `verify-types` + `lint:check` so pushes stay fast — CI owns the test suite, so run `bun run test` yourself before pushing anything you want green on the first try.
+Git hooks are wired by `bun install` (lefthook): `pre-commit` formats staged files, `pre-push` runs `verify-types`, `lint:check`, `lint:licenses` and `lint:design` — and **no tests** — so pushes stay fast — CI owns the test suite, so run `bun run test` yourself before pushing anything you want green on the first try.
 
 ## The rules that outlive any one PR
 

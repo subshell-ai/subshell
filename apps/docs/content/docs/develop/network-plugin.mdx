@@ -64,7 +64,7 @@ Anything in a `docsUrl` renders as the `href` of an anchor on an admin's page. O
 
 ## `supervise` and `guard`, briefly
 
-Two capabilities exist for the case where the plugin's daemon *is* the thing keeping the server reachable. `supervisedProcess()` describes a long-running process — absolute command from `host.findBinary`, args, and how to hydrate a secret into it — and the host spawns and supervises it (the Cloudflare Tunnel's `cloudflared run` is the first real use). `requestGuard()` installs a check the server runs before answering for an origin — never a proxy header trusted, but the real assertion verified at the edge, failing closed. The host promotes a supervised plugin's joined record to published from its own supervisor state, because a plugin whose daemon is that child has no honest way to observe it.
+Two capabilities exist for the case where the plugin's daemon *is* the thing keeping the server reachable. `supervisedProcess()` describes a long-running process — absolute command from `host.findBinary`, args, and how to hydrate a secret into it — and the host spawns and supervises it (the Cloudflare Tunnel's `cloudflared tunnel run` is the first real use). `requestGuard()` installs a check the server runs before answering for an origin — never a proxy header trusted, but the real assertion verified at the edge, failing closed. The host promotes a supervised plugin's joined record to published from its own supervisor state, because a plugin whose daemon is that child has no honest way to observe it.
 
 ## See also
 

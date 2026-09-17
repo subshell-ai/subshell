@@ -21,9 +21,9 @@ The manifest is not decoration: it is what the host reads to list your plugin an
 
 ## The types half
 
-For harnesses: `PluginFactory`, `SubshellPlugin`, `BuildCommandInput`, `PresetDefinition`, `PresetValidationResult` / `PresetValidationIssue`, `HostEnv`, `McpLaunchSpec`, `McpRegistration`, `McpSetupInfo` / `McpSetupStep`, `HarnessResume`, `ReporterSpec`, `DetectionResult` / `DetectionReason`.
+For harnesses: `PluginFactory`, `HarnessPluginFactory`, `SubshellPlugin`, `BuildCommandInput`, `PresetDefinition`, `PresetValidationResult` / `PresetValidationIssue`, `HostEnv`, `McpLaunchSpec`, `McpRegistration`, `McpSetupInfo` / `McpSetupStep`, `HarnessResume`, `ReporterSpec`, `DetectionResult` / `DetectionReason`.
 
-For network plugins: `NetworkPluginFactory`, `NetworkPlugin`, `NetworkContext`, `NetworkStatus` / `NetworkState` / `NetworkAddress` / `NetworkHint`, `JoinInput` / `JoinOutcome`, `PublishOutcome` / `PublishRefusal`, `SupervisedProcessSpec`, `RequestGuardSpec`, `SettingsField`.
+For network plugins: `NetworkPluginFactory`, `NetworkPlugin`, `NetworkLabels`, `NetworkContext`, `NetworkStatus` / `NetworkState` / `NetworkAddress` / `NetworkHint`, `JoinInput` / `JoinOutcome`, `PublishOutcome` / `PublishRefusal`, `SupervisedProcessSpec`, `RequestGuardSpec`, `SettingsField`.
 
 Shared: `PluginHost`, `PluginSecrets`, `RunOptions` / `RunResult`, `PluginType` / `PLUGIN_TYPES`, `PluginPlatform` / `PLUGIN_PLATFORMS`, `PluginCapability` / `PLUGIN_CAPABILITIES`, and the per-type halves `HARNESS_CAPABILITIES` / `NETWORK_CAPABILITIES` with the checkers `capabilitiesFor`, `capabilityMismatches`, `isHarnessType` / `HARNESS_TYPES`, plus `MCP_SERVER_NAME` and `shellQuote`.
 
