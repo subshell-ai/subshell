@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { appSupervised, collectDeployment, isSupervised, settingSource } from "@/services/server-deployment.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 
 describe("isSupervised", () => {
   it("is true only when the manager reports this very pid as running", () => {
@@ -73,6 +74,17 @@ describe("collectDeployment", () => {
     ]);
     expect(view.paths.serverLog.endsWith("/logs/server.log")).toBe(true);
     expect(view.logging).toEqual({ debug: false, source: "default", file: view.paths.serverLog, capBytes: 204_800 });
+  });
+
+  it("reports TRUSTED_ORIGINS as running what the registry holds, so it never asks for a restart", () => {
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 777,
+      applied: new Set(),
+      queryService: () => service as never,
+    });
+    expect(view.settings.TRUSTED_ORIGINS.running).toBe(originRegistry().storedValue());
+    expect(view.settings.TRUSTED_ORIGINS.saved).toBe(view.settings.TRUSTED_ORIGINS.running);
   });
 
   it("names the reason when not supervised", () => {

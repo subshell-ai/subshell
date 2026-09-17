@@ -8,6 +8,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { collectDeployment, type DeploymentSettingKey, settingSource } from "@/services/server-deployment.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 
 const ConfigPatchSchema = t.Object(
   {
@@ -144,6 +145,11 @@ export const patchConfigRoute = new Elysia()
           metadataJson: JSON.stringify({ changes: result.changed }),
         });
       }
+      // The allowlist is read live (services/trusted-origins.ts), so a change
+      // to this one key is in force before the response is built — and the
+      // view below reports saved === running for it, which is what keeps
+      // `restartRequired` about the three keys that really are read at boot.
+      if (result.changed.some((change) => change.key === "TRUSTED_ORIGINS")) originRegistry().reloadStored();
       return { ...collectDeployment(), warnings: result.warnings };
     },
     {
@@ -159,7 +165,7 @@ export const patchConfigRoute = new Elysia()
         operationId: "updateServerConfig",
         tags: ["admin"],
         description:
-          "Rewrite config.env (port, bind address, public base URL, trusted origins) through the CLI's own validated writer; the change applies at the next restart. Cookie-admin only.",
+          "Rewrite config.env (port, bind address, public base URL, trusted origins) through the CLI's own validated writer; port, bind address and base URL apply at the next restart, trusted origins apply immediately. Cookie-admin only.",
       },
     },
   );

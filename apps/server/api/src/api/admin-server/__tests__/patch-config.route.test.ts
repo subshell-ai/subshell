@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
+import { APP_BASE_URL, DATABASE_PATH } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
@@ -25,12 +27,23 @@ describe("PATCH /api/admin/server/config", () => {
   beforeAll(async () => {
     fx = await setupAdminServerFixture("srv-patch");
     dir = mkdtempSync(join(tmpdir(), "subshell-patch-"));
-    writeFileSync(join(dir, "config.env"), "BETTER_AUTH_SECRET=s3cret\nSERVER_PORT=3080\nHOST=0.0.0.0\n");
+    // DATABASE_PATH and APP_BASE_URL are pinned to what this process actually
+    // runs on, because `applyConfig` rewrites EVERY owned key: its default for
+    // an unflagged DATABASE_PATH is the config dir's, and its default base URL
+    // follows the port being written — each a saved-differs-from-running pair
+    // no trusted-origins change can undo, which would mask the restart-free
+    // answer the origins-only case asserts.
+    writeFileSync(
+      join(dir, "config.env"),
+      `BETTER_AUTH_SECRET=s3cret\nSERVER_PORT=3080\nHOST=0.0.0.0\nAPP_BASE_URL=${APP_BASE_URL}\nDATABASE_PATH=${DATABASE_PATH}\n`,
+    );
     process.env.SUBSHELL_SERVER_CONFIG_DIR = dir;
+    resetOriginRegistryForTests();
   });
   afterAll(async () => {
     if (previousDir === undefined) delete process.env.SUBSHELL_SERVER_CONFIG_DIR;
     else process.env.SUBSHELL_SERVER_CONFIG_DIR = previousDir;
+    resetOriginRegistryForTests();
     rmSync(dir, { recursive: true, force: true });
     await fx.cleanup();
   });
@@ -52,11 +65,26 @@ describe("PATCH /api/admin/server/config", () => {
     expect(text).toContain("BETTER_AUTH_SECRET=s3cret");
     expect(text).toContain("SERVER_PORT=3090");
     expect(text).toContain("TRUSTED_ORIGINS=http://10.0.0.5:3090");
+
+    // The list applies LIVE: the registry re-read the file, and the view says
+    // so by reporting the same value as saved and running.
+    expect(originRegistry().has("http://10.0.0.5:3090")).toBe(true);
+    const settings = body as unknown as { settings: { TRUSTED_ORIGINS: { saved: string; running: string } } };
+    expect(settings.settings.TRUSTED_ORIGINS.saved).toBe(settings.settings.TRUSTED_ORIGINS.running);
     const events = await new AuditRepository(db).listLatest(5);
     const ev = events.find((e) => e.action === "server.config.update");
     expect(ev).toBeDefined();
     expect(ev?.metadataJson ?? "").not.toContain("s3cret");
     expect(ev?.metadataJson ?? "").toContain("SERVER_PORT");
+  });
+
+  it("a trusted-origins-only change needs no restart", async () => {
+    const res = await app.fetch(patch(fx.adminCookie, { port: 3080, trustedOrigins: ["http://10.0.0.6:3080"] }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { restartRequired: boolean };
+    expect(body.restartRequired).toBe(false);
+    expect(originRegistry().has("http://10.0.0.6:3080")).toBe(true);
+    expect(originRegistry().has("http://10.0.0.5:3090")).toBe(false);
   });
 
   it("400 CONFIG_INVALID names the field and the CLI's reason, writing nothing", async () => {

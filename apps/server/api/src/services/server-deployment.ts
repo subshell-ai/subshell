@@ -1,9 +1,10 @@
 import { homedir } from "node:os";
 import { collectStatus, type StatusView } from "@/commands/status.js";
 import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-env.js";
-import { APP_BASE_URL, DATABASE_PATH, DEFAULT_TRUSTED_ORIGINS, HOST, SERVER_PORT } from "@/constants.js";
+import { APP_BASE_URL, DATABASE_PATH, HOST, SERVER_PORT } from "@/constants.js";
 import { DEFAULT_DEPS, queryService, type ServiceState, SYSTEMD_UNIT_NAME } from "@/service.js";
 import { currentDebugLogging } from "@/services/logging-preference.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 import { SERVER_LOG_CAP_BYTES } from "@/utils/log-file.js";
 
 /**
@@ -191,7 +192,7 @@ const RESTART_UNSUPERVISED_REASON =
   "This server is not running under a service manager; restart it where you started it.";
 
 /** The value THIS process booted with, per key, from the same constants the server runs on. */
-function runningValue(key: DeploymentSettingKey, env: NodeJS.ProcessEnv): string {
+function runningValue(key: DeploymentSettingKey): string {
   switch (key) {
     case "SERVER_PORT":
       return String(SERVER_PORT);
@@ -202,10 +203,11 @@ function runningValue(key: DeploymentSettingKey, env: NodeJS.ProcessEnv): string
     case "DATABASE_PATH":
       return DATABASE_PATH;
     case "TRUSTED_ORIGINS":
-      // The raw key, not the derived allowlist: `saved` is the raw key too,
-      // and comparing a stored list against a set that also holds the
-      // instance's own origins would report a restart as required forever.
-      return env.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS;
+      // The registry's operator list, which follows the file live — so this
+      // equals `saved` by construction and the key never contributes to
+      // `restartRequired`. (Until 2026-09-16 this was the boot-time env value,
+      // and a publish that widened the file asked for a restart it needed.)
+      return originRegistry().storedValue();
   }
 }
 
@@ -361,7 +363,7 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
         {
           saved: found.value,
           source: settingSource(key, env, applied, configValues),
-          running: runningValue(key, env),
+          running: runningValue(key),
           ...(problems && problems.length > 0 ? { problems } : {}),
         } satisfies DeploymentSetting,
       ];
