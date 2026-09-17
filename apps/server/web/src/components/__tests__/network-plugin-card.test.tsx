@@ -8,7 +8,6 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { NETWORK_QUERY_KEY } from "@/hooks/use-network";
@@ -134,9 +133,8 @@ function cloudflareRow(over: Partial<NetworkRow> & { state?: NetworkState } = {}
 /**
  * Renders the card inside a throwaway router + query client (it uses both).
  *
- * The client is returned, not swallowed: the restart waiter's whole contract
- * is what it INVALIDATES when the server comes back, and a card test can only
- * observe that through the one client the tree is mounted on.
+ * The client is returned, not swallowed: what an act INVALIDATES is part of
+ * its contract.
  */
 async function renderCard(value: NetworkRow, compact = false): Promise<QueryClient> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -214,22 +212,8 @@ function mockFetch(handler: (url: URL, init?: RequestInit) => Response | Promise
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     calls.push({ method: init?.method ?? "GET", pathname: url.pathname, body: init?.body as string | undefined });
-    // `GET /api/admin/server` answers for real, because a `{}` for it is not
-    // a harmless stub: `NetworkRestartNotice` mounts that query whenever a
-    // publish reports `restartRequired`, guards `!view` and then reads
-    // `view.restart.available` — which `{}` satisfies as truthy and then
-    // throws on. The throw is caught by the router's CatchBoundary, so the
-    // test that triggered it still passed while the boundary rebuilt the tree
-    // from scratch underneath whatever ran next. That is what made a
-    // neighbouring test time out in CI and pass everywhere else.
-    if (url.pathname === "/api/admin/server") {
-      // The default answers `restartRequired: true` because every card test
-      // that reaches the restart notice does so while a write IS still
-      // pending — the notice now self-gates on the server's live saved-vs-
-      // running fact, and a false default would hide the very block these
-      // tests pin. The staleness tests override this route explicitly.
-      return Promise.resolve(handler(url, init) ?? Response.json(deploymentView({}, { restartRequired: true })));
-    }
+    // Nothing on the card mounts the deployment query any more — the notice
+    // that did is gone.
     return Promise.resolve(handler(url, init) ?? new Response(JSON.stringify({})));
   }) as typeof fetch;
   // ALSO route the preload's delegator, not just the global. Replacing
@@ -1339,32 +1323,13 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("a publish that could not write config.env names the key the environment holds", async () => {
-    mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/publish"
-        ? ndjson({
-            type: "done",
-            ok: true,
-            addresses: ADDRESSES,
-            config: { changed: [], warnings: [], written: false, unwritableKey: "TRUSTED_ORIGINS" },
-            restartRequired: false,
-            status: { state: "published", addresses: ADDRESSES, hints: [] },
-          })
-        : undefined,
-    );
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    await waitFor(() => expect(screen.getByText(/This change was not saved/)).toBeTruthy());
-    expect(screen.getByText("TRUSTED_ORIGINS")).toBeTruthy();
-  });
-
   /** Publish fails, then Disconnect succeeds — the fixture both halves share. */
   function failedPublishThenLeave() {
     return mockFetch((url) =>
       url.pathname === "/api/network/tailscale/publish"
         ? ndjson({ type: "error", message: "the daemon went away" })
         : url.pathname === "/api/network/tailscale/leave"
-          ? Response.json({ ok: true, status: { state: "needs-login", addresses: [], hints: [] } })
+          ? Response.json({ ok: true, origins: [], status: { state: "needs-login", addresses: [], hints: [] } })
           : undefined,
     );
   }
@@ -1459,13 +1424,12 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(screen.queryByText(/is not published on/)).toBeNull();
   });
 
-  it("unpublishing an implicit-publish network names what ends, and in which order", async () => {
-    // The reversal (spec § 5.3, REVERSED 2026-09-16): NetBird has no vendor
-    // mechanism to stop — membership is what makes its addresses answer — so
-    // the dialog names what ACTUALLY ends, the server's permission to sign in
-    // over them, and says so in the real order: sign-in stops at the restart,
-    // the addresses go on answering while the machine stays a member, and
-    // "Disconnect" is the act that ends them.
+  it("unpublishing an implicit-publish network names what ends, now, and in which order", async () => {
+    // NetBird has no vendor mechanism to stop — membership is what makes its
+    // addresses answer, and (ruling R-D-lite) what keeps them trusted. So the
+    // dialog names what ACTUALLY ends: the publish record. The addresses keep
+    // answering and stay trusted, and "Disconnect" is the press that takes
+    // the machine off the network.
     await renderCard(
       row({
         id: "netbird",
@@ -1480,19 +1444,17 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(
-        'Unpublishing NetBird takes its addresses out of the trusted origins when the server restarts, and sign-in from them stops then — the addresses themselves keep answering while this machine stays a member, because membership is what makes them answer. "Disconnect" takes the machine off the network.',
+        'Unpublishing NetBird ends its publish record — the addresses keep answering and stay trusted while this machine stays a member. "Disconnect" takes the machine off the network.',
       ),
     ).toBeTruthy();
-    // It promises no shutdown of the address itself.
-    expect(within(dialog).queryByText(/the address itself stops answering/)).toBeNull();
+    expect(within(dialog).queryByText(/restart/i)).toBeNull();
   });
 
-  it("unpublishing a serve-style network names what stops, and in which order", async () => {
+  it("unpublishing a serve-style network names what stops, now, and in which order", async () => {
     // The other kind: the record names the mechanism, so the published
-    // addresses DO go down — and the origins now leave with the publish
-    // (spec § 5.4, amended 2026-09-16), which means SIGN-IN can stop before
-    // the address itself does (a mesh IP in the same list answers on
-    // membership and keeps answering). The sentence states that order.
+    // addresses DO stop answering — and sign-in from them stops NOW, the
+    // allowlist being live. A mesh IP in the same list answers on membership
+    // and keeps answering; the sentence states that order.
     await renderCard(
       row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
     );
@@ -1500,66 +1462,53 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(
-        "The published addresses stop answering — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network; the addresses this publish trusted leave the trusted origins when the server restarts, and sign-in from them stops then — before the address itself may stop answering.",
+        "The published addresses stop answering, and sign-in from them stops now — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network.",
       ),
     ).toBeTruthy();
+    expect(within(dialog).queryByText(/restart/i)).toBeNull();
   });
 
-  // — the unpublish RESULT and the restart it can take (batch 3): the
-  // subtraction's four answers, and one button wired to the Service page's
-  // own dialog, waiter and pane-safety copy.
-
-  it("a successful unpublish names what it removed and restarts from the result", async () => {
+  it("a successful unpublish names the origins that no longer accept sign-ins, with nothing to restart", async () => {
+    // The origins that LEFT trust, named — the public-with-gate kind is the
+    // one whose unpublish really does empty the diff. (A private network's
+    // membership keeps its addresses trusted, so its unpublish answers
+    // `origins: []`; that case has its own test below.)
     const calls = mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/unpublish"
+      url.pathname === "/api/network/cloudflare-tunnel/unpublish"
         ? Response.json({
             ok: true,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
-            origins: ["https://box.tail1234.ts.net"],
-            status: { state: "joined", addresses: ADDRESSES, hints: [] },
+            origins: ["https://server.example.com"],
+            status: { state: "needs-login", addresses: [], hints: [] },
           })
         : undefined,
     );
     await renderCard(
-      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
+      cloudflareRow({
+        state: "published",
+        published: true,
+        status: { state: "published", addresses: ADDRESSES, hints: [] },
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
-    let dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-
     expect(
-      await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net"),
+      await screen.findByText(
+        "Stopped publishing on Cloudflare Tunnel — https://server.example.com no longer accepts sign-ins.",
+      ),
     ).toBeTruthy();
-    expect(screen.getByText("Restart the server to apply the change.")).toBeTruthy();
-
-    // The button opens the Service page's own dialog — one voice about the
-    // cost, not a second copy of the reasoning — and the ordinary
-    // (`paneSafety: "keeps"`) definition confirms without `force`.
-    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
-    dialog = await screen.findByRole("dialog");
-    expect(
-      within(dialog).getByText("Running subshells keep running; open terminals reconnect in a few seconds."),
-    ).toBeTruthy();
-    // The card's restart does not move the base URL, so the dialog names
-    // what the press ENABLES instead of the Service page's resume line —
-    // with the real recorded address, and no "come back at" sentence.
-    // (Operator's live read of the Tailscale card, 2026-09-16.)
-    expect(within(dialog).getByText("https://box.tail1234.ts.net will stop accepting sign-ins.")).toBeTruthy();
-    expect(within(dialog).queryByText(/The server will come back at/)).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
-    await waitFor(() => {
-      const press = calls.find((c) => c.method === "POST" && c.pathname === "/api/admin/server/restart");
-      expect(press).toBeTruthy();
-      expect(JSON.parse(String(press?.body))).toEqual({});
-    });
+    // The allowlist is live: no notice, no button, and the card never asked
+    // the deployment route — the query that used to mount for the notice.
+    expect(screen.queryByRole("button", { name: "Restart" })).toBeNull();
+    expect(screen.queryByText(/restart/i)).toBeNull();
+    expect(calls.some((c) => c.pathname === "/api/admin/server")).toBe(false);
   });
 
-  it("a join that published reports the write and restarts from there", async () => {
-    // The join's own done frame carries the config write for a
-    // `publishImplicit` network, so the card answers the restart from the
-    // join — the same block, and the same single waiter, as a press on the
-    // publish route. Nothing here re-reads the vendor: the stream answered.
+  it("a join that published says where the other devices can sign in, now", async () => {
+    // The join IS the publish for a `publishImplicit` network: its done frame
+    // lands on `published`, and the server trusts those addresses from that
+    // moment. Keyed on the frame's STATE — the server's answer, not the
+    // row's kind.
     mockFetch((url) =>
       url.pathname === "/api/network/netbird/join"
         ? ndjson(
@@ -1567,8 +1516,6 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
               type: "done",
               outcome: { state: "joined" },
               status: { state: "published", addresses: ADDRESSES, hints: [] },
-              config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-              restartRequired: true,
             },
             ["Joining NetBird…"],
           )
@@ -1584,92 +1531,39 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Sign in with NetBird" }));
-    expect(await screen.findByText(/Published on NetBird/)).toBeTruthy();
-    // And its restart dialog names the addresses the join just trusted —
-    // plural-aware, from the frame's own status, not a mock string.
-    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
-    const dialog = await screen.findByRole("dialog");
     expect(
-      within(dialog).getByText(
-        "Once it is back, your other devices can sign in at https://box.tail1234.ts.net and http://100.64.0.1:3080.",
+      await screen.findByText(
+        "Published on NetBird — your other devices can sign in at https://box.tail1234.ts.net and http://100.64.0.1:3080 now.",
       ),
     ).toBeTruthy();
-    expect(within(dialog).queryByText(/The server will come back at/)).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(screen.getByText(/can open this dashboard over it once the server restarts/)).toBeTruthy();
-    expect(screen.getByText("Restart the server to apply the new address.")).toBeTruthy();
+    expect(screen.queryByText(/once the server restarts/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restart" })).toBeNull();
   });
 
-  it("the notice retires the render the deployment view says nothing is pending", async () => {
-    // The staleness bug: the notice rendered off the ACT's done frame alone,
-    // so a completed restart — this card's, the Service page's, the CLI's —
-    // left the card demanding it again beside a server reporting nothing
-    // saved-but-unapplied. The notice now gates on the live
-    // `restartRequired`; this is that gate, with the act's frame still
-    // claiming a restart is owed.
+  it("a join that landed on joined announces no publish", async () => {
     mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/publish"
+      url.pathname === "/api/network/tailscale/join"
         ? ndjson({
             type: "done",
-            ok: true,
-            addresses: ADDRESSES,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
-            status: { state: "published", addresses: ADDRESSES, hints: [] },
+            outcome: { state: "joined" },
+            status: { state: "joined", addresses: ADDRESSES, hints: [] },
           })
-        : url.pathname === "/api/admin/server"
-          ? // The server's answer: applied. (A restart happened somewhere.)
-            Response.json(deploymentView({}, { restartRequired: false }))
-          : undefined,
+        : undefined,
     );
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    expect(await screen.findByText(/Published on Tailscale/)).toBeTruthy();
-    // The view lands a beat after the frame; the notice hides on THAT render.
-    await waitFor(() => expect(screen.queryByText(/Restart the server to apply/)).toBeNull());
-    // And the announcement itself stays — it is true, just no longer pending.
-    expect(screen.getByText(/your other devices can open this dashboard/)).toBeTruthy();
+    await renderCard(row({ state: "needs-login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Tailscale" }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.queryByText(/Published on/)).toBeNull();
   });
 
-  it("the notice stands, flicker-free, while the write genuinely awaits a restart", async () => {
-    // The other half of the gate: `restartRequired` still true must NOT make
-    // the notice blink — the view arrives, agrees with the frame, and the
-    // block persists exactly as rendered.
-    mockFetch(
-      (url) =>
-        url.pathname === "/api/network/tailscale/publish"
-          ? ndjson({
-              type: "done",
-              ok: true,
-              addresses: ADDRESSES,
-              config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-              restartRequired: true,
-              status: { state: "published", addresses: ADDRESSES, hints: [] },
-            })
-          : undefined, // /api/admin/server: the mockFetch default — pending: true
-    );
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    const notice = await screen.findByText("Restart the server to apply the new address.");
-    // Several ticks — frame, pre-view, post-view — the notice never vanishes
-    // and reappears: pre-view it renders from the act's fact, post-view the
-    // server confirms it.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.getByText("Restart the server to apply the new address.")).toBeTruthy();
-    expect(notice).toBeTruthy();
-  });
-
-  it("a leave that stripped says what left and offers the restart", async () => {
-    // NetBird's NORMAL strip path is the Disconnect press — no unpublish
-    // button involved — so the leave result must render the same trio block
-    // with the removal-worded notice, or the restart that lands NetBird's
-    // own origin strip would have no button anywhere.
+  it("a leave names the origins that no longer accept sign-ins", async () => {
+    // Leave carries the FULL snapshot of what the forget ended (ruling
+    // R-D-lite): the machine is off the network, so every address the record
+    // had trusted stops accepting sign-ins as of this answer.
     mockFetch((url) =>
       url.pathname === "/api/network/netbird/leave"
         ? Response.json({
             ok: true,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
             origins: ["http://nb.disaresta.internal"],
             status: { state: "needs-login", addresses: [], hints: [] },
           })
@@ -1688,188 +1582,46 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     expect(
-      await screen.findByText(
-        "Left NetBird — asked this server to stop accepting sign-in from http://nb.disaresta.internal",
-      ),
+      await screen.findByText("Left NetBird — http://nb.disaresta.internal no longer accepts sign-ins."),
     ).toBeTruthy();
-    expect(screen.getByText("Restart the server to apply the change.")).toBeTruthy();
+    expect(screen.queryByText(/restart/i)).toBeNull();
   });
 
-  it("a pane-killing definition confirms with force, naming the cost", async () => {
-    // The notice's Restart button opens the Service page's OWN dialog, so a
-    // definition without `KillMode=process` — one that SIGKILLs every live
-    // tmux pane with the process — gets the Service page's warning and the
-    // `force: true` the route demands, not a second copy of either.
-    const view = deploymentView({}, { restartRequired: true });
-    view.service.paneSafety = "kills";
-    const calls = mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/unpublish"
-        ? Response.json({
-            ok: true,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
-            origins: ["https://box.tail1234.ts.net"],
-            status: { state: "joined", addresses: ADDRESSES, hints: [] },
-          })
-        : url.pathname === "/api/admin/server"
-          ? Response.json(view)
-          : undefined,
-    );
-    await renderCard(
-      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
-    let dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
-
-    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
-    dialog = await screen.findByRole("dialog");
-    // The cost stated in the Service page's words, and the forced press.
-    expect(within(dialog).getByText(/will close every running subshell/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Restart anyway" }));
-    await waitFor(() => {
-      const press = calls.find((c) => c.method === "POST" && c.pathname === "/api/admin/server/restart");
-      expect(JSON.parse(String(press?.body))).toEqual({ force: true });
-    });
-  });
-
-  it("renders no restart button where the server cannot restart itself", async () => {
-    // Pending write AND no way to apply it from the page: the notice must
-    // still speak — its "Saved. {reason}" branch is the only voice that says
-    // where the change is stuck, and the staleness gate must not eat it.
-    const view = deploymentView({}, { restartRequired: true });
-    view.restart = { available: false, reason: "This server is not running under a service manager." };
+  it("every act that changes what is trusted refreshes the network list and the public settings — join included", async () => {
+    // `GET /api/settings/public → trustedOrigins` is the EFFECTIVE allowlist
+    // now: a join to a private network widens it with no publish and no
+    // restart, so the join has to tell that key so.
     mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/unpublish"
-        ? Response.json({
-            ok: true,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
-            origins: ["https://box.tail1234.ts.net"],
+      url.pathname === "/api/network/tailscale/join"
+        ? ndjson({
+            type: "done",
+            outcome: { state: "joined" },
             status: { state: "joined", addresses: ADDRESSES, hints: [] },
           })
-        : url.pathname === "/api/admin/server"
-          ? Response.json(view)
-          : undefined,
+        : undefined,
     );
-    await renderCard(
-      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
-    // The notice stands alone: the route 409s this act, so a button opening a
-    // dialog for it would be a lie with a spinner.
-    expect(screen.getByText(/This server is not running under a service manager/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Restart" })).toBeNull();
-  });
-
-  it("locks the card's acts while the restart it started is still out", async () => {
-    mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/unpublish"
-        ? Response.json({
-            ok: true,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
-            origins: ["https://box.tail1234.ts.net"],
-            status: { state: "joined", addresses: ADDRESSES, hints: [] },
-          })
-        : url.pathname === "/api/admin/server/restart"
-          ? Response.json({ restarting: true, resumeAt: "http://localhost:3080" })
-          : url.pathname === "/api/admin/status"
-            ? // Never answers: the outage is the state under test.
-              new Promise<Response>(() => {})
-            : undefined,
-    );
-    await renderCard(
-      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
-    let dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
-    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
-    dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
-
-    // The spinner is the reason those buttons went quiet, and they went
-    // quiet: an act started against a server that is coming back is an act
-    // that fails offline.
-    expect(await screen.findByText(/Restarting the server/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Unpublish" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Disconnect" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("refetches the networks and the public settings once the restart lands", async () => {
-    const calls = mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/unpublish"
-        ? Response.json({
-            ok: true,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
-            origins: ["https://box.tail1234.ts.net"],
-            status: { state: "joined", addresses: ADDRESSES, hints: [] },
-          })
-        : url.pathname === "/api/admin/server/restart"
-          ? Response.json({ restarting: true, resumeAt: "http://localhost:3080" })
-          : url.pathname === "/api/admin/status"
-            ? Response.json({ runtime: { bootedAt: new Date().toISOString(), pid: 2, uptimeSeconds: 1 } })
-            : undefined,
-    );
-    const client = await renderCard(
-      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
-    );
-    // A landed restart means the config the row's addresses are READ FROM has
-    // changed — boot re-resolved everything. The card must tell the list and
-    // the public settings so, itself; a reload should not be the user's job.
-    // Spied on the client because no OBSERVER of either key is mounted in a
-    // card test: the invalidation is the promise, the refetch is the page's.
+    const client = await renderCard(row({ state: "needs-login" }));
     const invalidated: string[] = [];
     const invalidate = client.invalidateQueries.bind(client);
     client.invalidateQueries = ((filters?: { queryKey?: readonly unknown[] }) => {
       if (filters?.queryKey) invalidated.push(JSON.stringify(filters.queryKey));
       return invalidate(filters as Parameters<typeof invalidate>[0]);
     }) as typeof client.invalidateQueries;
-
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
-    let dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText("Asked this server to stop accepting sign-in from https://box.tail1234.ts.net");
-    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
-    dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
-
-    // `calls` is read back for the restart press itself; the waiter polled
-    // `admin/status` on the fresh-boot answer above, so `back` lands.
-    await waitFor(() => {
-      expect(calls.some((c) => c.pathname === "/api/admin/status")).toBe(true);
-    });
-    // The landed restart also retires the announcement itself: the refetched
-    // row is the durable sentence, and the done frame's notice must not go
-    // on nagging over a server that already moved on. (Operator live read.)
-    await waitFor(() => expect(screen.queryByText(/Asked this server to stop accepting/)).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Tailscale" }));
     await waitFor(() => {
       expect(invalidated).toContain(JSON.stringify(NETWORK_QUERY_KEY));
       expect(invalidated).toContain(JSON.stringify(PUBLIC_SETTINGS_QUERY_KEY));
     });
   });
 
-  it("an implicit unpublish that stripped names the origins, and lands the row on joined", async () => {
-    // After the § 5.3 reversal there is no `config: null` story for a
-    // published implicit row — the record it clears IS its origins — so the
-    // result reads exactly like the serve kind's, and the row that comes back
-    // `joined` is the truth: still a member, no longer publishing.
+  it("an implicit unpublish that takes nothing off the allowlist says the addresses are unchanged", async () => {
+    // Ruling R-D-lite: the wire's `origins` is what actually LEFT trust.
+    // NetBird's unpublish ends the record while membership keeps the
+    // addresses trusted, so it answers `origins: []` — and the result line
+    // says unchanged, never "no longer accepts sign-ins".
     mockFetch((url) =>
       url.pathname === "/api/network/netbird/unpublish"
-        ? Response.json({
-            ok: true,
-            config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-            restartRequired: true,
-            origins: ["http://nb.disaresta.internal"],
-            status: { state: "joined", addresses: ADDRESSES, hints: [] },
-          })
+        ? Response.json({ ok: true, origins: [], status: { state: "joined", addresses: ADDRESSES, hints: [] } })
         : undefined,
     );
     await renderCard(
@@ -1886,22 +1638,17 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
     expect(
-      await screen.findByText("Asked this server to stop accepting sign-in from http://nb.disaresta.internal"),
+      await screen.findByText(
+        "Stopped publishing on NetBird — the addresses this server accepts sign-in from are unchanged.",
+      ),
     ).toBeTruthy();
-    expect(screen.getByText("Restart the server to apply the change.")).toBeTruthy();
-    expect(screen.queryByText(/Nothing was undone/)).toBeNull();
+    expect(screen.queryByText(/no longer accepts/)).toBeNull();
   });
 
-  it("an unpublish that removed nothing says so plainly", async () => {
+  it("an unpublish with nothing recorded says the allowlist is unchanged", async () => {
     mockFetch((url) =>
       url.pathname === "/api/network/netbird/unpublish"
-        ? Response.json({
-            ok: true,
-            config: { changed: [], warnings: [], written: true },
-            restartRequired: false,
-            origins: ["http://nb.disaresta.internal"],
-            status: { state: "joined", addresses: ADDRESSES, hints: [] },
-          })
+        ? Response.json({ ok: true, origins: [], status: { state: "joined", addresses: ADDRESSES, hints: [] } })
         : undefined,
     );
     await renderCard(
@@ -1918,7 +1665,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
     expect(
-      await screen.findByText("Nothing was removed — the addresses this server accepts sign-in from are unchanged."),
+      await screen.findByText(
+        "Stopped publishing on NetBird — the addresses this server accepts sign-in from are unchanged.",
+      ),
     ).toBeTruthy();
   });
 
@@ -1937,39 +1686,6 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     );
     expect(screen.getByText(/Unpublish Tailscale to change these/)).toBeTruthy();
     expect((screen.getByLabelText("Hostname") as HTMLInputElement).disabled).toBe(true);
-  });
-
-  it("names the refused key instead of calling the whole file untouched", async () => {
-    // `written: false` describes a KEY, not the file — the environment owning
-    // `TRUSTED_ORIGINS` is what produces it now. Naming the key says WHERE the
-    // change has to be made instead (the environment the server starts in),
-    // which a flat "settings are unchanged" would hide.
-    mockFetch((url) =>
-      url.pathname === "/api/network/tailscale/publish"
-        ? ndjson({
-            type: "done",
-            ok: true,
-            addresses: ADDRESSES,
-            config: {
-              changed: [],
-              warnings: [
-                "This server cannot widen the addresses it accepts sign-in from — that list is fixed by the environment it starts in, so the change was not saved; set `TRUSTED_ORIGINS` where the server is started.",
-              ],
-              written: false,
-              unwritableKey: "TRUSTED_ORIGINS",
-            },
-            restartRequired: true,
-            status: { state: "published", addresses: ADDRESSES, hints: [] },
-          })
-        : undefined,
-    );
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
-    const line = await screen.findByText(/This change was not saved/);
-    // The KEY and the sentence in one element, so a split rendering cannot
-    // pass this while showing the reader half of it.
-    expect(line.textContent).toContain("TRUSTED_ORIGINS — the note above names where to change it instead.");
-    expect(screen.queryByText(/settings are unchanged/)).toBeNull();
   });
 
   it("a public-with-gate network says so permanently, above everything else", async () => {

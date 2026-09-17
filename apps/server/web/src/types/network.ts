@@ -211,66 +211,43 @@ export type JoinOutcome = { state: "joined" } | { state: "needs-login"; loginUrl
 export interface NetworkJoinResult {
   /** Joined outright, or waiting on the person to finish signing in */
   outcome: JoinOutcome;
-  /** The status as of the end of the stream */
+  /**
+   * The status as of the end of the stream. For a `publishImplicit`
+   * network the join IS the publish and this status says so (`state:
+   * "published"`, addresses filled) — the server trusts those addresses
+   * from this moment. No config write and no restart flag ride the frame:
+   * the allowlist is a live registry (2026-09-16).
+   */
   status: NetworkStatus;
-  /**
-   * What the join wrote to config.env — present ONLY when the join WAS the
-   * publish (a `publishImplicit` network, spec §5.3 amended 2026-09-16). An
-   * explicit-publish network's join writes nothing and so says nothing.
-   */
-  config?: NetworkConfigOutcome;
-  /** True when that write needs a restart to take effect */
-  restartRequired?: boolean;
-}
-
-/** What one network act did to config.env — the shape both the publish `done` frame and the unpublish response carry. */
-export interface NetworkConfigOutcome {
-  /** Keys whose value changed */
-  changed: string[];
-  /** Anything the server wants said about the write */
-  warnings: string[];
-  /** False when config.env could not be written at all */
-  written: boolean;
-  /**
-   * The first key this publish could not write. The REASON is in `warnings`:
-   * the server sets this on three paths — the environment owning the key, an
-   * unreadable config file, a validator refusal — so naming the environment
-   * here would be the same false claim the card stopped making.
-   */
-  unwritableKey?: string;
 }
 
 /**
  * The `POST /api/network/:id/leave` result: the machine is off the network,
- * and the removal trio says what became of the origins the recorded publish
- * had trusted — leave runs the SAME §5.3 sequence, and for NetBird it is the
- * normal strip path.
+ * and `origins` names the addresses that stopped accepting sign-ins with it
+ * — as of this answer, not a restart. Leave is NetBird's normal path off the
+ * allowlist (a joined implicit row shows no Unpublish button), and its
+ * `origins` is the FULL snapshot of what the forget ended (ruling R-D-lite).
  */
 export interface NetworkLeaveResult {
   ok: true;
-  /** What became of `TRUSTED_ORIGINS`, or null when nothing had been recorded */
-  config: NetworkConfigOutcome | null;
-  /** True when the subtraction rewrote config.env; the removal lands on the next restart. */
-  restartRequired: boolean;
-  /** The origins leave asked to subtract, as the publish recorded them. */
+  /** The origins the recorded publish had trusted, no longer; empty when nothing had been recorded */
   origins: string[];
   /** The status as of the end of the act */
   status: NetworkStatus;
 }
 
-/** The `POST /api/network/:id/unpublish` result. */
+/**
+ * The `POST /api/network/:id/unpublish` result. `origins` is the DIFF — the
+ * origins that actually stopped being trusted as of this answer, the
+ * registry following the record live (ruling R-D-lite). A private network
+ * keeps trusting its addresses while this host stays a member, so an
+ * unpublish there is normally empty; the audit row and the record still name
+ * what the publish had held. No kind is exempt from following the record,
+ * `publishImplicit` included.
+ */
 export interface NetworkUnpublishResult {
   ok: true;
-  /**
-   * What became of `TRUSTED_ORIGINS`, or null when the act asked nothing of
-   * the file — a plugin that never published recorded no origins to subtract.
-   * No kind is exempt: `publishImplicit` subtracts too (spec § 5.3, reversed
-   * 2026-09-16).
-   */
-  config: NetworkConfigOutcome | null;
-  /** True when the subtraction rewrote config.env; the removal lands on the next restart. */
-  restartRequired: boolean;
-  /** The origins this unpublish asked to remove, as the publish recorded them. */
+  /** Origins that stopped being trusted as of this answer; normally empty for a private network */
   origins: string[];
   /** The status as of the end of the act */
   status: NetworkStatus;
@@ -282,12 +259,8 @@ export interface NetworkPublishResult {
   ok: boolean;
   /** Why not, when `ok` is false — an ANSWER, not an error */
   refused?: NetworkHint;
-  /** Where it is reachable now */
+  /** Where it is reachable — and accepted for sign-in — now */
   addresses: NetworkAddress[];
-  /** What happened to config.env */
-  config: NetworkConfigOutcome;
-  /** Whether the server has to restart before the change applies */
-  restartRequired: boolean;
   /** The status as of the end of the stream */
   status: NetworkStatus;
 }

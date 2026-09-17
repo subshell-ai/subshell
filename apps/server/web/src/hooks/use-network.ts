@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { readInstallStream } from "@/hooks/use-install-agent";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
 import { ApiError, apiFetch, NetworkError, parseErrorBody } from "@/lib/api";
-import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import type {
   NetworkInstallResult,
   NetworkJoinResult,
@@ -208,6 +207,10 @@ export function useInstallNetwork(onLine?: (id: string, line: string) => void) {
  * person to open. The page polls from there — the vendor tells the DAEMON that
  * the sign-in landed, never this browser.
  *
+ * Settled, not succeeded: a join that reached `needs-login` changed nothing
+ * yet, but a stream that failed after the daemon joined may already have
+ * widened the list.
+ *
  * @param onLine - called with each line the join prints, and the row it belongs to
  */
 export function useJoinNetwork(onLine?: (id: string, line: string) => void) {
@@ -222,20 +225,25 @@ export function useJoinNetwork(onLine?: (id: string, line: string) => void) {
         { ...(credential ? { credential } : {}), ...(hostname ? { hostname } : {}) },
         (line) => onLine?.(id, line),
       ),
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
+      // A join to a private network widens the EFFECTIVE allowlist the moment
+      // the plugin reports addresses — no publish, no config write, no
+      // restart (2026-09-16) — and `GET /api/settings/public → trustedOrigins`
+      // is where the mobile dialog and the setup checklist read it. Left
+      // stale, the picker a person opens seconds after joining a tailnet
+      // still showed loopback only for up to 30 s.
+      void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
+    },
   });
 }
 
 /**
  * Publishes this server on the network (`POST /api/network/:id/publish`).
  *
- * It rewrites config.env — `TRUSTED_ORIGINS`, the one key a publish writes
- * since the base-URL promotion was removed (2026-09-16) — so it invalidates
- * more than its own list: the deployment view holds `restartRequired` and the
- * saved-versus-running settings the Service page renders, `TRUSTED_ORIGINS`
- * among them, and leaving it stale leaves that page describing a server that
- * no longer exists. The public settings ride along for the same cheap refresh
- * `useUnpublishNetwork` gives them.
+ * It writes nothing to config.env — the server trusts the published addresses
+ * live (2026-09-16) — so the invalidations are the list and the public
+ * settings.
  */
 export function usePublishNetwork(onLine?: (id: string, line: string) => void) {
   const queryClient = useQueryClient();
@@ -245,16 +253,19 @@ export function usePublishNetwork(onLine?: (id: string, line: string) => void) {
       streamPost<NetworkPublishResult>(`/api/network/${id}/publish`, {}, (line) => onLine?.(id, line)),
     // Settled rather than succeeded: a publish that was REFUSED still tells
     // the row something (the refusal is an answer), and a publish that failed
-    // mid-write may have changed config.env before it did.
+    // mid-way may already have trusted addresses before it did.
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
     },
   });
 }
 
-/** Stops publishing this server on the network; the machine stays joined. */
+/**
+ * Stops publishing this server on the network; the machine stays joined.
+ * The origins this unpublish names stop being accepted the moment the server
+ * answers, and the public settings say so.
+ */
 export function useUnpublishNetwork() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -263,25 +274,16 @@ export function useUnpublishNetwork() {
       apiFetch<NetworkUnpublishResult>(`/api/network/${id}/unpublish`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
-      // The subtraction rewrote config.env — the deployment view renders the
-      // saved-versus-running settings (`TRUSTED_ORIGINS` among them) and the
-      // `restartRequired` the result block acts on — and the public settings
-      // ride along for the same cheap refresh every other network act gives
-      // them. (Spec § 5.4 amended 2026-09-16: an origin a publish added now
-      // leaves with that publish; the Addresses card remains the manual lever.)
-      void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
     },
   });
 }
 
 /**
- * Leaves the network entirely (`POST /api/network/:id/leave`).
- *
- * The answer is the removal trio: leave runs the § 5.3 sequence first, so
- * for an implicit-publish network this — not the unpublish button, which a
- * joined NetBird no longer shows — is the press whose origins strip needs a
- * restart, and the card says so in the same block unpublish uses.
+ * Leaves the network entirely (`POST /api/network/:id/leave`). The answer
+ * names the origins that stopped being trusted with it — for an
+ * implicit-publish network this, not the unpublish button, is the press that
+ * takes its addresses off the allowlist.
  *
  * `confirm` is the route's own guard — it carries what the person typed, and
  * the server decides whether it matches. The card asks for it rather than
@@ -298,7 +300,6 @@ export function useLeaveNetwork() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: SERVER_DEPLOYMENT_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
     },
   });
