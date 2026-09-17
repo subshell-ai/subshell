@@ -1,16 +1,123 @@
 ---
 title: Writing a Harness Plugin
-description: Teach Subshell to drive a new agent CLI — the factory, the manifest, capabilities, and the host object.
+description: Teach Subshell to drive a new agent CLI — the manifest, the factory, the capability model, and the two rules learned the hard way.
 ---
 
-This page will be the walkthrough for an agent-harness plugin: the `subshell` block in package.json that IS the plugin's identity (id, entry, detection data — a machine can be probed for your binary without your code ever loading), the default-exported factory that receives a `PluginHost`, and the capability model — you build argv for the pane, declare what you support (resume, MCP registration, preset validation), and a plugin claiming a capability it does not implement is refused at load rather than silently launching a fresh conversation where it meant to resume. It will teach the two rules learned the hard way: a plugin can import nothing of ours at runtime (everything arrives through the host), and a plugin never names a program of its own on the pane's machine — anything it needs to RUN arrives as a host-resolved command. The built-in plugins are the worked examples.
+A harness plugin teaches Subshell how to drive one agent CLI in a pane: how to build its launch command, how to register the agent's [MCP phone line](/automation/mcp-server) with it, and what its preset settings mean. Six ship built in — Claude Code, Codex, OpenCode, Hermes, pi, and Terminal — and they are the worked examples this page points at. Everything here also holds for the Terminal plugin, which drives no agent at all; the sibling page [Writing a Network Plugin](/develop/network-plugin) covers the one family that implements a different interface.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## The one thing to know first
 
-## Sources
+**A plugin cannot import anything of Subshell's at runtime.** It is loaded from disk by a compiled binary, which has no `node_modules` beside it, so a bare specifier does not resolve. Everything the host lends you arrives through a `PluginHost` handed to your factory, and your build must **inline** `@subshell-ai/plugin-api` rather than leave it as an import. That single constraint explains the whole shape below, and it is why the [Architecture](/develop/architecture) map shows the plugin machinery split between a published contract package and a host-side loader.
 
-- `AGENTS.md` §"Plugins are packages, and the control plane loads them" — the three measured facts about the shape
-- `packages/plugin-api/src/types.ts` — the factory, host, and capability types the page teaches against
-- `packages/plugins/claude-code/src/index.ts` — a complete built-in harness plugin to copy from
-- `packages/plugins/claude-code/package.json` — a manifest as shipped
+## Identity lives in `package.json`
+
+The `subshell` block IS the plugin's identity, and it is read as data — a machine can be listed as having your binary installed without your code ever loading there:
+
+```json
+{
+  "name": "@you/plugin-mytool",
+  "subshell": {
+    "apiVersion": 2,
+    "id": "mytool",
+    "type": "agent-harness",
+    "name": "My Tool",
+    "description": "What it is, in one line",
+    "icon": "icon.svg",
+    "entry": "dist/index.js",
+    "detect": {
+      "binaryName": "mytool",
+      "envOverride": "MYTOOL_PATH",
+      "knownPaths": [".local/bin/mytool"]
+    },
+    "install": { "command": "npm i -g mytool", "docsUrl": "https://example.com/install" }
+  }
+}
+```
+
+`detect.knownPaths` names install locations PATH may not reach from a service: HOME-relative entries, or absolute ones. Each is a candidate — one that does not exist costs nothing. The `install` block drives the browser's install-CLI action on the control-plane host — **built-ins only**: the route refuses any id the build does not ship before spawning anything, so a third-party plugin's `install` block is metadata, never a command the plane runs. An optional plugin like `terminal` (which needs nothing installed) omits it.
+
+## The factory and its required three
+
+Your module default-exports a factory that receives the host and returns the plugin. Only three members are required; everything else is a capability you opt into, so a `terminal` plugin is a binary and an argv rather than eight stubs.
+
+```ts
+import {
+  type PluginFactory,
+  type PluginHost,
+  type SubshellPlugin,
+  validateGenericPreset,
+} from "@subshell-ai/plugin-api";
+
+const createPlugin: PluginFactory = (host: PluginHost): SubshellPlugin => ({
+  capabilities: () => ["settings"],
+
+  buildCommand({ binary, preset, subshellName, extraFlags }) {
+    const args = [binary];
+    const model = preset.settings?.model;
+    if (typeof model === "string") args.push("--model", model);
+    if (subshellName) args.push("--name", subshellName);
+    args.push(...preset.flags, ...(extraFlags ?? []));
+    return args;
+  },
+
+  validatePreset: (preset) => validateGenericPreset(preset),
+
+  presetSettings: () => [
+    { key: "model", label: "Model", type: "string", description: "Model name" },
+  ],
+});
+
+export default createPlugin;
+```
+
+`buildCommand` receives a **resolved absolute** `binary` path, the validated preset, the subshell's display name, and returns argv — never a shell string. Optional members cover the rest: `exitStatus` maps exit codes to human labels, `parseVersion` interprets your CLI's version output, `resume` continues a conversation across restarts.
+
+## Declare what you implement — it is checked
+
+`type` groups and labels in the UI; **`capabilities()` is what the launch pipeline branches on, and the declaration is validated at load**:
+
+| capability | you must implement |
+|---|---|
+| `mcp` | `mcpRegistration` (a per-subshell config) or `mcpSetup` (one-time manual steps) |
+| `resume` | `resume.allocateHarnessSessionId` and the pure `resume.resumePath` |
+| `attention` | `supportsAttentionHooks: true`, with the hooks wired in `buildCommand` |
+| `settings` | `presetSettings()` |
+
+A plugin declaring `resume` without a `resume` object is **refused at load**, not ignored — the alternative is a restart that silently begins a fresh conversation where it meant to continue. The applicable set follows the manifest's `type` too: a harness declaring the network-plugin capability `publish` is refused by name, because a silently dropped capability leaves what it implements unreachable with nothing said.
+
+## MCP registration: three dialects, plus manual
+
+How the `subshell mcp` child gets spawned is each plugin's dialect decision, not a backend special case — your `mcpRegistration` returns what the harness needs to find the server, and the host does the writing:
+
+- **Config file plus activating argv** (claude-code): return `fileContent` and the flag that loads it, e.g. `["--mcp-config", path]`, which `buildCommand` splices after the binary.
+- **Config layer selected by env** (opencode): return the layer content and `env: { OPENCODE_CONFIG: path }`. The env layer is baked into the pane by the **host**, last in the launch precedence (see [Presets](/use/presets)) — plugins return it but never consume it themselves.
+- **Per-invocation overrides** (codex): return argv like `-c mcp_servers.subshell.command=…`, merged for that run only; no wiring env, and the harness's own config home is never redirected.
+- **Manual** (hermes, pi): no per-subshell format exists, so implement `mcpSetup()` and the preset editor renders the one-time steps verbatim. The single global entry stays per-subshell-correct because the spawned child inherits each pane's own `SUBSHELL_*` credentials.
+
+Whatever the dialect, `buildCommand` consumes **only** the registration's `args`; the host owns the file and the env.
+
+## The second hard-won rule: name no program
+
+A plugin never hard-codes a program to run on the pane's machine. Anything a hook needs to execute arrives from the host as `reporter: { command, args }` on the build input — the subshell binary that launched the pane, resolved for that machine, with the reporting subcommand already appended, so you add only your own verb words. A plugin handed no `reporter` **omits the feature** rather than guessing. This rule exists because the hooks shipped once as `bun -e '…'`, which was true of a container image and false of every desktop install: a harness that cannot start because its plugin named a program the machine does not have is a plugin bug, not a host bug.
+
+The same discipline runs through the host object: you get `findBinary` / `detectBinary` (the host's lookup ladder, never a `which` of your own), `probeVersion`, `run` (bounded, allowlisted environment, refuses a non-absolute `argv[0]`), `secrets` (write-only), `log`, `platform`, `homeDir`. Full surface in [The Plugin API](/develop/plugin-api).
+
+## Build and test it
+
+Bundle so the output imports nothing but node builtins — with [tsdown](https://tsdown.dev), `noExternal: ["@subshell-ai/plugin-api"]` is the whole trick (plus `dts: true`). Test with the inert host from `@subshell-ai/plugin-api/testing`, so your plugin needs no Subshell install to exercise:
+
+```ts
+import { createTestHost } from "@subshell-ai/plugin-api/testing";
+import createPlugin from "../index.js";
+
+const plugin = createPlugin(createTestHost());
+```
+
+The package's own [README](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/README.md) is the canonical author's reference — the complete plugin above is condensed from it.
+
+## See also
+
+- [The Plugin API](/develop/plugin-api) — the contract, the capability unions, the version rule
+- [Publishing a Plugin](/develop/publish-a-plugin) — shipping it where an admin can install it
+- [Agent pages](/agents) — what the built-in plugins' harnesses look like from the user's side
+- [Architecture](/develop/architecture) — where the loader and the plugin store live

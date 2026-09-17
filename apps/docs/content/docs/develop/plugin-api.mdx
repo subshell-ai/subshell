@@ -3,13 +3,51 @@ title: The Plugin API
 description: "The contract itself — @subshell-ai/plugin-api: manifests, capabilities, the host object, and the API version rule."
 ---
 
-This page will be the structured reference for `@subshell-ai/plugin-api`: the manifest parser and its `subshell` package.json block; the capability unions and how they are validated per type (a harness claiming `publish` and a network plugin claiming `resume` are both refused by name, while the applicable subset follows the manifest's declared type); the `PluginHost` surface a factory receives — run, secrets, supervised processes, reporting — since that object is a plugin's only handhold into the system; and `PLUGIN_API_VERSION`, what bumping it means, and the build-time rule that a plugin inlines the API rather than importing it at runtime. It will read like the package's own surface, with links into the source for every claim.
+`@subshell-ai/plugin-api` is the only Subshell package a plugin author builds against. It is types and small pure functions — no runtime reach into the system — and because a plugin's build **inlines** it rather than importing it at runtime (a compiled binary has no `node_modules` beside the plugin file, so a bare specifier would not resolve), the package is a compile-time contract wearing Apache-2.0, one of the `@subshell-ai/*` family published to npm. This page is its surface, by name; the [package README](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/README.md) is the prose reference, and the [npm listing](https://www.npmjs.com/package/@subshell-ai/plugin-api) is where versions ship.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Two numbers: package version and `apiVersion`
 
-## Sources
+The npm version is ordinary semver (`2.1.x` at the time of writing — types drift, nothing breaks). The **contract** version is a different integer: `PLUGIN_API_VERSION`, currently `2`, which your manifest declares as `"apiVersion": 2`. The rules the host enforces:
 
-- `packages/plugin-api/src/index.ts` — the full export surface, by name
-- `packages/plugin-api/src/manifest.ts` — manifest parsing and its refusals
-- `packages/plugin-api/package.json` — the published package the page documents
+- A host implementing a **lower** contract version refuses the plugin outright, naming both numbers so the operator knows which side to upgrade (`"this plugin needs plugin-api 3, but this host implements 2; upgrade the agent"`).
+- A host at a **higher** version lets the plugin through that manifest gate, but that is not a compatibility window: the loader checks members **by name**, so a rename across API versions refuses the older plugin at load with a named diagnosis. The real case: a v1 plugin used the `profile` spelling and comes back as missing `validatePreset`, never as silently working.
+- Host members are **additive within a version line; across one, rebuild**. That is exactly what the 1 → 2 move was: renamed members, and `run` / `secrets` / `platform` / `homeDir` joined the host.
+
+## The manifest half
+
+From the package you import `parseManifest` (validates the `subshell` block of a `package.json` — the refusals in [Writing a Harness Plugin](/develop/harness-plugin) and [Writing a Network Plugin](/develop/network-plugin) are this function's behavior: `apiVersion` an integer ≥ 1, `entry` a relative path that stays inside the package, `icon` a real image path that stays inside, `install.command` never `sudo`-prefixed, `docsUrl`s http(s)-only), plus `PLUGIN_API_VERSION`, `isDocsUrl`, and the manifest types (`SubshellManifest`, `DetectSpec`, `InstallSpec`, `NetworkManifest`, `PrivilegedStep`, `ManifestError`).
+
+The manifest is not decoration: it is what the host reads to list your plugin and probe for its binary **without importing a line of your code** — the `detect` block ships to nodes as data.
+
+## The types half
+
+For harnesses: `PluginFactory`, `HarnessPluginFactory`, `SubshellPlugin`, `BuildCommandInput`, `PresetDefinition`, `PresetValidationResult` / `PresetValidationIssue`, `HostEnv`, `McpLaunchSpec`, `McpRegistration`, `McpSetupInfo` / `McpSetupStep`, `HarnessResume`, `ReporterSpec`, `DetectionResult` / `DetectionReason`.
+
+For network plugins: `NetworkPluginFactory`, `NetworkPlugin`, `NetworkLabels`, `NetworkContext`, `NetworkStatus` / `NetworkState` / `NetworkAddress` / `NetworkHint`, `JoinInput` / `JoinOutcome`, `PublishOutcome` / `PublishRefusal`, `SupervisedProcessSpec`, `RequestGuardSpec`, `SettingsField`.
+
+Shared: `PluginHost`, `PluginSecrets`, `RunOptions` / `RunResult`, `PluginType` / `PLUGIN_TYPES`, `PluginPlatform` / `PLUGIN_PLATFORMS`, `PluginCapability` / `PLUGIN_CAPABILITIES`, and the per-type halves `HARNESS_CAPABILITIES` / `NETWORK_CAPABILITIES` with the checkers `capabilitiesFor`, `capabilityMismatches`, `isHarnessType` / `HARNESS_TYPES`, plus `MCP_SERVER_NAME` and `shellQuote`.
+
+The `PluginHost` a factory receives is a plugin's **only handhold** into the system:
+
+| member | what it lends |
+|---|---|
+| `findBinary` / `detectBinary` | the host's binary-lookup ladder (absolute paths out; the second also says why a lookup failed) |
+| `probeVersion` | a short bounded run; the plugin's `parseVersion` gives it meaning |
+| `run` | the one way a plugin executes anything — host deadline, output cap, env allowlist, stdin closed by default; throws on a non-absolute `argv[0]` or a privileged one (`sudo`, `doas`, `pkexec`) |
+| `secrets` | write-only credentials: `set` / `has` / `delete`, no `get` — the host hydrates named values into processes it spawns |
+| `log` | structured logging namespaced to your plugin |
+| `platform` / `homeDir` / `apiVersion` | facts about the machine you are running on |
+
+The capability-validation functions are exported because the **loader runs them**: what a plugin's `capabilities()` declares must match what it implements, per type, or the plugin is refused at load rather than half-working.
+
+## The helpers
+
+`validateGenericPreset(preset)` — the preset checks every built-in harness performs unchanged: a non-empty name, string env values, and flags that start with `-`. Harnesses with extra rules run their own checks on top of these. `shellQuote(value)` — POSIX quoting for the rare plugin assembling one.
+
+And the subpath export `@subshell-ai/plugin-api/testing`, which needs no Subshell to test against: `createTestHost()` returns an inert `PluginHost`; `createScriptedHost(answers)` additionally scripts `run` — keyed by joined argv (or prefix), answering with the `RunResult` your vendor-CLI parser expects, and recording every `calls`. A network plugin is mostly a parser of one CLI's output, so its tests are mostly "given this `status --json`, report that state".
+
+## See also
+
+- [Writing a Harness Plugin](/develop/harness-plugin) and [Writing a Network Plugin](/develop/network-plugin) — the two interfaces in motion
+- [Publishing a Plugin](/develop/publish-a-plugin) — how a built plugin reaches an install
+- [Architecture](/develop/architecture) — where the loader consumes all of this

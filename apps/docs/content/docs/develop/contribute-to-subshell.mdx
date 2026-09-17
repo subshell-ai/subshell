@@ -3,14 +3,67 @@ title: Contributing to Subshell
 description: Set up the dev loop — the Bun monorepo, one watch command, and the verification trio every change must pass.
 ---
 
-This page will be the contributor's first hour: clone, `bun install`, `bun run start` for the whole stack (backend on :3080, Vite on :5174), where things live (the apps tree is grouped by the three product words), and the loop every change goes through — `bun run verify-types`, `bun run lint:check`, `bun run test`, plus `bun run rust:check` when Rust moves and `bun run test:cli` when CLI behavior does. It will cover biome (fix with `lint`, verify with `lint:check`), lefthook's pre-push pair with CI owning the suite, changesets for user-visible work in the four released apps, and the one-time CLA every PR needs. It carries the repo's standing rules in brief — pinned versions, no dynamic imports, files that earn their size — and points at `AGENTS.md` as the source of truth it summarizes.
+This page is the first hour: a running stack, the shape of the tree, and the loop every change goes through. The repository's operational document — [`AGENTS.md`](https://github.com/subshell-ai/subshell/blob/main/AGENTS.md) — is the source of truth for everything here and hundreds of details this page deliberately does not repeat, including release pipelines and the CI arrangement. Where this summary and `AGENTS.md` disagree, `AGENTS.md` is right.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## The stack in one command
 
-## Sources
+```bash
+git clone https://github.com/subshell-ai/subshell && cd subshell
+bun install
+bun run start
+```
 
-- `AGENTS.md` — the whole operational document this page condenses
-- `README.md` §Dev — the quick dev loop and why the desktop apps are not in it
-- `.claude/rules/verification.md` — the verification commands and their traps
-- `CLA.md` — the one-time contributor agreement
+Bun is the package manager and the runtime throughout — never npm or pnpm. `bun run start` is `turbo watch dev`: it builds the workspace packages incrementally (`build:dev` via a hash runner), then runs both apps and restarts them when a package changes — the backend (API + WebSocket) on **:3080**, the SPA on Vite (**:5174**, proxying `/api` and `/ws`). Open `http://localhost:5174`; the first visit runs the setup assistant. The two Tauri desktop apps are **not** in `bun run start` on purpose — a `dev` task would open a window on every developer's machine — they have their own root commands (`dev:desktop-server`, `dev:desktop-client`), which stage the sidecar binary each app wraps. The docs site follows the same rule: `bun run dev:docs` only, on :3400.
+
+## The tree is the vocabulary
+
+The three product words — **server** (the control plane), **node** (a machine running agents), **client** (a person's interface to a control plane) — are the directory taxonomy, and reusing one word for two things is the style violation that bounces a PR:
+
+```
+apps/server/api        the control plane: subshell-server (Elysia + SQLite)
+apps/server/web        the SPA the server serves
+apps/server/desktop    Subshell Server (Tauri)
+apps/node/agent        the node daemon: subshell
+apps/client/desktop    Subshell Client (Tauri) — also where a node is managed
+apps/client/mobile     the React Native companion
+apps/docs              these docs (the taxonomy's exception — it names no word)
+packages/              plugin-api, plugins/*, pane-runtime, mcp-core,
+                       subshell-protocol, backend-client (the type-safe SDK),
+                       backend-errors, tsconfig
+```
+
+Each app under `apps/*/*/` carries its own `AGENTS.md`; it loads for agents working there, and it wins over any general rule for that app.
+
+## The loop every change passes through
+
+```bash
+bun run verify-types
+bun run lint:check
+bun run test
+```
+
+All three, after any modification — not when you feel confident. Notes that bite:
+
+- **`lint` fixes; `lint:check` verifies.** `bun run lint` runs biome with `--write` and rarely fails; `lint:check` is read-only and the one that matters. The usual loop is fix, then check.
+- **`bun run test` is TypeScript only.** Anything under `crates/` or a desktop app's `src-tauri/` also owes `bun run rust:check` (fmt + clippy + tests across all three Rust crates — `cargo check` alone misses formatting and cannot build the app crates without a staged sidecar, which that script handles).
+- **`bun run test:cli`** compiles both binaries and drives them as an operator does. It is not in `bun run test` (it builds ~150 MB of binaries), but touching `init`, `configure`, `status`, `service`, either CLI's `update`, the node `setup`/`enroll` verbs, or the rendered `install.sh` means this suite is the only thing that answers whether the *compiled* versions work.
+- **Changes under `packages/` need `bunx turbo build`.** `verify-types` and friends run against source and stay green while the workspace build is broken; the trap that has bitten twice is adding a `node:*` import to a package barrel that the React Native app resolves through Metro, which cannot see it — the mobile build dies in CI and nothing local objects.
+- **Never test against the live instance** (a dev :3080 you may have running). Scripted tests get their own backend on :3199 with a temp database; the shared `bun test` suites stub service seams.
+
+Git hooks are wired by `bun install` (lefthook): `pre-commit` formats staged files, `pre-push` runs `verify-types`, `lint:check`, `lint:licenses` and `lint:design` — and **no tests** — so pushes stay fast — CI owns the test suite, so run `bun run test` yourself before pushing anything you want green on the first try.
+
+## The rules that outlive any one PR
+
+- **Pinned versions.** Every dependency in every `package.json` is exact — no `^` or `~`. After `bun add`, run syncpack to strip prefixes, then reinstall. One exception is codified: bun never resyncs the `version` field it records per workspace in `bun.lock`, so `bun run lint:lockfile:fix` rewrites exactly that field and nothing else.
+- **No dynamic imports.** `await import()` breaks `bun build --compile`, so static imports only — with exactly one sanctioned exception, named in the rules: `packages/pane-runtime/src/plugin-runtime.ts`, where the bundler's blindness is the point (a plugin installed after the binary was built must not be bundled into it). No second exception without a design conversation.
+- **Files earn their size.** Around 300–400 lines is the split signal; a resource with several endpoints becomes a per-route directory (the API's `api/subshells/`, `api/channels/`, `api/nodes/` are the shape), tests live in `__tests__/` beside the code, and new schemas, named constants, and JSDoc on non-obvious properties follow the style rules in the repo.
+- **Changesets carry the version bumps.** After user-visible changes, `bunx changeset` names the app the user sees the change through — the four released components (`@internal/server`, `@internal/node`, `@internal/desktop-server`, `@internal/desktop-client`), or `@internal/docs` for site work. Never write one for an ignored package like `@internal/server-web`: the SPA ships embedded in the server binary, and a changeset naming an ignored package wedges the release version PR.
+- **The CLA is one-time.** First pull request signs the [contributor license agreement](https://github.com/subshell-ai/subshell/blob/main/CLA.md) — a bot asks, you keep copyright, and the grant is what keeps the dual licensing (AGPL control plane, Apache everything else) possible.
+
+For anything this page condenses — release cuts, the update pipeline, the desktop apps' ACL model, the runner arrangement — [`AGENTS.md`](https://github.com/subshell-ai/subshell/blob/main/AGENTS.md) has the real text, usually with the incident that made it a rule. The security posture lives in [docs/security.md](https://github.com/subshell-ai/subshell/blob/main/docs/security.md), summarized in the site's [Security Model](/about/security-model).
+
+## See also
+
+- [Contributing to These Docs](/develop/contribute-to-these-docs) — the docs-only loop (this site)
+- [Architecture](/develop/architecture) — what you are about to change
+- [Server CLI](/reference/server-cli) and [Node CLI](/reference/node-cli) — the surfaces `test:cli` drives
