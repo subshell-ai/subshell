@@ -41,7 +41,7 @@
   },
   "files": [
     "dist",
-    "icon.svg"
+    "icon.png"
   ],
   "publishConfig": {
     "access": "public"

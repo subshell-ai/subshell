@@ -723,6 +723,15 @@ describe("HeadscalePlugin.publish", () => {
     expect(refused.text).toContain("10.3");
     expect(refused.text).toContain(`http://workshop.example.net:${PORT}`);
     expect(refused.docsUrl).toMatch(/^https:\/\//);
+    // Issue #61: under the shipped origins model a PRIVATE network's addresses
+    // are trusted from the join (`services/network/origins.ts` — `originsOf`
+    // returns every recorded address of a joined record, and the joined status
+    // read already reports this very `http://<name>:<port>`). So the refusal
+    // must say the address is ALREADY trusted, and must never send anyone to
+    // add it somewhere — that advice was written against the pre-2026-09-16
+    // union-into-config.env model, where a publish really did own the entry.
+    expect(refused.text).toContain("already trusted");
+    expect(refused.text).not.toContain("Settings → Addresses");
   });
 
   it("refuses before attempting serve when the daemon reported no DNS name", async () => {

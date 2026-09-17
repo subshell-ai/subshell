@@ -35,12 +35,21 @@ const SERVER_PRODUCT = "subshell-server";
 const AGENT_BINARY = "subshell";
 
 /**
- * Fallback launch spec used only for DISPLAY when the real one cannot be
- * resolved — it names the command every current deployment self-resolves to
- * (`subshell-server mcp`), so an editor surface never shows an operator a
- * command that cannot actually run on an up-to-date host.
+ * The machine-agnostic `subshell mcp` spelling, embedded in the manual
+ * registration steps (hermes, pi) that
+ * `GET /api/presets/harnesses/:id/schema` renders.
+ *
+ * Deliberately NOT the ladder's answer: the registration is rendered once and
+ * pasted onto EVERY machine that hosts a pane — presets name no node, and the
+ * section copy says "each node that runs it" — while the resolved launch is by
+ * construction correct on exactly one machine. The SELF rung's absolute path
+ * names a program an enrolled node does not have (issue #57). `subshell` is
+ * every node's own binary, on its PATH by install, and the harness resolves it
+ * at spawn time THERE. A control-plane host with the server alone and no agent
+ * is the one machine the PATH form misses; `subshell-server status` prints the
+ * resolved launch for that host.
  */
-export const MCP_LAUNCH_PLACEHOLDER: McpLaunchSpec = { command: SERVER_PRODUCT, args: ["mcp"] };
+export const PORTABLE_MCP_LAUNCH: McpLaunchSpec = { command: AGENT_BINARY, args: ["mcp"] };
 
 /** Which rung answered — surfaced by `status` so an operator sees WHY it resolves. */
 export type McpLaunchSource = "env" | "self" | "agent-on-path";
@@ -166,19 +175,4 @@ export function resolveMcpLaunch(env: NodeJS.ProcessEnv = process.env, io: McpRe
   const probe = probeMcpLaunch(env, io);
   if (probe.spec) return probe.spec;
   throw new Error(probe.error);
-}
-
-/**
- * Display-only variant for editor surfaces: never throws. If the launch can't
- * be resolved (exotic deployment), the self command is shown instead —
- * subshell launch keeps using the throwing resolver.
- * @param env - environment source (default: `process.env`)
- * @param io - PATH/executable seams (default: the real ones)
- */
-export function resolveMcpLaunchForDisplay(env: NodeJS.ProcessEnv = process.env, io: McpResolveIo = {}): McpLaunchSpec {
-  try {
-    return resolveMcpLaunch(env, io);
-  } catch {
-    return MCP_LAUNCH_PLACEHOLDER;
-  }
 }
