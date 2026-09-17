@@ -102,8 +102,9 @@ const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin =
   /**
    * Manual, two-step setup: pi has no built-in MCP, so the community
    * `pi-mcp-adapter` extension must be installed once, then subshell registered in
-   * the adapter's standard `mcpServers` file. Steps carry the resolved launch
-   * so the snippet is copy-paste correct.
+   * the adapter's standard `mcpServers` file. Steps carry the PORTABLE PATH
+   * launch (`subshell mcp`, not this plane's resolved one) so the snippet is
+   * copy-paste correct on every machine that hosts a pane (issue #57).
    */
   mcpSetup(launch: McpLaunchSpec): McpSetupInfo {
     const snippet = JSON.stringify(
