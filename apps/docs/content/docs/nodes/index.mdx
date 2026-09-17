@@ -3,13 +3,40 @@ title: What a Node Is
 description: A node is any machine that runs agents on the control plane's behalf — and what enrolling one actually delegates.
 ---
 
-This page defines the word and its cost. A node is a machine running the `subshell` agent daemon; it holds no UI of its own, receives signed commands from the control plane, and runs panes under its OS user — the browser cannot tell a remote pane from a local one because they stream over the same WebSocket. The page will state the delegation plainly before the how-to pages: registering a node hands this control plane the right to run arbitrary commands on that machine as that user, the signing key on the plane rules every enrolled node, and node traffic is authenticated but expected to ride your VPN or Tailscale. Then the short map of the rest of this section.
+A **node** is a machine that runs agents for you. It is a machine running the `subshell` agent daemon and nothing else: no UI, no database, no opinions. The control plane keeps the web interface, the database, the decision logic, and the terminal transport; the node just executes. Your control-plane host runs agents too if you let it — but then it is also a node, and this documentation says so.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+The point of a node is that a subshell can live anywhere you own and look the same from anywhere you are. The browser cannot tell a remote pane from a local one: the control plane relays the same replay, resize, and keystroke frames either way, so xterm.js cannot tell whether the bytes came from tmux on the plane's host or on a machine in another room.
 
-## Sources
+## What enrolling one actually delegates
 
-- `docs/architecture.md` §9 "Nodes (remote execution hosts)" — the model and the local/remote branch
-- `docs/security.md` §6 "Nodes" — the delegation, the signing, and the accepted risks
-- `README.md` §Nodes — the user-facing framing of "the control plane keeps the UI; the node just executes"
+Read this before you add your first node. Registering a machine hands **this** control plane the right to run arbitrary commands on it, under the OS user the agent runs as. That delegation is the feature — the plane launches tmux, writes files the launch needs, and reads back what the harnesses report — but it means:
+
+- Whoever owns that OS user owns every pane launched there: its files, and the subshell's bearer token, which rides in the launch command's arguments and is visible to any local process that can read `ps` output.
+- The control plane's command-signing keypair rules every enrolled node. A control-plane compromise is a compromise of all of them at once.
+- A node's own bearer key is narrow on purpose: it can do **nothing** on the REST API. Its entire reach is impersonating that one node on its WebSocket.
+
+## The wire, in one paragraph
+
+The link is dialed **out** by the agent — the control plane never connects to a node, which is why nodes work behind NAT and on laptops. Commands travel plane → agent as signed envelopes; the agent verifies every one before executing anything, so a compromised relay cannot forge work for it. Events travel back unsigned, because the node key on the socket already authenticates them. Signing proves *who* sent a command, *when*, and *which node* it is for — never confidentiality. Node traffic is authenticated, not encrypted: keep it on the same VPN or tailnet as everything else, or terminate TLS in front. ([The protocol reference](/reference/node-protocol) is the full contract; the security consequences are [documented in the repository's threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes).)
+
+An offline node is never treated as crashed: launches onto it are refused while its row keeps its history, and the UI says "node unreachable", not "failed".
+
+## The machine that hosts the control plane
+
+Your control-plane host appears in the Nodes list as a node of its own — the row an admin names, defaulting to **Server**. It is definitionally always online, never runs an agent daemon, and is managed through the server's own settings pages rather than the per-node controls, which refuse it by design because it is the same machine as the plane.
+
+## This section
+
+- [Adding a Node](/nodes/add-node) — mint a setup key, run the one-liner, go online.
+- [Subshell Client as a Node](/nodes/client-as-node) — the same thing without a terminal, from the desktop app.
+- [Sharing a Node](/nodes/sharing) — who may launch on your machine, and what each grant really confers.
+- [Directory Allowlist](/nodes/directory-allowlist) — restrict where subshells may start on a node.
+- [Maintenance Mode](/nodes/maintenance) — take a machine out of service without unenrolling it.
+- [Managing the Agent](/nodes/managing-the-agent) — restarts, logs, debug logging, and repointing from the browser.
+- [Updating a Node](/nodes/updating) — move an agent to a newer binary, and what rollback means there.
+
+## See also
+
+- [How It Works](/about/how-it-works) — where the agent fits in the whole system.
+- [Security Model](/about/security-model) — the trust posture this section assumes.
+- [Supported Platforms](/about/supported-platforms) — which machines have published agent binaries.
