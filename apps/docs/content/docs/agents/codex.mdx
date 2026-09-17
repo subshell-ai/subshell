@@ -3,13 +3,36 @@ title: Codex
 description: OpenAI's coding CLI as a Subshell harness — TUI launch, detection, and automatic MCP wiring.
 ---
 
-This page will cover running Codex as a subshell: how Subshell finds the `codex` binary (PATH plus known install locations, overridable with `CODEX_PATH`), launching its interactive TUI in a pane, and the per-subshell `subshell mcp` registration the plugin handles automatically. It will carry the same shape as the other harness pages — detect, launch, register, install-if-missing — and link the vendor's own CLI docs for anything beyond running it under Subshell.
+Codex is OpenAI's agentic coding CLI. As a Subshell harness it runs the interactive TUI in a pane, with the [subshell MCP server](/automation/mcp-server) wired into every launch — without ever touching the `~/.codex` directory that holds your Codex sign-in and configuration.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Finding the binary
 
-## Sources
+Subshell resolves `codex` on the machine that will run the pane: the `codex` on the PATH there (including what a login shell would find), then its known install locations under your home directory — the npm and bun global bins among them. Set `CODEX_PATH` on that machine's environment to name the binary explicitly. If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor CLI docs](https://learn.chatgpt.com/docs/codex/cli) the manual path.
 
-- `packages/plugins/codex/package.json` — the detect block and install command as shipped
-- `docs/architecture.md` §4 "The subshell mcp process" — per-harness MCP registration
-- `packages/plugins/codex/src/index.ts` — the plugin's launch behaviour
+## What a launch looks like
+
+A bare Codex launch opens the interactive TUI, so that is what a subshell runs. Settings arrive as per-invocation flags: the [preset editor](/use/presets) offers model (`-m`), sandbox (`-s`: read-only, workspace-write, or full access), and approval behaviour (`-a`), and any preset or one-off flags ride along after them.
+
+Two deliberate absences:
+
+- **Your sign-in is used as-is.** Subshell never redirects `CODEX_HOME` — that directory holds your `auth.json` and `config.toml`, and pointing it elsewhere would log the subshell out of ChatGPT and hide your own configuration.
+- **Nothing dangerous is baked in.** A launch never carries an approval-and-sandbox bypass; if you want one, putting it in your own preset flags is your call, not a default Subshell makes for you.
+
+## Cross-subshell tools, automatically
+
+The `subshell` MCP server — [channels, sibling inspection, coordination](/automation/mcp-server) — is registered for every Codex subshell automatically, in the dialect Codex itself prefers: each launch carries its registration as per-invocation config overrides (`-c mcp_servers.subshell.…`), which Codex merges over your `~/.codex/config.toml` for that run only. There is no per-subshell config file Codex has to read, and your own config is never modified.
+
+The override names only the command to spawn. The `subshell mcp` child inherits the credential baked into its pane's environment — each subshell's own scoped API key — so the same one-line registration is correct for every subshell on a shared machine. On a [node](/nodes), the launch carries the registration to that machine and points it at the `subshell` binary installed there; nothing on the node needs configuring.
+
+If you also want the plain `codex` you run in your own terminal to reach Subshell's tools, add an `[mcp_servers.subshell]` block with the command and args of `subshell mcp` to `~/.codex/config.toml` yourself — Subshell's automatic wiring is deliberately scoped to the panes it launches.
+
+## Restarts start fresh
+
+Codex has no way to name or pin a conversation at creation, so Subshell does not forward the subshell's display name and cannot resume a conversation across a restart: an auto-restart or a manual one opens a fresh Codex session. [Claude Code](/agents/claude-code) is the one built-in with restart-resume.
+
+## See also
+
+- [OpenCode](/agents/opencode) — the same automatic wiring, done through a merged config layer
+- [Presets](/use/presets) — saved per-harness configuration, including Codex's settings fields
+- [The MCP server](/automation/mcp-server) — what the registered tools actually give the agent
+- [Installing Agent CLIs](/agents/installing-agent-clis) — the in-page installer for the `codex` binary
