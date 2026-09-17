@@ -355,16 +355,23 @@ browser is demonstrably on is the best guess for the phone beside it).
 never disabled. Hiding them makes the address someone is looking at vanish;
 disabling them was worse, and shipped for an hour: on a stock instance every
 address is loopback (the default `0.0.0.0` bind contributes none, so the
-allowlist is the two loopback spellings plus the dev Vite ports), so the
+allowlist is the two loopback spellings plus the dev Vite ports) — until a
+network is joined: a joined tailnet's addresses are in the list the moment the
+plugin reports them, with no publish and no restart, which is why the dialog
+refetches the public settings on open (the Nodes dialog's precedent) and why
+its empty state says to JOIN a network rather than publish on one — so the
 picker refused every row and could not be operated at all. The cost of a
 choice belongs under the field, naming the address chosen — not in a row you
 cannot click. Selecting one replaces the QR with that sentence, so nothing
 unscannable is ever offered.
 
 `trustedOrigins` is a field on `GET /api/settings/public` added for this, and
-its disclosure is accounted in `docs/security.md` §3. Optional in the client
-type for the usual reason — a cached PWA can outlive its server — and the
-dialog falls back to the origin this browser is already on.
+it is the EFFECTIVE allowlist — local origins ∪ the Service page's extras ∪
+every enabled network plugin's addresses, computed live; its disclosure is
+accounted in `docs/security.md` §3. Optional in the client type for the usual
+reason — a cached PWA can outlive its server — and the dialog falls back to
+the origin this browser is already on. `lib/setup-checklist.ts`'s `lan-origin`
+item judges this same effective list, so a joined network silences it.
 
 Two details that are not decoration. The QR's plate is `bg-white`
 unconditionally, because a QR is read optically and dark modules on a dark
@@ -436,23 +443,31 @@ Three rules the card keeps, each with a defect behind it:
   What this page owns is the shape, and the consequences that are the SERVER's
   rather than the network's — what a non-secure-context address costs, that
 `subshell-server backup` does not include a plugin secret. Publishing moves
-no boot-time identity: the base URL is the Service page's field, and a
-publish only widens `TRUSTED_ORIGINS` — and unpublishing takes back exactly
-  what that publish added (spec § 5.4 amended 2026-09-16; every kind
-  subtracts, `publishImplicit` included — spec § 5.3 REVERSED the same day: a
-  disabled NetBird daemon still answers at its address, and what stripping
-  changes is that the address stops accepting sign-ins at the restart, the
-  stated and chosen cost of a publish owning an origin's lifecycle). And for
-  that implicit kind the JOIN is the
-  publish: the join route records it and unions the origins through the same
-  gate writer, its `done` frame carries the same `config`/`restartRequired`,
-  and the card's implicit box is gone — a joined-and-unrecorded implicit row
-  shows one gap line and the old button (spec § 5.3 amended 2026-09-16). Both results render through ONE block
-  (`config-write-outcome.tsx`), and when a write awaits a restart the block
-  carries the Service page's own restart button and dialog — the card holds
-  the single `useServerRestart`, folds its `waiting` outcome into `busy` so no
-  act runs against the outage, and refetches the list and the public settings
-  when the server is back.
+  no boot-time identity and writes no config: the base URL is the Service
+  page's field, and the server's allowlist is a LIVE registry — its own local
+  origins ∪ the Service page's `TRUSTED_ORIGINS` extras (consulted on every
+  request) ∪ every ENABLED network plugin's addresses (a `private` network
+  from `joined` up; a `public-with-gate` one only while published). So a join
+  to a tailnet is enough for a phone to sign in, a publish trusts its
+  addresses the moment the plugin reports them, and an unpublish, a leave or a
+  Disable takes back exactly what THAT act ends trusting — now, not at a
+  restart (2026-09-16; the restart notice, `config-write-outcome.tsx` and the
+  card's `useServerRestart` went with the config write they described): a
+  gated unpublish its published set, a leave or a Disable everything the
+  plugin held, and a private unpublish NOTHING — membership is what trusts a
+  private network's addresses, so those stay until a leave or a Disable ends
+  the membership (ruling R-D-lite v2: the wire's `origins` is that per-act
+  diff, which is why the result line never overstates what stopped). For the
+  implicit kind the JOIN is the publish: the join route records it and its
+  `done` frame lands on `published`, which is what the card keys its
+  announcement on. The result grammar is `lib/network-result-copy.ts` —
+  outcome first, no key named, present tense only — pinned in
+  `lib/__tests__/`. The card's Disable is `useSetPluginEnabled` from
+  `use-instance-plugins.ts`, the same `PATCH /api/plugins/:id` Settings →
+  Plugins toggles (the server unpublishes first and 409s if it cannot); it
+  confirms only when there are addresses to name, and a disabled row collapses
+  to one line plus Enable. The `compact` frame carries no Disable — first run
+  is not where someone toggles plugins.
 - **Nothing privileged is ever a button**, including the numbered install steps.
   Same rule as `TmuxRow`: this server has no terminal to answer a password
   prompt. Numbering runs only over hints that carry a COMMAND, so a plugin's
@@ -461,11 +476,16 @@ publish only widens `TRUSTED_ORIGINS` — and unpublishing takes back exactly
   hint renders inline where the button was, with no alert role — the server
   worked correctly and said why not.
 
-`hooks/use-network.ts` holds the query and six mutations; the two streaming
-ones reuse `readInstallStream` from `use-install-agent.ts` rather than a second
-NDJSON reader. Every act goes through the card's `begin()`, which resets ALL
-the mutations: a result outlives the state it describes, so a publish
-announcement survived the unpublish that undid it until that was true.
+`hooks/use-network.ts` holds the query and six mutations; the three streaming
+ones (install, join, publish) reuse `readInstallStream` from
+`use-install-agent.ts` rather than a second NDJSON reader. Every act that
+changes what is trusted — publish, unpublish, leave, and join — invalidates
+`PUBLIC_SETTINGS_QUERY_KEY`, because `GET /api/settings/public → trustedOrigins`
+is the effective allowlist and the mobile dialog and the setup checklist read
+it; `useSetPluginEnabled` does the same, plus `NETWORK_QUERY_KEY`. Every act
+goes through the card's `begin()`, which resets ALL the mutations: a result
+outlives the state it describes, so a publish announcement survived the
+unpublish that undid it until that was true.
 
 `types/network.ts` is a HAND-WRITTEN mirror of `apps/server/api/src/api/network/schemas.ts`.
 Elysia strips fields a schema does not declare, so a mismatch is silent in
