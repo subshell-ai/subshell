@@ -13,9 +13,7 @@ import {
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import { ForbiddenError } from "@/api/auth-guard.js";
 import { resolveSetupActor } from "@/api/setup.route.js";
-import { type ApplyConfigInput, type ApplyConfigResult, applyConfig } from "@/commands/configure.js";
-import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-env.js";
-import { DEFAULT_TRUSTED_ORIGINS, IS_TEST, SERVER_PORT } from "@/constants.js";
+import { IS_TEST, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
@@ -24,13 +22,15 @@ import { audit } from "@/services/audit.js";
 import { observeNetworkStatus } from "@/services/network/origins.js";
 import { networkContext } from "@/services/network/state.js";
 import { localPluginReports } from "@/services/nodes/local-plugins.js";
-import { settingSource } from "@/services/server-deployment.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
  * Everything the six `/api/network` routes share (spec 2026-09-15 § 5.1): the
- * gate, the refusal table, the in-flight lock, the status memo and the two
- * config writes — the union a publish adds, the subtraction an unpublish takes back.
+ * gate, the refusal table, the in-flight lock and the status memo. The two
+ * config writes that lived here until 2026-09-16 — a publish's union into
+ * `TRUSTED_ORIGINS`, an unpublish's subtraction — are gone: the allowlist is
+ * derived from plugin records now (`services/trusted-origins.ts`), and there
+ * is no file for an act to keep honest.
  *
  * Its own module for the reason `nodes/node-gate.ts` is: six handlers deciding
  * "may this caller act, and is this plugin in a state to be acted on" is six
@@ -63,10 +63,10 @@ export interface ResolvedNetwork {
  * The seam the route tests inject through.
  *
  * It covers exactly the things a suite must not do for real: resolve the
- * machine's actual plugin store, ask this host's real platform, and rewrite
- * `~/.config/subshell-server/config.env`. The state file, the supervisor and
- * the unpublish sequence are NOT here — each carries its own seam, and the
- * state file already lives under the suite's temp data dir.
+ * machine's actual plugin store, ask this host's real platform, and run its
+ * package manager. The state file, the supervisor and the unpublish sequence
+ * are NOT here — each carries its own seam, and the state file already lives
+ * under the suite's temp data dir.
  */
 export interface NetworkDeps {
   /** Every network plugin this process can LOAD, manifest included. Production: `allNetworkPlugins()`. */
@@ -77,14 +77,6 @@ export interface NetworkDeps {
   enabled: () => Promise<PluginReportWire[]>;
   /** This host's platform. Production: `hostPlatform()`. */
   platform: () => PluginPlatform;
-  /** The config.env writer. Production: `applyConfig` into `serverConfigDir()`. */
-  applyConfig: (input: ApplyConfigInput) => ApplyConfigResult;
-  /** config.env's stored values, for the origin union and the source attribution. */
-  configValues: () => Record<string, string>;
-  /** Keys config.env actually applied at boot. Production: `configEnvAppliedKeys()`. */
-  appliedKeys: () => ReadonlySet<string>;
-  /** The environment the source attribution is computed against. */
-  env: () => NodeJS.ProcessEnv;
   /** The port this server listens on — the publish target. Production: `SERVER_PORT`. */
   port: () => number;
   /**
@@ -117,10 +109,6 @@ const defaultDeps: NetworkDeps = {
     return reports.filter((r) => r.type === "network" && state.get(r.id) !== false);
   },
   platform: () => hostPlatform(),
-  applyConfig: (input) => applyConfig(input, serverConfigDir()),
-  configValues: () => resolveConfig().values,
-  appliedKeys: () => configEnvAppliedKeys(),
-  env: () => process.env,
   port: () => SERVER_PORT,
   runInstall: (argv, onLine) =>
     runInstaller(argv, { timeoutMs: INSTALL_TIMEOUT_MS, extraPath: loginPathEntries, onLine }),
@@ -136,7 +124,7 @@ export function networkDeps(): NetworkDeps {
 /**
  * Test seam. Refuses outside the suite, the `setTmuxInstallDepsForTests`
  * pattern: a production import able to swap these could redirect which plugin
- * code runs and which file the config writer rewrites.
+ * code runs and which installer commands execute.
  * @internal
  */
 export function setNetworkDepsForTests(deps: NetworkDeps | null): void {
@@ -203,7 +191,7 @@ export function isSupportedHere(manifest: NetworkManifest, platform: PluginPlatf
 /**
  * One operation at a time per plugin, instance-wide.
  *
- * The target is one vendor daemon and one config file, so a second concurrent
+ * The target is one vendor daemon and one state file, so a second concurrent
  * join or publish would race the first rather than parallelize with it. Held
  * as a module `Set`, and TAKEN SYNCHRONOUSLY — nothing awaits between the test
  * and the insert, so two concurrent requests cannot both see it free.
@@ -508,286 +496,4 @@ export async function auditNetwork(
   } catch (err) {
     getLogger().withError(err).warn(`could not record the ${action} audit row`);
   }
-}
-
-/** What a publish's config write did, as the `done` frame reports it. */
-export interface NetworkConfigWrite {
-  /** config.env keys this write actually changed. Names only — the values are addresses, and the frame carries those separately. */
-  changed: string[];
-  /** The CLI writer's own advisory sentences, plus anything this route adds. */
-  warnings: string[];
-  /** True when every key this publish wanted to write landed in config.env. */
-  written: boolean;
-  /** The first key that could not be written, when `written` is false. */
-  unwritableKey?: string;
-}
-
-/** What {@link writePublishConfig} is asked to make true. */
-export interface PublishConfigInput {
-  /** Origins to ADD to `TRUSTED_ORIGINS`. Never a replacement — see below. */
-  origins: string[];
-}
-
-/**
- * The config writer's advisories that speak of THIS write's key, or none.
- *
- * (Operator's live read of the Tailscale card, 2026-09-16: a publish that
- * writes `TRUSTED_ORIGINS` and nothing else printed a wall of advice about
- * `HOST` and `APP_BASE_URL` — keys the press had not touched.) `applyConfig`
- * merges the stored values and posture-checks everything it can see, which is
- * right for the CLI and the Service page: they WROTE those keys, and their
- * readers keep every sentence. A network act wrote one. The discriminator is
- * the key's own name, case-sensitively and on purpose: the all-loopback
- * posture names `TRUSTED_ORIGINS` because it describes the list THIS write
- * produced — it stays; the base-URL-port pair offers `--trusted-origins`
- * lower-case as advice for fixing an `APP_BASE_URL` problem, an answer about
- * another key, and drops. The gate's own env-ownership sentence never passes
- * through here — that branch returns before any writer runs — so no filter
- * can silence it.
- */
-export function keyOwnWarnings(warnings: string[]): string[] {
-  return warnings.filter((warning) => warning.includes("TRUSTED_ORIGINS"));
-}
-
-/**
- * The publish's config.env write: `TRUSTED_ORIGINS` ∪ the new origins, and
- * nothing else. The optional `APP_BASE_URL` promotion this writer once took
- * went on 2026-09-16 — the base URL is the Service page's field, and a
- * checkbox in a flow about reaching the server that moved the passkey rpID
- * was the confusion that killed it.
- *
- * Three properties, each load-bearing:
- *
- * - **Union, never replacement.** An origin already trusted stays trusted —
- *   THIS writer never removes anything. Removal is {@link
- *   removePublishedConfig}'s half of the pair: an origin added by a publish
- *   leaves when that publish is undone (spec § 5.4, amended 2026-09-16), and
- *   one this pair never wrote survives every cycle.
- * - **`applyConfig` is the ONLY writer**, shared with `subshell-server
- *   configure` and `PATCH /api/admin/server/config`. That shared call, not a
- *   test, is what makes `docs/security.md`'s component-wise origin validation
- *   and canonical storage true of this feature: there is no second
- *   implementation to drift.
- * - **A key the ENVIRONMENT owns is not written.** A config.env line the next
- *   boot would mask is a success report for a change that never happens, so
- *   the key is dropped, named in `unwritableKey`, and the publish COMPLETES —
- *   the server really is reachable at the address; what could not follow is
- *   the config.
- */
-export function writePublishConfig(input: PublishConfigInput): NetworkConfigWrite {
-  const deps = networkDeps();
-  const warnings: string[] = [];
-
-  let stored: Record<string, string>;
-  try {
-    stored = deps.configValues();
-  } catch (err) {
-    // `resolveConfig` throws on a read failure that is not ENOENT. The publish
-    // itself already succeeded, so this is a warning on a completed act rather
-    // than a refusal — and it names the FILE, which is the thing to fix.
-    const reason = err instanceof Error ? err.message : String(err);
-    return {
-      changed: [],
-      warnings: [`The server could not read its config file, so it will not overwrite it: ${reason}`],
-      written: false,
-      unwritableKey: "TRUSTED_ORIGINS",
-    };
-  }
-
-  const applied = deps.appliedKeys();
-  const env = deps.env();
-  const fromEnv = (key: string): boolean => settingSource(key, env, applied, stored) === "process env";
-
-  const patch: ApplyConfigInput = {};
-  let unwritableKey: string | undefined;
-
-  if (fromEnv("TRUSTED_ORIGINS")) {
-    unwritableKey = "TRUSTED_ORIGINS";
-    warnings.push(
-      "This server cannot widen the addresses it accepts sign-in from — that list is fixed by the environment it starts in, so the change was not saved; set `TRUSTED_ORIGINS` where the server is started.",
-    );
-  } else {
-    // `DEFAULT_TRUSTED_ORIGINS`, not `""`. The key is ABSENT by default and
-    // config.env beats the built-in, so unioning against an empty base writes
-    // a file naming only the new origin — which silently strips the dev origins
-    // a developer's browser reaches this server on. The boot reconcile already
-    // knew this; two writers over one key, one of which knew, is how they
-    // disagree.
-    patch.trustedOrigins = unionOrigins(
-      stored.TRUSTED_ORIGINS ?? env.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS,
-      input.origins,
-    ).join(",");
-  }
-
-  if (Object.keys(patch).length === 0) {
-    return { changed: [], warnings, written: false, ...(unwritableKey ? { unwritableKey } : {}) };
-  }
-
-  const result = deps.applyConfig(patch);
-  if (!result.ok) {
-    const reason = result.kind === "unreadable" ? result.reason : `${result.key}: ${result.reason}`;
-    return {
-      changed: [],
-      warnings: [...warnings, `The address is live, but config.env could not be updated — ${reason}`],
-      written: false,
-      unwritableKey: unwritableKey ?? (result.kind === "invalid" ? result.key : "TRUSTED_ORIGINS"),
-    };
-  }
-  return {
-    changed: result.changed.map((c) => c.key),
-    warnings: [...warnings, ...keyOwnWarnings(result.warnings)],
-    written: unwritableKey === undefined,
-    ...(unwritableKey ? { unwritableKey } : {}),
-  };
-}
-
-/**
- * The stored origin list plus the new ones, canonicalized, order preserved.
- *
- * Canonicalized HERE as well as inside `applyConfig` so the union compares
- * like with like: `https://x.ts.net/` and `https://x.ts.net` are one origin,
- * and appending the second to a list holding the first would write a duplicate
- * the validator then canonicalizes into a repeat. An entry that will not parse
- * is carried through VERBATIM rather than dropped — `applyConfig`'s validator
- * is what decides whether a stored value is acceptable, and silently deleting
- * a line an operator hand-wrote is not this function's call.
- */
-export function unionOrigins(stored: string, added: string[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of [...stored.split(","), ...added]) {
-    const value = raw.trim();
-    if (value === "") continue;
-    let canonical = value;
-    try {
-      canonical = new URL(value).origin;
-    } catch {
-      // Not a URL. Keep it as written; the validator answers for it.
-    }
-    if (seen.has(canonical)) continue;
-    seen.add(canonical);
-    out.push(canonical);
-  }
-  return out;
-}
-
-/**
- * The stored origin list with the named ones removed, canonical on both sides.
- *
- * The subtractive mirror of {@link unionOrigins}, keeping its two rules: the
- * comparison runs on `URL.origin`, so a stored `https://x.ts.net/` and a
- * published `https://x.ts.net` are one origin; and an entry that will not
- * parse STAYS — an entry this function cannot understand is not provably one
- * the network published, and deleting what it cannot read is not its call.
- */
-export function subtractOrigins(stored: string, removed: string[]): string[] {
-  const gone = new Set<string>();
-  for (const raw of removed) {
-    const value = raw.trim();
-    if (value === "") continue;
-    try {
-      gone.add(new URL(value).origin);
-    } catch {
-      gone.add(value);
-    }
-  }
-  return stored
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== "")
-    .filter((entry) => {
-      try {
-        return !gone.has(new URL(entry).origin);
-      } catch {
-        return true;
-      }
-    });
-}
-
-/**
- * The unpublish's config.env write: `TRUSTED_ORIGINS` minus the origins THIS
- * network's publish added (spec § 5.4, lifecycle amended 2026-09-16 — an
- * origin added by a publish now leaves with that publish).
- *
- * The subtraction of {@link writePublishConfig}, and it inherits that
- * writer's three properties whole: `applyConfig` is the only writer; a key
- * the ENVIRONMENT owns is refused by name — `written: false` and
- * `unwritableKey`, with the unpublish itself completing, because the machine
- * really has stopped publishing and what could not follow is the file — and
- * nothing outside the subtraction's remit is touched. Two rules subtraction
- * adds:
- *
- * - **A line emptied is CLEARED, not written empty** — `applyConfig`'s own
- *   meaning for `trustedOrigins: ""`, the `OPTIONAL_KEYS` rule `configure`
- *   follows. A stale empty line would beat `.env` in the SETDEFAULT ladder
- *   while naming nothing; clearing lets the built-in answer again, exactly
- *   as though the publish had never written the line.
- * - **No match is silence, not a write.** When the file holds none of those
- *   origins — the Addresses card got there first, or an operator hand-edited
- *   the line away — nothing lands and `changed` stays empty. Reporting a
- *   change that did not happen is the same lie as a masked write.
- */
-export function removePublishedConfig(origins: string[]): NetworkConfigWrite {
-  const deps = networkDeps();
-  const warnings: string[] = [];
-
-  let stored: Record<string, string>;
-  try {
-    stored = deps.configValues();
-  } catch (err) {
-    // The same shape `writePublishConfig` answers with: the act succeeded,
-    // the file could not be read, and the FILE is the thing to fix.
-    const reason = err instanceof Error ? err.message : String(err);
-    return {
-      changed: [],
-      warnings: [`The server could not read its config file, so it will not overwrite it: ${reason}`],
-      written: false,
-      unwritableKey: "TRUSTED_ORIGINS",
-    };
-  }
-
-  if (stored.TRUSTED_ORIGINS === undefined) {
-    // The key is absent from the file. Whatever trusts that address today
-    // lives in the environment or in the built-in default, and neither is
-    // this write's to touch. Nothing changed; nothing failed. (The asymmetry
-    // against `writePublishConfig`, which DOES consult the environment here:
-    // the union would write a line the environment masks, while a subtraction
-    // from an absent file removes nothing — an env refusal would name a
-    // problem that does not exist.)
-    return { changed: [], warnings, written: true };
-  }
-
-  const applied = deps.appliedKeys();
-  const env = deps.env();
-  if (settingSource("TRUSTED_ORIGINS", env, applied, stored) === "process env") {
-    return {
-      changed: [],
-      warnings: [
-        "This server cannot take addresses out of the list it accepts sign-in from — that list is fixed by the environment it starts in, so nothing was removed; drop them from `TRUSTED_ORIGINS` where the server is started.",
-      ],
-      written: false,
-      unwritableKey: "TRUSTED_ORIGINS",
-    };
-  }
-
-  const remaining = subtractOrigins(stored.TRUSTED_ORIGINS, origins);
-  if (remaining.length === subtractOrigins(stored.TRUSTED_ORIGINS, []).length) {
-    return { changed: [], warnings, written: true };
-  }
-
-  const result = deps.applyConfig({ trustedOrigins: remaining.join(",") });
-  if (!result.ok) {
-    const reason = result.kind === "unreadable" ? result.reason : `${result.key}: ${result.reason}`;
-    return {
-      changed: [],
-      warnings: [...warnings, `The publish was undone, but config.env could not be updated — ${reason}`],
-      written: false,
-      unwritableKey: "TRUSTED_ORIGINS",
-    };
-  }
-  return {
-    changed: result.changed.map((c) => c.key),
-    warnings: [...warnings, ...keyOwnWarnings(result.warnings)],
-    written: true,
-  };
 }

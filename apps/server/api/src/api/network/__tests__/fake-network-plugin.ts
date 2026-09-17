@@ -13,7 +13,6 @@ import type {
 } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import type { NetworkDeps } from "@/api/network/network-gate.js";
-import type { ApplyConfigInput, ApplyConfigResult } from "@/commands/configure.js";
 import type { AgentInstallResult } from "@/services/agent-install.service.js";
 
 /**
@@ -24,9 +23,8 @@ import type { AgentInstallResult } from "@/services/agent-install.service.js";
  * installer suite uses one: the real plugin's every answer is a live probe of
  * whatever is on the developer's machine, so a test written against it would
  * pass or fail on whether tailscale happens to be installed. What is under
- * test here is the ROUTE — its gate, its refusal order, its frame order and
- * its config write — and those are properties of the route whatever the
- * plugin says.
+ * test here is the ROUTE — its gate, its refusal order and its frame order —
+ * and those are properties of the route whatever the plugin says.
  */
 
 /** The id every suite here acts on. */
@@ -207,23 +205,14 @@ export function installRecorder(): InstallRecorder {
   };
 }
 
-/** Everything a config write did, for a test to assert against. */
-export interface ConfigRecorder {
-  /** Each `applyConfig` call, in order. */
-  calls: ApplyConfigInput[];
-  /** What the writer answers with. */
-  result: ApplyConfigResult;
-}
-
 /**
- * Deps that show the routes exactly one plugin, on darwin, with a config
- * writer that records instead of rewriting the developer's `config.env`.
+ * Deps that show the routes exactly one plugin, on darwin, with an installer
+ * that records instead of running a package manager.
  */
 export function fakeDeps(
   entry: NetworkPluginEntry,
-  overrides: Partial<NetworkDeps> & { config?: ConfigRecorder; install?: InstallRecorder } = {},
+  overrides: Partial<NetworkDeps> & { install?: InstallRecorder } = {},
 ): NetworkDeps {
-  const config = overrides.config;
   const install = overrides.install;
   const report = fakeReport(entry.manifest.id);
   return {
@@ -231,21 +220,6 @@ export function fakeDeps(
     installed: async () => [report],
     enabled: async () => [report],
     platform: () => "darwin",
-    applyConfig: (input) => {
-      config?.calls.push(input);
-      return (
-        config?.result ?? {
-          ok: true,
-          path: "/tmp/config.env",
-          values: {},
-          warnings: [],
-          changed: [{ key: "TRUSTED_ORIGINS", from: undefined, to: input.trustedOrigins }],
-        }
-      );
-    },
-    configValues: () => ({}),
-    appliedKeys: () => new Set<string>(),
-    env: () => ({}),
     port: () => 3080,
     // Nothing here spawns: a suite that ran a real package manager would be
     // installing software on whoever ran `bun test`.
@@ -254,6 +228,6 @@ export function fakeDeps(
       for (const line of install?.lines ?? []) onLine(line);
       return install?.result ?? { ok: true, exitCode: 0, output: "", durationMs: 0 };
     },
-    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "config" && key !== "install")),
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "install")),
   };
 }
