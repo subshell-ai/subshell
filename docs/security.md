@@ -202,8 +202,9 @@ account's email, **display name** (added 2026-09-14), role and disabled state.
 
 **So is the ADDRESS LIST** (2026-09-16). `GET /api/settings/public` carries
 `trustedOrigins` — every origin a browser may sign in from: this instance's
-own addresses, the operator's configured extras, and whatever a network
-plugin's publish unioned in (§11.13). So any signed-in caller, and any bearer
+own addresses, the operator's configured extras, and the addresses of every
+enabled network plugin this host is joined to or published on — live, no
+restart (§11.13). So any signed-in caller, and any bearer
 credential, learns this plane's other names: its tailnet hostname, its LAN
 name, a proxy domain. It exists for the "Subshell for Mobile" dialog, which
 has to offer a PHONE an address — `appBaseUrl` is one spelling and is usually
@@ -825,9 +826,16 @@ the derived allowlist covers loopback spellings, not arbitrary host IPs. Both
 are now settable from the CLI and the desktop console; see the allowlist note
 below.
 
-**CORS is a static allowlist.** The instance's own origins are derived at boot —
-both loopback spellings of `SERVER_PORT`, a concrete `HOST`, and the
-`APP_BASE_URL` origin — and `TRUSTED_ORIGINS` adds to them. Every derived entry
+**CORS is an allowlist with STATIC SOURCES and a LIVE READ.** Three sources,
+none of them the request: the instance's own origins (derived from
+`SERVER_PORT`/`HOST`/`APP_BASE_URL` — both loopback spellings, a concrete
+`HOST`, the base-URL origin), the operator's `TRUSTED_ORIGINS`, and the
+addresses each enabled network plugin's own daemon reports for THIS host
+(`services/trusted-origins.ts`). The list is assembled on demand — better-auth
+1.7.1 calls the function form per request, `@elysiajs/cors` per request — so a
+network joined a minute ago is trusted without a restart; what was frozen at
+boot until 2026-09-16 is read live now, and nothing about a request names an
+entry. Every derived entry
 is serialized through `URL.origin` (fixed 2026-09-08). It used to be string
 concatenation for three of the four, which made them **inert on a default-port
 deployment**: bound to 80 with a concrete `HOST`, a browser sends
@@ -882,7 +890,11 @@ Six properties of that surface are load-bearing:
     scheme off the incoming `Origin` and compares the remainder — so a
     SCHEMELESS entry (`box.local:3080`) is a scheme-wildcard there, matching
     both `http://` and `https://`, while better-auth rejects it outright. A
-    schemeless entry therefore yields "CORS passes, sign-in 403s".
+    schemeless entry therefore yields "CORS passes, sign-in 403s". Since
+    2026-09-16 the CORS predicate is exact membership of the live registry
+    (`corsOriginAllowed`, `server.ts`), so that schemeless-match branch is no
+    longer reachable at all — the refusal still matters because better-auth's
+    `wildcardMatch` is unchanged.
 
   `validateValue` refuses both shapes (`config-values.ts`), so nothing the CLI
   flag or the dashboard can write reaches either behaviour. It matters
@@ -1213,6 +1225,10 @@ Audit events are written for: `user.create`, `system-key.create`,
 `server.config.update`, `server.restart`, `server.logging.update`, and
 `node.restart`.
 
+Timer- and probe-driven trusted-origin refreshes are observations and write no
+row; the acts that change plugin state (`network.publish|unpublish|leave`,
+`plugin.disable|uninstall`) are the audited events.
+
 Read them with `GET /api/audit?limit=50` (admin).
 
 **Sign-in and sign-out are NOT audited** — the auth flow is a better-auth
@@ -1458,7 +1474,11 @@ from a browser: the port, the bind address, the public base URL, and the
 trusted-origin list. Three of those decide who can reach this instance and from
 where, so an admin session is now enough to widen the network surface — to move
 the bind from loopback to `0.0.0.0`, say — where before it also took filesystem
-access. Changing `APP_BASE_URL` additionally moves better-auth's passkey rpID,
+access. One of the four applies differently, and it narrows rather than widens
+the exposure window: the trusted-origin list is read LIVE by the registry
+(`services/trusted-origins.ts`), so an origins change takes effect on the next
+request with no restart, while port, bind and base URL sit in the file until
+the next boot. Changing `APP_BASE_URL` additionally moves better-auth's passkey rpID,
 so existing passkeys stop working at the old address; the page says so under
 the field, because that consequence is invisible from the form.
 
@@ -1498,7 +1518,12 @@ verbatim (the once-generated `BETTER_AUTH_SECRET` above all), and that the
 audit metadata does not contain the secret. It does not diff the result against
 a file the CLI produced. A key whose value comes from the process environment is refused
 outright (409) rather than written, because a file write the next boot would
-mask is a success report for a change that never happens.
+mask is a success report for a change that never happens. And for
+`TRUSTED_ORIGINS` — the one key that applies live — env-ownership is decided
+once at boot, before any write: on an `EnvironmentFile=` host a post-write
+comparison would misread the file the process itself just rewrote as
+environment-owned, and the registry would ignore the operator's change on the
+platform it is most used on (`productionDeps`, `services/trusted-origins.ts`).
 
 **Not moved, deliberately.** Stop, start, install, uninstall and reset have no
 route. Each leaves the server unreachable, so a page the server serves is the
@@ -1868,26 +1893,21 @@ this project did not write.
   `<host>.<tailnet>.ts.net`, so the NAME becomes public even though the server
   stays private to the tailnet. Stated on the publish button, not discovered
   afterwards.
-- **The address surface widens from a browser**, through §11.11's writer and no
-  other. Publishing adds the new origin to `TRUSTED_ORIGINS`, which is
-  **passkey-neutral**; unpublishing subtracts the origins its own publish
-  added (amended 2026-09-16 — origins have that publish's lifecycle, and
-  an address may stop accepting new sign-ins at the restart while the
-  daemon still answers there, the operator's accepted cost), canonical on
-  both sides — by VALUE, not provenance: an origin the file cannot tell
-  apart from a published one (a hand-added entry equal to a published
-  address) leaves with the publish, and only origins no publish matched
-  survive. For a
-  `publishImplicit` network the join is itself that publish (amended
-  2026-09-16): the join route records and unions through the same writer
-  and audits its own `network.publish` row (`by: join`) — the same act one
-  press earlier, not a new surface. It is
-  all publishing writes: the earlier opt-in promotion of `APP_BASE_URL`
-  was removed on 2026-09-16, and the base URL — which **moves the passkey
-  rpID** (§2, §8) — is changed on the Service page, warned at the field.
-  Writes go through `applyConfig`, so the component validation
-  and the wildcard refusal in §8 apply unchanged, and a key whose source is the
-  process environment is reported as not written rather than silently masked.
+- **The address surface follows the network, not a file** (2026-09-16). A
+  network plugin's addresses are trusted from its RECORD
+  (`services/network/origins.ts`): a `private` network's from membership —
+  `http://<tailnet-ip>:<port>` answers with no publish at all, so joined is
+  the honest scope — and a `public-with-gate` network's only from a record
+  that says `published`, i.e. only once the Access guard is installed.
+  Nothing is written to config.env: until 2026-09-16 a publish unioned its
+  addresses into `TRUSTED_ORIGINS` and an unpublish subtracted them by value,
+  both through §11.11's writer; both writers are gone. Disable, uninstall and
+  leave forget the plugin's contribution. The join-is-the-publish rule for a
+  `publishImplicit` network stands — the join records the publish, which
+  trusts its addresses at once, and audits its own `network.publish` row
+  (`by: join`); it was always the same act one press earlier, not a new
+  surface. None of this touches the passkey rpID: that is `APP_BASE_URL`,
+  changed on the Service page, warned at the field (§2, §8).
   Audit rows (`network.configure`, `network.install`, `network.join`,
   `network.publish`, `network.unpublish`, `network.leave`) name origins and
   field NAMES, never values. **`network.install` is the §11.10-class act in

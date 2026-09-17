@@ -363,7 +363,7 @@ exactly like `GET /api/admin/status`:
 
 | route | |
 | --- | --- |
-| `GET /api/admin/server` | how this server is DEPLOYED, as against `admin/status`, which is what is HAPPENING on it: config.env saved-versus-running, the service manager's answer, the data locations, whether a self-restart is possible |
+| `GET /api/admin/server` | how this server is DEPLOYED, as against `admin/status`, which is what is HAPPENING on it: config.env saved-versus-running, the service manager's answer, the data locations, whether a self-restart is possible — `TRUSTED_ORIGINS` is the exception: it is read live, so `saved === running` for it always |
 | `PATCH /api/admin/server/config` | rewrite config.env through the CLI's own writer (below). `DATABASE_PATH` is deliberately absent — moving the database from a web page is a footgun with no undo |
 | `POST /api/admin/server/restart` | exit for the service manager to respawn |
 | `POST /api/admin/server/autostart` | arm or disarm start-at-login for the installed service. Inside the no-route rule rather than an exception to it: it touches nothing about the running process |
@@ -406,6 +406,28 @@ way — this brings the two into agreement rather than inventing a rule.
 
 **Do not simplify this back to a presence check.** The unit is what makes it
 wrong, and nothing in the type or the call site says so.
+
+### `TRUSTED_ORIGINS` is live, and env-ownership is decided once
+
+The PATCH route rewrites config.env and the registry then RE-READS the key from
+the file (`originRegistry().reloadStored()` in `patch-config.route.ts`), because
+the allowlist is assembled per request rather than frozen at boot — a trusted
+origin that changed takes effect with no restart. Two seams in
+`services/trusted-origins.ts` (`productionDeps`) make that hold on the primary
+Linux deployment:
+
+- **`process.env` is mirrored from the file, but only when the loader had
+  already put it there.** `collectStatus` reads `process.env` first for `saved`,
+  so a live change that left a stale shadow in place would be reported as
+  awaiting a restart — the exact lie this registry removes — and the NEXT PATCH
+  would 409 as environment-owned. An env-owned key is never written; a key the
+  environment never held stays untouched.
+- **Env-ownership is decided ONCE, at construction** — boot, before the
+  listener, where `settingSource` sees env equal to file and the answer is the
+  file's. It cannot be re-asked after a write: on every `EnvironmentFile=` host
+  the file has then changed under an environment that has not, and that
+  comparison reads as "the environment overrides it" — the systemd trap above
+  arriving from the other side.
 
 ### `isSupervised` is the manager's pid, never a marker
 
@@ -735,8 +757,11 @@ Two things about that set are load-bearing and were both bugs first:
   port. A default-port base URL is a PROXY, not a mismatch — warning on
   `https://subshell.example` in front of `:3080` would fire on every correct
   production config.
-- **`TRUSTED_ORIGINS` is written or REMOVED, never written empty**
-  (`OPTIONAL_KEYS` in `commands/configure.ts`). The other four have a built-in
+- **`TRUSTED_ORIGINS` is the OPERATOR's extras — network plugins no longer
+  write it (2026-09-16); their addresses are derived from their records by
+  `services/network/origins.ts` into the live registry.** It is written or
+  REMOVED, never written empty (`OPTIONAL_KEYS` in `commands/configure.ts`).
+  The other four have a built-in
   default worth writing down; this one's built-in default is a non-empty list
   (the dev Vite origins), so a `TRUSTED_ORIGINS=` line would be a
   SETDEFAULT-visible empty value that beats `.env` in the ladder and silently
@@ -763,6 +788,45 @@ while being dead weight. Extend the `localOriginsFor` describe in
 `__tests__/trusted-origins.test.ts` when touching it; `port: 80` and an
 uppercase host are the cases that catch this class.
 
+**The trusted-origin registry.** `services/trusted-origins.ts` owns the live
+allowlist: `localOriginsFor(port, host, baseUrl)` ∪ the operator's
+`TRUSTED_ORIGINS` extras ∪ one canonicalized set per enabled network plugin.
+better-auth calls the registry's function form per request and the CORS plugin
+calls `corsOriginAllowed` (`server.ts`) per request, so a network joined a
+minute ago is trusted without a restart — while the SOURCES stay static:
+nothing is ever derived from a request's Host or Origin (§8's DNS-rebinding
+rule, unchanged). `services/network/origins.ts` is the only writer of the
+plugin sets and derives each one from the plugin's RECORD, never from a status
+in hand: a `private` network's addresses are trusted from `joined` (the tailnet
+address answers with no publish at all, so membership is the honest scope), a
+`public-with-gate` network's only once the record says `published` — i.e. only
+once the Access guard is installed. Disable, uninstall and leave forget a
+plugin's contribution (`forgetNetworkOrigins`). Every address a plugin reports
+passes `canonicalPluginOrigin` — refused if unparseable, if it serializes to
+`"null"`, or if it carries `*`/`?` in the origin component (a `?` there is a
+vendor value truncated at a query separator; pattern characters after the
+authority are path or query, which `URL.origin` discards, so they are not
+refused) — and a refused entry is dropped with a warn, never thrown: a bad
+address costs that plugin one entry, not the allowlist. Boot is three moments
+(`services/network/origin-refresh.ts`): seed from the records BEFORE the
+listener, one probe per enabled plugin once the processes are armed, then the
+same probe every five minutes. That timer is the codebase's ONE deliberate
+exception to "detection is never a timer" (`services/nodes/inventory.ts`,
+`prepare.ts`'s `reportIfDown`), argued at the module: the allowlist is
+consulted on every sign-in by people who will NEVER open the Networking page,
+and the cost is bounded to one memoised `status()` per enabled plugin, skipping
+a supervised plugin whose child is armed. Refreshes are observations, not acts:
+they log at info when the set changes and write NO audit row — the audited
+events are the acts that change plugin state (`network.publish|unpublish|leave`,
+`plugin.disable|uninstall`). And `corsOriginAllowed` is EXACT membership since
+2026-09-16: the server passes its own predicate rather than the plugin's string
+list, which closes the schemeless-entry branch (`box.local:3080` matched both
+schemes through `@elysiajs/cors`' string form) for anything an env var or
+hand-edit still carries. One test fact worth knowing here: better-auth 1.7.1
+SKIPS the origin check under `isTest()` unless `advanced.disableOriginCheck:
+false` is passed, which is why `api/__tests__/live-origins.test.ts` mounts its
+own auth instance rather than reusing `AUTH_OPTIONS`.
+
 **Why the diagnostics live in `status` and not at boot.** Neither refusing nor
 warning at boot works. A throw in `constants.ts` would brick every subcommand,
 `configure` included — the one command that could repair the value, which is
@@ -777,7 +841,10 @@ field that changes it. `originProblem`/`baseUrlProblem` live in
 duplicating it: a `status` that called a value unusable when `configure` would
 accept it (or the reverse) would make the tool look broken instead of the
 config. Wildcards are the deliberate silence — better-auth honours them, so
-flagging one would be a lint against a supported feature.
+flagging one would be a lint against a supported feature. And note what
+`status` answers about: the OPERATOR's key — what a boot WOULD start from. The
+running server's effective list (that key plus every plugin's addresses) is
+`GET /api/settings/public → trustedOrigins`, which is live.
 
 Why the key is asked about at all: `constants.ts` derives the allowlist from
 the port, a CONCRETE `HOST` and the base URL. On the default `0.0.0.0` bind the

@@ -549,10 +549,11 @@ shares and subshell shares are two independent axes:
 
 ## Which addresses a browser may use (`TRUSTED_ORIGINS`)
 
-The allowlist is DERIVED from the instance's own address plus an explicit
-`TRUSTED_ORIGINS` list, and never from the request's own Host — that is the
-DNS-rebinding hole the static list exists to close, and it stays closed. What
-changed is only where the list is reachable FROM: the `subshell-server` CLI
+The allowlist is DERIVED — from the instance's own address, the operator's
+`TRUSTED_ORIGINS`, and each enabled network plugin's self-reported addresses
+for this host (`services/trusted-origins.ts`) — and it is read LIVE, per
+request; never from the request's own Host — that is the DNS-rebinding hole
+the allowlist exists to close, and it stays closed. What changed is only where the list is reachable FROM: the `subshell-server` CLI
 (`--trusted-origins`) since 2026-09-08, and the dashboard's Server Settings →
 Service since 2026-09-12, instead of a hand-edit of config.env. The Subshell
 Server console that first carried the field is gone; its half moved into the
@@ -562,7 +563,7 @@ so the validator below is one narrow point rather than one of several.
 That is a usability fix for a real trap, not a widening: on the default
 `0.0.0.0` bind the derived set is the two loopback spellings, so a phone or a
 LAN hostname sends an `Origin` nothing matches and sign-in dies on 403 "Invalid
-origin" — with nothing naming the key that fixes it. Two properties to keep:
+origin" — with nothing naming the key that fixes it. Properties to keep:
 
 - **Every entry is validated by COMPONENT and stored canonicalized** (scheme
   http(s), a host, no path/query/fragment → store `URL.origin`). Both
@@ -570,15 +571,27 @@ origin" — with nothing naming the key that fixes it. Two properties to keep:
   canonicalizing it writes a config that 403s while reporting success.
   Credentials are refused rather than silently stripped, since `URL.origin`
   drops them.
-- **Wildcards are refused, and that refusal is load-bearing.** Both consumers
-  of this array are looser than the list reads: better-auth routes any entry
-  containing `*`/`?` through `wildcardMatch` (so `https://*` trusts EVERY
-  https origin — measured, 1.7.1), and `@elysiajs/cors` strips the scheme off
-  the incoming `Origin`, making a schemeless entry a scheme-wildcard there.
-  CORS is not a backstop for the first case: it is a browser courtesy, and a
+- **A plugin's addresses are canonicalized and wildcard-refused on the way
+  in** (`canonicalPluginOrigin`), the plugin-side twin of `validateValue`: an
+  entry is refused if it is unparseable, serializes to `"null"`, or carries
+  `*`/`?` in the origin component (a `?` there is a vendor value truncated at
+  a query separator; pattern characters in a path or query are discarded by
+  `URL.origin` and never reach the list). A refused entry is dropped with a
+  warn, never thrown — a plugin's bad address costs that plugin one entry,
+  not the allowlist.
+- **Wildcards are refused, and that refusal is load-bearing.** The list reads
+  stricter than its interpreter: better-auth routes any entry containing
+  `*`/`?` through `wildcardMatch` (so `https://*` trusts EVERY https origin —
+  measured, 1.7.1). `@elysiajs/cors` used to be a second loose consumer — its
+  string branch stripped the scheme off the incoming `Origin`, making a
+  schemeless entry a scheme-wildcard there — until 2026-09-16, when the server
+  began passing its own predicate (`corsOriginAllowed`, exact membership of
+  the live registry); that branch is no longer reachable. CORS is not a
+  backstop for the wildcard case either way: it is a browser courtesy, and a
   non-browser client sends any `Origin` it likes. So `validateValue` is the
-  narrow point that makes "static allowlist" true of everything the CLI flag
-  and the dashboard can write. An env var or a hand-edit still bypasses it. Adding wildcard support would need this section rewritten first.
+  narrow point that makes the static-sources claim true of everything the CLI
+  flag and the dashboard can write. An env var or a hand-edit still bypasses
+  it. Adding wildcard support would need this section rewritten first.
 - **`APP_BASE_URL` is also better-auth's passkey rpID.** Changing it moves
   which host passkeys work on, so an existing passkey stops working on the old
   address — including the Subshell Server desktop app's own window, which is
@@ -640,24 +653,21 @@ code. Full accounting: `docs/security.md` §11.13.
   per-email, which costs nothing under a tunnel today (every request looks like
   127.0.0.1) and is why a per-IP limit added later must read `CF-Connecting-IP`
   behind the guard only.
-- **Publishing widens the address surface through `applyConfig` and nothing
-  else** — §11.11's writer, so the component validation and the wildcard
-  refusal above apply unchanged — and unpublishing now subtracts the origins
-  its own publish added (amended 2026-09-16: origins have that publish's
-  lifecycle, subtracted BY VALUE not provenance — an origin equal to a
-  published address leaves with it — and no kind is exempt: the implicit-publish kind's record and
-  origins strip like every other's, and while its daemon may still answer
-  at its address after a disable, that address stops ACCEPTING sign-ins at
-  the restart, the stated cost (spec § 5.3, reversed 2026-09-16). And for
-  that kind the join IS the publish: the join route records it and unions
-  the origins through the same writer, auditing its own `network.publish`
-  row with `by: join`). `TRUSTED_ORIGINS` is otherwise
-  passkey-neutral, and origins are all a publish writes: the opt-in promotion of
-  `APP_BASE_URL` the publish checkbox carried was removed 2026-09-16 (a
+- **Publishing widens NOTHING in config.env** (2026-09-16). Trust follows the
+  plugin's RECORD by exposure — a `private` network's addresses from `joined`,
+  a `public-with-gate` network's only once `published`, i.e. only once the
+  Access guard is installed (`services/network/origins.ts`) — and a disable,
+  uninstall or leave forgets it. Nothing unions into `TRUSTED_ORIGINS` any
+  more; both the publish-union and the unpublish-subtraction writers are gone,
+  so the earlier by-value subtraction rule has nothing to apply to. For a
+  `publishImplicit` network the join IS still the publish: it records the
+  publish — which trusts its addresses at once — and audits its own
+  `network.publish` row with `by: join`. `TRUSTED_ORIGINS` is
+  passkey-neutral, and origins are all a publish touches: the opt-in promotion
+  of `APP_BASE_URL` the publish checkbox carried was removed 2026-09-16 (a
   checkbox moving the passkey rpID sat in a flow about reaching the server,
   not about identity). The base URL is changed on the Service page, where it
-  still MOVES the rpID and the field says so. A key sourced from `process env` reports
-  `written:false` rather than a write the next read would mask. Audit rows
+  still MOVES the rpID and the field says so. Audit rows
   (`network.configure|install|join|publish|unpublish|leave`) name origins and
   field
   NAMES, never values.
@@ -825,9 +835,11 @@ an admin it is every subshell on the instance — so the filter is load-bearing.
 ## CORS
 
 Permissive CORS is acceptable **only** because the service is not exposed to the public
-internet. The allowlist is a **static** one: the instance's own origins (both loopback
-spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin) are derived at
-boot and `TRUSTED_ORIGINS` adds to them — the dev Vite server comes from there. It is
+internet. The allowlist has **static sources and a live read**: assembled on demand from
+the same three sources — the instance's own origins (both loopback
+spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin), the operator's
+`TRUSTED_ORIGINS` (the dev Vite server comes from there), and each enabled network
+plugin's recorded addresses for this host. It is
 deliberately NOT "trust the origin that matches the request host": that is the
 DNS-rebinding hole the allowlist exists to close.
 
