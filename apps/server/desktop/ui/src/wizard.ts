@@ -3,12 +3,14 @@
  * and one screen at a time.
  *
  * It owns everything that has to render with the server DOWN — the first run
- * (Welcome, Install tmux, Set Up Your Server), the one Recovery screen a
- * machine sees once it has been set up and its server is not answering, the
- * Update screen, and Reset — and it is the only page granted the commands
- * that drive the CLI. `screensFor(probe, onboarded)` picks the family;
- * `update` and `reset` are entered by REQUEST, from the SPA's own cards over
- * `desktop_open_assistant` or from the recovery footer.
+ * (spec 2026-09-17: one automatic screen, with the named tmux stop in front
+ * of it only where tmux is missing), the one Recovery screen a machine sees
+ * once it has been set up and its server is not answering, the Update screen,
+ * and Reset — and it is the only page granted the commands that drive the
+ * CLI. `screensFor(probe, onboarded)` picks the family; `update`,
+ * `app-update`, `permissions` and `reset` are entered by REQUEST, from the
+ * SPA's own cards over `desktop_open_assistant`, from the tray, or from the
+ * recovery screen's links.
  *
  * DOM only. Every judgment is imported from `lib/wizard-state.ts` and
  * `lib/recovery-model.ts`, both pure and tested without a webview, and every
@@ -18,6 +20,7 @@
  * is trying to repair.
  */
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { copyButton } from "./assistant/copy-button";
 import { type AssistantHost, el, errText } from "./assistant/host";
@@ -42,10 +45,10 @@ import { type PermissionRequest, permissionRows } from "./lib/permissions-model"
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
   applySupervisionChoice,
+  autoSetupDecision,
   autostartSupported,
   canSetup,
   DEFAULT_SUPERVISION,
-  dots,
   failureLine,
   handoffView,
   isRequestedScreen,
@@ -121,14 +124,16 @@ let handedOff = false;
 /** Which manager's instructions the tmux screen is showing, or null for none yet. */
 let manualRoute: ManualRoute["target"] | null = null;
 /**
- * The setup chain ran to completion in THIS window, so the ready screen owes
- * the person its result rather than vanishing into the dashboard. Page state
- * on purpose: `probe.onboarded` cannot answer it, since the probe sets that
- * flag on the very first `ready` it sees.
+ * The setup chain has fired itself once in THIS window load (spec
+ * 2026-09-17 § 4.2). One fire per load: the poll re-renders the setup screen
+ * twice a second, and a chain re-entered on every tick would be a new chain
+ * attempt per tick if the first were ever to fall out of `running` without a
+ * `failure` set. A reload after a crash re-fires, and the chain is idempotent
+ * (`already_installed` compares size and version, `service install` no-ops on
+ * an existing unit), so a half-finished first run resumes rather than
+ * duplicating.
  */
-let ranSetupHere = false;
-/** They pressed Continue on that screen. */
-let continued = false;
+let autoFired = false;
 /**
  * A request of ours is in flight — macOS's own sheet is up.
  *
@@ -213,8 +218,10 @@ let portAsked: string | null = null;
  * title, and the box they sat in cost 124px of a frame that is now 620px
  * tall. They were decorative by construction (`aria-hidden`, and the title
  * under each said the same thing in words), so they were 124px spent on
- * repeating the heading. The wordmark stays: Welcome is where the product
- * names itself, and it is the one screen whose art is doing work.
+ * repeating the heading. The wordmark stays for the boot frame: before the
+ * first probe answers there is nothing to say but who is speaking. (Welcome
+ * itself left with spec 2026-09-17 — the first run now names itself by
+ * firing.)
  *
  * Fixed set, inline, because the CSP allows no remote images.
  */
@@ -252,35 +259,6 @@ function text(tag: "p" | "span" | "div", s: string, cls = ""): HTMLElement {
   n.textContent = s;
   n.className = cls;
   return n;
-}
-/**
- * Empty the dot row.
- *
- * A screen entered by REQUEST is not a step on a journey, and `#dots` is
- * outside the `clear()` at the top of `render` — so a screen that simply did
- * not draw a row would leave the last one up, under a title it has nothing to
- * do with.
- */
-function clearDots(): void {
-  el("dots").textContent = "";
-}
-function renderDots(): void {
-  const d = el("dots");
-  d.textContent = "";
-  if (probe === null || screen === null) return;
-  const { total, done, current } = dots(probe, screen);
-  // Recovery, Update and Reset are not steps on a journey, so there is no row
-  // at all rather than a row of six empties. `dots` answers -1 for them.
-  if (current < 0) return;
-  const row = document.createElement("span");
-  row.setAttribute("aria-hidden", "true");
-  row.style.display = "contents";
-  for (let i = 0; i < total; i += 1) {
-    const dot = document.createElement("i");
-    dot.className = i === current ? "current" : i < done ? "done" : "";
-    row.append(dot);
-  }
-  d.append(row, text("span", `Step ${current + 1} of ${total}`, "sr-only"));
 }
 /**
  * Where this app is running, in prose. ONE string on both platforms
@@ -330,16 +308,12 @@ const resetView = createResetView(host);
 const tmuxWarn: TmuxWarning = buildTmuxWarning(host, () => void act(() => ipc.installTmux()));
 
 // Screens. Each fills #content and the bar; ordering comes from screensFor.
+//
+// Welcome is GONE (spec 2026-09-17 D1). It announced what the setup chain
+// would do, and the chain now does it on sight — the progress checklist that
+// used to follow the announcement is the first screen, and it names each act
+// as it happens, which is the announcement, at the moment it is true.
 // ---------------------------------------------------------------------------
-function renderWelcome(): void {
-  setFrame(
-    "icon",
-    "Welcome to Subshell",
-    `Subshell runs agent sessions in terminal panes you can watch from any device. Let's set up the server on ${here()}.`,
-  );
-  el("bar-right").append(button("Continue", () => go(next()), "primary"));
-}
-
 /**
  * Redraws the install screen once a second while it runs.
  *
@@ -401,32 +375,24 @@ function installProgress(): HTMLElement {
   return box;
 }
 
+/**
+ * The one stop on the zero-touch first run (spec 2026-09-17 D2) — and it is
+ * only ever reached with tmux MISSING. `screensFor` puts this screen on the
+ * list exactly while `probe.tmux` is null, so there is no "already installed"
+ * state to render and no Continue to press: the moment the poll sees a tmux,
+ * the list stops containing this screen, `render()` re-resolves to `setup`,
+ * and the chain fires itself. That advance is the whole point — the screen
+ * that used to be shown on every first run needed the Continue its now-gone
+ * found-state carried; this one leaves by itself.
+ */
 function renderTmux(p: Probe): void {
-  const found = prereqState(p) === "found";
-  // ONE title in both states. It was "tmux Is Ready" when tmux was already
-  // there, which answered a question nobody asked and raised the one they
-  // did — a panel announcing something is ready reads as a result, leaving
-  // "so why am I being shown this?". The title names the STEP, which is the
-  // same step on every machine; whether there is anything to do is what the
-  // content below says.
+  // The title names the STEP, not a result — a panel announcing something is
+  // ready reads as a verdict on a question nobody asked (2026-09-12), and
+  // every machine reaching this screen is at the same step: get tmux.
   setFrame("none", "Install tmux", "Every subshell runs in a tmux pane, so the server needs it before it can start.");
   const content = el("content");
   const plan = tmuxInstallPlan(p.platform, p.hasBrew);
-  const installing = busy && prereqState(p) === "install" && plan.kind === "run";
-  // The screen a machine that ALREADY has tmux now sees. It used to be
-  // skipped outright, which satisfied the dependency invisibly and left a
-  // gap in the dots; saying so costs one Continue and is the only place the
-  // person is told what tmux is for.
-  if (found) {
-    // The checklist's own done-mark, so "installed" looks the same wherever
-    // this app says it. No path: which file answered is a fact for Settings,
-    // not an answer to "do I need to do anything here" — and a monospace
-    // path was the widest thing on a screen whose message is one word.
-    const row = document.createElement("p");
-    row.className = "tmux-ready";
-    row.append(text("span", "✓", "glyph"), text("span", "Already installed on this machine", "label"));
-    content.append(row);
-  } else if (prereqState(p) === "install" && plan.kind === "run") {
+  if (prereqState(p) === "install" && plan.kind === "run") {
     if (busy) {
       content.append(installProgress());
     } else {
@@ -496,15 +462,14 @@ function renderTmux(p: Probe): void {
       if (chosen !== undefined) content.append(manualRouteSteps(chosen));
     }
   }
-  el("bar-left").append(button("Back", () => go("welcome"), "ghost", installing));
-  // NO reason text beside Continue. This screen carries a hardcoded "Waiting
-  // for tmux", which read the same during the install it had itself started —
-  // a sentence about the PERSON at the one moment the app was the one
-  // working. Making it say "Installing…" instead only moved the problem: the
-  // pane above already says that, with a spinner, a clock and the package
-  // manager's own words. A disabled button next to a label repeating the
-  // screen is the screen saying it twice.
-  el("bar-right").append(button("Continue", () => found && go(next()), "primary", !found));
+  // NO bar, and that is structural rather than spare: there is nowhere to go
+  // BACK to (this is the first screen a first run shows), and no CONTINUE to
+  // press — the screen leaves the moment tmux exists, which is the answer
+  // Continue used to gate. A press that could only say "I checked and it is
+  // still not there" is what the poll is for. (The old "Waiting for tmux"
+  // reason text beside Continue read the same during the install the app had
+  // itself started; the pane above already says that, with a spinner, a clock
+  // and the package manager's own words.)
 }
 
 /**
@@ -706,10 +671,33 @@ function renderSetup(p: Probe): void {
     renderFailure(p);
     return;
   }
+  // --- Auto-fire (spec 2026-09-17 § 4.2). ---------------------------------
+  // The ordinary first run never shows this screen's question: the chain
+  // fires itself and the progress checklist is the first thing on screen.
+  // Two things must be true before the fire that the pure decision cannot
+  // see, and both belong to the render rather than to `autoSetupDecision`:
+  //
+  // * the port answer must be IN. The check is a round trip and the decision
+  //   treats "unknown" as free (that is what keeps a Set Up button from
+  //   dying for a beat per keystroke), but firing on an unmeasured port would
+  //   send a machine whose port is busy into a failed chain when § 4.3 wants
+  //   it the pre-filled form with the conflict warning. `checkPort`'s own
+  //   resolution re-renders, and that render is where the fire happens.
+  // * `autoFired` must be clear — one fire per load. A failure is NOT
+  //   re-fired (the `failure` branch above returns first); the human presses
+  //   Try Again, because a chain that already failed once and re-runs
+  //   itself twice a second is the bug, not the feature.
+  const conflict = portConflict(p);
+  const portKnown = portCheck !== null && portCheck.port === chosenPort(p);
+  if (!autoFired && portKnown && autoSetupDecision(p, conflict, busy || running).mode === "fire") {
+    autoFired = true;
+    void startSetup();
+    return; // startSetup renders the progress screen synchronously
+  }
+  // --- The form: the § 4.3 fallback (port conflict, no bundled server). ---
   setFrame("none", SETUP_TITLE, `Choose how the server runs on ${here()}.`);
   const content = el("content");
   content.append(dashboardLine(p));
-  const conflict = portConflict(p);
   // Above the question, not beside the button: it is the reason the screen
   // cannot be completed, and a reader who starts at the top should meet it
   // before choosing how a server they cannot start yet ought to run.
@@ -736,10 +724,12 @@ function renderSetup(p: Probe): void {
     links.append(button("Choose an existing server…", () => void pickBinary(), "linkish"));
   content.append(links);
   if (customizeOpen) content.append(addressForm(p));
+  // No Back: this is the first screen a machine without tmux trouble ever
+  // shows, and the form is the whole screen, not a step with a step before
+  // it. The gate and button stay because the fallback path is walked by hand:
+  // whoever lands here because the port was busy fixes the port under
+  // Customize, and only they can say when the port is theirs to take.
   const gate = canSetup(p, busy, conflict);
-  const list = screensFor(p, false);
-  const prev = list[Math.max(0, list.indexOf("setup") - 1)] ?? "welcome";
-  el("bar-left").append(button("Back", () => go(prev), "ghost"));
   if (!gate.ok && gate.reason) el("bar-right").append(text("span", gate.reason, "reason"));
   el("bar-right").append(button("Set Up", () => void startSetup(), "primary", !gate.ok));
 }
@@ -864,7 +854,9 @@ function renderProgress(p: Probe): void {
 
 /**
  * The last screen either family sees: the server answers, so the dashboard is
- * what comes next and this window has nothing left to say.
+ * what comes next and this window has nothing left to say. It no longer waits
+ * for a press (spec 2026-09-17 § 4.2) — see {@link handoffView} for why the
+ * press it waited for is gone.
  *
  * The title differs because the sentence does. A first run is finishing; an
  * onboarded machine whose server just came back was never setting anything
@@ -887,26 +879,9 @@ function renderHandoff(p: Probe): void {
     );
     return;
   }
-  const view = handoffView({ onboarded: p.onboarded, ranSetupHere, continued });
+  const view = handoffView({ onboarded: p.onboarded });
   setFrame("none", view.title, view.subtitle);
-  if (!view.wait) {
-    openWhenReady();
-    return;
-  }
-  // The checklist stays on screen, every row ticked. It is the answer to
-  // "what did that just do", and on a machine that already had everything it
-  // is the only chance to read it.
-  el("content").append(checklist(p, "active"));
-  el("bar-right").append(
-    button(
-      "Continue",
-      () => {
-        continued = true;
-        render();
-      },
-      "primary",
-    ),
-  );
+  openWhenReady();
 }
 
 /**
@@ -1041,38 +1016,17 @@ function detailsDisclosure(): HTMLElement {
     details.append(text("p", "Last action", "group-heading"), out);
   }
 
-  // What this APP is, which no other surface can answer on a machine whose
-  // server is down: the SPA's About dialog needs the SPA, and the SPA needs
-  // the server this screen exists because of. Every string is Rust's copy of
-  // the shared legal constants, so the page stores none of them.
+  // The About block is gone (spec 2026-09-17 D6) — the terms, copyright and
+  // the three links now live in the OS-standard About panel under the app
+  // menu, which is where a person looks for them and where they crowd nothing.
+  // What stays is the ONE fact that belongs HERE rather than there: the app's
+  // version, sitting beside the server log a person is about to paste into a
+  // bug report. It is also the only version no other surface knows on a
+  // machine whose server is down — the SPA's About dialog needs the SPA.
+  // The string is Rust's copy of the legal constants (`desktop_about`); the
+  // page stores none of them.
   if (about !== null) {
-    const facts = document.createElement("dl");
-    facts.className = "facts";
-    for (const [label, value] of [
-      ["This app", `${about.appName} ${about.appVersion}`],
-      ["Terms", about.licenseSummary],
-      ["Copyright", about.copyright],
-    ]) {
-      const dt = document.createElement("dt");
-      dt.textContent = label as string;
-      const dd = document.createElement("dd");
-      dd.append(text("span", value as string, ""));
-      facts.append(dt, dd);
-    }
-    details.append(text("p", "About", "group-heading"), facts);
-    const links = document.createElement("p");
-    links.className = "about-links";
-    // A member of a CLOSED enum, never a URL: the same addresses travel here
-    // for display, and showing an address is a different capability from
-    // navigating to one.
-    for (const [label, target] of [
-      ["Website", "website"],
-      ["Licence", "license"],
-      ["Publisher", "company"],
-    ] as const) {
-      links.append(button(label, () => void ipc.openWeb(target).catch(setProblem), "linkish"));
-    }
-    details.append(links);
+    details.append(text("p", `This app — ${about.appName} ${about.appVersion}`, "detail"));
   }
   return details;
 }
@@ -1240,13 +1194,36 @@ function renderAppUpdate(): void {
   el("bar-left").append(button("Back", () => host.close(), "ghost"));
   if (appUpdateState !== "installing") {
     el("bar-right").append(button("Check Again", () => void runAppUpdateCheck(true), "ghost"));
+    // **Later** (spec 2026-09-17 § 5.4): the update stays exactly where it
+    // is, and so does this window's part in remembering it — no state, no
+    // snooze. The dismissal that DOES exist lives per app run in the SPA
+    // row's sessionStorage, and the tray item is not dismissed away at all:
+    // it is a request surface, not a notification. Hidden while installing,
+    // because closing this page's window out from under a running download
+    // is how the app would quit mid-update.
+    el("bar-right").append(button("Later", () => void closeAssistantWindow(), "ghost"));
   }
 }
 
 /**
- * **What macOS Will Ask** (spec 2026-09-14 § 3) — the macOS-only first-run
- * screen between Install tmux and Set Up, and the screen every detection
- * notice in the dashboard sends people back to.
+ * Close this window through the Tauri core window API — the one page action
+ * that is about the WINDOW rather than the machine, which is why it goes
+ * around `lib/ipc.ts`: the exact-set pins there are about the `desktop_*`
+ * commands, and this invokes no command of ours. The grant lives in
+ * `capabilities/wizard.json` (`core:window:allow-close`), and
+ * `ipc-acl.test.ts` pins the wizard window's core grants to exactly
+ * `core:default` plus it.
+ */
+function closeAssistantWindow(): void {
+  void getCurrentWindow().close().catch(setProblem);
+}
+
+/**
+ * **What macOS Will Ask** (spec 2026-09-14 § 3) — entered by REQUEST only,
+ * since spec 2026-09-17 (D3) took it off the first run. The dashboard's
+ * detection notices are now the only door, and it is the better one: the
+ * screen appears when a permission is actually missing, next to the notice
+ * that says so, rather than four screens before anything needs one.
  *
  * It exists because macOS asks each of these exactly ONCE, unannounced, and
  * attributes some of them to a binary the person never typed. Declining is one
@@ -1255,18 +1232,14 @@ function renderAppUpdate(): void {
  * picker, an image that does not attach — with nothing anywhere saying why.
  * Saying it first is the cheapest fix there is.
  *
- * **Nothing here blocks.** Continue is live in every state: declining is a
- * legitimate answer, and this screen is also the way back from one, so gating
- * the flow on an allow would make the recovery path unreachable from the only
- * place that offers it.
- *
- * @param requested - raised from the dashboard rather than reached on the
- *   journey. It changes the BAR and nothing else: Back closes the screen
- *   instead of stepping back, and there is no Continue, exactly as the
- *   supervision screen does. The caller decides it from whether the probe's
- *   own family already holds this screen, so there is no second flag to drift.
+ * **Nothing here blocks.** Every row answers in its own state and no Continue
+ * gates anything: declining is a legitimate answer, and this screen is also
+ * the way back from one, so gating the flow on an allow would make the
+ * recovery path unreachable from the only place that offers it. Back closes
+ * the screen for whatever the probe implies, exactly as the supervision
+ * screen's does.
  */
-function renderPermissions(p: Probe, requested: boolean): void {
+function renderPermissions(p: Probe): void {
   setFrame("none", "What macOS Will Ask", "Three things, each once. Here is what they are for.");
   const content = el("content");
   const ul = document.createElement("ul");
@@ -1303,17 +1276,7 @@ function renderPermissions(p: Probe, requested: boolean): void {
     ul.append(li);
   }
   content.append(ul);
-  if (requested) {
-    el("bar-left").append(button("Back", () => host.close(), "ghost"));
-    return;
-  }
-  const list = screensFor(p, false);
-  const prev = list[Math.max(0, list.indexOf("permissions") - 1)] ?? "welcome";
-  el("bar-left").append(button("Back", () => go(prev), "ghost"));
-  // NO text beside Continue. Every row carries its own state, and a reason
-  // beside the button is this app's way of saying a press would not work —
-  // which is never true here.
-  el("bar-right").append(button("Continue", () => go(next()), "primary"));
+  el("bar-left").append(button("Back", () => host.close(), "ghost"));
 }
 
 /**
@@ -1648,14 +1611,6 @@ function resetForm(): void {
 // ---------------------------------------------------------------------------
 // Navigation, actions, render, poll
 // ---------------------------------------------------------------------------
-function next(): ScreenId {
-  if (probe === null || screen === null) return screen ?? "welcome";
-  // The first-run family: this is the Continue button's forward step, and
-  // only the first run has one — recovery is a single screen and the two
-  // requested screens are entered by name.
-  const list = screensFor(probe, false);
-  return list[Math.min(list.length - 1, list.indexOf(screen) + 1)] ?? screen;
-}
 /**
  * Restarts the screen's entrance animation: `.enter`'s `animation` only fires
  * on insertion, so a class already present needs a forced reflow between
@@ -1767,11 +1722,6 @@ async function startSetup(): Promise<void> {
   } catch (err) {
     problem = errText(err);
   } finally {
-    // A chain that ran here earns the ready screen a button (see
-    // `handoffView`). Recorded even when the settle loop timed out: the
-    // person still pressed Set Up and still deserves to be shown where it got
-    // to, rather than the window deciding on their behalf.
-    if (result?.ok) ranSetupHere = true;
     // CLEARED LAST, after the settle loop — not the moment `setup` returns.
     // `running` is what holds the progress screen up, and `renderSetup` falls
     // back to the CONFIG screen without it. Clearing it early left up to
@@ -1815,7 +1765,6 @@ function render(): void {
     return;
   }
   if (probe === null) {
-    renderDots();
     setFrame("icon", "Welcome to Subshell", "Checking this machine…");
     return;
   }
@@ -1824,8 +1773,9 @@ function render(): void {
   // is the rule `isRequestedScreen` states beside `screensFor`. The SPA
   // deep-links here on a machine whose server is running (Update from its
   // card, Reset from its danger card, Permissions from any of the detection
-  // notices), and the ready handoff below would otherwise send the window
-  // straight back to the dashboard it was just asked to leave.
+  // notices), the tray opens the app-update screen, and the ready handoff
+  // below would otherwise send the window straight back to the dashboard it
+  // was just asked to leave.
   //
   // `update` draws itself here. `reset` does not: its screen replaces the
   // frame from `resetView` at the top of this function. Since `open()` shows
@@ -1835,31 +1785,23 @@ function render(): void {
   // "a requested screen outranks the probe's family", which should not have
   // to be re-derived if `open()` ever awaits again.
   const list = screensFor(p, p.onboarded);
-  // `permissions` is the one screen that is BOTH requestable and a step on the
-  // macOS first run, so "was this asked for?" cannot be read off the screen id
-  // alone. It is read off the probe's own family instead: a machine that can
-  // ASK for this screen is onboarded, and an onboarded machine's list is
-  // `recovery` or empty — so a screen the list already holds is one the person
-  // walked to. One source, and no second flag to fall out of step with the
-  // Rust enum the way the requested-screen routing itself once did.
-  if (isRequestedScreen(screen) && !list.includes(screen)) {
-    // A requested screen is not a step on a journey, so the dot row is emptied
-    // rather than drawn. `dots` answers -1 for update, reset and supervision
-    // and the renderer hides on that — but `permissions` HAS a position on
-    // macOS, and it is the wrong one to show over a screen nobody stepped to.
-    clearDots();
+  // No screen is BOTH requestable and a journey step since spec 2026-09-17
+  // took `permissions` off the first run, so the request alone routes — the
+  // `!list.includes(screen)` disambiguation this call site used to carry has
+  // nothing left to disambiguate.
+  if (isRequestedScreen(screen)) {
     if (screen === "update") renderUpdate(p);
     if (screen === "app-update") {
       // The check is kicked off from the render rather than from the routing,
-      // because both doors — the tray item and the SPA's deep link — arrive
-      // through `screen`, and a second place that started it is a second place
-      // to forget. `runAppUpdateCheck(false)` is a no-op once an answer
-      // exists, so the poll's re-renders cost nothing.
+      // because every door — the tray item on both of its labels and the
+      // SPA's deep link — arrives through `screen`, and a second place that
+      // started it is a second place to forget. `runAppUpdateCheck(false)` is
+      // a no-op once an answer exists, so the poll's re-renders cost nothing.
       void runAppUpdateCheck(false);
       renderAppUpdate();
     }
     if (screen === "supervision") renderSupervision(p);
-    if (screen === "permissions") renderPermissions(p, true);
+    if (screen === "permissions") renderPermissions(p);
     return;
   }
   if (list.length === 0) {
@@ -1873,36 +1815,31 @@ function render(): void {
       screen = null;
       replayEnter();
     }
-    renderDots();
     renderHandoff(p);
     return;
   }
   handedOff = false;
-  // NO auto-advance off the tmux screen. It used to jump to `setup` the
-  // moment `p.tmux` was non-null, which was a SECOND skip independent of
-  // `screensFor` — so the step stayed invisible on a machine that already had
-  // tmux even after the list stopped filtering it, and Back from `setup` was
-  // dead: `go("tmux")` set the screen and the next render bounced it straight
-  // back. The screen has a real installed state now (a done-mark and an
-  // enabled Continue), which is also the confirmation a two-minute install
-  // deserves rather than the screen vanishing out from under it.
-  // Resolve `null`, and correct a screen the probe no longer offers: a
-  // machine that finishes its first run becomes onboarded, and "setup" is not
-  // on the recovery family's list.
-  if (screen === null || !list.includes(screen)) screen = list[0] ?? "welcome";
-  renderDots();
-  type JourneyScreen = "welcome" | "tmux" | "permissions" | "setup" | "recovery";
+  // Resolve `null`, and correct a screen the probe no longer offers. This one
+  // re-resolution IS the tmux advance now, and the only one: `screensFor`
+  // holds `tmux` exactly while it is missing, so the render that first sees a
+  // tmux finds `tmux` no longer on the list, lands on `setup`, and the chain
+  // fires. It used to be a second, independent auto-jump inside this function
+  // — the defect was never the advancing, it was advancing by a rule the
+  // screen list could not see and Back could not survive. A machine that
+  // finishes its first run becomes onboarded, and "setup" is not on the
+  // recovery family's list; same mechanism, same correction.
+  if (screen === null || !list.includes(screen)) screen = list[0] ?? "setup";
+  type JourneyScreen = "tmux" | "setup" | "recovery";
   const views: Record<JourneyScreen, () => void> = {
-    welcome: renderWelcome,
     tmux: () => renderTmux(p),
-    permissions: () => renderPermissions(p, false),
     setup: () => renderSetup(p),
     recovery: () => renderRecovery(p),
   };
-  // `screen` is one of the five by construction — `list` only ever holds
-  // those — and the fallback exists so a family added later is a Welcome
-  // screen rather than a blank window on a machine someone is repairing.
-  (views[screen as JourneyScreen] ?? renderWelcome)();
+  // `screen` is one of the three by construction — `list` only ever holds
+  // those — and the fallback exists so a family added later is the screen
+  // that diagnoses rather than a blank window on a machine someone is
+  // repairing.
+  (views[screen as JourneyScreen] ?? (() => renderRecovery(p)))();
 }
 
 async function refresh(): Promise<void> {

@@ -650,9 +650,13 @@
   .assistant-content:empty {
     display: none;
   }
+  /* Two columns now that the dot row is gone (spec 2026-09-17 § 4.1): the
+     wide left track pushes `#bar-right` to the frame edge whether or not
+     `#bar-left` holds anything, which the three-track row used the middle
+     `auto` for. */
   .assistant-bar {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: 1fr auto;
     align-items: center;
     padding: 0 32px;
     border-top: 1px solid var(--border);
@@ -752,70 +756,11 @@
     color: var(--muted-foreground);
     text-wrap: balance;
   }
-  /* One row of names, not a stack of URLs: three addresses side by side are
-     unreadable at any width, and here the address is a means rather than the
-     content. */
-  .about-links {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: baseline;
-    gap: 0 8px;
-    margin: 16px 0 0;
-  }
-  /* A single class declared AFTER `.linkish`, not `.about-links .linkish` —
-     same specificity, later wins, and the descendant form would have been a
-     higher-specificity rule sitting above the one it overrides. The `.hint` /
-     `.warn-text` pair above keeps the same discipline for the same reason. */
-  .about-link {
-    padding: 0;
-    color: var(--foreground);
-  }
-  .about-sep {
-    color: var(--border);
-  }
-  .about-license {
-    margin: 24px 0 0;
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    color: var(--muted-foreground);
-  }
-  .about-copyright {
-    margin: 4px 0 0;
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    color: var(--muted-foreground);
-  }
+  /* The About block's styles are gone with the block (spec 2026-09-17 D6):
+     terms, copyright and the three links now live in the OS-standard About
+     panel under the app menu, which ships its own chrome. What stays in
+     Details is one `.detail` line, and `.detail` was already here. */
 
-  /* Dots: not interactive (aria-hidden; an sr-only "Step N of M" sits beside them). */
-  .assistant-dots {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .assistant-dots i {
-    display: block;
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--border);
-  }
-  .assistant-dots i.done {
-    background: var(--primary);
-  }
-  .assistant-dots i.current {
-    background: var(--primary);
-    width: 10px;
-    height: 10px;
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
   /* What-will-happen rows (Set Up) and the checklist (Setting Up). */
   .checklist {
     list-style: none;
@@ -978,18 +923,9 @@
     text-align: right;
     overflow-wrap: anywhere;
   }
-  /* The tmux screen's installed row: centred like the title above it, and
-     wearing the checklist's done-mark rather than a second visual language
-     for the same idea. */
-  .tmux-ready {
-    margin: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-  }
+  /* The tmux screen's "Already installed" row went with the always-shown tmux
+     screen (spec 2026-09-17 D2): the screen now exists only while tmux is
+     missing, so there is no found-state to style. */
   /* The two ways out of a Mac with no package manager, side by side. Each is
      an ordinary button — the default look, not the ghost one, which reads as
      a link and did not say it could be pressed. No commands are shown at all:
@@ -1069,19 +1005,16 @@
     line-height: var(--text-label--line-height);
   }
   /* The row's text takes `.label` as-is — 15px/600 on full-strength
-     foreground, the same as the done-mark row beside it on the machines that
-     already have tmux. It was briefly toned down to regular muted, on the
-     argument that a status should not outweigh the instruction under it;
-     matching the `.tmux-ready` row it alternates with won (operator's call,
-     2026-09-14), and the two states of one screen now look like two states of
-     one thing. */
+     foreground. It was briefly toned down to regular muted, on the argument
+     that a status should not outweigh the instruction under it; the full
+     label won (operator's call, 2026-09-14), sized like the done-marks the
+     checklist wears for the same idea. */
   .tmux-checking .glyph {
     border: 2px solid var(--primary);
     border-right-color: transparent;
   }
   .checklist .glyph,
-  .tmux-checking .glyph,
-  .tmux-ready .glyph {
+  .tmux-checking .glyph {
     width: 20px;
     height: 20px;
     display: inline-flex;
@@ -1094,8 +1027,7 @@
   .checklist li[data-state="pending"] .glyph {
     border: 1.5px solid var(--border);
   }
-  .checklist li[data-state="done"] .glyph,
-  .tmux-ready .glyph {
+  .checklist li[data-state="done"] .glyph {
     background: var(--success);
     color: var(--primary-foreground);
   }

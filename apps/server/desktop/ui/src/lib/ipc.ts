@@ -2,13 +2,17 @@
  * The typed edge of the IPC boundary — one function per `desktop_*` command
  * THIS page can invoke.
  *
- * `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify` and
- * `desktop_permissions` are deliberately absent: those four belong to the
- * `main` window, whose page is the SERVER's own SPA and reaches them through
- * its own bridge (`apps/server/web/src/lib/desktop.ts`, which reads
- * `window.__TAURI__`). A wrapper here for a command this page never calls
- * would break the exact-set pin below by describing a surface the assistant
- * does not have.
+ * `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`,
+ * `desktop_permissions` and `desktop_app_update` are deliberately absent:
+ * those belong to the `main` window, whose page is the SERVER's own SPA and
+ * reaches them through its own bridge (`apps/server/web/src/lib/desktop.ts`,
+ * which reads `window.__TAURI__`). `desktop_app_update` (spec 2026-09-17
+ * § 5.3) is the newest — the SPA's update row asks it once per page load —
+ * and the assistant has no use for it: the app-update screen runs its own
+ * live check through `desktop_check_app_update`, which is a different
+ * question (the release list, not the settings file). A wrapper here for a
+ * command this page never calls would break the exact-set pin below by
+ * describing a surface the assistant does not have.
  *
  * `desktop_permissions` is the newest of the four and the one that might look
  * like an omission, so: this page does not need it. Both permission states
@@ -32,8 +36,9 @@
  * 2. The **command names** are pinned by `__tests__/ipc-acl.test.ts`, which
  *    reads `src-tauri/permissions/desktop.toml` and the two capability files
  *    and asserts the set granted to `wizard` is exactly the set this page
- *    invokes, and that `main` still holds exactly its five commands — four
- *    harmless, plus the argued `desktop_set_supervision` exception. A name that appears in only two of the three places is a
+ *    invokes, and that `main` still holds exactly its seven commands — six
+ *    that cannot touch the machine, plus the argued `desktop_set_supervision`
+ *    exception. A name that appears in only two of the three places is a
  *    runtime permission rejection, not a compile error.
  * 3. The **step union** is derived from `ProbeStep`'s serde values; a step
  *    this build has never heard of is the render path's problem, not a type
