@@ -4,18 +4,36 @@ import { Elysia } from "elysia";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { installScriptRoute } from "@/api/install-script.js";
 import { routes } from "@/api/routes.js";
-import { TRUSTED_ORIGINS } from "@/constants.js";
 import { EMBEDDED } from "@/generated/embedded-web.js";
 import { accessGuardPlugin } from "@/plugins/access-guard.plugin.js";
 import { authPlugin } from "@/plugins/auth.plugin.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { selectStaticPlugin } from "@/plugins/static.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 import { logger } from "@/utils/logger.js";
 import { wsPlugin } from "@/ws/ws.plugin.js";
 
 /** Built SPA served by Elysia (prod single-port model). Relative to dist/ */
 const FRONTEND_DIST = new URL("../../web/dist", import.meta.url).pathname;
+
+/**
+ * The CORS predicate: exact membership of the request's `Origin` in the live
+ * registry. `@elysiajs/cors` 1.4.2 calls a function `origin` with the raw
+ * `Request` (`dist/index.mjs`, `origin2(request) === true`) and on `true`
+ * echoes that header back with `vary: Origin`. Exported so the integration
+ * test mounts the very predicate the app runs, not a copy.
+ *
+ * Exact match on purpose. The plugin's own string branch also accepted a
+ * SCHEMELESS entry by stripping the scheme off the incoming header — which
+ * made `box.local:3080` a scheme wildcard there (security-context.md). The
+ * operator writer already refuses schemeless entries; this closes the branch
+ * for anything an env var or hand-edit still carries.
+ */
+export function corsOriginAllowed(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  return origin !== null && originRegistry().has(origin);
+}
 
 export function createApp() {
   const app = new Elysia()
@@ -32,7 +50,7 @@ export function createApp() {
     // `response` maps can reference them by name; named plugin, so per-route
     // `.use(apiModels)` calls (test-isolated instances) dedupe to this one.
     .use(apiModels)
-    .use(cors({ origin: TRUSTED_ORIGINS }))
+    .use(cors({ origin: corsOriginAllowed }))
     .use(openapi({ path: "/docs" }))
     // Rate limiter must mount BEFORE the auth passthrough so its explicit
     // POST /api/auth/sign-in/email route wins over the .all("/api/auth/*").

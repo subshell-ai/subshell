@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
-import { APP_BASE_URL, emergencyLoginArmed, TRUSTED_ORIGINS } from "@/constants.js";
+import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
@@ -15,6 +15,7 @@ import {
 } from "@/services/instance-name.js";
 import { ALLOW_NODE_ENROLLMENT_KEY, ALLOW_REGISTRATIONS_KEY, registrationOpen } from "@/services/registration-gate.js";
 import { autoFetchEnabled } from "@/services/releases.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
 
 const SettingsSchema = t.Object({
@@ -80,16 +81,16 @@ const PublicSettingsSchema = t.Object({
   // Every address a browser may sign in from, which is what the "Subshell for
   // Mobile" picker offers a phone: appBaseUrl alone is ONE spelling, and the
   // useful one is rarely the one this browser is on (a laptop on loopback, a
-  // phone on the tailnet). Already canonicalized at boot — re-deriving it in
-  // the client would be a second implementation of the allowlist.
+  // phone on the tailnet). Read LIVE from the registry — a network a plugin
+  // joined a minute ago is already here, no restart — and already
+  // canonicalized there; re-deriving it in the client would be a second
+  // implementation of the allowlist.
   //
   // This is a real widening, recorded in docs/security.md §3: any signed-in
-  // caller, bearer keys included, now learns this instance's other names.
-  // Sound on the trusted-network posture — the user roster is already
-  // instance-wide — but it is a disclosure, not a free field.
+  // caller, bearer keys included, learns this instance's other names.
   trustedOrigins: t.Array(t.String(), {
     description:
-      "Origins a browser may sign in from (TRUSTED_ORIGINS: this instance's own addresses plus the configured extras, canonicalized); the addresses offered when installing Subshell on a phone",
+      "Origins a browser may sign in from, live: this instance's own addresses, the operator's TRUSTED_ORIGINS extras, and the addresses of every enabled network plugin this host is joined to or published on (canonicalized); the addresses offered when installing Subshell on a phone",
   }),
   viewerIsAdmin: t.Boolean({
     description:
@@ -140,7 +141,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         instanceName: await resolveInstanceName(db),
         emergencyLoginActive: emergencyLoginArmed(),
         appBaseUrl: APP_BASE_URL,
-        trustedOrigins: TRUSTED_ORIGINS,
+        trustedOrigins: [...originRegistry().current()],
         // Cookie-admin rule in one place (user-utils): bearer actors read
         // false even when their owner is an admin.
         viewerIsAdmin: await isCookieAdmin(user, actor),

@@ -313,7 +313,7 @@ export function emergencyLoginArmed(): boolean {
  *
  * Wildcard bind hosts are skipped — `0.0.0.0`/`::` are listen addresses, not
  * addresses anyone visits. An IPv6 host is bracketed as URL syntax requires.
- * @internal exported for the unit test; {@link TRUSTED_ORIGINS} is the value in use
+ * @internal exported for the unit test; `services/trusted-origins.ts` is the value in use
  */
 export function localOriginsFor(port: number, host: string, baseUrl?: string): string[] {
   const bracketed = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
@@ -368,34 +368,6 @@ export function localOriginsFor(port: number, host: string, baseUrl?: string): s
  * precedence ladder and silently strip these on a developer's own machine.
  */
 export const DEFAULT_TRUSTED_ORIGINS = "http://localhost:5174,http://localhost:5173";
-
-/**
- * Origins better-auth accepts on credentialed auth requests (and the CORS
- * plugin allows). better-auth always trusts its own baseURL too, but that is
- * ONE spelling: while the app bound `127.0.0.1` by default (pre-2026-09-07)
- * and the base URL said `localhost`, a browser pointed at the address the
- * boot log printed (http://127.0.0.1:3080) sent an origin nothing matched and
- * first-run setup died on 403 "Invalid origin". The list is therefore DERIVED from this
- * instance's own address (see {@link localOriginsFor}) and then extended with
- * `TRUSTED_ORIGINS` (comma-separated) — in dev that is the Vite server, whose
- * port the drift guard in `__tests__/trusted-origins.test.ts` keeps in sync
- * with apps/server/web/vite.config.ts.
- *
- * Deliberately absent: "trust any origin equal to the request host". That is
- * the DNS-rebinding hole a static allowlist exists to close
- * (.claude/rules/security-context.md) — a foreign hostname resolving to
- * 127.0.0.1 must stay untrusted, so extra names belong in TRUSTED_ORIGINS.
- */
-export const TRUSTED_ORIGINS = [
-  ...new Set([
-    ...localOriginsFor(SERVER_PORT, HOST, APP_BASE_URL),
-    ...env
-      .get("TRUSTED_ORIGINS")
-      .default(DEFAULT_TRUSTED_ORIGINS)
-      .asArray(",")
-      .map((o) => o.trim()),
-  ]),
-].filter(Boolean);
 
 export const IS_PROD = process.env.NODE_ENV === "production";
 

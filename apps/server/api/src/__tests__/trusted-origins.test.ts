@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { APP_BASE_URL, HOST, localOriginsFor, SERVER_PORT, TRUSTED_ORIGINS } from "@/constants.js";
+import { APP_BASE_URL, HOST, localOriginsFor, SERVER_PORT } from "@/constants.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 
 /**
  * better-auth rejects sign-up/sign-in with 403 "Invalid origin" when the
@@ -16,25 +17,29 @@ import { APP_BASE_URL, HOST, localOriginsFor, SERVER_PORT, TRUSTED_ORIGINS } fro
  *    spellings, the concrete bind host and the base URL's origin are derived
  *    in; wildcard bind hosts are not (they are listen addresses).
  */
-describe("TRUSTED_ORIGINS", () => {
+describe("the effective trusted-origin list", () => {
   const viteConfigPath = path.resolve(import.meta.dir, "../../../web/vite.config.ts");
 
   it("includes the Vite dev server origin declared in vite.config.ts", () => {
     const source = readFileSync(viteConfigPath, "utf8");
     const port = source.match(/^\s*port:\s*(\d+)\s*,/m)?.[1];
     expect(port).toBeDefined();
-    expect(TRUSTED_ORIGINS).toContain(`http://localhost:${port}`);
+    expect(originRegistry().current()).toContain(`http://localhost:${port}`);
   });
 
   it("trusts both loopback spellings of the port it actually serves", () => {
-    expect(TRUSTED_ORIGINS).toContain(`http://localhost:${SERVER_PORT}`);
-    expect(TRUSTED_ORIGINS).toContain(`http://127.0.0.1:${SERVER_PORT}`);
+    expect(originRegistry().current()).toContain(`http://localhost:${SERVER_PORT}`);
+    expect(originRegistry().current()).toContain(`http://127.0.0.1:${SERVER_PORT}`);
   });
 
   it("trusts the base URL's own origin and never carries an empty entry", () => {
-    expect(TRUSTED_ORIGINS).toContain(new URL(APP_BASE_URL).origin);
+    expect(originRegistry().current()).toContain(new URL(APP_BASE_URL).origin);
     // docker-compose passes TRUSTED_ORIGINS="" — that must not become [""]
-    expect(TRUSTED_ORIGINS.every((o) => o.length > 0)).toBe(true);
+    expect(
+      originRegistry()
+        .current()
+        .every((o) => o.length > 0),
+    ).toBe(true);
   });
 
   describe("localOriginsFor", () => {

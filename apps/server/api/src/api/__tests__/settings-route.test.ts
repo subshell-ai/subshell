@@ -8,7 +8,7 @@ import { settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
-import { APP_BASE_URL, NODE_ARTIFACTS_DIR, TRUSTED_ORIGINS } from "@/constants.js";
+import { APP_BASE_URL, NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -17,6 +17,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { localHostname } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
@@ -406,11 +407,11 @@ describe("settings routes (admin cookie only)", () => {
     expect(body.appBaseUrl).toBe(APP_BASE_URL);
   });
 
-  it("GET /public reports trustedOrigins === TRUSTED_ORIGINS, to any signed-in caller", async () => {
+  it("GET /public reports trustedOrigins === the live registry, to any signed-in caller", async () => {
     // The "Subshell for Mobile" picker needs every address a browser may sign
     // in from, because the one it should show a phone is usually NOT the one
     // this desktop is browsing: a laptop on loopback, a phone on the tailnet.
-    // Asserting against the constant rather than a literal is what keeps the
+    // Asserting against the registry rather than a literal is what keeps the
     // two from drifting — the list is already canonicalized there
     // (URL.origin), and re-deriving it here would be a second implementation.
     //
@@ -420,10 +421,21 @@ describe("settings routes (admin cookie only)", () => {
     const res = await app.fetch(authedRequest("/api/settings/public", nonAdminCookie));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { trustedOrigins: string[] };
-    expect(body.trustedOrigins).toEqual(TRUSTED_ORIGINS);
+    expect(body.trustedOrigins).toEqual([...originRegistry().current()]);
     // Canonical origins only: a trailing slash or a path here would be an
     // entry no browser's Origin header can equal.
     for (const origin of body.trustedOrigins) expect(new URL(origin).origin).toBe(origin);
+  });
+
+  it("GET /public reports an origin a network plugin just contributed, without a restart", async () => {
+    originRegistry().setPluginOrigins("settings-route-test", ["http://100.64.0.9:3080"]);
+    try {
+      const res = await app.fetch(authedRequest("/api/settings/public", nonAdminCookie));
+      const body = (await res.json()) as { trustedOrigins: string[] };
+      expect(body.trustedOrigins).toContain("http://100.64.0.9:3080");
+    } finally {
+      originRegistry().clearPlugin("settings-route-test");
+    }
   });
 
   it("GET /public reports serverVersion tracking package.json, not a literal", async () => {

@@ -3,10 +3,11 @@ import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { sql } from "kysely";
 import { authDatabase } from "@/auth/database.js";
-import { APP_BASE_URL, AUTH_SECRET, TRUSTED_ORIGINS } from "@/constants.js";
+import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
 import { FIRST_SETUP_STEP } from "@/db/types/setup-step.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { registrationOpen } from "@/services/registration-gate.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 import { normalizeUserName } from "@/services/user-name.js";
 
 /**
@@ -28,7 +29,13 @@ export const AUTH_OPTIONS = {
   emailAndPassword: {
     enabled: true,
   },
-  trustedOrigins: TRUSTED_ORIGINS,
+  // The FUNCTION form, which better-auth 1.7.1 re-invokes per request
+  // (`dist/auth/base.mjs` getTrustedOrigins(options, request); the origin
+  // middleware again inside validateOrigin) and once at its own init with NO
+  // request (`dist/context/create-context.mjs`). The parameter is therefore
+  // optional and deliberately unread: nothing about the caller's request may
+  // widen this list — that is the DNS-rebinding rule the registry keeps.
+  trustedOrigins: (_request?: Request) => [...originRegistry().current()],
   session: {
     // Deliberately short (security audit 2026-08, F5): cookieCache lets
     // better-auth answer its own session endpoints (sign-out freshness,
