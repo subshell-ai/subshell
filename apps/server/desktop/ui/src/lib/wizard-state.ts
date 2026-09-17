@@ -395,14 +395,15 @@ export function setupRows(
  * bundle, so it is the one release whose verbs this app can vouch for — older
  * cuts carry the verbs too, but a machine on an older installed copy is asked
  * to catch up rather than guessed about. It began at 0.5.0, which never
- * shipped, so no install was ever excluded by the moves since.
+ * shipped, and has moved at each release step since — 0.6.0, then 0.8.0, now
+ * 0.9.0 — each time naming the build the next desktop cut bundles.
  *
  * The test beside it (`wizard-state.test.ts`) turns red the moment a server
  * bump moves past it — which is what caught this one, in CI, on the commit
  * that merged the version PR. Bumping it is a RELEASE step: do it when the
  * server's package version changes, not before.
  */
-export const MIN_AUTOSTART_SERVER_VERSION = "0.8.0";
+export const MIN_AUTOSTART_SERVER_VERSION = "0.9.0";
 
 /** Whether the resolved server is new enough to control start-at-login. */
 export function autostartSupported(probe: Probe): boolean {
