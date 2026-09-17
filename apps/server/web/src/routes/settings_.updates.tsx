@@ -67,6 +67,11 @@ function UpdatesPage() {
           {isLoading && !view && <p className="text-muted-foreground text-sm">Loading…</p>}
           {view && (
             <>
+              {/* Desktop first, Server second, Nodes LAST — an operator's
+                  call, 2026-09-17: the Nodes card is per-machine and grows
+                  with the fleet, so it belongs below the two cards that stay
+                  a screenful however many machines enroll. */}
+              <DesktopCard desktop={view.desktop} />
               <ServerCard
                 view={view.server}
                 update={update}
@@ -75,7 +80,6 @@ function UpdatesPage() {
                 serverVersion={publicSettings?.serverVersion}
               />
               <NodesCard fleet={view.nodes} />
-              <DesktopCard desktop={view.desktop} />
             </>
           )}
         </>
