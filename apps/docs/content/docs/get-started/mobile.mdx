@@ -9,11 +9,11 @@ The phone is one way in, not the point — the same instance you watch at the de
 
 Browse to the address your desktop uses and sign in — the web UI reshapes itself: the sidebar becomes a drawer, a workspace's grid becomes **tabs** (one subshell at a time, finger-sized panes), and the terminal grows a key bar, because a touch keyboard has no way to send `Esc`, `Ctrl-C`, `Tab`, or arrow keys: the bar carries `Esc`, `^C`, `Tab` and `⇧Tab`, `⏎` and `⇧⏎` (newline), `/`, the four arrows, scroll-to-top/bottom, and an image-attach button. Everything else is the same pane you type into at the desk.
 
-Getting the URL right is the networking page's job, not this one: a browser may sign in only from an address the instance knows, so a phone on your Wi-Fi or tailnet needs that address in the trusted-origin list — the `403 "Invalid origin"` failure is diagnosed in [Networking & Addresses](/server/networking), and the mesh networks under [Network plugins](/server/network-plugins) are the durable fix.
+Getting the URL right is the networking page's job, not this one: a browser may sign in only from an address the instance knows — and it now knows its own, so a phone on your Wi-Fi signs in at the server's LAN address with nothing to configure. A *name* the machine answers to that is not one of its addresses (`.local`, local DNS) still needs an entry in the trusted-origin list — the `403 "Invalid origin"` failure is diagnosed in [Networking & Addresses](/server/networking), and the mesh networks under [Network plugins](/server/network-plugins) are the durable fix.
 
 ## Add to Home Screen — the install everyone should do
 
-In the sidebar, the **Subshell for Mobile** dialog picks up from there: it lists every address this server accepts sign-ins from (its own, any you added under Settings → Service, every network it has joined), flags the ones that are "this device only", and puts a QR code beside a reachable one. Then the install is one gesture, per platform:
+In the sidebar, the **Subshell for Mobile** dialog picks up from there: it lists every address this server accepts sign-ins from — its own, including the LAN addresses it discovers on its own interfaces, any you added under Settings → Service, and every network it has joined — and puts a QR code beside the one you pick. Addresses a phone could never dial are not listed at all; if none is left, the dialog says so where the QR would be and names what to do. Then the install is one gesture, per platform:
 
 | Platform | Steps |
 | --- | --- |

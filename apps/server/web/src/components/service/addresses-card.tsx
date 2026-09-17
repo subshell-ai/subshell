@@ -49,11 +49,13 @@ const FIELDS = [
     key: "TRUSTED_ORIGINS",
     id: "server-trusted-origins",
     label: "Other addresses browsers will use",
-    // The trap this field exists for: on the default bind the derived set is
-    // the two loopback spellings, so a phone or a LAN name fails sign-in with
-    // an error that names nothing you could change. Network addresses arrived
-    // automatically with the Networking page (2026-09-15), so the hint says
-    // which addresses are this field's own job.
+    // The trap this field exists for, and what is left of it: addresses from
+    // joined networks arrived automatically with the Networking page
+    // (2026-09-15), and the machine's own interface addresses followed with
+    // the server's LAN probe (2026-09-17) — a phone on the Wi-Fi needs no
+    // entry here. What still fails sign-in with an error that names nothing
+    // you could change is a NAME that is not one of this host's addresses, so
+    // that is what the hint says this field's own job is.
     hint: "Comma-separated. Addresses from networks you joined under Networking are trusted automatically; list anything else here \u2014 a LAN name, a reverse proxy \u2014 or a browser there is refused at sign-in with \u201cInvalid origin\u201d.",
   },
 ] as const satisfies readonly { key: ServerSettingKey; id: string; label: string; hint: string }[];

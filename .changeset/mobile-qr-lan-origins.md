@@ -1,0 +1,5 @@
+---
+"@internal/server": minor
+---
+
+The "Subshell for Mobile" dialog now shows a QR code on a stock install. The server derives its own LAN interface addresses into the trusted-origin allowlist — the kernel's answer for this host, on a wildcard bind only, re-asked whenever the public settings are read, so a laptop that switched Wi-Fi stops offering the network it left — and a phone on the same Wi-Fi signs in at the server's LAN address with no operator act at all. The picker follows: every row it offers is now an address a phone can dial and sign in from, so loopback rows are dropped rather than captioned "this device only", and an instance that truly knows no phone-dialable address says so where the QR would be, with the remedy. `subshell-server configure`'s LAN-bind warning narrows to what it now catches — browsing by a NAME that is not one of the machine's addresses; browsing by IP is automatic. (docs/security.md §8 records the new source and why a literal IP cannot be met by a DNS-rebinding attack; §3's address-list disclosure now includes the LAN addresses.)

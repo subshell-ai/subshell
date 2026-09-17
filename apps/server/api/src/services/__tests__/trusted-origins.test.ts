@@ -88,6 +88,40 @@ describe("createOriginRegistry", () => {
     expect(reg.current()).not.toContain("");
   });
 
+  it("refreshLocal picks up interfaces that appeared since the registry was built", () => {
+    // A laptop switches Wi-Fi; the new LAN address must reach the allowlist
+    // without a restart, because the mobile dialog's whole job is naming
+    // THAT address to a phone. Until the refresh is asked for, the cached
+    // set is the contract — better-auth and CORS read it per request and
+    // must not each pay for a re-derivation.
+    let local = ["http://localhost:3080"];
+    const d = deps({ localOrigins: () => local });
+    const reg = createOriginRegistry(d.deps);
+    local = [...local, "http://192.168.1.14:3080"];
+    expect(reg.has("http://192.168.1.14:3080")).toBe(false);
+    reg.refreshLocal();
+    expect(reg.has("http://192.168.1.14:3080")).toBe(true);
+    expect(d.log.infos.some((m) => m.includes("+http://192.168.1.14:3080"))).toBe(true);
+  });
+
+  it("refreshLocal replaces the local contribution and stays silent when nothing changed", () => {
+    let local = ["http://localhost:3080", "http://192.168.1.14:3080"];
+    const d = deps({ localOrigins: () => local });
+    const reg = createOriginRegistry(d.deps);
+    reg.setPluginOrigins("p", ["https://p.example"]);
+    local = ["http://localhost:3080", "http://192.168.1.15:3080"];
+    reg.refreshLocal();
+    // The interface that went away stops being trusted; the plugin's set and
+    // the loopback entry survive the replace.
+    expect(reg.has("http://192.168.1.14:3080")).toBe(false);
+    expect(reg.has("http://192.168.1.15:3080")).toBe(true);
+    expect(reg.has("https://p.example")).toBe(true);
+    expect(reg.has("http://localhost:3080")).toBe(true);
+    const before = d.log.infos.length;
+    reg.refreshLocal();
+    expect(d.log.infos).toHaveLength(before);
+  });
+
   it("logs what changed, naming the cause, and stays silent when nothing did", () => {
     const d = deps();
     const reg = createOriginRegistry(d.deps);

@@ -84,13 +84,16 @@ const PublicSettingsSchema = t.Object({
   // phone on the tailnet). Read LIVE from the registry — a network a plugin
   // joined a minute ago is already here, no restart — and already
   // canonicalized there; re-deriving it in the client would be a second
-  // implementation of the allowlist.
+  // implementation of the allowlist. The read also re-asks this machine's own
+  // interfaces — this is the request made right before a phone is handed an
+  // address, and a laptop that switched Wi-Fi must not offer the network it
+  // left.
   //
   // This is a real widening, recorded in docs/security.md §3: any signed-in
   // caller, bearer keys included, learns this instance's other names.
   trustedOrigins: t.Array(t.String(), {
     description:
-      "Origins a browser may sign in from, live: this instance's own addresses, the operator's TRUSTED_ORIGINS extras, and the addresses of every enabled network plugin this host is joined to or published on (canonicalized); the addresses offered when installing Subshell on a phone",
+      "Origins a browser may sign in from, live: this instance's own addresses including its LAN interfaces on a wildcard bind, the operator's TRUSTED_ORIGINS extras, and the addresses of every enabled network plugin this host is joined to or published on (canonicalized); the addresses offered when installing Subshell on a phone",
   }),
   viewerIsAdmin: t.Boolean({
     description:
@@ -135,6 +138,9 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     async ({ user, actor }) => {
       const repo = new SettingsRepository(db);
       const allow = await registrationOpen(db);
+      // The mobile dialog refetches this on open, and interfaces change
+      // without an act to hook — this read is where a Wi-Fi switch lands.
+      originRegistry().refreshLocal();
       return {
         allowRegistrations: allow,
         allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),

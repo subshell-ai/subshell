@@ -41,6 +41,34 @@ describe("applyConfig", () => {
     expect(() => readFileSync(join(d, "config.env"))).toThrow();
   });
 
+  /**
+   * The LAN derivation (`services/lan-origins.ts`, 2026-09-17) means an
+   * origin spelling one of this machine's OWN addresses is trusted with no
+   * operator act at all, so the third warning speaks only of what is still
+   * refused: NAMES the machine answers to that are not interface addresses.
+   * The sentence it replaced — "a browser on any other machine sends an
+   * origin this instance does not trust" — became false the day the probe
+   * shipped, and a warning that cries 403 about a configuration that works
+   * is how a warning stops being believed.
+   */
+  it("warns about names, not addresses, when a wildcard bind trusts only loopback spellings", () => {
+    const d = dir();
+    const r = applyConfig({ trustedOrigins: "http://localhost:5174" }, d);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error("unreachable");
+    // "nothing but loopback" is this warning's own opening — warning #1 also
+    // carries the word "loopback", so the test names which warning it found.
+    const w = r.warnings.find((m) => m.includes("nothing but loopback"));
+    expect(w).toBeDefined();
+    expect(w).toMatch(/this machine's own/i);
+    expect(w).toMatch(/name/i);
+    expect(w).not.toMatch(/does not trust/i);
+    // The 403 is still what a browser dialing by name gets, and the key that
+    // fixes it is still the whole point of saying so.
+    expect(w).toContain("Invalid origin");
+    expect(w).toContain("--trusted-origins");
+  });
+
   it("canonicalizes trusted origins, deletes the key when cleared, and warns on a LAN bind with a loopback base URL", () => {
     const d = dir();
     const first = applyConfig({ trustedOrigins: "HTTPS://Example.com:443/ , http://10.0.0.5:3080" }, d);

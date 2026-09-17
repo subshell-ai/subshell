@@ -8,12 +8,10 @@ import { isAndroid, isIOS } from "@/lib/platform";
  */
 export type InstallPlatform = "browser" | "apple" | "android";
 
-/** One address a phone could be pointed at. */
+/** One address a phone can be pointed at. */
 export interface InstallAddress {
   /** The canonical origin (scheme + host + port), which is what a QR encodes */
   url: string;
-  /** False for loopback: the far end would dial itself, so it cannot be used */
-  reachable: boolean;
   /** This browser is on it right now — proof it works from somewhere */
   here: boolean;
   /** The server's own APP_BASE_URL, which is what passkeys bind to */
@@ -31,21 +29,26 @@ export interface InstallAddressSources {
 }
 
 /**
- * The addresses to offer, best first.
+ * The addresses to offer a phone, best first.
  *
  * `appBaseUrl` alone is ONE spelling and usually the wrong one to hand a
- * phone: a laptop browsing `http://localhost:3080` and a phone on the tailnet
+ * phone: a laptop browsing `http://localhost:3080` and a phone on the LAN
  * need different answers, and only the allowlist knows both. So all three
  * sources are merged, normalized to origins (two spellings of one address are
  * one row) and ordered:
  *
- * 1. **Reachable before loopback.** Loopback is kept and marked rather than
- *    dropped — the address a person is looking at vanishing from the list is
- *    its own confusion — but it can never be the default.
- * 2. **Within each group, insertion order**: this browser's address, then the
- *    base URL, then the rest of the allowlist. An address this browser is
- *    already talking to is the one address proven to work from a device on
- *    this network, which is the best available guess for the phone beside it.
+ * 1. **Loopback is dropped.** It used to be kept and labelled "this device
+ *    only", because on a stock instance every address looked loopback and a
+ *    vanishing address is its own confusion. The server now derives its own
+ *    LAN interfaces into the allowlist, so that case reads real rows instead;
+ *    what survives to be labelled was only ever a row a phone cannot dial —
+ *    and this picker is FOR the phone. An instance with nothing to offer
+ *    shows the dialog's empty state, which names the remedy.
+ * 2. **Insertion order**: this browser's address, then the base URL, then the
+ *    rest of the allowlist (the server's LAN addresses first among those).
+ *    An address this browser is already talking to is the one address proven
+ *    to work from a device on this network — the best available guess for
+ *    the phone beside it.
  *
  * An entry that is not a parseable URL is dropped rather than rendered. The
  * server canonicalizes the list, but a cached PWA can be talking to an older
@@ -64,6 +67,7 @@ export function installAddresses({ here, baseUrl, trustedOrigins }: InstallAddre
     // "null" is what URL.origin serializes an opaque origin to (a `file:` or
     // `data:` URL parses happily and lands here); it is not an address.
     if (url === "null") return;
+    if (isLoopbackUrl(url)) return;
     const existing = byUrl.get(url);
     if (existing) {
       // The MARKS accumulate, not the rows: one address that happens to be all
@@ -71,18 +75,14 @@ export function installAddresses({ here, baseUrl, trustedOrigins }: InstallAddre
       Object.assign(existing, mark);
       return;
     }
-    byUrl.set(url, { url, reachable: !isLoopbackUrl(url), here: false, baseUrl: false, ...mark });
+    byUrl.set(url, { url, here: false, baseUrl: false, ...mark });
   };
 
   add(here, { here: true });
   add(baseUrl, { baseUrl: true });
   for (const origin of trustedOrigins ?? []) add(origin, {});
 
-  const list = [...byUrl.values()];
-  // Stable partition rather than a comparator: insertion order IS rule 2, and
-  // a sort that merely returns 0 for ties is not promised to preserve it in
-  // every engine.
-  return [...list.filter((a) => a.reachable), ...list.filter((a) => !a.reachable)];
+  return [...byUrl.values()];
 }
 
 /**

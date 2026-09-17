@@ -89,15 +89,17 @@ export function setupHandoffLines(deps: HandoffDeps): string[] {
   const host = stored.HOST ?? "0.0.0.0";
   const baseUrl = stored.APP_BASE_URL ?? `http://localhost:${port}`;
   const lines = [`Open ${baseUrl}/setup in a browser to create the admin account.`];
-  // A wildcard bind serves the LAN, but the derived origin allowlist is the
-  // two loopback spellings — so the address people will actually type is the
-  // one that 403s, and nothing in that refusal names the key. Say both here.
+  // A wildcard bind serves the LAN, and the machine's OWN addresses are
+  // derived into the allowlist (`lan-origins.ts`) — an IP spelling needs no
+  // act. A NAME is not an interface address, and a hostname is exactly what a
+  // person at a second machine types, so the handoff still names it, now with
+  // the flag that makes it work.
   if (host === "0.0.0.0" && isLoopbackUrl(baseUrl)) {
     const origin = `http://${(deps.hostname ?? hostname)()}:${port}`;
     lines.push(
-      `From another machine this server is ${origin}. Add that address first ` +
-        `(subshell-server configure --trusted-origins ${origin}), or signing in there answers ` +
-        `403 "Invalid origin".`,
+      "From another machine, this server's LAN address signs in with no setup. By name it is " +
+        `${origin} — add that first (subshell-server configure --trusted-origins ${origin}), ` +
+        `or signing in by name answers 403 "Invalid origin".`,
     );
   }
   return lines;
