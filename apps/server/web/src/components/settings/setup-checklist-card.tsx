@@ -29,8 +29,9 @@ const DEPLOYMENT_POLL_MS = 60_000;
  *
  * It is a composition, not an endpoint: every fact here is already on some
  * page — tmux on `/settings/status`, supervision and lingering on
- * `/settings/service`, the placeholder secret on the security card, agent CLIs
- * nowhere at all once the wizard is behind you. A headless operator had no
+ * `/settings/service`, the placeholder secret on the security card, the
+ * effective allowlist on `GET /api/settings/public`, agent CLIs nowhere at
+ * all once the wizard is behind you. A headless operator had no
  * single place that said which of them were still true, and finding out meant
  * knowing which pages to visit — which is knowledge the person who most needs
  * this card does not have yet.
@@ -74,13 +75,15 @@ export function SetupChecklistCard() {
       enabled: deployment.service.enabled,
       linger: deployment.service.linger,
     },
-    // The SAVED values, not the running ones, because this mirrors a warning
-    // `applyConfig` emits about what is written to config.env — and a saved
-    // value that has not been restarted into is `restartRequired`'s business,
-    // which the Service page already states.
+    // SAVED for the two boot-time keys: this mirrors a warning `applyConfig`
+    // emits about what is written to config.env, and a saved value not yet
+    // restarted into is `restartRequired`'s business.
     host: deployment.settings.HOST.saved,
     appBaseUrl: deployment.settings.APP_BASE_URL.saved,
-    trustedOrigins: deployment.settings.TRUSTED_ORIGINS.saved,
+    // EFFECTIVE for the origins: the allowlist is a live registry, only the
+    // public-settings route knows the union, and a joined tailnet has to
+    // silence this item without anything being written.
+    effectiveOrigins: publicSettings?.trustedOrigins,
     usingPlaceholderSecret: status.security.usingPlaceholderSecret,
     configEnvPath: deployment.configEnv.path,
     // The same set and the same question the wizard's Add an Agent screen

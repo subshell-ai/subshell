@@ -92,8 +92,14 @@ export interface ChecklistInputs {
   host: string;
   /** The saved `APP_BASE_URL` */
   appBaseUrl: string;
-  /** The saved `TRUSTED_ORIGINS`, comma-separated as the server reports it */
-  trustedOrigins: string;
+  /**
+   * Every origin the running server accepts a sign-in from RIGHT NOW —
+   * `GET /api/settings/public → trustedOrigins`: its own local origins,
+   * the extras saved on the Service page, and every enabled network
+   * plugin's addresses (the allowlist is a live registry, 2026-09-16).
+   * Undefined when the server predates the field: no verdict, not an empty list.
+   */
+  effectiveOrigins: string[] | undefined;
   /** True while `BETTER_AUTH_SECRET` is still the value that ships in the source */
   usingPlaceholderSecret: boolean;
   /** Where this server's config.env is, so the secret remedy can name it */
@@ -104,30 +110,23 @@ export interface ChecklistInputs {
 
 /**
  * Whether a browser on ANOTHER machine has any address this instance would
- * accept — the configuration `applyConfig`'s third warning is about
- * (`apps/server/api/src/commands/configure.ts`).
+ * accept — the situation `applyConfig`'s third warning is about.
  *
- * The two ask the SAME question now. They did not at first: the CLI tested
- * `normalizeTrustedOrigins(value) === ""`, which is true when it writes an
- * absent key but never reaches this card — the deployment view fills an absent
- * key with `DEFAULT_TRUSTED_ORIGINS`, two `localhost` spellings — so an exact
- * transcription would have been dead code on precisely the headless installs
- * this item exists for. Asking "is every configured origin loopback" covers the
- * empty list and also the explicitly-loopback one the CLI used to pass in
- * silence, and review (2026-09-15) settled the disagreement by widening the CLI
- * to match rather than narrowing this.
+ * The CLI and this card ask DIFFERENT questions about the same trap. The
+ * CLI warns at WRITE time about the file it is writing — it cannot see a
+ * network plugin. This card answers at READ time about the server: the
+ * effective allowlist is local ∪ config.env extras ∪ every enabled network
+ * plugin's addresses, and only the public-settings route knows the union.
+ * Judged on the saved `TRUSTED_ORIGINS` string (until 2026-09-16), this
+ * item kept firing on an instance whose joined tailnet already let every
+ * other machine sign in.
  */
 function lanSignInRefused(input: ChecklistInputs): boolean {
-  // `constants.ts` derives the allowlist from the port, a CONCRETE host and
-  // the base URL, so a wildcard bind contributes nothing and a loopback base
-  // URL contributes two loopback spellings.
   if (input.host !== "0.0.0.0") return false;
   if (!isLoopbackUrl(input.appBaseUrl)) return false;
-  return input.trustedOrigins
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .every((entry) => isLoopbackUrl(entry));
+  // No data, no verdict: an item that fires on silence sends someone to fix nothing.
+  if (input.effectiveOrigins === undefined) return false;
+  return input.effectiveOrigins.every((entry) => isLoopbackUrl(entry));
 }
 
 /**
@@ -140,8 +139,8 @@ function lanSignInRefused(input: ChecklistInputs): boolean {
  * supervision bites only at the next reboot. A reader who fixes them top to
  * bottom is never blocked by something further down the list.
  *
- * @param input - facts from `GET /api/admin/status`, `GET /api/admin/server`
- *   and the host's harness detection
+ * @param input - facts from `GET /api/admin/status`, `GET /api/admin/server`,
+ *   `GET /api/settings/public` and the host's harness detection
  */
 export function checklistItems(input: ChecklistInputs): ChecklistItem[] {
   const items: ChecklistItem[] = [];
@@ -174,9 +173,9 @@ export function checklistItems(input: ChecklistInputs): ChecklistItem[] {
       consequence:
         'This server accepts connections from the network, but trusts only its own loopback addresses: a browser on another machine is refused at sign-in with 403 "Invalid origin", which names nothing you could change.',
       remedy: { kind: "link", to: "/settings/service", label: "Addresses" },
-      // The other way out, and often the better one: publishing on a network
-      // writes a reachable origin into config.env as part of the act, so
-      // nobody has to know what an origin is.
+      // The other way out, and often the better one: joining a network puts
+      // its addresses on the allowlist as part of the act — no publish, no
+      // config write — so nobody has to know what an origin is.
       alternative: { kind: "link", to: "/settings/networking", label: "Or reach it over a network" },
     });
   }

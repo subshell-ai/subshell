@@ -17,7 +17,7 @@ function healthy(over: Partial<ChecklistInputs> = {}): ChecklistInputs {
     persistence: { manager: "systemd", installed: true, enabled: true, linger: true },
     host: "0.0.0.0",
     appBaseUrl: "http://box.local:3080",
-    trustedOrigins: "",
+    effectiveOrigins: ["http://localhost:3080", "http://127.0.0.1:3080"],
     usingPlaceholderSecret: false,
     configEnvPath: "/home/ops/.config/subshell-server/config.env",
     anyAgentInstalled: true,
@@ -93,17 +93,14 @@ describe("checklistItems", () => {
   });
 
   describe("LAN sign-in", () => {
-    /** The configuration `applyConfig`'s third warning is about. */
-    const lanTrap = { host: "0.0.0.0", appBaseUrl: "http://localhost:3080", trustedOrigins: "" } as const;
+    const LOOPBACK = ["http://localhost:3080", "http://127.0.0.1:3080"];
+    const lanTrap = { host: "0.0.0.0", appBaseUrl: "http://localhost:3080", effectiveOrigins: LOOPBACK } as const;
 
-    it("fires on a LAN bind with a loopback base URL and no trusted origin", () => {
+    it("fires on a LAN bind with a loopback base URL and a loopback-only allowlist", () => {
       const [item] = checklistItems(healthy(lanTrap));
       expect(item?.id).toBe("lan-origin");
       expect(item?.consequence).toMatch(/Invalid origin/);
       expect(item?.remedy).toEqual({ kind: "link", to: "/settings/service", label: "Addresses" });
-      // Two honest ways out of the same problem, in the order of how much
-      // they ask for: name the address yourself, or put this server on a
-      // network that hands it one.
       expect(item?.alternative).toEqual({
         kind: "link",
         to: "/settings/networking",
@@ -111,18 +108,22 @@ describe("checklistItems", () => {
       });
     });
 
-    it("still fires when the only trusted origins are the built-in loopback defaults", () => {
-      // `DEFAULT_TRUSTED_ORIGINS` fills this key when config.env leaves it
-      // out, so the deployment view NEVER reports the empty string the CLI
-      // predicate tests for. Both entries are loopback, so they answer no
-      // browser on another machine.
-      expect(ids(healthy({ ...lanTrap, trustedOrigins: "http://localhost:5174,http://localhost:5173" }))).toEqual([
-        "lan-origin",
-      ]);
+    it("still fires when the only extras are the dev Vite ports", () => {
+      expect(
+        ids(healthy({ ...lanTrap, effectiveOrigins: [...LOOPBACK, "http://localhost:5174", "http://localhost:5173"] })),
+      ).toEqual(["lan-origin"]);
     });
 
-    it("is silent once one trusted origin names a reachable address", () => {
-      expect(ids(healthy({ ...lanTrap, trustedOrigins: "http://localhost:5174,http://box.local:3080" }))).toEqual([]);
+    it("is silent once a joined network's address is in the effective list — nothing written anywhere", () => {
+      // A joined tailnet contributes its address the moment the plugin reports
+      // it, and the saved TRUSTED_ORIGINS string stays empty. Judged on the
+      // saved string, this item nagged an instance every other machine could
+      // already sign in to.
+      expect(ids(healthy({ ...lanTrap, effectiveOrigins: [...LOOPBACK, "https://box.tail1234.ts.net"] }))).toEqual([]);
+    });
+
+    it("is silent once a hand-added extra names a reachable address", () => {
+      expect(ids(healthy({ ...lanTrap, effectiveOrigins: [...LOOPBACK, "http://box.local:3080"] }))).toEqual([]);
     });
 
     it("is silent when the base URL is already the address people browse", () => {
@@ -131,6 +132,11 @@ describe("checklistItems", () => {
 
     it("is silent on a loopback-only bind, where no other machine reaches the server at all", () => {
       expect(ids(healthy({ ...lanTrap, host: "127.0.0.1" }))).toEqual([]);
+    });
+
+    it("gives no verdict when the server predates the field", () => {
+      // A cached PWA can outlive its server. No data is no verdict.
+      expect(ids(healthy({ ...lanTrap, effectiveOrigins: undefined }))).toEqual([]);
     });
 
     it("treats an unparseable base URL as not-loopback rather than throwing", () => {
@@ -167,7 +173,7 @@ describe("checklistItems", () => {
           anyAgentInstalled: false,
           host: "0.0.0.0",
           appBaseUrl: "http://localhost:3080",
-          trustedOrigins: "",
+          effectiveOrigins: ["http://localhost:3080", "http://127.0.0.1:3080"],
           usingPlaceholderSecret: true,
           persistence: { manager: null, installed: false, enabled: null, linger: null },
         }),
