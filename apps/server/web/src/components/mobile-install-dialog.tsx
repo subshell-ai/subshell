@@ -1,6 +1,6 @@
 import { QrCode } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { type JSX, useId, useState } from "react";
+import { type JSX, useEffect, useId, useState } from "react";
 import { CopyableValue } from "@/components/ui/copyable-value";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -71,7 +71,17 @@ export function MobileInstallDialog({
    * drive the picker without a stubbed `window.location`. */
   origin?: string;
 }): JSX.Element {
-  const { data: settings } = usePublicSettings();
+  const { data: settings, refetch } = usePublicSettings();
+  // refetch-on-open (the Nodes dialog's precedent, `add-node-dialog.tsx`):
+  // the shared query is 30 s fresh, but the list is the whole payload and
+  // the person opening this has often JUST joined a network — from another
+  // tab, a phone, or the CLI, none of which this tab hears about. The
+  // allowlist is live on the server (2026-09-16); a picker that lagged it
+  // by half a minute would send someone back to Networking to check on a
+  // join that had already landed.
+  useEffect(() => {
+    if (open) void refetch();
+  }, [open, refetch]);
   const ids = { address: useId(), hint: useId() };
   // The guess is the tab, never the only tab: someone at a desktop looking up
   // what their phone should do is a normal reason to be here.
@@ -141,8 +151,8 @@ export function MobileInstallDialog({
             </SelectContent>
           </Select>
           <p id={ids.hint} className="text-detail text-muted-foreground">
-            Every address this server accepts a sign-in from. Pick one your phone can reach — the same Wi-Fi, or the
-            same VPN or mesh network.
+            Every address this server accepts a sign-in from — its own, any you added under Service, and every network
+            it has joined. Pick one your phone can reach — the same Wi-Fi, or the same VPN or mesh network.
           </p>
         </div>
 
@@ -188,8 +198,8 @@ export function MobileInstallDialog({
                 {anyReachable
                   ? "Choose one of the other addresses above."
                   : settings?.viewerIsAdmin
-                    ? "This server knows no other address. Add one under Server Settings → Service, or publish this server on a network, and it will appear here."
-                    : "This server knows no other address. An admin can publish this server on a network, or add the address you reach it by, and it will appear here."}
+                    ? "This server knows no other address. Join a network under Server Settings → Networking, or add an address under Server Settings → Service, and it will appear here."
+                    : "This server knows no other address. An admin can join a network, or add the address you reach it by, and it will appear here."}
               </p>
             </div>
           )

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
+import { setFetchRouter } from "@/test-setup";
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15";
 const DESKTOP = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/141";
@@ -10,7 +11,17 @@ const DESKTOP = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537
  * file in one process, so a UA left overwritten here is the next suite's UA. */
 let previousUserAgent: PropertyDescriptor | undefined;
 
-function renderDialog(options: { origin: string; trustedOrigins?: string[]; userAgent?: string; admin?: boolean }) {
+const restore: (() => void)[] = [];
+
+function renderDialog(options: {
+  origin: string;
+  /** What the query cache already holds when the dialog opens */
+  trustedOrigins?: string[];
+  /** What the server answers the on-open refetch with; defaults to the cached list */
+  serverTrustedOrigins?: string[];
+  userAgent?: string;
+  admin?: boolean;
+}) {
   const nav = globalThis.navigator as unknown as Record<string, unknown>;
   previousUserAgent ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
   Object.defineProperty(nav, "userAgent", {
@@ -18,23 +29,40 @@ function renderDialog(options: { origin: string; trustedOrigins?: string[]; user
     configurable: true,
     writable: true,
   });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["settings-public"], {
+  const payload = (trustedOrigins: string[]) => ({
     allowRegistrations: false,
     emergencyLoginActive: false,
     instanceName: "Prod plane",
     appBaseUrl: "http://localhost:3080",
-    trustedOrigins: options.trustedOrigins ?? ["http://localhost:3080"],
+    trustedOrigins,
     viewerIsAdmin: options.admin ?? false,
     serverVersion: "0.2.0",
     nodeArtifactTargets: [],
     nodeArtifactsAutoFetch: true,
   });
-  return render(
+  const cached = options.trustedOrigins ?? ["http://localhost:3080"];
+  const calls: string[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: unknown) => {
+    const url = new URL(String(input), "http://localhost");
+    calls.push(url.pathname);
+    return Promise.resolve(
+      new Response(JSON.stringify(payload(options.serverTrustedOrigins ?? cached)), { status: 200 }),
+    );
+  }) as typeof fetch;
+  setFetchRouter(globalThis.fetch as typeof fetch);
+  restore.push(() => {
+    globalThis.fetch = original;
+    setFetchRouter(null);
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["settings-public"], payload(cached));
+  const view = render(
     <QueryClientProvider client={client}>
       <MobileInstallDialog open onOpenChange={() => {}} origin={options.origin} />
     </QueryClientProvider>,
   );
+  return { ...view, calls };
 }
 
 afterEach(() => {
@@ -42,6 +70,7 @@ afterEach(() => {
   const nav = globalThis.navigator as unknown as Record<string, unknown>;
   if (previousUserAgent) Object.defineProperty(nav, "userAgent", previousUserAgent);
   previousUserAgent = undefined;
+  for (const undo of restore.splice(0)) undo();
 });
 
 describe("MobileInstallDialog", () => {
@@ -68,6 +97,8 @@ describe("MobileInstallDialog", () => {
     expect(note.textContent).toMatch(/reaches itself/i);
     // No other address exists here, so "pick one of the others" would be a lie.
     expect(note.textContent).toMatch(/knows no other/i);
+    // Joining a network IS the fix now — no publish step stands between them.
+    expect(note.textContent).toMatch(/join a network/i);
     // A QR of `http://localhost:3080` is a thing someone WILL scan, and on the
     // phone it resolves to that phone's own port 3080.
     expect(screen.queryByRole("img", { name: /QR code/ })).toBeNull();
@@ -128,5 +159,26 @@ describe("MobileInstallDialog", () => {
   it("opens on the desktop steps in a desktop browser", () => {
     renderDialog({ origin: "https://plane.tail1234.ts.net", trustedOrigins: [], userAgent: DESKTOP });
     expect(screen.getByRole("button", { name: "Browser" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("refetches the address list on open, so a network joined moments ago is already in the picker", async () => {
+    // The cache is what the rail's last read left — loopback only. The server
+    // has since started trusting a tailnet address (a join in another tab, or
+    // the CLI). Reopening the dialog is how a person re-checks, so the open is
+    // the refetch — the Nodes dialog's precedent.
+    const { calls } = renderDialog({
+      origin: "http://localhost:3080",
+      trustedOrigins: ["http://localhost:3080"],
+      serverTrustedOrigins: ["http://localhost:3080", "https://plane.tail1234.ts.net"],
+    });
+    expect(await screen.findByRole("img", { name: /https:\/\/plane\.tail1234\.ts\.net/ })).toBeTruthy();
+    expect(calls.filter((path) => path === "/api/settings/public")).toHaveLength(1);
+  });
+
+  it("tells an admin that joining a network is enough", () => {
+    renderDialog({ origin: "http://localhost:3080", trustedOrigins: ["http://127.0.0.1:3080"], admin: true });
+    const note = screen.getByTestId("unreachable-note");
+    expect(note.textContent).toMatch(/Join a network under Server Settings → Networking/);
+    expect(note.textContent).not.toMatch(/publish/i);
   });
 });
