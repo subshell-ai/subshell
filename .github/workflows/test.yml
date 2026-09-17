@@ -148,9 +148,10 @@ jobs:
   # workflow already repeats it across jobs, and the alternative (a composite
   # action) would hide the container/safe.directory traps that the comments
   # above each step exist to keep visible. `bun run build` is full-repo in
-  # every job that runs one: turbo's cache makes the repeat nearly free, and
-  # a filtered `turbo run test` would rebuild the same dependency graph
-  # anyway. (`Test: scripts` reads plain files and needs no build.)
+  # every job that runs one (which is all of them — see the Test: scripts
+  # job for why even the manifest-reading suites need the dists built):
+  # turbo's cache makes the repeat nearly free, and a filtered
+  # `turbo run test` would rebuild the same dependency graph anyway.
   #
   # Filters are pinned against the unfiltered task set by
   # `turbo run test --dry` — every workspace with a `test` script lands in
@@ -503,8 +504,14 @@ jobs:
   # them (and sat red for three pushes unnoticed for the same reason: no
   # local or pre-push command runs `test:scripts`). These tests READ the repo
   # — manifests, CHANGELOGs, lockfile, token files — which is why the Plan
-  # job routes them by changed-FILE predicates, not just by package. No
-  # build step: nothing here imports a workspace dist.
+  # job routes them by changed-FILE predicates, not just by package.
+  #
+  # It DOES need the build, and that is load-bearing, not tidiness:
+  # desktop-dev.test.ts imports the launcher, which imports the desktop app's
+  # REAL `stageSidecar` (launcher and release share the function — see
+  # AGENTS.md), which imports `@internal/subshell-protocol` through its dist.
+  # The first CI run of this job died on exactly that; a warm local tree
+  # cannot see the gap, which is the trap verification.md names.
   test-scripts:
     name: "Test: scripts"
     needs: plan
@@ -528,6 +535,12 @@ jobs:
       - name: Trust the bind-mounted workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # tsdown runs under NODE — see test-web for why CI pins it.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
       - name: Cache Bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -535,8 +548,19 @@ jobs:
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
           restore-keys: ${{ runner.os }}-bun-
 
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
       - name: Install Dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
 
       - name: Run repo script tests
         run: bun run test:scripts
