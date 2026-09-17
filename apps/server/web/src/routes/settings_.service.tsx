@@ -77,10 +77,10 @@ function ServicePage() {
           {isLoading && !view && <p className="text-muted-foreground text-sm">Loading…</p>}
           {/* The bundled-server offer that used to lead this page is on
               `/settings/updates` now (spec 2026-09-15 §6), folded into the
-              Server card there: "this app ships a newer server" and "the
-              release source has a newer server" are two answers to one
-              question, and on two pages a person had to choose which to
-              believe. */}
+              Server row of the Components table there: "this app ships a
+              newer server" and "the release source has a newer server" are
+              two answers to one question, and on two pages a person had to
+              choose which to believe. */}
           {view && (
             <>
               <DevProxyNotice />

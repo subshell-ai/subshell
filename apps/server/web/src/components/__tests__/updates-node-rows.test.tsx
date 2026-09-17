@@ -2,17 +2,23 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { nodeRow, nodeUpdates } from "@/components/__tests__/helpers/updates-view";
-import { NodesCard, rowState } from "@/components/updates/nodes-card";
+import { NodeRows, rowState } from "@/components/updates/node-rows";
 import type { NodeUpdates } from "@/types/updates";
 
 afterEach(cleanup);
 
-/** The card mounts `useNodeUpdate`, which needs a client even when nothing is pressed. */
-function renderCard(fleet: NodeUpdates) {
+/**
+ * The rows mount `useNodeUpdate`, which needs a client even when nothing is
+ * pressed, and they are `contents` fragments — a grid div is their real
+ * parent on the page.
+ */
+function renderRows(fleet: NodeUpdates) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <NodesCard fleet={fleet} />
+      <div className="grid">
+        <NodeRows fleet={fleet} />
+      </div>
     </QueryClientProvider>,
   );
 }
@@ -42,14 +48,17 @@ describe("rowState", () => {
   });
 });
 
-describe("NodesCard", () => {
-  it("names the release the fleet could take", () => {
-    renderCard(nodeUpdates({ rows: [nodeRow()] }));
-    expect(screen.getByText("Nodes can be updated to 0.9.0.")).toBeTruthy();
+describe("NodeRows", () => {
+  it("puts the fleet's release in every row's Newest cell", () => {
+    // The old card description ("Nodes can be updated to 0.9.0.") is the
+    // Newest column now — one voice with the desktop and Server rows.
+    renderRows(nodeUpdates({ rows: [nodeRow({ agentVersion: "0.8.0", canUpdate: { ok: true, reason: null } })] }));
+    expect(screen.getByText("0.9.0", { exact: true })).toBeTruthy();
+    expect(screen.getByText("0.8.0", { exact: true })).toBeTruthy();
   });
 
-  it("says why there is none rather than rendering an empty promise", () => {
-    renderCard(
+  it("says why there is no release rather than rendering an empty promise", () => {
+    renderRows(
       nodeUpdates({
         release: null,
         reason: "newest node release 0.9.0 speaks protocol 9; this server speaks 10 — update the server first",
@@ -59,22 +68,28 @@ describe("NodesCard", () => {
     expect(
       screen.getByText(/No node release can be offered: newest node release 0.9.0 speaks protocol 9/),
     ).toBeTruthy();
+    expect(screen.getByText("—", { exact: true })).toBeTruthy();
+  });
+
+  it("labels the section", () => {
+    renderRows(nodeUpdates());
+    expect(screen.getByText("Nodes", { exact: true })).toBeTruthy();
   });
 
   it("says so when nothing is enrolled, and offers no Update all", () => {
-    renderCard(nodeUpdates());
+    renderRows(nodeUpdates());
     expect(screen.getByText("No machines are enrolled as nodes.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Update all/ })).toBeNull();
   });
 
   it("disables every row's button with the reason the server gave", () => {
-    renderCard(nodeUpdates({ rows: [nodeRow({ canUpdate: { ok: false, reason: "this node is offline" } })] }));
+    renderRows(nodeUpdates({ rows: [nodeRow({ canUpdate: { ok: false, reason: "this node is offline" } })] }));
     expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("this node is offline")).toBeTruthy();
   });
 
   it("counts only the rows that CAN be updated in Update all", () => {
-    renderCard(
+    renderRows(
       nodeUpdates({
         rows: [
           nodeRow({ id: "a", name: "a", canUpdate: { ok: true, reason: null } }),
@@ -87,13 +102,13 @@ describe("NodesCard", () => {
   });
 
   it("disables Update all when no row can take one", () => {
-    renderCard(nodeUpdates({ rows: [nodeRow()] }));
+    renderRows(nodeUpdates({ rows: [nodeRow()] }));
     expect(updateAll().textContent).toBe("Update all (0)");
     expect(updateAll().disabled).toBe(true);
   });
 
   it("names the platform nothing is published for instead of leaving the row blank", () => {
-    renderCard(nodeUpdates({ rows: [nodeRow({ target: null })] }));
+    renderRows(nodeUpdates({ rows: [nodeRow({ target: null })] }));
     expect(screen.getByText(/no published platform/)).toBeTruthy();
   });
 });

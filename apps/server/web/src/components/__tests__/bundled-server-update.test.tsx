@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { bundledServerUpdate } from "@/components/updates/server-card";
+import { bundledServerUpdate } from "@/components/updates/server-row";
 import type { DesktopShell } from "@/lib/desktop";
 
 /** A Subshell SERVER shell — the only one that can bundle a server at all. */
@@ -26,8 +26,8 @@ describe("bundledServerUpdate", () => {
     expect(bundledServerUpdate(serverShell({ platform: "linux", bundledServer: "0.1.0" }), "0.4.0")).toBeNull();
   });
 
-  // Subshell Client ships no server, so it never sends `b=` and the card would
-  // be absent anyway. The refusal is explicit because the QUESTION here is
+  // Subshell Client ships no server, so it never sends `b=` and the row's
+  // offer would be absent anyway. The refusal is explicit because the QUESTION here is
   // "which app is this", and answering it by the absence of an unrelated field
   // is how a later change to that field puts an Update button in a window with
   // no assistant to raise.

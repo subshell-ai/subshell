@@ -4,11 +4,11 @@
  *
  * Hand-written like every other file in `src/types/`, because the SPA reads
  * these through `apiFetch` rather than through Eden Treaty: one shape stated
- * here, checked against the route's `t` schema by review, is what the cards
+ * here, checked against the route's `t` schema by review, is what the table
  * and hooks share.
  */
 
-/** One published release, as every card names it. */
+/** One published release, as every row names it. */
 export interface ReleaseRef {
   /** Strict `X.Y.Z`, off the tag. */
   version: string;
@@ -103,7 +103,7 @@ export interface ServerUpdateView {
 /** Why a stale agent is being kept connected for exactly one command. */
 export type HeldReason = "below-floor" | "protocol-mismatch";
 
-/** One enrolled agent node, as the Nodes card renders it. */
+/** One enrolled agent node, as the Nodes rows render it. */
 export interface NodeUpdateRow {
   id: string;
   /** The node's display name. */

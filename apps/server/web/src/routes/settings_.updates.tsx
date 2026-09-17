@@ -2,9 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { DesktopCard } from "@/components/updates/desktop-card";
-import { NodesCard } from "@/components/updates/nodes-card";
-import { ServerCard } from "@/components/updates/server-card";
+import { UpdatesTable } from "@/components/updates/updates-table";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useCheckUpdates, useStartServerUpdate, useUpdates } from "@/hooks/use-updates";
@@ -65,22 +63,18 @@ function UpdatesPage() {
           )}
           {check.error && <ErrorBanner message={check.error} className="rounded-md border" />}
           {isLoading && !view && <p className="text-muted-foreground text-sm">Loading…</p>}
+          {/* One Components table, rows ordered desktop first, Server second,
+              Nodes LAST — an operator's call, 2026-09-17: the node rows are
+              per-machine and grow with the fleet, so they belong below the
+              rows that stay a screenful however many machines enroll. */}
           {view && (
-            <>
-              {/* Desktop first, Server second, Nodes LAST — an operator's
-                  call, 2026-09-17: the Nodes card is per-machine and grows
-                  with the fleet, so it belongs below the two cards that stay
-                  a screenful however many machines enroll. */}
-              <DesktopCard desktop={view.desktop} />
-              <ServerCard
-                view={view.server}
-                update={update}
-                onCheck={check.check}
-                checking={check.pending}
-                serverVersion={publicSettings?.serverVersion}
-              />
-              <NodesCard fleet={view.nodes} />
-            </>
+            <UpdatesTable
+              view={view}
+              update={update}
+              onCheck={check.check}
+              checking={check.pending}
+              serverVersion={publicSettings?.serverVersion}
+            />
           )}
         </>
       ) : (

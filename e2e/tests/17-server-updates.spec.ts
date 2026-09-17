@@ -5,7 +5,7 @@ test.use({ storageState: ADMIN_STATE });
 
 /**
  * **Server Settings → Updates**, in a real browser against the real backend
- * (spec 2026-09-15 §6).
+ * (spec 2026-09-15 §6; one Components table since 2026-09-17).
  *
  * This stack is the AIR-GAPPED instance by construction: `stack.ts` sets
  * `SUBSHELL_RELEASE_URL=""`, because the default is the real GitHub API and
@@ -31,10 +31,11 @@ test.describe("server updates page", () => {
     await expect(page).toHaveURL(/\/settings\/updates$/);
     await expect(page.getByRole("heading", { name: "Updates" })).toBeVisible();
 
-    // The reason, verbatim from the server's own `canApply.reasons` — the page
-    // never invents one. Scoped to the Server card: the Nodes card states the
-    // SAME cause in its own words two cards down, which is correct and is why
-    // an unscoped locator here matches twice.
+    // The reasons, verbatim from the server's own `canApply.reasons` — the
+    // page never invents one. Each is pinned by its own prefix: the Nodes
+    // rows state the SAME cause in their own words ("No node release can be
+    // offered: …") further down the same table, which is correct — and is why
+    // a bare substring of the cause would match twice.
     await expect(
       page.getByText(/Updates are unavailable: no release source is configured \(SUBSHELL_RELEASE_URL is empty\)/),
     ).toBeVisible();
@@ -43,22 +44,42 @@ test.describe("server updates page", () => {
     // both are listed rather than the first one standing for all of them.
     await expect(page.getByText(/Updates are unavailable: .*not running under a service manager/)).toBeVisible();
 
-    // Nothing to install, and nothing to check with.
+    // Nothing to install, and nothing to check with — the Server row's two
+    // buttons, and the row says its state through them being disabled.
     await expect(page.getByRole("button", { name: /^Update/ }).first()).toBeDisabled();
     await expect(page.getByRole("button", { name: "Re-check" })).toBeDisabled();
   });
 
-  test("renders all three cards, with the node and desktop sections saying what is missing", async ({ page }) => {
+  test("renders the Components table, with the node and desktop rows saying what is missing", async ({ page }) => {
     await page.goto("/settings/updates");
 
     // Scoped to `main`: "Nodes" is also a rail link, and this is a claim about
-    // the page's cards rather than about the navigation.
+    // the page's table rather than about the navigation.
     const body = page.getByRole("main");
+    await expect(body.getByText("Components", { exact: true })).toBeVisible();
+
+    // The columns every row answers, and the rows themselves in the
+    // operator's order: desktop apps, Server, Nodes last. ("Update" is the
+    // fourth column's heading but also the disabled button's label, so it is
+    // asserted as the button in the test above rather than as text here.)
+    await expect(body.getByText("Name", { exact: true })).toBeVisible();
+    await expect(body.getByText("Running", { exact: true })).toBeVisible();
+    await expect(body.getByText("Newest", { exact: true })).toBeVisible();
+    await expect(body.getByText("Subshell Server app", { exact: true })).toBeVisible();
+    await expect(body.getByText("Subshell Client app", { exact: true })).toBeVisible();
     await expect(body.getByText("Server", { exact: true })).toBeVisible();
     await expect(body.getByText("Nodes", { exact: true })).toBeVisible();
-    await expect(body.getByText("Desktop apps", { exact: true })).toBeVisible();
 
+    // The air-gapped answers, each stated once: the fleet names why it has no
+    // release, the desktop rows name that they could read none, and an
+    // instance with no machines says so rather than rendering an empty section.
     await expect(page.getByText(/No node release can be offered/)).toBeVisible();
     await expect(page.getByText(/No desktop release could be read/)).toBeVisible();
+    await expect(page.getByText("No machines are enrolled as nodes.")).toBeVisible();
+
+    // After the row anchors above (so this is an absence in a rendered table,
+    // not an empty page): the assistant button is the Server APP's row, and a
+    // browser never raises it.
+    await expect(body.getByRole("button", { name: "Open the update assistant" })).toHaveCount(0);
   });
 });

@@ -1,9 +1,10 @@
 /**
- * Wording shared by the Updates page's cards (spec 2026-09-15 §10).
+ * Wording shared by the Updates page's rows (spec 2026-09-15 §10).
  *
- * In `lib/` rather than inside a card because two of them render the same
- * server-supplied reasons, and a helper exported from one card and imported by
- * another is a dependency between two things that are otherwise siblings.
+ * In `lib/` rather than inside one row because the Server row and the Nodes
+ * rows render the same server-supplied reasons, and a helper exported from one
+ * and imported by the other is a dependency between two things that are
+ * otherwise siblings.
  */
 
 /**

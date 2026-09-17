@@ -65,6 +65,26 @@ are read-only: `/settings` is where an admin CHANGES the instance, while
 Status and `/settings/audit` are where they see what it currently IS and what
 has happened to it.
 
+**`/settings/updates` is ONE Components table, not three cards** (2026-09-17).
+The two desktop apps, the Server and the fleet share one grid — name / running
+/ newest / act — because those are the same four questions in every row, and a
+card each put "newest" at a different x per section, so the table's read (scan
+the middle two columns, spot the mismatch) had to be reconstructed by the
+reader instead of seen. The mechanics are `installed-plugins-card.tsx`'s — its
+long comment carries the track sizing and the `display: contents` rows — with
+one deliberate divergence: plugins get one grid PER GROUP because their groups
+are different kinds of thing, while here the columns must agree ACROSS
+sections or the table says nothing. Everything that is not a cell — job
+phases, `canApply` blockers, the backup sentence, held-node reasons, a run's
+failure — is a `col-span-full` detail line inside its row, in the order the
+old cards carried them, and below `sm` the version pair folds into the name
+cell as `running → newest` (`row-cells.tsx`). The row order — desktop apps,
+Server, Nodes last — is the operator's 2026-09-17 call and is pinned by
+`updates-table.test.tsx`, since nothing else on the page would notice a swap.
+The old card descriptions ("X is available. Running Y.", "Nodes can be updated
+to X.") are gone on purpose: the two version cells state that per row, in one
+voice.
+
 **There is ONE new-account form.** `components/account/new-account-fields.tsx`
 renders the four fields (name, email, password, confirmation) plus the two
 rules that make them usable — the password requirement stated before it is

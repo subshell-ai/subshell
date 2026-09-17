@@ -18,7 +18,7 @@ export interface NodeUpdateStarted {
   url: string;
 }
 
-/** What {@link useNodeUpdate} hands the Nodes card. */
+/** What {@link useNodeUpdate} hands the Nodes rows. */
 export interface NodeUpdate {
   /** Ask one node to replace its agent binary. Resolves on the 202; rejects on a refusal. */
   update(nodeId: string, opts?: { force?: boolean }): Promise<NodeUpdateStarted>;
@@ -26,7 +26,7 @@ export interface NodeUpdate {
   pendingNodeId: string | null;
   /** Why the last attempt failed, and on which node; null when none has. */
   failure: { nodeId: string; message: string } | null;
-  /** Forget the last failure — the card clears it when a new run starts. */
+  /** Forget the last failure — the rows clear it when a new run starts. */
   reset(): void;
 }
 

@@ -1,15 +1,20 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { idleUpdate, recordingUpdate, serverUpdateView } from "@/components/__tests__/helpers/updates-view";
-import { jobLine, ServerCard } from "@/components/updates/server-card";
+import { jobLine, ServerRow } from "@/components/updates/server-row";
 import type { ServerUpdateView, UpdateJob } from "@/types/updates";
 
 afterEach(cleanup);
 
 const updateButton = (label = /^Update to /) => screen.getByRole("button", { name: label }) as HTMLButtonElement;
 
-function renderCard(view: ServerUpdateView, update = idleUpdate) {
-  return render(<ServerCard view={view} update={update} onCheck={() => {}} checking={false} serverVersion="0.6.0" />);
+/** The row is a `contents` fragment; a grid div is its real parent on the page. */
+function renderRow(view: ServerUpdateView, update = idleUpdate) {
+  return render(
+    <div className="grid">
+      <ServerRow view={view} update={update} onCheck={() => {}} checking={false} serverVersion="0.6.0" />
+    </div>,
+  );
 }
 
 /** The job, at one phase, with everything else at a resting value. */
@@ -26,31 +31,34 @@ function job(over: Partial<UpdateJob> = {}): UpdateJob {
   };
 }
 
-describe("the three states of the Server card", () => {
+describe("the three states of the Server row", () => {
   it("offers the update, names the backup, and promises the panes", () => {
-    renderCard(serverUpdateView());
-    expect(screen.getByText("0.7.0 is available. Running 0.6.0.")).toBeTruthy();
+    renderRow(serverUpdateView());
+    // The old card's description sentence is the two version cells now.
+    expect(screen.getByText("0.6.0", { exact: true })).toBeTruthy();
+    expect(screen.getByText("0.7.0", { exact: true })).toBeTruthy();
     expect(updateButton().disabled).toBe(false);
     expect(screen.getByText(/backed up to/)).toBeTruthy();
     expect(screen.getByText(/5 kept/)).toBeTruthy();
     expect(screen.getByText(/open subshells keep running/)).toBeTruthy();
   });
 
-  it("says it is the newest release rather than disabling a button with no explanation", () => {
-    renderCard(
+  it("says it is the newest release through equal cells rather than disabling a button with no explanation", () => {
+    renderRow(
       serverUpdateView({
         updateAvailable: false,
         latest: { version: "0.6.0", tag: "server-v0.6.0", publishedAt: null },
       }),
     );
-    expect(screen.getByText("Running 0.6.0 — the newest release.")).toBeTruthy();
+    // Running and Newest carry the same version — that equality is the sentence.
+    expect(screen.getAllByText("0.6.0", { exact: true }).length).toBe(2);
     expect(updateButton().disabled).toBe(true);
   });
 
   it("lists every blocker the server named, and disables the button", () => {
     // `canApply.reasons` is the server's own union, so the page can never
     // offer what the route will refuse.
-    renderCard(
+    renderRow(
       serverUpdateView({
         canApply: {
           ok: false,
@@ -68,7 +76,7 @@ describe("the three states of the Server card", () => {
   it("distinguishes a source that is OFF from one that could not be read", () => {
     // The first is a configuration; the second is a host that could update and
     // could not find out whether it should. Only the first is a blocker.
-    const off = renderCard(
+    const off = renderRow(
       serverUpdateView({
         source: { url: null, enabled: false },
         latest: null,
@@ -78,14 +86,16 @@ describe("the three states of the Server card", () => {
     );
     expect(screen.getByText(/no release source is configured/)).toBeTruthy();
     expect(screen.queryByText(/Could not check/)).toBeNull();
+    // With no release at all, the Newest cell answers "—" rather than guessing.
+    expect(screen.getByText("—", { exact: true })).toBeTruthy();
     off.unmount();
 
-    renderCard(serverUpdateView({ latest: null, updateAvailable: false, latestError: "api.github.com answered 503" }));
+    renderRow(serverUpdateView({ latest: null, updateAvailable: false, latestError: "api.github.com answered 503" }));
     expect(screen.getByText(/Could not check for updates: api.github.com answered 503\./)).toBeTruthy();
   });
 
   it("warns about panes instead of promising them, when the definition would kill them", () => {
-    renderCard(serverUpdateView({ paneSafety: "kills" }));
+    renderRow(serverUpdateView({ paneSafety: "kills" }));
     expect(screen.getByText(/would close every running subshell/)).toBeTruthy();
   });
 });
@@ -104,13 +114,13 @@ describe("the job", () => {
   it("renders the running phase and locks the button, even in a tab that did not press it", () => {
     // The job is a fact about the SERVER, so an admin who reloads mid-update
     // — or a second admin watching — must see it, with `outcome` still idle.
-    renderCard(serverUpdateView({ job: job({ phase: "backing-up" }) }));
+    renderRow(serverUpdateView({ job: job({ phase: "backing-up" }) }));
     expect(screen.getByText("Backing up the database…")).toBeTruthy();
     expect(updateButton().disabled).toBe(true);
   });
 
   it("reports a failure that reverted at boot, which no tab's own outcome holds", () => {
-    renderCard(
+    renderRow(
       serverUpdateView({
         lastFailure: {
           from: "0.6.0",
@@ -132,7 +142,7 @@ describe("the job", () => {
 describe("the confirmation", () => {
   it("presses without force on a pane-safe host", () => {
     const update = recordingUpdate();
-    renderCard(serverUpdateView(), update);
+    renderRow(serverUpdateView(), update);
     fireEvent.click(updateButton());
     fireEvent.click(screen.getByRole("button", { name: "Update to 0.7.0" }));
     expect(update.pressed).toEqual([{}]);
@@ -140,7 +150,7 @@ describe("the confirmation", () => {
 
   it("offers the forced path — and only the forced path — where the definition kills panes", () => {
     const update = recordingUpdate();
-    renderCard(serverUpdateView({ paneSafety: "unknown" }), update);
+    renderRow(serverUpdateView({ paneSafety: "unknown" }), update);
     fireEvent.click(updateButton());
     // "unknown" is not "keeps": a definition nobody could read is warned about
     // rather than promised, the same gate `RestartDialog` applies.

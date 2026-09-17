@@ -9,10 +9,10 @@ import type { ServerUpdateView, UpdatesView } from "@/types/updates";
 /**
  * What the Updates page reads (`GET /api/admin/updates`), admin-only.
  *
- * ONE query for three cards: the server's own view, the fleet and the two
- * desktop releases all come out of the SAME release index on the server, so
- * three queries would read it three times and leave the cards disagreeing
- * about which list they saw.
+ * ONE query for the whole Components table: the server's own view, the fleet
+ * and the two desktop releases all come out of the SAME release index on the
+ * server, so three queries would read it three times and leave the rows
+ * disagreeing about which list they saw.
  *
  * `enabled` is the CONFIRMED admin flag rather than a default of true — the
  * gate `/settings/status` established, so a non-admin mount fires no doomed 403.
@@ -53,8 +53,8 @@ export interface CheckUpdates {
  *
  * It answers the SERVER half only, so the whole page is invalidated afterwards
  * rather than having that half written into the cache: the node and desktop
- * sections come from the same refreshed index, and a cache write would leave
- * them stating what the previous read said while the server card moved.
+ * rows come from the same refreshed index, and a cache write would leave them
+ * stating what the previous read said while the Server row moved.
  */
 export function useCheckUpdates(): CheckUpdates {
   const queryClient = useQueryClient();
@@ -71,10 +71,10 @@ export function useCheckUpdates(): CheckUpdates {
   };
 }
 
-/** Where a pressed update stands, as the Server card renders it. */
+/** Where a pressed update stands, as the Server row renders it. */
 export type ServerUpdateOutcome = "idle" | "running" | "waiting" | "done" | "failed" | "timeout";
 
-/** What {@link useStartServerUpdate} hands the Server card. */
+/** What {@link useStartServerUpdate} hands the Server row. */
 export interface StartServerUpdate {
   /** Where the update stands. */
   outcome: ServerUpdateOutcome;
