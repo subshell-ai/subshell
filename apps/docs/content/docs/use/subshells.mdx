@@ -10,13 +10,13 @@ A subshell is a real CLI agent — Claude Code, opencode, Codex, Hermes, Pi, or 
 From the new-subshell form you choose an **agent** and a **folder** — that is all a launch requires. Everything else is optional:
 
 - a **preset** — saved launch settings for that agent (see [Presets](/use/presets)),
-- a **machine** — which node runs it; the pickers default sensibly and hide the choice when there is only one eligible machine,
+- a **machine** — which node runs it; the pickers default sensibly, and the row disappears entirely when the control plane is the only machine you may launch on — a lone agent node keeps the choice visible,
 - a **name** — an unnamed subshell gets a date/time label,
 - a **starting prompt** — typed into the pane once the agent has drawn its first screen; the launch response tells you honestly whether it landed.
 
 The agent must be installed and enabled on the machine you launch to, and the folder must exist and pass that node's [directory allowlist](/nodes/directory-allowlist), if it has one.
 
-Names deserve one paragraph of their own: while a name is unlocked, a subshell that has none adopts the title its pane carries — agents like Claude Code rename themselves after the current task, and you see that. Renaming it yourself locks the name permanently, yours from then on.
+Names deserve one paragraph of their own: while a name is unlocked a subshell adopts the title its pane carries — even a placeholder name gets replaced, and agents like Claude Code rename themselves after the current task, which you see. Renaming it yourself locks the name permanently, yours from then on.
 
 ## Attaching and detaching
 
@@ -35,7 +35,7 @@ Every list and card shows one of six states:
 | node unreachable | the machine that owns this pane has no connection to the server |
 | ended | retired with the terminate action; still restartable |
 
-**node unreachable outranks all of it on purpose.** Absence of a connection is not absence of a process: the agent may be down while its panes keep running, and while the node is unreachable nobody knows what they are doing. So a subshell on a quiet machine says "node unreachable" and never "crashed" — when the node reconnects, it reports its surviving panes and the server corrects its books.
+**node unreachable outranks all of it on purpose.** Absence of a connection is not absence of a process: the agent may be down while its panes keep running, and while the node is unreachable nobody knows what they are doing. So a subshell on a quiet machine says "node unreachable" and never "crashed" — when the node reconnects the plane re-probes it, surviving panes answer, and the books are corrected.
 
 ## Restarting
 

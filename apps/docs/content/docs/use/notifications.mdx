@@ -27,14 +27,14 @@ There are two tiers, and which one applies depends on the agent:
 - **Native hooks.** Claude Code launches with hooks that report each turn's end (`Done, waiting for you`) and each pause for input (`Needs your approval`) directly, precisely at the moment they happen. Only Claude Code reports `Needs your approval` — it is the only built-in agent with a way to.
 - **The quiet-output fallback.** Every other built-in agent (Codex, opencode, Hermes, Pi, and a plain terminal) is covered by a heuristic: when its pane's output has been silent for 20 seconds, the turn is over. It reports `Done, waiting for you` — the fallback never claims approval is needed, because it cannot know what the silence means.
 
-Either way the report is the subshell speaking **about itself with its own credential** — a harness can ring its own bell and no other subshell's. When a report lands, the subshell also wears a "waiting for you" marker in every list and sorts to the top, and typing in its pane (or any new output from it) clears the marker.
+Either way the report is the subshell speaking **about itself with its own credential** — a harness can ring its own bell and no other subshell's. When a report lands, the subshell also wears a "waiting for you" marker, pinned to the top of your sidebar, and typing in its pane — or new output once the turn has settled for a few seconds — clears it.
 
 ## Two switches
 
 Nothing is pushed unless both agree:
 
 1. **Your account-wide switch** — Preferences → Notifications. Off means total silence, whatever any bell says.
-2. **A subshell's bell** — its ⋯ menu toggles `Notify when done`. New subshells start with the bell on; mute the noisy ones individually. Restarting keeps whichever setting the subshell had.
+2. **A subshell's bell** — its ⋯ menu toggles it — the item reads **Mute notifications** while the bell rings and **Notify when done** while it is quiet. New subshells start with the bell on; mute the noisy ones individually. Restarting keeps whichever setting the subshell had.
 
 The bell is owner-only: sharing a subshell never hands its bell to the grantee, and pushes never go to anyone but the owner's devices — sharing widens who can watch, never who gets rung.
 

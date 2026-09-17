@@ -20,13 +20,13 @@ Every way to add a pane leads to the same choice — put an existing subshell he
 
 - The workspace header's **Add subshell** opens the picker for the focused pane.
 - Each subshell page has a **Split** button: it opens the picker already filled with the same agent, machine, and folder, and puts the new pane beside the one you were looking at.
-- Drag a subshell from the sidebar onto the workspace and it lands as a right-hand split of the focused pane. A subshell can hold only one pane, so dropping one that is already open just focuses its pane.
+- Drag a subshell from the sidebar onto the workspace and it lands as a right-hand split of the focused pane. Within a workspace a subshell holds at most one pane — dropping one that is already open there just focuses its pane — though the same subshell may also sit in other workspaces.
 
-Splitting from a subshell that lives in no workspace creates one: the arrangement starts as an **unsaved workspace**, yours to keep with **Save as workspace** — which is only naming it. An unsaved workspace that drops back to a single pane is discarded, because there is nothing left to arrange.
+Splitting always starts a **new unsaved workspace** beside whatever you were looking at — even when the subshell already lives in one you saved, which stays untouched. The draft is yours to keep with **Save as workspace**, which is only naming it; an unsaved workspace that drops back to a single pane is discarded, because there is nothing left to arrange.
 
 ## Moving, closing, and what survives
 
-Drag a pane's tab to split another group or dock it as a tab, and the terminal inside is **relocated, not reconnected** — the layout manager keeps every pane's stream alive through moves, hides, and resizes, so no restart, no replay, no lost keystrokes.
+Drag a pane's tab to split another group or dock it as a tab, and the terminal inside is **relocated, not reconnected** — the layout manager keeps every visible pane's stream alive through moves and resizes, so no restart, no replay, no lost keystrokes. A tab you send to the background is the deliberate exception: it releases its terminal so a hidden pane streams to no one, and returning replays it from scrollback, fresh.
 
 Closing needs a distinction, because two controls look similar and are not:
 
