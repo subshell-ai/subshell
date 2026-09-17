@@ -16,26 +16,9 @@ import { Label } from "@/components/ui/label";
 import { useCreateSetupKey, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
+import { isLoopbackUrl } from "@/lib/loopback";
 import { tmuxInstallHint } from "@/lib/tmux-install";
 import type { CreatedSetupKey } from "@/types/node";
-
-/**
- * True when a base URL points at loopback — a remote machine running the
- * install command would dutifully dial ITSELF, not this server (spec
- * 2026-08-31 enroll-time loopback trap). Checked on the URL's host;
- * an unparseable URL is treated as not-loopback (no throw in render).
- */
-function isLoopbackUrl(url: string): boolean {
-  try {
-    // WHATWG `URL.hostname` keeps brackets on IPv6 literals (`http://[::1]`
-    // -> "[::1]"; the unbracketed form is an invalid URL), so only the
-    // bracketed spelling can match.
-    const host = new URL(url).hostname.toLowerCase();
-    return host === "localhost" || host.startsWith("127.") || host === "[::1]";
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Two-step "Add node" flow (spec 2026-08-31 §5.1/§9): a label → a single-use

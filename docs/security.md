@@ -200,6 +200,24 @@ it is what lets the sharing picker name people — so any signed-in caller and
 any bearer credential, a running subshell's own token included, reads every
 account's email, **display name** (added 2026-09-14), role and disabled state.
 
+**So is the ADDRESS LIST** (2026-09-16). `GET /api/settings/public` carries
+`trustedOrigins` — every origin a browser may sign in from: this instance's
+own addresses, the operator's configured extras, and whatever a network
+plugin's publish unioned in (§11.13). So any signed-in caller, and any bearer
+credential, learns this plane's other names: its tailnet hostname, its LAN
+name, a proxy domain. It exists for the "Subshell for Mobile" dialog, which
+has to offer a PHONE an address — `appBaseUrl` is one spelling and is usually
+the wrong one, since the browser asking is often on loopback while the phone
+is on the mesh.
+
+It is a real widening and worth naming as one, not filing under "public
+settings". It is sound on this posture for the same reason the roster read
+above is: every signed-in user is someone the operator admitted, and the
+addresses are ones that user may already sign in from. What it costs is that a
+compromised subshell token now enumerates where else this plane answers,
+without guessing. It carries no credential, and knowing an address grants
+nothing on it — every one of them still demands a session.
+
 ### `GET /api/admin/status`
 
 The widest single read in the system: versions, host paths, the resolved MCP

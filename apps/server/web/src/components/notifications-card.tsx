@@ -6,6 +6,7 @@ import { useDesktopPermissions } from "@/hooks/use-desktop-permissions";
 import { errMessage } from "@/lib/api";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { disablePush, enablePush, getPushState, type PushState } from "@/lib/notifications";
+import { isIOS } from "@/lib/platform";
 import type { Permission } from "@/types/permissions";
 
 /**
@@ -47,11 +48,6 @@ const PERMISSION_LINE: Record<Permission, string> = {
   "not-determined": "Not yet asked",
   unavailable: "Unavailable in this build",
 };
-
-/** iOS Safari only delivers web push from a home-screen-installed PWA. */
-function isIOS(): boolean {
-  return typeof navigator !== "undefined" && /iPhone|iPad/.test(navigator.userAgent);
-}
 
 /** Props exist so tests can drive the state table without global stubs. */
 export type NotificationsCardProps = {

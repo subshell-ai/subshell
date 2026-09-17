@@ -8,7 +8,7 @@ import { settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
-import { APP_BASE_URL, NODE_ARTIFACTS_DIR } from "@/constants.js";
+import { APP_BASE_URL, NODE_ARTIFACTS_DIR, TRUSTED_ORIGINS } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -404,6 +404,26 @@ describe("settings routes (admin cookie only)", () => {
       appBaseUrl: string;
     };
     expect(body.appBaseUrl).toBe(APP_BASE_URL);
+  });
+
+  it("GET /public reports trustedOrigins === TRUSTED_ORIGINS, to any signed-in caller", async () => {
+    // The "Subshell for Mobile" picker needs every address a browser may sign
+    // in from, because the one it should show a phone is usually NOT the one
+    // this desktop is browsing: a laptop on loopback, a phone on the tailnet.
+    // Asserting against the constant rather than a literal is what keeps the
+    // two from drifting — the list is already canonicalized there
+    // (URL.origin), and re-deriving it here would be a second implementation.
+    //
+    // NON-ADMIN on purpose: the widening this pins is that every signed-in
+    // user reads the instance's other addresses (docs/security.md §3). An
+    // admin-only assertion would still pass if a gate were added by accident.
+    const res = await app.fetch(authedRequest("/api/settings/public", nonAdminCookie));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { trustedOrigins: string[] };
+    expect(body.trustedOrigins).toEqual(TRUSTED_ORIGINS);
+    // Canonical origins only: a trailing slash or a path here would be an
+    // entry no browser's Origin header can equal.
+    for (const origin of body.trustedOrigins) expect(new URL(origin).origin).toBe(origin);
   });
 
   it("GET /public reports serverVersion tracking package.json, not a literal", async () => {

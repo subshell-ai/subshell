@@ -86,6 +86,17 @@
   --terminal-canvas: #181226;
   --terminal-tab-active: #2b243e;
 
+  /* The plate a QR code is drawn on (the mobile-install dialog). White, and a
+     literal for the same reason --scrim is one: it is not a tint of this
+     palette and no role names it. A QR is read OPTICALLY — dark modules on a
+     light field, with a quiet zone — so on a dark-only app it cannot inherit
+     a surface colour and stay scannable. Deliberately not paired with a
+     foreground token: the modules are the plate's opposite by definition, and
+     qrcode.react draws them black by default. Subshell Client's bundled page
+     carries it too, unused — that stylesheet is this one's palette verbatim
+     and a test compares them block for block. */
+  --qr-plate: #ffffff;
+
   --radius: 0.5rem;
 
   color-scheme: dark;
@@ -114,6 +125,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-scrim: var(--scrim);
+  --color-qr-plate: var(--qr-plate);
   --color-terminal-strip: var(--terminal-strip);
   --color-terminal-canvas: var(--terminal-canvas);
   --color-terminal-tab-active: var(--terminal-tab-active);

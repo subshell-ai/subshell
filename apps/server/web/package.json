@@ -37,6 +37,7 @@
     "dockview-react": "8.2.0",
     "loglayer": "9.4.0",
     "lucide-react": "1.32.0",
+    "qrcode.react": "4.2.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-dropzone": "20.1.1",

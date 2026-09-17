@@ -86,6 +86,13 @@
   --edit-badge-bg: oklch(0.38 0.09 322);
   --edit-badge-foreground: oklch(0.92 0.06 318);
 
+  /* The plate a QR code is drawn on. Carried here for PARITY, not for use:
+     this page draws no QR, but the palette is the SPA's verbatim and
+     `__tests__/tokens-match-spa.test.ts` compares the two block for block.
+     Only the terminal trio is excused, because the exclusion list staying
+     short is what keeps that test strict. */
+  --qr-plate: #ffffff;
+
   --radius: 0.5rem;
 
   color-scheme: dark;
@@ -114,6 +121,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-scrim: var(--scrim);
+  --color-qr-plate: var(--qr-plate);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

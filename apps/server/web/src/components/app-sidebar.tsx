@@ -17,11 +17,13 @@ import {
   ServerCog,
   Settings,
   SlidersHorizontal,
+  Smartphone,
   TerminalSquare,
   Users,
 } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AboutDialog } from "@/components/about-dialog";
+import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { Button } from "@/components/ui/button";
@@ -263,6 +265,7 @@ export function AppSidebar({
   // because choosing an item closes the menu, which would take the dialog
   // with it.
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
   const q = subshellQuery.trim();
   // Sorted by liveness BEFORE the recents slice (band order documented in
@@ -596,6 +599,38 @@ export function AppSidebar({
             </div>
           );
         })}
+        {/* Shown EVERYWHERE, desktop shells included — it was gated on
+            `!isDesktop()` for half a day on the reasoning that a Tauri webview
+            cannot install a PWA. True, and beside the point: this dialog does
+            not ask the window showing it to install anything. Its payload is a
+            QR code, which is read by a DIFFERENT device, and somebody sitting
+            at Subshell Server on their laptop is the likeliest person in the
+            product to want Subshell on their phone. The gate hid it from them.
+
+            It degrades correctly there rather than by luck: the server app's
+            window is pinned to loopback, so `window.location.origin` is not
+            offerable — and the picker's other two sources still answer, or the
+            dialog says it knows no address a phone can reach, which on a
+            loopback-only instance is the true answer.
+
+            Not in the user menu beside About: this is not an account action,
+            and a dialog mounted in a closing menu goes with the menu. */}
+        <button
+          type="button"
+          title={collapsed ? "Subshell for Mobile" : undefined}
+          aria-label="Subshell for Mobile"
+          onClick={() => setMobileOpen(true)}
+          className={cn(
+            // The nav rows' classes minus the active gradient: this one opens
+            // a dialog, so it is never "where you are".
+            "flex w-full cursor-pointer items-center rounded-md py-2 text-sm transition-colors",
+            "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+            collapsed ? "justify-center px-2" : "gap-3 px-3",
+          )}
+        >
+          <Smartphone className="h-4 w-4 shrink-0 -translate-y-px" />
+          {!collapsed && "Subshell for Mobile"}
+        </button>
         {/* A desktop window is a webview with no address bar, no second tab and
             no way to hand this page to the browser the person actually keeps
             their passwords in. So both shells offer the way out, and the page
@@ -649,6 +684,10 @@ export function AppSidebar({
         {/* Beside the menu rather than inside it: choosing an item closes the
             menu, and a dialog mounted in a closing menu goes with it. */}
         <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+        {/* Its trigger is the rail row above, not this footer — both
+            dialogs live here so neither is mounted inside something that
+            can close underneath it. */}
+        <MobileInstallDialog open={mobileOpen} onOpenChange={setMobileOpen} />
       </div>
     </aside>
   );

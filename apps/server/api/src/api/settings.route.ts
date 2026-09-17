@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
-import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
+import { APP_BASE_URL, emergencyLoginArmed, TRUSTED_ORIGINS } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
@@ -77,6 +77,20 @@ const PublicSettingsSchema = t.Object({
     description:
       "Instance base URL the server bakes into rendered install commands (APP_BASE_URL); may point at loopback; a remote node must dial a reachable address",
   }),
+  // Every address a browser may sign in from, which is what the "Subshell for
+  // Mobile" picker offers a phone: appBaseUrl alone is ONE spelling, and the
+  // useful one is rarely the one this browser is on (a laptop on loopback, a
+  // phone on the tailnet). Already canonicalized at boot — re-deriving it in
+  // the client would be a second implementation of the allowlist.
+  //
+  // This is a real widening, recorded in docs/security.md §3: any signed-in
+  // caller, bearer keys included, now learns this instance's other names.
+  // Sound on the trusted-network posture — the user roster is already
+  // instance-wide — but it is a disclosure, not a free field.
+  trustedOrigins: t.Array(t.String(), {
+    description:
+      "Origins a browser may sign in from (TRUSTED_ORIGINS: this instance's own addresses plus the configured extras, canonicalized); the addresses offered when installing Subshell on a phone",
+  }),
   viewerIsAdmin: t.Boolean({
     description:
       "True when the caller is a signed-in admin via COOKIE session (drives the Server nav entry); bearer actors always read false",
@@ -126,6 +140,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         instanceName: await resolveInstanceName(db),
         emergencyLoginActive: emergencyLoginArmed(),
         appBaseUrl: APP_BASE_URL,
+        trustedOrigins: TRUSTED_ORIGINS,
         // Cookie-admin rule in one place (user-utils): bearer actors read
         // false even when their owner is an admin.
         viewerIsAdmin: await isCookieAdmin(user, actor),
@@ -140,7 +155,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getPublicSettings",
         tags: ["settings"],
         description:
-          "Settings readable by any SIGNED-IN user (registration flag + emergency-login armed state + instance base URL + viewerIsAdmin admin-nav signal, cookie-only + server version); anonymous callers get 401",
+          "Settings readable by any SIGNED-IN user: the registration and node-enrollment flags, the emergency-login armed state, the instance name, its base URL and the origins a browser may sign in from, the viewerIsAdmin admin-nav signal (cookie-only), the server version and the agent-artifact facts; anonymous callers get 401",
       },
     },
   )

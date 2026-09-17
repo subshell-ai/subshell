@@ -334,6 +334,44 @@ silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-
 published artifact set is visible at once.
 
+## Subshell for Mobile (the PWA install dialog)
+
+`components/mobile-install-dialog.tsx`, opened from a row of the rail's
+`<nav>`, above "Open in browser". Ungated, desktop shells included — it was
+`!isDesktop()` for half a day on the reasoning that a Tauri webview cannot
+install a PWA, which is true and beside the point: the dialog's payload is a
+QR code, read by a DIFFERENT device, and somebody at Subshell Server on their
+laptop is the likeliest person in the product to want Subshell on their phone.
+The gate hid it from exactly them.
+
+**The steps are the easy half.** The person looking them up is usually at a
+desk on an address their phone cannot reach, so the dialog's first control is
+an address picker. Candidates come from `lib/mobile-install.ts` —
+`window.location.origin`, `appBaseUrl` and `trustedOrigins` merged, normalized
+to origins and ordered reachable-first, then by insertion (the address this
+browser is demonstrably on is the best guess for the phone beside it).
+
+**Loopback rows are listed, labelled and SELECTABLE** — never hidden, and
+never disabled. Hiding them makes the address someone is looking at vanish;
+disabling them was worse, and shipped for an hour: on a stock instance every
+address is loopback (the default `0.0.0.0` bind contributes none, so the
+allowlist is the two loopback spellings plus the dev Vite ports), so the
+picker refused every row and could not be operated at all. The cost of a
+choice belongs under the field, naming the address chosen — not in a row you
+cannot click. Selecting one replaces the QR with that sentence, so nothing
+unscannable is ever offered.
+
+`trustedOrigins` is a field on `GET /api/settings/public` added for this, and
+its disclosure is accounted in `docs/security.md` §3. Optional in the client
+type for the usual reason — a cached PWA can outlive its server — and the
+dialog falls back to the origin this browser is already on.
+
+Two details that are not decoration. The QR's plate is `bg-white`
+unconditionally, because a QR is read optically and dark modules on a dark
+surface do not scan in either theme. And the tab group is three GESTURES, not
+three brands, which is why macOS Safari sits under **Browser** beside Chrome
+rather than under the Apple tab with the iPhone.
+
 ## This SPA meets TWO desktop shells, and "desktop" is two questions
 
 `lib/desktop.ts` parses a `SubshellDesktop/…` or `SubshellClient/…` User-Agent

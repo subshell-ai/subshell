@@ -64,6 +64,16 @@ caller and any bearer credential, a running subshell's own token included,
 reads every account's email, display name, role and disabled state
 (`docs/security.md` §3).
 
+**The instance's ADDRESS LIST is readable by any signed-in caller**
+(2026-09-16). `GET /api/settings/public` carries `trustedOrigins` — every
+origin a browser may sign in from, including whatever a network plugin's
+publish added — so the "Subshell for Mobile" dialog can offer a PHONE an
+address (`appBaseUrl` is one spelling, and usually the loopback one the phone
+cannot reach). Same class as the roster read above: instance-wide by design,
+bearer credentials included, sound because every signed-in user is someone the
+operator admitted and the addresses are ones they may already use. It carries
+no credential and grants nothing — `docs/security.md` §3.
+
 **An admin reconfigures and restarts the server from the dashboard** (spec
 2026-09-12): `PATCH /api/admin/server/config` rewrites config.env (port, bind
 address, public base URL, trusted origins — never `DATABASE_PATH`, never the

@@ -33,6 +33,21 @@ export interface PublicSettings {
    */
   appBaseUrl: string;
   /**
+   * Every origin a browser may sign in from (TRUSTED_ORIGINS) — this
+   * instance's own addresses plus the configured extras, canonicalized
+   * server-side.
+   *
+   * Read by the "Subshell for Mobile" dialog, which has to offer a PHONE an
+   * address: `appBaseUrl` is one spelling and rarely the right one (a laptop
+   * on loopback, a phone on the tailnet), and re-deriving the allowlist here
+   * would be a second implementation of it.
+   *
+   * OPTIONAL, like every field added after this payload existed: a cached PWA
+   * can outlive the server that served it, and the dialog falls back to the
+   * address this browser is already on.
+   */
+  trustedOrigins?: string[];
+  /**
    * True for admin COOKIE sessions (spec 2026-09-02 settings-split §5) —
    * gates the Server nav entry and the /settings page body. Bearer actors
    * always read false.
