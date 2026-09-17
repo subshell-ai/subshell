@@ -3,13 +3,54 @@ title: Supported Platforms
 description: Which operating systems and architectures can run the control plane, the node agent, and the desktop apps.
 ---
 
-This page will list what you can install Subshell on and what each platform gets: the control plane and node agent as self-contained binaries for `linux-x64`, `linux-arm64` and `darwin-arm64` (Apple silicon Macs — Intel Macs are not built), the desktop apps for macOS 13+ (Apple silicon) and Linux x86_64, and the floor those artifacts set — glibc 2.39, which rules out Ubuntu 22.04 and Debian 12. It will also state the universal requirements: tmux 3.2+ on every machine that runs a pane, and an agent CLI where you want an agent. Browsers and mobile are covered by what the web UI supports rather than an install list.
+Subshell ships as prebuilt binaries — no runtime to install beside them, no package manager in the picture. Three questions answer most of what people have: does my OS run the binaries, does my machine need tmux, and what about my phone.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## The CLI binaries
 
-## Sources
+The control plane (`subshell-server`, with the web UI embedded in it) and the node agent (`subshell`) are each published as one self-contained binary per architecture:
 
-- `README.md` §Desktop apps table and §Requirements — app artifacts per platform and the tmux/Bun floor
-- `AGENTS.md` §"Everything runs on GitHub-hosted runners" — the glibc 2.39 floor and why it exists
-- `AGENTS.md` §"Publishing subshell binaries (Nodes)" — the three served triples and the no-Intel-Mac rule
+| Platform | Control plane | Node agent |
+|---|---|---|
+| Linux x86_64 (`linux-x64`) | ✓ | ✓ |
+| Linux arm64 (`linux-arm64`) | ✓ | ✓ |
+| macOS, Apple silicon (`darwin-arm64`) | ✓ | ✓ |
+| macOS, Intel | — | — |
+
+No Bun or Node is needed on a host running these — they carry their runtime. Intel Macs are not built for any component, so an x86_64 Mac is out.
+
+### The Linux floor
+
+Every Linux artifact is built on Ubuntu 24.04, which sets a **glibc 2.39 floor**: the binaries need Ubuntu 24.04 or Debian 13 (or a comparable newer distro). Ubuntu 22.04 and Debian 12 will not run them — not just the GUIs, any of the components. This is a build choice that is now the published contract, not an untested hunch; older distros need a from-source build on their own toolchain.
+
+## The desktop apps
+
+The two GUIs — Subshell Server (installs and manages a control plane on this machine) and Subshell Client (your interface to a control plane, and where this machine enrolls as a node) — are Tauri apps covering a narrower set:
+
+| App | macOS 13+ (Apple silicon) | Linux x86_64 |
+|---|---|---|
+| Subshell Server | signed, notarized disk image | `.deb` (Ubuntu 24.04+ / Debian 13+) |
+| Subshell Client | signed, notarized disk image | `.deb` (same floor) |
+
+There are no desktop builds for Intel Macs or arm64 Linux, and both apps need the same glibc floor on Linux. Each app bundles the CLI binary it manages, so a desktop install needs no downloads on first run. [Installing the Server](/get-started/install-server) covers which artifact to reach for.
+
+## Universal requirements
+
+- **tmux 3.2 or newer on every machine that runs a pane.** That is the control-plane host if it runs agents itself, and every [node](/nodes/add-node). A machine that only hosts the UI needs nothing but the binary. Where tmux is missing on the control-plane host, the Subshell Server desktop app installs it — Homebrew on macOS, its own elevation prompt on Linux — and the browser setup wizard offers the same where the server can run it, printing the command where it cannot. A machine joining as a [node](/nodes/add-node) is the hard case: enrollment refuses outright until tmux is present.
+- **An agent CLI where you want agents** — `claude`, `opencode`, `codex`, or whichever [harness plugin](/agents/installing-agent-clis) you launch. The terminal plugin runs a plain shell, so a bare machine is still launchable without any agent installed.
+- **Bun 1.4+ only if you run from source.** The prebuilt binaries are self-contained; the from-source workflows in this repo (`bun run start`, tests, building a release) are what need the runtime.
+
+One version detail worth knowing: tmux 3.6 additionally reports a crashed pane's exit code, which the UI shows; on 3.2–3.5 that one read degrades to "unknown", never to a wrong answer.
+
+## Browsers and mobile
+
+The web UI is an xterm.js terminal application: use a current browser, and everything works. There is no per-browser support matrix — if the terminal misbehaves in yours, that is a bug worth reporting. The interface adapts by need rather than one breakpoint: workspaces stop tiling side by side and become tabs below 1024 pixels; the persistent sidebar gives way to a drawer below 683, and a phone gets the drawer at any reported width; the on-screen terminal key bar follows touch input, not screen size. The web app installs via Add to Home Screen (there is no offline service worker; the pane always comes from your server).
+
+The [native mobile companion](/get-started/mobile) is the fourth surface: it pushes at the OS level — app-icon badge, lock-screen actions, delivery with no browser open — holds its credential in the Keychain behind Face ID, and carries a live terminal tab of its own. Be aware of what it is *not* yet: there is no app-store listing to point at. It ships built from the repository, so today it is for people comfortable running an Expo build, while the browser shell above serves everyone else.
+
+Docker is another way to run the control plane — the compose recipe publishes port 3080 on all interfaces by design, because remote access is expected to ride a reverse proxy that cannot reach a loopback bind; on a shared network treat a fresh container as reachable. See [Docker](/server/docker).
+
+## See also
+
+- [Install the Server](/get-started/install-server) — download, verify, run
+- [Add a Node](/nodes/add-node) — the agent on another machine
+- [Mobile](/get-started/mobile) — the companion app in detail

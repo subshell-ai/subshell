@@ -45,7 +45,7 @@ Everything below assumes that perimeter holds.
 
 | Threat | Where it is stopped |
 |---|---|
-| An unauthenticated party reaching any API | The auth guard — every `/api/*` route except auth and setup-status |
+| An unauthenticated party reaching any API | The auth guard — every `/api/*` route except auth, setup-status, and the one anonymous read carved out in §2 |
 | One user reading or driving another user's subshells | Ownership checks returning **404, never 403**, so ids cannot be probed |
 | A harness pane escalating beyond its own subshell | Per-subshell tokens scoped by permission map, bound to their row, and rejected on every admin surface |
 | A compromised harness enumerating the operator's disk | `/api/files/explore` refuses machine credentials outright (403) |
