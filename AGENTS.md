@@ -680,9 +680,14 @@ the repo variable `NPM_PUBLISH_ENABLED` is `true`, so ordinary pushes never
 attempt a publish. The alternative it displaced — an `NPM_TOKEN` checked
 into repo secrets — remains rejected rather than quietly adopted.
 
-`test.yml`'s nine jobs run **inside the repo's own builder image**
+`test.yml`'s eleven jobs run **inside the repo's own builder image**
 (`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
-image as well as the release one). It already carries bun (1.4.2, pinned to
+image as well as the release one). The first job routes the other ten:
+`scripts/ci-test-plan.ts` asks turbo which packages changed since the base
+plus their dependents, and the test jobs `if:` on those flags — a docs-only
+PR runs Plan and greys the rest, and every path the router cannot answer
+fails wide to run-everything. Rust inputs are not in the turbo graph, so the
+two Rust jobs stay unconditional. It already carries bun (1.4.2, pinned to
 the root `packageManager` so CI runs what developers run), rustup stable and
 Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
 CI's sake. That is what lets `setup-bun`, `dtolnay/rust-toolchain` and every
