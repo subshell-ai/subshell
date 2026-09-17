@@ -3,13 +3,47 @@ title: Reset
 description: Tear the instance down from its own machine — what a reset deletes, what it never touches, and the confirmation that gates it.
 ---
 
-This page will cover the one destructive act, deliberately kept off the network: "Reset this server" lives in the dashboard's danger zone but executes in the Subshell Server desktop assistant, which lists every path the reset deletes, arms only after you type this machine's hostname, and refuses a delete that would swallow the installed binary. It will state what a reset removes — service definition, instance data, this app's choices — and what it never reaches: enrolled remote nodes (they keep their keys and keep running), a same-machine node agent, and the installed `subshell-server` binary itself. The CLI path and the app path should be shown side by side.
+Reset is the one act that deletes everything the instance has ever written, so it is deliberately kept off the network: no page you serve can drive it, and — decided once and worth stating plainly — **`subshell-server` has no reset command.** The sequenced, guarded reset lives in the Subshell Server desktop assistant. A headless instance deletes its data by hand, and this page shows both paths.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## From the desktop app
 
-## Sources
+The dashboard's danger card on Settings is only a door: it raises the **Subshell Server app's assistant** to the reset screen. The remote page can name a screen — never a path, never a command. Everything that follows happens on the bundled assistant page, on this machine.
 
-- `README.md` §Desktop apps — the danger-zone card and the typed-hostname confirmation
-- `apps/server/desktop/AGENTS.md` — the assistant's reset screen: paths, refusals, what survives
-- `docs/superpowers/specs/2026-09-11-native-reset-both-desktop-apps-design.md` — the reset design across both apps
+**What the screen shows before you can arm it:** every path the reset will delete. They are not a template — the assistant reads them from the server's own `status` report *right now*, the same list [Files & Paths](/reference/files-and-paths) describes: the database file, the pane logs, the node artifacts, the data directory, and the config home with its `config.env`. The report is taken **all-or-nothing**: a partial one refuses to arm at all, because deleting a subset and reporting success is worse than deleting nothing. The plan is held by the app for the whole chain — the sequence stops and uninstalls the very server whose report names the paths, so it cannot be re-asked afterward.
+
+**The confirmation is typing this machine's hostname** — the same one the screen displayed, compared on the machine itself. Then two guards run before anything is deleted: every target must be an absolute path that is neither `/` nor your home directory, and any recursive delete that **is or contains the installed server binary** is refused outright. The binary at `~/.local/bin/subshell-server` survives; the config file does not — it is one of the things deleted.
+
+**What the chain does,** step by step with the screen showing its place: stop the server, close the pane servers (each local subshell's tmux), uninstall the service definition, delete the paths, clear the Subshell Server app's own settings — then restart the app, which re-probes the machine and finds it at first run, ready to set up again.
+
+**What no reset reaches:**
+
+- **Enrolled remote nodes.** Each keeps its node key and keeps running. It simply stops receiving commands, because the control plane it dialed is gone.
+- **A same-machine node agent.** The `subshell` daemon and its config belong to the node role — a different program with its own config home — and are untouched. Subshells running on other machines are not shut down by resetting this one; they live on their nodes' disks and die with their own panes.
+- **The installed binary** — by the containment guard above — and **the Subshell Client app's** own choices.
+
+> [!caution] Backups go too
+> Database backups are kept inside the data directory, which makes them covered by design — a reset leaves no copy behind. If anything in the database is worth keeping, run `subshell-server backup` and move the file **somewhere else** first.
+
+## From a headless box, by hand
+
+A headless instance has no assistant window, and there is no command that stands in for one. The by-hand equivalent is deliberately left as hand work so that the only thing deleting your instance is a person at a keyboard on that machine:
+
+```bash
+subshell-server service uninstall     # stop the service and remove the definition
+subshell-server status --json         # the paths block lists everything below
+```
+
+Delete what that report names — the database, the pane logs directory, the data directory, then the config home last (it holds the secret; deleting it is what makes the instance unbootable rather than merely empty). The binary at `~/.local/bin/subshell-server` is the only thing the assistant would have kept by policy; removing it is your call:
+
+```bash
+rm ~/.local/bin/subshell-server       # optional — nothing else removes the binary
+```
+
+Unenrolled leftovers are on the *other* machines' side: nodes still hold their keys, and there is no plane left to call — deleting them is the [node CLI](/reference/node-cli)'s business on each machine, or nothing's.
+
+## See also
+
+- [Running as a Service](/server/service) — what `service uninstall` stops, and the pane-safety rule around it
+- [Backups](/server/backups) — the snapshot you should carry off-box first
+- [Files & Paths](/reference/files-and-paths) — every path the report names, and what lives in it
+- [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) — why destructive acts stay local on this posture

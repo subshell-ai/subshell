@@ -3,14 +3,63 @@ title: Networking & Addresses
 description: Which addresses can reach the server and sign in from a browser — bind, base URL, and the trusted-origin allowlist.
 ---
 
-This page will untangle the three addresses people conflate: what the server binds (`HOST`, default all interfaces), what it calls itself (`APP_BASE_URL`, also the passkey rpID), and what browsers may use (the trusted-origin allowlist, derived live from the instance's own addresses, the operator's extras, and network plugins' published records — never from the request's own Host, which is the DNS-rebinding hole the list closes). It will diagnose the 403 "Invalid origin" sign-in failure by name and fix it with the right lever, and position mesh networks (the Network Plugins section) as the way to make a private address trustworthy.
+Three settings decide which addresses your control plane answers on, and people conflate them constantly. Once you separate them, the infamous sign-in failure becomes a one-field fix.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+| setting | question it answers | default |
+|---|---|---|
+| `HOST` | which network interfaces does the server **listen** on? | `0.0.0.0` — all of them |
+| `APP_BASE_URL` | what address does the instance **call itself**? Auth redirects use it, and it is trusted automatically. | `http://localhost:<port>` |
+| `TRUSTED_ORIGINS` | what **other** addresses may a browser sign in from? | the two dev-server ports a source checkout uses |
 
-## Sources
+The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means remote nodes and devices *can* reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The other two are identity facts: which name the instance vouches for, and which names its browsers may use. A wildcard bind is a listen address, **not** an identity — `0.0.0.0` never trusts anything by itself.
 
-- `.claude/rules/security-context.md` §"Which addresses a browser may use" — the derived list, canonicalization, and the wildcard refusal
-- `docs/security.md` §8 "Network boundary" — the authoritative posture
-- `README.md` §Browsing from another machine — the 403 symptom and its fix, in user words
-- `apps/server/api/src/services/trusted-origins.ts` — the live registry the page describes
+## What a browser may use
+
+Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled **live, per request**, from exactly three sources:
+
+1. the instance's **own origins** — both loopback spellings of the port (`http://localhost:3080` and `http://127.0.0.1:3080`), the base URL's origin, and `http://<host>:<port>` when `HOST` is a concrete address rather than a wildcard;
+2. the operator's `TRUSTED_ORIGINS` extras;
+3. the addresses each **enabled network plugin** reports for this host — trusted the moment a publish earns it, and forgotten when it is undone.
+
+What is deliberately missing is a fourth source: **the request itself.** The list is never derived from the request's `Host` header — "trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart.
+
+## 403 "Invalid origin"
+
+This is the symptom everything above is designed to produce when an address is not on the list — and it is famously unhelpful on its own, because it names no key. The common shape: the default LAN bind means the server **answers** on `http://192.168.1.5:3080` — the app renders — but the derived own-origins are just the two loopback spellings, so the phone or laptop sends an `Origin` nothing matches, and sign-in dies. The server is not broken; it is refusing an address it was never told about. Production enforces this strictly, which is where you will meet it.
+
+The fix is to name the address you actually browse from:
+
+```bash
+subshell-server configure --trusted-origins http://192.168.1.5:3080
+subshell-server service restart
+```
+
+or the same field on Settings → Service, where a change needs **no restart** — the origins list is re-read live, so the retry works from the page you fixed it on. Two rules pick the right lever:
+
+- **"Also reachable at"** → add an origin. Nothing else moves.
+- **"This is the address now"** → change `APP_BASE_URL`, and restart. But read the next section first.
+
+`init` warns about the whole trap at write time, printing the exact command; if you browse from any machine that is not the box, name that address while you set up.
+
+> [!important] Changing the base URL moves your passkeys
+> `APP_BASE_URL` is also the passkey rpID — passkeys are bound to the host they were minted for. Change it and existing passkeys stop working on the old address, the Subshell Server desktop window (pinned to loopback) included. Adding a name to `TRUSTED_ORIGINS` has no such effect, and is the correct lever when the goal is *also*.
+
+## What the list will not accept
+
+An origin is scheme, host, and optional port — nothing else. Both writers (the CLI flag and the Service page) validate every entry by component and **store the canonical form** a browser actually sends, which is what admits the spellings people type — a trailing slash, a mixed-case host, an explicit `:443` — while storing the one string the checkers compare. A path, query, or fragment is refused; so are credentials, rather than silently stripped by canonicalization.
+
+**Wildcards are refused, and that refusal is load-bearing.** The auth stack routes any entry containing `*` or `?` through pattern matching, so a written `https://*` would trust *every* https origin on the internet — dissolving the allowlist the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) spends this whole page on. An operator who genuinely wants a pattern can still set the env var or hand-edit `config.env` — those bypass the validators by design — and `subshell-server status` then reports per-entry problems telling you what a browser will do with the value.
+
+## Reaching the box from anywhere
+
+The posture is a **trusted network**: no TLS is enforced, so the recommended way to operate from beyond the LAN is to bring the network to the box — WireGuard, Tailscale, an SSH tunnel — rather than the box to the internet. That is exactly what the [network plugins](/server/network-plugins) automate: joining Tailscale, Headscale, or NetBird and publishing Subshell on the mesh, where the plugin's own record makes the new address trusted — nothing is unioned into `TRUSTED_ORIGINS`, and unpublishing forgets it. Cloudflare Tunnel is the one deliberate public exception, and it refuses to publish until an Access application guards the hostname. Every address carries a `secureContext` flag, which is a statement about the *browser* (passkeys and secure cookies need https or loopback), not about encryption — a WireGuard mesh encrypts plain `http://` end to end, and passkeys still won't work on it.
+
+Firewall and port specifics are on the reference page; the full enforcement-point-by-enforcement-point accounting lives in the threat model.
+
+## See also
+
+- [Network Plugins](/server/network-plugins) — joining a mesh and publishing through it
+- [Security Model](/about/security-model) — the trusted-network posture, in product terms
+- [The full threat model — §8 Network boundary](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) — the authority behind every claim here
+- [Ports & Firewalls](/reference/ports-and-firewalls) — what needs to be open, per deployment shape
+- [Configuration](/server/configuration) — which writers can touch these keys, and which can't

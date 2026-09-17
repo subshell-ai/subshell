@@ -3,14 +3,72 @@ title: Running as a Service
 description: Start at login and stay up after logout — systemd user units, launchd agents, and the pane-safety rule.
 ---
 
-This page will cover keeping the control plane running without a terminal held open: `subshell-server service install` writing a systemd user unit (Linux) or launchd agent (macOS), the enable/disable pair that arms login start without touching the running process, and start/stop/restart from the CLI. It will teach the one diagnostic that saves afternoons — `service status` reporting whether a restart or stop would take the live tmux panes down with the server (a definition written before the pane-safety fix does), which is why `restart` refuses without `--force` and bare `systemctl` says nothing. Plus Linux linger, without which a user service dies at logout.
+The control plane runs without a terminal held open by registering with the platform's **per-user** service manager: a systemd user unit on Linux, a launchd agent on macOS. No sudo is involved anywhere — this is your account's manager, running as your user.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+```bash
+subshell-server service install    # write the unit / agent and start it
+subshell-server service status     # what the manager reports (--json for scripts)
+subshell-server service start      # start the installed service
+subshell-server service stop       # stop it (the definition stays installed)
+subshell-server service restart    # restart (--force overrides the pane refusal)
+subshell-server service enable     # start at login, without touching the running process
+subshell-server service disable    # stop starting at login, ditto
+subshell-server service uninstall  # stop it and remove the definition
+```
 
-## Sources
+`service install` refuses before writing anything when the instance has no `config.env` yet (run `init`) or tmux is missing, and — on Linux — when no systemd user manager is reachable. The installed unit starts the server on the config file, restarts it whenever it exits, and bakes in your current `PATH` so the tmux that passed the install check is still findable when the manager starts the process.
 
-- `README.md` §Running it as a service — the verbs, the linger fix, and the KillMode caveat
-- `apps/server/api/AGENTS.md` §"The server manages itself on an admin's request" — supervision, restart refusal, autostart
-- `docs/superpowers/specs/2026-09-12-server-supervision-and-autostart-design.md` — service-vs-child supervision design
-- `docs/superpowers/specs/2026-09-12-management-in-the-dashboard-design.md` — the rule that leaving-the-server-unreachable acts stay CLI-only
+## Linux: the unit and the linger question
+
+The unit lives at `~/.config/systemd/user/subshell-server.service` and loads `config.env` as its `EnvironmentFile` — the very file the binary's own loader reads, so the unit and the process cannot disagree about configuration. `systemctl --user` works on it directly if you prefer, but the CLI verbs know one thing `systemctl` does not: what a stop will do to your live panes (below).
+
+An enabled user unit comes back at **login**, and without more, dies at **logout**. Lingering is what separates "comes back when you log in" from "comes back after a reboot with nobody logged in" — on a headless box, the question that decides whether the server survives at all. The installer asks logind instead of assuming, and prints the fix only when it is missing:
+
+```bash
+loginctl enable-linger $USER
+```
+
+Settings → Service reports the same fact, so a box you set up from a terminal can be checked from a browser later.
+
+## macOS: the plist's location is the setting
+
+The agent is `dev.subshell.server.plist`, and its log goes to `~/Library/Logs/subshell-server.log`. What makes launchd different is that **"starts at login" is the file's location, not a key inside it**:
+
+- installed *with* login start → `~/Library/LaunchAgents/dev.subshell.server.plist`, which launchd scans at login;
+- installed *without* it → the plist is kept in the config home, out of launchd's scan path, and loaded for the current session only.
+
+There is a reason for the relocation: the plist also carries `KeepAlive` (so the server restarts by exit — that is how the dashboard's restart works), and `KeepAlive` starts a loaded job regardless of `RunAtLoad`. The agent moves between the two files on `enable`/`disable`; a loaded job does not care where its definition came from, so the running server is untouched either way.
+
+## Start at login, without touching the running process
+
+`service enable` and `service disable` answer exactly one question — will the *next* login (or boot, with lingering) start the server — and never start or stop anything: on Linux they run `enable`/`disable` with no `--now`, and the dashboard's autostart switch goes through the same rules. Toggling a preference about tomorrow must not be how you find out your server is down today.
+
+## The pane-safety rule
+
+Every subshell on the control-plane host runs in a tmux server that is a **child of the service process**. That makes one systemd directive load-bearing: with the default control-group kill, stopping the server SIGKILLs every live pane with it — and a restart is a stop followed by a start, so restarting to apply a config change silently kills every running subshell.
+
+The installed unit carries `KillMode=process` (the launchd equivalent, `AbandonProcessGroup`, is in the plist), so panes survive restarts and the boot reconciler re-adopts them. But a **definition written before that fix** — hand-written, or left by an old version — still kills panes, and neither `systemctl restart` nor `launchctl` says so. The CLI asks where those raw commands never will:
+
+- `service status` reports it up front as `teardown keeps panes = yes` — or `NO: this definition predates the fix; reinstall it before stopping or restarting`, or `unknown: the definition could not be read` (the check reads the *effective* setting the manager would apply, not just the file, so a drop-in is seen);
+- `service restart` **refuses** when the answer is not `yes`, and says what to do: `subshell-server service install` rewrites the definition with the safe directive, or `--force` overrides the refusal;
+- `service stop` **warns and proceeds** — you asked for it down, and refusing would only push you to the raw `systemctl` command that warns about nothing;
+- `service uninstall` gates on nothing, deliberately: a stranded unit must always be removable.
+
+An unreadable definition fails closed, the same as a lethal one — not being able to prove the panes are safe is not proof that they are.
+
+## Restarting from the dashboard
+
+Settings → Service can restart the server over HTTP — under two refusals that mirror the CLI's. The restart is available **only when the service manager reports this very process's pid**: a hand-run `subshell-server` in a terminal, or a container with no respawn, exits into nothing, so the button stays greyed and the page says so. And the restart route applies the pane-safety refusal too, so a page cannot silently do what the CLI refuses. Start-at-login is likewise toggleable from the page, because arming it touches nothing about the running process.
+
+What has no route, at all: `stop`, `start`, `service install`, `service uninstall`, and the reset. Each one would leave the server unreachable — and an act that kills the page cannot be driven from the page. They stay CLI verbs (the reset lives in the desktop assistant; see [Reset](/server/reset)).
+
+## The app as supervisor
+
+The Subshell Server desktop app can run the control plane as **its own child** instead of installing a service — the "with the app" mode offered at first run. The server learns this from environment variables naming its supervisor, and believes the claim only when the named pid is actually its parent; what a false claim could buy is only the dashboard's restart button pointing at a process nothing will respawn. In this mode, quitting the app stops the server but keeps every live pane running, and restarting the server means the app respawns it. [Install the Control Plane](/get-started/install-server) covers the two modes side by side; switching between them is the Service page's supervision control, which enforces the same pane-safety refusal.
+
+## See also
+
+- [Configuration](/server/configuration) — the file the unit loads, and which changes need a restart
+- [Reset](/server/reset) — the one destructive act, kept off the network entirely
+- [Updating](/server/updating) — how an update uses the manager to complete its transaction
+- [subshell-server CLI](/reference/server-cli) — every flag each verb accepts
