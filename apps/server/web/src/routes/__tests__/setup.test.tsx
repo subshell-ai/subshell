@@ -69,15 +69,17 @@ interface SetupMocks {
   /** True = the install POST never settles, so the mutation stays pending. */
   installPending?: boolean;
   /**
-   * What GET /api/admin/status reports for `runtime.tmuxPath` — the tmux row's
-   * whole detection. `undefined` here means "found", since that is the state
-   * of a host the wizard has nothing to say about.
+   * What GET /api/admin/status reports for `runtime.tmuxPath` — the Tmux
+   * step's whole detection. `undefined` here means "found", since that is the
+   * state of a host the wizard has nothing to say about.
    */
   tmuxPath?: string | null;
   /** What GET /api/admin/status reports for `runtime.os`, which decides the command shown. */
   os?: string;
   /** What POST /api/setup/tmux/install answers */
   tmuxInstall?: { status: number; body: unknown };
+  /** True = the tmux install POST never settles, so the mutation stays pending. */
+  tmuxInstallPending?: boolean;
   /**
    * What GET /api/setup/status reports. Default true (a first run) because
    * every pre-resume test walks the wizard from the account screen; the
@@ -150,6 +152,9 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify({ runtime: { tmuxPath, os: opts.os ?? "darwin" } })));
     }
     if (path === "/api/setup/tmux/install" && method === "POST") {
+      // A real `brew install` takes a minute; a promise that never settles is
+      // what "still installing" looks like to the component.
+      if (opts.tmuxInstallPending) return new Promise<Response>(() => {});
       const res = opts.tmuxInstall ?? {
         status: 200,
         body: { ok: true, exitCode: 0, output: "done", durationMs: 12, tmuxPath: "/opt/homebrew/bin/tmux" },
@@ -249,13 +254,56 @@ const LAUNCH_PLUGINS = [
   },
 ];
 
+/** The wizard's screens, in browser order. */
+type WalkStep = "account" | "network" | "tmux" | "agent" | "launch";
+
+/** The heading each screen renders inside its `SetupAssistant` frame. */
+const STEP_HEADING: Record<WalkStep, string> = {
+  account: "Create Your Account",
+  network: "Connect a Network",
+  tmux: "Install tmux",
+  agent: "Add an Agent",
+  launch: "Start Your First Subshell",
+};
+
+/** Whether the screen `step` is the one on screen right now. */
+function onStep(step: WalkStep): boolean {
+  return screen.queryAllByRole("heading", { name: STEP_HEADING[step] }).length > 0;
+}
+
+const SERVER_UA_LINUX = "Mozilla/5.0 SubshellDesktop/1.0.0 (linux; p=1)";
+const SERVER_UA_MACOS = "Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)";
+
 /**
- * Renders the wizard and walks it to `upto`: 0 = account form,
- * 1 = network step (through real registration against the stubbed auth),
- * 2 = agent step, 3 = launch step. The walk IS the test substrate — the point
- * of this page is the path through it.
+ * Runs `fn` with `navigator.userAgent` replaced by a Subshell Server shell
+ * marker, restoring the real one and the parsed-shell memo afterwards.
+ *
+ * The memo reset is on BOTH sides because `desktopShell()` caches on first
+ * read: without the front one, a sibling test's UA would still be what
+ * `isServerDesktop()` sees when this one starts.
  */
-async function renderSetup(opts: SetupMocks, upto: 0 | 1 | 2 | 3) {
+async function underUA<T>(userAgent: string, fn: () => Promise<T>): Promise<T> {
+  const nav = globalThis.navigator as unknown as Record<string, unknown>;
+  const prev = Object.getOwnPropertyDescriptor(nav, "userAgent");
+  resetDesktopShellForTests();
+  Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true });
+  try {
+    return await fn();
+  } finally {
+    if (prev) Object.defineProperty(nav, "userAgent", prev);
+    else delete nav.userAgent;
+    resetDesktopShellForTests();
+  }
+}
+
+/**
+ * Renders the wizard and walks it to `upto`. The walk IS the test substrate —
+ * the point of this page is the path through it — and it follows the CONTINUE
+ * buttons rather than counting screens: inside Subshell Server the same walk
+ * meets a shorter list (the Tmux step is the assistant's), and pinning the
+ * buttons is what lets one helper drive both shells.
+ */
+async function renderSetup(opts: SetupMocks, upto: WalkStep) {
   routeFetch(opts);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rootRoute = createRootRoute();
@@ -278,25 +326,25 @@ async function renderSetup(opts: SetupMocks, upto: 0 | 1 | 2 | 3) {
     </QueryClientProvider>,
   );
   await settle();
-  if (upto >= 1) {
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ada" } });
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
-    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "correct-horse-battery" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
-    // Wait on real step-1 CONTENT (the network screen's own heading), not the
-    // button label: "Creating account…" makes "Create Account" vanish while
-    // the sign-up promise is still in flight.
-    await waitFor(() => expect(screen.getByText("Connect a Network")).toBeTruthy());
-  }
-  if (upto >= 2) {
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
-  }
-  if (upto >= 3) {
+  if (upto === "account") return { client, history };
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ada" } });
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+  fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "correct-horse-battery" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
+  // Wait on real step-2 CONTENT (the network screen's own heading), not the
+  // button label: "Creating account…" makes "Create Account" vanish while
+  // the sign-up promise is still in flight.
+  await waitFor(() => expect(onStep("network")).toBe(true));
+  // Click forward until the target renders. Three is the longest walk in a
+  // browser (network → tmux → agent → launch); inside Subshell Server the
+  // same target arrives sooner, and a walk that cannot arrive fails on the
+  // wait below rather than clicking a vanished button forever.
+  for (let i = 0; i < 3 && !onStep(upto); i++) {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await settle();
   }
+  await waitFor(() => expect(onStep(upto)).toBe(true));
   return { client, history };
 }
 
@@ -376,14 +424,53 @@ describe("setup wizard: resume", () => {
     await waitFor(() => expect(history.location.pathname).toBe("/"));
   });
 
-  it("Skip on the Network step writes the 'agent' bookmark", async () => {
-    await renderSetup({}, 1);
+  it("opens a 'tmux' bookmark on the Tmux step in a browser", async () => {
+    await renderResume({ needsSetup: false, progressStep: "tmux" });
+    expect(await screen.findByText("Install tmux")).toBeTruthy();
+  });
+
+  it("maps a 'tmux' bookmark to the Agent step inside Subshell Server", async () => {
+    // The step does not exist in that shell — its native assistant shows its
+    // own tmux screen — so the bookmark resolves FORWARD, not back to
+    // Account: the Agent step is exactly where the person still has to go,
+    // and restarting the wizard would silently undo their walk.
+    await underUA(SERVER_UA_LINUX, async () => {
+      await renderResume({ needsSetup: false, progressStep: "tmux" });
+      expect(await screen.findByText("Add an Agent")).toBeTruthy();
+      expect(screen.queryByText("Install tmux")).toBeNull();
+      expect(screen.queryByText("dashboard")).toBeNull();
+    });
+  });
+
+  it("Skip on the Network step writes the 'tmux' bookmark", async () => {
+    await renderSetup({}, "network");
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    await waitFor(() => expect(progressPatches).toContain("tmux"));
+  });
+
+  it("Skip on the Network step writes 'agent' inside Subshell Server, where no Tmux step exists", async () => {
+    // The write follows the ACTIVE list, not a hard-coded next: bookmarking
+    // a step this shell cannot render would be bookmarking a redirect target
+    // that can only ever resolve forward.
+    await underUA(SERVER_UA_LINUX, async () => {
+      await renderSetup({}, "network");
+      fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+      await waitFor(() => expect(progressPatches).toContain("agent"));
+      expect(progressPatches).not.toContain("tmux");
+    });
+  });
+
+  it("Continue on the Tmux step writes the 'agent' bookmark", async () => {
+    await renderSetup({}, "tmux");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(progressPatches).toContain("agent"));
   });
 
   it("finishing on the last step clears the bookmark", async () => {
-    await renderSetup({ nodes: [LAUNCH_NODE], plugins: LAUNCH_PLUGINS, recent: { paths: [], home: "/home/ada" } }, 3);
+    await renderSetup(
+      { nodes: [LAUNCH_NODE], plugins: LAUNCH_PLUGINS, recent: { paths: [], home: "/home/ada" } },
+      "launch",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     await waitFor(() => expect(progressPatches).toContain(null));
   });
@@ -399,7 +486,7 @@ describe("setup wizard: resume", () => {
  */
 describe("setup wizard: what registration submits", () => {
   it("trims the name and email, and leaves the password exactly as typed", async () => {
-    await renderSetup({}, 0);
+    await renderSetup({}, "account");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "  Ada  " } });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: " ada@example.com " } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: " correct-horse-battery " } });
@@ -416,13 +503,13 @@ describe("setup wizard: what registration submits", () => {
 
 describe("setup wizard: the agent step is optional", () => {
   it("presents the agent step as optional and says what happens if you skip it", async () => {
-    await renderSetup({}, 2);
+    await renderSetup({}, "agent");
     expect(screen.getByText(/A plain terminal is always available/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
   });
 
   it("keeps the node escape hatch for a machine with nothing usable", async () => {
-    await renderSetup({ harnesses: [CLAUDE_ABSENT] }, 2);
+    await renderSetup({ harnesses: [CLAUDE_ABSENT] }, "agent");
     expect(await screen.findByText(/register a Node/)).toBeTruthy();
   });
 
@@ -444,7 +531,7 @@ describe("setup wizard: the agent step is optional", () => {
           },
         ],
       },
-      2,
+      "agent",
     );
     const row = screen.getByRole("listitem", { name: "Claude Code" });
     expect(row.textContent).toContain("Detected · v1.0.0");
@@ -457,7 +544,7 @@ describe("setup wizard: the agent step is optional", () => {
   // from under it abandoned its progress line and any failure on a screen
   // nobody could see any more (operator report, 2026-09-14).
   it("refuses to continue while an install is running, and says what it is waiting for", async () => {
-    await renderSetup({ harnesses: [CLAUDE_ABSENT], installPending: true }, 2);
+    await renderSetup({ harnesses: [CLAUDE_ABSENT], installPending: true }, "agent");
     const cont = screen.getByRole("button", { name: "Continue" });
     expect(cont.hasAttribute("disabled")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
@@ -469,7 +556,7 @@ describe("setup wizard: the agent step is optional", () => {
   });
 
   it("installs an agent and flips the row to Detected", async () => {
-    await renderSetup({ harnesses: [CLAUDE_ABSENT] }, 2);
+    await renderSetup({ harnesses: [CLAUDE_ABSENT] }, "agent");
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
     await settle();
     const row = screen.getByRole("listitem", { name: "Claude Code" });
@@ -478,47 +565,77 @@ describe("setup wizard: the agent step is optional", () => {
 });
 
 /**
- * The tmux row (spec 2026-09-15 § 5.1).
+ * The Tmux step (spec 2026-09-15 § 5.1, as amended 2026-09-17).
  *
- * The defect it closes is that the browser wizard had no tmux step at all —
- * the screen existed only in the native Subshell Server assistant, so a
+ * The defect the FEATURE closes is that the browser wizard had no tmux screen
+ * at all — it existed only in the native Subshell Server assistant, so a
  * headless install discovered that every launch fails, or never found out.
- * tmux is what every local pane runs inside.
+ * The defect the STEP closes is the row's: pinned above the agents, tmux read
+ * as an agent named tmux, under a subtitle promising "A plain terminal is
+ * always available with nothing to install". tmux is what every local pane
+ * runs inside — its own screen says so in its own words.
  */
-describe("setup wizard: the tmux row", () => {
-  it("pins tmux above the agents and reports a host that has it", async () => {
-    await renderSetup({}, 2);
-    const rows = screen.getAllByRole("listitem");
-    expect(rows[0]?.getAttribute("aria-label")).toBe("tmux");
-    expect(rows[0]?.textContent).toContain("Detected");
+describe("setup wizard: the tmux step", () => {
+  /**
+   * The step body's labelled group. Synchronous by design: the walk into the
+   * step settles the admin-status read that decides the verdict (the request
+   * fires the moment Network mounts, one `settle()` before this is ever
+   * called), and the one time it is not yet settled — mid-install — the
+   * assertions below wrap it in `waitFor` themselves.
+   */
+  function tmuxBlock(): HTMLElement {
+    return screen.getByRole("group", { name: "tmux" });
+  }
+
+  it("is its own screen, and reports a host that has tmux with the path it found", async () => {
+    await renderSetup({}, "tmux");
+    expect(screen.getByRole("heading", { name: "Install tmux" })).toBeTruthy();
+    expect(tmuxBlock().textContent).toContain("Found at");
+    expect(tmuxBlock().textContent).toContain("/usr/bin/tmux");
     // A settled fact says nothing more: no command to run, nothing to press.
-    // Scoped to the row — Claude Code is absent in the default fixture and
-    // carries an Install button of its own.
-    expect(within(rows[0] as HTMLElement).queryByRole("button", { name: "Install" })).toBeNull();
+    expect(within(tmuxBlock()).queryByRole("button", { name: "Install" })).toBeNull();
+  });
+
+  it("keeps tmux out of the agent list", async () => {
+    // The ruling the step exists for: the agent list is agents.
+    await renderSetup({}, "agent");
+    expect(screen.queryByRole("listitem", { name: "tmux" })).toBeNull();
+    expect(screen.getByText(/A plain terminal is always available/)).toBeTruthy();
   });
 
   it("says what a missing tmux costs and never blocks Continue", async () => {
-    await renderSetup({ tmuxPath: null }, 2);
-    const row = screen.getByRole("listitem", { name: "tmux" });
-    expect(row.textContent).toContain("Subshells cannot launch on this machine");
+    await renderSetup({ tmuxPath: null }, "tmux");
+    expect(tmuxBlock().textContent).toContain("Subshells cannot launch on this machine");
     // The launch step refuses honestly on its own, and a wizard that traps
     // someone behind a package manager is worse than one that told them.
     expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(false);
   });
 
-  it("installs tmux on macOS and flips the row to Detected", async () => {
-    await renderSetup({ tmuxPath: null, os: "darwin" }, 2);
-    fireEvent.click(within(screen.getByRole("listitem", { name: "tmux" })).getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(screen.getByRole("listitem", { name: "tmux" }).textContent).toContain("Detected"));
+  it("installs tmux on macOS and flips the step to found", async () => {
+    await renderSetup({ tmuxPath: null, os: "darwin" }, "tmux");
+    fireEvent.click(within(tmuxBlock()).getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(tmuxBlock().textContent).toContain("Found at"));
+  });
+
+  it("holds Continue while the tmux install runs, and shows the installer's line", async () => {
+    // The 2026-09-14 rule, now on the screen that owns the tmux install: a
+    // `brew install` taking a minute must not be walked out of in either
+    // direction, or its progress line and any failure land unseen.
+    await renderSetup({ tmuxPath: null, os: "darwin", tmuxInstallPending: true }, "tmux");
+    const cont = screen.getByRole("button", { name: "Continue" });
+    fireEvent.click(within(tmuxBlock()).getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(cont.hasAttribute("disabled")).toBe(true));
+    expect(tmuxBlock().textContent).toContain("Starting the installer…");
+    expect(screen.getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("shows the Linux command to copy and offers no button for it", async () => {
     // The server has no terminal to answer sudo's password prompt, so the
     // route 409s a privileged installer. A button here would always fail.
-    await renderSetup({ tmuxPath: null, os: "linux" }, 2);
-    const row = screen.getByRole("listitem", { name: "tmux" });
-    expect(row.textContent).toContain("sudo apt-get install -y tmux");
-    expect(within(row).queryByRole("button", { name: "Install" })).toBeNull();
+    await renderSetup({ tmuxPath: null, os: "linux" }, "tmux");
+    expect(tmuxBlock().textContent).toContain("sudo apt-get install -y tmux");
+    expect(within(tmuxBlock()).queryByRole("button", { name: "Install" })).toBeNull();
   });
 
   it("reports a refused install without pretending tmux arrived", async () => {
@@ -528,14 +645,13 @@ describe("setup wizard: the tmux row", () => {
         os: "darwin",
         tmuxInstall: { status: 409, body: { message: "No supported package manager was found on this host." } },
       },
-      2,
+      "tmux",
     );
-    fireEvent.click(within(screen.getByRole("listitem", { name: "tmux" })).getByRole("button", { name: "Install" }));
+    fireEvent.click(within(tmuxBlock()).getByRole("button", { name: "Install" }));
     await waitFor(() =>
-      expect(screen.getByRole("listitem", { name: "tmux" }).textContent).toContain(
-        "No supported package manager was found on this host.",
-      ),
+      expect(tmuxBlock().textContent).toContain("No supported package manager was found on this host."),
     );
+    expect(tmuxBlock().textContent).not.toContain("Found at");
   });
 });
 
@@ -576,8 +692,8 @@ function network(over: { id: string; name: string; state?: string; supported?: b
  * to offer a fix is before anyone has typed an address into a phone.
  */
 describe("setup wizard: the Network step", () => {
-  it("is optional, and skipping lands on the agent step", async () => {
-    await renderSetup({}, 1);
+  it("is optional, and skipping lands on the Tmux step", async () => {
+    await renderSetup({}, "network");
     // The framing, not just the button: a step whose only offer is a page of
     // vendor setup instructions reads as a wall, and the way round it was
     // nothing but an unlabelled footer control. Step 3's subtitle already said
@@ -587,7 +703,10 @@ describe("setup wizard: the Network step", () => {
     // words: the split the markup introduces is the emphasis being asked for.
     expect(screen.getByText("Settings → Networking").className).toContain("font-strong");
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    await waitFor(() => expect(screen.getByText("Add an Agent")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Install tmux")).toBeTruthy());
+    // Skip means the NEXT screen, whatever this shell renders — in a browser
+    // that is now the Tmux step; inside Subshell Server the Skip test in the
+    // resume describe pins that it lands on Agent instead.
   });
 
   it("renders every network as a collapsed row with a state chip", async () => {
@@ -598,7 +717,7 @@ describe("setup wizard: the Network step", () => {
           network({ id: "tailscale", name: "Tailscale", state: "joined" }),
         ],
       },
-      1,
+      "network",
     );
     const rows = await screen.findAllByRole("listitem");
     expect(rows).toHaveLength(2);
@@ -620,7 +739,7 @@ describe("setup wizard: the Network step", () => {
           network({ id: "tailscale", name: "Tailscale", state: "joined" }),
         ],
       },
-      1,
+      "network",
     );
     const rows = await screen.findAllByRole("listitem");
     // Still the layout decision, now as a sort rather than a grouping: a
@@ -629,7 +748,7 @@ describe("setup wizard: the Network step", () => {
   });
 
   it("Configure expands the row to the card, and Hide folds it away", async () => {
-    await renderSetup({ networks: [network({ id: "later", name: "Later" })] }, 1);
+    await renderSetup({ networks: [network({ id: "later", name: "Later" })] }, "network");
     const row = await screen.findByRole("listitem", { name: "Later" });
     const button = within(row).getByRole("button", { name: "Configure" });
     fireEvent.click(button);
@@ -650,7 +769,7 @@ describe("setup wizard: the Network step", () => {
           network({ id: "netbird", name: "NetBird", supported: false }),
         ],
       },
-      1,
+      "network",
     );
     const published = await screen.findByRole("listitem", { name: "Cloudflared" });
     // A published network still owns unpublish and leave, so the row has
@@ -663,24 +782,38 @@ describe("setup wizard: the Network step", () => {
   });
 
   it("says so plainly when this build ships no networks at all", async () => {
-    await renderSetup({}, 1);
+    await renderSetup({}, "network");
     expect(await screen.findByText(/ships no network plugins/)).toBeTruthy();
   });
 });
 
 describe("setup wizard: going back", () => {
-  it("goes back from the agent step to the Network step", async () => {
+  it("walks back agent → tmux → Network in a browser", async () => {
     // The frame has always had a Back slot; no screen passed one, so a person
     // who wanted another look at the network they had just skipped had no way
-    // to it but restarting the wizard.
-    await renderSetup({}, 2);
+    // to it but restarting the wizard. The chain must stay unbroken through
+    // the step inserted in 2026-09-17: Back walks the ACTIVE list, and it
+    // still terminates at Network — never at the account form.
+    await renderSetup({}, "agent");
     expect(screen.getByText("Add an Agent")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByText("Install tmux")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(screen.getByText("Connect a Network")).toBeTruthy());
   });
 
+  it("walks back from the agent step straight to Network inside Subshell Server", async () => {
+    // The omitted step is absent from the BACK chain too — a Back to a screen
+    // this shell refuses to render would be a button that does nothing.
+    await underUA(SERVER_UA_LINUX, async () => {
+      await renderSetup({}, "agent");
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      await waitFor(() => expect(screen.getByText("Connect a Network")).toBeTruthy());
+    });
+  });
+
   it("goes back from the launch step to the agent step", async () => {
-    await renderSetup({}, 3);
+    await renderSetup({}, "launch");
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(screen.getByText("Add an Agent")).toBeTruthy());
   });
@@ -690,13 +823,13 @@ describe("setup wizard: going back", () => {
     // SUCCEEDS, so the screen before Network is a Create Account form for an
     // account that has already been created. Offering Back there would walk a
     // person into a form that cannot work.
-    await renderSetup({}, 1);
+    await renderSetup({}, "network");
     expect(screen.getByText("Connect a Network")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
   });
 
   it("offers no Back on the account step, which is the first screen this program owns", async () => {
-    await renderSetup({}, 0);
+    await renderSetup({}, "account");
     expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
   });
 });
@@ -706,49 +839,43 @@ describe("setup wizard: the dot row continues the native assistant", () => {
     resetDesktopShellForTests();
   });
 
-  it("reads Step 3 of 4 under a plain browser UA", async () => {
-    // Four screens now: Account, Network, Agent, Launch. The walk stops on
-    // the third.
-    await renderSetup({}, 2);
-    expect(screen.getByText("Step 3 of 4")).toBeTruthy();
+  it("reads Step 4 of 5 under a plain browser UA", async () => {
+    // Five screens in a browser now: Account, Network, Tmux, Agent, Launch
+    // (the Tmux step split off the agent list on 2026-09-17). The walk stops
+    // on the fourth.
+    await renderSetup({}, "agent");
+    expect(screen.getByText("Step 4 of 5")).toBeTruthy();
   });
 
-  it("counts the optional Network screen, which is the second of the four", async () => {
-    await renderSetup({}, 1);
-    expect(screen.getByText("Step 2 of 4")).toBeTruthy();
+  it("counts the Tmux step as the third of the five", async () => {
+    await renderSetup({}, "tmux");
+    expect(screen.getByText("Step 3 of 5")).toBeTruthy();
   });
 
-  /** Renders step `n` under `userAgent`, restoring the real one afterwards. */
-  async function underUA(userAgent: string, n: 0 | 1 | 2 | 3) {
-    const nav = globalThis.navigator as unknown as Record<string, unknown>;
-    const prev = Object.getOwnPropertyDescriptor(nav, "userAgent");
-    resetDesktopShellForTests();
-    Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true });
-    try {
-      await renderSetup({}, n);
-    } finally {
-      if (prev) Object.defineProperty(nav, "userAgent", prev);
-      else delete nav.userAgent;
-      resetDesktopShellForTests();
-    }
-  }
+  it("counts the optional Network screen, which is the second of the five", async () => {
+    await renderSetup({}, "network");
+    expect(screen.getByText("Step 2 of 5")).toBeTruthy();
+  });
 
   it("reads Step 6 of 7 on Linux, continuing the assistant's three native screens", async () => {
-    await underUA("Mozilla/5.0 SubshellDesktop/1.0.0 (linux; p=1)", 2);
+    // UNCHANGED when the browser gained a screen: this shell cuts the Tmux
+    // step because its assistant showed its own tmux screen under this same
+    // dot row minutes earlier — the dot was already being spent.
+    await underUA(SERVER_UA_LINUX, () => renderSetup({}, "agent"));
     expect(screen.getByText("Step 6 of 7")).toBeTruthy();
   });
 
   it("reads Step 7 of 8 on macOS — the assistant shows a fourth screen there", async () => {
     // "What macOS Will Ask" sits between Install tmux and Set Up, and exists
     // only on the platform that asks (spec 2026-09-14 §3, §6).
-    await underUA("Mozilla/5.0 SubshellDesktop/1.0.0 (macos; p=1)", 2);
+    await underUA(SERVER_UA_MACOS, () => renderSetup({}, "agent"));
     expect(screen.getByText("Step 7 of 8")).toBeTruthy();
   });
 });
 
 describe("setup wizard: the launch step", () => {
-  /** The mocks a step-2 render needs: a real-shaped node list, a catalog with
-   *  one usable agent, no presets (a fresh account has none), a home. */
+  /** The mocks the launch render needs: a real-shaped node list, a catalog
+   *  with one usable agent, no presets (a fresh account has none), a home. */
   const LAUNCH_MOCKS: SetupMocks = {
     nodes: [LAUNCH_NODE, LAUNCH_AGENT],
     plugins: LAUNCH_PLUGINS,
@@ -756,7 +883,7 @@ describe("setup wizard: the launch step", () => {
   };
 
   it("asks for the Agent (setup-agent), hides the Preset row, and teaches Terminal", async () => {
-    await renderSetup(LAUNCH_MOCKS, 3);
+    await renderSetup(LAUNCH_MOCKS, "launch");
     const agentInput = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
     expect(agentInput.id).toBe("setup-agent");
     // The terminal default composed: the picker reads Terminal.
@@ -770,7 +897,7 @@ describe("setup wizard: the launch step", () => {
   });
 
   it("arrives filled in: Task 6's defaults make it submittable without input", async () => {
-    await renderSetup(LAUNCH_MOCKS, 3);
+    await renderSetup(LAUNCH_MOCKS, "launch");
     const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
     // Not just "eventually enabled" — the settle inside the walk means the
     // defaults have already composed; a regression in them fails HERE rather
@@ -780,7 +907,7 @@ describe("setup wizard: the launch step", () => {
   });
 
   it("launches a subshell and lands on it", async () => {
-    const { history } = await renderSetup(LAUNCH_MOCKS, 3);
+    const { history } = await renderSetup(LAUNCH_MOCKS, "launch");
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     // The final ROUTER LOCATION, not just a navigate call: the redirect
     // effect on this page fires when the setup-status cache flips, and an
@@ -790,7 +917,7 @@ describe("setup wizard: the launch step", () => {
   });
 
   it("retires the setup-status cache on launch, so the shell does not bounce back", async () => {
-    const { client } = await renderSetup(LAUNCH_MOCKS, 3);
+    const { client } = await renderSetup(LAUNCH_MOCKS, "launch");
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() =>
       expect(client.getQueryData<{ needsSetup: boolean }>(["setup-status"])).toEqual({ needsSetup: false }),
@@ -798,7 +925,7 @@ describe("setup wizard: the launch step", () => {
   });
 
   it("lets a user leave without launching, and still finishes setup", async () => {
-    const { client, history } = await renderSetup(LAUNCH_MOCKS, 3);
+    const { client, history } = await renderSetup(LAUNCH_MOCKS, "launch");
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(client.getQueryData<{ needsSetup: boolean }>(["setup-status"])).toEqual({ needsSetup: false });
     await waitFor(() => expect(history.location.pathname).toBe("/"));
@@ -813,7 +940,7 @@ describe("setup wizard: the launch step", () => {
           body: { errId: "e1", code: "NODE_OFFLINE", message: "The node is offline", statusCode: 409 },
         },
       },
-      3,
+      "launch",
     );
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText(/offline/i)).toBeTruthy());

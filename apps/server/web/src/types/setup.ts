@@ -14,8 +14,13 @@
  *
  * There is no `account` member — the wizard's first screen creates the
  * account, so the earliest a bookmark can exist is the screen after it.
+ *
+ * `tmux` is bookmarked by the browser wizard's Tmux step. The step does not
+ * exist inside Subshell Server (the native assistant shows its own tmux
+ * screen), and a `"tmux"` bookmark read there opens the Agent step — the same
+ * fallback `stepFromBookmark` applies to any step the active list lacks.
  */
-export type SetupStep = "network" | "agent" | "launch";
+export type SetupStep = "network" | "tmux" | "agent" | "launch";
 
 /** One row of `GET`/`PATCH /api/setup/progress`. */
 export interface SetupProgress {

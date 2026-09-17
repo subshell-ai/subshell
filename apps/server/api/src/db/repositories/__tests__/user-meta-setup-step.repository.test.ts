@@ -25,7 +25,7 @@ describe("UserMetaRepository setup-step bookmark", () => {
 
   it("round-trips every step in the enum", async () => {
     const user = `u-step-${crypto.randomUUID()}`;
-    for (const step of ["network", "agent", "launch"] as const) {
+    for (const step of ["network", "tmux", "agent", "launch"] as const) {
       await repo.setSetupStep(user, step);
       expect(await repo.getSetupStep(user)).toBe(step);
     }
