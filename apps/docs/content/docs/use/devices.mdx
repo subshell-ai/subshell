@@ -3,14 +3,32 @@ title: Devices
 description: The screens attached to a pane, why the pane is the size it is, and naming your devices.
 ---
 
-This page will cover presence and devices: every browser attached to a subshell announces itself with a chosen device name (defaulted from the browser — "Safari on iPad"), and everyone attached sees that list, which is why a shared pane tells you who else is watching. It will explain what a device's entry means — which grid it displays, when it attached, whether it is being rendered, whether it may type — and how the server turns those facts into one answer: the pane's size, always the smallest visible viewer that can type. The Devices list is where "why does this look tiny on my desktop" gets its explanation.
+A subshell's pane is one process rendering one grid — and it can be open on several screens at once. That single fact creates two questions this page answers: **who is watching** (a shared pane is never silently watched) and **why is the terminal the size it is** (the answer is usually another device).
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Presence: who is attached
 
-## Sources
+Every device that attaches to a pane announces itself, and everyone attached sees the full list — its own entry and everyone else's. Each entry carries a **device name**, the grid that device says it can display, when it attached, whether its page is currently rendered, and whether it may type (a [view](/use/sharing) grantee watches; it cannot type). When at least two devices are attached, the terminal shows a **Devices** control listing them — while you are the only viewer, there is nothing to list and nothing to explain.
 
-- `docs/overview.md` §Key decisions, "Several viewers" — the shared sizing rule and the disclosure
-- `docs/security.md` §5 "Sharing" — the viewers-frame disclosure accounted as a widening
-- `apps/server/web/src/lib/device-name.ts` — where device names are defaulted and normalized
-- `apps/server/api/src/api/devices.route.ts` — the endpoint the Devices list reads
+A device name starts life defaulted from the browser — "Safari on iPad", "Firefox on Linux", and a plain fallback when nothing can be derived — deliberately coarse: enough to tell your phone from your laptop, nothing more. You can set your own name; names are capped at 40 characters and scrubbed of control characters on the way out and again on the way in, because the name you choose is rendered on someone else's screen and in server logs. The Subshell desktop apps announce themselves as such rather than as an ordinary browser page.
+
+> [!note] Not to be confused with push devices
+> Enrolling a phone for notifications is a separate, smaller thing — it just stores that device's push address under your account, and it lives on the [Notifications](/use/notifications) page.
+
+## One grid, several screens
+
+A tmux pane has exactly ONE size; there is no per-viewer layout to fall back on. The default rule is **smallest visible viewer wins**: the pane is sized so that every viewer currently rendering it can display all of it, axis by axis. The consequence is the classic "why is my terminal 80 columns on a 4K monitor": somewhere, someone smaller is attached, and the Devices list names which device holds the width and which holds the height.
+
+The rule has two deliberate exceptions, both because the smallest viewer is sometimes not really watching:
+
+- **Hidden viewers take no part.** A backgrounded browser tab stops laying its page out entirely, so it could not re-fit anyway — it is listed, but it does not hold everyone at phone size. It rejoins the decision the moment it is looked at again. (The mobile companion knows this trick too: it keeps its connection alive in the background for push, while reporting itself hidden, so a phone in a pocket never shrinks every laptop watching the same pane.)
+- **A pinned viewer decides alone.** The Devices control offers *pin the size to this screen* — an `edit` act, like typing, because it changes what everyone sees. Pinning is you saying which screen matters; while pinned, the smallest-wins rule waits until you release the pin. If the pinned device disconnects, sizing falls back to the default automatically.
+
+A viewer bigger than the pane loses nothing — it just has spare room — and a viewer smaller than the pane fits by shrinking its own text rather than clipping rows.
+
+Why the list is shown to everyone, including view-only grantees: without it, one device silently shrinking everyone else's terminal is inexplicable. That disclosure is accounted as a widening in [Sharing](/use/sharing) — it is the same fact, stated from the other side.
+
+## See also
+
+- [Workspaces & Panes](/use/workspaces-panes) — the one-grid rule inside one browser window
+- [Sharing](/use/sharing) — what a grant exposes, including this list
+- [Mobile companion](/get-started/mobile) — a device that hides itself on purpose

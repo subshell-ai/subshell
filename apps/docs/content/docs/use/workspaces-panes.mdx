@@ -3,13 +3,44 @@ title: Workspaces & Panes
 description: Tile several subshells side by side, split panes, and understand how the layout adapts to the screen you are on.
 ---
 
-This page will explain workspaces: per-user saved arrangements of subshell panes, tiled side by side on a wide screen via dockview, split from any pane's menu or by dragging a subshell onto half of another. It will cover what the layout stores and when it writes (below 1024px it renders tabs and never saves, so a phone visit cannot flatten a desktop arrangement), moving and closing panes without killing their subshells, and the one-grid rule behind all of it — a tmux pane has a single size, so a shared pane is sized to the smallest visible viewer. That last part answers the classic "why is my terminal 80 columns" and links to the sharing and devices pages.
+A workspace is a saved arrangement of subshell panes — several agents side by side in one view, the way you would arrange terminals on a large monitor, but stored and reachable from any device. Each pane holds exactly one subshell; splits nest as deep as you want.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Tiling on a wide screen, tabs on a narrow one
 
-## Sources
+The same workspace answers to two presentations, and the screen decides which one it gets:
 
-- `docs/overview.md` §Key decisions (Workspaces, Several viewers) — the tiling/tabs rule and the smallest-visible-viewer sizing
-- `docs/superpowers/specs/2026-08-28-workspace-tiling-design.md` — the tiling design
-- `docs/superpowers/specs/2026-09-14-split-to-workspace-design.md` — the split/drag interaction
+- **1024px or wider** — a tiling layout: panes divide the space, nothing overlaps, and dividers are draggable.
+- **Below 1024px** — tabs: one subshell at a time, sized for the device you are holding.
+
+The tab view never writes the stored layout, so a quick look from your phone cannot flatten the arrangement you built on a desktop. Switch back to a wide window and the tiling is exactly where you left it.
+
+## Adding panes
+
+Every way to add a pane leads to the same choice — put an existing subshell here, or create a new one — and a placement: **split right**, **split down**, or **as a tab** beside the focused pane.
+
+- The workspace header's **Add subshell** opens the picker for the focused pane.
+- Each subshell page has a **Split** button: it opens the picker already filled with the same agent, machine, and folder, and puts the new pane beside the one you were looking at.
+- Drag a subshell from the sidebar onto the workspace and it lands as a right-hand split of the focused pane. A subshell can hold only one pane, so dropping one that is already open just focuses its pane.
+
+Splitting from a subshell that lives in no workspace creates one: the arrangement starts as an **unsaved workspace**, yours to keep with **Save as workspace** — which is only naming it. An unsaved workspace that drops back to a single pane is discarded, because there is nothing left to arrange.
+
+## Moving, closing, and what survives
+
+Drag a pane's tab to split another group or dock it as a tab, and the terminal inside is **relocated, not reconnected** — the layout manager keeps every pane's stream alive through moves, hides, and resizes, so no restart, no replay, no lost keystrokes.
+
+Closing needs a distinction, because two controls look similar and are not:
+
+- A pane tab's **×** removes the **pane**. The subshell keeps running and remains in your list; put it back into a workspace whenever you like.
+- **Close** on a maximized pane closes the **subshell** itself — stops the process and deletes it, with a confirmation, exactly like the subshell menu's Close. Deleting a subshell takes its panes out of every workspace with it.
+
+One more control worth knowing: maximize (the corner icon on a group's header) gives one pane the whole space, and while maximized you get that pane's transcript search.
+
+## One pane, one size — across every device
+
+A tmux pane has exactly ONE grid; your split, your sizing, everyone's view. When several devices are attached to the same subshell, the server sizes the pane so the smallest visible one can display all of it — the reasoning, the exceptions, and how to pin the size to one screen are on [Devices](/use/devices). If the subshell is [shared](/use/sharing), that is also why you can see who else is attached: the same single-grid rule makes it impossible to explain the pane's size without naming the devices.
+
+## See also
+
+- [Subshells](/use/subshells) — the pane's resident process and its lifecycle
+- [Devices](/use/devices) — why the pane is the size it is
+- [Sharing](/use/sharing) — what others see when you share a workspace pane
