@@ -3,14 +3,74 @@ title: Overview
 description: Network plugins connect the control plane to a mesh network and publish it there — described by the plugin, executed by the host.
 ---
 
-This page will explain network plugins as a category: the same plugin system, pointed at reaching your server instead of driving an agent. Four ship built in — Tailscale, Headscale, NetBird, Cloudflare Tunnel — each connects the control-plane host to one network and publishes Subshell on it, so the address you used to discover through a 403 becomes trusted the moment the plugin's record earns it. The page will carry the two design rules that make third-party code safe here: a plugin DESCRIBES (argv, output parsing, naming a secret) and the host EXECUTES every effect through a bounded, audited door; and the sudo boundary is absolute — privileged steps are printed for a human, never run, because the server has no terminal to answer a password prompt.
+A network plugin connects the machine your server runs on to one private network, and publishes Subshell on it. The point is the address: on the default bind the server trusts only its own loopback spellings, so a phone or a second hostname sends an `Origin` nothing recognises and sign-in dies on 403 "Invalid origin". Once a plugin has put this machine on your network, the address that actually answers becomes an address you can sign in from — no hand-editing a config file, and no restart.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+Four ship built in, and each page covers its own network:
 
-## Sources
+- [Tailscale](/server/network-plugins/tailscale) — your tailnet, published with Tailscale Serve over HTTPS
+- [Headscale](/server/network-plugins/headscale) — the same client pointed at a control server you run yourself
+- [NetBird](/server/network-plugins/netbird) — join once and the address is trusted, with nothing to publish afterwards
+- [Cloudflare Tunnel](/server/network-plugins/cloudflare-tunnel) — a hostname you own on the open internet, behind Cloudflare Access
 
-- `docs/superpowers/specs/2026-09-15-network-plugins-design.md` — the category's design
-- `docs/security.md` §11.13 "Network plugins publish this server on a network" — the full accounting
-- `apps/server/api/src/api/network/` — the route surface (join, publish, unpublish, leave, settings)
-- `packages/plugins/tailscale/package.json` — a `type: "network"` manifest, the shape the page describes
+Network plugins are the same plugins as the harnesses that drive agent panes: one store, one install door, the same `subshell` manifest block in their `package.json`. What differs is what they implement — a harness teaches the server to drive a CLI inside a pane, a network plugin teaches it to reach this host from elsewhere. That difference is also why a network plugin never appears in an agent picker: launch pickers list agent harnesses only.
+
+## The rule that makes it safe
+
+**A network plugin describes; the host executes.** A plugin builds an argument vector, parses what a vendor CLI printed, and names a secret. It never spawns a process, never writes a file, never touches `config.env`, and never reads a credential back. Every effect goes through the host the server owns — a run member for commands, the supervisor for the one declared long-running process — under the same bounds:
+
+- the command must be an absolute path the plugin resolved with the host's own binary lookup — a bare name is refused, because nobody could then say which binary ran;
+- anything whose name is `sudo`, `doas` or `pkexec` is refused outright;
+- the child gets a fixed allowlist of environment variables, so neither the auth secret nor the database path rides along;
+- stdin starts closed so a prompt cannot hang the run, output is capped at 64 KiB, and the clock is real — 30 seconds by default, extendable to ten minutes for a package manager that needs it.
+
+This is what keeps the properties the installers already had — admin-only, bounded, environment-allowlisted, audited — true of a plugin's code too. A plugin's commands are exactly as trusted as its install was, and installing one is the same trust decision as installing the CLI it drives: plugin code runs in the control plane's process, with that process's privileges and no sandbox. See [Security model](/about/security-model).
+
+## Privileged steps are printed, never run
+
+Every mesh daemon needs one root install, and the server has no terminal to answer a password prompt — so it never tries. Privileged steps are manifest **data** under `network.privileged`: labelled commands, each with the vendor page that explains it, rendered as a numbered list you copy and run yourself. The plugin refuses them the same way, so declaring one in `install.command` rather than `network.privileged` fails at load.
+
+`cloudflared` is the one binary that needs no root on any supported platform, which is why it is the only plugin carrying an install command the server will run itself. The other three ask you to install their CLI, and then drive whatever you installed.
+
+## What a page renders without loading any code
+
+Platform support, exposure and the privileged steps all live in the manifest, so a page can say "not available on this platform" before any plugin code runs — the act itself is refused on an unsupported OS one layer up. All four built-ins support macOS and Linux.
+
+`exposure` is the other manifest fact worth reading before you click, because it is the posture: `private` means a mesh of machines you invited, and `public-with-gate` means the open internet with an identity check in front. [Cloudflare Tunnel](/server/network-plugins/cloudflare-tunnel) is the only one that inverts the posture, and the page says so above the button.
+
+## How an address becomes trusted
+
+The trusted-origin allowlist is assembled per request from three sources: this instance's own addresses, your extras on the Service page, and every enabled network plugin's recorded addresses. Nothing a plugin contributes is written into `config.env` — your `TRUSTED_ORIGINS` stays yours alone, and a publish or unpublish takes effect on the next request rather than at the next restart. Nothing about a publish moves the passkey rpID either; that is `APP_BASE_URL`, changed on the Service page.
+
+What a plugin contributes follows its record, not a status in hand:
+
+- a `private` network's addresses are trusted from **membership**. Its mesh address answers whether or not you publish anything, so joining is the honest scope;
+- a `public-with-gate` network's are trusted only from a record that says **published** — that is, only once the guard that verifies identity is standing in front of it.
+
+Disabling, uninstalling or leaving a network forgets that plugin's contribution, and every entry is canonicalised and wildcard-refused on the way in. The registry is seeded from the records before the listener opens, so a tailnet that survived a restart is not a 403, and it is refreshed on a slow timer so the addresses stay right for people who never open an admin page. A publish is also tied to the port it was made against: change the port and the next boot republishes.
+
+## Credentials
+
+A join credential is transient: an auth key or setup key is passed to the vendor CLI once, consumed by the join, and stored nowhere. Subshell keeps nothing after it.
+
+A credential that has to survive restarts — the Cloudflare tunnel token — goes to a store that is **write-only**: plugins can set, check and delete a secret, never read one back, because a plugin that could read a credential could put it in a command line, a log line, or a link that renders in your browser. Files are readable only by the server's user, and the value reaches a child process only through the host — an environment variable or a file path the host hands over. Two consequences to know: a stolen data directory is a stolen tunnel, and the database backup does **not** cover these secrets, so a restored instance asks for the token again. Every settings form states that at the field.
+
+## Who may act, and what is recorded
+
+Network acts are admin acts taken with your own sign-in: install, join, publish, unpublish, leave, and saving a plugin's settings all require an admin session, and a machine credential is refused. The instance's address list itself is deliberately readable by any signed-in user — see [Networking & Addresses](/server/networking) — but reading is all it grants.
+
+The long-running ones (install, join, publish) stream their progress, so a package manager or a `tailscale up` that takes half a minute narrates itself rather than looking wedged. A refusal is an answer, not a crash: when the plugin can tell you what to do next, you get that sentence with the control still on screen.
+
+Every act writes an audit row — `network.configure`, `network.install`, `network.join`, `network.publish`, `network.unpublish`, `network.leave` — and each names origins and field **names**, never values. Credentials and secret contents are outside the audit log by design.
+
+## Reading a plugin's card
+
+One component drives every network, and its state machine is the same shape each time: not installed, daemon down, not permitted to control it, needs login, joined, published — plus "not available here" and "disabled", which short-circuit before any command runs. The card prints the plugin's own wording verbatim, keeps the privileged steps as copyable text rather than buttons, and treats a refusal inline where the button was, because the server answered correctly when it said not yet.
+
+The join fields, if the plugin has them, are a name for this machine on the network and a credential. For [NetBird](/server/network-plugins/netbird) there is no separate publish step at all — joining already made the address reachable, so that press records it and trusts it in one go.
+
+## See also
+
+- [Networking & Addresses](/server/networking) — the allowlist a publish feeds, and the 403 it cures
+- [Server configuration](/server/configuration) — where the operator's own extras and base URL live
+- [Build a network plugin](/develop/network-plugin) — the contract this page describes, from the author's side
+- [Security model](/about/security-model) — the posture these bounds sit inside; the full accounting is in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)

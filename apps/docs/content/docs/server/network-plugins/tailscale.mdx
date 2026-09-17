@@ -3,14 +3,43 @@ title: Tailscale
 description: Reach your server over your tailnet — joining, publishing, and what the plugin does and never does.
 ---
 
-This page will cover the Tailscale plugin: installing and controlling Tailscale on the control-plane host through the plugin's described steps (the root install steps are PRINTED, not run — every mesh daemon needs one root install and the server has no terminal for a password prompt), logging in to your tailnet with the interactive flow, and publishing Subshell on the machine's tailnet address, which makes that address sign-in-trusted the moment the publish records it. It will note the platform matrix (macOS and Linux), the macOS-app nuance the design records settled, and that Serve-style HTTPS publishes the machine's name into public certificate logs — said before you click, not after.
+The Tailscale plugin puts the machine your server runs on onto your tailnet and publishes Subshell there, so your other devices reach it over the mesh instead of over your LAN address. It drives the ordinary `tailscale` CLI you install yourself — the plugin describes the commands, the server runs them under its bounds, and nothing here holds state: every card read asks Tailscale what is true now, so a `tailscale down` typed at the machine shows up on the page at the next look.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Getting to "ready"
 
-## Sources
+The plugin can only control Tailscale, not install or privilege it, so the first steps are yours. The card prints them as copyable commands — numbered, never buttons — because the privileged ones need root and the server has no terminal for a password prompt (on macOS the app route sidesteps the whole list):
 
-- `packages/plugins/tailscale/package.json` — the manifest: platforms, exposure, interactive login, privileged steps
-- `docs/superpowers/specs/2026-09-16-tailscale-macos-app-design.md` — the macOS app integration decisions
-- `packages/plugins/tailscale/src/index.ts` — what the plugin implements
-- `docs/security.md` §11.13 — the sudo boundary and origin-trust rules every plugin page inherits
+- **Linux**: install Tailscale with the vendor's script, then `sudo tailscale set --operator=$USER` to let an unprivileged process drive the daemon.
+- **macOS** has two routes and the card presents them as a choice. The **app** is the recommended one: install it (the cask is `tailscale-app`, or use the Mac App Store), open it, and sign in. Detection finds the app's own binary, and the plugin drives it in CLI mode. Or use the **command-line daemon**: `brew install --formula tailscale`, its system daemon, and the same `--operator` grant. If the app route is the one you took, you never see the daemon commands as anything but an alternative.
+
+From there the card tells you which rung you are on: daemon not running, daemon up but this user not permitted, machine not logged in yet — each with the one command or action that moves it.
+
+## Joining
+
+Join from the card, and pick one of two paths:
+
+- **Interactive** — the plugin starts a login and reads the URL Tailscale prints, then stops the command there; the daemon keeps the sign-in pending, so you open the link, and the card notices when you land. You can give the machine a name on the tailnet while you are at it.
+- **Auth key** — paste a key from your Tailscale admin console (they begin with `tskey-`, and the card says so before the CLI wastes a round trip). The key is passed to one short command and stored nowhere.
+
+One rule keeps the two plugins apart on a machine that has both: this row covers only machines connected to Tailscale's own service. If the daemon's own preferences name a different control server — a self-hosted Headscale, say — the card says the machine belongs there and does not report it as joined; that is the [Headscale](/server/network-plugins/headscale) plugin's row to manage.
+
+## Publishing with Tailscale Serve
+
+Publishing runs `tailscale serve` in the background, pointing it at the server on loopback, and hands back the machine's HTTPS MagicDNS address — `https://<machine>.<tailnet>.ts.net`. That address is a browser-secure origin, so passkeys and secure cookies work there.
+
+Two things must already be true, and both are tailnet settings in your admin console rather than anything this machine can turn on: HTTPS certificates and MagicDNS must be enabled. If certificates are off, publish refuses with that sentence and the link to the setting — an honest answer, not a failure.
+
+Before you press, read the disclosure the card prints beside the button: Serve provisions a **real, publicly trusted certificate** for this machine's name, and every such certificate is recorded in public Certificate Transparency logs. Your machine's **name** becomes permanent public knowledge. The server behind it stays reachable only from your tailnet — but the name cannot be unpublished once issued.
+
+Unpublishing resets Serve for this machine. Note the scope: `serve reset` clears everything the machine serves, not just Subshell, which is deliberate — publishing also resets first, so the two halves never disagree about what they own. Leave logs the machine out of the tailnet; it is best-effort, because a machine that was never signed in simply has nothing to undo.
+
+## What the plugin never does
+
+It installs nothing (there is no server-runnable installer here — every Tailscale install path needs root), prints privileged steps instead of running them, stores your auth key nowhere, and edits no Subshell configuration. The address it produces is returned to the server, and the server decides what trust it earns: on a `private` network like a tailnet, your recorded addresses become sign-in-trusted as soon as the machine is a member — joining already made them reachable — and disabling or leaving the network forgets them. No `config.env` edit, no restart.
+
+## See also
+
+- [Network plugins — overview](/server/network-plugins) — the describe/execute rule and the trust model every plugin page inherits
+- [Networking & Addresses](/server/networking) — why the address needed trusting in the first place
+- [Headscale](/server/network-plugins/headscale) — the same experience against your own control server
+- [Security model](/about/security-model) — the accounting, including the Serve certificate disclosure, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)
