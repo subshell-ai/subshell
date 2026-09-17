@@ -875,9 +875,9 @@ Six properties of that surface are load-bearing:
   Credentials are the deliberate exception: `URL.origin` drops them silently,
   so `http://u:p@host` is refused rather than quietly stripped.
 - **Wildcards are refused, and that refusal is the only thing making this
-  section's static-allowlist claim true.** The two consumers of this array are
-  each LOOSER than it reads, in different directions, so the CLI validator is
-  the narrow point:
+  section's static-allowlist claim true.** The consumers of this array read it
+  looser than it is written, in different directions — one still does, one has
+  not since 2026-09-16 — so the CLI validator is the narrow point:
   - **better-auth** (`matchesOriginPattern`, 1.7.1) branches on the pattern:
     an entry containing `*` or `?` goes to `wildcardMatch` instead of the exact
     `pattern === getOrigin(url)` comparison. Measured: `TRUSTED_ORIGINS=https://*`

@@ -169,8 +169,10 @@ and a network plugin claiming `resume` are both refused by name.
 **A network plugin describes; the host executes** (spec 2026-09-15). It
 connects the control-plane host to one network (Tailscale, Headscale, NetBird,
 Cloudflare Tunnel) and publishes Subshell on it, so the address an operator
-used to discover through a 403 flows into `TRUSTED_ORIGINS` and the enroll
-command. It returns argv, parses output and names a secret; it never spawns,
+used to discover through a 403 is trusted the moment the plugin's record earns
+it — read live from that record by the trusted-origin registry (2026-09-16: a
+publish no longer unions it into `TRUSTED_ORIGINS`, which is the operator's
+extras alone) — and flows into the enroll command. It returns argv, parses output and names a secret; it never spawns,
 never writes a file, never touches config.env and never reads a credential
 back — every effect goes through a `PluginHost` member the server owns, which
 is what keeps the admin-only, bounded, env-allowlisted, audited properties of
