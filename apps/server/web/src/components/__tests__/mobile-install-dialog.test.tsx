@@ -99,32 +99,16 @@ describe("MobileInstallDialog", () => {
     expect(screen.getByRole("button", { name: /copy address/i })).toBeTruthy();
   });
 
-  it("names the selected loopback address and offers no QR to scan", () => {
-    renderDialog({ origin: "http://localhost:3080", trustedOrigins: ["http://127.0.0.1:3080"] });
-    const note = screen.getByTestId("unreachable-note");
-    // It names the address rather than describing the list: the person is
-    // looking at one row and needs to know what THAT one does.
-    expect(note.textContent).toMatch(/http:\/\/localhost:3080/);
-    expect(note.textContent).toMatch(/reaches itself/i);
-    // No other address exists here, so "pick one of the others" would be a lie.
-    expect(note.textContent).toMatch(/knows no other/i);
-    // Joining a network IS the fix now — no publish step stands between them.
-    expect(note.textContent).toMatch(/join a network/i);
-    // A QR of `http://localhost:3080` is a thing someone WILL scan, and on the
-    // phone it resolves to that phone's own port 3080.
-    expect(screen.queryByRole("img", { name: /QR code/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /copy address/i })).toBeNull();
-  });
-
-  it("keeps every row selectable — a loopback-only instance can still be operated", async () => {
-    // The defect this closes: loopback rows were `disabled`, and on a stock
-    // instance EVERY address is loopback, so the picker refused every choice
-    // and could not be operated at all. It still SAYS what the choice costs —
-    // that moved from an inert row to a sentence under the field.
+  it("offers the derived LAN addresses and no loopback row at all", async () => {
+    // The whole point of the server-side derivation: the laptop is on
+    // localhost, the phone is not, and the picker now reads the machine's own
+    // LAN address off the allowlist rather than confessing it knows none.
     renderDialog({
       origin: "http://localhost:3080",
-      trustedOrigins: ["http://localhost:3080", "http://127.0.0.1:3080", "http://localhost:5174"],
+      trustedOrigins: ["http://localhost:3080", "http://127.0.0.1:3080", "http://192.168.1.14:3080"],
     });
+    expect(screen.getByRole("img", { name: /http:\/\/192\.168\.1\.14:3080/ })).toBeTruthy();
+
     // async act, not the sync fireEvent: opening the Select arms Radix's
     // positioner, whose floating update lands a microtask AFTER the sync
     // dispatch returns. Awaiting inside act() is what lets it render there
@@ -132,17 +116,25 @@ describe("MobileInstallDialog", () => {
     await act(async () => {
       fireEvent.click(document.querySelector('[data-slot="select-trigger"]') as HTMLElement);
     });
-
     const rows = [...document.querySelectorAll('[data-slot="select-item"]')];
-    const other = rows.find((r) => r.textContent?.includes("127.0.0.1:3080")) as HTMLElement;
-    expect(other).toBeTruthy();
-    // Listed WITH its consequence, and inert in neither direction.
-    expect(other.textContent).toContain("this device only");
-    expect(other.getAttribute("data-disabled")).toBeNull();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toContain("http://192.168.1.14:3080");
+    // No "this device only" rows survive into a picker whose every row is
+    // meant to be dialable by a phone.
+    expect(document.body.textContent).not.toMatch(/this device only/);
+  });
 
-    // Every row, not just this one: the bug was blanket, so the guard is too.
-    expect(rows).toHaveLength(3);
-    expect(rows.every((r) => r.getAttribute("data-disabled") === null)).toBe(true);
+  it("says there is no phone-dialable address when the instance knows none", () => {
+    // A loopback bind, or a server older than the LAN derivation. The refusal
+    // renders WHERE THE QR WOULD BE — "where's the QR?" is the question an
+    // absent code actually raises — and names the remedy, not just the lack.
+    renderDialog({ origin: "http://localhost:3080", trustedOrigins: ["http://127.0.0.1:3080"] });
+    const note = screen.getByTestId("no-address-note");
+    expect(note.textContent).toMatch(/phone can open/i);
+    // Joining a network IS a fix now — no publish step stands between them.
+    expect(note.textContent).toMatch(/join a network/i);
+    expect(screen.queryByRole("img", { name: /QR code/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /copy address/i })).toBeNull();
   });
 
   it("warns that an http address costs notifications, and names the fix for an admin", () => {
@@ -194,7 +186,7 @@ describe("MobileInstallDialog", () => {
 
   it("tells an admin that joining a network is enough", () => {
     renderDialog({ origin: "http://localhost:3080", trustedOrigins: ["http://127.0.0.1:3080"], admin: true });
-    const note = screen.getByTestId("unreachable-note");
+    const note = screen.getByTestId("no-address-note");
     expect(note.textContent).toMatch(/Join a network under Server Settings → Networking/);
     expect(note.textContent).not.toMatch(/publish/i);
   });

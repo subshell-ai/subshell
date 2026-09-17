@@ -200,15 +200,20 @@ describe("runInit — the handoff", () => {
     expect(h.out.join("\n")).toContain("Open http://box.local:9000/setup in a browser to create the admin account.");
   });
 
-  // The LAN bind with a loopback base URL is the configuration whose only
-  // symptom is a 403 naming nothing. The handoff names the address others
-  // will actually type, and the flag that makes it work.
+  // The LAN bind with a loopback base URL: the machine's own ADDRESSES sign
+  // in without any act now (`lan-origins.ts`), but its NAME does not, and a
+  // hostname is what a person at a second machine will type. So the handoff
+  // says which is which, and names the flag for the one that needs it.
   test("a LAN bind with a loopback base URL names the host address and the fix", async () => {
     const h = makeDeps();
     expect(await runInit({ yes: true, host: "0.0.0.0" }, h.deps)).toBe(0);
     const text = h.out.join("\n");
     expect(text).toContain("http://test-host:3080");
     expect(text).toContain("--trusted-origins");
+    // The address case is no longer a 403 — saying so is what keeps this
+    // sentence from reading as the old warning.
+    expect(text).toMatch(/LAN address/i);
+    expect(text).not.toMatch(/is the configuration whose only symptom/i);
   });
 
   test("a loopback bind says nothing about other machines", async () => {

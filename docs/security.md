@@ -202,11 +202,12 @@ account's email, **display name** (added 2026-09-14), role and disabled state.
 
 **So is the ADDRESS LIST** (2026-09-16). `GET /api/settings/public` carries
 `trustedOrigins` — every origin a browser may sign in from: this instance's
-own addresses, the operator's configured extras, and the addresses of every
+own addresses including the LAN interfaces derived on a wildcard bind
+(§8), the operator's configured extras, and the addresses of every
 enabled network plugin this host is joined to or published on — live, no
 restart (§11.13). So any signed-in caller, and any bearer
 credential, learns this plane's other names: its tailnet hostname, its LAN
-name, a proxy domain. It exists for the "Subshell for Mobile" dialog, which
+name, its LAN addresses, a proxy domain. It exists for the "Subshell for Mobile" dialog, which
 has to offer a PHONE an address — `appBaseUrl` is one spelling and is usually
 the wrong one, since the browser asking is often on loopback while the phone
 is on the mesh.
@@ -820,22 +821,33 @@ sits inside the trusted-network posture of this section, not against it: every
 instance is reachable from the local network before an operator touches
 anything — registration is open by default, and a dev-mode (`NODE_ENV` unset)
 boot runs on the placeholder `BETTER_AUTH_SECRET`, so on a network you do not
-own, bind loopback or set the env before first boot. Browsers on a LAN address
-also need `APP_BASE_URL` pointed at the name they use (or `TRUSTED_ORIGINS`) —
-the derived allowlist covers loopback spellings, not arbitrary host IPs. Both
-are now settable from the CLI and from the dashboard's Server Settings →
-Service; see the allowlist note below.
+own, bind loopback or set the env before first boot. Browsers on a LAN
+address: the machine's own IP addresses are trusted automatically since
+2026-09-17 (`services/lan-origins.ts`, see the allowlist note below) — a
+LAN *name* still needs `APP_BASE_URL` pointed at it (or `TRUSTED_ORIGINS`),
+because an interface address proves the entry names this host and a name
+proves nothing. Both fields are settable from the CLI and from the
+dashboard's Server Settings → Service.
 
-**CORS is an allowlist with STATIC SOURCES and a LIVE READ.** Three sources,
+**CORS is an allowlist with STATIC SOURCES and a LIVE READ.** Four sources,
 none of them the request: the instance's own origins (derived from
 `SERVER_PORT`/`HOST`/`APP_BASE_URL` — both loopback spellings, a concrete
-`HOST`, the base-URL origin), the operator's `TRUSTED_ORIGINS`, and the
-addresses each enabled network plugin's own daemon reports for THIS host
+`HOST`, the base-URL origin), the machine's own non-internal IPv4 interfaces
+on a wildcard bind (`services/lan-origins.ts`, added 2026-09-17 — see the
+trap below), the operator's `TRUSTED_ORIGINS`, and the addresses each enabled
+network plugin's own daemon reports for THIS host
 (`services/trusted-origins.ts`). The list is assembled on demand — better-auth
 1.7.1 calls the function form per request, `@elysiajs/cors` per request — so a
 network joined a minute ago is trusted without a restart; what was frozen at
 boot until 2026-09-16 is read live now, and nothing about a request names an
-entry. Every derived entry
+entry. The LAN probe is the kernel's answer for this host, read the same way
+the plugin's daemon answers for its network, and it stays inside the
+rebinding rule: an entry naming a LITERAL IP can never be matched by a
+rebinding attack, whose `Origin` is always the attacker's hostname string.
+The probe re-asks on `GET /api/settings/public` — the request every signed-in
+page makes, and the mobile dialog repeats on open — so a laptop that switched
+Wi-Fi stops trusting (and so stops offering) the address of the network it
+left; between reads, the cached set is what the auth and CORS paths consult. Every derived entry
 is serialized through `URL.origin` (fixed 2026-09-08). It used to be string
 concatenation for three of the four, which made them **inert on a default-port
 deployment**: bound to 80 with a concrete `HOST`, a browser sends
@@ -857,10 +869,17 @@ than a widening of the model, and the DNS-rebinding rule above is untouched.
 Every one of those surfaces writes through the same `applyConfig`, so the
 validator below is still the one narrow point rather than one of several. The
 trap:
-on the default `0.0.0.0` bind the derived set is only the two loopback
+on the default `0.0.0.0` bind the derived set was only the two loopback
 spellings (a wildcard bind is a listen address, not one anyone visits), so a
 phone or a LAN hostname sends an `Origin` nothing matches and sign-in dies on
 `403 Invalid origin` — with nothing in the failure naming the key that fixes it.
+Since 2026-09-17 the machine's own interfaces are derived too, which closes
+the phone-on-the-same-Wi-Fi case with no operator act at all — it was the
+"Subshell for Mobile" dialog that forced the question: a picker can only
+offer addresses sign-in will ACCEPT, so the QR it could honestly show on a
+stock instance was none. What the trap still holds for is spellings beyond
+this machine's own addresses: a LAN hostname (`box.local`, local DNS) still
+needs an explicit entry.
 
 Six properties of that surface are load-bearing:
 

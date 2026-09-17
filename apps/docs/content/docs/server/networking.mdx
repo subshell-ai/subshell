@@ -11,26 +11,27 @@ Three settings decide which addresses your control plane answers on, and people 
 | `APP_BASE_URL` | what address does the instance **call itself**? Auth redirects use it, and it is trusted automatically. | `http://localhost:<port>` |
 | `TRUSTED_ORIGINS` | what **other** addresses may a browser sign in from? | the two dev-server ports a source checkout uses |
 
-The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means remote nodes and devices *can* reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The other two are identity facts: which name the instance vouches for, and which names its browsers may use. A wildcard bind is a listen address, **not** an identity — `0.0.0.0` never trusts anything by itself.
+The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means remote nodes and devices *can* reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The other two are identity facts: which name the instance vouches for, and which names its browsers may use. A wildcard bind is a listen address, **not** an identity — the string `0.0.0.0` never joins the list; what binding on it does is open the door to the next source below.
 
 ## What a browser may use
 
-Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled **live, per request**, from exactly three sources:
+Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled **live, per request**, from four sources:
 
 1. the instance's **own origins** — both loopback spellings of the port (`http://localhost:3080` and `http://127.0.0.1:3080`), the base URL's origin, and `http://<host>:<port>` when `HOST` is a concrete address rather than a wildcard;
-2. the operator's `TRUSTED_ORIGINS` extras;
-3. the addresses each **enabled network plugin** reports for this host — trusted the moment a publish earns it, and forgotten when it is undone.
+2. on a wildcard bind, the machine's **own LAN addresses** — every non-internal IPv4 interface address, derived from the kernel and trusted automatically (since 2026-09-17). A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure; an entry here is a literal IP, which a DNS-rebinding attack can never produce as an `Origin`;
+3. the operator's `TRUSTED_ORIGINS` extras;
+4. the addresses each **enabled network plugin** reports for this host — trusted the moment a publish earns it, and forgotten when it is undone.
 
-What is deliberately missing is a fourth source: **the request itself.** The list is never derived from the request's `Host` header — "trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart.
+What is deliberately missing is a fifth source: **the request itself.** The list is never derived from the request's `Host` header — "trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart, and the LAN probe re-asks on every settings read — a laptop that switched Wi-Fi stops offering (and trusting) the address of the network it left.
 
 ## 403 "Invalid origin"
 
-This is the symptom everything above is designed to produce when an address is not on the list — and it is famously unhelpful on its own, because it names no key. The common shape: the default LAN bind means the server **answers** on `http://192.168.1.5:3080` — the app renders — but the derived own-origins are just the two loopback spellings, so the phone or laptop sends an `Origin` nothing matches, and sign-in dies. The server is not broken; it is refusing an address it was never told about. Production enforces this strictly, which is where you will meet it.
+This is the symptom everything above is designed to produce when an address is not on the list — and it is famously unhelpful on its own, because it names no key. The classic shape — a phone on the Wi-Fi dialing the server's LAN IP while only loopback was trusted — stopped being possible in 2026-09-17: the machine's own addresses are derived automatically. What still produces it is a **name**: the server **answers** on `http://box.local:3080` — the app renders — but a `.local` host, a DNS entry, or any other name that is not one of its interface addresses sends an `Origin` nothing matches, and sign-in dies. The server is not broken; it is refusing an address it was never told about. Production enforces this strictly, which is where you will meet it.
 
 The fix is to name the address you actually browse from:
 
 ```bash
-subshell-server configure --trusted-origins http://192.168.1.5:3080
+subshell-server configure --trusted-origins http://box.local:3080
 subshell-server service restart
 ```
 
@@ -39,7 +40,7 @@ or the same field on Settings → Service, where a change needs **no restart** �
 - **"Also reachable at"** → add an origin. Nothing else moves.
 - **"This is the address now"** → change `APP_BASE_URL`, and restart. But read the next section first.
 
-`init` warns about the whole trap at write time, printing the exact command; if you browse from any machine that is not the box, name that address while you set up.
+`init` still warns at write time when a LAN bind will refuse NAMES, printing the exact command; the addresses the machine holds itself are no longer part of what you must say.
 
 > [!important] Changing the base URL moves your passkeys
 > `APP_BASE_URL` is also the passkey rpID — passkeys are bound to the host they were minted for. Change it and existing passkeys stop working on the old address, the Subshell Server desktop window (pinned to loopback) included. Adding a name to `TRUSTED_ORIGINS` has no such effect, and is the correct lever when the goal is *also*.

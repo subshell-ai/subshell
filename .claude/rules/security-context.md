@@ -66,8 +66,9 @@ reads every account's email, display name, role and disabled state
 
 **The instance's ADDRESS LIST is readable by any signed-in caller**
 (2026-09-16). `GET /api/settings/public` carries `trustedOrigins` — every
-origin a browser may sign in from, including whatever a network plugin's
-publish added — so the "Subshell for Mobile" dialog can offer a PHONE an
+origin a browser may sign in from, including the machine's own derived LAN
+addresses and whatever a network plugin's publish added — so the "Subshell
+for Mobile" dialog can offer a PHONE an
 address (`appBaseUrl` is one spelling, and usually the loopback one the phone
 cannot reach). Same class as the roster read above: instance-wide by design,
 bearer credentials included, sound because every signed-in user is someone the
@@ -549,11 +550,20 @@ shares and subshell shares are two independent axes:
 
 ## Which addresses a browser may use (`TRUSTED_ORIGINS`)
 
-The allowlist is DERIVED — from the instance's own address, the operator's
+The allowlist is DERIVED — from the instance's own address, **this machine's
+own LAN interfaces** (`services/lan-origins.ts`; added 2026-09-17, and gated
+on a wildcard bind so a loopback-only server contributes none), the operator's
 `TRUSTED_ORIGINS`, and each enabled network plugin's self-reported addresses
 for this host (`services/trusted-origins.ts`) — and it is read LIVE, per
 request; never from the request's own Host — that is the DNS-rebinding hole
-the allowlist exists to close, and it stays closed. What changed is only where the list is reachable FROM: the `subshell-server` CLI
+the allowlist exists to close, and it stays closed. The LAN probe does not
+open that hole either: an entry naming a LITERAL IP can only be matched by an
+`Origin` that spells that literal IP, and a rebinding attack's browser sends
+the HOSTNAME it typed (`http://evil.com:3080`, resolving to the victim's LAN
+address) — which equals no IP-shaped entry, ever. The probe is re-asked on
+`GET /api/settings/public` — the request the mobile dialog repeats on open —
+so a laptop that switched Wi-Fi stops offering, and stops trusting, the
+address of the network it left. What changed is only where the list is reachable FROM: the `subshell-server` CLI
 (`--trusted-origins`) since 2026-09-08, and the dashboard's Server Settings →
 Service since 2026-09-12, instead of a hand-edit of config.env. The Subshell
 Server console that first carried the field is gone; its half moved into the
@@ -561,9 +571,12 @@ served page. Every one of those surfaces writes through the same `applyConfig`,
 so the validator below is one narrow point rather than one of several.
 
 That is a usability fix for a real trap, not a widening: on the default
-`0.0.0.0` bind the derived set is the two loopback spellings, so a phone or a
-LAN hostname sends an `Origin` nothing matches and sign-in dies on 403 "Invalid
-origin" — with nothing naming the key that fixes it. Properties to keep:
+`0.0.0.0` bind the derived set used to be the two loopback spellings, so a phone
+or a LAN hostname sent an `Origin` nothing matched and sign-in died on 403
+"Invalid origin" — with nothing naming the key that fixes it. The LAN
+derivation closes the phone-on-the-same-Wi-Fi case with no operator act; a LAN
+*hostname* still needs an entry here, because an interface address proves the
+entry names this host and a name proves nothing. Properties to keep:
 
 - **Every entry is validated by COMPONENT and stored canonicalized** (scheme
   http(s), a host, no path/query/fragment → store `URL.origin`). Both
@@ -836,8 +849,9 @@ an admin it is every subshell on the instance — so the filter is load-bearing.
 
 Permissive CORS is acceptable **only** because the service is not exposed to the public
 internet. The allowlist has **static sources and a live read**: assembled on demand from
-the same three sources — the instance's own origins (both loopback
-spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin), the operator's
+the same four sources as the sign-in gate — the instance's own origins (both loopback
+spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin), the machine's
+own LAN interfaces on a wildcard bind, the operator's
 `TRUSTED_ORIGINS` (the dev Vite server comes from there), and each enabled network
 plugin's recorded addresses for this host. It is
 deliberately NOT "trust the origin that matches the request host": that is the

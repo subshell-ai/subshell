@@ -98,16 +98,10 @@ export function MobileInstallDialog({
   // is open. Deriving instead of syncing in an effect is what keeps the
   // selection from surviving as a stale string.
   const selected = addresses.find((a) => a.url === chosen) ?? addresses[0];
-  // Keyed on the SELECTION, not on the list. It was list-wide ("this server
-  // knows no reachable address"), which said nothing at all on the instance
-  // where a person picks a loopback row while good ones exist, and could not
-  // name the address it was talking about.
-  const selectedUnreachable = selected !== undefined && !selected.reachable;
-  const anyReachable = addresses.some((a) => a.reachable);
   // A `secureContext` statement about the BROWSER, not about encryption: a
   // WireGuard mesh encrypts an http:// origin end to end, and service workers
   // and passkeys still refuse it. Same wording as the Networking page's.
-  const insecure = selected?.url.startsWith("http://") && selected.reachable;
+  const insecure = selected?.url.startsWith("http://");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -129,12 +123,14 @@ export function MobileInstallDialog({
               picker exists to replace. A trigger with a chevron says "these
               are your choices".
 
-              Rows are labelled, never DISABLED. Making loopback rows inert
-              read well until the common case: on a stock instance every
-              address is loopback, so every row was disabled and the picker
-              could not be operated at all. A control that refuses every
-              choice is worse than one that takes the choice and says what it
-              costs — and the cost is stated where the QR would be. */}
+              Every row here is an address a phone can actually dial: loopback
+              is filtered in `installAddresses`, not labelled here. It used to
+              be kept with a "this device only" caption because a stock
+              instance's whole list looked like that; the server now derives
+              its own LAN interfaces into the allowlist, so a row that cannot
+              work for the phone is not a choice this picker should show. When
+              there is genuinely nothing to offer, the refusal renders in the
+              QR slot below — not as an inert dropdown. */}
           <Select value={selected?.url ?? ""} onValueChange={(url: string | null) => url && setChosen(url)}>
             <SelectTrigger id={ids.address} aria-describedby={ids.hint} className="w-full min-w-0">
               <SelectValue placeholder="Choose an address" />
@@ -142,17 +138,15 @@ export function MobileInstallDialog({
             <SelectContent>
               {addresses.map((address) => (
                 <SelectItem key={address.url} value={address.url}>
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="truncate">{address.url}</span>
-                    {!address.reachable && <span className="text-detail text-muted-foreground">this device only</span>}
-                  </span>
+                  <span className="truncate">{address.url}</span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <p id={ids.hint} className="text-detail text-muted-foreground">
-            Every address this server accepts a sign-in from — its own, any you added under Service, and every network
-            it has joined. Pick one your phone can reach — the same Wi-Fi, or the same VPN or mesh network.
+            Every address this server accepts a sign-in from — its own, including the addresses of its own network
+            interfaces, any you added under Service, and every network it has joined. Pick one your phone can reach —
+            the same Wi-Fi, or the same VPN or mesh network.
           </p>
         </div>
 
@@ -160,17 +154,17 @@ export function MobileInstallDialog({
             BE rather than as a sentence under the field. "Where's the QR?" is
             the question an absent code actually raises, and a footnote below a
             picker does not answer it; the empty state has to occupy the space
-            it is explaining. Same reason it is not `role="alert"`: this is the
-            selected row's own consequence, not an event.
+            it is explaining. Same reason it is not `role="alert"`: this is a
+            standing fact about the instance, not an event.
 
-            The QR is gated on REACHABLE, not merely on there being a
-            selection. A code encoding `http://localhost:3080` scans perfectly
-            and resolves, on the phone, to whatever is listening on that
-            PHONE's port 3080 — nothing, or something else entirely. On a
-            stock instance that is the common case, not the exotic one: the
-            default `0.0.0.0` bind contributes no address, so the allowlist is
-            the two loopback spellings plus the dev Vite ports. */}
-        {selected?.reachable ? (
+            A code encoding `http://localhost:3080` would scan perfectly and
+            resolve, on the phone, to whatever is listening on that PHONE's
+            port 3080 — nothing, or something else entirely. So loopback never
+            reaches the QR at all (it is filtered in `installAddresses`), and
+            the only way this slot shows its second state is an instance with
+            genuinely no phone-dialable address: a loopback bind, or a server
+            older than the LAN derivation. */}
+        {selected ? (
           <div className="flex flex-col items-center gap-3">
             {/* A QR is read optically: dark modules on a LIGHT field, with a
                 quiet zone. This app is dark-only, so the plate cannot inherit
@@ -184,25 +178,18 @@ export function MobileInstallDialog({
             </span>
           </div>
         ) : (
-          selectedUnreachable && (
-            <div
-              data-testid="unreachable-note"
-              className="flex flex-col items-center gap-2 rounded-md border border-dashed px-4 py-6 text-center"
-            >
-              <QrCode aria-hidden className="h-8 w-8 text-muted-foreground opacity-40" />
-              <p className="text-detail text-warning">
-                No QR code: <code>{selected.url}</code> is this machine's own address, so a phone that opens it reaches
-                itself rather than this server.
-              </p>
-              <p className="text-detail text-muted-foreground">
-                {anyReachable
-                  ? "Choose one of the other addresses above."
-                  : settings?.viewerIsAdmin
-                    ? "This server knows no other address. Join a network under Server Settings → Networking, or add an address under Server Settings → Service, and it will appear here."
-                    : "This server knows no other address. An admin can join a network, or add the address you reach it by, and it will appear here."}
-              </p>
-            </div>
-          )
+          <div
+            data-testid="no-address-note"
+            className="flex flex-col items-center gap-2 rounded-md border border-dashed px-4 py-6 text-center"
+          >
+            <QrCode aria-hidden className="h-8 w-8 text-muted-foreground opacity-40" />
+            <p className="text-detail text-warning">No QR code: this server knows no address a phone can open.</p>
+            <p className="text-detail text-muted-foreground">
+              {settings?.viewerIsAdmin
+                ? "Join a network under Server Settings → Networking, or add an address under Server Settings → Service, and it will appear here."
+                : "An admin can join a network, or add the address you reach it by, and it will appear here."}
+            </p>
+          </div>
         )}
 
         {insecure && (

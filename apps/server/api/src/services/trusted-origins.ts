@@ -1,12 +1,14 @@
 import { configEnvAppliedKeys, resolveConfig } from "@/config-env.js";
 import { APP_BASE_URL, DEFAULT_TRUSTED_ORIGINS, HOST, localOriginsFor, SERVER_PORT } from "@/constants.js";
+import { lanOrigins } from "@/services/lan-origins.js";
 import { settingSource } from "@/services/server-deployment.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
- * The origins a browser may sign in from, assembled LIVE from three sources:
+ * The origins a browser may sign in from, assembled LIVE from four sources:
  *
  *   effective = localOriginsFor(port, host, baseUrl)
+ *             ∪ lanOrigins(port, host)          // the machine's own interfaces, wildcard bind only
  *             ∪ the operator's own `TRUSTED_ORIGINS` extras
  *             ∪ ⋃ (enabled network plugin p) originsOf(p)
  *
@@ -22,8 +24,9 @@ import { getLogger } from "@/utils/logger.js";
  *
  * What did NOT change is the DNS-rebinding rule (docs/security.md §8): no
  * entry here is ever derived from a request's Host or Origin header. Plugin
- * addresses are the local daemon's self-report of THIS host's addresses, and
- * the operator list is a file this process owns.
+ * addresses are the local daemon's self-report of THIS host's addresses, the
+ * LAN probe is the kernel's own answer for this host, and the operator list
+ * is a file this process owns.
  *
  * Singleton per the code-style rule, constructed on FIRST USE: better-auth
  * invokes the function form per request and once at its own init, the CORS
@@ -33,7 +36,7 @@ import { getLogger } from "@/utils/logger.js";
 
 /** The seams the unit test replaces. */
 export interface OriginRegistryDeps {
-  /** This instance's own origins. Production: `localOriginsFor(SERVER_PORT, HOST, APP_BASE_URL)`. */
+  /** This instance's own origins. Production: `localOriginsFor(SERVER_PORT, HOST, APP_BASE_URL)` plus the live `lanOrigins(SERVER_PORT, HOST)` probe. */
   localOrigins(): readonly string[];
   /** The operator's raw comma-joined `TRUSTED_ORIGINS` as it stands NOW — the file's, or the environment's when the environment owns the key. */
   readStored(): string;
@@ -51,6 +54,15 @@ export interface OriginRegistry {
   storedValue(): string;
   /** Re-reads the operator list through `readStored`. Called after every config.env write that touched the key. */
   reloadStored(): void;
+  /**
+   * Re-asks `localOrigins()` and rebuilds the effective set. Called by
+   * `GET /api/settings/public`, which is the request a person makes RIGHT
+   * BEFORE handing a phone an address — interfaces change without a restart
+   * or an act, and `localOrigins()` now includes the live LAN probe, so a
+   * laptop that switched Wi-Fi must not offer the address of the network it
+   * left. Plugin sets and the operator list are untouched by this.
+   */
+  refreshLocal(): void;
   /** Replaces one plugin's whole contribution; each entry canonicalized or dropped with a warn. */
   setPluginOrigins(pluginId: string, origins: readonly string[]): void;
   /** Removes one plugin's contribution entirely. */
@@ -141,6 +153,9 @@ export function createOriginRegistry(deps: OriginRegistryDeps): OriginRegistry {
       stored = deps.readStored();
       recompute("operator list reloaded");
     },
+    refreshLocal() {
+      recompute("local interfaces");
+    },
     setPluginOrigins(pluginId, origins) {
       const accepted: string[] = [];
       for (const raw of origins) {
@@ -202,7 +217,11 @@ function productionDeps(): OriginRegistryDeps {
     settingSource("TRUSTED_ORIGINS", process.env, configEnvAppliedKeys(), fileValues() ?? {}) === "process env";
   let last = process.env.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS;
   return {
-    localOrigins: () => localOriginsFor(SERVER_PORT, HOST, APP_BASE_URL),
+    // The LAN probe runs at every recompute, not once at construction: the
+    // answer changes without an act (Wi-Fi switch, VPN up/down), and the only
+    // cost is one getifaddrs behind a refresh that `GET /api/settings/public`
+    // asks for — the request made right before a phone is handed an address.
+    localOrigins: () => [...localOriginsFor(SERVER_PORT, HOST, APP_BASE_URL), ...lanOrigins(SERVER_PORT, HOST)],
     readStored: () => {
       if (envOwned) return process.env.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS;
       const values = fileValues();

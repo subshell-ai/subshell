@@ -611,7 +611,7 @@ it, so never make a bare invocation mean anything else.
 | `version` | print `subshell-server <version>` and exit |
 | `status` | "what WOULD this boot with" — opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, plugin registry, port liveness, service definition on disk, and `setup` — whether the first admin account exists, so the one command an operator is told to run when something looks wrong can answer the first question they have. Reading that counts users out of the database, which is why it opens read-only and FALLS BACK to read-write with `create: false`: SQLite cannot read a WAL database without a writable `-shm` beside it, so on any instance whose sidecars are gone (a restored backup, a cleanly closed copy) a read-only open succeeds and the first query throws. It still never creates a database. Reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret — only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this" — the desktop console seeds its form on exactly that distinction. A setting may also carry `problems` — per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see below |
 | `init` | first run, and THE headless entry point (spec 2026-09-15): config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), the configure flow, then ONE question — run in the background and start at login? — defaulting to yes and installing through the same `installService` the service verb calls, then the handoff line naming `<APP_BASE_URL>/setup`. `--no-service` skips the install, `--service` is its explicit opposite, and `--yes`/a non-TTY take the default. **The desktop app passes `--no-service`** (`control.rs` `init_args`): it installs the service itself with its own autostart checkbox, so a question here would re-ask what the assistant already answered. A CANCELLED service question is "not that part", not a failed init — config.env is already written and `init` is idempotent — so it exits 0 and still prints the handoff; a FAILED install fails init and prints none |
-| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes`. Its `applyConfig` carries three address warnings, and the third (spec 2026-09-15) is the LAN-bind trap: `HOST=0.0.0.0` + a loopback base URL + an empty `TRUSTED_ORIGINS` is the configuration whose only symptom is a 403 "Invalid origin" naming nothing. The validator is SHARED with the dashboard's Addresses card, so the CLI and the browser cannot disagree about when this is wrong |
+| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes`. Its `applyConfig` carries three address warnings, and the third (spec 2026-09-15) was the LAN-bind trap — since 2026-09-17 it is the NAME half of it: `HOST=0.0.0.0` + a loopback base URL + loopback-only `TRUSTED_ORIGINS` still dies on a 403 "Invalid origin" naming nothing WHEN BROWSED BY NAME, because browsing by one of the machine's own IP addresses is now derived and trusted automatically (`services/lan-origins.ts`). The validator is SHARED with the dashboard's Addresses card, so the CLI and the browser cannot disagree about when this is wrong |
 | `service install` | write + enable/start the per-user service (refuses before any write without a config.env — run `init` first). `--no-autostart` installs one that runs NOW but does not come back at login. On Linux it then asks logind whether the user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes — the hint used to print on every install, which told an operator who had already fixed this to go and fix it (`null`, i.e. no loginctl and no bus, still prints: unneeded advice is cheaper than a reboot that loses the server). Run ALONE it also prints the `/setup` handoff, from the same helper `init` uses so the two cannot drift |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux — a stranded unit must always come down) |
 | `service enable` / `service disable` | arm or disarm start-at-login, WITHOUT touching the running process. Linux: `systemctl --user enable\|disable` with no `--now` — that flag is the whole difference between a preference and an outage. macOS: the plist MOVES (below) |
@@ -790,13 +790,33 @@ while being dead weight. Extend the `localOriginsFor` describe in
 uppercase host are the cases that catch this class.
 
 **The trusted-origin registry.** `services/trusted-origins.ts` owns the live
-allowlist: `localOriginsFor(port, host, baseUrl)` ∪ the operator's
-`TRUSTED_ORIGINS` extras ∪ one canonicalized set per enabled network plugin.
+allowlist: `localOriginsFor(port, host, baseUrl)` ∪
+`lanOrigins(port, host)` ∪ the operator's `TRUSTED_ORIGINS` extras ∪ one
+canonicalized set per enabled network plugin.
 better-auth calls the registry's function form per request and the CORS plugin
 calls `corsOriginAllowed` (`server.ts`) per request, so a network joined a
 minute ago is trusted without a restart — while the SOURCES stay static:
 nothing is ever derived from a request's Host or Origin (§8's DNS-rebinding
-rule, unchanged). `services/network/origins.ts` is the single derivation of the
+rule, unchanged).
+
+`services/lan-origins.ts` is the fourth source and the only one that reads the
+KERNEL: this machine's non-internal IPv4 addresses, and ONLY on a wildcard
+bind — a concrete `HOST` already contributes its own origin above, and a
+loopback bind would put rows in the mobile picker that connect to nothing. The
+entry stays inside the rebinding rule because a LITERAL IP can only be matched
+by an `Origin` spelling that literal IP, and a rebinding attack's browser
+always sends the hostname it typed. It exists for the 403, not the reach: the
+LAN bind always answered on these addresses, but the allowlist named only
+loopback spellings, so a phone scanning the "Subshell for Mobile" QR scanned
+into a sign-in that refused it. The probe is re-asked by `refreshLocal()`,
+which `GET /api/settings/public` calls — interfaces change with no act to hook
+(Wi-Fi switch), that read is the beat before a phone is handed an address, and
+this is deliberately NOT the five-minutes-timer class below: the timer answers
+for plugins a signed-in reader will never fetch for, and this one is re-asked
+exactly when the answer is about to be used. The answer feeds the picker
+THROUGH the same `trustedOrigins` field — no client-side guess at "which of
+these addresses is my LAN", because the picker's promise is that every row
+accepts a sign-in, and only the registry knows what the registry trusts. `services/network/origins.ts` is the single derivation of the
 plugin sets — every write goes through `originsOf`, and each set derives from
 the plugin's RECORD, never from a status in hand: a `private` network's addresses are trusted from `joined` (the tailnet
 address answers with no publish at all, so membership is the honest scope), a
@@ -848,16 +868,19 @@ running server's effective list (the derived local origins, that key, plus
 every plugin's addresses) is `GET /api/settings/public → trustedOrigins`,
 which is live.
 
-Why the key is asked about at all: `constants.ts` derives the allowlist from
-the port, a CONCRETE `HOST` and the base URL. On the default `0.0.0.0` bind the
-host is skipped (a wildcard is a listen address, not one anyone visits) and
-`APP_BASE_URL` defaults to `http://localhost:<port>` — so the whole derived set
-is the two loopback spellings, and a phone or a second hostname on the LAN
-sends an `Origin` nothing matches and sign-in dies on 403 "Invalid origin".
-Nothing about that failure names the key that fixes it, which is why it is a
-question rather than a hand-edit. `DEFAULT_TRUSTED_ORIGINS` lives in
-`constants.ts` and is imported by `status`, so the reported default cannot
-drift from the one the boot uses.
+Why the key is still asked about at all, now that `lan-origins.ts` derives the
+machine's own addresses: `constants.ts` derives the static part from the port,
+a CONCRETE `HOST` and the base URL. On the default `0.0.0.0` bind the host is
+skipped (a wildcard is a listen address, not one anyone visits) and
+`APP_BASE_URL` defaults to `http://localhost:<port>`. What is left for the
+operator after the LAN derivation is the names the machine answers to that are
+NOT its own interface addresses — a `.local` hostname, a DNS name, a reverse
+proxy's domain. The phone on the Wi-Fi is covered without it now; a laptop
+browsing `http://box.local:3080` still sends an `Origin` only this key (or the
+base URL pointed at that name) can name, and the 403 it dies on still names
+nothing. That is why it is a question rather than a hand-edit.
+`DEFAULT_TRUSTED_ORIGINS` lives in `constants.ts` and is imported by `status`,
+so the reported default cannot drift from the one the boot uses.
 
 tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`

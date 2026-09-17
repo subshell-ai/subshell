@@ -459,24 +459,31 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
     warnings.push(
       `APP_BASE_URL is ${baseUrl.value} but the server will listen on ${port.value}; unless a proxy or an ` +
         `SSH forward on this host maps port ${dialPort} to ${port.value}, a browser dialing ${dialPort} reaches ` +
-        `nothing, and one dialing ${port.value} sends an origin this instance does not trust (403 "Invalid ` +
-        `origin"). Set --base-url to the address you actually browse, or add it to --trusted-origins.`,
+        `nothing, and one dialing ${port.value} by NAME is refused (403 "Invalid origin" — the exception is ` +
+        `this machine's own addresses, which are derived and trusted automatically). Set --base-url to the ` +
+        `address you actually browse, or add it to --trusted-origins.`,
     );
   }
-  // The third face of the same trap, and the only one whose symptom names
-  // nothing. `constants.ts` derives the allowlist from the port, a CONCRETE
-  // HOST and the base URL — so on a wildcard bind with a loopback base URL the
-  // whole derived set is the two loopback spellings. The server answers a
-  // phone or a laptop on the LAN perfectly; sign-in then dies on 403 "Invalid
-  // origin", and nothing in that refusal names TRUSTED_ORIGINS. Warned rather
-  // than refused, like its two siblings: a box nobody browses from elsewhere
-  // is a legitimate configuration.
+  // The third face of the same trap, and what is LEFT of it. The trap used to
+  // be total: on a wildcard bind with a loopback base URL the derived set was
+  // the two loopback spellings, so a phone or a laptop on the LAN died on the
+  // 403 that names nothing. The LAN probe (`services/lan-origins.ts`,
+  // 2026-09-17) closed the ADDRESS half with no operator act at all — an
+  // origin spelling one of this machine's own interface addresses is trusted
+  // on sight — and the same probe cannot know, or spell, the NAMES this
+  // machine answers to: `.local`, local DNS, anything else people type that
+  // is not an interface address. That half still dies on the nameless 403,
+  // which is still what this warning is for. Warned rather than refused, like
+  // its two siblings: a box nobody browses by name is a legitimate
+  // configuration.
   // EVERY configured origin loopback, not merely an EMPTY list. An explicit
-  // `TRUSTED_ORIGINS=http://localhost:5174` reaches a browser on another
-  // machine exactly as nothing does, so testing for "" alone stayed silent on a
-  // configuration that is just as broken. The dashboard's checklist asks the
-  // wider question, and the two are supposed to agree about anything both can
-  // see (found in review, 2026-09-15).
+  // `TRUSTED_ORIGINS=http://localhost:5174` names no extra spellings either,
+  // so testing for "" alone stayed silent on the same configuration. The
+  // dashboard's checklist item asks a different question now (does the
+  // EFFECTIVE list hold anything non-loopback, kernel probe included), so the
+  // two no longer fire together: a host with any interface address silences
+  // the card while this warning still speaks about names, and both answers
+  // are true of the machine being configured.
   const everyOriginLoopback = normalizedOrigins
     .split(",")
     .map((entry) => entry.trim())
@@ -484,11 +491,12 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
     .every((entry) => isLoopbackUrl(entry));
   if (host.value === "0.0.0.0" && isLoopbackUrl(baseUrl.value) && everyOriginLoopback) {
     warnings.push(
-      `HOST=0.0.0.0 (LAN bind) with a loopback APP_BASE_URL (${baseUrl.value}) and no TRUSTED_ORIGINS: a ` +
-        "browser on any other machine sends an origin this instance does not trust, so sign-in answers " +
-        `403 "Invalid origin" without naming the key that fixes it. Add the address you browse from ` +
-        `(${FLAG_FOR_KEY.TRUSTED_ORIGINS} http://<this-host>:${port.value}), or make it the base URL ` +
-        `(${FLAG_FOR_KEY.APP_BASE_URL} http://<this-host>:${port.value}).`,
+      `HOST=0.0.0.0 (LAN bind) with a loopback APP_BASE_URL (${baseUrl.value}) and nothing but loopback in ` +
+        "TRUSTED_ORIGINS: browsers reaching this server by one of this machine's OWN addresses sign in " +
+        "fine — those origins are derived and trusted automatically — " +
+        'but no NAME is: browsing by a `.local` host or a DNS entry answers 403 "Invalid origin" without ' +
+        `naming the key that fixes it. Add the name (${FLAG_FOR_KEY.TRUSTED_ORIGINS} http://<that-name>:${port.value}), ` +
+        `or make it the base URL (${FLAG_FOR_KEY.APP_BASE_URL} http://<that-name>:${port.value}).`,
     );
   }
 
@@ -655,13 +663,13 @@ export async function runConfigure(opts: ConfigureOpts, deps: CommandDeps): Prom
     opts.baseUrl,
   );
   if (baseUrl === null) return 1;
-  // The OTHER addresses a browser may dial this instance on. `constants.ts`
-  // derives the allowlist from the port, a concrete HOST and the base URL —
-  // which, on the default LAN bind, is loopback only (a wildcard bind is a
-  // listen address, not one anyone visits). So a phone on the LAN or a second
-  // hostname sends an Origin nothing matches and sign-in dies on 403
-  // "Invalid origin". This is the key that fixes that, and it is asked here
-  // rather than left to a hand-edit because nothing about the failure names it.
+  // The OTHER addresses a browser may dial this instance on. The phone on the
+  // LAN needs none of this any more — `services/lan-origins.ts` derives this
+  // machine's own interface addresses into the allowlist automatically — but
+  // a NAME it is not answers to (a `.local` host, local DNS, a proxy domain)
+  // still sends an `Origin` nothing matches and dies on 403 "Invalid origin".
+  // This is the key that fixes that half, and it is asked here rather than
+  // left to a hand-edit because nothing about the failure names it.
   // The question depends on whether there IS a stored list, because ENTER
   // means different things in the two cases and the prompt has to say which.
   // `ask` maps a blank answer to the default, and defaults follow the file — so

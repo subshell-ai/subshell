@@ -8,16 +8,17 @@ import { settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
-import { APP_BASE_URL, NODE_ARTIFACTS_DIR } from "@/constants.js";
+import { APP_BASE_URL, NODE_ARTIFACTS_DIR, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { setLanProbeForTests } from "@/services/lan-origins.js";
 import { localHostname } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { originRegistry } from "@/services/trusted-origins.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
@@ -435,6 +436,32 @@ describe("settings routes (admin cookie only)", () => {
       expect(body.trustedOrigins).toContain("http://100.64.0.9:3080");
     } finally {
       originRegistry().clearPlugin("settings-route-test");
+    }
+  });
+
+  it("GET /public reflects a LAN address that appeared since boot, without a restart", async () => {
+    // A laptop switches Wi-Fi. There is no act to hook and no file to reload:
+    // the interface list simply changed, and a QR pointing at the network it
+    // left scans onto a dead address. This route is the refresh because it is
+    // the request every client makes — and the mobile dialog makes it again
+    // on open, the beat before a person hands a phone an address.
+    setLanProbeForTests(() => ({ en0: [{ address: "192.168.99.1", family: "IPv4", internal: false }] }));
+    resetOriginRegistryForTests();
+    try {
+      const first = (await (await app.fetch(authedRequest("/api/settings/public", nonAdminCookie))).json()) as {
+        trustedOrigins: string[];
+      };
+      expect(first.trustedOrigins).toContain(`http://192.168.99.1:${SERVER_PORT}`);
+      setLanProbeForTests(() => ({ en0: [{ address: "192.168.99.2", family: "IPv4", internal: false }] }));
+      const second = (await (await app.fetch(authedRequest("/api/settings/public", nonAdminCookie))).json()) as {
+        trustedOrigins: string[];
+      };
+      expect(second.trustedOrigins).toContain(`http://192.168.99.2:${SERVER_PORT}`);
+      // Replaced, not accumulated: the lease that is gone must stop being trusted.
+      expect(second.trustedOrigins).not.toContain(`http://192.168.99.1:${SERVER_PORT}`);
+    } finally {
+      setLanProbeForTests(null);
+      resetOriginRegistryForTests();
     }
   });
 
