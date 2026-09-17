@@ -3,7 +3,7 @@ title: Sharing a Node
 description: Let another user launch on your machine — and understand what every grant level actually confers.
 ---
 
-Sharing a node extends your machine's command surface to somebody else's workloads. That is the sentence to weigh before granting anything: a share does not open a folder or a view, it opens **launch**, and what a grantee launches runs on your hardware, under the OS user your agent runs as, with all the reach that implies. Only the machine's owner can see what is running there — which is exactly why the consequences deserve their own page.
+Sharing a node extends your machine's command surface to somebody else's workloads. That is the sentence to weigh before granting anything: a share does not open a folder or a view, it opens **launch**, and what a grantee launches runs on your hardware, under the OS user your agent runs as, with all the reach that implies. You, the owner, see grantees' work as a bare count — what they launch stays private to them unless they share it back — while admins resolve to edit on every subshell and the machine's own OS users see every pane. The asymmetries are exactly why the consequences deserve their own page.
 
 ## The one asymmetry to know
 
@@ -14,7 +14,7 @@ The two levels:
 | Grant | What the grantee can do |
 |---|---|
 | **view** | Launch their own subshells on the machine. That is already "run arbitrary work here". |
-| **edit** | Everything above, plus configure the node: re-checks (re-probing for agent CLIs), the service controls and log reads on [the node's page](/nodes/managing-the-agent), debug-logging flips, and updates. |
+| **edit** | Everything above, plus configure the node: re-checks (re-probing for agent CLIs), the start / install / restart service controls and log reads on [the node's page](/nodes/managing-the-agent), debug-logging flips, and updates. |
 
 Stays yours no matter what you grant:
 

@@ -3,7 +3,7 @@ title: Subshell Client as a Node
 description: Register your own machine without a terminal — the node half of the Subshell Client desktop app.
 ---
 
-Subshell Client is two things in one app: your interface to a control plane, and the place where **this machine** becomes a node. The second half lives in a separate window — on macOS, **Window → This machine…** — an assistant that walks you through registering the machine you are sitting at: paste a setup key, and it installs the agent, enrols it, and gets it running in the background. No terminal, no download step: the agent binary ships inside the app.
+Subshell Client is two things in one app: your interface to a control plane, and the place where **this machine** becomes a node. The second half lives in a separate window — **Window → This machine…** — an assistant that walks you through registering the machine you are sitting at: paste a setup key, and it installs the agent, enrols it, and gets it running in the background. No terminal, no download step: the agent binary ships inside the app.
 
 ## Who needs this window
 
@@ -17,7 +17,7 @@ One question per screen, in order:
 
 1. **Connect** — the control plane's address, entered first because everything else is an answer about a plane nobody has named yet. This is the address the app's other window loads.
 2. **Install the agent** — the bundled binary is installed to `~/.local/bin/subshell`, the same managed copy the command-line path writes, so one machine cannot end up with two agents. Replacing an existing agent goes through the agent's own update transaction, which records a rollback point; if the installed agent is too old to have one, the screen says so plainly instead of pretending.
-3. **Enroll** — you paste a setup key, minted on the plane's **Nodes → Add node** dialog ([Adding a Node](/nodes/add-node) covers what a key is and how long it lives). The agent generates its identity on this machine; the key itself is written only to the agent's private config file.
+3. **Enroll** — you paste a setup key, minted on the plane's **Nodes → Add node** dialog ([Adding a Node](/nodes/add-node) covers what a key is and how long it lives). The agent generates its identity on this machine and consumes the setup key in the exchange — it keeps no copy of the key, which lives 24 hours at most; the long-lived **node key** the exchange returns is stored only in the agent's private 0600 config file, its one home.
 4. **Service** — the app offers to start the agent at login and keep it running (a systemd user unit on Linux, a launchd agent on macOS).
 5. **Connected** — the node's live state: whether it is online, what the service manager says, and a **Re-enroll…** entry point for deliberately doing step 3 again.
 
@@ -26,7 +26,7 @@ tmux is a gate, not a caption: while the machine has no tmux, the enroll and ser
 > [!caution] Enrolling twice is destructive
 > A **second enrollment** overwrites the agent's saved configuration, registers a **second node** on the control plane, and discards the current node key — whose only home was that overwritten file. The app will not run an enroll until you confirm exactly that. If you are already enrolled and only need to reach a plane that moved to a different address, that is a *repointing* ([Managing the Agent](/nodes/managing-the-agent)), which keeps the machine's identity and mints nothing.
 
-The window can also take the agent back out — reset removes the service and the enrollment — and it can open the control plane in your real browser for anything a webview is wrong for, like sharing a subshell or using passkeys. Restarting the agent from here is deliberately not offered: that is a control-plane act, done from the node's page.
+The window can also take the agent back out — reset removes the service and the enrollment — and it can open the control plane in your real browser for anything a webview is wrong for, like sharing a subshell or using passkeys. Stopping or uninstalling the agent from here is deliberately not offered: both would end the very connection their own undo would ride, and that call belongs to the node's page. **Restart** is the one the assistant keeps — an offline agent can only be revived at the machine it sits on — and its confirmation names which subshells it will take down.
 
 ## See also
 

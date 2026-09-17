@@ -35,7 +35,7 @@ The **runtime report** on the node's page — how the agent is supervised, where
 
 - It keeps the machine's identity: the same node id, the same key, the same pinned signing key. It spends no setup key and mints no second row, and the new plane must already hold the key the agent pins or every command it sends fails verification. In practice it only works between two names for one plane.
 - But the agent **dials the newly named host carrying this plane's node key**. Repointing discloses that credential to whatever address was typed, so treat it as naming a host you trust, not as editing a URL.
-- Loopback addresses are refused outright — nobody is standing at a headless machine to notice it dialing itself — and the change takes effect on the agent's **next start**, because choosing when is the operator's act, not the page's.
+- Loopback addresses are refused outright — nobody is standing at a headless machine to notice it dialing itself — and the change takes effect when the agent **restarts**, because choosing when is the operator's act, not the page's.
 - It is audited, naming the new value (the plane never knew the old one — which address a node dials lives in that machine's own config).
 
 Contrast with [re-enrolling from the desktop app](/nodes/client-as-node): enrolling overwrites the config, mints a second node row, and discards the old key. Repointing does none of that.

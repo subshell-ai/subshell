@@ -19,7 +19,7 @@ The rules are **read-visible to everyone who can see the node**, grantees includ
 Signing proves *who* sent a launch, never *whether* the directory is permitted. So the check happens in two places that do not trust each other's copy:
 
 - **The control plane** checks the launch's working directory — fully resolved, not as typed — on **create and on restart**. (A restart spawns a fresh pane, so it is a launch wearing an old row's clothes. Panes already running are untouched by a rule change.)
-- **The node itself** refuses every `launch` and rejects every directory check against **its own persisted copy** of the list (`allowed-dirs.json` in its data directory). A list carried inside each command would be worthless against a compromised control plane — which is the exact assumption this second check exists for.
+- **The node itself** refuses every `launch` whose directory fails the check against **its own persisted copy** of the list (`allowed-dirs.json` in its data directory). A list carried inside each command would be worthless against a compromised control plane — which is the exact assumption this second check exists for.
 
 Two honest edges follow from the doubling:
 
