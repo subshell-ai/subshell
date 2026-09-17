@@ -1,5 +1,23 @@
 # @internal/server
 
+## 0.9.0
+
+### Minor Changes
+
+- [#70](https://github.com/subshell-ai/subshell/pull/70) [`589e8f4`](https://github.com/subshell-ai/subshell/commit/589e8f4b811a9b62538ea194dea0ae631e1d157d) Thanks [@theogravity](https://github.com/theogravity)! - The "Subshell for Mobile" dialog now shows a QR code on a stock install. The server derives its own LAN interface addresses into the trusted-origin allowlist — the kernel's answer for this host, on a wildcard bind only, re-asked whenever the public settings are read, so a laptop that switched Wi-Fi stops offering the network it left — and a phone on the same Wi-Fi signs in at the server's LAN address with no operator act at all. The picker follows: every row it offers is now an address a phone can dial and sign in from, so loopback rows are dropped rather than captioned "this device only", and an instance that truly knows no phone-dialable address says so where the QR would be, with the remedy. `subshell-server configure`'s LAN-bind warning narrows to what it now catches — browsing by a NAME that is not one of the machine's addresses; browsing by IP is automatic. (docs/security.md §8 records the new source and why a literal IP cannot be met by a DNS-rebinding attack; §3's address-list disclosure now includes the LAN addresses.)
+
+### Patch Changes
+
+- [#68](https://github.com/subshell-ai/subshell/pull/68) [`d1f9a20`](https://github.com/subshell-ai/subshell/commit/d1f9a20f8ffe0468aa77d1dafcc9bc4c195be3d1) Thanks [@theogravity](https://github.com/theogravity)! - The first-run wizard gives tmux its own screen — Account, Network, Tmux, Agent, Launch — instead of pinning it as the first row of the agent list, where it read as an agent named tmux under a subtitle promising one screen that needs nothing installed. The step says its own title, shows the found path with a checklist tick, and keeps every affordance the row had: the copyable per-platform command, the Install button only where the server may run it, the installer's own line while it runs, failures on the screen that failed, and a Continue that missing tmux never blocks. Inside Subshell Server the screen is the native assistant's own, so the SPA omits the step there and the dot totals do not move; a `tmux` wizard bookmark read in that shell resolves forward to the Agent step.
+
+- [#71](https://github.com/subshell-ai/subshell/pull/71) [`e5c69f2`](https://github.com/subshell-ai/subshell/commit/e5c69f2ffdc33dfcbfcdaf6048ccd5a3c460498b) Thanks [@theogravity](https://github.com/theogravity)! - Fix the three open GitHub issues, all found by fact-checking the docs.
+  
+  - Manual MCP registration steps (hermes, pi) now show the portable `subshell mcp` PATH command instead of the control plane's own resolved launch ([#57](https://github.com/subshell-ai/subshell/issues/57)). The steps are pasted onto every machine that hosts a pane, and an absolute server path names a program an enrolled node does not have; `subshell` is each node's own binary. The docs' swap-the-path caveat is gone, since the shown command is what to run.
+  - headscale's refused-serve advice now matches the shipped origins model: a private network's addresses are trusted while the machine is joined, so the refusal says the plain `http://<name>:<port>` address is already trusted instead of telling the operator to add it ([#61](https://github.com/subshell-ai/subshell/issues/61)).
+  - netbird's npm tarball now carries the icon it declares (`files` said `icon.svg`; the file and the manifest both say `icon.png`), so a registry-installed netbird shows its official mark instead of the monogram ([#64](https://github.com/subshell-ai/subshell/issues/64)). headscale and cloudflare-tunnel were carrying the same kind of dead `icon.svg` entry and are cleaned up too; a new pane-runtime test fails on any plugin whose declared icon is not in `files`, or whose `files` names an icon that does not exist.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 0.8.0
 
 ### Minor Changes
