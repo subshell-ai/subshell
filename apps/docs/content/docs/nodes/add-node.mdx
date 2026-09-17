@@ -3,14 +3,59 @@ title: Adding a Node
 description: Mint a setup key, run the one-liner on the target machine, and get the node online.
 ---
 
-This page will walk enrollment: Settings → Nodes → Add node renders a one-liner carrying a single-use setup key (24 hours, hashed at rest, revocable); you run it on the target machine, where it checks for tmux, downloads the matching `subshell` binary, verifies the published digest before the first `chmod +x`, enrols, and offers to install the background service. It will cover the loopback trap — the server URL is baked into the command, so `APP_BASE_URL` must name an address the node can actually reach — the `subshell setup` verb for machines that already have the binary, and Linux linger for keeping the agent alive past logout.
+Adding a node is three steps: mint a setup key on the control plane, run the command it renders on the target machine, and watch the row come online. This page walks the whole path, what the command actually does on the machine, and the one trap that bites most first attempts — the server URL.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## 1. Mint a setup key
 
-## Sources
+Open the **Nodes** page and press **Add node**. The dialog mints a setup key — an `nsk_…` code — and renders a copy-ready install command with it baked in. A setup key is single-use, expires after 24 hours, is shown exactly once, is stored only as a hash, and is revocable: deleting it (from the key list on the same page) is the revocation, and both acts are audited.
 
-- `README.md` §Nodes — the three steps and the points worth knowing before enrolling one
-- `docs/node-protocol.md` §2 "Enrollment" — the wire view of setup keys and the enroll call
-- `apps/node/agent/AGENTS.md` §Commands — the `setup` / `enroll` verbs and their tmux preflight
-- `docs/superpowers/specs/2026-08-31-nodes-design.md` — the enrollment design including key semantics
+Who may mint one is an instance setting. By default **anyone signed in** can add their own machines; the switch on the Settings page narrows it to **admins only**. Turning it off means "stop handing out new keys" — keys already minted stay usable until they expire or are deleted.
+
+## 2. Run the command on the target machine
+
+The dialog renders something like:
+
+```bash
+curl -fsSL "http://your-server:3080/install.sh?setup_key=<your-key>" | bash
+```
+
+On the target machine this:
+
+1. **Checks for tmux** and warns (with the right install command for the platform) if it is missing — a node without tmux can run no subshell at all. The install itself continues; enrollment is what refuses.
+2. **Downloads the agent binary** for your platform (`linux-x64`, `linux-arm64`, or `darwin-arm64`; Intel Macs are refused by name) from that same server, to `~/.local/bin/subshell`.
+3. **Verifies the published `.sha256` digest** of the download before the file is ever made executable, and replaces nothing until the digest matches. A corrupt or partial download leaves any existing install untouched.
+4. **Enrols** by running the `subshell setup` verb described below.
+
+If the server has no binary for your platform, it usually downloads one from the project's own public release on first request and serves it to you. When that is impossible — an air-gapped instance — the command says so rather than failing obscurely.
+
+> [!warning] The server URL is baked into the command
+> The address in the one-liner is the address the node will dial forever. If the instance's base URL is loopback, the dialog shows that resolved URL and warns: a remote machine dutifully pointed at `localhost` enrolls, then dials *itself* and sits there offline. Set the base URL to an address the node can actually reach — usually your VPN or tailnet address — before copying the command. See [Networking](/server/networking).
+
+## 3. `subshell setup`, the one verb
+
+The one-liner ends at a single CLI verb, and the same verb is the whole path on a machine that already has the binary:
+
+```bash
+subshell setup --server http://your-server:3080 --key <your-key>
+```
+
+It checks for tmux first (before your single-use key is spent), generates an identity keypair on that machine, enrols with the control plane, and writes its config 0600 — the node's long-lived key is stored only there, and never echoed, not even with `--json`. Then it asks one question: **"Run the agent in the background and start it at login?"** Answer yes and it installs a systemd user unit on Linux or a launchd agent on macOS; `--no-service` (or `SUBSHELL_NO_SERVICE=1` for the piped install) skips the question, and `subshell service install` does it later.
+
+On Linux, a user service dies at logout unless the user **lingers** — if the install detects that it does not, it prints the command that fixes it: `loginctl enable-linger $USER`. It may need an administrator's rights to run.
+
+## 4. Online
+
+The node appears in the list. Opening its page (or pressing **Re-check**) has the control plane probe it for the agent CLIs this instance offers — a node is only ever offered the harnesses actually installed on it — and then you can [launch subshells there](/use/subshells) like on any other machine. Finish with the decisions every fleet owner should make deliberately: [who may launch on it](/nodes/sharing), and whether to [restrict its directories](/nodes/directory-allowlist).
+
+## If it does not come online
+
+- **"The setup key was rejected"** — invalid, expired, or already used. Mint a fresh one and rerun the command; nothing was consumed on the machine's side except the download.
+- **The agent runs but the row stays offline** — almost always the baked loopback URL, or the machine cannot reach the address. `subshell status` on the node names the address it is dialing.
+- **An agent started by hand dies when you close the SSH session** — that is `subshell run`, the foreground daemon; install the background service (step 3).
+
+## See also
+
+- [Subshell Client as a Node](/nodes/client-as-node) — the same enrollment without a terminal.
+- [Registration and Enrollment](/server/registration-enrollment) — the instance settings that gate who may add machines.
+- [Node CLI reference](/reference/node-cli) — every flag `setup`, `enroll`, and `service` take.
+- [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes) — what enrollment delegates, in full.
