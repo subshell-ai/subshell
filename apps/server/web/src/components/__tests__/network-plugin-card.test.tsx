@@ -241,10 +241,26 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("a disabled plugin points at the page that re-enables it, and acts on nothing", async () => {
+  it("a disabled plugin says what that costs and offers Enable, which PATCHes the flag", async () => {
+    // Disabling used to send a person to Settings → Plugins; the act is on
+    // this card now, and the line says what disabled MEANS here: nothing
+    // this network offers is trusted for sign-in. No status rides a
+    // disabled row, so no count is claimed.
+    const calls = mockFetch(() => undefined);
     await renderCard(row({ enabled: false, status: undefined }));
-    expect(screen.getByRole("link", { name: /Settings → Plugins/ })).toBeTruthy();
+    expect(screen.getByText("Disabled — its addresses are not offered or trusted.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Settings → Plugins/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+    await waitFor(() => {
+      const patch = calls.find((c) => c.method === "PATCH" && c.pathname === "/api/plugins/tailscale");
+      expect(patch && JSON.parse(String(patch.body))).toEqual({ enabled: true });
+    });
+  });
+
+  it("a disabled row that still carries its status counts the addresses", async () => {
+    await renderCard(row({ enabled: false, status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    expect(screen.getByText("Disabled — its 2 addresses are not offered or trusted.")).toBeTruthy();
   });
 
   it("not-installed numbers the privileged steps and never offers to run one", async () => {
@@ -1757,6 +1773,71 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     ).toBeTruthy();
   });
 
+  it("Disable asks first when the network has addresses, names them, then PATCHes the flag and refreshes both reads", async () => {
+    const calls = mockFetch(() => undefined);
+    const client = await renderCard(
+      row({ state: "published", published: true, status: { state: "published", addresses: ADDRESSES, hints: [] } }),
+    );
+    const invalidated: string[] = [];
+    const invalidate = client.invalidateQueries.bind(client);
+    client.invalidateQueries = ((filters?: { queryKey?: readonly unknown[] }) => {
+      if (filters?.queryKey) invalidated.push(JSON.stringify(filters.queryKey));
+      return invalidate(filters as Parameters<typeof invalidate>[0]);
+    }) as typeof client.invalidateQueries;
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Disable Tailscale?")).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "This server stops publishing on Tailscale, and https://box.tail1234.ts.net and http://100.64.0.1:3080 stop being offered and trusted for sign-in now. Enable it again from this card.",
+      ),
+    ).toBeTruthy();
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disable" }));
+    await waitFor(() => {
+      const patch = calls.find((c) => c.method === "PATCH" && c.pathname === "/api/plugins/tailscale");
+      expect(patch && JSON.parse(String(patch.body))).toEqual({ enabled: false });
+    });
+    await waitFor(() => {
+      expect(invalidated).toContain(JSON.stringify(NETWORK_QUERY_KEY));
+      expect(invalidated).toContain(JSON.stringify(PUBLIC_SETTINGS_QUERY_KEY));
+    });
+  });
+
+  it("dismissing the Disable question sends nothing", async () => {
+    const calls = mockFetch(() => undefined);
+    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+  });
+
+  it("Disable on a network with no addresses asks nothing — there is nothing to name", async () => {
+    const calls = mockFetch(() => undefined);
+    await renderCard(row({ state: "needs-login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "PATCH" && c.pathname === "/api/plugins/tailscale")).toBe(true),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a refused disable renders the server's reason beside the button", async () => {
+    // The route 409s when the unpublish it runs first fails (a tunnel that
+    // would not stop); the row stays enabled and the reason lands on the control.
+    mockFetch((url, init) =>
+      url.pathname === "/api/plugins/cloudflare-tunnel" && init?.method === "PATCH"
+        ? new Response(JSON.stringify({ message: "cloudflared did not stop within 10 s" }), { status: 409 })
+        : undefined,
+    );
+    await renderCard(cloudflareRow({ state: "needs-login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    expect(await screen.findByText(/cloudflared did not stop/)).toBeTruthy();
+  });
+
   it("an install route that is not there leaves the hints standing", async () => {
     // A 404 means this plugin ships no installer — which is what the row is
     // already saying, in the steps beneath. An error line over them would
@@ -1800,6 +1881,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const item = screen.getByRole("listitem", { name: "Tailscale" });
     expect(within(item).getByRole("button", { name: /^Publish/ })).toBeTruthy();
     expect(within(item).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+    // First run is not where someone disables things: the wizard's frame
+    // carries every join/publish act and NOT this one.
+    expect(within(item).queryByRole("button", { name: "Disable" })).toBeNull();
     // The description and the supervisor detail are what `compact` drops —
     // first run is not where a person reads a pid.
     expect(item.textContent).not.toContain("A private network for your own devices.");

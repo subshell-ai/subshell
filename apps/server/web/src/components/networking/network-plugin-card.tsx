@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { Fact } from "@/components/admin-status/fact-list";
@@ -14,6 +13,7 @@ import { CopyableValue } from "@/components/ui/copyable-value";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
+import { useSetPluginEnabled } from "@/hooks/use-instance-plugins";
 import {
   useInstallNetwork,
   useJoinNetwork,
@@ -24,7 +24,7 @@ import {
 import { ApiError, errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
 import { connectBlocker } from "@/lib/network-connect";
-import { leftLine, publishedLine, unpublishedLine } from "@/lib/network-result-copy";
+import { disableDescription, disabledLine, leftLine, publishedLine, unpublishedLine } from "@/lib/network-result-copy";
 import { safeHref } from "@/lib/safe-href";
 import type { NetworkRow, NetworkStatus } from "@/types/network";
 
@@ -84,9 +84,10 @@ function JoinedFacts({ row, status, compact }: { row: NetworkRow; status: Networ
  * it is why the first-run step reuses it in `compact` rather than rendering a
  * shorter version of the same six states. Those states are a sequence a person
  * walks once (nothing installed → a daemon that is not up → not signed in →
- * joined → published), and a second implementation of it would be a second
- * place for "what can I do from here" to be answered differently on two pages
- * a person meets minutes apart.
+ * joined → published), and disabled, which short-circuits to one line plus
+ * Enable, is answered here too — a second implementation of it would be a
+ * second place for "what can I do from here" to be answered differently on two
+ * pages a person meets minutes apart.
  *
  * Three rules it keeps throughout:
  *
@@ -156,6 +157,14 @@ export function NetworkPluginCard({
   const unpublish = useUnpublishNetwork();
   const leave = useLeaveNetwork();
   /**
+   * The instance-level plugin flag, the SAME mutation Settings → Plugins
+   * toggles (`PATCH /api/plugins/:id`, audited `plugin.enable`/`.disable`).
+   * Disable belongs on this card because of what it does HERE: the server
+   * runs the unpublish sequence first and its addresses leave the effective
+   * allowlist with the flag, so it is a network act as much as Unpublish is.
+   */
+  const setEnabled = useSetPluginEnabled();
+  /**
    * True while a settings write the FORM owns is in flight.
    *
    * Reported upward because the mutation lives inside `NetworkSettingsForm`
@@ -173,6 +182,7 @@ export function NetworkPluginCard({
     publish.isPending ||
     unpublish.isPending ||
     leave.isPending ||
+    setEnabled.isPending ||
     savingSettings;
 
   const status = row.status;
@@ -235,17 +245,17 @@ export function NetworkPluginCard({
   /**
    * Starts one act, having forgotten every previous one.
    *
-   * Resetting ALL five mutations rather than only the output line, because a
+   * Resetting ALL six mutations rather than only the output line, because a
    * mutation's result outlives the state it describes: `publish.data` renders
    * outside every state branch, so after Unpublish the card went on saying
-   * "Published on Tailscale, updated the trusted origins" above a row that had
-   * gone back to `joined` — and after Disconnect, above one that had fallen to
-   * `needs-login`. Errors behaved the same way, since the banner takes the
-   * first non-null error across all five: a failed join's message stayed on
-   * screen through every later act.
+   * "Published on Tailscale — your other devices can sign in at … now" above a
+   * row that had gone back to `joined` — and after Disconnect, above one that
+   * had fallen to `needs-login`. Errors behaved the same way, since the banner
+   * takes the first non-null error across all five network calls: a failed
+   * join's message stayed on screen through every later act.
    *
-   * Every act goes through here, `unpublish` and `leave` included, which is
-   * what makes that true rather than nearly true.
+   * Every act goes through here, `unpublish`, `leave` and the enable toggle
+   * included, which is what makes that true rather than nearly true.
    */
   const begin = (run: () => void) => {
     setLine(undefined);
@@ -254,6 +264,7 @@ export function NetworkPluginCard({
     publish.reset();
     unpublish.reset();
     leave.reset();
+    setEnabled.reset();
     run();
   };
 
@@ -377,6 +388,11 @@ export function NetworkPluginCard({
     </div>
   );
 
+  /** The toggle's own failure, under whichever of its two buttons is on screen. */
+  const toggleError = setEnabled.error && (
+    <p className="text-destructive text-detail">{errMessage(setEnabled.error, "The change was not saved.")}</p>
+  );
+
   /** The act in flight, in its own words. */
   const progress = busy && (
     <p aria-live="polite" className="truncate font-mono text-detail text-muted-foreground">
@@ -436,13 +452,26 @@ export function NetworkPluginCard({
           Not available on this server's platform. {row.name} runs on {platformList(row.platforms)}.
         </p>
       ) : !row.enabled ? (
-        <p className="text-detail text-muted-foreground">
-          Disabled in{" "}
-          <Link to="/settings/plugins" className="underline">
-            Settings → Plugins
-          </Link>
-          .
-        </p>
+        // One line, and the way back. Not a link to Settings → Plugins any
+        // more: the flag is the same one that page toggles, but what it MEANS
+        // on this row — nothing this network offers is trusted for sign-in —
+        // is this card's to say, and re-enabling is one press here rather
+        // than a page away. `compact` gets the line and not the button: first
+        // run is not where someone toggles plugins.
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-detail text-muted-foreground">{disabledLine(row.status?.addresses.length)}</p>
+          {!compact && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => begin(() => setEnabled.mutate({ id: row.id, enabled: true }))}
+            >
+              {setEnabled.isPending ? "Enabling…" : "Enable"}
+            </Button>
+          )}
+          {toggleError}
+        </div>
       ) : status === undefined ? (
         // Supported and offered, but the server sent no status: it has not
         // asked this host yet. Saying so beats rendering the first state as
@@ -928,6 +957,36 @@ export function NetworkPluginCard({
 
           {progress}
           {actionError && <p className="text-destructive text-detail">{actionError}</p>}
+
+          {/* Last, and quiet: the act a person wants least often. Confirmed only
+              when there is something to name — with no addresses, disabling
+              changes nothing anyone is signed in over. `status` is defined here. */}
+          {!compact && (
+            <div className="space-y-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                disabled={busy}
+                onClick={async () => {
+                  const urls = status.addresses.map((address) => address.url);
+                  if (urls.length > 0) {
+                    const proceed = await confirmAction({
+                      title: `Disable ${row.name}?`,
+                      description: disableDescription(row.name, urls, row.published),
+                      confirmLabel: "Disable",
+                      danger: true,
+                    });
+                    if (!proceed) return;
+                  }
+                  begin(() => setEnabled.mutate({ id: row.id, enabled: false }));
+                }}
+              >
+                {setEnabled.isPending ? "Disabling…" : "Disable"}
+              </Button>
+              {toggleError}
+            </div>
+          )}
         </>
       )}
     </div>
