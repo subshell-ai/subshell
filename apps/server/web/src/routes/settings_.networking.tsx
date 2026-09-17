@@ -80,13 +80,13 @@ function NetworkingPage() {
     isAdmin,
     acting || awaitingLogin(cached?.networks) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
   );
-  // The base URL's SAVED value, for the "what am I addressed as" line.
+  // The base URL's SAVED value, for the 'what am I addressed as' line.
   // 60 s, not this hook's 5 s default, for the `/settings/status` Locations
   // card's reason: every read of `/api/admin/server` runs the service-manager
-  // and port probes synchronously in the server process. Nothing on THIS page
-  // writes the saved value any more — a publish adds origins, not the base
-  // URL (2026-09-16) — so the line follows Server Settings → Service, the
-  // page that writes it, at the poll's pace.
+  // and port probes synchronously. Nothing on THIS page writes config.env at
+  // all — a publish trusts its addresses live and moves no base URL
+  // (2026-09-16) — so the line follows Server Settings → Service, the page
+  // that writes it, at the poll's pace.
   const deployment = useServerDeployment(isAdmin, 60_000);
   // `settings?.` because a server older than the view sends `{}` where the
   // type says a full record — this page must degrade to no pending half, not
@@ -125,10 +125,11 @@ function NetworkingPage() {
               card, fields and supervisor detail included. */}
           {/* Where this server says it lives, and which network's address
               that is — printed once on the page that shows the cards, whose
-              publish acts can now only add addresses it MIGHT name; the
-              value itself is written on Server Settings → Service. A saved
-              change names itself as pending rather than pretending the
-              boot-time constants have moved: only a restart moves them. */}
+              acts write no config; the value itself is written on Server
+              Settings → Service. A saved change names itself as pending
+              rather than pretending the boot-time constant has moved:
+              `APP_BASE_URL` is still read at boot, even though the allowlist
+              no longer is. */}
           {base && (
             <p className="text-detail text-muted-foreground">
               This server's address: <span className="font-mono">{base.running}</span>

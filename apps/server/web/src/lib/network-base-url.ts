@@ -9,7 +9,9 @@ import type { NetworkRow } from "@/types/network";
  * facts an operator needs to read with it: WHICH NETWORK owns the address,
  * and the one the boot-time constants make unavoidable — a saved change is
  * not the running one until the restart. (The value is written on Server
- * Settings → Service; a publish only adds origins.) `running` comes from the
+ * Settings → Service; a publish writes no config at all — its addresses are
+ * trusted live, and the base URL is the one address fact a restart still
+ * gates.) `running` comes from the
  * settings every request already reads; `saved` from the deployment view,
  * which knows both.
  */
