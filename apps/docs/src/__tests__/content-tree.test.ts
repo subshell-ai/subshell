@@ -84,31 +84,53 @@ function parseFrontmatter(source: string): Record<string, unknown> | undefined {
 }
 
 /**
+ * `fs.existsSync` on macOS' case-insensitive APFS would bless `/Nodes` where
+ * the deploy would 404 it — so walk the path segment by segment against
+ * `readdirSync` and demand an exact-name hit each step. Anything that throws
+ * mid-walk (a file where a directory was expected, a `..` escape) is "no page".
+ */
+function caseExactExists(abs: string): boolean {
+  try {
+    let dir = DOCS_DIR;
+    for (const seg of path.relative(DOCS_DIR, abs).split(path.sep)) {
+      const hit = fs.readdirSync(dir).find((entry) => entry === seg);
+      if (!hit) return false;
+      dir = path.join(dir, hit);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Every root-relative internal link (`[text](/path)`) in a page's prose,
  * with hrefs pointing at nonexistent pages collected as `file: [text](href)`
- * strings. Frontmatter, fenced code blocks and inline code spans are stripped
- * first — an example link written as documentation (`` `[Nodes](/nodes)` ``)
- * is not a link. Resolution mirrors fumadocs' file routing: `/a/b` is
+ * strings. Frontmatter, fenced code blocks and inline code spans are
+ * stripped first — an example link written as documentation (`` `[Nodes](/nodes)` ``)
+ * is not a link — and images (`![alt](/x)`) are excluded, since a public asset
+ * is not a page. Resolution mirrors fumadocs' file routing: `/a/b` is
  * `content/docs/a/b.mdx` or `content/docs/a/b/index.mdx`, and `/` is the root
- * `index.mdx`. Fragments and query strings are stripped before resolving;
- * external (`http(s):`, `mailto:`, protocol-`//`) and pure-`#anchor` hrefs
- * never start with a surviving `/` path and are skipped by construction.
- */
+ * `index.mdx`; segments are matched CASE-EXACTLY because macOS APFS is
+ * case-insensitive while the production host is not. Fragments and query
+ * strings are stripped before resolving. Hrefs that are not root-relative
+ * (`http(s):`, `mailto:`, pure `#anchor`) are skipped, as are protocol-relative
+ * `//host` URLs — those are external by definition. */
 function brokenInternalLinks(rel: string, source: string): string[] {
   const prose = source
     .replace(/^---\r?\n[\s\S]*?\r?\n---/, "")
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`[^`\n]*`/g, "");
   const broken: string[] = [];
-  for (const match of prose.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+  for (const match of prose.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
     const href = match[1];
-    if (!href?.startsWith("/")) continue;
+    if (!href?.startsWith("/") || href.startsWith("//")) continue;
     const pathname = href.split("#")[0]?.split("?")[0]?.replace(/\/+$/, "") ?? "";
     const candidates =
       pathname === ""
         ? [path.join(DOCS_DIR, "index.mdx")]
         : [path.join(DOCS_DIR, `${pathname.slice(1)}.mdx`), path.join(DOCS_DIR, pathname.slice(1), "index.mdx")];
-    if (!candidates.some((c) => fs.existsSync(c))) {
+    if (!candidates.some((c) => fs.existsSync(c) && caseExactExists(c))) {
       broken.push(`${rel}: [..](${href}) resolves to no page`);
     }
   }

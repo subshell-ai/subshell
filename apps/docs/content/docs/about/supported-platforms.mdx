@@ -5,7 +5,7 @@ description: Which operating systems and architectures can run the control plane
 
 Subshell ships as prebuilt binaries — no runtime to install beside them, no package manager in the picture. Three questions answer most of what people have: does my OS run the binaries, does my machine need tmux, and what about my phone.
 
-## The server-side binaries
+## The CLI binaries
 
 The control plane (`subshell-server`, with the web UI embedded in it) and the node agent (`subshell`) are each published as one self-contained binary per architecture:
 
@@ -35,7 +35,7 @@ There are no desktop builds for Intel Macs or arm64 Linux, and both apps need th
 
 ## Universal requirements
 
-- **tmux 3.2 or newer on every machine that runs a pane.** That is the control-plane host if it runs agents itself, and every [node](/nodes/add-node). A machine that only hosts the UI needs nothing but the binary. Where tmux is missing, the desktop app's setup assistant can install it with the platform's own package manager.
+- **tmux 3.2 or newer on every machine that runs a pane.** That is the control-plane host if it runs agents itself, and every [node](/nodes/add-node). A machine that only hosts the UI needs nothing but the binary. Where tmux is missing on the control-plane host, the Subshell Server desktop app installs it — Homebrew on macOS, its own elevation prompt on Linux — and the browser setup wizard offers the same where the server can run it, printing the command where it cannot. A machine joining as a [node](/nodes/add-node) is the hard case: enrollment refuses outright until tmux is present.
 - **An agent CLI where you want agents** — `claude`, `opencode`, `codex`, or whichever [harness plugin](/agents/installing-agent-clis) you launch. The terminal plugin runs a plain shell, so a bare machine is still launchable without any agent installed.
 - **Bun 1.4+ only if you run from source.** The prebuilt binaries are self-contained; the from-source workflows in this repo (`bun run start`, tests, building a release) are what need the runtime.
 
@@ -43,11 +43,11 @@ One version detail worth knowing: tmux 3.6 additionally reports a crashed pane's
 
 ## Browsers and mobile
 
-The web UI is an xterm.js terminal application: use a current browser, and everything works. There is no per-browser support matrix — if the terminal misbehaves in yours, that is a bug worth reporting. Below a 1024-pixel viewport the UI switches to its small-screen shell — drawer navigation, tabbed workspaces, an on-screen terminal key bar — and it installs from the browser via Add to Home Screen (there is no offline service worker; the pane always comes from the server).
+The web UI is an xterm.js terminal application: use a current browser, and everything works. There is no per-browser support matrix — if the terminal misbehaves in yours, that is a bug worth reporting. The interface adapts by need rather than one breakpoint: workspaces stop tiling side by side and become tabs below 1024 pixels; the persistent sidebar gives way to a drawer below 683, and a phone gets the drawer at any reported width; the on-screen terminal key bar follows touch input, not screen size. The web app installs via Add to Home Screen (there is no offline service worker; the pane always comes from your server).
 
-The [native mobile companion](/get-started/mobile) exists today as the fourth surface for the things a web page cannot do — background push, app-icon badge, lock-screen actions, and a Keychain-held credential — and it adds a live terminal tab of its own. Be aware of what it is *not* yet: there is no app-store listing to point at. It ships built from the repository, so today it is for people comfortable running an Expo build, while the browser shell above serves everyone else.
+The [native mobile companion](/get-started/mobile) is the fourth surface: it pushes at the OS level — app-icon badge, lock-screen actions, delivery with no browser open — holds its credential in the Keychain behind Face ID, and carries a live terminal tab of its own. Be aware of what it is *not* yet: there is no app-store listing to point at. It ships built from the repository, so today it is for people comfortable running an Expo build, while the browser shell above serves everyone else.
 
-Docker is another way to run the control plane — a compose recipe exists and binds to loopback by default; see [Docker](/server/docker).
+Docker is another way to run the control plane — the compose recipe publishes port 3080 on all interfaces by design, because remote access is expected to ride a reverse proxy that cannot reach a loopback bind; on a shared network treat a fresh container as reachable. See [Docker](/server/docker).
 
 ## See also
 

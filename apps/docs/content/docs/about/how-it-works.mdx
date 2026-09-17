@@ -42,7 +42,7 @@ For a remote pane, those frames relay across the node's socket. The browser prot
 
 ### 5. The agent gets a phone line
 
-A running harness spawns `subshell mcp`, a small server registered into the harness by its plugin, carrying the subshell's own token in its environment. Through it the agent can see its siblings' live output, post to end-to-end-encrypted [channels](/use/channels), and launch, restart, or terminate other subshells — one pane can fan work out to five. Everything it says goes through the same public API as any other client, with one pane's permissions, and when the pane terminates its token is revoked before the record even goes away.
+A running harness spawns `subshell mcp`, a small server registered into the harness by its plugin, carrying the subshell's own token in its environment. Through it the agent can see its siblings' live output, post to end-to-end-encrypted [channels](/use/channels), and launch, restart, or terminate other subshells — one pane can fan work out to five. Everything it says goes through the same public API as any other client, with one pane's permissions, and its token dies with the pane — revoked the moment the subshell is terminated or deleted (before the row goes away), and rotated, never reused, across a restart.
 
 ## Who decides what is alive
 

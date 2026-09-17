@@ -14,7 +14,7 @@ This page is a reader's guide to that model, not a replacement for it. The [full
 
 The recurring shape: credentials are required, scoped, and revoked; guesses are slowed; ciphertext is all the server keeps of your messages.
 
-- **Any unauthenticated API call** — one guard sits in front of everything but auth and setup status.
+- **Any unauthenticated API call** — one guard sits in front of every API route except auth, setup status, and one deliberate exception: the sign-in page may read the instance's display name anonymously, so you can see which plane you are about to give a password to.
 - **Probing other people's subshells** — foreign ids answer 404, never 403, so nothing can be enumerated.
 - **A runaway agent** — per-subshell tokens hold a permission map, are bound to their own row, and are rejected on every admin surface; a pane cannot enumerate the machine's disk through the file API.
 - **Replayed terminal access** — WebSocket attach tokens live thirty seconds and work once.
