@@ -61,7 +61,16 @@ export interface NetworkPluginState {
    * itself, having been given no memory.
    */
   port: number | null;
-  /** Where this server is reachable on that network, as the last publish reported. */
+  /**
+   * The last addresses this host was known to have on that network.
+   *
+   * Written by every status read that answers `joined` or `published`, by a
+   * publish (its result), and cleared when the host leaves the network or the
+   * plugin is disabled or uninstalled. Until 2026-09-16 this said "as the last
+   * publish reported"; it widened because the trusted-origin registry derives
+   * from it (`services/network/origins.ts`) and a private network's addresses
+   * are trusted from membership, not from a publish.
+   */
   addresses: NetworkAddress[];
   /** ISO 8601 stamp of that publish, for the UI. */
   publishedAt?: string;
@@ -72,8 +81,11 @@ function emptyState(): NetworkPluginState {
   return { settings: {}, published: false, port: null, addresses: [] };
 }
 
-/** `<dataDir>/plugins-state/<id>/network.json`. */
-function statePath(pluginId: string): string {
+/**
+ * `<dataDir>/plugins-state/<id>/network.json` — the record's path, for tests
+ * that assert it was or was not rewritten.
+ */
+export function networkStatePath(pluginId: string): string {
   return join(pluginStateDir(SUBSHELL_SERVER_DATA_DIR, pluginId), STATE_FILE);
 }
 
@@ -101,7 +113,7 @@ const writeQueues = new Map<string, Promise<unknown>>();
 export async function readNetworkState(pluginId: string): Promise<NetworkPluginState> {
   let text: string;
   try {
-    text = await readFile(statePath(pluginId), "utf8");
+    text = await readFile(networkStatePath(pluginId), "utf8");
   } catch {
     return emptyState();
   }
@@ -195,7 +207,7 @@ export async function writeNetworkState(
  * make an unpublish and an uninstall the same act.
  */
 export async function clearNetworkState(pluginId: string): Promise<void> {
-  await rm(statePath(pluginId), { force: true });
+  await rm(networkStatePath(pluginId), { force: true });
 }
 
 /**
