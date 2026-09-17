@@ -28,25 +28,25 @@ function clickOn(anchorHtml: string, init: MouseEventInit = {}): { event: MouseE
 
 describe("desktopLinkClick", () => {
   test("a plain click on a blank-target https link is relayed and prevented", () => {
-    const { event, opened } = clickOn('<a href="https://tailscale.com/kb/1153" target="_blank">Docs ↗</a>');
-    expect(opened).toEqual(["https://tailscale.com/kb/1153"]);
+    const { event, opened } = clickOn('<a href="https://docs.example.invalid/kb/1153" target="_blank">Docs ↗</a>');
+    expect(opened).toEqual(["https://docs.example.invalid/kb/1153"]);
     expect(event.defaultPrevented).toBe(true);
   });
 
   test("resolves from the clicked CHILD of the anchor, the case real clicks are", () => {
-    const { opened } = clickOn('<a href="http://example.test/x" target="_blank"><span>Docs</span></a>');
-    expect(opened).toEqual(["http://example.test/x"]);
+    const { opened } = clickOn('<a href="http://docs.example.invalid/x" target="_blank"><span>Docs</span></a>');
+    expect(opened).toEqual(["http://docs.example.invalid/x"]);
   });
 
   test("http qualifies, and so does the check only for the schemes the native gate accepts", () => {
     expect(clickOn('<a href="mailto:a@b.c" target="_blank">mail</a>').opened).toEqual([]);
     expect(clickOn('<a href="javascript:alert(1)" target="_blank">xss</a>').opened).toEqual([]);
-    expect(clickOn('<a href="//bare.example.test/p" target="_blank">proto-relative</a>').opened).toEqual([]);
+    expect(clickOn('<a href="//bare.example.invalid/p" target="_blank">proto-relative</a>').opened).toEqual([]);
     expect(clickOn('<a target="_blank">no href</a>').opened).toEqual([]);
   });
 
   test("an anchor without target=_blank is same-window navigation and not ours", () => {
-    expect(clickOn('<a href="https://example.test/">internal</a>').opened).toEqual([]);
+    expect(clickOn('<a href="https://app.example.invalid/">internal</a>').opened).toEqual([]);
   });
 
   test("modifier and non-primary clicks keep WebKit's own (inert) path", () => {
@@ -58,13 +58,13 @@ describe("desktopLinkClick", () => {
       { button: 1 },
       { button: 2 },
     ]) {
-      expect(clickOn('<a href="https://example.test/" target="_blank">l</a>', init).opened).toEqual([]);
+      expect(clickOn('<a href="https://app.example.invalid/" target="_blank">l</a>', init).opened).toEqual([]);
     }
   });
 
   test("a click something already handled stays handled", () => {
     const host = document.createElement("div");
-    host.innerHTML = '<a href="https://example.test/" target="_blank">x</a>';
+    host.innerHTML = '<a href="https://app.example.invalid/" target="_blank">x</a>';
     document.body.append(host);
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     let seen = false;
@@ -101,13 +101,13 @@ describe("installDesktopLinkHandling", () => {
       return null;
     };
     const host = document.createElement("div");
-    host.innerHTML = '<a href="https://tailscale.com/kb/1016" target="_blank">Docs</a>';
+    host.innerHTML = '<a href="https://docs.example.invalid/kb/1016" target="_blank">Docs</a>';
     document.body.append(host);
     host.querySelector("a")?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     (window as { open?: unknown }).open = prevOpen;
     host.remove();
     if (ua?.get) Object.defineProperty(navigator, "userAgent", ua);
-    expect(opened).toEqual(["https://tailscale.com/kb/1016"]);
+    expect(opened).toEqual(["https://docs.example.invalid/kb/1016"]);
   });
 
   test("an ordinary browser arms nothing", () => {
@@ -127,7 +127,7 @@ describe("installDesktopLinkHandling", () => {
       return null;
     };
     const host = document.createElement("div");
-    host.innerHTML = '<a href="https://tailscale.com/kb/1016" target="_blank">Docs</a>';
+    host.innerHTML = '<a href="https://docs.example.invalid/kb/1016" target="_blank">Docs</a>';
     document.body.append(host);
     host.querySelector("a")?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     (window as { open?: unknown }).open = prevOpen;

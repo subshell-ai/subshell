@@ -1352,12 +1352,17 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
 
   const JOINED = row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } });
 
+  // 2026-09-17: CI's Testing job runs every package's suite in parallel, and
+  // the web suite gets a starved slice of the container's CPUs — measured
+  // 7.6s wall for this act/NDJSON chain at 0.4 CPU (it passes in 25ms
+  // idle). bun's default 5s per-test timeout was firing mid-chain. The
+  // per-wait budgets stay honest; this ceiling is only the load allowance.
   it("a failed act says so", async () => {
     failedPublishThenLeave();
     await renderCard(JOINED);
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
     await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy(), { timeout: 1200 });
-  });
+  }, 20000);
 
   it("a later act clears the previous one's failure", async () => {
     // A mutation's result outlives the state it describes. The error banner
@@ -1392,7 +1397,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog", {}, { timeout: 1200 });
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull(), { timeout: 1200 });
-  });
+    // 20000 per the rationale on the test above; this one runs the full
+    // fail-then-succeed chain and measured 12–16s on CI's slice.
+  }, 20000);
 
   it("uses the vendor's own words for the credential and for publishing", async () => {
     // A generic word is WRONG rather than bland here: NetBird takes a setup
@@ -1689,7 +1696,14 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
   });
 
   it("disconnecting asks a question and sends the plugin id, which nobody types", async () => {
-    const calls = mockFetch(() => undefined);
+    // The leave answer is FAITHFUL, not `{}`: the card renders
+    // `leftLine(name, data.origins)` from the result, and the `{}` fallback
+    // crashed that render — a swallowed TypeError on every run of this file.
+    const calls = mockFetch((url) =>
+      url.pathname === "/api/network/tailscale/leave"
+        ? Response.json({ ok: true, origins: [], status: { state: "needs-login", addresses: [], hints: [] } })
+        : undefined,
+    );
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     const dialog = await screen.findByRole("dialog");
