@@ -2703,6 +2703,21 @@ pub fn desktop_request_notifications() -> Result<Permission, String> {
     permissions::request_notifications()
 }
 
+/// Ask macOS for permission to read the Photos library, and answer where it
+/// landed.
+///
+/// **Assistant only**, on [`desktop_request_notifications`]'s exact terms: the
+/// sheet is macOS's own, it shows at most once per install, and it has to come
+/// from a press on a screen that has already said what is about to be asked.
+/// What makes it more than a second door to the same room is recorded in
+/// `desktop-core`'s `request_photos` — the picker panel that normally raises
+/// this prompt is THIS app's, so asking here arms the same TCC subject the
+/// picker will hit. No argument; reaches no CLI, config, service or file.
+#[tauri::command(async)]
+pub fn desktop_request_photos() -> Result<Permission, String> {
+    permissions::request_photos()
+}
+
 /// The System Settings panes this app may open.
 ///
 /// A closed enum for the same reason [`WebTarget`] and [`OpenTarget`] are: the

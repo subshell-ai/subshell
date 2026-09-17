@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Permission, Probe } from "../lib/ipc";
-import { DEV_BUILD_NOTE, permissionRows } from "../lib/permissions-model";
+import { DEV_BUILD_NOTE, type PermissionRequests, permissionRows } from "../lib/permissions-model";
 
 function probe(over: Partial<Probe> = {}): Probe {
   return {
@@ -25,7 +25,7 @@ function probe(over: Partial<Probe> = {}): Probe {
   } as Probe;
 }
 
-const row = (p: Probe, id: string, requesting = false) => {
+const row = (p: Probe, id: string, requesting: PermissionRequests = {}) => {
   const found = permissionRows(p, requesting).find((r) => r.id === id);
   if (!found) throw new Error(`no ${id} row`);
   return found;
@@ -34,10 +34,40 @@ const row = (p: Probe, id: string, requesting = false) => {
 const ALL: Permission[] = ["not-determined", "denied", "authorized", "provisional", "unavailable"];
 
 describe("permissionRows", () => {
-  it("is the four things macOS will ask, in the order a first run meets them", () => {
+  it("is the three things macOS will ask, in the order a first run meets them", () => {
     // The order is the point: it is the sequence of moments, not a ranking by
     // severity, so someone reading down the screen reads their own next hour.
-    expect(permissionRows(probe(), false).map((r) => r.id)).toEqual(["notifications", "files", "photos", "login"]);
+    //
+    // `login` left the list on 2026-09-17. It explained the "Background Items
+    // Added" banner, which does appear, but it is not a permission: no state to
+    // read, no pane to open, nothing to press, and therefore a row that could
+    // never change — prose standing in the column a person reads for decisions.
+    expect(permissionRows(probe()).map((r) => r.id)).toEqual(["notifications", "files", "photos"]);
+  });
+
+  it("pairs an `allow` button with its words exactly when it offers to ask", () => {
+    // The renderer takes BOTH from the row, having hardcoded the notifications
+    // label and handler back when that was the only askable row. A row that
+    // says `allow` with no label would render a fallback button, and a label
+    // on a row that cannot ask is a field nothing renders — either way the two
+    // screens drift apart with no test in the middle.
+    for (const notifications of ALL) {
+      for (const photos of ALL) {
+        for (const r of permissionRows(probe({ notificationPermission: notifications, photosPermission: photos }))) {
+          if (r.action !== "allow") {
+            expect(r.allow, r.id).toBeNull();
+            continue;
+          }
+          expect(r.allow, r.id).not.toBeNull();
+          expect(r.allow?.label.startsWith("Allow "), r.id).toBe(true);
+          // The row that offers to ask names the sheet it raises. `String()`
+          // because `files` is not a `PermissionRequest` — the type already
+          // says a row with nothing to ask cannot name one, and this checks
+          // the two askable rows did not trade handlers.
+          expect(String(r.allow?.request), r.id).toBe(r.id);
+        }
+      }
+    }
   });
 
   it("gives every row a label and a detail, whatever the states", () => {
@@ -53,10 +83,10 @@ describe("permissionRows", () => {
 });
 
 /**
- * The one row with a button, and the reason every state needs its own line:
- * macOS asks exactly once. Offering "Allow" on a denied state is a button that
- * does nothing, and offering "Open System Settings" on an undetermined one
- * sends a person to a row that is not there yet.
+ * The first of the two rows that can raise a sheet, and the reason every state
+ * needs its own line: macOS asks exactly once. Offering "Allow" on a denied
+ * state is a button that does nothing, and offering "Open System Settings" on
+ * an undetermined one sends a person to a row that is not there yet.
  */
 describe("the notifications row", () => {
   it("offers Allow only while macOS has not been asked", () => {
@@ -97,26 +127,95 @@ describe("the notifications row", () => {
   it("goes active while the request is in flight, and keeps its button out of reach", () => {
     // The system sheet is modal to the app, so the row has to say something is
     // happening; `active` is the checklist's own spinner state.
-    const r = row(probe({ notificationPermission: "not-determined" }), "notifications", true);
+    const r = row(probe({ notificationPermission: "not-determined" }), "notifications", { notifications: true });
     expect(r.state).toBe("active");
     expect(r.action).toBe("allow");
   });
 
-  it("ignores the in-flight flag for every other row", () => {
-    for (const id of ["files", "photos", "login"]) {
-      expect(row(probe(), id, true).state, id).toBe(row(probe(), id, false).state);
+  it("ignores the PHOTOS in-flight flag, which is a different question", () => {
+    // One flag per sheet. A shared flag would spin this row while the person
+    // read the Photos sheet — two rows answering for one press.
+    expect(row(probe({ notificationPermission: "not-determined" }), "notifications", { photos: true }).state).toBe(
+      "pending",
+    );
+    for (const id of ["files"]) {
+      expect(row(probe(), id, { notifications: true, photos: true }).state, id).toBe(row(probe(), id).state);
     }
   });
 });
 
+/**
+ * The second row that can raise a sheet — and the reversal this row went
+ * through, so its history belongs here rather than in a commit message.
+ *
+ * The row shipped with **no Allow, in any state** (spec 2026-09-14 § 9), on the
+ * reasoning that the system asks in context at the moment an image is picked
+ * and pre-empting that would be a prompt raised for no reason the person can
+ * see. The operator asked for the button on 2026-09-17, and the reason it is
+ * sound rather than merely possible is recorded in `desktop-core`'s
+ * `request_photos`: the panel that normally raises this prompt is THIS app's
+ * own image picker, so a sheet raised here arms the same TCC subject the picker
+ * will hit. One question, asked where it can be explained — not a second door
+ * to the same room.
+ */
 describe("the photos row", () => {
-  it("never offers Allow, in any state", () => {
-    // The system asks at the moment an image is picked, which is where Apple
-    // puts it and where this app cannot intervene. Pre-empting it would be a
-    // prompt raised for no reason the person can see.
-    for (const state of ALL) {
-      expect(row(probe({ photosPermission: state }), "photos").action, state).not.toBe("allow");
-    }
+  it("offers Allow only while macOS has not been asked", () => {
+    const r = row(probe({ photosPermission: "not-determined" }), "photos");
+    expect(r.action).toBe("allow");
+    expect(r.state).toBe("pending");
+    expect(r.suffix).toBe("");
+  });
+
+  it("names PHOTOS on its button, not the other row's permission", () => {
+    // The renderer used to hardcode "Allow notifications" for every `allow`
+    // row. Two askable rows is exactly when that string becomes a lie.
+    expect(row(probe({ photosPermission: "not-determined" }), "photos").allow?.label).toBe("Allow Photos");
+    expect(row(probe({ notificationPermission: "not-determined" }), "notifications").allow?.label).toBe(
+      "Allow notifications",
+    );
+  });
+
+  it("is done and silent once allowed", () => {
+    // `Limited` — the person chose WHICH photos — arrives as `authorized` from
+    // Rust, because the picker works either way and a notice would be false.
+    const r = row(probe({ photosPermission: "authorized" }), "photos");
+    expect(r.state).toBe("done");
+    expect(r.suffix).toBe("Allowed");
+    expect(r.action).toBeNull();
+  });
+
+  it("sends a denial to System Settings, never back to a prompt that will not fire", () => {
+    // Once the answer is in, the pane is the ONLY way back — the button this
+    // row has in `not-determined` is spent for good, which is the whole reason
+    // the two actions are mutually exclusive rather than both offered.
+    const r = row(probe({ photosPermission: "denied" }), "photos");
+    expect(r.state).toBe("failed");
+    expect(r.suffix).toBe("Not allowed");
+    expect(r.action).toBe("open-settings");
+    expect(r.pane).toBe("photos");
+  });
+
+  it("says a dev build cannot ask, and offers nothing there", () => {
+    const r = row(probe({ photosPermission: "unavailable" }), "photos");
+    expect(r.state).toBe("pending");
+    expect(r.suffix).toBe("Unavailable in this build");
+    expect(r.action).toBeNull();
+    expect(r.detail).toContain(DEV_BUILD_NOTE);
+  });
+
+  it("goes active while its OWN request is in flight", () => {
+    const r = row(probe({ photosPermission: "not-determined" }), "photos", { photos: true });
+    expect(r.state).toBe("active");
+    expect(r.action).toBe("allow");
+    expect(row(probe({ photosPermission: "not-determined" }), "photos", { notifications: true }).state).toBe("pending");
+  });
+
+  it("says what asking now means, in the sentence rather than only the button", () => {
+    // The old detail promised the prompt would arrive when an image was picked.
+    // With a button on the row that is no longer the only story, and a person
+    // who pressed Allow and then reads "asked when you attach one" learns that
+    // the controls here do not do what they say.
+    expect(row(probe({ photosPermission: "not-determined" }), "photos").detail).toContain("Asked now");
   });
 
   it("reads the same words as the notifications row", () => {
@@ -124,13 +223,6 @@ describe("the photos row", () => {
     expect(row(probe({ photosPermission: "denied" }), "photos").suffix).toBe("Not allowed");
     expect(row(probe({ photosPermission: "unavailable" }), "photos").suffix).toBe("Unavailable in this build");
     expect(row(probe({ photosPermission: "not-determined" }), "photos").suffix).toBe("");
-  });
-
-  it("offers System Settings once denied, since that is the only way back", () => {
-    const r = row(probe({ photosPermission: "denied" }), "photos");
-    expect(r.state).toBe("failed");
-    expect(r.action).toBe("open-settings");
-    expect(r.pane).toBe("photos");
   });
 });
 
@@ -209,26 +301,6 @@ describe("no notice dead-ends here", () => {
           else expect(r.pane, r.id).toBeNull();
         }
       }
-    }
-  });
-});
-
-describe("the login row", () => {
-  it("says it is not a permission, and offers nothing", () => {
-    // A banner is not a decision. The row exists because the banner appears
-    // unannounced and reads as something having been done behind your back.
-    const r = row(probe(), "login");
-    expect(r.suffix).toBe("Not a permission");
-    expect(r.action).toBeNull();
-    expect(r.pane).toBeNull();
-    expect(r.state).toBe("pending");
-  });
-
-  it("says the same thing whatever the two permission states are", () => {
-    for (const state of ALL) {
-      expect(row(probe({ notificationPermission: state, photosPermission: state }), "login")).toEqual(
-        row(probe(), "login"),
-      );
     }
   });
 });

@@ -9,11 +9,18 @@
  *
  * There is deliberately no `account` member: the wizard's first screen creates
  * the account, so the earliest a bookmark can exist is the screen AFTER it.
+ *
+ * `tmux` joined in the step's real position (spec 2026-09-15 § 5.1, as amended
+ * 2026-09-17): tmux got its own wizard screen instead of riding as a row on
+ * the agent list. Inside Subshell Server that screen is absent — the native
+ * assistant shows its own — and the SPA maps a stored `"tmux"` onto the agent
+ * step there; the bookmark survives the shell switch, the screen it names
+ * simply resolves to the next one that exists.
  */
-export type SetupStep = "network" | "agent" | "launch";
+export type SetupStep = "network" | "tmux" | "agent" | "launch";
 
 /** Every step, for validation and for the route's schema. */
-export const SETUP_STEPS: readonly SetupStep[] = ["network", "agent", "launch"];
+export const SETUP_STEPS: readonly SetupStep[] = ["network", "tmux", "agent", "launch"];
 
 /**
  * The step a brand-new first account is bookmarked on — the screen right after

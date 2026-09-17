@@ -469,9 +469,10 @@ Three rules the card keeps, each with a defect behind it:
   to one line plus Enable. The `compact` frame carries no Disable — first run
   is not where someone toggles plugins.
 - **Nothing privileged is ever a button**, including the numbered install steps.
-  Same rule as `TmuxRow`: this server has no terminal to answer a password
-  prompt. Numbering runs only over hints that carry a COMMAND, so a plugin's
-  explanatory sentence is not rendered as an instruction to perform.
+  Same rule as the wizard's tmux screen (`components/setup/tmux-step.tsx`):
+  this server has no terminal to answer a password prompt. Numbering runs only
+  over hints that carry a COMMAND, so a plugin's explanatory sentence is not
+  rendered as an instruction to perform.
 - **A refusal is an ANSWER.** A publish returning `ok:false` with a `refused`
   hint renders inline where the button was, with no alert role — the server
   worked correctly and said why not.

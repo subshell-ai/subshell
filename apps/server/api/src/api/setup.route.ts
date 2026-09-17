@@ -26,7 +26,7 @@ const SetupStatusSchema = t.Object({
 });
 
 /**
- * The wizard step value — the same three literals as {@link SETUP_STEPS}.
+ * The wizard step value — the same four literals as {@link SETUP_STEPS}.
  *
  * Spelled as an explicit tuple, not `SETUP_STEPS.map((s) => t.Literal(s))`:
  * `.map()` returns an array rather than a tuple, so `t.Union` cannot infer the
@@ -37,9 +37,12 @@ const SetupStatusSchema = t.Object({
  * value reads as "no bookmark", and `SETUP_STEPS` remains the source the
  * repository validates against.
  */
-const SetupStepValueSchema = t.Union([t.Literal("network"), t.Literal("agent"), t.Literal("launch")], {
-  description: "The wizard screen the first-run flow left off on",
-});
+const SetupStepValueSchema = t.Union(
+  [t.Literal("network"), t.Literal("tmux"), t.Literal("agent"), t.Literal("launch")],
+  {
+    description: "The wizard screen the first-run flow left off on",
+  },
+);
 
 /**
  * One user's wizard bookmark (spec 2026-09-16): the step, or `null` for "no

@@ -1,24 +1,29 @@
-import { LoaderCircle, SquareTerminal } from "lucide-react";
+import { Check, LoaderCircle, SquareTerminal } from "lucide-react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Button } from "@/components/ui/button";
 import { tmuxInstallHint } from "@/lib/tmux-install";
 
 /**
- * tmux on the control-plane host, pinned above the agent list on the Add an
- * Agent screen (spec 2026-09-15 § 5.1).
+ * tmux on the control-plane host — the whole body of the wizard's
+ * "Install tmux" screen (spec 2026-09-15 § 5.1; its own step since the
+ * 2026-09-17 amendment).
  *
  * The defect it closes: tmux is what every local pane launches through, and
- * the only screen that ever said so was the NATIVE Subshell Server assistant.
+ * the only surface that ever said so was the NATIVE Subshell Server assistant.
  * A headless install — the whole point of that spec — learned tmux was missing
  * when its first launch failed, or never.
  *
- * Detection-first, in the same shape as an agent row, because the question is
- * the same one: what is on this machine right now. Continue is never blocked
- * on it. The launch step refuses honestly on its own, and a wizard that traps
- * someone behind a package manager is worse than one that told them what is
- * missing.
+ * It used to ride as the first `<li>` of the agent list, "in the same shape as
+ * an agent row" — and the shape was the problem: the list read as a list of
+ * agents, tmux is not one, and it sat under a subtitle promising "A plain
+ * terminal is always available with nothing to install". As a step it owns its
+ * own title, and the tick replaces a status chip.
+ *
+ * Continue is never blocked on it. The launch step refuses honestly on its
+ * own, and a wizard that traps someone behind a package manager is worse than
+ * one that told them what is missing.
  */
-export function TmuxRow({
+export function TmuxStep({
   tmuxPath,
   os,
   onInstall,
@@ -33,6 +38,9 @@ export function TmuxRow({
    * The three-way split is load-bearing: the admin status read is in flight
    * for a moment after the account is created, and rendering the absent state
    * during it would accuse a correct host of a defect and then take it back.
+   * As a row this case rendered nothing (no row in a list is cheap silence);
+   * as a whole screen silence reads as a broken page, so it says what it is
+   * doing instead — the same words the Network step uses.
    */
   tmuxPath: string | null | undefined;
   /** The host's platform (`runtime.os`), which decides the command shown. */
@@ -42,10 +50,12 @@ export function TmuxRow({
   installing?: boolean;
   /** The installer's most recent line, while it runs. */
   progress?: string;
-  /** A run that failed, rendered under this row — the same shape the agent rows use. */
+  /** A run that failed, rendered on the screen that ran it. */
   failure?: { message: string; output?: string };
 }) {
-  if (tmuxPath === undefined) return null;
+  if (tmuxPath === undefined) {
+    return <p className="text-muted-foreground text-sm">Checking this machine…</p>;
+  }
   const found = tmuxPath !== null;
   const hint = tmuxInstallHint(os ?? "");
   // The button exists only where the server can actually run the command. On
@@ -55,14 +65,29 @@ export function TmuxRow({
   // fails. There, the command is copyable and nothing more.
   const installable = !found && hint !== null && !hint.needsPrivilege && onInstall !== undefined;
 
+  if (found) {
+    // A settled fact says nothing more: no command to run, nothing to press.
+    // The path is the proof, the way the checklist tick is on every surface
+    // that checks a prerequisite.
+    return (
+      // A `fieldset`, not a `div role="group"`: the linter prescribes the
+      // element, and a fieldset carries the `group` role implicitly — so the
+      // `getByRole("group", { name: "tmux" })` handle the step's own test and
+      // both e2e specs reach is unchanged by satisfying the rule.
+      <fieldset aria-label="tmux" className="flex items-start gap-3">
+        <Check aria-hidden className="mt-0.5 size-5 shrink-0 text-success" />
+        <p className="font-strong">
+          Found at <code className="font-mono text-detail">{tmuxPath}</code>
+        </p>
+      </fieldset>
+    );
+  }
+
   return (
-    <li aria-label="tmux" className="border-border/60 border-b last:border-b-0">
-      <div className="flex min-h-11 items-center gap-3 py-2">
+    <fieldset aria-label="tmux" className="space-y-3">
+      <div className="flex min-h-11 items-center gap-3">
         <SquareTerminal aria-hidden className="size-5 shrink-0 text-muted-foreground" />
-        <span className="flex-1 font-strong">tmux</span>
-        <span className={found ? "text-detail text-success" : "text-detail text-warning"}>
-          {found ? "Detected" : "Not found"}
-        </span>
+        <span className="flex-1 font-strong text-detail text-warning">Not found</span>
         {installable && (
           <Button size="sm" disabled={installing} onClick={onInstall}>
             {/* A label that changes once and then holds still for a minute is
@@ -72,14 +97,14 @@ export function TmuxRow({
           </Button>
         )}
       </div>
-      {!found && !installing && !failure && (
-        <div className="grid gap-2 pb-3 pl-9">
+      {!installing && !failure && (
+        <div className="grid gap-2 pl-9">
           {/* The cost, said once and plainly. Every local pane runs inside
               tmux, so this is not a missing convenience — it is the machine
               being unable to run anything. */}
           <p className="text-detail text-muted-foreground">
             Subshells cannot launch on this machine without it.{" "}
-            {hint === null && <>Install tmux on this machine and this row will pick it up.</>}
+            {hint === null && <>Install tmux on this machine and this screen will pick it up.</>}
           </p>
           {hint !== null && (
             <>
@@ -95,7 +120,7 @@ export function TmuxRow({
         </div>
       )}
       {installing && (
-        <div className="pb-3 pl-9">
+        <div className="pl-9">
           {/* The installer's own words, one line, verbatim. There is no
               percentage to derive from a package manager, and inventing stages
               it does not report would be worse than showing what it says. */}
@@ -105,7 +130,7 @@ export function TmuxRow({
         </div>
       )}
       {failure && (
-        <div className="pb-3 pl-9">
+        <div className="pl-9">
           <p className="text-destructive text-detail">{failure.message}</p>
           {failure.output !== undefined && failure.output.trim() !== "" && (
             <details className="mt-1 text-sm">
@@ -115,6 +140,6 @@ export function TmuxRow({
           )}
         </div>
       )}
-    </li>
+    </fieldset>
   );
 }

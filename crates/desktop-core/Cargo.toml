@@ -44,4 +44,7 @@ objc2-user-notifications = { version = "0.3.2", default-features = false, featur
   "UNNotificationSettings",
   "UNUserNotificationCenter",
 ] }
-objc2-photos = { version = "0.3.2", default-features = false, features = ["std", "PHPhotoLibrary"] }
+# `block2` is what gates `requestAuthorizationForAccessLevel_handler:` in the
+# generated bindings — the read (`authorizationStatusForAccessLevel:`) needs no
+# completion block, the request does.
+objc2-photos = { version = "0.3.2", default-features = false, features = ["std", "block2", "PHPhotoLibrary"] }

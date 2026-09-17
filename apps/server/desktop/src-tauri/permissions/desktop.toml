@@ -167,6 +167,11 @@ description = "Ask macOS for permission to post notifications. Assistant only: m
 commands.allow = ["desktop_request_notifications"]
 
 [[permission]]
+identifier = "allow-desktop-request-photos"
+description = "Ask macOS for permission to read the Photos library. The same terms as the notifications request — one system sheet, at most once per install, no argument, nothing that reaches a CLI, config, service or file — and it is not the no-op it first looks like: the panel that normally raises this prompt is THIS app's image picker, so asking here arms the same subject the picker will hit. Assistant only for the same reason: a screen that has said what is about to be asked."
+commands.allow = ["desktop_request_photos"]
+
+[[permission]]
 identifier = "allow-desktop-check-app-update"
 description = "Ask the project's release list whether a newer Subshell Server APP exists — not the server it wraps. Takes no argument, downloads nothing and changes nothing: one GET of a public JSON list, and one manifest the updater plugin verifies against the public key compiled into this build. Assistant only, because its sibling installs, and the dashboard reaches the same screen by NAME through desktop_open_assistant rather than by holding a command."
 commands.allow = ["desktop_check_app_update"]

@@ -36,9 +36,11 @@
  *   three moments a missing macOS permission must be explained are in this very
  *   page, and it cannot say a permission is missing without being able to ask.
  *   What did NOT come with it is the half of the feature that acts —
- *   `desktop_request_notifications` and `desktop_open_system_settings` are
- *   `wizard`-only, so the served page reads a state and can raise neither a
- *   system prompt nor a System Settings pane.
+ *   `desktop_request_notifications`, `desktop_request_photos` (2026-09-17) and
+ *   `desktop_open_system_settings` are `wizard`-only, so the served page reads
+ *   a state and can raise neither a system prompt nor a System Settings pane.
+ *   The number of ACTING commands grew that day; the number on this window did
+ *   not, which is the only part this file counts.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -305,7 +307,7 @@ describe("the assistant's IPC contract", () => {
     expect(rust).toContain("subshell_desktop_core::browser::browser_url");
   });
 
-  it("keeps the permissions read to NO arguments, which is the whole of its case", () => {
+  it("keeps the permissions read — and both requests — to NO arguments", () => {
     // The sixth command on the served page, and the argument for it (spec
     // 2026-09-14 § 7) rests entirely on there being nothing to point: it runs
     // no program, reads no path, touches no service and changes nothing, and
@@ -316,14 +318,32 @@ describe("the assistant's IPC contract", () => {
     const signature = rust.slice(rust.indexOf("pub fn desktop_permissions("));
     const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
     expect(params.trim()).toBe("");
-    // And the acting half stayed OFF this window. These two are what a page
-    // would need to raise a system prompt or a System Settings pane on its
-    // own, and both are the assistant's.
+    // And the acting half stayed OFF this window. These are what a page would
+    // need to raise a system prompt or a System Settings pane on its own, and
+    // all three are the assistant's. The second request joined on 2026-09-17
+    // (Photos), and the rule that placed the first one places it identically:
+    // a sheet has to come from a press under a sentence the person can read.
     const granted = grantedCommands("main.json");
     expect(granted.has("desktop_request_notifications")).toBe(false);
+    expect(granted.has("desktop_request_photos")).toBe(false);
     expect(granted.has("desktop_open_system_settings")).toBe(false);
-    expect(grantedCommands("wizard.json").has("desktop_request_notifications")).toBe(true);
-    expect(grantedCommands("wizard.json").has("desktop_open_system_settings")).toBe(true);
+    const wizard = grantedCommands("wizard.json");
+    expect(wizard.has("desktop_request_notifications")).toBe(true);
+    expect(wizard.has("desktop_request_photos")).toBe(true);
+    expect(wizard.has("desktop_open_system_settings")).toBe(true);
+    // Neither request takes an argument either, so neither can be aimed at a
+    // permission this screen did not say out loud. Same reasoning as the read's
+    // above, applied to the two that ACT — and `rust` is the file read once at
+    // the top of this test for exactly that reason.
+    for (const name of ["desktop_request_notifications", "desktop_request_photos"]) {
+      // Asserted present before it is sliced: `indexOf` of a missing command is
+      // -1, and a slice from -1 reads the tail of the file — a green assertion
+      // about a command that no longer exists.
+      expect(rust, `${name} is gone from control.rs`).toContain(`pub fn ${name}()`);
+      const ask = rust.slice(rust.indexOf(`pub fn ${name}(`));
+      const askParams = ask.slice(ask.indexOf("(") + 1, ask.indexOf(")"));
+      expect(askParams.trim(), `${name} gained an argument`).toBe("");
+    }
   });
 
   it("keeps updating the APP on the bundled page alone", () => {

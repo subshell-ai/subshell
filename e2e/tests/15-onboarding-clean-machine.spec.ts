@@ -164,18 +164,28 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   await expect(page.getByRole("heading", { name: "Connect a Network" })).toBeVisible();
   await page.getByRole("button", { name: "Skip for now" }).click();
 
-  // Step 3: skip the agent entirely. This is the whole point: nothing agent-
+  // Step 3: tmux (spec 2026-09-15 §5.1, its own screen since 2026-09-17).
+  // "Clean machine" means no AGENT CLI — tmux is the one thing the suite
+  // itself could not run without, so the found state is what this walk
+  // passes through; the step must cost exactly one Continue.
+  await expect(page.getByRole("heading", { name: "Install tmux" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "tmux" })).toContainText("Found at");
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // Step 4: skip the agent entirely. This is the whole point: nothing agent-
   // shaped is installed, and the wizard must still reach a subshell. The
   // agent list is agent-harness plugins only — neither the terminal plugin
-  // (which needs no program of its own) nor any NETWORK plugin appears here.
+  // (which needs no program of its own) nor any NETWORK plugin appears here,
+  // and neither does tmux, which left the list for its own step.
   await expect(page.getByRole("heading", { name: "Add an Agent" })).toBeVisible();
   await expect(page.getByRole("listitem", { name: "Tailscale", exact: true })).toHaveCount(0);
   await expect(page.getByText(/A plain terminal is always available/)).toBeVisible();
   await expect(page.getByRole("listitem", { name: "Terminal", exact: true })).toHaveCount(0);
   await expect(page.getByRole("listitem", { name: "pi", exact: true }).getByText(/Detected/)).toHaveCount(0);
+  await expect(page.getByRole("listitem", { name: "tmux", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Continue" }).click();
 
-  // Step 4: the form arrives filled in. Assert that BEFORE clicking, so a
+  // Step 5: the form arrives filled in. Assert that BEFORE clicking, so a
   // regression in the defaults fails here rather than as a disabled button.
   await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
   // The agent default rule on a clean machine: no recent subshell, no usable

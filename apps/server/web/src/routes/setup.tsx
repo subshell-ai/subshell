@@ -12,7 +12,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { AgentRow } from "@/components/setup/agent-row";
 import { NetworkStep } from "@/components/setup/network-step";
 import { SetupAssistant } from "@/components/setup/setup-assistant";
-import { TmuxRow } from "@/components/setup/tmux-row";
+import { TmuxStep } from "@/components/setup/tmux-step";
 import {
   canSubmit,
   emptyNewSubshellForm,
@@ -39,50 +39,67 @@ export const Route = createFileRoute("/setup")({
 });
 
 /**
- * The wizard's own screens, in order. The Network step sits SECOND — before
- * the agent — because it is about reaching this server at all, and a person
- * who is going to open the dashboard on their phone wants that decided before
- * they start choosing what runs on it. It is optional, and skipping it costs
- * nothing: every act on it is on `/settings/networking` afterwards.
+ * A wizard screen. `account` is the only one a bookmark can never name — the
+ * first screen CREATES the account, so the earliest resumable point is the
+ * screen after it (spec 2026-09-16 § 2.1). Excluding it from `SetupStep` is
+ * what makes `goTo`'s write total: every non-account screen's id IS its
+ * bookmark, so there is no second table to keep in step.
  */
-const STEPS = ["Account", "Network", "Agent", "Launch"] as const;
+type WizardStep = "account" | SetupStep;
 
 /**
- * The wizard screen a bookmark names, or 0 (Account) for none.
+ * The wizard's screens in order. The Network step sits SECOND — before tmux
+ * and the agent — because it is about reaching this server at all, and a
+ * person who is going to open the dashboard on their phone wants that decided
+ * before they start choosing what runs on it. It is optional, and skipping it
+ * costs nothing: every act on it is on `/settings/networking` afterwards.
  *
- * `account` is deliberately unaddressable: the wizard's first screen creates
- * the account, so the earliest a bookmark can exist is the screen AFTER it
- * (`spec 2026-09-16` §2.1).
+ * The Tmux step sits third (spec 2026-09-15 § 5.1, as amended 2026-09-17):
+ * tmux is what every pane on this machine runs inside, and until this step it
+ * rode as the first row of the agent list — where it read as an agent named
+ * tmux, under a subtitle promising "A plain terminal is always available with
+ * nothing to install".
+ *
+ * The step is ABSENT inside Subshell Server: the native assistant shows its
+ * own tmux screen on every first run (`wizard-state.ts screensFor`), and it
+ * can ACT on a missing tmux through brew and pkexec, where the SPA's
+ * `POST /api/setup/tmux/install` is Homebrew-only and 409s on every Linux
+ * entry. A browser (and Subshell Client, whose plane is somebody else's
+ * machine) gets the step, and the dot row gains one — inside the server app
+ * the assistant's screens already carry that dot, which is what keeps
+ * {@link dotsFor} totals identical to before for that shell.
+ */
+const STEP_ORDER: readonly WizardStep[] = ["account", "network", "tmux", "agent", "launch"];
+
+/** The same list as the Subshell Server assistant hands off to: no Tmux step. */
+const SERVER_DESKTOP_STEPS: readonly WizardStep[] = STEP_ORDER.filter((s) => s !== "tmux");
+
+/**
+ * The wizard screen a bookmark names, or `account` for none.
+ *
+ * A bookmark naming a step the ACTIVE list lacks resolves FORWARD to the next
+ * step that exists — today that is only `"tmux"` read inside Subshell Server,
+ * where the screen is the assistant's. The bookmark survives the shell switch
+ * rather than being discarded: the step it resolves to is exactly where the
+ * person still has to go, and clearing it would silently restart a wizard
+ * that was only seen through a different shell.
+ *
+ * `account` is deliberately unaddressable: see {@link WizardStep}.
  *
  * @param step - the caller's bookmark, `GET /api/setup/progress`'s `step`
+ * @param steps - the screens this shell actually renders
  */
-function stepFromBookmark(step: SetupStep | null | undefined): number {
-  switch (step) {
-    case "network":
-      return 1;
-    case "agent":
-      return 2;
-    case "launch":
-      return 3;
-    default:
-      return 0;
+function stepFromBookmark(step: SetupStep | null | undefined, steps: readonly WizardStep[]): WizardStep {
+  if (!step) return "account";
+  const wanted = STEP_ORDER.indexOf(step);
+  for (const candidate of steps) {
+    if (STEP_ORDER.indexOf(candidate) >= wanted) return candidate;
   }
-}
-
-/**
- * The wizard screen a NAVIGATION onto index `n` must bookmark.
- *
- * The bookmark names the step to REOPEN on — the step the person is arriving
- * at, so leaving and reopening resumes exactly there. The Account step is not
- * reachable by a nav write: advancing to it from registration is the sign-up
- * hook's job (it writes `network`, the FIRST resumable screen), and the walk
- * never goes back to it. Returns undefined for the account step so callers
- * skip the write rather than store a step that cannot resume.
- *
- * @param n - the wizard index navigated TO
- */
-function bookmarkFor(n: number): SetupStep | undefined {
-  return n === 1 ? "network" : n === 2 ? "agent" : n === 3 ? "launch" : undefined;
+  // A bookmark past the end of the list — unreachable today, since every
+  // shell keeps the launch step. `account` is the fail-safe: the effect that
+  // applies a late bookmark only acts from `account`, so the worst case is
+  // the screen a first-run visitor is already on.
+  return "account";
 }
 
 function SetupPage() {
@@ -100,9 +117,12 @@ function SetupPage() {
   const { data: currentUser } = useCurrentUser();
   const { data: progress } = useSetupProgress(!!currentUser);
   const setProgress = useSetSetupProgress();
+  // Which screens THIS shell walks — module-level constants so the identity
+  // is stable and `stepFromBookmark` gets the same list every call.
+  const steps = isServerDesktop() ? SERVER_DESKTOP_STEPS : STEP_ORDER;
   // The step opens ON the bookmark where there is one; a first-run visitor
   // (no session, no bookmark) starts on Account as before.
-  const [step, setStep] = useState(() => stepFromBookmark(progress?.step));
+  const [step, setStep] = useState<WizardStep>(() => stepFromBookmark(progress?.step, steps));
   // Registration (better-auth sign-up). The fields are the shared
   // `NewAccountFields` — the same form the admin's Add user dialog renders —
   // so this screen holds one value and none of the rules about it.
@@ -117,9 +137,9 @@ function SetupPage() {
   // replaces the whole value on any edit, so the reference is the untouched
   // constant until the first keystroke.
   useEffect(() => {
-    const target = stepFromBookmark(progress?.step);
-    if (step === 0 && target > 0 && account === EMPTY_NEW_ACCOUNT) setStep(target);
-  }, [progress?.step, step, account]);
+    const target = stepFromBookmark(progress?.step, steps);
+    if (step === "account" && target !== "account" && account === EMPTY_NEW_ACCOUNT) setStep(target);
+  }, [progress?.step, step, account, steps]);
 
   // Add an Agent: a detection-first list, no toggle. Every harness's install
   // is a separate step (Settings → Plugins); this screen only says what's on
@@ -161,17 +181,21 @@ function SetupPage() {
         }
       : undefined;
   /**
-   * tmux on the control-plane host, and the installer for it.
+   * tmux on the control-plane host, and the installer for it — the Tmux
+   * step's whole subject (spec 2026-09-15 § 5.1, as amended 2026-09-17).
    *
    * Detection rides the admin status read rather than a route of its own —
-   * step 0 created the admin account, so a cookie exists by the time this
-   * screen mounts, and `runtime.tmuxPath` is the same fact Settings → Status
-   * shows. Enabled from step 1 for that reason: on step 0 there is no session
-   * and the request would 403. (Step 1 is the Network screen now, which does
-   * not read it — the gate is about when a cookie EXISTS, not about which
-   * screen wants the answer.)
+   * step `account` created the admin account, so a cookie exists by the time
+   * any later screen mounts, and `runtime.tmuxPath` is the same fact
+   * Settings → Status shows. Enabled from the first screen after account for
+   * that reason: on account there is no session and the request would 403.
+   * (The Network screen does not read it either — the gate is about WHEN a
+   * cookie EXISTS, not about which screen wants the answer, and starting the
+   * read a screen early is what makes it warm when the Tmux step mounts.)
+   * Inside Subshell Server the read never runs: the step it feeds is absent
+   * there, and its assistant answers the same question from the CLI.
    */
-  const { data: adminStatus } = useAdminStatus(step >= 1);
+  const { data: adminStatus } = useAdminStatus(step !== "account" && steps.includes("tmux"));
   const [tmuxLine, setTmuxLine] = useState<string | undefined>(undefined);
   const installTmux = useInstallTmux((line) => {
     // Blank lines are spacing in an installer's output, not progress; showing
@@ -185,7 +209,7 @@ function SetupPage() {
    * and exited non-zero are the same pair the agent rows have — but a package
    * manager can also exit ZERO having installed into a directory this server
    * process cannot see, which is exactly what the CLI's own offer re-probes
-   * for. Reporting that as success would leave the row saying "Not found"
+   * for. Reporting that as success would leave the step saying "Not found"
    * under a green install with nothing explaining the contradiction.
    */
   const tmuxFailure = installTmux.error
@@ -209,7 +233,7 @@ function SetupPage() {
     isLoading: harnessesLoading,
     isError: harnessesError,
     refetch: refetchHarnesses,
-  } = useHarnesses({ refetchInterval: step === 2 && !install.isPending ? 4000 : undefined });
+  } = useHarnesses({ refetchInterval: step === "agent" && !install.isPending ? 4000 : undefined });
   const agents = (harnesses ?? []).filter((h) => h.type === "agent-harness");
 
   // Launch step. The form defaults itself (node `local`, a usable agent, the
@@ -233,12 +257,12 @@ function SetupPage() {
   // (spec 2026-09-16) this was `needsSetup === false && !launchedRef` — which
   // read the account's existence as "setup done", because the account is
   // created on the FIRST screen. Now a signed-in first admin whose bookmark
-  // names a step IS the resumed wizard, not a visitor, and the `step === 0`
-  // guard makes the whole stale-setup-status window irrelevant: once anyone
-  // has moved off Account they are not bounced.
+  // names a step IS the resumed wizard, not a visitor, and the account guard
+  // makes the whole stale-setup-status window irrelevant: once anyone has
+  // moved off Account they are not bounced.
   const resumeSetup = progress?.step != null;
   useEffect(() => {
-    if (status?.needsSetup === false && step === 0 && !resumeSetup && !launchedRef.current) {
+    if (status?.needsSetup === false && step === "account" && !resumeSetup && !launchedRef.current) {
       navigate({ to: "/" });
     }
   }, [status, step, resumeSetup, navigate]);
@@ -246,19 +270,33 @@ function SetupPage() {
   if (!status) return null;
 
   /**
-   * Moves the wizard to step `n` and bookmarks it.
+   * Moves the wizard to `target` and bookmarks it.
    *
    * Fire-and-forget (spec 2026-09-16 §2.3): the optimistic cache write in
    * `useSetSetupProgress` is what the root gate reads on the re-render, so the
    * wizard never contradicts itself; a failed PATCH costs a resume at the
    * PREVIOUS step, the harmless direction, so the error is deliberately not
-   * surfaced. Account (n=0) writes nothing — advancing to Network is the
-   * sign-up hook's job, and the walk never returns to Account.
+   * surfaced. Account writes nothing — advancing to the next step is the
+   * sign-up hook's job (the server's first-admin promotion bookmarks
+   * `network`, the FIRST resumable screen), and the walk never goes back to
+   * it. Excluding `"account"` narrows `target` to exactly `SetupStep`, so the
+   * screen id and the wire value are one thing, never two tables.
    */
-  function goTo(n: number) {
-    setStep(n);
-    const bookmark = bookmarkFor(n);
-    if (bookmark) setProgress.mutate(bookmark);
+  function goTo(target: WizardStep) {
+    setStep(target);
+    if (target !== "account") setProgress.mutate(target);
+  }
+
+  const index = steps.indexOf(step);
+  /** The step this shell's Back button walks to — the previous one it renders. */
+  function goBack() {
+    const target = steps[index - 1];
+    if (target) goTo(target);
+  }
+  /** The step this shell's Continue walks to — the next one it renders. */
+  function goNext() {
+    const target = steps[index + 1];
+    if (target) goTo(target);
   }
 
   async function register() {
@@ -284,7 +322,12 @@ function SetupPage() {
       // holds the pre-registration `null` session (30 s staleTime) and would
       // bounce this SPA navigation to /login. Refresh it so the guard knows.
       queryClient.invalidateQueries({ queryKey: CURRENT_USER_QUERY_KEY });
-      setStep(1);
+      // NOT `goTo`: the server's first-admin promotion already bookmarked the
+      // first resumable step in the same transaction that created the row;
+      // re-writing it here would be a second writer to the bookmark at the
+      // one moment the two could disagree about whether a session exists.
+      // `network` is the step after account in BOTH shells.
+      setStep("network");
     } catch {
       setRegError("Network error");
     } finally {
@@ -331,18 +374,20 @@ function SetupPage() {
   // dot row continues from there so the two programs read as one (spec § 4).
   // macOS gets a fourth — "What macOS Will Ask" sits between Install tmux and
   // Set Up, and exists only on the platform that asks (spec 2026-09-14 §6).
+  // The assistant's set INCLUDES its tmux screen, which is what lets this
+  // shell cut the SPA's step without moving any dot: the person has already
+  // been shown that screen, under this same dot row, minutes earlier.
   const NATIVE_STEPS = isServerDesktop() ? (desktopPlatform() === "macos" ? 4 : 3) : 0;
-  const dotsFor = (n: number) => ({
-    total: STEPS.length + NATIVE_STEPS,
-    done: NATIVE_STEPS + n,
-    current: NATIVE_STEPS + n,
-  });
+  const dotsFor = (s: WizardStep) => {
+    const here = steps.indexOf(s);
+    return { total: steps.length + NATIVE_STEPS, done: NATIVE_STEPS + here, current: NATIVE_STEPS + here };
+  };
   // One string on both platforms (operator's call, 2026-09-12): the native
   // assistant that hands off to these screens dropped its own "this Mac"
   // variant, and the two halves of one flow must not differ in voice.
   const here = "this machine";
 
-  if (step === 0) {
+  if (step === "account") {
     return (
       <SetupAssistant
         key={step}
@@ -352,7 +397,7 @@ function SetupPage() {
             ? `Subshell Server is running on ${here}. This is its admin account.`
             : "Welcome to Subshell. This is the admin account for your Subshell server."
         }
-        dots={dotsFor(0)}
+        dots={dotsFor(step)}
         primary={{
           label: "Create Account",
           onClick: () => void register(),
@@ -375,7 +420,7 @@ function SetupPage() {
     );
   }
 
-  if (step === 1) {
+  if (step === "network") {
     return (
       <SetupAssistant
         key={step}
@@ -386,31 +431,58 @@ function SetupPage() {
             set it up later under <span className="font-strong">Settings → Networking</span>.
           </>
         }
-        dots={dotsFor(1)}
-        skip={{ label: "Skip for now", onClick: () => goTo(2) }}
-        primary={{ label: "Continue", onClick: () => goTo(2) }}
+        dots={dotsFor(step)}
+        skip={{ label: "Skip for now", onClick: goNext }}
+        primary={{ label: "Continue", onClick: goNext }}
       >
-        <NetworkStep active={step === 1} />
+        <NetworkStep active={step === "network"} />
       </SetupAssistant>
     );
   }
 
-  if (step === 2) {
+  if (step === "tmux") {
+    return (
+      <SetupAssistant
+        key={step}
+        title="Install tmux"
+        subtitle={`tmux is what every pane on ${here} runs inside.`}
+        dots={dotsFor(step)}
+        // Continue is never blocked on tmux being MISSING (spec 2026-09-15
+        // § 5.1) — the launch step refuses honestly on its own. What DOES
+        // hold the bar is an install in flight: the same rule the agent step
+        // has, so a `brew install` taking a minute is never walked out of and
+        // its progress line and any failure left on a screen nobody is
+        // looking at.
+        back={{ onClick: goBack, disabled: installTmux.isPending }}
+        primary={{ label: "Continue", onClick: goNext, disabled: installTmux.isPending }}
+      >
+        <TmuxStep
+          tmuxPath={adminStatus?.runtime.tmuxPath}
+          os={adminStatus?.runtime.os}
+          onInstall={() => installTmux.mutate()}
+          installing={installTmux.isPending}
+          progress={tmuxLine}
+          failure={installTmux.isPending ? undefined : tmuxFailure}
+        />
+      </SetupAssistant>
+    );
+  }
+
+  if (step === "agent") {
     return (
       <SetupAssistant
         key={step}
         title="Add an Agent"
         subtitle="A plain terminal is always available with nothing to install. Add an agent CLI now, or later in Settings."
-        dots={dotsFor(2)}
-        // Back reaches the Network screen, which is the one a person most
-        // wants a second look at: it is skippable, it is where "open this on
-        // my phone" is answered, and skipping it used to be irreversible
-        // short of restarting the wizard. It carries the primary's disabled
-        // condition for the primary's reason — an install in flight must not
-        // be walked out of in either direction. There is deliberately no Back
-        // to the account screen from Network: step 0 advances only once
-        // `signUp` has SUCCEEDED, so that form is for an account that exists.
-        back={{ onClick: () => goTo(1), disabled: busy || install.isPending || installTmux.isPending }}
+        dots={dotsFor(step)}
+        // Back walks the list: the Tmux step in a browser, Network inside the
+        // server app. It carries the primary's disabled condition for the
+        // primary's reason — an install in flight must not be walked out of
+        // in either direction. There is deliberately no Back to the account
+        // screen from Network, one step further along the chain: step 0
+        // advances only once `signUp` has SUCCEEDED, so that form is for an
+        // account that exists.
+        back={{ onClick: goBack, disabled: busy || install.isPending }}
         // An install is a `curl … | bash` on this machine that takes tens of
         // seconds. Continuing out from under it left the progress line and any
         // failure on a screen nobody was looking at any more, and the next
@@ -418,8 +490,8 @@ function SetupPage() {
         // bar says what for (operator report, 2026-09-14).
         primary={{
           label: "Continue",
-          onClick: () => goTo(3),
-          disabled: busy || install.isPending || installTmux.isPending,
+          onClick: goNext,
+          disabled: busy || install.isPending,
         }}
       >
         {harnessesLoading && <p className="text-muted-foreground text-sm">Checking {here}…</p>}
@@ -439,20 +511,12 @@ function SetupPage() {
             }
           />
         )}
+        {/* tmux is deliberately NOT a row here (2026-09-17): the operator
+            ruled it read as an agent named tmux under a subtitle promising
+            one screen that needs nothing installed. It is its own step, two
+            dots back in a browser and the assistant's screen inside the
+            server app. */}
         <ul>
-          {/* Pinned above the agents, and deliberately in the same list: the
-              question is the same one — what is on this machine — and tmux is
-              the one answer that decides whether anything can launch here at
-              all. It never blocks Continue; the launch step refuses honestly
-              on its own. */}
-          <TmuxRow
-            tmuxPath={adminStatus?.runtime.tmuxPath}
-            os={adminStatus?.runtime.os}
-            onInstall={() => installTmux.mutate()}
-            installing={installTmux.isPending}
-            progress={tmuxLine}
-            failure={installTmux.isPending ? undefined : tmuxFailure}
-          />
           {agents.map((h) => (
             <AgentRow
               key={h.id}
@@ -485,10 +549,10 @@ function SetupPage() {
       key={step}
       title="Start Your First Subshell"
       subtitle="Everything below is already filled in. Change anything you like."
-      dots={dotsFor(3)}
+      dots={dotsFor(step)}
       // Disabled while the launch is in flight, exactly as Skip is: the
       // subshell is already being created and leaving would orphan the report.
-      back={{ onClick: () => goTo(2), disabled: create.isPending }}
+      back={{ onClick: goBack, disabled: create.isPending }}
       skip={{ label: "Skip", onClick: finish, disabled: create.isPending }}
       primary={{
         label: "Start",

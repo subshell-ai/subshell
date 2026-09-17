@@ -3,9 +3,10 @@
 //! A first run on a Mac produces system prompts the app does not control and,
 //! once declined, cannot re-raise: macOS asks about notifications exactly
 //! once, and a declined app then goes quiet with nothing in the product saying
-//! why. This module is the READ that makes that state sayable — plus the one
-//! request the app actually owns — so a screen can explain what is about to be
-//! asked and a dashboard can explain why something did not happen.
+//! why. This module is the READ that makes that state sayable — plus the two
+//! requests the app owns, notifications and Photos — so a screen can explain
+//! what is about to be asked and a dashboard can explain why something did not
+//! happen.
 //!
 //! It lives here rather than in either app's `control.rs` for the crate's own
 //! rule: Subshell Client posts no notifications today, and the day it does,
@@ -32,14 +33,16 @@
 //!   too. The bundle PATH is the half that cannot be faked by a linker
 //!   section, which is why both are checked.
 //!
-//! Everything the UN framework answers is answered through a completion
-//! handler, so the two notification functions block on an `mpsc` channel with
-//! a bounded wait. They must therefore never be called from a thread the
-//! handler needs — the handlers run on the framework's own queue rather than
-//! the main one (the same reason every Objective-C consumer of this API
-//! re-dispatches to main INSIDE the block), and [`WAIT`] is the backstop if
-//! that is ever untrue on some future OS: a bounded wrong answer rather than a
-//! window that never paints.
+//! Every asynchronous answer these frameworks give arrives on a completion
+//! handler, so the two notification functions and [`request_photos`] block on
+//! an `mpsc` channel with a bounded wait. [`photos_permission`] is the one call
+//! here that answers synchronously, which is why it needs no channel. Those
+//! three must therefore never be called from a thread the handler needs — the
+//! notification handlers run on the framework's own queue rather than the main
+//! one (the same reason every Objective-C consumer of this API re-dispatches to
+//! main INSIDE the block), and [`WAIT`] is the backstop if that is ever untrue
+//! on some future OS: a bounded wrong answer rather than a window that never
+//! paints.
 
 use serde::Serialize;
 
@@ -123,8 +126,8 @@ pub fn notification_permission() -> Permission {
 /// Ask macOS for permission to post notifications, and answer where that left
 /// things.
 ///
-/// **This is the one prompt the app owns**, and it fires at most once in the
-/// life of an install: macOS shows the sheet only while the state is
+/// **The first of the two prompts the app owns**, and it fires at most once in
+/// the life of an install: macOS shows the sheet only while the state is
 /// [`Permission::NotDetermined`] and silently no-ops afterwards. So it belongs
 /// behind a button a person pressed, on a screen that has just explained what
 /// is about to be asked.
@@ -173,11 +176,13 @@ pub fn request_notifications() -> Result<Permission, String> {
 /// May this app read the Photos library? Read-only — `authorizationStatus` is
 /// the API that never prompts, which is the whole reason it is the one used.
 ///
-/// Nothing here ever ASKS for Photos, deliberately (spec 2026-09-14 § 9): the
-/// system raises that prompt at the moment an image is picked, which is where
-/// Apple's own guidance puts it and is a better moment than any screen this
-/// app could show. The app reads the answer so it can explain a picker that
-/// silently attaches nothing.
+/// Asking lives in [`request_photos`], not here. For most of this feature the
+/// app only ever READ this state, because the system raises the prompt at the
+/// moment an image is picked (spec 2026-09-14 § 9) — and the picker's panel is
+/// this app's own, so that prompt arms the same subject a prompt raised here
+/// would. That is what makes the button on the permissions screen real rather
+/// than a second door to the same room, and the app reads the answer either
+/// way so it can explain a picker that silently attaches nothing.
 #[cfg(target_os = "macos")]
 pub fn photos_permission() -> Permission {
     use objc2_photos::{PHAccessLevel, PHAuthorizationStatus, PHPhotoLibrary};
@@ -203,6 +208,54 @@ pub fn photos_permission() -> Permission {
         // same answer as "cannot ask", and it renders as an explanation rather
         // than as a wrong accusation.
         _ => Permission::Unavailable,
+    }
+}
+
+/// Ask macOS for permission to read the Photos library, and answer where that
+/// left things.
+///
+/// **The second prompt the app owns** (operator's request, 2026-09-17), and it
+/// is NOT the no-op the original reasoning assumed. The prompt this raises is
+/// the same TCC question the image picker asks, because the asking subject is
+/// this app: `apps/server/desktop/AGENTS.md` records that Photos is raised by
+/// the picker's own panel, which runs in this process, and `Info.plist` already
+/// carries the `NSPhotoLibraryUsageDescription` sentence that sheet shows.
+/// Asking here arms exactly what the picker would otherwise arm later.
+///
+/// Asks at [`PHAccessLevel::ReadWrite`], the SAME level [`photos_permission`]
+/// reads, so the sheet and the row answer one question.
+///
+/// The answer is re-READ from [`photos_permission`] rather than mapped from the
+/// handler's status — the notifications request's own reasoning, and stronger
+/// here: this row renders the difference between `authorized` and `limited`,
+/// and one read keeps that mapping in one place.
+///
+/// `Err` is reserved for the framework's complaint. A refusal by the person is
+/// [`Permission::Denied`], which is an answer and not an error. The Photos
+/// callback carries no `NSError` at all — its whole answer is the status.
+#[cfg(target_os = "macos")]
+pub fn request_photos() -> Result<Permission, String> {
+    use objc2_photos::{PHAccessLevel, PHAuthorizationStatus, PHPhotoLibrary};
+    use std::sync::mpsc;
+
+    if !in_app_bundle() {
+        return Ok(Permission::Unavailable);
+    }
+    let (tx, rx) = mpsc::channel::<()>();
+    let handler = block2::RcBlock::new(move |_status: PHAuthorizationStatus| {
+        // The status is dropped on purpose — the row is re-read below. What
+        // crosses the channel is only the fact that the framework answered.
+        let _ = tx.send(());
+    });
+    // SAFETY: a class method taking a plain enum and a completion block. The
+    // block runs on the framework's own queue with a plain integer argument;
+    // the `WAIT` timeout bounds the wait, exactly as around the UN calls.
+    unsafe {
+        PHPhotoLibrary::requestAuthorizationForAccessLevel_handler(PHAccessLevel::ReadWrite, &handler);
+    }
+    match rx.recv_timeout(WAIT) {
+        Ok(()) => Ok(photos_permission()),
+        Err(_) => Ok(Permission::Unavailable),
     }
 }
 
@@ -264,6 +317,16 @@ pub fn photos_permission() -> Permission {
     Permission::Unavailable
 }
 
+/// Linux has nothing to ask for; see [`request_notifications`].
+///
+/// The stub is load-bearing rather than tidy: `control.rs` names this function
+/// on every platform, and `cargo clippy` on a Mac cannot see what Linux
+/// compiles — the trap `apps/server/desktop/AGENTS.md` records.
+#[cfg(not(target_os = "macos"))]
+pub fn request_photos() -> Result<Permission, String> {
+    Ok(Permission::Unavailable)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +346,7 @@ mod tests {
         assert_eq!(notification_permission(), Permission::Unavailable);
         assert_eq!(photos_permission(), Permission::Unavailable);
         assert_eq!(request_notifications(), Ok(Permission::Unavailable));
+        assert_eq!(request_photos(), Ok(Permission::Unavailable));
     }
 
     /// The five words are the wire contract with both the assistant page and

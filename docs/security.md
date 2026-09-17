@@ -1026,11 +1026,25 @@ the moment it is needed, in the surface where it is needed, and two of those
 moments (attaching an image; the standing state in Preferences) are in the
 dashboard, which cannot know without asking. What an XSS in the SPA gains is
 two booleans about the app's permissions, with nothing to act on. What stays
-off `main` is everything that ACTS: requesting the permission and opening a
+off `main` is everything that ACTS: requesting a permission and opening a
 System Settings pane both live on the bundled page and are reached by raising
 it — the command `main` already held — because a page that could pop system
 panes on its own is a nuisance vector, and the request should come from a
-press under a sentence the person can read. `desktop_notify` also widened its
+press under a sentence the person can read.
+
+**The acting half grew to two requests on 2026-09-17, and the boundary did not
+move.** `desktop_request_photos` sits beside `desktop_request_notifications`
+with the same grant (`wizard` only) and the same shape: no argument, one system
+sheet, at most once per install, reaching no CLI, config, service or file. It is
+pinned that way in `ipc-acl.test.ts` — both request commands are asserted absent
+from `main`, present in `wizard`, and to an empty parameter list, because an
+"asks a question" command that could take an argument is a different command
+with the same name. What it asks is the same TCC subject the app's own image
+picker raises when a person attaches a photo (the picker's panel runs in this
+process, and `Info.plist` carries the usage description the sheet shows), so it
+is a prompt moved to a place where it can be explained rather than a new
+capability: an XSS in the served SPA still cannot make macOS ask anything.
+`desktop_notify` also widened its
 answer from nothing to `{ shown, permission }`: same call, same capability, now
 reporting instead of guessing.
 
