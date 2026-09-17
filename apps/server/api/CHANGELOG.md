@@ -1,5 +1,47 @@
 # @internal/server
 
+## 0.8.0
+
+### Minor Changes
+
+- [`c5ca40e`](https://github.com/subshell-ai/subshell/commit/c5ca40e1b5e84b0dcfded88d377d71995bc21118) Thanks [@theogravity](https://github.com/theogravity)! - Trusted origins are live: a network you join or publish is accepted for sign-in at once, with no restart
+  
+  The list of addresses a browser may sign in from is now consulted on every request from three sources — this server's own addresses, the operator's `TRUSTED_ORIGINS`, and the addresses each enabled network plugin's daemon reports for this machine — instead of being read once at boot. Joining a tailnet is enough for its addresses to be trusted (a Tailscale IP answers with nothing published), while a Cloudflare Tunnel hostname is trusted only once published, when its Access check is in front of it. Disabling, uninstalling or leaving a network forgets its addresses immediately, and the Networking card can disable and enable a plugin directly.
+  
+  Network acts no longer write config.env, no longer report `restartRequired`, and their results no longer carry a `config` block (an unpublish or leave still names the origins that stopped being trusted); `TRUSTED_ORIGINS` in config.env is the operator's own extras. Saving that field on Server Settings → Service applies immediately too, and the Service page no longer asks for a restart on its account.
+  
+  Boot trusts what each plugin's record says before the listener opens, asks each daemon once after the processes are up, and then re-asks every five minutes — so the list is right for people who never open the Networking page.
+
+- [`5bb1f14`](https://github.com/subshell-ai/subshell/commit/5bb1f144a0d4154db990b7403302642649250c84) Thanks [@theogravity](https://github.com/theogravity)! - The dashboard now says how to put Subshell on a phone, and answers the hard half of it
+  
+  The SPA has been an installable PWA for a while and nothing on any surface said so. A new **Subshell for Mobile** row at the foot of the sidebar's navigation opens a dialog with the install steps for a desktop browser, for iPhone and iPad, and for Android, as a tab group that opens on whichever device is reading it.
+  
+  The steps are the easy half. The harder one is that the person looking them up is usually at a desk, on an address their phone cannot reach — `localhost` most of the time. So the dialog offers every address this server accepts a sign-in from, ordered with the reachable ones first and the loopback ones listed and labelled "this device only", and encodes the chosen one as a QR code beside a copyable link. Picking a different address re-renders both.
+  
+  It is honest about what an address costs: over plain `http://` an iPhone still adds the app to the Home Screen, but notifications never arrive there and Chrome offers a shortcut rather than an app — with the remedy named only for someone who can take it. Choosing an address a phone cannot reach replaces the QR with a sentence naming it, so nothing unscannable is ever offered — and on an instance that knows no reachable address at all, which is every stock install, that sentence says so instead.
+  
+  `GET /api/settings/public` carries a new `trustedOrigins` field to make this possible, which is what the dialog reads. It is a deliberate widening — any signed-in caller now learns this instance's other names — recorded in `docs/security.md` §3.
+  
+  Two existing surfaces change as a result of the helpers moving into shared code. The loopback check behind the Add-node dialog's "a remote machine cannot dial this address" warning matched `127.` as a string prefix, so it fired on hosts like `127.0.0.1.example.com`, which are somebody else's domain entirely.
+  
+  And the iOS check behind the notifications card's "use Share → Add to Home Screen first" line now recognises an iPad running iPadOS 13 or later, which requests desktop sites by default and so calls itself a Macintosh — it reports touch points, and no Mac does. That line was previously absent on exactly the devices it was written for.
+
+### Patch Changes
+
+- [`4a4fc56`](https://github.com/subshell-ai/subshell/commit/4a4fc56193477bc72ae09ceb40eb07415222b676) Thanks [@theogravity](https://github.com/theogravity)! - Network cards dropped the Re-check button in every state
+  
+  Installing a daemon or signing in happens outside this page, and the card answered "how does it find out" with a button that did what the page's poll was already doing every few seconds — the settings page's own "no Refresh button: the page polls" reasoning, contradicted one component away. The operator's sixth live read cut it from every state of both frames (the wizard included); the poll cadences are exactly as they were, and the plugin hints that ordered the press now say the page notices on its own.
+
+- [`79cb1e1`](https://github.com/subshell-ai/subshell/commit/79cb1e1c193e3dda6d5e048f09f29851ad37016d) Thanks [@theogravity](https://github.com/theogravity)! - NetBird's card no longer asks for a management URL
+  
+  The plugin declared one optional settings field — "Management URL (self-hosted only)" — that only ever fed `netbird up --management-url` at join; after joining, the NetBird daemon owns its own configuration, so the card's copy was a dead input that could disagree with what the machine already says. It is gone, along with the `settings` capability that paired with it: a self-hosted NetBird is set up on the machine (`netbird setup`/`netbird up`), and the card then reflects and publishes what the daemon reports. Hosted SaaS is what a bare join uses, and the setup key is untouched — it is the join credential, not configuration. NetBird cards now show no settings fields anywhere; the joined card's "Change settings" disclosure appears only on plugins that still have them. The plugin ships built in, so the server binary carries the change too.
+
+- [`5ad46b2`](https://github.com/subshell-ai/subshell/commit/5ad46b25983fcea75f850344d48ba4f678e2c999) Thanks [@theogravity](https://github.com/theogravity)! - The account menu grows a way to tell us about the thing
+  
+  A new **Feedback** item sits above **About Subshell** in the user menu and links to this project's GitHub issue list — the place Subshell feedback actually lands. It is an ordinary new-tab link, so in Subshell Server's and Subshell Client's windows the existing bridge hands it to the system browser rather than dead-ending in the webview.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 0.7.2
 
 ### Patch Changes

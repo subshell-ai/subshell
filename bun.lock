@@ -120,7 +120,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "0.7.2",
+      "version": "0.8.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -370,7 +370,7 @@
     },
     "packages/plugins/headscale": {
       "name": "@subshell-ai/plugin-headscale",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -394,7 +394,7 @@
     },
     "packages/plugins/netbird": {
       "name": "@subshell-ai/plugin-netbird",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -430,7 +430,7 @@
     },
     "packages/plugins/tailscale": {
       "name": "@subshell-ai/plugin-tailscale",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
