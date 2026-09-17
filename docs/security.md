@@ -1226,8 +1226,9 @@ Audit events are written for: `user.create`, `system-key.create`,
 `node.restart`.
 
 Timer- and probe-driven trusted-origin refreshes are observations and write no
-row; the acts that change plugin state (`network.publish|unpublish|leave`,
-`plugin.disable|uninstall`) are the audited events.
+row; the acts that change plugin state (`network.join|publish|unpublish|leave`,
+`plugin.enable|disable|uninstall`) are the audited events — join and enable are
+trust-EARNING, not just trust-shedding.
 
 Read them with `GET /api/audit?limit=50` (admin).
 

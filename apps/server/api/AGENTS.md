@@ -795,9 +795,9 @@ better-auth calls the registry's function form per request and the CORS plugin
 calls `corsOriginAllowed` (`server.ts`) per request, so a network joined a
 minute ago is trusted without a restart — while the SOURCES stay static:
 nothing is ever derived from a request's Host or Origin (§8's DNS-rebinding
-rule, unchanged). `services/network/origins.ts` is the only writer of the
-plugin sets and derives each one from the plugin's RECORD, never from a status
-in hand: a `private` network's addresses are trusted from `joined` (the tailnet
+rule, unchanged). `services/network/origins.ts` is the single derivation of the
+plugin sets — every write goes through `originsOf`, and each set derives from
+the plugin's RECORD, never from a status in hand: a `private` network's addresses are trusted from `joined` (the tailnet
 address answers with no publish at all, so membership is the honest scope), a
 `public-with-gate` network's only once the record says `published` — i.e. only
 once the Access guard is installed. Disable, uninstall and leave forget a
@@ -817,8 +817,8 @@ consulted on every sign-in by people who will NEVER open the Networking page,
 and the cost is bounded to one memoised `status()` per enabled plugin, skipping
 a supervised plugin whose child is armed. Refreshes are observations, not acts:
 they log at info when the set changes and write NO audit row — the audited
-events are the acts that change plugin state (`network.publish|unpublish|leave`,
-`plugin.disable|uninstall`). And `corsOriginAllowed` is EXACT membership since
+events are the acts that change plugin state
+(`network.join|publish|unpublish|leave`, `plugin.enable|disable|uninstall`). And `corsOriginAllowed` is EXACT membership since
 2026-09-16: the server passes its own predicate rather than the plugin's string
 list, which closes the schemeless-entry branch (`box.local:3080` matched both
 schemes through `@elysiajs/cors`' string form) for anything an env var or
@@ -843,8 +843,9 @@ accept it (or the reverse) would make the tool look broken instead of the
 config. Wildcards are the deliberate silence — better-auth honours them, so
 flagging one would be a lint against a supported feature. And note what
 `status` answers about: the OPERATOR's key — what a boot WOULD start from. The
-running server's effective list (that key plus every plugin's addresses) is
-`GET /api/settings/public → trustedOrigins`, which is live.
+running server's effective list (the derived local origins, that key, plus
+every plugin's addresses) is `GET /api/settings/public → trustedOrigins`,
+which is live.
 
 Why the key is asked about at all: `constants.ts` derives the allowlist from
 the port, a CONCRETE `HOST` and the base URL. On the default `0.0.0.0` bind the

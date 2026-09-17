@@ -6,8 +6,9 @@ import { originRegistry } from "@/services/trusted-origins.js";
  * How a network plugin's RECORD becomes trusted origins (spec § 10f).
  *
  * The registry (`services/trusted-origins.ts`) holds one set per plugin and
- * knows nothing about networks; this module is the only writer of those
- * sets, and it derives them from `network.json` rather than from a status in
+ * knows nothing about networks; this module is the single derivation of those
+ * sets — every write goes through `originsOf` — and it derives them from
+ * `network.json` rather than from a status in
  * hand — so a boot that has probed nothing yet, a status read, a publish and
  * an unpublish all arrive at the same answer by the same rule.
  *
