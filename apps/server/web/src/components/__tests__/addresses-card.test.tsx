@@ -226,3 +226,35 @@ describe("form validation", () => {
     await waitFor(() => expect(sent).toEqual([{ port: 3081 }]));
   });
 });
+
+describe("the keys the server reads live", () => {
+  const edit = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+  it("a change to only the origins field saves without offering a restart", async () => {
+    // TRUSTED_ORIGINS stopped being a boot-time key on 2026-09-16: the server
+    // re-reads config.env's extras on every request. "Save and restart" over
+    // that change offered an act that applies nothing.
+    const sent = stubPatch();
+    renderCard();
+    edit("Other addresses browsers will use", "http://box.local:3080");
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save and restart" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent).toEqual([{ trustedOrigins: ["http://box.local:3080"] }]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a change that also touches a boot-time key still says Save and restart", () => {
+    stubPatch();
+    renderCard();
+    edit("Other addresses browsers will use", "http://box.local:3080");
+    edit("Port", "3081");
+    expect(screen.getByRole("button", { name: "Save and restart" })).toBeTruthy();
+  });
+
+  it("says that network addresses are trusted automatically and this field is for the rest", () => {
+    renderCard();
+    expect(screen.getByText(/joined under Networking are trusted automatically/)).toBeTruthy();
+  });
+});

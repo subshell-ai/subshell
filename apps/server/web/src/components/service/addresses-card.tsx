@@ -51,13 +51,25 @@ const FIELDS = [
     label: "Other addresses browsers will use",
     // The trap this field exists for: on the default bind the derived set is
     // the two loopback spellings, so a phone or a LAN name fails sign-in with
-    // an error that names nothing you could change.
-    hint: "Comma-separated. A browser at an address that is not listed here is refused at sign-in with \u201cInvalid origin\u201d \u2014 add a LAN name or a phone\u2019s address here.",
+    // an error that names nothing you could change. Network addresses arrived
+    // automatically with the Networking page (2026-09-15), so the hint says
+    // which addresses are this field's own job.
+    hint: "Comma-separated. Addresses from networks you joined under Networking are trusted automatically; list anything else here \u2014 a LAN name, a reverse proxy \u2014 or a browser there is refused at sign-in with \u201cInvalid origin\u201d.",
   },
 ] as const satisfies readonly { key: ServerSettingKey; id: string; label: string; hint: string }[];
 
 /** The keys this card may write. `DATABASE_PATH` is deliberately not one of them. */
 type EditableKey = (typeof FIELDS)[number]["key"];
+
+/**
+ * Keys the running server re-reads on every request, so a save touching
+ * ONLY these needs no restart. `TRUSTED_ORIGINS` joined the set on
+ * 2026-09-16 when the allowlist became a live registry; the other three
+ * are still read at boot. Deciding the button from this set rather than
+ * from `restart.available` alone is what stops "Save and restart" \u2014 and
+ * the dialog it opens \u2014 appearing over a change the server has already applied.
+ */
+const LIVE_KEYS: ReadonlySet<EditableKey> = new Set<EditableKey>(["TRUSTED_ORIGINS"]);
 
 /**
  * The value the ROUTE will actually see for this key, from what was typed.
@@ -161,6 +173,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   const [confirming, setConfirming] = useState(false);
   const update = useUpdateServerConfig();
   const touched = Object.keys(drafts) as EditableKey[];
+  const needsRestart = touched.some((key) => !LIVE_KEYS.has(key));
   const fieldFailure = invalidField(update.error);
 
   // Saving and applying are two acts, and this button is both — because
@@ -175,6 +188,9 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   // the honest one: the change IS saved, and the banner above says so. That
   // covers the admin staging a change for a quiet window without giving the
   // button two meanings.
+  //
+  // A save that touches only a live-read key (`LIVE_KEYS`) skips the dialog:
+  // there is nothing to apply.
   const canRestart = view.restart.available;
 
   // Checked on SAVE, not on every keystroke: a reason appearing under a field
@@ -214,7 +230,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
       onSuccess: () => {
         setDrafts({});
         setProblems({});
-        if (canRestart) setConfirming(true);
+        if (canRestart && needsRestart) setConfirming(true);
       },
     });
   }
@@ -301,10 +317,10 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
             variant="outline"
             size="sm"
             disabled={touched.length === 0 || update.isPending}
-            title={canRestart ? undefined : (view.restart.reason ?? undefined)}
+            title={canRestart || !needsRestart ? undefined : (view.restart.reason ?? undefined)}
             onClick={save}
           >
-            {update.isPending ? "Saving…" : canRestart ? "Save and restart" : "Save"}
+            {update.isPending ? "Saving…" : canRestart && needsRestart ? "Save and restart" : "Save"}
           </Button>
           {update.isSuccess && touched.length === 0 && <span className="text-detail text-success">saved</span>}
         </div>

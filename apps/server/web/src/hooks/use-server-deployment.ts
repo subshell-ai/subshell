@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
 import { apiFetch, errMessage } from "@/lib/api";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import type { ServerConfigPatch, ServerConfigUpdate, ServerDeployment } from "@/types/server-deployment";
@@ -73,6 +74,9 @@ export function useServerDeployment(enabled: boolean, refetchMs = 5_000) {
  *
  * `warnings` is stripped on the way into the cache — it describes THIS write,
  * not the deployment, and a later poll would silently drop it anyway.
+ *
+ * A save also invalidates the public settings, because `TRUSTED_ORIGINS` is
+ * part of the effective allowlist they report and the server applies it live.
  */
 export function useUpdateServerConfig() {
   const queryClient = useQueryClient();
@@ -81,6 +85,12 @@ export function useUpdateServerConfig() {
       apiFetch<ServerConfigUpdate>("/api/admin/server/config", { method: "PATCH", body: JSON.stringify(patch) }),
     onSuccess: ({ warnings: _warnings, ...view }) => {
       queryClient.setQueryData(SERVER_DEPLOYMENT_QUERY_KEY, view satisfies ServerDeployment);
+      // `TRUSTED_ORIGINS` is part of the EFFECTIVE allowlist the public
+      // settings report, and the server applies a change to it live — so the
+      // mobile dialog's picker and the setup checklist are stale the moment
+      // this returns. Invalidated rather than written: this response is the
+      // deployment view, not the union the public route computes.
+      void queryClient.invalidateQueries({ queryKey: PUBLIC_SETTINGS_QUERY_KEY });
     },
   });
 }
