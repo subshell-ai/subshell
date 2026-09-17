@@ -69,15 +69,15 @@ tools (`minisign -V -m release-manifest.json -x release-manifest.json.sig -P
 - Published beside each CLI release: `release-manifest.json.sig` (minisign's
   armored text format — comment line + base64 — so it is inspectable and
   tool-compatible; not raw 64-byte signatures).
-- **The signed comment binds the claim.** The signer is invoked with
-  `-x "subshell release <component> <version> <triple-set-hash>"` (minisign's
-  untrusted comment); the verifier requires the comment to match
-  `subshell release ${component} ${version} ` plus the sha256 of the canonical
-  JSON of the manifest's `assets` map. That pins *this signature* to *this
-  component, this version, this exact digest set*, so a valid signature cannot
-  be replayed onto a different manifest — including across components
-  (a `node` manifest's signature must never verify for a `server` manifest even
-  if bytes were swapped). The pubkey's key ID additionally pins the publisher.
+- **The signed payload binds the claim** (corrected during build-out:
+  `tauri signer sign` has no comment flag, and the binding it would have added
+  is already inside the bytes — the manifest carries `component`, `version`,
+  and the full `assets` map, and every verifier must assert
+  `manifest.component === expected` and its version against what it was asked
+  for. A `node` release's signature therefore can never validate as a `server`
+  release's: replay requires the payload to match, and the payload says what it
+  is). The untrusted comment inside the armor is parsed leniently and ignored;
+  the pubkey's key ID pins the publisher.
 - **Canonical bytes**: the signature covers `release-manifest.json`'s exact
   published bytes. Verifiers hash the bytes they verified — parse-then-verify
   on canonicalized JSON is forbidden; the parse happens *after* verification,
@@ -156,11 +156,17 @@ Consequences, each intended:
     it must NOT join `src/index.ts`, or the mobile bundle breaks and nothing
     local says so (`.claude/rules/verification.md`, measured 2026-09-15).
   - **Pin the toolchain**: a checked-in fixture trio (manifest bytes +
-    `tauri signer sign`-produced `.sig` + pubkey) generated once from the REAL
-    publisher key, plus tests that (a) our verifier accepts it, (b) any byte
-    flip rejects, (c) the armor/key-ID/comment shapes reject as specified. If a
-    future `tauri signer` changes armor or hashing, CI fails here rather than
-    every installed binary silently losing update ability at its next check.
+    `tauri signer sign`-produced `.sig` + pubkey), signed by a **throwaway
+    fixture key generated for the tests** — the fixture's job is to pin tauri's
+    armor/format against our verifier, which any key does; the publisher key
+    never enters a test fixture (its real interop moment is the
+    `published-release.sh` smoke after the next real cut, §9, and CI already
+    holds the secret). Tests: (a) our verifier accepts the fixture, (b) any byte
+    flip rejects, (c) the armor/key-ID shapes reject as specified, (d) a sig
+    made for component `node` fails verification when `expected.component` is
+    `server` — the payload-binding claim, tested. If a future `tauri signer`
+    changes armor or hashing, (a) fails in CI rather than every installed
+    binary silently losing update ability at its next check.
 - `ReleaseManifest` gains `assets: Record<string, string>` (published filename →
   lowercase-hex sha256); `parseReleaseManifest` requires the field and its shape;
   `writeReleaseManifest`'s callers pass the digests they already computed (both
