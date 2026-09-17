@@ -3,14 +3,55 @@ title: Logs & Debugging
 description: Where the server writes, how big it gets, and how to turn on detail without a restart.
 ---
 
-This page will cover the server's own logging: one JSON-lines file at `<data dir>/logs/server.log`, 0600 in a 0700 directory, capped at 200 KB and replaced when full — bounded by size, never swept, unlike the pane logs swept by age. It will cover debug mode (an instance setting applied live from the dashboard, audited, request paths visible only while it is on, `SUBSHELL_DEBUG_LOGGING=1` forcing it from the environment), reading the log over HTTP as an admin, and the separate world of pane transcripts — each subshell's screen output on disk, the most sensitive thing the app writes. Open question to settle while writing: the exact boundary the page draws between `status`, this file, and the service manager's log.
+When something is wrong with the control plane, there are three places to look, and knowing which question each one answers is half the diagnosis:
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+| you want to know | you look at |
+|---|---|
+| "what **would** this boot with, right now?" | `subshell-server status` |
+| "what **has been** happening on this server?" | the log file, `<data dir>/logs/server.log` |
+| "what did the process print to its console?" | the service manager's log (`journalctl`, launchd) |
 
-## Sources
+## `status`: a point-in-time report, not a log
 
-- `docs/security.md` §10 "The server's own log file" — the file's shape, the two disclosures, debug rules
-- `apps/server/api/AGENTS.md` §"The server's own log file" — transport, levels, the ignore list for polled routes
-- `.claude/rules/security-context.md` §"Pane logs" — what the transcripts hold and their permissions
-- `.claude/rules/security-context.md` §"The server's own log file" — the summary form
+`subshell-server status` answers the first question without changing anything and without booting: where `config.env` lives and whether it exists, each setting with the **layer** its value came from (process environment, file, or default) and the secret masked, whether tmux is found, the resolved MCP entrypoint, the plugin registry, whether the configured port is listening, what the service definition says, and whether the first admin account exists. When sign-in is failing, `status` is the command to run first — it names the layer each value came from, which is the difference between "your config is wrong" and "an old environment variable is outranking a correct config file." `status --json` gives the same facts for scripts.
+
+## The log file: recent past, never history
+
+The server writes its own lines — not pane content — to one file:
+
+```
+<data dir>/logs/server.log
+```
+
+JSON lines, mode 0600 in a 0700 directory, **capped at 200 KB and replaced when full**: at the cap the file is truncated and started over, so what you find there is the recent past. Note the asymmetry with pane transcripts: those are swept by *age*; this file is bounded by *size* and is never swept, persisting as one file for the life of the instance (a reset deletes it with the data directory). The same on every platform on purpose — a headless box under an unknown supervisor, or a container, has neither `journalctl` nor launchd's file, and the server should not need either to have a journal.
+
+An admin can read it from the browser: the **Service page** (Settings → Service) shows the tail, parsed, with the file's current size beside its cap, and `GET /api/admin/server/logs` serves the same to a cookie-admin session. Who may read it is unchanged — it is still admin-only, still 0600 on disk; what widened is the *places* they can read it from.
+
+## Debug logging: more detail, live, no restart
+
+Debug logging is an instance setting on the same Service page, **off by default**, applied the moment you flip it — no restart. It changes what reaches the log file:
+
+- Debug-level lines appear there.
+- **HTTP request lines** appear there — method, path, remote address and status; no bodies, no headers.
+
+Both disclosures are worth stating plainly. A **path can carry a secret**: `GET /install.sh?key=nsk_…` puts a setup key in the path, so with debug on, those lines land in the file. (The routes the dashboard polls — status, the service pages, public settings, the websockets — are excluded from request logging, or a debug session would spend the entire 200 KB on the Service page asking after itself.) Every change to the switch is audited with the before and after, so "who turned this on and when" has an answer.
+
+`SUBSHELL_DEBUG_LOGGING=1` in the environment forces debug on and makes the page's switch **read-only** — the environment outranks the setting, as it does everywhere else on the config ladder, and the UI says so rather than offering a switch the next boot would overrule. Only a truthy value forces: `SUBSHELL_DEBUG_LOGGING=0` reads as a variable somebody left behind, not as the environment saying "off".
+
+**Turn it off when you are done.** The file is bounded, so it cannot fill your disk, but a log that keeps request paths is a log holding other people's URLs.
+
+## The console, and what stays off the file
+
+stdout — which is what the service manager collects — is **pinned at info** no matter what debug logging says. The journal of a shared box never receives request lines, and a debug session never floods it. The two halves of the split are deliberate: the file exists for the operator diagnosing this instance; the manager's log exists for whatever collects the console, and neither is the other's backup.
+
+## Pane transcripts are a separate world
+
+The server's log never contains terminal output or keystrokes. What does hold screen content is the pane transcript: each subshell's screen, streamed to a file on the machine that runs it — the most sensitive thing the app writes, since a terminal echoes what you typed, pasted tokens included. Those files are 0600 in a 0700 directory and swept by age (`SUBSHELL_LOG_RETENTION_DAYS`, default 30); the running subshell's own log is never swept, because it is the live replay buffer. Their paths and posture are in [Files & Paths](/reference/files-and-paths), and the reasoning is §4 of the threat model.
+
+## See also
+
+- [Service & Autostart](/server/service) — the page that hosts the log tail and the debug switch
+- [subshell-server CLI](/reference/server-cli) — the full `status` usage block
+- [Environment Variables](/reference/environment-variables) — `SUBSHELL_DEBUG_LOGGING`, `SUBSHELL_LOG_RETENTION_DAYS`
+- [Audit Log](/server/audit-log) — the durable record, distinct from this bounded file
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#10-audit-and-observability) — the file's shape and the two disclosures, accounted
