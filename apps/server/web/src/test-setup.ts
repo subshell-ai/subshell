@@ -4,9 +4,34 @@
  * that Radix primitives touch (popper measures with ResizeObserver, presence
  * checks matchMedia).
  */
+import { afterEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
-GlobalRegistrator.register({ url: "http://localhost/" });
+const WINDOW_URL = "http://localhost/";
+GlobalRegistrator.register({ url: WINDOW_URL });
+
+/**
+ * Park the shared window's location back after EVERY test.
+ *
+ * The happy-dom window is process-global and its DOM has real default
+ * actions: an un-prevented click on an `<a href>` runs happy-dom's page-open
+ * navigation (HTMLAnchorElement.dispatchEvent → WindowPageOpenUtility.openPage
+ * → BrowserFrameNavigator.navigate), which rewrites `window.location` for
+ * every file that runs after it. `desktop-links.test.ts` must dispatch such
+ * clicks un-prevented — "nothing prevented it, it is not ours" IS the
+ * assertion — so its `.invalid` fixture hosts make the fetch instant, not the
+ * navigation: the URL changes either way (measured 2026-09-17 — the file ends
+ * with location at `https://app.example.invalid/`). AddNodeDialog's install
+ * command falls back to `window.location.origin`, and that has been the
+ * suite's flake: CI red on step 2, laptop green, purely by file ordering and
+ * async timing. A location-dependent test must not inherit another test's
+ * navigation history, so the URL is reset per test, exactly like the fetch
+ * delegator above is installed globally for the same cross-file reason.
+ */
+afterEach(() => {
+  const happy = (window as unknown as { happyDOM?: { setURL?: (url: string) => void } }).happyDOM;
+  happy?.setURL?.(WINDOW_URL);
+});
 
 /**
  * A DELEGATING global fetch, installed before any test or app module loads.
