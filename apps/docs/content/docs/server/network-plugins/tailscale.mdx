@@ -7,7 +7,7 @@ The Tailscale plugin puts the machine your server runs on onto your tailnet and 
 
 ## Getting to "ready"
 
-The plugin can only control Tailscale, not install or privilege it, so the first steps are yours. The card prints them as copyable commands — numbered, never buttons — because every one needs root and the server has no terminal for a password prompt:
+The plugin can only control Tailscale, not install or privilege it, so the first steps are yours. The card prints them as copyable commands — numbered, never buttons — because the privileged ones need root and the server has no terminal for a password prompt (on macOS the app route sidesteps the whole list):
 
 - **Linux**: install Tailscale with the vendor's script, then `sudo tailscale set --operator=$USER` to let an unprivileged process drive the daemon.
 - **macOS** has two routes and the card presents them as a choice. The **app** is the recommended one: install it (the cask is `tailscale-app`, or use the Mac App Store), open it, and sign in. Detection finds the app's own binary, and the plugin drives it in CLI mode. Or use the **command-line daemon**: `brew install --formula tailscale`, its system daemon, and the same `--operator` grant. If the app route is the one you took, you never see the daemon commands as anything but an alternative.

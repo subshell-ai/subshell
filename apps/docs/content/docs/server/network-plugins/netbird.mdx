@@ -32,7 +32,7 @@ Both are labelled non-secure contexts, and the label is a statement about your b
 
 ## Leaving, and what unpublishing means
 
-Because reachability is a property of membership and not of a publish, taking the publish down stops the *trusting*, not the *serving*: the recorded addresses stop being accepted for sign-in, while the machine stays on the network and keeps answering at them like any other member. Leave logs the machine out entirely (`netbird down`, best-effort) and the instance forgets its recorded state; secrets, if any, are a plugin uninstall's business, not leave's.
+Because reachability is a property of membership and not of a publish, unpublishing stops only the *serving*: the record keeps its addresses, and a private network goes on trusting them while this host stays a member — an unpublish here undoes nothing about sign-in. Leaving is the act that forgets, because the join dies with the membership (`netbird down`, best-effort). Netbird stores no plugin secrets, so leaving has no credential to clean up behind it.
 
 The card's ladder is one rung shorter than Tailscale's too: NetBird reports installed, daemon reachable, and enrolled — joined or not — and makes no separate permission state, because authorisation to read the daemon is the vendor's own credential story.
 

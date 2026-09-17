@@ -16,12 +16,12 @@ Network plugins are the same plugins as the harnesses that drive agent panes: on
 
 ## The rule that makes it safe
 
-**A network plugin describes; the host executes.** A plugin builds an argument vector, parses what a vendor CLI printed, and names a secret. It never spawns a process, never writes a file, never touches `config.env`, and never reads a credential back. Every effect goes through one host member that the server owns, and that member applies the bounds:
+**A network plugin describes; the host executes.** A plugin builds an argument vector, parses what a vendor CLI printed, and names a secret. It never spawns a process, never writes a file, never touches `config.env`, and never reads a credential back. Every effect goes through the host the server owns — a run member for commands, the supervisor for the one declared long-running process — under the same bounds:
 
 - the command must be an absolute path the plugin resolved with the host's own binary lookup — a bare name is refused, because nobody could then say which binary ran;
 - anything whose name is `sudo`, `doas` or `pkexec` is refused outright;
 - the child gets a fixed allowlist of environment variables, so neither the auth secret nor the database path rides along;
-- stdin is closed, output is capped at 64 KiB, and the run is bounded — 30 seconds by default, extendable to ten minutes for a package manager that needs it.
+- stdin starts closed so a prompt cannot hang the run, output is capped at 64 KiB, and the clock is real — 30 seconds by default, extendable to ten minutes for a package manager that needs it.
 
 This is what keeps the properties the installers already had — admin-only, bounded, environment-allowlisted, audited — true of a plugin's code too. A plugin's commands are exactly as trusted as its install was, and installing one is the same trust decision as installing the CLI it drives: plugin code runs in the control plane's process, with that process's privileges and no sandbox. See [Security model](/about/security-model).
 
