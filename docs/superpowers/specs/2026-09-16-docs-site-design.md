@@ -7,7 +7,7 @@ Date: 2026-09-16 · Status: implementing · Decisions were made live with the op
 Subshell's user-facing story today is a 600-line README plus internal engineering docs
 (`docs/overview.md`, `docs/security.md`, `docs/architecture.md`, `docs/node-protocol.md`)
 and package READMEs. Good material, no home, no structure aimed at the person who just
-installed a control plane and wants their agents running from a phone. The audience is
+installed a control plane and wants their agents reachable from any device. The audience is
 developers doing agentic work, so the site must take MDX, be trivially contributable from
 the outside, and deploy through the same kind of tagged, workflow-owned process as every
 other component here.
@@ -41,7 +41,7 @@ what lets a stranger contribute a file without reviewing a framework.
 ### Sections (sidebar order)
 
 1. **About** — What is Subshell · How it works · Security model · Subshell vs alternatives · Supported platforms
-2. **Get Started** — Quickstart · Install Subshell Server (desktop / headless / Docker) · Your first subshell · Subshell on your phone
+2. **Get Started** — Quickstart · Install Subshell Server (desktop / headless / Docker) · Your first subshell · Mobile and Tablet
 3. **Use Subshell** — Subshells · Workspaces and panes · Sharing · Notifications · Presets · Channels and cross-subshell coordination · Devices
 4. **Agents** — Overview · Claude Code · Codex · Hermes · OpenCode · Pi · Terminal · Installing agent CLIs · Plugins from the registry
 5. **Nodes** — What a node is · Add a node · Subshell Client as a node · Sharing a node · Directory allowlist · Maintenance mode · Managing the agent · Updating a node

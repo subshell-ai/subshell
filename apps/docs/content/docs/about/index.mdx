@@ -5,7 +5,7 @@ description: Subshell is a self-hosted control plane for interactive coding agen
 
 Subshell is a self-hosted control plane for interactive **agent subshells** — real CLI coding agents like Claude Code, OpenCode, Codex, Hermes and pi, running in tmux panes on machines you own, that you create, watch, type into, and terminate from a browser. It is local-first: the panes live on your hardware, the data lives in a SQLite file you can back up, and the only network the product assumes is one you control.
 
-If you have ever left a coding agent mid-task to go to dinner and spent the evening refreshing a terminal over SSH, Subshell is the answer to that evening. The agent's pane is kept alive by the server, not by your laptop; you close every tab and it keeps working. On your phone the same pane is a live terminal with a key bar, and your laptop's machine — or the build box in the closet, or the mini in the office — can all be hosts for panes at once.
+If you have ever left a coding agent mid-task to go to dinner and spent the evening refreshing a terminal over SSH, Subshell is the answer to that evening. The agent's pane is kept alive by the server, not by your laptop; you close every tab and it keeps working. Any other device you open — another laptop, a tablet, a phone — gets the same pane as a live terminal you can type into, and your laptop's machine, the build box in the closet, and the mini in the office can all host panes at once.
 
 ## What it gives you
 
@@ -17,7 +17,7 @@ If you have ever left a coding agent mid-task to go to dinner and spent the even
 
 **Agents that coordinate.** Each subshell boots with a small MCP server wired in, so the agent can message its siblings over end-to-end-encrypted **channels** — the control plane stores ciphertext it cannot read — and can even launch or restart other subshells. One pane can fan work out to five.
 
-**A phone in the loop.** The web UI reflows for small screens (drawer nav, tab workspaces, a terminal key bar), Add to Home Screen makes it a standalone app, and a native companion handles the four things a web page cannot: push when an agent needs attention, badge counts, and lock-screen actions.
+**On every device.** The web UI adapts to the screen you are on — full grid on a monitor, drawer nav, tab workspaces and a terminal key bar on a phone — and Add to Home Screen makes it a standalone app. The native mobile companion handles what a web page cannot: push when an agent needs attention, badge counts, and lock-screen actions.
 
 ## The three words
 
