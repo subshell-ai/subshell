@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { NetworkAddress, NetworkPluginEntry, NetworkStatus } from "@internal/pane-runtime";
 import {
   ORIGIN_REFRESH_MS,
@@ -8,6 +8,7 @@ import {
   setOriginRefreshDepsForTests,
   startOriginRefresh,
 } from "@/services/network/origin-refresh.js";
+import { setNetworkOriginsResolveForTests } from "@/services/network/origins.js";
 import { clearNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 
@@ -71,8 +72,16 @@ function deps(plugins: Record<string, NetworkPluginEntry>, rec: Rec, armed: stri
   };
 }
 
+beforeEach(() => {
+  // Every id here is synthetic and every entry comes through the deps seam,
+  // so the loadability guard in `observeNetworkStatus` must be told these
+  // fakes resolve — the real pane-runtime registry has never seen them.
+  setNetworkOriginsResolveForTests(() => true);
+});
+
 afterEach(() => {
   setOriginRefreshDepsForTests(null);
+  setNetworkOriginsResolveForTests(null);
   resetOriginRegistryForTests();
 });
 

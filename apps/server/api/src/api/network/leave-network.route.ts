@@ -102,6 +102,9 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
       await clearNetworkState(id);
       // The record is gone and so is the trust; the fresh re-read below only
       // re-learns an address if the machine is, in fact, still on the network.
+      // A probe already in flight when the leave landed may still record what
+      // its pre-leave read saw — the same tolerated stale-entry class a
+      // below-joined answer already is: off the network, nothing renews it.
       forgetNetworkOrigins(id);
       invalidateNetworkStatus(id);
       await auditNetwork(request, "network.leave", id, { origins: unpublished.origins });

@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, statSync } from "node:fs";
 import type { NetworkAddress, NetworkStatus } from "@internal/pane-runtime";
 import { db } from "@/db/index.js";
@@ -8,6 +8,7 @@ import {
   forgetNetworkOrigins,
   observeNetworkStatus,
   originsOf,
+  setNetworkOriginsResolveForTests,
   syncNetworkOrigins,
 } from "@/services/network/origins.js";
 import { clearNetworkState, networkStatePath, readNetworkState, writeNetworkState } from "@/services/network/state.js";
@@ -43,7 +44,19 @@ beforeAll(async () => {
   await runMigrations();
 });
 
-afterEach(() => resetOriginRegistryForTests());
+beforeEach(() => {
+  // The real registry holds only built-ins, and every id here is synthetic,
+  // so the loadability guard would (correctly) refuse them all. The suites'
+  // fakes never reach the real pane-runtime registry — this is the seam the
+  // guard's doc names. The uninstalled-plugin case below restores the real
+  // oracle to prove the refusal is the DEFAULT, not the seam.
+  setNetworkOriginsResolveForTests(() => true);
+});
+
+afterEach(() => {
+  setNetworkOriginsResolveForTests(null);
+  resetOriginRegistryForTests();
+});
 
 describe("originsOf", () => {
   it("trusts a private network's addresses whether or not the record says published", () => {
@@ -102,6 +115,21 @@ describe("observeNetworkStatus", () => {
     expect(existsSync(networkStatePath(plugin))).toBe(false);
     expect(originRegistry().pluginOrigins(plugin)).toEqual([]);
     await state.clear(plugin);
+  });
+
+  it("an observation for an UNRESOLVABLE plugin writes nothing and populates no registry set", async () => {
+    // Uninstall's guard: a cleared `plugin_state` row reads as ENABLED (the
+    // absent-row default), so only loadability sees that the plugin is gone.
+    // This case runs on the REAL oracle (seam restored), with a synthetic id
+    // the real registry cannot resolve — the refusal is the production
+    // default, not a rigged seam. The set was empty before and must stay
+    // silent: no entry, not even an empty one written through the guarded
+    // writer, and no record file.
+    setNetworkOriginsResolveForTests(null);
+    const plugin = id();
+    await observeNetworkStatus(plugin, { exposure: "private" }, status("joined"));
+    expect(existsSync(networkStatePath(plugin))).toBe(false);
+    expect(originRegistry().pluginOrigins(plugin)).toEqual([]);
   });
 
   it("a disable that lands mid-observation is not undone by the in-flight probe", async () => {

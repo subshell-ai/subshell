@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import type { NetworkPluginEntry, NetworkStatus } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
@@ -11,6 +11,7 @@ import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { setNetworkOriginsResolveForTests } from "@/services/network/origins.js";
 import { clearNetworkState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
@@ -124,7 +125,15 @@ describe("/api/network", () => {
     apiKeyId = (await new SubshellsRepository(db).findById(subshellId))?.apiKeyId ?? undefined;
   });
 
+  beforeEach(() => {
+    // The fakes live behind the gate's deps seam, invisible to the real
+    // pane-runtime registry the loadability guard consults — resolvable for
+    // this suite, restored to the real oracle when it leaves.
+    setNetworkOriginsResolveForTests(() => true);
+  });
+
   afterEach(async () => {
+    setNetworkOriginsResolveForTests(null);
     setNetworkDepsForTests(null);
     setUnpublishDepsForTests(null);
     invalidateNetworkStatus();

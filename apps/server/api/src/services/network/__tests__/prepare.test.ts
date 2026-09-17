@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type {
   NetworkAddress,
   NetworkHint,
@@ -12,6 +12,7 @@ import type {
 import { SERVER_PORT } from "@/constants.js";
 import type { OwnedGuard } from "@/plugins/access-guard.plugin.js";
 import type { AuditEventInput } from "@/services/audit.js";
+import { setNetworkOriginsResolveForTests } from "@/services/network/origins.js";
 import {
   type NetworkPrepareDeps,
   prepareNetworkGuards,
@@ -99,7 +100,15 @@ function id(): string {
   return `net-prepare-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+beforeEach(() => {
+  // Every plugin here is a fake behind the prepare deps seam; the loadability
+  // guard in `observeNetworkStatus` asks the REAL registry, which never saw
+  // them. Same seam the origin-refresh suite uses.
+  setNetworkOriginsResolveForTests(() => true);
+});
+
 afterEach(() => {
+  setNetworkOriginsResolveForTests(null);
   setNetworkPrepareDepsForTests(null);
   resetOriginRegistryForTests();
 });

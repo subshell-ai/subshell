@@ -1,4 +1,5 @@
-import type { NetworkManifest, NetworkStatus } from "@internal/pane-runtime";
+import { getNetworkPlugin, type NetworkManifest, type NetworkStatus } from "@internal/pane-runtime";
+import { IS_TEST } from "@/constants.js";
 import { isPluginEnabledSync } from "@/db/repositories/plugin-state.repository.js";
 import { type NetworkPluginState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { originRegistry } from "@/services/trusted-origins.js";
@@ -23,6 +24,38 @@ import { originRegistry } from "@/services/trusted-origins.js";
 
 /** The status states in which a plugin's reported addresses are this host's addresses. */
 export const ORIGIN_BEARING_STATES: ReadonlySet<NetworkStatus["state"]> = new Set(["joined", "published"]);
+
+/** Production loadability: what this build's compiled-in set plus the installed overlay resolve. */
+const resolvableInRegistry = (pluginId: string): boolean => getNetworkPlugin(pluginId) !== undefined;
+
+/**
+ * The loadability oracle {@link observeNetworkStatus} consults, behind a seam.
+ *
+ * The enabled guard cannot cover UNINSTALL: a completed uninstall clears the
+ * plugin's `plugin_state` row, and an absent row means ENABLED — the default
+ * that keeps installs cheap would re-open trust for a plugin whose bytes are
+ * gone. Loadability is uninstall's true state, and `getNetworkPlugin` is its
+ * synchronous oracle: built-ins answer from the compiled set, installed
+ * plugins from the overlay that `uninstallLocalPlugin` refreshes. So a
+ * probe already in flight when the uninstall landed finds the plugin gone at
+ * both guard points and records nothing.
+ *
+ * The seam exists for the suites that drive fakes through the route deps or
+ * the refresh deps — fakes the REAL registry never holds — and it is
+ * test-only by construction, the `setOriginRefreshDepsForTests` pattern.
+ * @internal
+ */
+let resolvesPlugin: (pluginId: string) => boolean = resolvableInRegistry;
+
+/**
+ * Swaps the loadability oracle for a test; `null` restores the real registry.
+ * Refuses outside the suite.
+ * @internal
+ */
+export function setNetworkOriginsResolveForTests(fn: ((pluginId: string) => boolean) | null): void {
+  if (!IS_TEST) throw new Error("setNetworkOriginsResolveForTests is a test-only seam");
+  resolvesPlugin = fn ?? resolvableInRegistry;
+}
 
 /**
  * The trust scope, as one rule.
@@ -76,16 +109,22 @@ function fingerprint(addresses: NetworkPluginState["addresses"]): string {
  * checks below are the synchronous read of `plugin_state`
  * (`isPluginEnabledSync`), never a DB await:
  *
- * - At entry: a plugin already disabled is not observed at all — no record
- *   write, no trust. (Every production path that probes has hydrated the
- *   view via `stateByPluginId` before this call, but the guard below is the
- *   one that carries the safety, so cold-cache fail-open costs nothing.)
+ * - At entry: a plugin already disabled — or already uninstalled, which the
+ *   enabled check alone cannot see (spec 2026-09-10 § 6.1: an uninstalled
+ *   plugin's row is CLEARED, and an absent row means enabled; loadability is
+ *   uninstall's true state, so `resolvesPlugin` is checked beside the flag) —
+ *   is not observed at all: no record write, no trust. (Every production
+ *   path that probes has hydrated the enabled view via `stateByPluginId`
+ *   before this call, but the guard below is the one that carries the
+ *   safety, so cold-cache fail-open costs nothing.)
  * - Immediately before the registry write, with NO await between: the
  *   disable route flips `enabled=false` synchronously BEFORE its forget (its
  *   lock keeps that order), so a check that answers `true` proves the forget
  *   has not run yet — and since the write lands in this same synchronous
  *   turn, it lands first and the forget wins. That is airtight for the
- *   registry, which is the thing that accepts sign-ins.
+ *   registry, which is the thing that accepts sign-ins. The uninstall twin
+ *   has the same shape against the overlay: once `uninstallLocalPlugin`'s
+ *   refresh has run, the answer is false forever, so no later probe writes.
  *
  * The RECORD write therefore stays BEFORE the final guard, and that is the
  * considered choice, not an oversight: a guard with an await after it guards
@@ -104,7 +143,7 @@ export async function observeNetworkStatus(
   status: NetworkStatus,
 ): Promise<void> {
   if (!ORIGIN_BEARING_STATES.has(status.state)) return;
-  if (!isPluginEnabledSync(pluginId)) return;
+  if (!isPluginEnabledSync(pluginId) || !resolvesPlugin(pluginId)) return;
   const record = await readNetworkState(pluginId);
   const next =
     fingerprint(record.addresses) === fingerprint(status.addresses)
@@ -112,7 +151,7 @@ export async function observeNetworkStatus(
       : await writeNetworkState(pluginId, { addresses: status.addresses });
   // No await between this check and the write, and the disable's cache flip
   // precedes its forget — see the guard's doc above.
-  if (!isPluginEnabledSync(pluginId)) return;
+  if (!isPluginEnabledSync(pluginId) || !resolvesPlugin(pluginId)) return;
   originRegistry().setPluginOrigins(pluginId, originsOf(manifest, next));
 }
 
