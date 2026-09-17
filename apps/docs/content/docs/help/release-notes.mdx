@@ -25,7 +25,7 @@ The documentation site rides the same machinery on its own `docs-vX.Y.Z` tag, wh
 
 ## How to read a release page
 
-Every asset on every release ends in a `.sha256` sidecar — one **bare 64-hex digest**, not the `<hash>  <name>` line that checkers expect, so pair the two yourself:
+Every binary and bundle on every release ends in a `.sha256` sidecar — one **bare 64-hex digest**, not the `<hash>  <name>` line that checkers expect, so pair the two yourself:
 
 ```bash
 printf '%s  %s\n' "$(cat subshell-server-cli-linux-x64.sha256)" \
