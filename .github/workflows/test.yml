@@ -26,17 +26,28 @@ name: Test
 # metered, so a hung job costs money instead of just fleet time — and the
 # 360-minute GitHub default is an outage either way.
 #
-# The TypeScript suites are split into six jobs (web / mobile / desktop /
-# backend / packages / smoke) rather than one `bun run test`. The single job
-# had become the place failures were hard to LOCATE — a red "Testing" check
-# meant eleven workspaces of scrollback. Per-slice jobs make the job name the
-# diagnosis, and run in parallel, so wall-clock drops even as total metered
-# minutes rise: six jobs each pay checkout + `bun install` + `bun run build`.
-# That build is near-free on a turbo cache hit (the shared `-turbo-`
-# restore-key prefix is what buys this), which is the trade as made.
-# Each slice is a `turbo run test --filter=…` over the SAME workspaces the
-# old job ran — `--dry` verified the five filters cover the unfiltered task
-# set exactly, with every package in exactly one slice.
+# The suites are split into eight slice jobs (web / mobile / desktop /
+# server + node / packages / scripts / smoke / e2e) rather than one big run.
+# The single `Testing` job had become the place failures were hard to LOCATE —
+# a red check meant eleven workspaces of scrollback. Per-slice jobs make the
+# job name the diagnosis, and run in parallel, so wall-clock drops even as
+# total metered minutes rise: each job pays checkout + `bun install` (+ build
+# where it needs one). That repeat is near-free on a turbo cache hit (the
+# shared `-turbo-` restore-key prefix is what buys this), which is the trade
+# as made.
+#
+# The `Plan` job decides WHICH slices run, via scripts/ci-test-plan.ts:
+# turbo's own change-impact (`...[base]` — changed packages plus dependents,
+# from the real build graph) routed against each slice, never hand-written
+# directory globs. `Test: scripts` also gates on the FILES its suites read
+# (package manifests and the like), and every degraded path — unreadable
+# base ref, turbo failure, an unregistered workspace — returns run-everything.
+# Slices skipped here show grey; there is deliberately no required-check rule
+# to satisfy (no branch protection on this repo as of 2026-09-17).
+#
+# The two Rust jobs stay unconditional: their inputs are not in the turbo
+# graph at all, they are ~2 minutes each, and globbing them by hand would
+# reintroduce the rot this design removes.
 
 on:
   pull_request:
@@ -62,24 +73,95 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ─── The TypeScript suites, one job per slice ────────────────────────────
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      web: ${{ steps.route.outputs.web }}
+      mobile: ${{ steps.route.outputs.mobile }}
+      desktop: ${{ steps.route.outputs.desktop }}
+      server-node: ${{ steps.route.outputs.serverNode }}
+      packages: ${{ steps.route.outputs.packages }}
+      scripts: ${{ steps.route.outputs.scripts }}
+      smoke: ${{ steps.route.outputs.smoke }}
+      e2e: ${{ steps.route.outputs.e2e }}
+    steps:
+      # Full history: the router diffs against the PR base (or the push's
+      # before-sha), and a shallow clone cannot answer that question — the
+      # script's fail-wide path would then run everything, which is SAFE but
+      # makes the router a placebo. fetch-depth 0 is cheap here and the only
+      # job that needs it.
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Same safe.directory step every container job in this workflow carries;
+      # see test-web for why.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # `bunx turbo` must be the repo's turbo, not a fresh download: the
+      # change-impact filter's semantics are pinned by the same
+      # toolchain-from-the-workflow rule the rest of this file follows.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Route the slices
+        id: route
+        env:
+          # PRs diff against the base SHA from the event payload; pushes against
+          # the before-SHA (zero/absent on a branch's first push — the script
+          # fails wide there, which is the point).
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: bun scripts/ci-test-plan.ts "$BASE"
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  # ─── The suites, one job per slice ───────────────────────────────────────
   #
   # The preamble (checkout, safe.directory, Node, caches, install, build) is
-  # identical across all six and repeated on purpose — this workflow already
-  # repeats it across jobs, and the alternative (a composite action) would
-  # hide the container/safe.directory traps that the comments above each step
-  # exist to keep visible. `bun run build` is full-repo in every job: turbo's
-  # cache makes the repeat nearly free, and a filtered `turbo run test` would
-  # rebuild the same dependency graph anyway.
+  # identical across the jobs that need one and repeated on purpose — this
+  # workflow already repeats it across jobs, and the alternative (a composite
+  # action) would hide the container/safe.directory traps that the comments
+  # above each step exist to keep visible. `bun run build` is full-repo in
+  # every job that runs one: turbo's cache makes the repeat nearly free, and
+  # a filtered `turbo run test` would rebuild the same dependency graph
+  # anyway. (`Test: scripts` reads plain files and needs no build.)
   #
   # Filters are pinned against the unfiltered task set by
   # `turbo run test --dry` — every workspace with a `test` script lands in
-  # exactly one slice. The packages filter is `./packages/**`, NOT
-  # `./packages/*`: the harness and network plugins live at
-  # `packages/plugins/*` and a single star silently misses ten suites.
+  # exactly one slice. The packages filter is `./packages/**` RECURSIVE: the
+  # harness and network plugins live at `packages/plugins/<id>` and a single
+  # star silently misses ten suites.
 
   test-web:
     name: "Test: web"
+    needs: plan
+    if: needs.plan.outputs.web == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 15
@@ -149,6 +231,8 @@ jobs:
 
   test-mobile:
     name: "Test: mobile"
+    needs: plan
+    if: needs.plan.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 15
@@ -208,6 +292,8 @@ jobs:
 
   test-desktop:
     name: "Test: desktop apps"
+    needs: plan
+    if: needs.plan.outputs.desktop == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 20
@@ -268,8 +354,14 @@ jobs:
           echo "restoring workspace ownership to $own"
           chown -R "$own" "$GITHUB_WORKSPACE"
 
-  test-backend:
-    name: "Test: backend"
+  # "backend" was the old name and it lied twice: the vocabulary table carries
+  # no such word, and the two halves it bundled (the control plane and the
+  # agent) are exactly what a red job needs telling apart. The name now says
+  # which workspaces run, in the words the repo uses for them.
+  test-server-node:
+    name: "Test: server + node"
+    needs: plan
+    if: needs.plan.outputs.server-node == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 20
@@ -331,7 +423,7 @@ jobs:
       - name: Build workspace packages
         run: bun run build
 
-      - name: Run backend tests
+      - name: Run server and node tests
         run: bunx turbo run test --continue --filter=@internal/server --filter=@internal/node
 
       - name: Un-root the workspace
@@ -344,6 +436,8 @@ jobs:
 
   test-packages:
     name: "Test: packages"
+    needs: plan
+    if: needs.plan.outputs.packages == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 15
@@ -404,8 +498,67 @@ jobs:
           echo "restoring workspace ownership to $own"
           chown -R "$own" "$GITHUB_WORKSPACE"
 
+  # `bun run test` is `turbo run test`, which only reaches WORKSPACES — and
+  # `scripts/` is not one, so its suites ran nowhere until the split named
+  # them (and sat red for three pushes unnoticed for the same reason: no
+  # local or pre-push command runs `test:scripts`). These tests READ the repo
+  # — manifests, CHANGELOGs, lockfile, token files — which is why the Plan
+  # job routes them by changed-FILE predicates, not just by package. No
+  # build step: nothing here imports a workspace dist.
+  test-scripts:
+    name: "Test: scripts"
+    needs: plan
+    if: needs.plan.outputs.scripts == 'true'
+    runs-on: ubuntu-24.04
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run repo script tests
+        run: bun run test:scripts
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  # The smoke compiles the CONTROL PLANE binary and exercises it — the old
+  # "(backend)" suffix was wrong twice over: the node agent has no smoke,
+  # and a red job here can only mean the server's bundle or its refusal
+  # contract. Plan lights it when @internal/server is affected (that IS its
+  # import closure — the defect class this guards) or scripts/** changes
+  # (the refusal script lives there).
   test-smoke:
-    name: "Test: smoke (backend)"
+    name: "Test: smoke (server)"
+    needs: plan
+    if: needs.plan.outputs.smoke == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 20
@@ -458,14 +611,6 @@ jobs:
 
       - name: Build workspace packages
         run: bun run build
-
-      # `bun run test` is `turbo run test`, which only reaches WORKSPACES —
-      # and `scripts/` is not one, so its tests would never run anywhere
-      # without this line. They are pure (no network, no gh), so they belong
-      # beside the package suites rather than in the release path they
-      # describe.
-      - name: Run repo script tests
-        run: bun run test:scripts
 
       # Compiled-binary smoke guards against bundler import-graph defects
       # (e.g. oven-sh/bun#31586 — zod subpath duplication) that source-level
@@ -655,8 +800,13 @@ jobs:
           echo "restoring workspace ownership to $own"
           chown -R "$own" "$GITHUB_WORKSPACE"
 
+  # Gated by the same router: `@internal/e2e`'s devDeps on server, server-web
+  # and mcp-core mean turbo's dependent-expansion lights this — the priciest
+  # job in the file is the last one to run for a change that cannot affect it.
   e2e:
     name: End-to-end
+    needs: plan
+    if: needs.plan.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 30
