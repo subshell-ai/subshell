@@ -1,4 +1,5 @@
 import type { NetworkManifest, NetworkStatus } from "@internal/pane-runtime";
+import { isPluginEnabledSync } from "@/db/repositories/plugin-state.repository.js";
 import { type NetworkPluginState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 
@@ -67,6 +68,35 @@ function fingerprint(addresses: NetworkPluginState["addresses"]): string {
  * network, and an address that answers nothing is a harmless entry in an
  * allowlist (nobody can be sent to it). The record is rewritten only when the
  * addresses differ, because this runs on every uncached probe.
+ *
+ * **THE ENABLED GUARD — a forget must survive the probe already in flight.**
+ * The refresher and the page's list read capture their plugin list, then
+ * await a multi-second `status()`; a disable can complete in between, and its
+ * `forgetNetworkOrigins` must not be undone by this function's return. Both
+ * checks below are the synchronous read of `plugin_state`
+ * (`isPluginEnabledSync`), never a DB await:
+ *
+ * - At entry: a plugin already disabled is not observed at all — no record
+ *   write, no trust. (Every production path that probes has hydrated the
+ *   view via `stateByPluginId` before this call, but the guard below is the
+ *   one that carries the safety, so cold-cache fail-open costs nothing.)
+ * - Immediately before the registry write, with NO await between: the
+ *   disable route flips `enabled=false` synchronously BEFORE its forget (its
+ *   lock keeps that order), so a check that answers `true` proves the forget
+ *   has not run yet — and since the write lands in this same synchronous
+ *   turn, it lands first and the forget wins. That is airtight for the
+ *   registry, which is the thing that accepts sign-ins.
+ *
+ * The RECORD write therefore stays BEFORE the final guard, and that is the
+ * considered choice, not an oversight: a guard with an await after it guards
+ * nothing (`writeNetworkState` is real fs I/O — a disable completing through
+ * it is exactly the race), and reordering the write after the check would
+ * reintroduce the poisoning it exists to prevent. The cost is that a disable
+ * interleaving precisely through the record write can leave addresses in the
+ * record the disable's clear removed; the record says "last addresses known",
+ * the daemon reported these seconds ago, and a re-enable probes fresh within
+ * the enabling request itself, so the stale entry self-heals — while the
+ * registry, which does NOT self-heal, is guarded.
  */
 export async function observeNetworkStatus(
   pluginId: string,
@@ -74,11 +104,15 @@ export async function observeNetworkStatus(
   status: NetworkStatus,
 ): Promise<void> {
   if (!ORIGIN_BEARING_STATES.has(status.state)) return;
+  if (!isPluginEnabledSync(pluginId)) return;
   const record = await readNetworkState(pluginId);
   const next =
     fingerprint(record.addresses) === fingerprint(status.addresses)
       ? record
       : await writeNetworkState(pluginId, { addresses: status.addresses });
+  // No await between this check and the write, and the disable's cache flip
+  // precedes its forget — see the guard's doc above.
+  if (!isPluginEnabledSync(pluginId)) return;
   originRegistry().setPluginOrigins(pluginId, originsOf(manifest, next));
 }
 

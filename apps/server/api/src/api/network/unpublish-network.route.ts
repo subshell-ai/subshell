@@ -54,8 +54,13 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
     const { resolved, ctx, release } = prepared;
     const id = resolved.entry.manifest.id;
     try {
-      // The diff of two reads of ONE in-memory registry, taken around the
-      // sequence whose fifth step re-derives it — nothing to race.
+      // The diff of two reads of ONE in-memory registry. Not an isolated
+      // snapshot: a status observation already in flight (the page's list
+      // read, the five-minute refresher) can land between the two reads. It
+      // converges regardless — every writer re-derives the same set from the
+      // same record this sequence re-derives, and a plugin the operator has
+      // disabled is refused by the enabled guard in `observeNetworkStatus` —
+      // so the diff still answers "what stopped accepting sign-ins".
       const before = [...originRegistry().pluginOrigins(id)];
       const result = await unpublishNetwork(id);
       invalidateNetworkStatus(id);

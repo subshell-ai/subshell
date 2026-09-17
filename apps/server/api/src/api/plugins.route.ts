@@ -465,6 +465,15 @@ const adminRoutes = new Elysia()
           if (!result.ok) {
             throw new HarnessStateError([result.message, ...result.lastLines].join("\n"), 409);
           }
+          // The flag is written INSIDE the lock, before the forget: the
+          // registry-write guard in `observeNetworkStatus` promises that a
+          // status probe already in flight cannot re-trust a plugin whose
+          // origins have been forgotten, and that promise needs
+          // enabled=false durable before `forgetNetworkOrigins` runs. A
+          // flip AFTER the forget leaves a window where the probe reads
+          // enabled, writes the registry behind the forget, and the
+          // disabled plugin is trusted for the life of the process.
+          await state.setEnabled(params.pluginId, false);
           // A disabled network trusts nothing (spec § 10f): the registry
           // forgets it and the record's addresses are cleared, so a re-enable
           // starts from an empty set until the next probe re-learns them.
@@ -473,11 +482,13 @@ const adminRoutes = new Elysia()
         } finally {
           endNetworkOp(params.pluginId);
         }
+      } else {
+        // The row is written BOTH ways: an explicit enable is the operator's
+        // recorded choice, and the absent-row default belongs to installs the
+        // flag never touched. A network-plugin disable has already written
+        // its row inside the lock, above.
+        await state.setEnabled(params.pluginId, body.enabled);
       }
-      // The row is written BOTH ways: an explicit enable is the operator's
-      // recorded choice, and the absent-row default belongs to installs the
-      // flag never touched.
-      await state.setEnabled(params.pluginId, body.enabled);
       if (body.enabled && !was && pluginTypeOf(s.installed.find((r) => r.id === params.pluginId)?.type) === "network") {
         // Re-enabled: whatever the record still holds is trusted again now;
         // …and one probe, not awaited: a re-enable should trust the tailnet

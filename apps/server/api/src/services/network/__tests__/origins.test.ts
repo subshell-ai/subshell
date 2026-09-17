@@ -1,6 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { statSync } from "node:fs";
+import { afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { existsSync, statSync } from "node:fs";
 import type { NetworkAddress, NetworkStatus } from "@internal/pane-runtime";
+import { db } from "@/db/index.js";
+import { runMigrations } from "@/db/migrate.js";
+import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import {
   forgetNetworkOrigins,
   observeNetworkStatus,
@@ -33,6 +36,12 @@ function status(state: NetworkStatus["state"], addresses: NetworkAddress[] = [ma
 function id(): string {
   return `net-origins-${crypto.randomUUID().slice(0, 8)}`;
 }
+
+beforeAll(async () => {
+  // The enabled-guard cases below write real `plugin_state` rows; the file
+  // used to be fs-and-registry only. Applied by the test, never assumed.
+  await runMigrations();
+});
 
 afterEach(() => resetOriginRegistryForTests());
 
@@ -78,6 +87,44 @@ describe("observeNetworkStatus", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     await observeNetworkStatus(plugin, { exposure: "private" }, status("joined"));
     expect(statSync(networkStatePath(plugin)).mtimeMs).toBe(before);
+    await clearNetworkState(plugin);
+  });
+
+  it("an observation for a DISABLED plugin writes nothing and trusts nothing", async () => {
+    // The finding (I-1): a disable must be a real stop for the allowlist too.
+    // A plugin the refresher captured while enabled, probed for seconds, and
+    // observed after the disable must leave both the record and the registry
+    // exactly as the disable route left them.
+    const plugin = id();
+    const state = new PluginStateRepository(db);
+    await state.setEnabled(plugin, false);
+    await observeNetworkStatus(plugin, { exposure: "private" }, status("joined"));
+    expect(existsSync(networkStatePath(plugin))).toBe(false);
+    expect(originRegistry().pluginOrigins(plugin)).toEqual([]);
+    await state.clear(plugin);
+  });
+
+  it("a disable that lands mid-observation is not undone by the in-flight probe", async () => {
+    // The exact interleaving: the observation passes its entry check while
+    // the plugin is still enabled, then a FULL disable completes — flag flip,
+    // record clear, registry forget, in the order the disable route keeps
+    // inside its lock — before the observation reaches its registry write.
+    // The synchronous enabled check with no await before that write is what
+    // refuses it. Without the guard this goes red: the disable's fs writes
+    // are queued ahead of the observation's, so its forget lands first and
+    // the unguarded write would re-populate the set after it.
+    const plugin = id();
+    const state = new PluginStateRepository(db);
+    const observation = observeNetworkStatus(plugin, { exposure: "private" }, status("joined"));
+    // The cache flip inside `setEnabled` is synchronous, so it is durable
+    // the moment this line runs — while the observation is still awaiting
+    // its record read.
+    await state.setEnabled(plugin, false);
+    await writeNetworkState(plugin, { addresses: [] });
+    forgetNetworkOrigins(plugin);
+    await observation;
+    expect(originRegistry().pluginOrigins(plugin)).toEqual([]);
+    await state.clear(plugin);
     await clearNetworkState(plugin);
   });
 });
