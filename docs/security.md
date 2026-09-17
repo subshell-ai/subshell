@@ -2,8 +2,11 @@
 
 What Subshell defends against, what it deliberately does not, and where each
 boundary is enforced in code. This is the authoritative statement of the threat
-model; [`architecture.md`](architecture.md) describes the machinery,
-[`node-protocol.md`](node-protocol.md) the node wire contract, and
+model; the machinery is in
+[`develop/architecture.mdx`](../apps/docs/content/docs/develop/architecture.mdx),
+the node wire contract in
+[`reference/node-protocol.mdx`](../apps/docs/content/docs/reference/node-protocol.mdx),
+and
 [`.claude/rules/security-context.md`](../.claude/rules/security-context.md) is
 the working summary agents load when writing code here.
 
@@ -355,7 +358,7 @@ never widens who gets pushed.
 Registering a node **delegates arbitrary command execution under that machine's
 OS user** to this control plane. Read that sentence again before enrolling one.
 
-Wire-level detail is in [`node-protocol.md`](node-protocol.md); the security
+Wire-level detail is in [`reference/node-protocol.mdx`](../apps/docs/content/docs/reference/node-protocol.mdx); the security
 consequences are:
 
 - **Any node share — even `view` — lets the grantee launch their own subshells
@@ -1238,7 +1241,8 @@ Audit events are written for: `user.create`, `system-key.create`,
 `setup_key.revoke`, `settings.update`, `user.role_change`,
 `user.password_reset`, `emergency_login.rewrite_credential`,
 `server.config.update`, `server.restart`, `server.logging.update`, and
-`node.restart`.
+`node.service` (with `{ verb: "restart", forced }` metadata — the restart
+verb shares its action with the rest of the service surface).
 
 Timer- and probe-driven trusted-origin refreshes are observations and write no
 row; the acts that change plugin state (`network.join|publish|unpublish|leave`,
@@ -1349,8 +1353,11 @@ Recorded so they are decisions rather than surprises:
      `passkey` table, not in `account`. An attacker who enrolled a passkey
      during the compromise re-authenticates immediately and mints a fresh
      session — the very case the reset is reached for. Removing the target's
-     passkeys is not currently part of a reset; do it by hand, or treat a
-     suspected compromise as needing more than a password change.
+     passkeys is not currently part of a reset, and there is no admin path to
+     another user's list — they are self-service on the Account page
+     (`/api/auth/passkey/delete-passkey`), so the account holder removes a
+     suspect credential (or a suspected compromise needs more than a password
+     change).
    - **Live WebSockets.** `/ws` authenticates once at connect (cookie, or a
      30 s single-use token) and is never re-checked, so an already-attached
      terminal keeps streaming until it disconnects.
@@ -1879,7 +1886,7 @@ this project did not write.
   middleware mounted ahead of everything: keyed on the **`Host` header** and
   not on a `CF-Ray`-style header a LAN client can simply omit, `jose`'s
   `jwtVerify` against the team's JWKS with the issuer and `aud` pinned,
-  failing closed with `403 ACCESS_REQUIRED` on **every path with no
+  failing closed with `403 ACCESS_DENIED` on **every path with no
   exemptions**, plus a belt refusal of a matching Host arriving from a
   non-loopback address (`cloudflared` always connects from 127.0.0.1). Stopping
   is ordered for the same reason: disabling or unpublishing stops the tunnel

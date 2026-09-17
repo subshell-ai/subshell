@@ -17,15 +17,15 @@ Three kinds of credential exist, and where each is accepted is a rule, not a con
 
 Bearer keys go in an `Authorization: Bearer subshell_…` header. On top of the table, three refusals are deliberate and will bite a first script:
 
-- **Admin surfaces reject bearer credentials** with 403. `/api/users` writes, `/api/system-keys`, `/api/plugins`, `/api/network`, and the `/api/admin/*` group are cookie-session, admin-role only — machine credentials can never manage the instance.
+- **Admin surfaces reject bearer credentials** with 403. `/api/users` writes, `/api/system-keys`, `/api/plugins` writes (the plugin **listing** is open to any authenticated caller — the launch pickers read against it), `/api/network`, and the `/api/admin/*` group are cookie-session, admin-role only — machine credentials can never manage the instance.
 - **Sharing is a browser act.** The routes that grant or revoke access to a subshell are cookie-only.
 - **A [node](/nodes)'s agent key does nothing on REST** — presented to the API it is refused by name. Its entire job is authenticating that machine's WebSocket to the control plane.
 
-The terminal WebSocket doesn't take your credential on the socket either: you mint a short-lived, single-use attach token through an authenticated REST call and hand the socket that.
+The terminal WebSocket doesn't take your credential on the socket either: you mint a short-lived, single-use attach token through a **cookie-session** REST call — bearer keys are refused at the mint — and hand the socket that.
 
 ## The route families
 
-`/api/subshells` (rows, logs, restart, terminate, sharing, WS-attach), `/api/workspaces`, `/api/presets`, `/api/nodes`, `/api/channels` and `/api/identities` (the encrypted agent logs), `/api/devices` and `/api/notifications` (push for your own sessions), `/api/files` and `/api/uploads`, `/api/settings`, `/api/users`, `/api/audit` (admin), `/api/plugins`, `/api/network`, `/api/system-keys`, `/api/setup` (first-run), `/api/downloads/node/…` (the agent binaries enrolment fetches), and `/api/admin/*` (status, deployment, updates — all cookie-admin). One route answers without any credential at all: `GET /api/settings/instance`, which returns just the instance's display name so the sign-in page can tell you *which* plane is asking for your password. The Scalar page at `/docs` is the authoritative, always-current listing.
+`/api/subshells` (rows, logs, restart, terminate, sharing, WS-attach), `/api/workspaces`, `/api/presets`, `/api/nodes`, `/api/channels` and `/api/identities` (the encrypted agent logs), `/api/devices` and `/api/notifications` (push for your own sessions), `/api/files` and `/api/uploads`, `/api/settings`, `/api/users`, `/api/audit` (admin), `/api/plugins`, `/api/network`, `/api/system-keys`, `/api/setup` (first-run), `/api/downloads/node/…` (the agent binaries enrollment fetches), and `/api/admin/*` (status, deployment, updates — all cookie-admin). Two reads sit before sign-in: `GET /api/setup/status` (has the first account been created yet?) and `GET /api/settings/instance`, which returns just the instance's display name so the sign-in page can tell you *which* plane is asking for your password — outside the first-run window, that second one is the only pre-auth read. The Scalar page at `/docs` is the authoritative, always-current listing.
 
 ## The typed path
 

@@ -165,8 +165,8 @@ dialect (claude: `--mcp-config` file; opencode: merged config layer +
 `OPENCODE_CONFIG`; codex: per-invocation `-c mcp_servers.subshell.*` overrides —
 no per-subshell file), while harnesses without a per-subshell format (hermes, pi)
 write nothing and expose one-time registration steps via `GET
-/api/presets/harnesses/:id/schema` (rendered by the preset editor). See
-`docs/architecture.md` §4.
+/api/presets/harnesses/:id/schema` (rendered by the preset editor). The component map in
+`apps/docs/content/docs/develop/architecture.mdx` places the MCP half.
 
 Repositories (`src/db/repositories/`) are the primary Kysely writers; each
 resource's row types are in `src/db/types/`. A few small writes bypass them

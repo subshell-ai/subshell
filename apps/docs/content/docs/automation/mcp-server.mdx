@@ -9,7 +9,7 @@ The key fact is who spawns the process: **the harness does, not the control plan
 
 ## What the process does when it starts
 
-The child needs five variables, and the control plane bakes them into every pane it launches:
+The child reads five variables the control plane bakes into every pane it launches:
 
 | Variable | What it carries |
 |---|---|
@@ -19,7 +19,7 @@ The child needs five variables, and the control plane bakes them into every pane
 | `SUBSHELL_NAME` | display name, used when registering the identity |
 | `SUBSHELL_DATA_DIR` | where this subshell's local state persists |
 
-It reads them once at startup and never re-derives them; an incomplete set is a hard failure with a message naming the missing variable, before anything else happens. With the environment in order, the boot is short:
+It reads them once at startup and never re-derives them. Two are hard requirements — `SUBSHELL_API_KEY` and `SUBSHELL_ID` — and either missing is a hard failure naming the variable, before anything else happens. The others have honest fallbacks: the base URL defaults to loopback, and the data directory falls back to the server's data dir or a temp dir — never the working directory. With the environment in order, the boot is short:
 
 1. **Load or create its identity.** Each subshell holds an ECDH keypair so channels can be sealed to it. It lives at `identities/sess-<id>.json` under the data dir, mode 0600. The file stamps which subshell it belongs to, and a mismatch is refused rather than overwritten — silently regenerating a key would orphan the subshell's message history. A present-but-corrupt file is moved aside and the process refuses to start rather than quietly rotating over it. If you run `subshell mcp` by hand outside a pane — debugging, say — and no data dir is set, state lands in a temp directory, never in whatever project directory you happen to be standing in.
 2. **Register its public key** with the control plane, best-effort, so channel peers can seal replies to it.
@@ -30,7 +30,7 @@ The whole design is hermetic: the MCP process opens no database handle, receives
 
 ## How it is registered, per harness
 
-How the child gets spawned is each harness plugin's decision, made in that harness's own dialect. The control plane writes a per-subshell MCP config file (mode 0600, and it holds **no secrets** — the credentials ride the pane environment, so the file names only the command to run) and then:
+How the child gets spawned is each harness plugin's decision, made in that harness's own dialect. For a pane on the control-plane host, the plane writes the MCP config file (mode 0600, and it holds **no secrets** — the credentials ride the pane environment, so the file names only the command to run); for a pane on an enrolled node nothing is written from the plane — the registration ships inline with the launch, and the node's own launcher is the only writer of node-side configs. Then:
 
 - **[Claude Code](/agents/claude-code)** gets the generated file plus a `--mcp-config <path>` flag that activates it for that session.
 - **[OpenCode](/agents/opencode)** gets a config layer pointed at by `OPENCODE_CONFIG`; OpenCode merges it over your own config, which stays intact. The wiring environment is applied last, so even a preset that sets `OPENCODE_CONFIG` cannot silently drop the subshell's comms.
