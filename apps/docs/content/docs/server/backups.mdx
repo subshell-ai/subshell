@@ -31,8 +31,8 @@ Everything in the database: users and their credential hashes, roles and account
 
 The snapshot is of the *database*, not of the machine. After a restore, you will find these were never inside it:
 
-- **`config.env`** — the server's configuration lives in its own config home (`~/.config/subshell-server/config.env` by default), in a different directory from the database entirely. A backup never carried it; keep a copy of your configured port, bind address, base URL and trusted origins somewhere you trust.
-- **Plugin secrets** — tokens a network plugin was given are stored as write-only 0600 files beside the data, never in the database (a plugin can save a secret and never read one back). A restore means re-entering them, and the Networking page says so at the field. See [Network Plugins](/server/network-plugins).
+- **`config.env`** — the server's configuration lives in its own config home (`~/.config/subshell-server/config.env` by default; in a configured install the database file sits beside it, and together they are the instance's data directory). A backup snapshots the database file alone — a single `VACUUM INTO` — so it never carried its sibling; keep a copy of your configured port, bind address, base URL and trusted origins somewhere you trust.
+- **Plugin secrets** — tokens a network plugin was given are stored as write-only 0600 files inside the data directory (`plugins-state/<plugin>/secrets/`), never in the database (a plugin can save a secret and never read one back). A restore means re-entering them, and the Networking page says so at the field. See [Network Plugins](/server/network-plugins).
 - **The node signing keypair** — the key that signs every command to every enrolled node is a file (`node-signing.json`) inside the data directory, not a row. The enrolled nodes' own keys are on *their* machines; the database held only their hashes.
 - **Pane transcripts** — each subshell's screen log is a file on the machine that ran it, swept by age. Its history does not come back with the database.
 - **The server's own log file** — see [Logs & Debugging](/server/logs-debug).
