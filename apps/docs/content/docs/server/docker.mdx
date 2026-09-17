@@ -57,6 +57,8 @@ sqlite3 data/subshell.db ".backup ~/.config/subshell-server/subshell.db"
 cp -a data/subshells ~/.config/subshell-server/
 ```
 
+Both commands assume a from-source instance, whose default layout puts the database at `./data/subshell.db`. An instance installed with `subshell-server service install` already keeps its database and pane logs inside `~/.config/subshell-server/` — the very directory the bind mounts — so for it there is nothing to copy.
+
 With the same `BETTER_AUTH_SECRET` in `.env`, existing browser sessions keep working on the new container. A pane log the container has never seen is just a file; new `ssh` hosts need an `ssh-keyscan` on the host first, since the mounted `known_hosts` is all the container trusts.
 
 ## See also

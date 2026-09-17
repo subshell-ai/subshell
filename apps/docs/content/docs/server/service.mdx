@@ -47,10 +47,10 @@ There is a reason for the relocation: the plist also carries `KeepAlive` (so the
 
 Every subshell on the control-plane host runs in a tmux server that is a **child of the service process**. That makes one systemd directive load-bearing: with the default control-group kill, stopping the server SIGKILLs every live pane with it — and a restart is a stop followed by a start, so restarting to apply a config change silently kills every running subshell.
 
-The installed unit carries `KillMode=process` (the launchd equivalent, `AbandonProcessGroup`, is in the plist), so panes survive restarts and the boot reconciler re-adopts them. But a **definition written before that fix** — hand-written, or left by an old version — still kills panes, and neither `systemctl restart` nor `launchctl` says so. The CLI is the only surface that asks:
+The installed unit carries `KillMode=process` (the launchd equivalent, `AbandonProcessGroup`, is in the plist), so panes survive restarts and the boot reconciler re-adopts them. But a **definition written before that fix** — hand-written, or left by an old version — still kills panes, and neither `systemctl restart` nor `launchctl` says so. The CLI asks where those raw commands never will:
 
-- `service status` reports it up front as `teardown keeps panes = keeps` (or `kills`, or `unknown` — the check reads the *effective* setting the manager would apply, not just the file, so a drop-in is seen);
-- `service restart` **refuses** on anything but `keeps`, and says what to do: `subshell-server service install` rewrites the definition with the safe directive, or `--force` overrides the refusal;
+- `service status` reports it up front as `teardown keeps panes = yes` — or `NO: this definition predates the fix; reinstall it before stopping or restarting`, or `unknown: the definition could not be read` (the check reads the *effective* setting the manager would apply, not just the file, so a drop-in is seen);
+- `service restart` **refuses** when the answer is not `yes`, and says what to do: `subshell-server service install` rewrites the definition with the safe directive, or `--force` overrides the refusal;
 - `service stop` **warns and proceeds** — you asked for it down, and refusing would only push you to the raw `systemctl` command that warns about nothing;
 - `service uninstall` gates on nothing, deliberately: a stranded unit must always be removable.
 

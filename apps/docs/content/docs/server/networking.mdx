@@ -11,7 +11,7 @@ Three settings decide which addresses your control plane answers on, and people 
 | `APP_BASE_URL` | what address does the instance **call itself**? Auth redirects use it, and it is trusted automatically. | `http://localhost:<port>` |
 | `TRUSTED_ORIGINS` | what **other** addresses may a browser sign in from? | the two dev-server ports a source checkout uses |
 
-The bind is the network fact: `0.0.0.0` (the default since 2026-09-07) means remote nodes and devices *can* reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The other two are identity facts: which name the instance vouches for, and which names its browsers may use. A wildcard bind is a listen address, **not** an identity — `0.0.0.0` never trusts anything by itself.
+The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means remote nodes and devices *can* reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The other two are identity facts: which name the instance vouches for, and which names its browsers may use. A wildcard bind is a listen address, **not** an identity — `0.0.0.0` never trusts anything by itself.
 
 ## What a browser may use
 
