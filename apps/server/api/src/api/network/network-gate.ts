@@ -21,6 +21,7 @@ import { PluginStateRepository } from "@/db/repositories/plugin-state.repository
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { type AgentInstallResult, runInstaller } from "@/services/agent-install.service.js";
 import { audit } from "@/services/audit.js";
+import { observeNetworkStatus } from "@/services/network/origins.js";
 import { networkContext } from "@/services/network/state.js";
 import { localPluginReports } from "@/services/nodes/local-plugins.js";
 import { settingSource } from "@/services/server-deployment.js";
@@ -439,6 +440,9 @@ function forwardableStatus(status: NetworkStatus): NetworkStatus {
  *
  * What lands in the memo is already {@link forwardableStatus}'d, so the check
  * runs once per probe rather than once per reader.
+ *
+ * A probe that answers `joined`/`published` also records the addresses and
+ * refreshes the registry (`services/network/origins.ts`).
  */
 export async function readNetworkStatus(
   entry: NetworkPluginEntry,
@@ -459,6 +463,16 @@ export async function readNetworkStatus(
   }
   status = forwardableStatus(status);
   statusMemo.set(id, { at: Date.now(), status });
+  // Every uncached probe is an OBSERVATION of this host's addresses, and the
+  // trusted-origin registry derives from what is observed — so the page
+  // opening, an act's fresh re-read and the boot refresh all keep the
+  // allowlist right without any of them knowing it. Best-effort: a record
+  // that cannot be written must not turn a status into a failure.
+  try {
+    await observeNetworkStatus(id, entry.manifest.network, status);
+  } catch (err) {
+    getLogger().withError(err).warn(`could not record network "${id}"'s addresses from its status`);
+  }
   return status;
 }
 

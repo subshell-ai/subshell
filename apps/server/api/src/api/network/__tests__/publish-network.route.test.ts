@@ -100,7 +100,15 @@ describe("POST /api/network/:id/publish", () => {
 
   it("installs the guard, records the publish and unions the origins", async () => {
     const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, guard: GUARD });
+    // The status agrees with the publish result, as it does for every real
+    // plugin: the post-write fresh re-read is now an OBSERVATION (task S4),
+    // so a fake whose status disagreed with what `publish()` returned would
+    // end with the record re-learned from the status rather than the result.
+    const { entry } = makeFakePlugin({
+      publish: { addresses: ADDRESSES },
+      status: { state: "published", addresses: ADDRESSES, hints: [] },
+      guard: GUARD,
+    });
     setNetworkDepsForTests(
       fakeDeps(entry, { config, configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080" }) }),
     );

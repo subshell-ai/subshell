@@ -14,6 +14,7 @@ import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { clearNetworkState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 import { type ConfigRecorder, FAKE_ID, fakeDeps, fakeReport, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**
@@ -128,6 +129,7 @@ describe("/api/network", () => {
     setUnpublishDepsForTests(null);
     invalidateNetworkStatus();
     await clearNetworkState(FAKE_ID);
+    resetOriginRegistryForTests();
   });
 
   afterAll(async () => {
@@ -396,14 +398,17 @@ describe("/api/network", () => {
       expect(calls.status).toBe(3);
     });
 
-    it("records, writes and audits the SAME address set; only the frame re-reads", async () => {
-      // The audit row must name the addresses the RECORD and the union
-      // trusted — the status read AFTER the config write is display-only and
-      // may legitimately differ. A drift between them is the second truth
-      // about one act that `by: "join"` exists to prevent.
+    it("audits and writes the act's address set; the frame's re-read observes on its own", async () => {
+      // The audit row and the union must name the addresses the ACT trusted —
+      // the status read AFTER the config write is a later probe. Since task
+      // S4 that probe is also an OBSERVATION, so it may legitimately move the
+      // record and the frame; that the audit and the union stayed on `a2` is
+      // what proves the act did not chase the third read. A drift of the
+      // audit off the act's own set is the second truth about one act that
+      // `by: "join"` exists to prevent.
       // Every read answers with a DIFFERENT single address, so any of the
-      // three consumers reaching for the wrong one shows up as a wrong URL
-      // rather than a coincidence.
+      // consumers reaching for the wrong one shows up as a wrong URL rather
+      // than a coincidence.
       let read = 0;
       const { entry } = makeFakePlugin({
         publishImplicit: true,
@@ -428,7 +433,10 @@ describe("/api/network", () => {
         )
       ).at(-1);
       // reads: before(1), after-join(2), post-write display(3).
-      expect((await readNetworkState(FAKE_ID)).addresses.map((a) => a.url)).toEqual(["https://a2.example"]);
+      // The record ends on the THIRD address because the display read is a
+      // probe like any other and probes observe (task S4); a real plugin
+      // answers both reads alike, so this is the fake's divergence showing.
+      expect((await readNetworkState(FAKE_ID)).addresses.map((a) => a.url)).toEqual(["https://a3.example"]);
       expect(config.calls.at(-1)).toEqual({
         trustedOrigins: "http://localhost:3080,https://a2.example",
       });
@@ -762,6 +770,19 @@ describe("/api/network", () => {
       // describes the machine after the write rather than before it.
       await app.fetch(withCookie(`/api/network/${FAKE_ID}/settings`, adminCookie, { method: "PATCH", body: "{}" }));
       expect(calls.status).toBe(2);
+    });
+
+    it("a list read that finds the host joined trusts the plugin's addresses at once", async () => {
+      // The fake is `private` for this case: a joined tailnet address answers
+      // with nothing published, so a list read — the page opening — is enough
+      // to make sign-in from it work. No publish, no restart.
+      const { entry } = makeFakePlugin({ exposure: "private" });
+      setNetworkDepsForTests(fakeDeps(entry));
+      const res = await app.fetch(withCookie("/api/network", adminCookie));
+      expect(res.status).toBe(200);
+      expect(originRegistry().has("https://host.example.ts.net")).toBe(true);
+      expect((await readNetworkState(FAKE_ID)).addresses.map((a) => a.url)).toEqual(["https://host.example.ts.net"]);
+      expect((await readNetworkState(FAKE_ID)).published).toBe(false);
     });
   });
 
@@ -1167,7 +1188,13 @@ describe("/api/network", () => {
       });
       const state = await readNetworkState(FAKE_ID);
       expect(state.published).toBe(false);
-      expect(state.addresses).toEqual([]);
+      // The sequence cleared the record, but the route answers with a FRESH
+      // status and every uncached probe is an OBSERVATION (task S4) — the
+      // daemon is still joined at that address, so the record re-learns it.
+      // The row renders `joined` because the machine IS joined; unpublish
+      // stops serving, it does not leave the network, and only `leave` —
+      // which forgets on the daemon itself — ends the addresses.
+      expect(state.addresses.map((a) => a.url)).toEqual(["https://host.example.ts.net"]);
       // The last write is the subtraction, and it names what survives.
       expect(config.calls.at(-1)).toEqual({ trustedOrigins: "http://localhost:3080" });
     });
