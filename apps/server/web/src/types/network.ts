@@ -232,7 +232,7 @@ export interface NetworkJoinResult {
  */
 export interface NetworkLeaveResult {
   ok: true;
-  /** The origins the recorded publish had trusted, no longer; empty when nothing had been recorded */
+  /** Everything this act ended, as the request-start snapshot — a gated network's trust died at the inner unpublish step and is still listed; empty when nothing was trusted */
   origins: string[];
   /** The status as of the end of the act */
   status: NetworkStatus;
