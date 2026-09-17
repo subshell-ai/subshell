@@ -1,0 +1,16 @@
+---
+title: The Plugin Registry
+description: Installing third-party plugins from a registry — where the store lives, who may install, and what integrity proves.
+---
+
+This page will cover installing plugins beyond the built-ins: the control plane's single plugin store (one install arms every node), the Settings → Plugins admin surface, installing from a registry by URL — the default being npm's, with the harness plugins published as `@subshell-ai/plugin-<id>` — and from a local archive. It must state the trust decision honestly: installing a plugin runs third-party code in the control-plane process, which is why it is admin-only, and integrity proves the bytes match the hash the same registry published — over an http mirror that assurance is your network's, not npm's.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §6 "Plugin installs from the registry" — the gate, the store, and what integrity does and does not prove
+- `docs/superpowers/specs/2026-09-09-plugins-phase3-registry-design.md` — the registry install flow
+- `AGENTS.md` §"Plugins are packages" — the one-store inversion and the built-in seeding marker
+- `packages/pane-runtime/src/registry.ts` — the fetch-and-verify implementation

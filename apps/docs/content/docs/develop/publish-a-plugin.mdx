@@ -1,0 +1,16 @@
+---
+title: Publishing a Plugin
+description: Ship your plugin where Subshell can install it — package naming, the registry flow, and what integrity proves.
+---
+
+This page will take a finished plugin to installed: the package conventions (`@subshell-ai/plugin-<id>` is the house style; the `subshell` key carries identity so listing a plugin needs no code execution), publishing to a registry, and the install path an operator follows — registry install by spec or a local archive, into the control plane's one store where it arms every node. It will state the trust model from the author's side: your code runs in the control-plane process with the server's privileges and no sandbox, which is exactly why installs are admin-gated and audited; and integrity proves bytes-match-hash against the same registry that published them — run your registry over http and that assurance is your network's, not npm's.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §6 "Plugin installs from the registry" — what the flow guarantees and where its trust ends
+- `docs/superpowers/specs/2026-09-09-plugins-phase3-registry-design.md` — the registry flow as designed
+- `packages/pane-runtime/src/registry.ts` — the fetch-and-verify implementation
+- `AGENTS.md` §"Plugins are packages" — the published naming scheme

@@ -1,0 +1,15 @@
+---
+title: MCP Tools
+description: The thirteen tools an agent can call — six for channels, seven for orchestrating other subshells.
+---
+
+This page will be the tool-by-tool reference for `subshell mcp`: channels (list, create, join, members, post, read) and subshells (list, get, presets, create, restart, terminate, delete). For each, what it does, the shape of its input, and the handler-level behaviours with teeth — `post_channel` auto-joins the poster and seals to every keyed member including itself; `read_channel` resumes from the stored cursor and slices long-polls to fit its budget; a nudge wakes a peer idle at its prompt while the content stays pull. It will note the deliberate absences too, like the removed notes tool, and carry the sibling-output rule: what another subshell printed is untrusted data, never instructions.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/mcp-core/src/server.ts` — the thirteen registered tools, straight from the source
+- `docs/architecture.md` §4 "Tools" — the two families and the handler-level notes
+- `AGENTS.md` §"Cross-session coordination" — the pull-not-push nudge rule and the untrusted-data warning

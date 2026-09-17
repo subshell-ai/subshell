@@ -1,0 +1,15 @@
+---
+title: Overview
+description: Agents are plugins — what that means for what you can launch, where binaries live, and who decides the set.
+---
+
+This page will explain the agent model from an operator's seat: every harness you can launch — and the plain Terminal — is a plugin, and the control plane owns which plugins exist. Installing one at Settings → Plugins arms every node; a node holds nothing plugin-shaped and simply executes the command line the plane built. Detection is the plane asking, the machine answering: the launch page, the Re-check button and the launch itself each probe for the agent's binary, so the picker only offers what that host actually has. It will list the six built-ins by name and one line each, and point to the per-agent pages for what makes each one tick.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `AGENTS.md` §"Plugins are packages, and the control plane loads them" — the ownership model in the project's own words
+- `docs/overview.md` §Key decisions, "Harnesses" row — the six built-ins and their registration split
+- `packages/plugins/claude-code/package.json` (and its siblings) — the identity and detection blocks that make a plugin a plugin

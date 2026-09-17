@@ -54,6 +54,14 @@ and the pieces it names nested inside. `apps/server/`, `apps/client/` and
 `apps/node/` are plain directories with no `package.json` of their own —
 grouping, not packages.
 
+**`apps/docs` is the taxonomy's one exception, and sits directly under `apps/`
+because it names none of the three words.** The documentation site (Fumadocs,
+a static export, package `@internal/docs`) is a site, not a product component:
+it is changesets-versioned like the four releasable apps but deploys via
+`docs.yml` outside the release pipelines, and it is not a control plane, not a
+node, and not something a person points at a control plane. See "Docs site"
+below.
+
 **What each app is.**
 
 | the thing | its CLI/service | its GUI |
@@ -266,12 +274,15 @@ turbo watch dev            # Same as above
 
 bun run dev:desktop-server # Subshell Server (Tauri) in dev mode
 bun run dev:desktop-client # Subshell Client (Tauri) in dev mode
+bun run dev:docs           # Documentation site (Fumadocs dev server on :3400)
 ```
 
 **The two desktop apps are deliberately NOT part of `turbo watch dev`** — they
 have no `dev` task, because one would open a Tauri window on every developer's
 machine whenever anyone ran `bun run start`. They get their own root commands
-instead.
+instead. The docs site follows the same rule for the same reason: `apps/docs`
+carries no `dev` script, so `bun run dev:docs` is the only way the Fumadocs
+server starts, on port 3400.
 
 Those commands are not proxies to `tauri dev`, and the difference is the whole
 reason they exist: `tauri-build` refuses to build when its `externalBin`
@@ -655,8 +666,8 @@ anything, not just the GUIs. The darwin release shards run on `macos-14`:
 GitHub-hosted Apple Silicon, native arm64.
 
 The reason was operability, and the cost is the accepted trade: the repo is
-private, so hosted minutes are metered, and a push now bills what used to be
-free fleet time. What the fleet bought in persistence it lost in
+public now, and hosted minutes are still metered on the free plan, so a push
+bills what used to be free fleet time. What the fleet bought in persistence it lost in
 visibility — its runners are org-registered, so the repo page shows none of
 them, which is how a CI outage starts looking like a missing fleet — and
 keeping machines cut-ready is standing human attention that stopped being
@@ -830,7 +841,8 @@ which is why they share their own smoke, parameterized by app id.
   `@internal/server`, pane-runtime or subshell-protocol work belongs to
   whichever of the four apps a user sees it through.
 - **Version bumps (changesets):** `bunx changeset` after user-visible
-  changes to any of the four releasable apps → a version PR ("chore:
+  changes to any of the four releasable apps (or to `@internal/docs`, whose
+  bump drives the docs deploy instead of a release cut) → a version PR ("chore:
   release package(s)") maintained on every push to main; merging it bumps the
   app's `package.json` + CHANGELOG. Merging does NOT cut a release — that
   stays true for the four GitHub Releases app cuts, which are an explicit
@@ -920,9 +932,37 @@ which is why they share their own smoke, parameterized by app id.
   wraps, built from the same commit, so a fix to `apps/server/api` or `apps/node/agent`
   does NOT reach desktop users until the matching desktop cut. Dispatch a
   security-relevant release as `app=all`.
-- **Retry:** a mid-flight failure leaves a tag without a release —
+- **Retry:** a mid-flight failure leaves the tag without a release —
   re-dispatching COMPLETES the half-cut. Re-cutting a PUBLISHED version
   requires deleting the release and its tag first.
+
+### Docs site (CI — `.github/workflows/docs.yml`)
+
+The documentation site ships on its own tag and workflow, outside the four
+release components: `docs-vX.Y.Z` is owned by the workflow — never cut by
+hand — and what ships is the static export (`apps/docs/out/`) deployed to
+Cloudflare Workers static assets at **docs.subshell.sh** (`apps/docs/wrangler.jsonc`,
+custom-domain route; secrets `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`). The dance, from the repo root:
+
+```bash
+bunx changeset          # docs work rides a `"@internal/docs": minor` changeset
+# …merge the version PR, then, on main:
+gh workflow run docs.yml
+```
+
+The properties that make a docs cut behave like a release cut: `plan` refuses
+any dispatch not on `main` and any `-f version=` that disagrees with
+`apps/docs/package.json` ("merge the changesets version PR first" — same
+refusal, same reason, as release.yml's); the tag has three cases — absent
+creates, **present at THIS commit redeploys** (re-dispatch is how you re-push
+a broken deploy, because for docs the deploy is the release), present at
+another commit refuses until the tag is deleted. A `ci-gate` job waits for
+this commit's push-triggered Test + Lint runs before anything builds and
+refuses on any non-success (`skip_ci_gate: true` is the emergency opt-out).
+The export is static for now (`output: "export"`); the vinext-at-1.0 follow-up
+lifts that. Broken docs fail PR CI, not just the deploy: the package's `build`
+script runs inside `bun run build`, which `lint.yml` runs on every push.
 
 ## Build Dependencies
 

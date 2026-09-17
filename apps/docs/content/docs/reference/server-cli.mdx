@@ -1,0 +1,14 @@
+---
+title: subshell-server CLI
+description: Every verb of the control plane binary — run, init, configure, status, update, backup, service, mcp, report.
+---
+
+This page will be the generated-in-prose reference for the control plane's binary: the no-subcommand boot path, `version`, `license`, `status` (the resolved config view, `--json` for scripts), `init` and `configure` with their flags, `update` including `--check` / `--to` / `--from` / `--rollback`, `backup`, the full `service` family (install/uninstall/enable/disable/status/start/stop/restart and the `--force` pane refusal), and the internal `mcp` / `report` verbs a human rarely runs. It will mirror the binary's own usage text rather than compete with it — flags, precedence notes, and exit-code meanings per verb.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `apps/server/api/src/cli.ts` — the USAGE block and per-verb flag parsing this page transcribes
+- `apps/server/api/AGENTS.md` §"Standalone binary & CLI" — the subcommand notes as maintained

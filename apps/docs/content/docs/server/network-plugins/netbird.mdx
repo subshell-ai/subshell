@@ -1,0 +1,16 @@
+---
+title: NetBird
+description: Reach your server over a NetBird mesh — join once, and the address becomes trusted.
+---
+
+This page will cover the NetBird plugin: installing the peer (the app on macOS, the documented steps as root on Linux — printed, never run), logging in, and the one manifest difference from Tailscale and Headscale — NetBird is `publishImplicit`, so the join IS the publish: the moment the peer is up and its address recorded, that address is trusted and the publish is audited with its own row. It will carry the same boundaries as its siblings: private exposure, nothing unioned into the operator's own `TRUSTED_ORIGINS`, and leaving the network forgetting the address again.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/netbird/package.json` — the manifest, including `publishImplicit` and the macOS app steps
+- `packages/plugins/netbird/src/index.ts` — the plugin's implementation
+- `docs/superpowers/specs/2026-09-16-network-plugins-phase-2-3-design.md` — the phase plan naming netbird
+- `.claude/rules/security-context.md` §Network plugins — the publishImplicit join-is-publish rule

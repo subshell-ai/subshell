@@ -1,0 +1,16 @@
+---
+title: Install the Control Plane
+description: Three ways to get a server running — the one-liner, the Subshell Server desktop app, and doing it by hand.
+---
+
+This page will cover installing the control plane on a machine you control, by whichever door fits: the `install-server.sh` one-liner for a headless box (it downloads the matching binary, verifies the published `.sha256` before anything executes, and runs `init`), the Subshell Server desktop app for a Mac or Linux desktop where you want buttons instead of a terminal, Docker for container hosts, and the manual path — download the binary from the GitHub release, verify it yourself, install it to `~/.local/bin/subshell-server`, and run `init`. It will explain the one decision `init` asks — run in the background at login, or stay attached to your terminal — and the race to open the `/setup` URL before anyone else on the LAN does.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `install-server.sh` — the installer script itself, including the environment variables that pre-answer its questions
+- `README.md` §Headless install and §Doing it by hand — both flows with the exact commands and the bare-digest verification trick
+- `README.md` §Desktop apps and §Docker — the other two install doors and what each adds
+- `apps/server/api/AGENTS.md` §"Standalone binary & CLI" — what `init` writes and where

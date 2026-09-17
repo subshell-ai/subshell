@@ -4,9 +4,10 @@ name: Test
 # `ubuntu-latest`: the desktop artifacts' minimum glibc is 2.39, which is what
 # 24.04 IS, and an alias may one day move under it) inside the repo's own
 # builder image. Moved off the self-hosted fleet on 2026-09-11 — hosted
-# minutes are metered on a private repo and that cost is now the accepted
-# trade; the fleet's runners are org-registered and the repo page shows none
-# of them, which is how a CI outage starts looking like a missing fleet.
+# minutes are still metered on the free plan even after the repo went public,
+# and that cost remains the accepted trade; the fleet's runners are
+# org-registered and the repo page shows none of them, which is how a CI
+# outage starts looking like a missing fleet.
 #
 # The image (docker/desktop-builder.Dockerfile) already carries bun 1.4.2,
 # rustup stable and Tauri's system dependencies, which is why the jobs below

@@ -1,0 +1,15 @@
+---
+title: Registration & Enrollment
+description: The two open doors that close — who may create an account, and who may add a machine.
+---
+
+This page will cover the instance's two self-service doors and their switches. Registration is closed by default, open only while the instance has zero users — which is how the first admin comes to exist — and an admin's explicit toggle reopens it; closing it signs nobody out. Node enrollment is on by default (any signed-in user may mint a single-use setup key and add a machine) and an admin may narrow minting to admins; neither switch revokes what is already outstanding, a distinction the page must make in its first paragraph because operators assume the opposite. Both decisions and their semantics are audited or bounded, and this page says where to see that.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §2 "Identity and credentials" — the registration gate's fail-closed rules
+- `.claude/rules/security-context.md` §Authentication + §Nodes "allow_node_enrollment" — both toggles, semantics of flipping them off
+- `apps/server/api/src/services/registration-gate.ts` — the one function three surfaces share

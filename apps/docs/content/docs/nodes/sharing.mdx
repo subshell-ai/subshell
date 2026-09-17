@@ -1,0 +1,15 @@
+---
+title: Sharing a Node
+description: Let another user launch on your machine — and understand what every grant level actually confers.
+---
+
+This page will cover node shares, which are a different axis from subshell shares. The owner grants view or edit on a node; the asymmetry that surprises people is that ANY node share — even view — lets the grantee launch their own subshells on that machine, and what they launch stays private to them unless they share it. Edit adds configuring (re-checks); shares, rename, stop, uninstall and repointing stay owner-only. The page must open with the consequence: a node share extends your machine's command surface to another user's workloads, and only the machine's owner can see what invisible work is running on it.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §6 "Nodes" — the two-axis sharing model and what each verb requires
+- `.claude/rules/security-context.md` §Nodes — the same rules as working summary, including the owner-only list
+- `docs/superpowers/specs/2026-08-31-nodes-design.md` — the share model's design

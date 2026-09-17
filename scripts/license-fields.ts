@@ -72,9 +72,16 @@ const AGPL_PREFIX = "apps/server/";
 /**
  * Manifests to check. `packages/tsconfig` and the like are included on purpose
  * — a shared config package is still distributed source.
+ *
+ * The one-level apps glob covers an app sitting directly under `apps/` rather
+ * than inside a grouping directory — `apps/docs`, the taxonomy's one
+ * exception. The licence still falls out of the path: `AGPL_PREFIX` can only
+ * match the nested server grouping, so a top-level app is Apache and nothing
+ * here changed about where the line is.
  */
 const MANIFEST_GLOBS = [
   "package.json",
+  "apps/*/package.json",
   "apps/*/*/package.json",
   "packages/*/package.json",
   "packages/plugins/*/package.json",
@@ -237,6 +244,7 @@ interface Workspace {
 function collectWorkspaces(): Workspace[] {
   const workspaces: Workspace[] = [];
   for (const pattern of [
+    "apps/*/package.json",
     "apps/*/*/package.json",
     "packages/*/package.json",
     "packages/plugins/*/package.json",

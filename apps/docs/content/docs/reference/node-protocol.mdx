@@ -1,0 +1,15 @@
+---
+title: Node Protocol
+description: The control-plane to agent wire — enrollment, signed commands, every command and event, close codes.
+---
+
+This page will port the wire contract: the repository maintains `docs/node-protocol.md` as the authoritative reference for the `/ws/node` link — enrollment and setup keys, the two connect gates, the JWS-signed command envelope and its replay defense, every command and event type, dispatch ordering, terminal attach over a node, offline semantics, and close codes. Rather than fork it, this page will present it for its actual audience — the operator debugging a node, and the contributor implementing something node-side — with the security accounting cross-linked to the threat model where each section earns it.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/node-protocol.md` — the whole reference; this page is its home in the site, not a second copy
+- `docs/architecture.md` §9 "Nodes" — where the protocol sits in the system
+- `docs/security.md` §4 (command signing) — what the signature proves and does not

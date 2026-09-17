@@ -1,0 +1,16 @@
+---
+title: Troubleshooting
+description: Named failures and their fixes — 403 Invalid origin, node offline vs crashed, tmux missing, a dead pane.
+---
+
+This page will be a symptom index, each entry one refusal the software actually prints plus the diagnosis command. First tier: 403 "Invalid origin" on sign-in (the address you browse is not on the allowlist — name it), a launch that fails with `NODE_OFFLINE` (an offline node is not a crashed subshell — check the agent, not the pane), a refused launch when tmux is missing (the setup screen installs it), a service restart that refuses because the definition would take live panes down (`--force`, or fix the definition), and a subshell whose status says crashed after the server came back. Second tier: terminal attach glitches behind the debug switch, and reading `subshell-server status` before anything else. Every entry ends in a command the reader can run.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `README.md` §Browsing from another machine — the origin 403 and its fix, in user words
+- `docs/node-protocol.md` §9 "Offline semantics" — the offline-vs-crashed distinction
+- `apps/server/api/AGENTS.md` §"Terminal attach diagnostics" — the attach-debug path
+- `README.md` §Doing it by hand — `status` as the first diagnostic

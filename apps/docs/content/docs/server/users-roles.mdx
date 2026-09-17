@@ -1,0 +1,16 @@
+---
+title: Users & Roles
+description: Accounts, the admin role, and what an admin can and categorically cannot do to someone else's subshell.
+---
+
+This page will cover people: the first registered account becomes the admin; roles are admin/user, assigned from the Users page; an admin can create accounts, reset another user's password (which revokes their sessions — it is a credential rotation, not a session-kill for open WebSockets), and holds instance-wide edit on every subshell — but never delete, re-share, or their own password reset through that door. It will also cover what any signed-in user can see (the roster is instance-wide by design — it is what the sharing picker needs), demotion of the last admin being refused, and the untouchable `system` service account.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §3 "Authorization" — who may do what, with the reasoning
+- `.claude/rules/security-context.md` §Authentication / "Admin user management" — the four guards on admin writes
+- `docs/superpowers/specs/2026-09-14-users-admin-page-design.md` — the Users page design
+- `apps/server/api/src/api/users.route.ts` — the surface itself

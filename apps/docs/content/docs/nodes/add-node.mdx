@@ -1,0 +1,16 @@
+---
+title: Adding a Node
+description: Mint a setup key, run the one-liner on the target machine, and get the node online.
+---
+
+This page will walk enrollment: Settings → Nodes → Add node renders a one-liner carrying a single-use setup key (24 hours, hashed at rest, revocable); you run it on the target machine, where it checks for tmux, downloads the matching `subshell` binary, verifies the published digest before the first `chmod +x`, enrols, and offers to install the background service. It will cover the loopback trap — the server URL is baked into the command, so `APP_BASE_URL` must name an address the node can actually reach — the `subshell setup` verb for machines that already have the binary, and Linux linger for keeping the agent alive past logout.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `README.md` §Nodes — the three steps and the points worth knowing before enrolling one
+- `docs/node-protocol.md` §2 "Enrollment" — the wire view of setup keys and the enroll call
+- `apps/node/agent/AGENTS.md` §Commands — the `setup` / `enroll` verbs and their tmux preflight
+- `docs/superpowers/specs/2026-08-31-nodes-design.md` — the enrollment design including key semantics

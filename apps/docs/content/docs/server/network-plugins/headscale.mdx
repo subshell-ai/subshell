@@ -1,0 +1,15 @@
+---
+title: Headscale
+description: The same tailnet experience against your own self-hosted control server.
+---
+
+This page will cover the Headscale plugin for people who run their own tailnet controller: it drives the same `tailscale` client pointed at your `--login-server`, so joining means the login URL your Headscale serves and publishing means the address that tailnet resolves for this host. It will mirror the Tailscale page's structure — platforms (macOS, Linux), the printed-not-run privileged steps, private exposure, trust following the plugin's record — and name what differs: the control server is yours, so the vendor-docs links and the failure modes are yours too. Open question this page must answer during migration: exactly which settings fields the plugin exposes for the login-server URL today.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/headscale/package.json` — the manifest, including its privileged steps
+- `packages/plugins/headscale/src/index.ts` — the plugin's join/publish implementation
+- `docs/superpowers/specs/2026-09-16-network-plugins-phase-2-3-design.md` — where headscale sits in the phase plan

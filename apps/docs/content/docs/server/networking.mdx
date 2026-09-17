@@ -1,0 +1,16 @@
+---
+title: Networking & Addresses
+description: Which addresses can reach the server and sign in from a browser — bind, base URL, and the trusted-origin allowlist.
+---
+
+This page will untangle the three addresses people conflate: what the server binds (`HOST`, default all interfaces), what it calls itself (`APP_BASE_URL`, also the passkey rpID), and what browsers may use (the trusted-origin allowlist, derived live from the instance's own addresses, the operator's extras, and network plugins' published records — never from the request's own Host, which is the DNS-rebinding hole the list closes). It will diagnose the 403 "Invalid origin" sign-in failure by name and fix it with the right lever, and position mesh networks (the Network Plugins section) as the way to make a private address trustworthy.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `.claude/rules/security-context.md` §"Which addresses a browser may use" — the derived list, canonicalization, and the wildcard refusal
+- `docs/security.md` §8 "Network boundary" — the authoritative posture
+- `README.md` §Browsing from another machine — the 403 symptom and its fix, in user words
+- `apps/server/api/src/services/trusted-origins.ts` — the live registry the page describes

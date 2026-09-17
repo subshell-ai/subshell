@@ -1,0 +1,274 @@
+# Docs site deploy (apps/docs → https://docs.subshell.sh).
+#
+# The docs site lives OUTSIDE the four release components and this is why it
+# has its own workflow rather than a fifth entry in release.yml's app table:
+# `docs-vX.Y.Z` is cut HERE, there is no draft-release half at all — what
+# ships is a static export (`apps/docs/out/`) deployed to Cloudflare Workers
+# static assets (apps/docs/wrangler.jsonc), so for docs a deploy IS the
+# release — and the retry semantics differ: a docs tag already on this commit
+# means "redeploy" (below), where for release.yml it would mean "skip".
+#
+# Flow:
+#   ci-gate — wait for THIS commit's push-triggered Test + Lint runs and
+#             refuse anything but success. A dispatch can land while that CI
+#             is still running, or after it went red; deploying either would
+#             publish an unverified tree. `skip_ci_gate` is the loud,
+#             emergency-only opt-out.
+#   plan    — refuse any run not on refs/heads/main, resolve the version
+#             exactly as release.yml's plan job does (a `-f version=` that
+#             disagrees with apps/docs/package.json would tag one version
+#             and deploy another), then own the tag in three cases: absent →
+#             create and push; present AT THIS COMMIT → redeploy; present at
+#             another commit → refuse (delete the tag to re-cut). Re-dispatch
+#             converges, same rule the release cut lives by.
+#   build   — static export via turbo, asserted, uploaded as `docs-out`.
+#   deploy  — wrangler pushes apps/docs/out to the custom domain, and the run
+#             summary names the URL.
+name: Docs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override — blank = read apps/docs/package.json"
+        type: string
+        required: false
+        default: ""
+      skip_ci_gate:
+        description: "Deploy without waiting on this commit's Test + Lint runs (emergency only)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+# Deploys serialize: two concurrent runs would race the same tag and overwrite
+# each other's assets on one custom domain, and a half-finished deploy is the
+# broken site — so not cancel-in-progress, the same reason release.yml says no.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  ci-gate:
+    name: CI gate (Test + Lint on this commit)
+    runs-on: ubuntu-24.04
+    # Waiting IS the job: the script's own deadline (55 min) bounds it and
+    # this ceiling sits above that, because a full Test run is the wait.
+    timeout-minutes: 60
+    # Reads no repo content — it only asks the Actions API about OTHER runs.
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for Test + Lint to finish green on ${{ github.sha }}
+        env:
+          SKIP: ${{ inputs.skip_ci_gate }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # In the job body rather than a job-level `if:` on purpose: `if:`
+          # SKIPS the job, and a skipped job makes every `needs: ci-gate`
+          # downstream skip too — the escape hatch would skip the deploy.
+          if [ "$SKIP" = "true" ]; then
+            echo "::notice::CI gate skipped on request (skip_ci_gate=true) — deploying an unverified commit"
+            exit 0
+          fi
+          API="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows"
+          DEADLINE=$(( $(date +%s) + 55 * 60 ))
+          # The workflow FILE ids, not display names: names are labels people
+          # can rename; the file a run came from is stable. Both are resolved
+          # by head_sha AND event=push — docs deploys off main, and main's CI
+          # is the push runs, never the pull_request ones (a PR run for the
+          # same code tested a different merge tree).
+          for wf in test.yml lint.yml; do
+            echo "→ waiting for $wf on $GITHUB_SHA"
+            while :; do
+              resp=$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
+                "$API/$wf/runs?event=push&head_sha=$GITHUB_SHA&per_page=10" 2>/dev/null || echo '{}')
+              # Newest first is the list's own order; the head_sha filter is
+              # belt-and-braces because the API has matched loosely elsewhere.
+              run=$(printf '%s' "$resp" | jq -c --arg sha "$GITHUB_SHA" \
+                'first((.workflow_runs // [])[] | select(.head_sha == $sha)) // empty' || echo '')
+              status=$(printf '%s' "${run:-null}" | jq -r '.status // "absent"')
+              conclusion=$(printf '%s' "${run:-null}" | jq -r '.conclusion // ""')
+              url=$(printf '%s' "${run:-null}" | jq -r '.html_url // "?"')
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  echo "✓ $wf succeeded ($url)"
+                  break
+                fi
+                # Every non-success counts as a refusal, cancelled and skipped
+                # included: this gate asks "did CI pass THIS commit", and a
+                # cancelled run did not.
+                echo "::error::$wf on $GITHUB_SHA concluded '$conclusion' — refusing to deploy ($url)"
+                exit 1
+              fi
+              # absent (queued) and in_progress both keep waiting; the
+              # deadline is the answer for a run that never arrives — a push
+              # whose CI was never scheduled must not deploy silently either.
+              if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+                echo "::error::$wf on $GITHUB_SHA never completed (last status: $status) — refusing to deploy"
+                exit 1
+              fi
+              sleep 30
+            done
+          done
+
+  plan:
+    name: Plan the deploy
+    needs: ci-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      tag: ${{ steps.compute.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: compute
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Dispatch is currently main-only, but the rule is stated rather
+          # than assumed from the button: a future `branches:` filter or a
+          # hand-tag of a side branch must not become a deploy of it.
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::docs deploys off main only — this run is on $GITHUB_REF"
+            exit 1
+          fi
+          pkgversion=$(jq -r .version apps/docs/package.json)
+          version=$(printf '%s' "${VERSION_INPUT:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          version="${version:-$pkgversion}"
+          # release.yml's plan job refuses this for the same reason, verbatim:
+          # everything downstream reads package.json, so an override that
+          # disagrees tags one version and deploys another's bytes.
+          if [ "$version" != "$pkgversion" ]; then
+            echo "::error::version=$version disagrees with apps/docs/package.json ($pkgversion) — merge the changesets version PR first, or drop the override"
+            exit 1
+          fi
+          tag="docs-v$version"
+          # The EXACT ref, not any ls-remote match: a hand-made annotated tag
+          # would peel (refs/tags/X^{}), and this workflow only ever creates
+          # lightweight ones — like release.yml, `git tag -f` at a commit.
+          sha=$(git ls-remote --tags origin "refs/tags/$tag" |
+                awk -v ref="refs/tags/$tag" '$2 == ref { print $1; exit }')
+          if [ -z "$sha" ]; then
+            # `-f` and the non-forced push, both copied from release.yml's
+            # plan job: `-f` because a self-hosted runner REUSES its workspace
+            # (a tag deleted upstream can survive locally, and the question
+            # above went to the REMOTE); hosted runners start clean, where the
+            # flag is a no-op. The push stays non-forced, so a tag that DOES
+            # exist upstream is never clobbered by this line.
+            git tag -f "$tag" "$GITHUB_SHA"
+            git push origin "$tag"
+            echo "tagged $tag at $GITHUB_SHA"
+          elif [ "$sha" = "$GITHUB_SHA" ]; then
+            # The redeploy path: a fixed broken deploy is re-dispatched on the
+            # SAME commit, and that commit's tag is the state of this deploy,
+            # not evidence of a different one.
+            echo "::notice::$tag already exists on this commit — redeploying"
+          else
+            echo "::error::$tag already published at $sha — delete the tag to redeploy"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build the static export
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      # next's bin carries a `#!/usr/bin/env node` shebang — same reason
+      # lint.yml pins node: a runner image floats its own node, and the
+      # pinned version (the root package.json's `engines.node`) is the
+      # contract, not the image's mood.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      # --force is deliberate, the rule release.yml states for its npm shard:
+      # turbo.json's build task declares no `outputs`, so a cache hit restores
+      # NOTHING — a deploy must never trust that whatever sits in out/ came
+      # from this checkout.
+      - name: Build
+        run: bunx turbo run build --filter=@internal/docs --force
+
+      # A deploy that uploads nothing is invisible: Cloudflare keeps serving
+      # the previous content and the run still goes green. The assertion names
+      # the file instead. `_headers` and `_redirects` ship in public/ and are
+      # copied by the export, so they are checked at the same path they serve
+      # from.
+      - name: Assert the export
+        run: |
+          for f in apps/docs/out/index.html apps/docs/out/_headers apps/docs/out/_redirects; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f is missing — the static export did not produce it"
+              exit 1
+            fi
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs-out
+          path: apps/docs/out
+          if-no-files-found: error
+          # One run's download, then the export is worthless — the same
+          # self-limiting store the release shards buy with this value.
+          retention-days: 1
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: docs-out
+          path: apps/docs/out
+
+      # Wrangler reads apps/docs/wrangler.jsonc from here: an assets-only
+      # Worker (no script, nothing to build), so `deploy` uploads ./out and
+      # moves the custom domain. The token is a scoped API token with
+      # Workers:edit; no project secret is bound by this app.
+      - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/docs
+          command: deploy
+
+      # The URL is the custom domain from wrangler.jsonc, not the action's
+      # `deployment-url` output: a custom-domain Worker has no stable
+      # workers.dev hostname for that to name.
+      - name: Record the deploy
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          {
+            echo "### Docs deployed"
+            echo "- Tag: \`$TAG\`"
+            echo "- URL: https://docs.subshell.sh"
+          } >> "$GITHUB_STEP_SUMMARY"

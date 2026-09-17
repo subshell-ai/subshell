@@ -1,0 +1,16 @@
+---
+title: Writing a Harness Plugin
+description: Teach Subshell to drive a new agent CLI — the factory, the manifest, capabilities, and the host object.
+---
+
+This page will be the walkthrough for an agent-harness plugin: the `subshell` block in package.json that IS the plugin's identity (id, entry, detection data — a machine can be probed for your binary without your code ever loading), the default-exported factory that receives a `PluginHost`, and the capability model — you build argv for the pane, declare what you support (resume, MCP registration, preset validation), and a plugin claiming a capability it does not implement is refused at load rather than silently launching a fresh conversation where it meant to resume. It will teach the two rules learned the hard way: a plugin can import nothing of ours at runtime (everything arrives through the host), and a plugin never names a program of its own on the pane's machine — anything it needs to RUN arrives as a host-resolved command. The built-in plugins are the worked examples.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `AGENTS.md` §"Plugins are packages, and the control plane loads them" — the three measured facts about the shape
+- `packages/plugin-api/src/types.ts` — the factory, host, and capability types the page teaches against
+- `packages/plugins/claude-code/src/index.ts` — a complete built-in harness plugin to copy from
+- `packages/plugins/claude-code/package.json` — a manifest as shipped

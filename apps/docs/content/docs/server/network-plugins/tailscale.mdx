@@ -1,0 +1,16 @@
+---
+title: Tailscale
+description: Reach your server over your tailnet — joining, publishing, and what the plugin does and never does.
+---
+
+This page will cover the Tailscale plugin: installing and controlling Tailscale on the control-plane host through the plugin's described steps (the root install steps are PRINTED, not run — every mesh daemon needs one root install and the server has no terminal for a password prompt), logging in to your tailnet with the interactive flow, and publishing Subshell on the machine's tailnet address, which makes that address sign-in-trusted the moment the publish records it. It will note the platform matrix (macOS and Linux), the macOS-app nuance the design records settled, and that Serve-style HTTPS publishes the machine's name into public certificate logs — said before you click, not after.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/tailscale/package.json` — the manifest: platforms, exposure, interactive login, privileged steps
+- `docs/superpowers/specs/2026-09-16-tailscale-macos-app-design.md` — the macOS app integration decisions
+- `packages/plugins/tailscale/src/index.ts` — what the plugin implements
+- `docs/security.md` §11.13 — the sudo boundary and origin-trust rules every plugin page inherits

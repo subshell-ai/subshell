@@ -1,0 +1,16 @@
+---
+title: Notifications
+description: Push alerts when an agent needs attention — the harness bell, per-user switches, and the mobile companion.
+---
+
+This page will explain how an agent flags you when it is done or stuck: a harness reports attention through the subshell's own credential, and pushes go only to the subshell's owner's devices — sharing widens who can watch, never who gets pushed. It will cover the two switches (the per-user master toggle and the per-subshell bell), delivery to the native mobile companion, and the desktop app's own notifications. Open question to settle while writing: exactly which harness hooks report which attention states today, since the report surface is driven per plugin.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §5 — "Notifications do not follow shares"
+- `docs/superpowers/specs/2026-08-30-harness-notifications-design.md` — the attention-reporting design
+- `apps/server/api/src/api/notifications.route.ts` — the subscription endpoints behind push delivery
+- `apps/client/mobile/AGENTS.md` — how the companion receives and displays them

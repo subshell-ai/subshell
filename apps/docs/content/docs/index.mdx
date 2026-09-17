@@ -1,0 +1,25 @@
+---
+title: Home
+description: Subshell runs your interactive coding agents in tmux panes on machines you own — launch them from a browser, watch and steer them from your phone.
+---
+
+Subshell is a web application for creating, viewing, and managing interactive **agent subshells**: real CLI coding agents — Claude Code, OpenCode, Codex, Hermes, pi — running in tmux-backed terminal panes on machines you own. Launch an agent from the browser before you leave the desk; watch its pane and type into it from your phone on the couch; get a push when it needs a decision. The panes survive your laptop closing, no one else's cloud sits between you and your agents, and the server is one binary you host yourself.
+
+## Start here
+
+| If you want to… | Go to |
+|---|---|
+| install and run your first subshell — headless, desktop app, or Docker | [Get Started](/get-started) |
+| see which agent CLIs Subshell can drive and how each plugs in | [Agents](/agents) |
+| run agents on more than one machine | [Nodes](/nodes) |
+| understand what the trusted-network posture defends, and what it does not | [Security Model](/about/security-model) |
+
+## Three words first
+
+Subshell uses three words with exactly one meaning each, and all of these docs follow them:
+
+- A **server** is a *control plane* — the API, its database, and the web UI it serves. It is not a machine that runs agents.
+- A **node** is a *machine that runs agents* — any host enrolled to execute panes on the control plane's behalf.
+- A **client** is *a person's interface* to a control plane — the web UI, the phone app, the desktop app.
+
+One machine can be all three at once — it's normal for the server host to run its own agents — and the docs say so every time. [What is Subshell](/about) explains the concepts; the [Quickstart](/get-started) is one page.

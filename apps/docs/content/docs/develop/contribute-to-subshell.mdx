@@ -1,0 +1,16 @@
+---
+title: Contributing to Subshell
+description: Set up the dev loop — the Bun monorepo, one watch command, and the verification trio every change must pass.
+---
+
+This page will be the contributor's first hour: clone, `bun install`, `bun run start` for the whole stack (backend on :3080, Vite on :5174), where things live (the apps tree is grouped by the three product words), and the loop every change goes through — `bun run verify-types`, `bun run lint:check`, `bun run test`, plus `bun run rust:check` when Rust moves and `bun run test:cli` when CLI behavior does. It will cover biome (fix with `lint`, verify with `lint:check`), lefthook's pre-push pair with CI owning the suite, changesets for user-visible work in the four released apps, and the one-time CLA every PR needs. It carries the repo's standing rules in brief — pinned versions, no dynamic imports, files that earn their size — and points at `AGENTS.md` as the source of truth it summarizes.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `AGENTS.md` — the whole operational document this page condenses
+- `README.md` §Dev — the quick dev loop and why the desktop apps are not in it
+- `.claude/rules/verification.md` — the verification commands and their traps
+- `CLA.md` — the one-time contributor agreement

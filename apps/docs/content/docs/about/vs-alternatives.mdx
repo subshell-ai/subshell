@@ -1,0 +1,15 @@
+---
+title: Subshell vs. Alternatives
+description: How Subshell compares to running agent CLIs by hand, to tmux-and-SSH workflows, and to hosted agent products.
+---
+
+This page will position Subshell for someone choosing how to run coding agents: versus driving an agent CLI directly in a terminal, versus a plain tmux-over-SSH setup, versus hosted "agents in the cloud" products, and versus terminal multiplexer companions like web front-ends for tmux. The honest axes are durability (panes survive your laptop closing), reach (a phone on your own network), orchestration (agents messaging each other over encrypted channels), and what each option does with your credentials. The comparison itself is open editorial work: the repository describes what Subshell is and never enumerates its alternatives, so this page needs a candidate list and fairness pass decided by the maintainers before it can be written.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `README.md` — the feature summary every comparison should stay consistent with
+- `docs/overview.md` §Status — what has actually shipped, so claims here do not outrun it
+- `docs/overview.md` §Security posture — the "trusted network, not internet-grade" line that distinguishes Subshell from hosted products

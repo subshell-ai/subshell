@@ -1,0 +1,16 @@
+---
+title: REST API
+description: Scripting the control plane over HTTP — auth paths, the live OpenAPI docs, and the type surface you can build against.
+---
+
+This page will be the doorway for API users: every surface is REST/JSON under `/api` (better-auth at `/api/auth/*`), documented live by an OpenAPI page at `/docs` on your own instance, and callable with a session cookie, a system key, or — for a pane's own routes — that pane's subshell token. It will map the route families (subshells, nodes, presets, channels, workspaces, devices, settings, admin), state the rules that surprise people (admin surfaces refuse bearer keys; a node key can do nothing on REST; sharing is cookie-only), and explain the licence carve-out that makes building a client safe: the API's TypeScript type surface may be used under Apache-2.0 even though the server is AGPL.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `apps/server/api/src/api/routes.ts` — the route tree the page maps
+- `README.md` §Docs / API — the live OpenAPI docs and the reference set
+- `AGENTS.md` §"The API Type Surface exception" — the licence permission an SDK author needs to know
+- `.claude/rules/security-context.md` §Authentication — which credential reaches which surface

@@ -1,0 +1,15 @@
+---
+title: Supported Platforms
+description: Which operating systems and architectures can run the control plane, the node agent, and the desktop apps.
+---
+
+This page will list what you can install Subshell on and what each platform gets: the control plane and node agent as self-contained binaries for `linux-x64`, `linux-arm64` and `darwin-arm64` (Apple silicon Macs — Intel Macs are not built), the desktop apps for macOS 13+ (Apple silicon) and Linux x86_64, and the floor those artifacts set — glibc 2.39, which rules out Ubuntu 22.04 and Debian 12. It will also state the universal requirements: tmux 3.2+ on every machine that runs a pane, and an agent CLI where you want an agent. Browsers and mobile are covered by what the web UI supports rather than an install list.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `README.md` §Desktop apps table and §Requirements — app artifacts per platform and the tmux/Bun floor
+- `AGENTS.md` §"Everything runs on GitHub-hosted runners" — the glibc 2.39 floor and why it exists
+- `AGENTS.md` §"Publishing subshell binaries (Nodes)" — the three served triples and the no-Intel-Mac rule

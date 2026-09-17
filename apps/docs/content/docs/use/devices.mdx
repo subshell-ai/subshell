@@ -1,0 +1,16 @@
+---
+title: Devices
+description: The screens attached to a pane, why the pane is the size it is, and naming your phone.
+---
+
+This page will cover presence and devices: every browser attached to a subshell announces itself with a chosen device name (defaulted from the browser — "Safari on iPad"), and everyone attached sees that list, which is why a shared pane tells you who else is watching. It will explain what a device's entry means — which grid it displays, when it attached, whether it is being rendered, whether it may type — and how the server turns those facts into one answer: the pane's size, always the smallest visible viewer that can type. The Devices list is where "why does this look tiny on my desktop" gets its explanation.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/overview.md` §Key decisions, "Several viewers" — the shared sizing rule and the disclosure
+- `docs/security.md` §5 "Sharing" — the viewers-frame disclosure accounted as a widening
+- `apps/server/web/src/lib/device-name.ts` — where device names are defaulted and normalized
+- `apps/server/api/src/api/devices.route.ts` — the endpoint the Devices list reads

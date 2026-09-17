@@ -1,0 +1,5 @@
+{
+  "title": "About",
+  "defaultOpen": true,
+  "pages": ["index", "how-it-works", "security-model", "vs-alternatives", "supported-platforms"]
+}

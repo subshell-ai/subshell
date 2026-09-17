@@ -1,0 +1,15 @@
+---
+title: Reset
+description: Tear the instance down from its own machine — what a reset deletes, what it never touches, and the confirmation that gates it.
+---
+
+This page will cover the one destructive act, deliberately kept off the network: "Reset this server" lives in the dashboard's danger zone but executes in the Subshell Server desktop assistant, which lists every path the reset deletes, arms only after you type this machine's hostname, and refuses a delete that would swallow the installed binary. It will state what a reset removes — service definition, instance data, this app's choices — and what it never reaches: enrolled remote nodes (they keep their keys and keep running), a same-machine node agent, and the installed `subshell-server` binary itself. The CLI path and the app path should be shown side by side.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `README.md` §Desktop apps — the danger-zone card and the typed-hostname confirmation
+- `apps/server/desktop/AGENTS.md` — the assistant's reset screen: paths, refusals, what survives
+- `docs/superpowers/specs/2026-09-11-native-reset-both-desktop-apps-design.md` — the reset design across both apps

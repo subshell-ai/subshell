@@ -1,0 +1,15 @@
+---
+title: Presets
+description: Saved launch settings per harness — environment variables, CLI flags, and config isolation.
+---
+
+This page will cover presets: optional saved launch settings for a harness — env vars, CLI flags, settings JSON, and config-source isolation so two subshells of the same agent can keep separate state. It will show where they are edited, how a launch uses one (a launch needs only an agent and a folder; a preset is always optional), the preset env vars merging on top of the curated environment, and that a fresh instance has none and every preset is deletable. For hermes and pi, the preset editor is also where the one-time MCP registration command is shown.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/superpowers/specs/2026-09-13-presets-design.md` — the preset model as designed and built
+- `README.md` §Presets bullet — the user-facing field list
+- `apps/server/api/src/api/presets.route.ts` — the API surface the settings screens drive

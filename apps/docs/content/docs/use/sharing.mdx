@@ -1,0 +1,16 @@
+---
+title: Sharing
+description: Grant another user view or edit access to a subshell, and know exactly what that exposes.
+---
+
+This page will cover who can see and interact with a subshell. Default is private — invisible (404, not 403) to everyone but its owner. The owner grants view (read-only live terminal) or edit (view plus typing, rename, restart) to Everyone or to named users, from the sharing dialog; delete, re-sharing and the notification bell stay owner-only, admins included. It will state plainly what a share exposes: everything on the pane, pasted secrets included, and at edit the keystroke stream — plus the presence disclosure that everyone attached to a shared subshell sees everyone else's device names. Sharing is a browser act: machine tokens cannot share or act on shared subshells.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §5 "Sharing" — the grant model and "what a share actually exposes"
+- `.claude/rules/security-context.md` §"Subshell sharing" — the rules in working-summary form
+- `docs/superpowers/specs/2026-08-31-session-sharing-and-notification-defaults-design.md` — the designed model
+- `README.md` §Sharing — the user-facing summary

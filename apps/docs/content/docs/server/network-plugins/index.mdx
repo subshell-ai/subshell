@@ -1,0 +1,16 @@
+---
+title: Overview
+description: Network plugins connect the control plane to a mesh network and publish it there — described by the plugin, executed by the host.
+---
+
+This page will explain network plugins as a category: the same plugin system, pointed at reaching your server instead of driving an agent. Four ship built in — Tailscale, Headscale, NetBird, Cloudflare Tunnel — each connects the control-plane host to one network and publishes Subshell on it, so the address you used to discover through a 403 becomes trusted the moment the plugin's record earns it. The page will carry the two design rules that make third-party code safe here: a plugin DESCRIBES (argv, output parsing, naming a secret) and the host EXECUTES every effect through a bounded, audited door; and the sudo boundary is absolute — privileged steps are printed for a human, never run, because the server has no terminal to answer a password prompt.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/superpowers/specs/2026-09-15-network-plugins-design.md` — the category's design
+- `docs/security.md` §11.13 "Network plugins publish this server on a network" — the full accounting
+- `apps/server/api/src/api/network/` — the route surface (join, publish, unpublish, leave, settings)
+- `packages/plugins/tailscale/package.json` — a `type: "network"` manifest, the shape the page describes

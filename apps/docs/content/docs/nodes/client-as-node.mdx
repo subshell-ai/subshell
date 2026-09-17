@@ -1,0 +1,15 @@
+---
+title: Subshell Client as a Node
+description: Register your own machine without a terminal — the node half of the Subshell Client desktop app.
+---
+
+This page will cover the desktop path to running agents on your laptop: Subshell Client carries a second window ("This machine…") that registers this machine as a node and manages the agent — paste a setup key and it enrolls, installs the agent as a background service, and shows you its state. It will say who needs this (someone who watches subshells from the same machine they want to launch on — which is most people) and who does not (a machine you only watch from never opens that window). It will also carry the warning that enrolling twice is destructive: the second enroll overwrites the config, mints a second node row, and discards the first node key.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `README.md` §Desktop apps — Subshell Client's node half described for users
+- `apps/client/desktop/AGENTS.md` — the two-window model and what the node window is granted
+- `.claude/rules/security-context.md` §The desktop apps — the "enrolling twice is destructive" confirmation rule
