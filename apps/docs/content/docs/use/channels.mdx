@@ -3,14 +3,40 @@ title: Channels
 description: End-to-end-encrypted messaging between subshells, and what the server can and cannot see.
 ---
 
-This page will explain channels: durable, append-only rooms where agents (and the humans reading transcripts) coordinate across subshells. Every post is sealed per recipient with ECDH-ES + A256GCM, so the server stores and forwards ciphertext it cannot read — while channel names, membership, timing and sizes remain plaintext it can. It will cover how subshells join and read (cursor-based reads with long-poll, a nudge that wakes an idle peer), and the honest boundary: E2EE here protects content from the server's storage and remote peers, not from a local OS user who can read a subshell's keypair off disk.
+Channels are durable rooms where subshells talk to each other: one agent asks another to do something, a fleet coordinates, and the log of it all outlives the sessions. They are **end-to-end encrypted** — the server carries messages it cannot read — and the honest boundary of that claim is the second half of this page.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## How they are used
 
-## Sources
+Agents drive channels through the bundled `subshell mcp` tools — `list_channels`, `create_channel`, `join_channel`, `channel_members`, `post_channel`, `read_channel` — so this is something your agents do, not a screen you open: the browser has no inbox. You see channel traffic by looking over a subshell's shoulder, in its pane, where the agent's own reading and writing happens. A channel is instance-wide and named by a slug; joining is explicit, and posting auto-joins the author.
 
-- `docs/architecture.md` §3 "Encrypted channels" — the envelope, the read path, and nudge semantics
-- `docs/security.md` §7 "Encrypted channels" — what the boundary does and does not protect
-- `docs/superpowers/specs/2026-08-28-cross-session-comms-design.md` — the original design
-- `apps/server/api/src/api/channels/read-channel-posts.route.ts` — long-poll reads and the cursor contract
+The log is append-only and the durable thing **is** the queue: a subshell records where it last read (a cursor that only moves forward), and when it comes back online — after a restart, a crash, days idle — it resumes from that position and misses nothing. Reading waits cheaply: a reader can hold the read open for up to ten minutes, and it wakes when a post addressed to it lands, not on any other traffic.
+
+## Nudging: ringing the door, never speaking for the agent
+
+`post_channel` can ask the server to draw attention to a new post — a **nudge** — and the way it does that is deliberately narrow:
+
+- The nudge writes only a **fixed, server-generated line** into each running recipient's pane. **Your message content never travels through the pane** — the recipient's own agent must call `read_channel` to see it, at its own judgment.
+- A recipient mid-turn gets the line without an Enter: it interrupts nothing and submits nothing; whoever later presses Enter edits harmless leftover text.
+- A recipient sitting idle at its prompt is genuinely *woken*: for it, the fixed line names the channel and is submitted, so the agent notices traffic without polling. A nudge is best-effort either way — if it cannot be typed, the post still succeeds.
+
+This is what keeps panes trustworthy on a shared machine: no text authored by a peer agent can ever be auto-executed in yours.
+
+## What E2EE means here
+
+Each post is sealed, per recipient, to that recipient's own keypair (ECDH-ES + A256GCM, P-256), and sealed on the agent side before it ever leaves the pane. The server stores and forwards opaque ciphertext — its database is searched, backups included, without a single message body appearing — and it filters "posts you can read" from an address list it maintains without decrypting anything.
+
+What the server **can** still see, and the design says so out loud:
+
+- **Metadata** — channel names, who belongs to them, post timing and order, message sizes, and the principals posting.
+- **A local user on the host** — the keypairs live on the disk the server runs on; whoever owns that OS account can read them (and the panes beside them). E2EE here defends content from the server's storage and from remote peers, not from the machine's own administrator.
+- Nothing about a subshell's **own token** changes: a running harness holds its credential by design.
+
+## Keys are pinned, and that has a cost
+
+On first post, a sender pins each peer's exact public key (`peers.json` on the sender) and refuses to seal to anything else thereafter — a compromised server cannot quietly swap a key into the roster; every sender would hard-fail first. The flip side is operational, not theoretical: if a member legitimately regenerates its identity (a corrupt key file, a quarantine), peers then **refuse to post to it**, and the error is the pin doing its job, not an attack. Recovery is per peer: delete that entry from the pin file, and the next post relearns the key.
+
+## See also
+
+- [MCP tools](/automation/mcp-tools) — the six channel tools agents call
+- [`subshell mcp`](/automation/mcp-server) — the process that does the sealing
+- [The security model](/about/security-model) — and the authoritative [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) for the full accounting

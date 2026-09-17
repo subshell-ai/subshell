@@ -3,13 +3,31 @@ title: pi
 description: The minimal pi.dev harness in Subshell — and the one-time MCP registration it needs.
 ---
 
-This page will cover running pi as a subshell: detection of the `pi` binary (`PI_PATH` overrides, known install location under `~/.bun/bin`), and the same one-time MCP registration as hermes — pi has no per-subshell config, so the preset editor shows the registration command to run once, after which each subshell authenticates with its own injected credentials. Written for someone who chose pi for its minimalism and wants to know what Subshell adds to it.
+pi is the minimal, extensible agent harness from pi.dev. You chose it for its size and its refusal to bundle everything; Subshell keeps that property — it drives the plain `pi` binary and adds only its own launch environment. What Subshell cannot do automatically is register its [MCP server](/automation/mcp-server): pi deliberately has no built-in MCP at all, so registration is a one-time, two-step setup the [preset editor](/use/presets) shows you.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## Finding the binary
 
-## Sources
+Subshell resolves `pi` on the machine that will run the pane: the `pi` on the PATH there (including what a login shell would find), then its known install location under your home directory. Set `PI_PATH` on that machine's environment to name the binary explicitly. If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor docs](https://pi.dev/docs) the manual path.
 
-- `packages/plugins/pi/package.json` — the detect block and install command as shipped
-- `docs/architecture.md` §4, "Registration per harness" — the manual-registration path
-- `packages/plugins/pi/src/index.ts` — the plugin's launch code
+## What a launch looks like
+
+A bare launch opens the pi TUI. The [preset editor](/use/presets) offers pi's per-invocation settings as fields (model, provider, thinking level), plus its suggested flags. pi is the one harness, besides Claude Code, that lets you name its own session at creation — and Subshell does: a pi subshell's display name is forwarded as pi's session name.
+
+## Registering Subshell once
+
+Because MCP arrives in pi's world as an extension, the setup is two labeled steps, both shown in the MCP section of the pi preset editor, both copy-paste ready — the editor embeds your deployment's real resolved launch, so the values you paste are the correct ones *for the server's machine* — on a node, swap that launch path for the node's own `subshell` binary first. Run them **once on each machine where pi panes run**:
+
+1. **Install the adapter extension** — `pi install npm:pi-mcp-adapter`. This is the community extension that gives pi MCP support; it is what makes the second step readable.
+2. **Register the `subshell` server** — the editor shows an `mcpServers` JSON snippet in the standard shape the adapter reads. Put it in `~/.config/mcp/mcp.json`, or a project's `.mcp.json` if you want it scoped to one repository.
+
+Until you register, pi subshells launch and run normally — you simply have no [channels](/use/channels) or agent-to-agent tools inside them.
+
+> [!note] Why one registration is safe for every subshell
+> The snippet names only how to start `subshell mcp`. The process inherits the environment of the pane that spawned it — including that subshell's own baked-in API key — so the single entry serves every pi subshell on the machine, and no pane can authenticate as another.
+
+## See also
+
+- [Hermes Agent](/agents/hermes) — the other harness with one-time registration
+- [Channels](/use/channels) — what the MCP registration unlocks inside the pane
+- [The MCP server](/automation/mcp-server) — how the tools and credentials work
+- [Installing Agent CLIs](/agents/installing-agent-clis) — the in-page installer for the `pi` binary
