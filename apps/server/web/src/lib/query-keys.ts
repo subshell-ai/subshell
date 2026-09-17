@@ -69,3 +69,11 @@ export const DESKTOP_PERMISSIONS_QUERY_KEY = ["desktop-permissions"] as const;
  * `useSetupProgress`, written via `useSetSetupProgress`. Spec 2026-09-16.
  */
 export const SETUP_PROGRESS_QUERY_KEY = ["setup-progress"] as const;
+
+/**
+ * The desktop app's own update (`desktop_app_update`); read via
+ * `useDesktopAppUpdate`. IPC like `desktop-permissions`, so nothing answers it
+ * in a browser — and a shell older than the command answers nothing either,
+ * which is what the footer row renders as its own absence.
+ */
+export const DESKTOP_APP_UPDATE_QUERY_KEY = ["desktop-app-update"] as const;

@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar";
+import { DesktopAppUpdateRow } from "@/components/desktop/desktop-app-update-row";
 import { DesktopServerPill } from "@/components/desktop/desktop-server-pill";
 import { DragStrip } from "@/components/desktop/drag-strip";
 import { desktopPlatform } from "@/lib/desktop";
@@ -13,6 +14,12 @@ import { cn } from "@/lib/utils";
  * the collapse preference, all riding one SSE feed. A second rail would lose
  * every one of those silently and then drift, so this changes the chrome and
  * keeps the machine.
+ *
+ * The footer's two rows ride `footerEnd`, which is also where "only Subshell
+ * Server" comes from: `__root.tsx` renders this rail on `isServerDesktop()`, so
+ * a row mounted here cannot appear in Subshell Client's window or a browser —
+ * and both rows below describe this app, which the client window has no
+ * authority to speak about.
  */
 export function DesktopSidebar() {
   const macos = desktopPlatform() === "macos";
@@ -23,7 +30,12 @@ export function DesktopSidebar() {
       // Room for the traffic lights, which now float over the rail's top strip.
       className={cn(macos && "[&>div:nth-child(2)]:pt-7")}
       headerAbove={macos ? <DragStrip /> : undefined}
-      footerEnd={({ collapsed }) => <DesktopServerPill collapsed={collapsed} />}
+      footerEnd={({ collapsed }) => (
+        <>
+          <DesktopServerPill collapsed={collapsed} />
+          <DesktopAppUpdateRow collapsed={collapsed} />
+        </>
+      )}
     />
   );
 }
