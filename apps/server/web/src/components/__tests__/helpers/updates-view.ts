@@ -2,15 +2,15 @@ import type { StartServerUpdate } from "@/hooks/use-updates";
 import type { NodeUpdateRow, NodeUpdates, ServerUpdateView, UpdatesView } from "@/types/updates";
 
 /**
- * A complete `GET /api/admin/updates` body, for the Updates page's cards.
+ * A complete `GET /api/admin/updates` body, for the Updates page's table.
  *
- * Shared by every card test rather than re-typed in each: the view is large
- * and mostly irrelevant to any one card, so a per-file copy would be three
- * copies drifting away from the route's schema at three different rates —
- * the reason `deployment-view.ts` exists beside it.
+ * Shared by every row test rather than re-typed in each: the view is large
+ * and mostly irrelevant to any one row, so a per-file copy would be several
+ * copies drifting away from the route's schema at different rates — the
+ * reason `deployment-view.ts` exists beside it.
  */
 
-/** The server card's half, at the ordinary "an update is available" state. */
+/** The Server row's half, at the ordinary "an update is available" state. */
 export function serverUpdateView(over: Partial<ServerUpdateView> = {}): ServerUpdateView {
   return {
     source: { url: "https://api.github.com/repos/subshell-ai/subshell/releases?per_page=100", enabled: true },
@@ -69,7 +69,7 @@ export function updatesView(over: Partial<UpdatesView> = {}): UpdatesView {
   };
 }
 
-/** An update handle that is idle and records nothing — for cards that only render it. */
+/** An update handle that is idle and records nothing — for rows that only render it. */
 export const idleUpdate: StartServerUpdate = {
   outcome: "idle",
   error: null,

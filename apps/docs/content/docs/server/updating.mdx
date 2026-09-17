@@ -41,7 +41,7 @@ The whole verb is ten steps and nine of them are refusals — a checkout-run ser
 
 ## From the dashboard
 
-**Settings → Updates** shows what this instance runs, what it could run, and one press per thing that changes it — the server, each enrolled node, and the desktop apps' own rows. The server card drives `POST /api/admin/server/update`:
+**Settings → Updates** shows what this instance runs, what it could run, and one press per thing that changes it — the server, each enrolled node, and the desktop apps' own rows, all in one Components table. The Server row drives `POST /api/admin/server/update`:
 
 - **Cookie-admin only** — a bearer credential, even a system key, is refused. Administration is a human act.
 - **The URL comes from the release index, never from the request.** You can select among published releases; you cannot name an arbitrary address to download from. And because only the *newest* release of a component is indexed, asking for anything else is answered by naming what *is* available.

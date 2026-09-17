@@ -27,7 +27,7 @@ subshell update --from ./subshell-node-cli-linux-x64 --yes
 
 ## Updating from the page
 
-The **Nodes** card under Settings → Updates offers the same thing remotely: owner or `edit` grantee, browser session only, never the control plane host's own row, and audited as a node update. The version it offers is **the newest your plane can actually talk to**, not simply the newest published.
+The **Nodes** section of the Components table under Settings → Updates offers the same thing remotely: owner or `edit` grantee, browser session only, never the control plane host's own row, and audited as a node update. The version it offers is **the newest your plane can actually talk to**, not simply the newest published.
 
 What crosses the wire is a signed `update` command naming a download URL and a digest; the node downloads, hashes, and verifies against values the plane chose — not against anything it is told mid-flight. The URL embeds a one-time download token: held in memory, single-use, ten minutes, bound to that one node and one platform, and refused on the checksum routes. It is not a credential in any general sense — the node key still does nothing on the REST API; this token buys exactly one download of a file the release source publishes publicly anyway.
 
