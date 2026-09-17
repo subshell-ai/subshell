@@ -1093,8 +1093,9 @@ describe("/api/network", () => {
         }),
       );
       expect(left.status).toBe(200);
-      // Leave IS the end of the trust here — the snapshot taken before the
-      // forget is the full set.
+      // Leave IS the end of the trust here, and the v2 pre-act snapshot is
+      // the full set — for a private network the inner unpublish subtracts
+      // nothing, so before-act and before-forget are one and the same.
       expect((await left.json()) as Record<string, unknown>).toMatchObject({
         ok: true,
         origins: ["https://box.ts.net"],
@@ -1141,12 +1142,13 @@ describe("/api/network", () => {
   });
 
   describe("POST /api/network/:id/leave", () => {
-    it("forgets the plugin's origins; a gated network's trust stopped at the inner unpublish", async () => {
-      // The gated half of the pair the private test above pins: a publish DID
-      // put the address in the trust set (seeded here, as the publish route
-      // would have), and it is leave's OWN unpublish step that takes it out —
-      // so by the time the snapshot before the forget is taken, nothing is
-      // left to report. The audit still names the record.
+    it("forgets the plugin's origins, and names what the WHOLE act untrusted", async () => {
+      // R-D-lite v2: leave is a COMPOUND act, and the answer is the
+      // before-click vs after-click transition. A gated published tunnel's
+      // trust dies at the INNER unpublish step — but the ACT ends it, so the
+      // snapshot is taken at request start, before that step. Answering []
+      // here (v1: a pre-forget snapshot) would tell the operator who just
+      // left a published tunnel that nothing stopped being trusted.
       const { entry } = makeFakePlugin();
       setNetworkDepsForTests(fakeDeps(entry));
       setUnpublishDepsForTests({
@@ -1172,7 +1174,7 @@ describe("/api/network", () => {
       expect(res.status).toBe(200);
       expect((await res.json()) as Record<string, unknown>).toMatchObject({
         ok: true,
-        origins: [],
+        origins: ["https://host.example.ts.net"],
       });
       expect(originRegistry().pluginOrigins(FAKE_ID)).toEqual([]);
       const leaves = await auditRows("network.leave");
