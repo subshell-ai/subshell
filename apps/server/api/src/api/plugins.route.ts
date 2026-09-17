@@ -23,6 +23,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
+import { refreshNetworkOrigins } from "@/services/network/origin-refresh.js";
 import { forgetNetworkOrigins, syncNetworkOrigins } from "@/services/network/origins.js";
 import { clearNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
@@ -479,8 +480,10 @@ const adminRoutes = new Elysia()
       await state.setEnabled(params.pluginId, body.enabled);
       if (body.enabled && !was && pluginTypeOf(s.installed.find((r) => r.id === params.pluginId)?.type) === "network") {
         // Re-enabled: whatever the record still holds is trusted again now;
-        // the refresh timer or the page's next read re-learns the rest.
+        // …and one probe, not awaited: a re-enable should trust the tailnet
+        // within seconds, not at the next tick.
         await syncNetworkOrigins(params.pluginId, getNetworkPlugin(params.pluginId)?.manifest.network);
+        void refreshNetworkOrigins(params.pluginId).catch(() => {});
       }
       // A no-change repeat would land an audit row saying nothing happened —
       // the noise stays out of the one log an operator reconstructs from.

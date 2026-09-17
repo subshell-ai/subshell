@@ -39,6 +39,7 @@ import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { prepareNetworkGuards, prepareNetworkProcesses } from "@/services/network/prepare.js";
+import { refreshNetworkOrigins, seedNetworkOrigins, startOriginRefresh } from "@/services/network/origin-refresh.js";
 import { stopAllProcesses } from "@/services/network/supervisor.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
@@ -176,6 +177,16 @@ async function bootServer(): Promise<void> {
     getLogger().withError(err).warn("could not prepare this host's plugins at boot; will retry next start");
   }
 
+  // The trusted-origin registry, from the RECORDS, before the listener: a
+  // network that survived the restart is reachable the millisecond the port
+  // opens, and a browser on it must not be 403'd on the first request. Reads
+  // files only; the daemons are asked after the processes are up.
+  try {
+    await seedNetworkOrigins();
+  } catch (err) {
+    getLogger().withError(err).warn("could not seed the trusted-origin registry from the network records");
+  }
+
   // Network guards go in BEFORE the listener (spec 2026-09-15 network
   // plugins): a tunnel that survived this restart is already resolvable, so
   // the first request over it can arrive in the same millisecond the port
@@ -210,6 +221,16 @@ async function bootServer(): Promise<void> {
   } catch (err) {
     getLogger().withError(err).warn("could not start network plugin processes at boot");
   }
+
+  // ...then ask each daemon what is true now, and keep asking every five
+  // minutes — the one detection timer this codebase runs, argued in
+  // `services/network/origin-refresh.ts`.
+  try {
+    await refreshNetworkOrigins();
+  } catch (err) {
+    getLogger().withError(err).warn("could not refresh the trusted-origin registry at boot");
+  }
+  startOriginRefresh();
 
   // The transaction completes only once this version is SERVING: migrations
   // passing is necessary and not sufficient — a binary that migrates and then
