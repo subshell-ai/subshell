@@ -43,7 +43,19 @@ for i in $(seq 1 60); do
 done
 curl -sf "$BASE/api/setup/status" >/dev/null || { cat "$W/server.log"; fail "server never answered"; }
 ok "server answering on $PORT"
-grep -q "No account yet" "$W/server.log" || fail "boot log did not name /setup"
+# The `/setup` handoff is logged AFTER the listening lines: `index.ts` runs
+# `prepareNetworkProcesses` + `refreshNetworkOrigins` + the `hasAnyUser` count
+# between `startServer` answering the readiness poll above and this line, a
+# few hundred ms on a cold compiled boot. Grepping the log once at the instant
+# the endpoint first answered read as "boot log did not name /setup" while the
+# server was working perfectly — so poll for the line, same as every other
+# eventual fact this script waits on.
+NAMED=no
+for i in $(seq 1 20); do
+  grep -q "No account yet" "$W/server.log" && { NAMED=yes; break; }
+  sleep 0.5
+done
+[ "$NAMED" = yes ] || { cat "$W/server.log"; fail "boot log did not name /setup"; }
 ok "boot log told the operator where to create the account"
 
 echo "== 4. status with a database but no users"
