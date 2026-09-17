@@ -325,9 +325,25 @@ screen (spec 2026-09-15 § 7.2). Four things carry the weight:
   CLI path, where the digest and the bytes come from the same source.
 - **The launch check is once a day and opens nothing.** `settings.json`'s
   `lastUpdateCheckAt` / `lastUpdateVersion` are the whole mechanism
-  (`release_feed::due_for_check`); the only output is the tray item's suffix.
+  (`release_feed::due_for_check`); the only output is the tray item's label.
   A window that appeared on its own because a release was cut is the automatic
   update this design explicitly does not have (spec § 14).
+- **The tray item is two states, and its label says which** (spec
+  2026-09-17 § 5.2). `update_label()` and `tray_update_action()` are pure and
+  split on the SAME non-empty rule, because a label that promises an update
+  whose press only re-checks, or a label that promises a check whose press
+  opens a screen, is the item disagreeing with itself. "Check for Updates…"
+  forces today's background check now — `check_now`, same body as the daily
+  one (`run_check`), same silence, no window — because a person may not want
+  to wait for tomorrow's. "Update available — Subshell Server {version}"
+  opens the assistant at `app-update` through the same deep-link route the
+  dashboard uses, instead of re-checking what it just announced.
+- **The dashboard can now SEE the stored answer** through `desktop_app_update`
+  — the read-only seventh `main` command: no argument, no fetch,
+  `{ currentVersion, availableVersion }` from `PackageInfo` and the one
+  settings field the check writes. It never checks; both update VERBS stay
+  `wizard`-only (spec 2026-09-17 § 5.3; `docs/security.md` carries the
+  accounting).
 - **The check does NOT ride the 1500 ms poll.** Every other fact on the
   assistant is a probe of this machine; this one is a third party. The screen
   asks on its first render and on Check Again, and nothing else.
@@ -883,6 +899,7 @@ src-tauri/src/
 ├── server_bin.rs  # the ladder, ExecStart parsing, bundled-vs-installed policy, SERVER_SIDECAR
 ├── bridge.rs      # the DesktopAction enum and the eval dispatch
 ├── menu.rs        # the macOS menu bar
+├── about.rs       # the native About panel: pure metadata assembly + the Linux one-item window menu
 └── tray.rs        # the tray icon and its menu, including the close-to-tray check item
 ```
 
@@ -966,20 +983,30 @@ Four things about that arrangement are load-bearing:
   a port answering while the service is not running, a teardown that kills
   live panes, a manager that would not answer.
 
-**About is inside Show Details, and it owns no strings.** `desktop_about`
-supplies this app's name, its version, the licence summary and the copyright
-line from `crates/desktop-core/src/legal.rs`, which `scripts/license-fields.ts`
-holds equal to the TypeScript copy and to the root `LICENSE`; the three links
-go out through `desktop_open_web`, a CLOSED enum, so the addresses travel to
-the page for display and never travel back. A third copy in `ui/src` would be
-the one copy that detector cannot see, and a drifted copyright line is
-invisible — nobody re-reads an About box.
+**About is native now, and it owns no strings of its own** (spec 2026-09-17
+§ 6). The predefined About item rides the macOS app menu; Linux, which has no
+app menu, gives the DASHBOARD window a one-item menu bar carrying the same
+item — muda's GTK backend renders a real `AboutDialog` from the metadata, so
+the panel is not macOS-only chrome. Both read one `about::metadata()`
+assembly: a pure function under test, fed the version from `PackageInfo`
+(NOT `env!("CARGO_PKG_VERSION")`, which is the crate's 0.1.0 — the real
+version reaches it through `tauri.conf.json` reading `../package.json`), and
+the copyright, licence summary and URLs from the same
+`crates/desktop-core/src/legal.rs` constants `scripts/license-fields.ts`
+holds equal to the TypeScript copy and the root `LICENSE`. A third copy in
+`ui/src` would still be the one the detector cannot see. Show Details keeps
+exactly ONE fact from the old block — `This app — Subshell Server {version}`
+— because the version belongs beside the log text a person is about to paste
+into a bug report, and `desktop_about` keeps that line as its last caller.
+Distinct from the SPA's own `AboutDialog` (user menu → About), which is about
+the product and the SERVER build: this panel is about the app binary, and it
+is the only surface that knows the app's version.
 
-**That is also why those two commands still have callers.** The SPA grew an
-About dialog for everyone (spec 2026-09-12), so the obvious move was to delete
-this one — but on a machine whose server is DOWN the SPA is unreachable, and
-the assistant is then the only surface that can say what this app is. Which is
-precisely the machine this page exists for.
+**That is also why the native panel needs no command at all.** It is built in
+Rust from the same constants — no `desktop_about` round trip, no URL crossing
+the IPC boundary in either direction. And on a machine whose server is DOWN,
+where the SPA's About dialog is unreachable, the panel is still there — which
+is precisely the machine this page exists for.
 
 ## The log, and the last action's words
 
@@ -1040,15 +1067,24 @@ With it, the split is enforced, and the split is window KIND:
 | Window | Gets |
 | --- | --- |
 | `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
-| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
-`main`'s first five are chosen for what they cannot do: raise a window, drop
-this app's own title bar, display one notification with a fixed shape, and
-open a page of THIS server in the system browser.
-`desktop_set_supervision`, the sixth, is granted by operator decision
-(2026-09-12) so the dashboard's supervision card can confirm in its own dialog
-rather than raising the assistant; `docs/security.md` carries the accounting,
-and `ipc-acl.test.ts` pins `main` at exactly these six so a seventh is loud (the sixth, `desktop_permissions`, is the read-only one argued in the macOS permissions section below).
+Six of `main`'s seven commands are chosen for what they cannot do: raise a
+window at a named screen, drop this app's own title bar, display one
+notification with a fixed shape, open a page of THIS server in the system
+browser, and — no argument at all, two facts each — read this app's macOS
+permission states (2026-09-14, argued in the macOS permissions section
+below) and its own two update version facts (2026-09-17, spec § 5.3):
+`{ currentVersion, availableVersion }` from `PackageInfo` and the one
+settings field the daily check writes. The read NEVER checks —
+`desktop_check_app_update`, `desktop_install_app_update` and every other
+verb stay `wizard`-only, and the row's `[Update]` rides `desktop_open_assistant`,
+a command `main` already held.
+`desktop_set_supervision` — the one deliberate exception, added by operator
+decision on 2026-09-12 — lets the dashboard's supervision card confirm in its
+own dialog rather than raising the assistant; `docs/security.md` carries the
+accounting, and `ipc-acl.test.ts` pins `main` at exactly these seven so an
+eighth is loud.
 
 `desktop_open_in_browser` (2026-09-14) is of the harmless kind and its
 harmlessness is in the ARGUMENT: it takes a PATH — no scheme, no
@@ -1143,9 +1179,10 @@ the commands invoked by the assistant page — `ui/src/wizard.ts` plus every
 module under `ui/src/assistant/` — are EXACTLY the set `wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
-holds exactly its six commands plus window dragging — by name, by count, by
-SCOPE (loopback both spellings, `local: false`, one window id), and for the two
-that take arguments, by Rust signature.
+holds exactly its seven commands plus window dragging — by name, by count, by
+SCOPE (loopback both spellings, `local: false`, one window id), and for every
+one that takes arguments, by Rust signature — the two reads,
+`desktop_permissions` and `desktop_app_update`, pinned to an EMPTY list.
 
 **The count is a number worth a test**, because "a few harmless ones" is how a
 boundary erodes. Three more pins arrived with the console's deletion: that
@@ -1351,8 +1388,11 @@ states — `status --json` carries no user state by design, `ShellReady` fires
 from the SPA root on purpose, and there is no HTTP client here to ask
 `/api/setup/status`. The tray is a shortcut and never the only route, so the
 item is gone rather than gated. That leaves `menu.rs` as the only consumer of
-`bridge.rs`, and since the menu bar is macOS-only, `bridge` is gated at the
-MODULE — on Linux it is otherwise entirely dead code.
+`bridge.rs`, and since the menu bar that carries ACTIONS is macOS-only — the
+Linux window bar added 2026-09-17 carries one PREDEFINED About item, which
+muda's GTK backend answers in its own click handler and never routes an id —
+`bridge` is gated at the MODULE — on Linux it is otherwise entirely dead
+code.
 
 ## Text size is Rust's, not the page's
 
@@ -1402,7 +1442,7 @@ bundled assistant page, which is the surface that can already invoke commands.
 
 | Surface | macOS | Linux |
 | --- | --- | --- |
-| Menu bar | full `NSMenu` | none — a GTK menu bar is per-window chrome, not a system bar |
+| Menu bar | full `NSMenu` | one item: the predefined **About** on the dashboard window (spec 2026-09-17 § 6) — a GTK menu bar is per-window chrome, not a system bar, so it carries nothing else |
 | Tray | icon + menu, click opens | icon + menu only; **click events are never emitted** |
 | Title bar | Overlay, negotiated (below) | ordinary |
 | Close to tray | offered, **default on** | offered where a tray is **detected**, default on; clamped off where none answers |

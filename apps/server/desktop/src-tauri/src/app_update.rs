@@ -73,6 +73,31 @@ pub struct AppUpdateCheck {
     pub reason: Option<String>,
 }
 
+/// What `desktop_app_update` answers: the two version facts the page shows.
+///
+/// Deliberately NOT `AppUpdateCheck` — that carries a `reason` and a notes
+/// URL for the screen that OWNS the checking. This is the standing answer
+/// from the settings file the daily check writes, and it must stay two
+/// fields: everything granted to the served SPA is argued on how little it
+/// can say (spec 2026-09-17 § 5.3).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateStatus {
+    /// This app's own version.
+    pub current_version: String,
+    /// The version the last successful check found newer, if any.
+    pub available_version: Option<String>,
+}
+
+/// The pure body of `desktop_app_update`, so the camelCase contract the SPA
+/// codes against is pinned without a Tauri runtime.
+pub fn status_view(current_version: &str, available_version: Option<&str>) -> AppUpdateStatus {
+    AppUpdateStatus {
+        current_version: current_version.to_string(),
+        available_version: available_version.map(str::to_string),
+    }
+}
+
 /// One download-progress frame, pushed on `desktop-app-update-progress`.
 ///
 /// `total` is `None` where the release host sent no `Content-Length`, which is
@@ -270,30 +295,56 @@ pub fn check_on_launch(app: &AppHandle) {
             crate::tray::set_update_available(&handle, settings.get().last_update_version.as_deref());
             return;
         }
-        // A check that could not REACH the source is not a check that found
-        // nothing, and `.ok()` cannot tell them apart: `check_app_update`
-        // deliberately returns `Ok` for an unreachable source and puts the
-        // cause in `reason`. Stamping the clock on that answer would suppress
-        // the next check for a day, and clearing `last_update_version` would
-        // drop the tray suffix for an update already found — one flaky launch
-        // hiding a real release until tomorrow.
-        let answered = check_app_update(&handle).await.ok().filter(|c| c.reason.is_none());
-        let Some(check) = answered else {
-            // Leave the stamp and the stored version exactly as they were, and
-            // keep showing whatever the last check that DID answer found.
-            crate::tray::set_update_available(&handle, settings.get().last_update_version.as_deref());
-            return;
-        };
-        let found = check.latest;
-        let stamp = format_rfc3339(now_epoch_secs());
-        let _ = settings.update(|s| {
-            s.last_update_check_at = Some(stamp);
-            // Cleared by a check that found nothing newer: a suffix naming a
-            // version the person has already installed is worse than none.
-            s.last_update_version = found.clone();
-        });
-        crate::tray::set_update_available(&handle, found.as_deref());
+        // `settings` is a borrowed guard and `run_check` re-takes the state
+        // itself; the guard simply lives to the end of the block, which is
+        // exactly what the old inlined body did across its own await.
+        run_check(&handle).await;
     });
+}
+
+/// Force the check now, ignoring the daily gate: the tray's "Check for
+/// Updates…" press (spec 2026-09-17 § 5.2).
+///
+/// The item stays pressable precisely because a person may not want to wait
+/// for tomorrow's daily check. Like it, this opens nothing — the answer lands
+/// in the settings file and on the tray label, and a press that had found an
+/// update routes the NEXT press to the `app-update` screen.
+pub fn check_now(app: &AppHandle) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move { run_check(&handle).await });
+}
+
+/// One check against the release source, whatever asked for it.
+///
+/// A press and a launch owe the person the same bookkeeping, so there is one
+/// body: stamp the clock and record the answer only when the source actually
+/// ANSWERED, and otherwise keep showing whatever the last check that did
+/// found.
+async fn run_check(handle: &AppHandle) {
+    let settings = handle.state::<SettingsState>();
+    // A check that could not REACH the source is not a check that found
+    // nothing, and `.ok()` cannot tell them apart: `check_app_update`
+    // deliberately returns `Ok` for an unreachable source and puts the
+    // cause in `reason`. Stamping the clock on that answer would suppress
+    // the next check for a day, and clearing `last_update_version` would
+    // drop the tray notice for an update already found — one flaky launch
+    // hiding a real release until tomorrow.
+    let answered = check_app_update(handle).await.ok().filter(|c| c.reason.is_none());
+    let Some(check) = answered else {
+        // Leave the stamp and the stored version exactly as they were, and
+        // keep showing whatever the last check that DID answer found.
+        crate::tray::set_update_available(handle, settings.get().last_update_version.as_deref());
+        return;
+    };
+    let found = check.latest;
+    let stamp = format_rfc3339(now_epoch_secs());
+    let _ = settings.update(|s| {
+        s.last_update_check_at = Some(stamp);
+        // Cleared by a check that found nothing newer: a notice naming a
+        // version the person has already installed is worse than none.
+        s.last_update_version = found.clone();
+    });
+    crate::tray::set_update_available(handle, found.as_deref());
 }
 
 #[cfg(test)]
@@ -316,6 +367,28 @@ mod tests {
         assert_eq!(
             release_page_url("desktop-server-v1.2.3"),
             "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.2.3"
+        );
+    }
+
+    /// The wire shape `desktop_app_update` answers with (spec 2026-09-17
+    /// § 5.3): exactly two camelCase keys, `availableVersion` nullable. The
+    /// SPA's sidebar row codes against these names, and a rename here is a
+    /// silent `undefined` there — the same failure class `wire-names.test.ts`
+    /// exists for, pinned from this side.
+    #[test]
+    fn the_status_view_serializes_exactly_the_two_camel_case_fields() {
+        let known = serde_json::to_value(status_view("0.7.2", Some("0.8.0"))).unwrap();
+        assert_eq!(
+            known,
+            serde_json::json!({ "currentVersion": "0.7.2", "availableVersion": "0.8.0" })
+        );
+        // Before the first check ever, the field is present and null — the
+        // row renders the version line without the update button, which is
+        // the documented answer (spec § 8), not a missing key.
+        let unknown = serde_json::to_value(status_view("0.7.2", None)).unwrap();
+        assert_eq!(
+            unknown,
+            serde_json::json!({ "currentVersion": "0.7.2", "availableVersion": null })
         );
     }
 }

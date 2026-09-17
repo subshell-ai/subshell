@@ -5,12 +5,19 @@
 // is per-window chrome rather than a system bar so there is no Linux menu to
 // carry it. Gated at the MODULE rather than left to its call site, because
 // clippy on Linux is then right to call the whole thing dead code.
+// Compiles on BOTH platforms: the About metadata is shared, and on Linux this
+// module is the whole menu bar the dashboard window carries (spec 2026-09-17
+// § 6). `menu.rs` below stays macOS-only — it is the full menu BAR, and its
+// `DesktopAction` dispatch is what Linux has no use for.
+mod about;
 mod app_update;
 #[cfg(target_os = "macos")]
 mod bridge;
 mod control;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
-// Linux has none — and a module compiled there would be entirely dead code.
+// Linux carries no ACTION menu (its one item, the predefined About on the
+// dashboard, is `about.rs`) — and a module compiled there would be entirely
+// dead code.
 #[cfg(target_os = "macos")]
 mod menu;
 mod reset;
@@ -179,6 +186,7 @@ pub fn run() {
             control::desktop_open_system_settings,
             control::desktop_check_app_update,
             control::desktop_install_app_update,
+            control::desktop_app_update,
         ])
         .on_window_event(|window, event| {
             // The assistant's page can no longer hear an event once its window
@@ -208,7 +216,9 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             // macOS only: a GTK menu bar is per-window chrome rather than a
-            // system bar, and everything here is also on the tray.
+            // system bar, and everything here is also on the tray. Linux's
+            // one menu is the dashboard window's single About item, attached
+            // in `windows::open_main` (spec 2026-09-17 § 6).
             #[cfg(target_os = "macos")]
             app.set_menu(menu::build(&handle)?)?;
             // Registered on EVERY platform, and it is the ONE place text
@@ -217,8 +227,11 @@ pub fn run() {
             // tray's own handler receives these. An id routed in both places
             // therefore steps the ladder twice per click — measured, two
             // clicks of Bigger landing on 1.75 — which is why `tray.rs`
-            // handles everything except the text size, and why Linux, with no
-            // menu bar at all, still needs this handler registered.
+            // handles everything except the text size, and why Linux still
+            // needs this handler registered: its only menu is the dashboard's
+            // one-item About bar (2026-09-17), whose single item is PREDEFINED
+            // and answered in muda's own click handler, so what needs this
+            // handler there is the TRAY.
             app.on_menu_event(|app, event| {
                 let id = event.id.as_ref();
                 if zoom::handle(app, id) {
