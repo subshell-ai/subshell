@@ -3,13 +3,38 @@ title: Headscale
 description: The same tailnet experience against your own self-hosted control server.
 ---
 
-This page will cover the Headscale plugin for people who run their own tailnet controller: it drives the same `tailscale` client pointed at your `--login-server`, so joining means the login URL your Headscale serves and publishing means the address that tailnet resolves for this host. It will mirror the Tailscale page's structure — platforms (macOS, Linux), the printed-not-run privileged steps, private exposure, trust following the plugin's record — and name what differs: the control server is yours, so the vendor-docs links and the failure modes are yours too. Open question this page must answer during migration: exactly which settings fields the plugin exposes for the login-server URL today.
+Headscale is for people who run their own tailnet controller. The plugin drives the same `tailscale` client as the [Tailscale plugin](/server/network-plugins/tailscale), pointed at your control server instead of Tailscale's service — the machine, the CLI, and the join flow are identical; what differs is who holds the CA, and everything that follows from it. Because the control server is yours, the vendor documentation, the approval policy, and the certificate story are yours too.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## One machine, one tailnet
 
-## Sources
+A daemon belongs to exactly one control server, so a machine running both this plugin and the Tailscale plugin can only be on one network at a time. The plugin checks the daemon's own preference for which server it serves: a daemon pointed somewhere else reports this row as not-on-your-tailnet rather than pretending to be joined. If the card says the machine belongs to another control server, that is what it means — switch the daemon's enrollment, or manage the machine from the other plugin.
 
-- `packages/plugins/headscale/package.json` — the manifest, including its privileged steps
-- `packages/plugins/headscale/src/index.ts` — the plugin's join/publish implementation
-- `docs/superpowers/specs/2026-09-16-network-plugins-phase-2-3-design.md` — where headscale sits in the phase plan
+## The one setting: your control server URL
+
+This plugin asks the question the vendor plugin never needs: which control server to join. You fill in **Control server URL**, a full `http(s)` URL like `https://headscale.example.com`, and it is required — a bare join without it would quietly enroll the machine into Tailscale's hosted service instead of yours, which is the wrong answer, silently. The plugin refuses before running anything while the field is empty, and every join and re-join carries `--login-server` with your URL.
+
+## Installing and joining
+
+The CLI on the machine is still `tailscale`, so the printed (never run) setup steps are the same shape as the Tailscale plugin's: the Linux install script and the `sudo tailscale set --operator=$USER` grant; on macOS, the command-line daemon route plus the same grant. There is no app route here — the macOS steps in the card are the daemon's.
+
+Joining then works like Tailscale's, against your server:
+
+- **Interactive** — the card surfaces the login URL, which your Headscale prints from its own host rather than a vendor login domain. Open it, and then **an admin of your Headscale has to approve the machine** — that step is your controller's policy, not something this plugin can press for you.
+- **Auth key** — Headscale issues keys in the vendor's `tskey-` shape, and a pasted key goes to one short command and is stored nowhere.
+
+## Publishing
+
+The publish control still runs Tailscale Serve, but over **HTTP on port 80**: your control server issues no certificates, so there is nothing to terminate TLS with, and the address the plugin hands back is `http://<machine>.<your-tailnet-name>` — a real, usable address, and one every browser treats as a non-secure context, which the card labels per address. Passkeys and `Secure` cookies do not work there; mesh traffic is still encrypted end to end by WireGuard, but that is not what a browser's security model sees.
+
+Whether Tailscale Serve works against a given Headscale is genuinely unmeasured — no live controller has confirmed it. The code tries once and, on a refusal, says exactly that rather than reporting a fake success; a refusal is the expected outcome, not a defect. It then points at the address that works without Serve at all: `http://<machine-name>:<port>` — the plain server address on your tailnet. That address is listed with a port because nothing is proxying it, and a refused publish does **not** add it to your trusted addresses; if you want to sign in at it, add it under Settings → Addresses.
+
+## Trust
+
+As for every private network, the plugin's recorded addresses become sign-in-trusted from membership, follow the plugin's record live, and are forgotten when you disable the plugin or leave the network — no `config.env` write, no restart. The publish half of the story is therefore modest here: on a headscale network the join is what makes the machine reachable, and the card's addresses reflect that.
+
+## See also
+
+- [Network plugins — overview](/server/network-plugins) — the describe/execute rule and the trust model
+- [Tailscale](/server/network-plugins/tailscale) — the hosted-service sibling, including the Serve-over-HTTPS variant
+- [Networking & Addresses](/server/networking) — the allowlist, and adding a plain address by hand when Serve declines
+- [Security model](/about/security-model) — the posture, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)
