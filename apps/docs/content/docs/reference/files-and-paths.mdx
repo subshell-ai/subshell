@@ -1,16 +1,78 @@
 ---
 title: Files & Paths
-description: Everything Subshell writes to disk and where — config homes, data dirs, secrets, logs, and their permissions.
+description: Everything Subshell writes to disk and where — config homes, data dirs, credentials, logs, and the permission on each, with why several of these files are secrets.
 ---
 
-This page will map the filesystem: the server's config home (`~/.config/subshell-server/config.env`, 0600 in a 0700 dir), its data dir (SQLite, `logs/server.log`, per-subshell pane logs, channel keypairs, `node-signing.json`, VAPID keys, the plugin store and plugin-state secrets, database backups, node artifacts); and the agent's side (`~/.config/subshell/config.json` — the node key's only home — and its data dir with identity, allowlist, maintenance mirror, update markers, pane logs and MCP configs). Every entry with its permissions and one line on why they are set that way, since several of these files are credentials.
+Two homes on the control-plane host, two on a node, and a small set of rules over all of them: directories that hold credentials are `0700`, the files inside are `0600`, and the modes are re-asserted after the write because a creation mode alone is hostage to the umask. The defaults below are spelled the same on Linux and macOS — the homes hang off your user's home directory. Paths shift when a variable or a flag moves them; each entry names the lever.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## The control plane's config home
 
-## Sources
+Home: `~/.config/subshell-server` (override: `SUBSHELL_SERVER_CONFIG_DIR`).
 
-- `apps/node/agent/AGENTS.md` §On disk — the agent's layout with every mode bit
-- `apps/server/api/AGENTS.md` §config.env and §Boot output — the server's config home
-- `.claude/rules/security-context.md` §Pane logs and §The server's own log file — the log paths and their modes
-- `.claude/rules/security-context.md` §Network plugins (secrets bullet) — the plugins-state secret store layout
+| File | Mode | What it is |
+| --- | --- | --- |
+| `config.env` | `0600` | The instance's settings: the five keys `configure` owns, the auth secret `init` persists, and anything else you add. Written temp-file + rename so a crash cannot leave half a file. Parsed systemd-style — one entry per line, and a value wrapped in matching quotes loses exactly that outer pair. The systemd unit also exports this file into the service's environment, the same file either way. |
+| `dev.subshell.server.plist` | — | Only on macOS, and only when the service is installed **without** login start (`--no-autostart`, or after `service disable`): the launchd definition kept where launchd does not look at login. Autostart is the plist's *location*, not a key inside it. |
+
+## The control plane's data directory
+
+Default: the database file's own directory (`./data` when the path has none) — under the usual install, `DATABASE_PATH` is `./data/subshell.db` and the service runs with the config home as its working directory, so the data dir lands at `<config home>/data`. Override: `SUBSHELL_SERVER_DATA_DIR`. Docker puts it at `/data`.
+
+| Path | Mode | What it is |
+| --- | --- | --- |
+| `subshell.db` (+ `-wal`, `-shm`) | — | The SQLite database: accounts, sessions (hashed), subshells, nodes, audit rows, channel **ciphertext** — the server stores and forwards sealed posts it cannot read. |
+| `logs/server.log` | `0600` in a `0700` dir | The server's own log: one JSON-lines file, capped at 200 KB (204,800 bytes) and **replaced when full**, never rotated, on every platform. HTTP request lines land here only while debug logging is on — and a request path can carry a secret, which is why the file is 0600 and readable over HTTP by cookie-admins only. |
+| `subshells/<id>.log` | `0600` (dir `0700`) | One pane log per subshell: the verbatim terminal transcript, typed input included. Created with `umask 077` inside the `pipe-pane` command, so tmux's own shell makes it private from its first byte. Non-running logs older than `SUBSHELL_LOG_RETENTION_DAYS` (default 30; `0` = forever) are swept hourly; **a running subshell's log is never swept** — it is the live replay buffer. Deleting a subshell unlinks its log immediately. |
+| `mcp/<id>.json` | `0600` | The per-subshell MCP registration file the plane writes before spawning a local pane. For panes on a node, the agent writes the same file (at the path inside the launch command) under its own data dir. |
+| `node-signing.json` | `0600` | The control plane's command-signing keypair (ES256). Every command a node receives is verified against its public half — which is why a compromise of this file is a compromise of every enrolled node. It is kept outside the database deliberately. |
+| `vapid.json` | `0600` | The browser-push keypair, generated on first use. |
+| `plugins/` | — | The one plugin store. One install here arms every node; a node holds no plugins of its own. `.seeded` beside the plugin directories is the completion marker: built-ins are seeded once and never re-seeded on emptiness, because an empty store is an operator who uninstalled everything, not a gap to repair. |
+| `plugins-state/<id>/network.json` | `0600` (dir `0700`) | A network plugin's own record for this host — the live source of the addresses its publish made trustworthy. |
+| `plugins-state/<id>/secrets/<name>` | `0600` (dirs `0700`) | Plugin secrets at rest. The store has **no read-back**: a plugin can store a secret and hand a spawned child a file named by a flag or an env value, but it can never fetch the bytes back into its process. A database backup does not cover these; restoring means re-entering them. |
+| `node-artifacts/` | — | The agent binaries `GET /api/downloads/node/*` serves: `subshell-node-cli-<target>` plus a `.sha256` sidecar each. `.fetched.json` records which files **this instance fetched** from the project's releases and from which tag — only those are ever superseded or deleted. A binary an operator published by hand is never touched, and a file on disk always wins over a fetch. |
+| `backups/subshell-v<version>-<UTC stamp>.db` | `0600` | Single-file database snapshots (`VACUUM INTO`), taken before every update and by `subshell-server backup`. The version is in the name because the first question about a backup is *which server wrote this*. `SUBSHELL_DB_BACKUPS_KEEP` prunes; `0` keeps everything. |
+| `update/pending.json`, `update/failed.json`, `update/failed.previous.json` | dir `0700` | The update transaction's markers. Whoever swaps the binary writes `pending.json`; the next boot either deletes it (and the previous binary) or records the failure, restores the snapshot, and puts the old binary back. |
+| `identities/…` + `peers.json` | `0600` | Where a locally-launched pane's `subshell mcp` child persists its channel keypair and the pinned keys of peers it has sealed to. Panes on a node keep the same files under the node's data dir instead. |
+
+## The service definitions and the binary
+
+Installed by the service verbs, on the control-plane host and on every node:
+
+| What | Control plane | Node agent |
+| --- | --- | --- |
+| Linux unit | `~/.config/systemd/user/subshell-server.service` | `~/.config/systemd/user/subshell.service` |
+| macOS launchd agent | `~/Library/LaunchAgents/dev.subshell.server.plist` | `~/Library/LaunchAgents/dev.subshell.client.plist` |
+| launchd's stdout/stderr file | `~/Library/Logs/subshell-server.log` | `~/Library/Logs/subshell.log` |
+| journald (Linux) | `journalctl --user -u subshell-server.service` | `journalctl --user -u subshell.service` |
+
+The launchd files are where the **service manager** redirects console output; the `logs/` files above are what each product writes itself, and they exist on every platform. The unit/plist bakes in the installing shell's `PATH` (so a Homebrew tmux is still found at boot), the config home as the working directory, and the pane-sparing kill behavior (`KillMode=process` / `AbandonProcessGroup=true`).
+
+An update replaces **the binary the service definition names** — commonly `~/.local/bin/subshell-server` or `~/.local/bin/subshell`, but never by assumption — and keeps the displaced copy beside it as `<binary>.previous` until the new boot settles the transaction.
+
+## The node agent's files
+
+Home: `~/.config/subshell` (override: `SUBSHELL_CONFIG_HOME`).
+
+| Path | Mode | What it is |
+| --- | --- | --- |
+| `config.json` | `0600` | The node's whole life: which plane, its node id, **its bearer key — this file is that key's only home** — the pinned control public key, the data dir, and the name. `subshell status` never echoes the key, `--json` included. Written by `enroll`; `configure --server` rewrites only the address and keeps the identity. |
+| `daemon.lock` | `0600` | Local-liveness record (`pid`, `startedAt`, `nodeId`, `lastTickAt`) refreshed on every heartbeat tick, removed on every exit path — what `subshell status` reads so it never has to dial the plane. Observability, never authority. |
+| `logs/agent.log` | `0600` in `0700` | The agent's own log, same JSON lines, same 200 KB replaced-when-full cap as the server's. Deliberately under the config home rather than the data dir: logging starts before `config.json` is read, and a machine that cannot load its config is exactly the one you need the log for. |
+| `data/` (default; `--data-dir` moves it) | `0700` | Runtime state, below. |
+| `data/identity.json` | `0600` | The node's channel keypair (P-256, for sealed delivery). Fail-closed: a present-but-corrupt file is moved aside, never silently rotated — overwriting it would orphan sealed history. |
+| `data/allowed-dirs.json` | `0600` | The directory allowlist the plane pushed, which **this machine enforces on every launch**. Signing proves who sent a launch, never whether the directory is permitted, so the node checks its own copy. Fail-open on a corrupt read — a broken restriction file is not an authentication decision. |
+| `data/maintenance.json` | `0600` | This machine's mirror of the maintenance flag: `{ on, changedAt }`, written atomically by whichever end threw the switch. Read fail-closed. |
+| `data/update-pending.json`, `data/update-failed.json` | `0600` | The agent's half of the same update transaction the server runs: the marker names the binary and its `.previous`, and a `4406` refusal at connect rolls the swap back automatically. |
+| `data/subshells/<id>.meta.json` + `<id>.log` | `0600` | Per supervised pane: the bookkeeping meta (its working directory doubles as a path-policy root) and the pipe-pane transcript, with the same mode and retention story as the server's copy. |
+| `data/mcp/<id>.json` | `0600` | Per-pane MCP registration files, written from the launch command before the pane spawns. |
+
+> [!caution] These files are the credentials
+> `config.env` holds the cookie-signing secret, `config.json` holds the node key, `node-signing.json` holds the key that rules every enrolled machine, and a pane log holds whatever was typed at that terminal, pasted tokens included. None of it is encrypted at rest — the key would sit on the same disk under the same user that can already read the file. **The permissions and your filesystem are the control**; full accounting lives in the repository's threat model (`docs/security.md`).
+
+## See also
+
+- [Backups](/server/backups) and [Updating the server](/server/updating) — the transaction that uses `backups/` and `update/`.
+- [Logs & Debug Logging](/server/logs-debug) — reading the capped logs from the dashboard.
+- [Directory Allowlist](/nodes/directory-allowlist) — `allowed-dirs.json` from the operator's side.
+- [Environment Variables](/reference/environment-variables) — every lever that moves a path above.
+- [Security Model](/about/security-model) — what each file exposes if read.

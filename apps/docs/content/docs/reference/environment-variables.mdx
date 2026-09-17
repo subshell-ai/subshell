@@ -1,15 +1,82 @@
 ---
 title: Environment Variables
-description: Every variable the server and the agent read — what it controls, its default, and where it may live.
+description: Every variable the server and the agent read — what each one controls, its default, and whether config.env can carry it or only the process environment.
 ---
 
-This page will collect the environment surface in one table per binary: the server's (`SERVER_PORT`, `HOST`, `DATABASE_PATH`, `APP_BASE_URL`, `TRUSTED_ORIGINS`, `BETTER_AUTH_SECRET`, the data-dir and artifacts-dir pair, `SUBSHELL_MCP_COMMAND`/`ARGS`, `SUBSHELL_EMERGENCY_PASSWORD`, log level, replay lines, retention days, debug logging, release URL) and the agent's (its config/data home overrides, debug logging, no-service and test-skip hatches) — each with default, meaning, and whether config.env can carry it or only the process environment, which is the distinction the "environment wins" rule makes matter. The per-subshell injected variables get a closing section marked as not-for-setting.
+Both binaries read their settings from the same kind of ladder: **process environment first, then a file layer, then built-in defaults.** The server's file layer is `config.env` in its config home (see [Configuration](/server/configuration)); the agent has no file layer — its settings are `config.json`, written by `enroll`, plus a handful of environment variables. A value the environment sets wins, and the `configure` writer refuses to write over one: a file edit the next boot would mask is a success report for a change that never happens.
 
-> [!warning] Draft
-> This page is a placeholder. The content is being migrated from the repository docs listed below.
+## The server binary
 
-## Sources
+These are the variables `subshell-server` reads at boot. All of them can live in `config.env` instead — the file is applied to the environment for any key the environment left unset — but the CLI only ever *writes* the five keys `configure` owns plus the secret.
 
-- `apps/server/api/src/constants.ts` — every server-side variable at its definition
-- `README.md` §Configuration — the maintained table with defaults
-- `apps/node/agent/src/config.ts` — the agent's own configuration reads
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `SERVER_PORT` | `3080` | The one port the control plane serves: SPA, API, WebSocket, docs. |
+| `HOST` | `0.0.0.0` | The bind address. Wildcards are listen addresses, not origins — a concrete `HOST` also joins the trusted-origin list on its own. |
+| `DATABASE_PATH` | `./data/subshell.db` | The SQLite file. A relative path resolves against the process's working directory; the service definitions set that to the config home, so the default lands at `<config home>/data/subshell.db`. Docker overrides it to `/data/subshell.db`. |
+| `SUBSHELL_SERVER_DATA_DIR` | the database file's directory (`./data` when the path has none) | Root for logs, pane logs, backups, plugins, node artifacts, the update transaction. Resolved to an absolute path. |
+| `SUBSHELL_NODE_ARTIFACTS_DIR` | `<data dir>/node-artifacts` | Where `GET /api/downloads/node/*` serves prebuilt agent binaries from, and where `release:node` publishes to. An empty value counts as unset. |
+| `SUBSHELL_RELEASE_URL` | this project's GitHub releases listing | Where the instance reads releases: agent binaries it lacks (fetched lazily, hashed, and kept) and the newer server its own `update` installs. **Empty disables every release fetch** — the air-gapped configuration, and `update` then points you at `--from`. |
+| `SUBSHELL_PLUGIN_REGISTRY_URL` | `https://registry.npmjs.org` | Where registry plugin installs are fetched from, and the integrity authority for them. Trusted as typed; a malformed value fails at first fetch, not at boot. |
+| `BETTER_AUTH_SECRET` | a public placeholder | Signs session cookies. `init` generates and persists one (32 random bytes, base64url) and never rotates an existing value. `NODE_ENV=production` refuses to boot on the placeholder. |
+| `APP_BASE_URL` | `http://localhost:<SERVER_PORT>` | The address the instance calls itself: cookie/redirect base, and the passkey rpID. **Changing it moves which host passkeys work on**, including the Subshell Server desktop app's own loopback window. |
+| `TRUSTED_ORIGINS` | `http://localhost:5174,http://localhost:5173` | Extra origins a browser may sign in from, comma-separated. The allowlist is derived live from this plus the instance's own addresses and any published network plugin's records — never from the request's `Host`. Entries are validated and canonicalized by the writers; wildcards are refused. `configure` *removes* the key rather than writing it empty, because the built-in default carries the dev Vite servers. |
+| `SUBSHELL_EMERGENCY_PASSWORD` | unset (hatch disarmed) | Break-glass: while set, an admin signing in with this exact value has their credential overwritten and a real session minted. Clear it after recovery. Whitespace-only does not arm it. |
+| `SUBSHELL_DEBUG_LOGGING` | off | Forces debug-level lines **and** HTTP request lines into the server's log file, and makes the dashboard's debug-logging switch read-only (a write the environment would mask is refused). Only `1`/`true` count as on; a leftover `SUBSHELL_DEBUG_LOGGING=0` is not a statement from the environment. |
+| `SUBSHELL_LOG_RETENTION_DAYS` | `30` | Days a terminated subshell's pane log survives the hourly sweep. `0` (or below) keeps them forever; a **running** subshell's log is never swept. |
+| `SUBSHELL_DB_BACKUPS_KEEP` | `5` | How many database backups `update` and `backup` keep. `0` keeps every one; anything negative prunes nothing. |
+| `SUBSHELL_TERMINAL_REPLAY_LINES` | `100` | Trailing log lines replayed when a terminal attaches, hard-capped at `200`. Garbage values fall back to `100`. |
+| `SUBSHELL_SERVER_CONFIG_DIR` | `~/.config/subshell-server` | The config home — `config.env`'s directory, and the service definition's working directory. Anything that boots the server for test purposes overrides this rather than avoiding variables. |
+| `SUBSHELL_MCP_COMMAND` | unset | Overrides how panes launch the MCP server (`subshell mcp`), paired with `SUBSHELL_MCP_ARGS` — a JSON string array. Unset, the server resolves the entrypoint itself: this binary, or `subshell` on PATH. |
+| `SUBSHELL_FS_ROOT` | unset (unrestricted) | Optional confinement for the control-plane host's folder browsing, local browsing only — it never restricts nodes. |
+| `SUBSHELL_ATTACH_DEBUG` | off (`1` / `true` turns on) | Terminal-attach forensics, off by default. |
+| `EXPO_PUSH_ACCESS_TOKEN` | unset | Optional Expo access token for mobile push delivery; anonymous sending is the default. |
+| `SUBSHELL_SUPERVISOR`, `SUBSHELL_SUPERVISOR_PID`, `SUBSHELL_SUPERVISOR_LOG` | unset | Set by the Subshell Server desktop app when it runs the server as its own child. The server believes the claim only when the named pid is actually its parent — this is not an operator setting. |
+
+> [!note] `NODE_ENV` and the test mode
+> `NODE_ENV=production` is what arms the placeholder-secret boot guard. `SUBSHELL_TEST_MODE=1` is the suite's flag — it forces a temp database and temp data dir so nothing reads a developer's real config. Neither is a deployment knob.
+
+## The agent binary
+
+The agent's durable settings — which plane, which identity, the node key — live in `config.json`, not in the environment. These variables change how it behaves:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `SUBSHELL_CONFIG_HOME` | `~/.config/subshell` | The config home: `config.json`, `daemon.lock`, the log directory, and the default data dir underneath it. |
+| `SUBSHELL_RELEASE_URL` | this project's GitHub releases listing | Where `subshell update` reads releases from. Same spelling and same **empty-disables-it** rule as the server's — an air-gapped host uses `--from`. |
+| `SUBSHELL_DEBUG_LOGGING` | off | Forces debug lines into the agent's own log file and makes the plane's logging switch refuse while set. Without it, the persisted `debugLogging` field in `config.json` decides. |
+| `SUBSHELL_CLIENT_SKIP_TMUX_CHECK` | unset | Skips the `tmux -V` preflight in `setup`/`enroll`. A test escape hatch — without tmux the node can run nothing. |
+
+## The pane's own variables — not for setting
+
+Every subshell's pane environment carries its credentials, injected by the control plane at launch and inherited by `subshell mcp` and the harness hooks:
+
+- `SUBSHELL_API_KEY` — the subshell's own short-lived bearer token.
+- `SUBSHELL_ID` — which subshell this process speaks as.
+- `SUBSHELL_BASE_URL` — the control plane's address (defaults to `http://127.0.0.1:3080` when debugging a pane outside the launch).
+- `SUBSHELL_DATA_DIR` — where the pane's MCP identity and channel state persist.
+- `SUBSHELL_NAME` — the subshell's display name, for channel principals.
+
+> [!caution] Set none of these yourself
+> They are what the pane's credential is. Hand-setting them spoofs a subshell on that machine — which the local OS user already can anyway, but nothing good comes from doing it deliberately. The per-subshell token is revoked when its subshell is terminated.
+
+## Installer and release knobs
+
+`install-server.sh` reads these and maps them to `init` flags — **the server binary does not read any of them at runtime**, which is why `SUBSHELL_SERVER_PORT` and `SERVER_PORT` are different variables:
+
+| Variable | Effect |
+| --- | --- |
+| `SUBSHELL_SERVER_VERSION` | Install this exact `X.Y.Z` instead of looking up the newest release. |
+| `SUBSHELL_SERVER_RELEASE_API`, `SUBSHELL_SERVER_RELEASE_BASE` | Point the lookup and the download somewhere else (a mirror). |
+| `SUBSHELL_SERVER_PORT`, `SUBSHELL_SERVER_HOST`, `SUBSHELL_SERVER_BASE_URL`, `SUBSHELL_SERVER_TRUSTED_ORIGINS` | Become `init --port` / `--host` / `--base-url` / `--trusted-origins`. |
+| `SUBSHELL_NO_SERVICE=1` | Becomes `init --no-service`. |
+
+The release pipelines read `SUBSHELL_RELEASE_TRIPLES` (build a scoped subset), `SUBSHELL_NODE_ARTIFACTS_DIR` (publish destination), and `SUBSHELL_SERVER_RELEASE_DIR` (default `<repo>/dist-server`). They belong to cutting releases, not to running an instance — see the repository's release documentation.
+
+## See also
+
+- [Configuration](/server/configuration) — `config.env`, precedence, and the traps.
+- [Networking](/server/networking) — `HOST`, `APP_BASE_URL` and the origin allowlist, untangled.
+- [Files & Paths](/reference/files-and-paths) — the files the variables point at.
+- [Running as a Service](/server/service) — the systemd unit exports `config.env` at boot.
+- [Logs & Debug Logging](/server/logs-debug) — what `SUBSHELL_DEBUG_LOGGING` turns on.
