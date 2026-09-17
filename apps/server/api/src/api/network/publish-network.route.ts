@@ -11,12 +11,12 @@ import {
   readinessRefusal,
   readNetworkStatus,
   requireNetworkAdmin,
-  writePublishConfig,
 } from "@/api/network/network-gate.js";
 import { NetworkParamsSchema } from "@/api/network/schemas.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { setPluginGuards } from "@/plugins/access-guard.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { syncNetworkOrigins } from "@/services/network/origins.js";
 import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
 import { networkContext, writeNetworkState } from "@/services/network/state.js";
 import { armProcess } from "@/services/network/supervisor.js";
@@ -25,7 +25,7 @@ import { armProcess } from "@/services/network/supervisor.js";
  * `POST /api/network/:id/publish` (spec 2026-09-15 § 5.1, § 5.4).
  *
  * Makes this server reachable on a network the host has already joined, and
- * then makes the server's own configuration agree with that.
+ * then makes it a trusted origin for sign-in the moment the record says so.
  *
  * **The order inside the `done` path is load-bearing.** The guard is installed
  * FIRST, before the supervised process that carries traffic is spawned: for a
@@ -39,13 +39,10 @@ import { armProcess } from "@/services/network/supervisor.js";
  * arrives as `done` with `ok: false` and the hint, because the act completed
  * and told us something, and an `error` frame would say the server broke.
  *
- * **The config write never removes an origin, and never overwrites a key the
- * environment owns.** Both rules live in `writePublishConfig`, which calls the
- * CLI's own `applyConfig` — the one writer, shared with `subshell-server
- * configure` and `PATCH /api/admin/server/config`. When a key IS owned by the
- * environment the publish still completes: the server really is reachable at
- * the address, and what could not follow is the file. `config.written: false`
- * with `unwritableKey` says which.
+ * **Nothing is written to config.env.** The addresses become trusted origins
+ * the moment the record says published, through the registry
+ * (`services/trusted-origins.ts`); there is no restart and no key the
+ * environment could own.
  */
 export const publishNetworkRoute = new Elysia().use(apiModels).post(
   "/:id/publish",
@@ -97,18 +94,7 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
       if ("refused" in result) {
         const after = await readNetworkStatus(entry, ctx, { fresh: true });
         send({ type: "line", text: result.refused.text });
-        // `written: true` vacuously: nothing was asked of config.env, so
-        // nothing failed to be written. A `false` here would send the page
-        // looking for a config problem that does not exist.
-        send({
-          type: "done",
-          ok: false,
-          refused: result.refused,
-          addresses: [],
-          config: { changed: [], warnings: [], written: true },
-          restartRequired: false,
-          status: after,
-        });
+        send({ type: "done", ok: false, refused: result.refused, addresses: [], status: after });
         return;
       }
 
@@ -138,8 +124,6 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
             text: `${entry.manifest.name} publishes this server on the public internet and did not describe an identity check to put in front of it. Nothing was published.`,
           },
           addresses: [],
-          config: { changed: [], warnings: [], written: true },
-          restartRequired: false,
           status: before,
         });
         return;
@@ -166,36 +150,25 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
         port: networkDeps().port(),
         publishedAt: new Date().toISOString(),
       });
-
-      const config = writePublishConfig({ origins: result.addresses.map((a) => a.url) });
-      for (const warning of config.warnings) send({ type: "line", text: warning });
+      // Trusted NOW, from the record just written — for a `public-with-gate`
+      // network this is the line that makes its hostname an origin, and it runs
+      // after the guard is installed and never before. The fresh re-read below
+      // observes the same addresses again; this call is what makes the trust
+      // independent of that read succeeding.
+      await syncNetworkOrigins(id, entry.manifest.network);
 
       const after = await readNetworkStatus(entry, ctx, { fresh: true });
       await auditNetwork(request, "network.publish", id, {
         addresses: result.addresses.map((a) => a.url),
       });
-      send({
-        type: "done",
-        ok: true,
-        addresses: result.addresses,
-        config,
-        // True only when the union actually rewrote config.env — the same
-        // rule join and unpublish apply. The blanket `true` was a leftover of
-        // the promotion era, when every publish changed `APP_BASE_URL` too;
-        // with origins as the only key, a restart cannot apply a write that
-        // never happened, so the blanket offered its button on exactly the
-        // paths where it was useless: the environment-owned refusal and the
-        // press whose origins were already in the list.
-        restartRequired: config.changed.length > 0,
-        status: after,
-      });
+      send({ type: "done", ok: true, addresses: result.addresses, status: after });
     }, release);
   },
   {
     params: NetworkParamsSchema,
     // NO typed 200: this route streams. The body is NDJSON — {type:line,text}
-    // frames, then one {type:done,ok,addresses,config,restartRequired,status}
-    // (with `refused` when ok is false) or {type:error,message}.
+    // frames, then one {type:done,ok,addresses,status} (with `refused` when
+    // ok is false) or {type:error,message}.
     response: {
       400: "ApiErrorResponse",
       401: "ApiErrorResponse",
@@ -207,7 +180,7 @@ export const publishNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "publishNetwork",
       tags: ["network"],
       description:
-        "Publishes this server on the network (admin cookie only): installs the plugin's request guard, arms its supervised process, records the publish, and adds the new origins to TRUSTED_ORIGINS through the CLI's own config writer. STREAMS application/x-ndjson, terminating in one done frame. A plugin refusal is done with ok:false and the hint; a config key the environment owns leaves config.written false with unwritableKey while the publish itself stands. Audited as network.publish.",
+        "Publishes this server on the network (admin cookie only): installs the plugin's request guard, arms its supervised process, records the publish, and the addresses are trusted for sign-in immediately. STREAMS application/x-ndjson, terminating in one done frame {ok, addresses, status}; a plugin refusal is done with ok:false and the hint. Audited as network.publish.",
     },
   },
 );

@@ -23,7 +23,8 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
-import { clearNetworkState } from "@/services/network/state.js";
+import { forgetNetworkOrigins, syncNetworkOrigins } from "@/services/network/origins.js";
+import { clearNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
 import {
   installLocalPlugin,
@@ -450,12 +451,11 @@ const adminRoutes = new Elysia()
       // the row, the Networking page and the running tunnel describing the
       // same machine.
       if (!body.enabled && pluginTypeOf(s.installed.find((r) => r.id === params.pluginId)?.type) === "network") {
-        // THE PER-PLUGIN LOCK, the same one every `/api/network` act takes.
-        // The strip this path runs is the same config.env write a publish's
-        // union races against: two writers, last rename wins, and neither
-        // result describes the file afterwards. A held lock is the SAME 409
-        // the network routes answer with (`busyRefusal`, mapped to
-        // EXISTS_ERROR by its status like every throw here).
+        // THE PER-PLUGIN LOCK, the same one every `/api/network` act takes: a
+        // disable must not interleave with a live publish's record write. A
+        // held lock is the SAME 409 the network routes answer with
+        // (`busyRefusal`, mapped to EXISTS_ERROR by its status like every
+        // throw here).
         if (!beginNetworkOp(params.pluginId)) {
           throw new HarnessStateError(busyRefusal(params.pluginId).message, 409);
         }
@@ -464,6 +464,11 @@ const adminRoutes = new Elysia()
           if (!result.ok) {
             throw new HarnessStateError([result.message, ...result.lastLines].join("\n"), 409);
           }
+          // A disabled network trusts nothing (spec § 10f): the registry
+          // forgets it and the record's addresses are cleared, so a re-enable
+          // starts from an empty set until the next probe re-learns them.
+          await writeNetworkState(params.pluginId, { addresses: [] });
+          forgetNetworkOrigins(params.pluginId);
         } finally {
           endNetworkOp(params.pluginId);
         }
@@ -472,6 +477,11 @@ const adminRoutes = new Elysia()
       // recorded choice, and the absent-row default belongs to installs the
       // flag never touched.
       await state.setEnabled(params.pluginId, body.enabled);
+      if (body.enabled && !was && pluginTypeOf(s.installed.find((r) => r.id === params.pluginId)?.type) === "network") {
+        // Re-enabled: whatever the record still holds is trusted again now;
+        // the refresh timer or the page's next read re-learns the rest.
+        await syncNetworkOrigins(params.pluginId, getNetworkPlugin(params.pluginId)?.manifest.network);
+      }
       // A no-change repeat would land an audit row saying nothing happened —
       // the noise stays out of the one log an operator reconstructs from.
       if (was !== body.enabled) {
@@ -572,6 +582,7 @@ const adminRoutes = new Elysia()
           // a credential is a different act from removing bytes, and
           // `uninstallLocalPlugin` owns that directory.
           await clearNetworkState(params.pluginId);
+          forgetNetworkOrigins(params.pluginId);
         } finally {
           endNetworkOp(params.pluginId);
         }

@@ -4,25 +4,28 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
 import { networkRoutes } from "@/api/network/index.js";
-import { invalidateNetworkStatus, setNetworkDepsForTests, unionOrigins } from "@/api/network/network-gate.js";
+import { invalidateNetworkStatus, setNetworkDepsForTests } from "@/api/network/network-gate.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { activeAccessGuards, setAccessGuards } from "@/plugins/access-guard.plugin.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { clearNetworkState, readNetworkState } from "@/services/network/state.js";
-import { type ConfigRecorder, FAKE_ID, fakeDeps, makeFakePlugin } from "./fake-network-plugin.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
+import { FAKE_ID, fakeDeps, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**
  * `POST /api/network/:id/publish` (spec 2026-09-15 § 5.1, § 5.4).
  *
- * Its own file because publishing is the route that does four things in one
- * act — install a guard, arm a process, record the publish, rewrite the config
- * — and the ORDER and the CONFIG RULES are the properties worth pinning:
+ * Its own file because publishing is the route that does three things in one
+ * act — install a guard, arm a process, record the publish — and the ORDER
+ * and the TRUST RULES are the properties worth pinning:
  *
  * - the guard is installed before anything can carry traffic;
- * - `TRUSTED_ORIGINS` is a union, never a replacement;
- * - a key the environment owns is not written, and the publish still stands.
+ * - the record is what the origin registry follows — nothing is written to
+ *   config.env, and a `public-with-gate` address becomes trusted only from a
+ *   published record;
+ * - a plugin refusal is an answer (a done frame), never a failure.
  */
 
 const app = new Elysia().use(errorHandlerPlugin).use(networkRoutes);
@@ -62,19 +65,6 @@ const ADDRESSES = [
   { url: "https://server.example.com", scheme: "https" as const, label: "Cloudflare", secureContext: true },
 ];
 
-function recorder(): ConfigRecorder {
-  return {
-    calls: [],
-    result: {
-      ok: true,
-      path: "/tmp/config.env",
-      values: {},
-      warnings: ["TRUSTED_ORIGINS now names 3 origins (a warning the CLI writer produced)"],
-      changed: [{ key: "TRUSTED_ORIGINS", from: undefined, to: "https://server.example.com" }],
-    },
-  };
-}
-
 describe("POST /api/network/:id/publish", () => {
   beforeAll(async () => {
     await setupAuthTables();
@@ -91,6 +81,7 @@ describe("POST /api/network/:id/publish", () => {
     setNetworkDepsForTests(null);
     setAccessGuards([]);
     invalidateNetworkStatus();
+    resetOriginRegistryForTests();
     await clearNetworkState(FAKE_ID);
   });
 
@@ -98,8 +89,7 @@ describe("POST /api/network/:id/publish", () => {
     await deleteUserByEmailOrId(adminEmail);
   });
 
-  it("installs the guard, records the publish and unions the origins", async () => {
-    const config = recorder();
+  it("installs the guard and records the publish, and the registry trusts the addresses", async () => {
     // The status agrees with the publish result, as it does for every real
     // plugin: the post-write fresh re-read is now an OBSERVATION (task S4),
     // so a fake whose status disagreed with what `publish()` returned would
@@ -109,9 +99,7 @@ describe("POST /api/network/:id/publish", () => {
       status: { state: "published", addresses: ADDRESSES, hints: [] },
       guard: GUARD,
     });
-    setNetworkDepsForTests(
-      fakeDeps(entry, { config, configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080" }) }),
-    );
+    setNetworkDepsForTests(fakeDeps(entry));
 
     const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" }));
     expect(res.status).toBe(200);
@@ -121,26 +109,27 @@ describe("POST /api/network/:id/publish", () => {
     expect(done.type).toBe("done");
     expect(done.ok).toBe(true);
     expect(done.addresses).toEqual(ADDRESSES);
-    expect(done.restartRequired).toBe(true);
-    expect(done.config.written).toBe(true);
-    expect(done.config.changed).toEqual(["TRUSTED_ORIGINS"]);
-    expect(done.config.warnings).toEqual(["TRUSTED_ORIGINS now names 3 origins (a warning the CLI writer produced)"]);
+    // The done frame answers with the fresh status and nothing else.
+    expect(done.config).toBeUndefined();
+    expect(done.restartRequired).toBeUndefined();
 
-    // The guard is live, and the existing origin survived the union.
+    // The guard is live.
     expect(activeAccessGuards()).toEqual([{ pluginId: FAKE_ID, spec: GUARD }]);
-    expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080,https://server.example.com" }]);
 
     const state = await readNetworkState(FAKE_ID);
     expect(state.published).toBe(true);
     expect(state.port).toBe(3080);
     expect(state.addresses).toEqual(ADDRESSES);
+    // The publish is trusted the moment it is recorded: `public-with-gate`
+    // contributes only from a published record, and this record now says so.
+    expect(originRegistry().pluginOrigins(FAKE_ID)).toEqual(["https://server.example.com"]);
   });
 
   it("replaces only its own hostname in the guard set", async () => {
     const other: RequestGuardSpec = { ...GUARD, hostname: "someone-else.example.com" };
     setAccessGuards([{ pluginId: "someone-else", spec: other }]);
     const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, guard: GUARD });
-    setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
+    setNetworkDepsForTests(fakeDeps(entry));
     await frames(await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })));
     expect(activeAccessGuards().map((g) => g.spec.hostname)).toEqual([
       "someone-else.example.com",
@@ -151,11 +140,10 @@ describe("POST /api/network/:id/publish", () => {
   it("answers a plugin's refusal as a done frame, not an error", async () => {
     // A refusal is an ANSWER: the act completed and told us what the operator
     // has to do first. An `error` frame would say the server broke.
-    const config = recorder();
     const { entry } = makeFakePlugin({
       publish: { refused: { text: "Enable HTTPS on your tailnet first.", docsUrl: "https://example.invalid" } },
     });
-    setNetworkDepsForTests(fakeDeps(entry, { config }));
+    setNetworkDepsForTests(fakeDeps(entry));
     const done = await doneFrame(
       await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })),
     );
@@ -163,36 +151,12 @@ describe("POST /api/network/:id/publish", () => {
     expect(done.ok).toBe(false);
     expect(done.refused.text).toBe("Enable HTTPS on your tailnet first.");
     expect(done.addresses).toEqual([]);
-    expect(done.restartRequired).toBe(false);
-    // Vacuously written: nothing was asked of config.env, so nothing failed.
-    expect(done.config).toEqual({ changed: [], warnings: [], written: true });
-    expect(config.calls).toEqual([]);
+    expect(done.config).toBeUndefined();
+    expect(done.restartRequired).toBeUndefined();
     expect(activeAccessGuards()).toEqual([]);
     expect((await readNetworkState(FAKE_ID)).published).toBe(false);
-  });
-
-  it("does not write a key the environment owns, and publishes anyway", async () => {
-    // The server really IS reachable at the address; what could not follow is
-    // the file. Reporting a refusal here would be reporting a failure for an
-    // act that succeeded.
-    const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, guard: GUARD });
-    setNetworkDepsForTests(
-      fakeDeps(entry, {
-        config,
-        env: () => ({ TRUSTED_ORIGINS: "http://localhost:3080" }),
-        configValues: () => ({}),
-      }),
-    );
-    const done = await doneFrame(
-      await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })),
-    );
-    expect(done.ok).toBe(true);
-    expect(done.config.written).toBe(false);
-    expect(done.config.unwritableKey).toBe("TRUSTED_ORIGINS");
-    expect(config.calls).toEqual([]);
-    expect(activeAccessGuards()).toEqual([{ pluginId: FAKE_ID, spec: GUARD }]);
-    expect((await readNetworkState(FAKE_ID)).published).toBe(true);
+    // A refused publish records nothing, and the registry follows the record.
+    expect(originRegistry().pluginOrigins(FAKE_ID)).toEqual([]);
   });
 
   it("refuses to publish a public-with-gate network that describes no guard", async () => {
@@ -212,51 +176,9 @@ describe("POST /api/network/:id/publish", () => {
     expect((await readNetworkState(FAKE_ID)).published).toBe(false);
   });
 
-  it("writes no base URL, whatever the body carries", async () => {
-    // Publishing no longer moves `APP_BASE_URL` (2026-09-16): the route
-    // declares no body at all, so a client still sending `promoteBaseUrl`
-    // is simply not heard. The recorder sees the patch the writer actually
-    // applied — a publish whose patch names a second key fails the toEqual.
-    const config = recorder();
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
-    setNetworkDepsForTests(fakeDeps(entry, { config }));
-    const done = await doneFrame(
-      await app.fetch(
-        withCookie(`/api/network/${FAKE_ID}/publish`, {
-          method: "POST",
-          body: JSON.stringify({ promoteBaseUrl: true }),
-        }),
-      ),
-    );
-    expect(done.ok).toBe(true);
-    // The union starts from `DEFAULT_TRUSTED_ORIGINS`, not from nothing. The
-    // key is ABSENT by default and config.env beats the built-in, so writing
-    // only the new origin would silently strip the dev origins a developer's
-    // browser reaches this server on. The boot reconcile always knew that;
-    // this writer did not, and two writers over one key is how they disagree.
-    expect(config.calls).toEqual([
-      { trustedOrigins: "http://localhost:5174,http://localhost:5173,https://server.example.com" },
-    ]);
-    expect(done.config.warnings.some((w: string) => w.includes("passkey rpID"))).toBe(false);
-  });
-
-  it("keeps the publish when the config writer refuses the value", async () => {
-    const config = recorder();
-    config.result = { ok: false, kind: "invalid", key: "TRUSTED_ORIGINS", reason: "that is not an origin" };
-    const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
-    setNetworkDepsForTests(fakeDeps(entry, { config }));
-    const done = await doneFrame(
-      await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })),
-    );
-    expect(done.ok).toBe(true);
-    expect(done.config.written).toBe(false);
-    expect(done.config.warnings.some((w: string) => w.includes("that is not an origin"))).toBe(true);
-    expect((await readNetworkState(FAKE_ID)).published).toBe(true);
-  });
-
   it("delivers a throwing publish as an error frame inside a 200", async () => {
     const { entry } = makeFakePlugin({ publish: { throws: "the tunnel API said no" } });
-    setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
+    setNetworkDepsForTests(fakeDeps(entry));
     const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" }));
     expect(res.status).toBe(200);
     const done = await doneFrame(res);
@@ -268,28 +190,13 @@ describe("POST /api/network/:id/publish", () => {
 
   it("audits the addresses, and nothing else", async () => {
     const { entry } = makeFakePlugin({ publish: { addresses: ADDRESSES }, exposure: "private" });
-    setNetworkDepsForTests(fakeDeps(entry, { config: recorder() }));
+    setNetworkDepsForTests(fakeDeps(entry));
     await frames(await app.fetch(withCookie(`/api/network/${FAKE_ID}/publish`, { method: "POST", body: "{}" })));
     const events = await new AuditRepository(db).listLatest(300);
     const row = events.find((e) => e.action === "network.publish");
     expect(row).toBeDefined();
     expect(JSON.parse(String(row?.metadataJson ?? "{}"))).toEqual({
       addresses: ["https://server.example.com"],
-    });
-  });
-
-  describe("unionOrigins", () => {
-    it("canonicalizes both sides and never drops what was already there", () => {
-      expect(
-        unionOrigins("https://a.example/ , http://b.example:80", ["https://a.example", "https://c.example"]),
-      ).toEqual(["https://a.example", "http://b.example", "https://c.example"]);
-    });
-
-    it("carries an unparseable stored entry through verbatim", () => {
-      // The validator inside `applyConfig` is what decides whether a stored
-      // value is acceptable; silently deleting a line an operator hand-wrote
-      // is not this function's call.
-      expect(unionOrigins("not-a-url", ["https://a.example"])).toEqual(["not-a-url", "https://a.example"]);
     });
   });
 });

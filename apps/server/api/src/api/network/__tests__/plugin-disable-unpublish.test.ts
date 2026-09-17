@@ -7,7 +7,7 @@ import {
   setupAuthTables,
   signIn,
 } from "@/api/__tests__/helpers/auth-tables.js";
-import { beginNetworkOp, endNetworkOp, setNetworkDepsForTests } from "@/api/network/network-gate.js";
+import { beginNetworkOp, endNetworkOp } from "@/api/network/network-gate.js";
 import { pluginsRoutes } from "@/api/plugins.route.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
@@ -15,7 +15,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { clearNetworkState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
-import { type ConfigRecorder, fakeDeps, makeFakePlugin } from "./fake-network-plugin.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 
 /**
  * `PATCH /api/plugins/:id { enabled: false }` on a NETWORK plugin runs the
@@ -67,6 +67,7 @@ describe("disabling a network plugin", () => {
 
   afterEach(async () => {
     setUnpublishDepsForTests(null);
+    resetOriginRegistryForTests();
     await new PluginStateRepository(db).clear(NETWORK_PLUGIN_ID);
     await new PluginStateRepository(db).clear(HARNESS_PLUGIN_ID);
   });
@@ -76,10 +77,8 @@ describe("disabling a network plugin", () => {
   });
 
   it("answers 409 while another act holds the plugin's lock, writing nothing", async () => {
-    // The strip disable runs is the same config.env write a `/api/network`
-    // act holds its per-plugin lock for; without taking that lock, a disable
-    // could race a live publish's union — two writers, last rename wins, and
-    // neither result describes the file afterwards. The refusal must also
+    // The per-plugin lock every `/api/network` act takes: a disable must not
+    // interleave with a live publish's record write. The refusal must also
     // leave the flag ALONE: a 409 that disabled anyway would be the flag
     // lying about a tunnel that is still up.
     const calls: string[] = [];
@@ -109,31 +108,12 @@ describe("disabling a network plugin", () => {
     expect(calls).toEqual(["disarm"]);
   });
 
-  it("runs the origin strip for a recorded publish, through the gate's writer", async () => {
-    // The reviewer's non-vacuity demand: with no publish record the sequence
-    // never reaches `removePublishedConfig`, so every other case in this file
-    // passes without touching the subtraction at all. Here the record is
-    // real, so the disable's quiet strip must actually rewrite the file —
-    // through the gate's ONE writer, not a local stub.
-    const config: ConfigRecorder = {
-      calls: [],
-      result: {
-        ok: true,
-        path: "/tmp/config.env",
-        values: {},
-        warnings: [],
-        changed: [
-          { key: "TRUSTED_ORIGINS", from: "http://localhost:3080,https://nb.example", to: "http://localhost:3080" },
-        ],
-      },
-    };
-    const { entry } = makeFakePlugin();
-    setNetworkDepsForTests(
-      fakeDeps(entry, {
-        config,
-        configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080,https://nb.example" }),
-      }),
-    );
+  it("forgets the plugin's origins and clears its addresses on disable", async () => {
+    // The reviewer's non-vacuity demand, one registry later: a disable must
+    // take down the trust as well as the process. The seed is a plugin the
+    // registry DOES trust — without it, every case here would pass on an
+    // already-empty set and prove nothing.
+    originRegistry().setPluginOrigins(NETWORK_PLUGIN_ID, ["https://nb.example"]);
     setUnpublishDepsForTests({
       getPlugin: () => undefined,
       disarm: async () => {},
@@ -147,10 +127,13 @@ describe("disabling a network plugin", () => {
     });
 
     expect((await app.fetch(patch(NETWORK_PLUGIN_ID, false))).status).toBe(200);
-    expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080" }]);
-    // The record cleared, the origins subtracted: the disable really did
-    // stop describing this machine as published on the network.
-    expect((await readNetworkState(NETWORK_PLUGIN_ID)).published).toBe(false);
+    // A disabled network trusts nothing (spec § 10f), and its record's
+    // addresses are cleared: a re-enable starts from an empty set until the
+    // next probe re-learns them.
+    expect(originRegistry().pluginOrigins(NETWORK_PLUGIN_ID)).toEqual([]);
+    const state = await readNetworkState(NETWORK_PLUGIN_ID);
+    expect(state.published).toBe(false);
+    expect(state.addresses).toEqual([]);
     await clearNetworkState(NETWORK_PLUGIN_ID);
   });
 

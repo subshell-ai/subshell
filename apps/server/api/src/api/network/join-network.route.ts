@@ -6,17 +6,16 @@ import {
   auditNetwork,
   configurationRefusal,
   invalidateNetworkStatus,
-  type NetworkConfigWrite,
   networkDeps,
   prepareNetworkAct,
   readinessRefusal,
   readNetworkStatus,
   requireNetworkAdmin,
-  writePublishConfig,
 } from "@/api/network/network-gate.js";
 import { NetworkParamsSchema } from "@/api/network/schemas.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
+import { syncNetworkOrigins } from "@/services/network/origins.js";
 import { writeNetworkState } from "@/services/network/state.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -146,13 +145,11 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
          * JOIN IS THE PUBLISH (spec § 5.3, amended 2026-09-16). For a
          * `publishImplicit` network the join itself made the addresses answer;
          * the separate press that used to live under a heading nobody needed
-         * would only re-record what membership already did — so the record,
-         * the origins and the restart answer happen HERE, through the same
-         * gate writer the publish route drives. An explicit-publish network's
-         * join writes NOTHING to config.env: those presses carry real costs
+         * would only re-record what membership already did — so the record
+         * happens HERE and the registry follows it. An explicit-publish
+         * network's join records NOTHING: those presses carry real costs
          * (public CT logs, a public tunnel) and stay user-decided.
          */
-        let published: { config: NetworkConfigWrite; restartRequired: boolean } | undefined;
         if (resolved.manifest.publishImplicit === true && after.state === "joined" && after.addresses.length === 0) {
           // The gap, once: measured immediate on 0.66.4, but one daemon on
           // one day is not a promise. If the re-read still has no address,
@@ -178,8 +175,7 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
               port: networkDeps().port(),
               publishedAt: new Date().toISOString(),
             });
-            const config = writePublishConfig({ origins: addresses.map((address) => address.url) });
-            for (const warning of config.warnings) send({ type: "line", text: warning });
+            await syncNetworkOrigins(id, resolved.manifest);
             invalidateNetworkStatus(id);
             after = await readNetworkStatus(entry, ctx, { fresh: true });
             // Two acts, two rows: the audit vocabulary counts `network.publish`,
@@ -190,7 +186,6 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
               addresses: addresses.map((address) => address.url),
               by: "join",
             });
-            published = { config, restartRequired: config.changed.length > 0 };
           } catch (err) {
             // The JOIN succeeded. A failed auto-publish must not rewrite it
             // into an error frame — the machine is genuinely on the network,
@@ -198,7 +193,8 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
             // one line and the recording press. Half-failure inside the block
             // (recorded but not audited, or written but not reported) is
             // exactly why the fallback press is idempotent by design: the
-            // publish route re-records and re-unions the same addresses.
+            // publish route re-records the same addresses and the registry
+            // re-follows.
             const reason = err instanceof Error ? err.message : String(err);
             getLogger().withError(err).warn(`network "${id}": the join succeeded but its auto-publish failed`);
             send({
@@ -210,12 +206,7 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
 
         for (const hint of after.hints) send({ type: "line", text: hint.text });
         await auditNetwork(request, "network.join", id, { mode, ok: true });
-        send({
-          type: "done",
-          outcome,
-          status: after,
-          ...(published ? { config: published.config, restartRequired: published.restartRequired } : {}),
-        });
+        send({ type: "done", outcome, status: after });
       } catch (err) {
         // Audited BEFORE the rethrow, because the rethrow becomes the
         // terminal `error` frame and nothing after it runs. A failed join
@@ -231,8 +222,7 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
     body: JoinBodySchema,
     // NO typed 200: this route streams. The body is NDJSON — a
     // {"type":"line","text":…} per step, then exactly one
-    // {"type":"done","outcome":…,"status":… (plus "config"/"restartRequired"
-    // when the join WAS the publish)} or {"type":"error","message":…}.
+    // {"type":"done","outcome":…,"status":…} or {"type":"error","message":…}.
     response: {
       400: "ApiErrorResponse",
       401: "ApiErrorResponse",
@@ -244,7 +234,7 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "joinNetwork",
       tags: ["network"],
       description:
-        "Joins this host to the network, with a pasted credential or interactively (admin cookie only). STREAMS application/x-ndjson: {type:line,text} frames, then one {type:done,outcome,status} — also {config,restartRequired} when the join recorded a publish — or {type:error,message}. A malformed credential is the plugin's own refusal and arrives as an error frame, because the body is already open by then — but a PRESENT-BUT-BLANK one is 400 before the stream opens, because which flow the request IS cannot be guessed from an empty field. For a publishImplicit network the join IS the publish: it records the publish and widens TRUSTED_ORIGINS through the same writer the publish route uses, and audits its own network.publish row (by: join); an explicit-publish network's join writes nothing to config.env. Audited as network.join with the mode and the outcome — never the credential.",
+        "Joins this host to the network, with a pasted credential or interactively (admin cookie only). STREAMS application/x-ndjson: {type:line,text} frames, then one {type:done,outcome,status} or {type:error,message}. A malformed credential is the plugin's own refusal and arrives as an error frame, because the body is already open by then — but a PRESENT-BUT-BLANK one is 400 before the stream opens, because which flow the request IS cannot be guessed from an empty field. For a publishImplicit network the join IS the publish: it records the publish, which trusts the addresses for sign-in at once, and audits its own network.publish row (by: join); an explicit-publish network's join records nothing. Audited as network.join with the mode and the outcome — never the credential.",
     },
   },
 );

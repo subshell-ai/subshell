@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { NetworkPlugin, NetworkPluginEntry, RequestGuardSpec } from "@internal/pane-runtime";
-import type { ConfigRecorder } from "@/api/network/__tests__/fake-network-plugin.js";
-import { fakeDeps } from "@/api/network/__tests__/fake-network-plugin.js";
-import { setNetworkDepsForTests } from "@/api/network/network-gate.js";
 import { readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { setUnpublishDepsForTests, unpublishNetwork } from "@/services/network/unpublish.js";
 
@@ -65,7 +62,6 @@ function deps(recorder: Recorder, plugin: Partial<NetworkPlugin> = {}, failDisar
 
 afterEach(() => {
   setUnpublishDepsForTests(null);
-  setNetworkDepsForTests(null);
 });
 
 describe("unpublishNetwork", () => {
@@ -78,47 +74,21 @@ describe("unpublishNetwork", () => {
       addresses: [{ url: "https://box.ts.net", scheme: "https", label: "MagicDNS", secureContext: true }],
     });
 
-    // The gate seam carries the subtraction's half of this case: the sequence
-    // asks the config writer for exactly the recorded origin, and a recording
-    // writer is what proves it — never the developer's file.
-    const config: ConfigRecorder = {
-      calls: [],
-      result: {
-        ok: true,
-        path: "/tmp/config.env",
-        values: {},
-        warnings: [],
-        changed: [
-          { key: "TRUSTED_ORIGINS", from: "http://localhost:3080,https://box.ts.net", to: "http://localhost:3080" },
-        ],
-      },
-    };
-    setNetworkDepsForTests(
-      fakeDeps(
-        {
-          manifest: { id: "tailscale" } as NetworkPluginEntry["manifest"],
-          plugin: {},
-        } as unknown as NetworkPluginEntry,
-        {
-          config,
-          configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080,https://box.ts.net" }),
-        },
-      ),
-    );
-
-    expect(await unpublishNetwork("tailscale")).toEqual({
-      ok: true,
-      config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-      origins: ["https://box.ts.net"],
-    });
-    expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080" }]);
+    expect(await unpublishNetwork("tailscale")).toEqual({ ok: true, origins: ["https://box.ts.net"] });
     // Guard-off LAST: any other order leaves a window in which a live tunnel
     // reaches an unguarded server.
     expect(recorder.calls).toEqual(["disarm", "plugin.unpublish", "setGuards"]);
     expect(recorder.guards).toEqual([]);
 
+    // `published` and `port` go; `addresses` STAY — an unpublish stops
+    // serving, it does not leave the network, and the registry re-derives
+    // its trust from the record as it stands.
     const state = await readNetworkState("tailscale");
-    expect(state).toMatchObject({ published: false, port: null, addresses: [] });
+    expect(state).toMatchObject({
+      published: false,
+      port: null,
+      addresses: [expect.objectContaining({ url: "https://box.ts.net" })],
+    });
   });
 
   it("refuses when the process will not stop, leaving the guard in place", async () => {
@@ -149,7 +119,7 @@ describe("unpublishNetwork", () => {
     );
     await writeNetworkState("tailscale-vendor", { published: true, port: 3080 });
 
-    expect(await unpublishNetwork("tailscale-vendor")).toEqual({ ok: true, config: null, origins: [] });
+    expect(await unpublishNetwork("tailscale-vendor")).toEqual({ ok: true, origins: [] });
     // The vendor's side may have leftovers an operator can see; everything
     // local is already safe, and believing we are still published would be
     // worse than the leftover.
@@ -190,16 +160,16 @@ describe("unpublishNetwork", () => {
     );
     await writeNetworkState("tailscale-broken", { published: true, port: 3080 });
 
-    expect(await unpublishNetwork("tailscale-broken")).toEqual({ ok: true, config: null, origins: [] });
+    expect(await unpublishNetwork("tailscale-broken")).toEqual({ ok: true, origins: [] });
     expect(recorder.guards).toEqual([]);
     expect((await readNetworkState("tailscale-broken")).published).toBe(false);
   });
-  it("clears an implicit-publish network's record and strips its origins too", async () => {
-    // The reversal of the same amendment (operator's ruling 2026-09-16): a
-    // server that no longer describes a network does not keep trusting that
-    // network's addresses, even though the daemon may go on answering at
-    // them — membership is what makes a NetBird address answer, and what
-    // stripping ends is sign-in ACCEPTANCE at the next restart.
+  it("keeps an implicit-publish network's addresses across an unpublish", async () => {
+    // Membership is what makes a NetBird address answer, and the registry
+    // re-derives from the record as it stands: the unpublish stops SERVING
+    // (the audit row names what stopped), it does not leave the network.
+    // Only the disable and leave paths clear the addresses, because those
+    // are the acts that stop describing the network at all (spec § 10f).
     const recorder = installed("netbird-keep");
     const fake = {
       ...deps(recorder),
@@ -218,36 +188,10 @@ describe("unpublishNetwork", () => {
       port: 3080,
       addresses: [{ url: "https://nb.example", scheme: "http", label: "FQDN", secureContext: false }],
     });
-    // The subtraction runs through the GATE's seams — the one config writer —
-    // so this is where the two dep sets meet, and the reason the writer lives
-    // in the gate rather than being passed down.
-    const config: ConfigRecorder = {
-      calls: [],
-      result: {
-        ok: true,
-        path: "/tmp/config.env",
-        values: {},
-        warnings: [],
-        changed: [
-          { key: "TRUSTED_ORIGINS", from: "http://localhost:3080,https://nb.example", to: "http://localhost:3080" },
-        ],
-      },
-    };
-    setNetworkDepsForTests(
-      fakeDeps({ manifest: { id: "netbird-keep" } } as NetworkPluginEntry, {
-        config,
-        configValues: () => ({ TRUSTED_ORIGINS: "http://localhost:3080,https://nb.example" }),
-      }),
-    );
 
-    expect(await unpublishNetwork("netbird-keep")).toEqual({
-      ok: true,
-      config: { changed: ["TRUSTED_ORIGINS"], warnings: [], written: true },
-      origins: ["https://nb.example"],
-    });
+    expect(await unpublishNetwork("netbird-keep")).toEqual({ ok: true, origins: ["https://nb.example"] });
     const state = await readNetworkState("netbird-keep");
     expect(state.published).toBe(false);
-    expect(state.addresses).toEqual([]);
-    expect(config.calls).toEqual([{ trustedOrigins: "http://localhost:3080" }]);
+    expect(state.addresses.map((address) => address.url)).toEqual(["https://nb.example"]);
   });
 });

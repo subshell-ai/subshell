@@ -1,8 +1,7 @@
 import { getNetworkPlugin, type NetworkPluginEntry, type RequestGuardSpec } from "@internal/pane-runtime";
-import type { NetworkConfigWrite } from "@/api/network/network-gate.js";
-import { removePublishedConfig } from "@/api/network/network-gate.js";
 import { IS_TEST } from "@/constants.js";
 import { setPluginGuards } from "@/plugins/access-guard.plugin.js";
+import { forgetNetworkOrigins, syncNetworkOrigins } from "@/services/network/origins.js";
 import { networkContext, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { disarmProcess, processState } from "@/services/network/supervisor.js";
 import { getLogger } from "@/utils/logger.js";
@@ -19,12 +18,9 @@ import { getLogger } from "@/utils/logger.js";
  *    deleted, an advertised route withdrawn.
  * 3. **Drop the guard.**
  * 4. **Record it.**
- * 5. **Un-trust what the publish trusted.** The origins the recorded publish
- *    added leave `TRUSTED_ORIGINS` with it (spec § 5.4, amended 2026-09-16):
- *    an origin added by a publish now has that publish's lifecycle. The
- *    result carries what happened, because the page must say which of two
- *    things it got — a write awaiting a restart, or a refusal naming the
- *    environment that owns the key.
+ * 5. **Re-derive the trust.** The registry follows the record; nothing is
+ *    written to config.env (2026-09-16: origins are derived from plugin
+ *    state, not stored beside the operator's).
  *
  * Guard-off is LAST because a guard is the identity check in front of the
  * traffic this publish invited. Dropping it first would leave a window,
@@ -35,19 +31,6 @@ import { getLogger } from "@/utils/logger.js";
  * That is also why a failure at step 1 REPORTS rather than continues. A
  * process that would not die is a publish that is still live, and unwinding
  * the rest around it would be tidying up while the door stands open.
- *
- * **Steps 4 and 5 run for a `publishImplicit` network too** (operator's
- * ruling 2026-09-16, REVERSING this module's first cut, which kept the record
- * and the origins whole). After an unpublish or a disable a NetBird daemon may
- * STILL answer at its own address — membership is what makes it answer, not
- * anything this server runs — but the stripped origins make that address stop
- * ACCEPTING SIGN-INS once the restart lands. That is the stated, chosen cost,
- * and the rule it buys is the one an operator can rely on: a server that no
- * longer describes a network does not keep trusting that network's addresses.
- * Leave — the verb that actually takes the machine off — ends the addresses
- * anyway, so the common path loses nothing. A cleared record then renders
- * `joined`, which is the truth: the host has stopped describing this network
- * as one it publishes on (spec § 5.3, amended twice 2026-09-16).
  */
 
 /** The seams a test replaces, so the ORDER above can be asserted with a recording fake. */
@@ -89,14 +72,7 @@ function deps(): UnpublishDeps {
 export type UnpublishResult =
   | {
       ok: true;
-      /**
-       * What became of `TRUSTED_ORIGINS`, or null when the act asked nothing
-       * of the file: a plugin that never published recorded no origins to
-       * subtract. The `publishImplicit` kind is NOT exempt (§ 5.3, reversed
-       * 2026-09-16) — its record and its origins leave like any other's.
-       */
-      config: NetworkConfigWrite | null;
-      /** The origins the recorded publish had added — what `config` answered about; empty when none, or when nothing was asked. */
+      /** The addresses the record held when the act began — what the audit row names; empty when nothing was published. */
       origins: string[];
     }
   | { ok: false; message: string; lastLines: string[] };
@@ -115,11 +91,9 @@ export type UnpublishResult =
  * holding anything either.
  */
 export async function unpublishNetwork(pluginId: string): Promise<UnpublishResult> {
-  // Captured BEFORE step 4 clears the record — the publish's addresses live
-  // in the host's memory only until then, and step 5 subtracts exactly them
-  // from `TRUSTED_ORIGINS`. A plugin that never published recorded nothing,
-  // and `origins` stays empty: subtracting nothing is not a reason to touch
-  // the file.
+  // Captured BEFORE step 4 rewrites the record — the publish's addresses are
+  // what the audit row and the response name as stopped. A plugin that never
+  // published recorded nothing, and `origins` stays empty.
   const recorded = await readNetworkState(pluginId);
   const origins = recorded.published ? recorded.addresses.map((address) => address.url) : [];
 
@@ -149,10 +123,16 @@ export async function unpublishNetwork(pluginId: string): Promise<UnpublishResul
 
   await dropGuardsOf(pluginId);
 
-  await writeNetworkState(pluginId, { published: false, addresses: [], port: null });
-  // Step 5, and the reason the capture had to come first.
-  const config = origins.length > 0 ? removePublishedConfig(origins) : null;
-  return { ok: true, config, origins };
+  // `published` and `port` go; `addresses` STAY. An unpublish stops serving,
+  // it does not leave the network, and the record's addresses now mean "where
+  // this host is on that network" (state.ts). The registry re-derives from the
+  // record: a private network keeps trusting its joined addresses, a
+  // public-with-gate one stops the moment `published` is false — which is the
+  // same instant its guard comes off, one line above.
+  await writeNetworkState(pluginId, { published: false, port: null });
+  if (entry) await syncNetworkOrigins(pluginId, entry.manifest.network);
+  else forgetNetworkOrigins(pluginId);
+  return { ok: true, origins };
 }
 
 /**

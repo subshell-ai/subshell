@@ -7,9 +7,10 @@ import {
   readNetworkStatus,
   requireNetworkAdmin,
 } from "@/api/network/network-gate.js";
-import { NetworkParamsSchema, NetworkRemovalResponseSchema } from "@/api/network/schemas.js";
+import { NetworkActionResponseSchema, NetworkParamsSchema } from "@/api/network/schemas.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
+import { forgetNetworkOrigins } from "@/services/network/origins.js";
 import { clearNetworkState } from "@/services/network/state.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
 
@@ -34,10 +35,11 @@ const LeaveBodySchema = t.Object(
  * one-time invite paid for, and nothing on this server can restore it — so the
  * act asks for more than a click. A mismatch is a 400 before anything runs.
  *
- * **The removal trio rides the response** (review Minor): leave ran the § 5.3
- * sequence, so whatever that sequence subtracted, the page is told — the
- * same `{config, restartRequired, origins}` the unpublish route answers
- * with, rendered by the same card block with the same restart affordance.
+ * **The record is gone, and so is the trust** (spec § 10f): leave ran the
+ * § 5.3 sequence, cleared the record, and the registry forgets this plugin
+ * outright. The response still names the origins the undone publish had
+ * trusted — the same `{ok, origins, status}` the unpublish route answers
+ * with, rendered by the same card block.
  *
  * **`clearNetworkState` forgets the settings, never the secrets.** The secret
  * store beside it is the installer's business: conflating "this machine is off
@@ -87,19 +89,15 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
 
       await resolved.entry.plugin.leave(ctx);
       await clearNetworkState(id);
+      // The record is gone and so is the trust; the fresh re-read below only
+      // re-learns an address if the machine is, in fact, still on the network.
+      forgetNetworkOrigins(id);
       invalidateNetworkStatus(id);
       await auditNetwork(request, "network.leave", id, { origins: unpublished.origins });
-      // The same trio the unpublish route carries (review Minor, 2026-09-16):
-      // for NetBird LEAVE is the normal strip path — it is the act that
-      // actually ends membership — so it must answer what became of the
-      // origins and offer the restart that lands the removal, exactly like
-      // the unpublish result does for the serve kinds.
       return {
         ok: true as const,
-        status: await readNetworkStatus(resolved.entry, ctx, { fresh: true }),
-        config: unpublished.config,
-        restartRequired: (unpublished.config?.changed.length ?? 0) > 0,
         origins: unpublished.origins,
+        status: await readNetworkStatus(resolved.entry, ctx, { fresh: true }),
       };
     } finally {
       release();
@@ -109,7 +107,7 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
     params: NetworkParamsSchema,
     body: LeaveBodySchema,
     response: {
-      200: NetworkRemovalResponseSchema,
+      200: NetworkActionResponseSchema,
       400: "ApiErrorResponse",
       401: "ApiErrorResponse",
       403: "ApiErrorResponse",
@@ -120,7 +118,7 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "leaveNetwork",
       tags: ["network"],
       description:
-        "Takes this machine off the network (admin cookie only): unpublish, then the plugin's own leave, then the host forgets this plugin's recorded state. `confirm` must equal the plugin id. The plugin's stored secrets are NOT deleted — that is an uninstall, not a leave. The response carries the removal's {config, restartRequired, origins} trio, because for an implicit-publish network leave IS the act that strips its origins. Audited as network.leave with the origins.",
+        "Takes this machine off the network (admin cookie only): unpublish, then the plugin's own leave, then the host forgets this plugin's recorded state and the trusted-origin registry forgets the plugin. `confirm` must equal the plugin id. The plugin's stored secrets are NOT deleted — that is an uninstall, not a leave. The response names the origins the undone publish had trusted and carries the fresh status. Audited as network.leave with the origins.",
     },
   },
 );

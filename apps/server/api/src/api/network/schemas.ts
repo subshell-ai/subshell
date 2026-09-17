@@ -235,53 +235,17 @@ export const NetworkParamsSchema = t.Object({
   id: t.String({ description: "Network plugin id" }),
 });
 
-/** What `unpublish` and `leave` answer with. */
+/**
+ * What `unpublish` and `leave` answer with: which origins stopped accepting
+ * sign-ins (as of this answer — the registry followed the record as the act
+ * made it, so there is no config write and no restart to report), and the
+ * fresh status.
+ */
 export const NetworkActionResponseSchema = t.Object({
-  ok: t.Literal(true, { description: "Always true on success; a failure is a 4xx, never `ok: false` inside a 200" }),
-  status: NetworkStatusSchema,
-});
-
-/**
- * What one network act's config.env write did. Declared ONCE: the unpublish
- * response reads this shape, and the publish stream's `done` frame is built
- * from the same type server-side (`NetworkConfigWrite`), so the SPA's
- * hand-written mirror has exactly one thing to keep in step with.
- */
-export const NetworkConfigWriteSchema = t.Object({
-  changed: t.Array(t.String({ description: "One config.env key this write actually changed, by name" }), {
-    description: "The keys this write actually changed — names only, never values",
-  }),
-  warnings: t.Array(t.String({ description: "One advisory sentence, in the CLI writer's own words" }), {
-    description: "Advisory sentences to render beside the result",
-  }),
-  written: t.Boolean({ description: "True when every key the act wanted to write landed in config.env" }),
-  unwritableKey: t.Optional(
-    t.String({
-      description:
-        "The first key that could not be written, when written is false — the REASON is in warnings, never implied by naming a key",
-    }),
-  ),
-});
-
-/**
- * What `unpublish` and `leave` answer with: the fresh status, and what
- * became of the origins. ONE schema for the two removal acts — `leave` is
- * NetBird's normal strip path, and an identical trio on the wire is what
- * lets the SPA render both through one block.
- */
-export const NetworkRemovalResponseSchema = t.Object({
-  ...NetworkActionResponseSchema.properties,
-  /**
-   * The origin subtraction, or null when the act asked nothing of the file —
-   * a plugin that never published recorded no origins. No kind is exempt:
-   * `publishImplicit` subtracts too (spec § 5.3, reversed 2026-09-16).
-   */
-  config: t.Nullable(NetworkConfigWriteSchema),
-  restartRequired: t.Boolean({
+  ok: t.Literal(true, { description: "The act completed" }),
+  origins: t.Array(t.String(), {
     description:
-      "True when the subtraction actually rewrote config.env — TRUSTED_ORIGINS is read at boot, so a written removal lands on the next restart; false when nothing changed",
+      "Origins the recorded publish had trusted and no longer does, as of this answer; empty when nothing had been recorded. Every kind subtracts, publishImplicit included",
   }),
-  origins: t.Array(t.String({ description: "One address the publish being undone had recorded" }), {
-    description: "The origins this removal asked to subtract, as the publish recorded them",
-  }),
+  status: NetworkStatusSchema,
 });
