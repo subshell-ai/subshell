@@ -1,0 +1,24 @@
+{
+  "extends": "@internal/tsconfig/tsconfig.json",
+  "include": [
+    "app/**/*",
+    "components/**/*",
+    "lib/**/*",
+    "src/**/*",
+    "scripts/**/*",
+    "source.config.ts",
+    "next-env.d.ts"
+  ],
+  "compilerOptions": {
+    "jsx": "preserve",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["bun", "node", "react", "react-dom"],
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "allowJs": true,
+    "noEmit": true
+  }
+}

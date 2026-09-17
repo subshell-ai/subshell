@@ -1,0 +1,15 @@
+---
+title: Audit Log
+description: The instance's record of consequential acts — installs, role changes, restarts, repoints — and what each row names.
+---
+
+This page will cover the audit trail: what lands in it (admin acts on users, roles and password resets; plugin and agent-CLI installs; config updates with before/after values; restarts; node service, config and maintenance acts; network publishes — and an update's completing boot, recorded with no actor because the binary answered for itself), where an admin reads it (`GET /api/audit`, and the dashboard's view of the same rows), and its discipline: rows name origins, keys and field names — never secret values, never the content of a reset password. It will be the reference an operator reaches for when asking "who did this to my instance, and when".
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §10 "Audit and observability" — the event accounting
+- `apps/server/api/src/api/audit.route.ts` — the route and its parameters
+- `.claude/rules/security-context.md` — every audited event name as the rules cite them

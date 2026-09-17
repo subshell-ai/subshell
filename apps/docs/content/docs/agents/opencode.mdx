@@ -1,0 +1,15 @@
+---
+title: OpenCode
+description: The open-source omnichannel coding CLI as a Subshell harness — config-layer MCP wiring that keeps your own config intact.
+---
+
+This page will cover running OpenCode as a subshell: detection of the `opencode` binary (`OPENCODE_PATH` overrides, known install location under `~/.opencode/bin`), and its automatic per-subshell MCP wiring — a merged config layer pointed at by `OPENCODE_CONFIG`, so Subshell's MCP entry is added without touching your own opencode config. It will show where that layer is built and what a launch looks like on the plane and on a node.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/opencode/package.json` — the detect block and install command as shipped
+- `README.md` §Channels — "opencode gets a merged config layer pointed at by OPENCODE_CONFIG"
+- `packages/plugins/opencode/src/index.ts` — the plugin's launch and registration code

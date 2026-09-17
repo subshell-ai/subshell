@@ -1,0 +1,15 @@
+---
+title: Overview
+description: The server is the control plane — the API, the database, and the UI it serves, all on one port.
+---
+
+This page will orient you around the word this product reserves for the control plane: the server is the API, its SQLite database, and the SPA it serves, all on one port — it is not a machine that runs agents (that word is node; the control-plane host is usually one, but that is a separate role). The page will map the surfaces an operator manages it from — the dashboard's Settings pages, the `subshell-server` CLI, the config file — and say which of the three owns which decision, plus where its data lives on disk. The rest of this section then takes each surface one page at a time.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `AGENTS.md` §The vocabulary — the three words and the rule against overloading them
+- `docs/overview.md` §Architecture — one port serving SPA, API, WS and docs
+- `apps/server/api/AGENTS.md` — the app's own map: routes, CLI, config, self-management

@@ -1,0 +1,16 @@
+---
+title: Headless Install
+description: Put a control plane on a box you only ever reach over SSH — the one-liner, init, and the first URL.
+---
+
+This page will cover installing the control plane on a headless Linux machine: the `install-server.sh` one-liner (platform detection, digest-verified download to `~/.local/bin/subshell-server`, then `init`), answering `init`'s single question about background service and login start, the variables that pre-answer everything (`SUBSHELL_SERVER_PORT`, `_HOST`, `_BASE_URL`, `_TRUSTED_ORIGINS`, `SUBSHELL_NO_SERVICE`), and the prompt to open the printed `/setup` URL before anyone else on the network does. It will end where the box takes over from the terminal: the first-boot `status` read, and browsing to the address you configured.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `README.md` §Headless install — the exact commands, the env vars, and the setup-window race
+- `install-server.sh` — the script itself, for what it checks and writes
+- `docs/superpowers/specs/2026-09-15-headless-setup-design.md` — the headless flow's design
+- `apps/server/api/AGENTS.md` §"Standalone binary & CLI" — what init writes, and `status` as the first diagnostic

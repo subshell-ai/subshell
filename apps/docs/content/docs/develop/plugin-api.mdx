@@ -1,0 +1,15 @@
+---
+title: The Plugin API
+description: "The contract itself — @subshell-ai/plugin-api: manifests, capabilities, the host object, and the API version rule."
+---
+
+This page will be the structured reference for `@subshell-ai/plugin-api`: the manifest parser and its `subshell` package.json block; the capability unions and how they are validated per type (a harness claiming `publish` and a network plugin claiming `resume` are both refused by name, while the applicable subset follows the manifest's declared type); the `PluginHost` surface a factory receives — run, secrets, supervised processes, reporting — since that object is a plugin's only handhold into the system; and `PLUGIN_API_VERSION`, what bumping it means, and the build-time rule that a plugin inlines the API rather than importing it at runtime. It will read like the package's own surface, with links into the source for every claim.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugin-api/src/index.ts` — the full export surface, by name
+- `packages/plugin-api/src/manifest.ts` — manifest parsing and its refusals
+- `packages/plugin-api/package.json` — the published package the page documents

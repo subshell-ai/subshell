@@ -1,0 +1,15 @@
+---
+title: Codex
+description: OpenAI's coding CLI as a Subshell harness — TUI launch, detection, and automatic MCP wiring.
+---
+
+This page will cover running Codex as a subshell: how Subshell finds the `codex` binary (PATH plus known install locations, overridable with `CODEX_PATH`), launching its interactive TUI in a pane, and the per-subshell `subshell mcp` registration the plugin handles automatically. It will carry the same shape as the other harness pages — detect, launch, register, install-if-missing — and link the vendor's own CLI docs for anything beyond running it under Subshell.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/codex/package.json` — the detect block and install command as shipped
+- `docs/architecture.md` §4 "The subshell mcp process" — per-harness MCP registration
+- `packages/plugins/codex/src/index.ts` — the plugin's launch behaviour

@@ -1,9 +1,11 @@
 # Changesets
 
 Run `bunx changeset` after user-visible changes to any releasable app —
-`@internal/server`, `@internal/node`, `@internal/desktop-server` or
-`@internal/desktop-client`. The version PR on merge to main records the bump;
-the release cut happens via `.github/workflows/release.yml`.
+`@internal/server`, `@internal/node`, `@internal/desktop-server`,
+`@internal/desktop-client` or `@internal/docs`. The version PR on merge to main
+records the bump; the release cut happens via
+`.github/workflows/release.yml` — except for `@internal/docs`, whose version
+drives the tagged docs-site deploy in `.github/workflows/docs.yml` instead.
 
 The Action commits `changeset version`'s bumps itself, so lefthook's local
 "update bun lockfile" hook never runs — which is why `version-packages` ends

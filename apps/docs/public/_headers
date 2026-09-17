@@ -1,0 +1,15 @@
+# Cloudflare Workers static assets read this file from the assets directory
+# (`next build` copies public/ into out/ verbatim) and apply the rules to
+# every response. `#` lines are comments.
+#
+# No Content-Security-Policy, on purpose: a `next build` static export ships
+# inline hydration scripts and inline <style> blocks, so a CSP here would
+# need 'unsafe-inline' for both script-src and style-src — a header that
+# reads as a defence and is nearly none — or per-page nonces, which a static
+# export cannot issue. Better no CSP than a false one. Revisit this when the
+# site leaves static export (the vinext follow-up); a middleware-injected
+# CSP becomes possible then.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()

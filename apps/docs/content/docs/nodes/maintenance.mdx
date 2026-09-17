@@ -1,0 +1,15 @@
+---
+title: Maintenance Mode
+description: Take a node out of service — it answers everything but launches nothing, and running subshells stop.
+---
+
+This page will cover maintenance: the per-node flag that answers "whether anyone may launch here" when shares only answer "who may". Turning it on keeps the node enrolled and responding to every other command but refuses new subshells — and terminates every subshell running there, whoever owns them. It will cover both levers (the Nodes page, owner-only; `subshell maintenance on` on the machine itself), the push that reaches affected owners, the count shown to the thrower, and the honest limit: either end can overrule the flag, so maintenance is a routing preference, never a quarantine — containment is deleting the node or rotating its key.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/superpowers/specs/2026-09-14-node-maintenance-design.md` — the design, including overrule semantics
+- `.claude/rules/security-context.md` §Nodes (maintenance bullets) — the two axes and the owner-only gate
+- `apps/node/agent/src/maintenance.ts` — the node-side mirror, its fail-closed read

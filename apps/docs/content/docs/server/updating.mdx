@@ -1,0 +1,16 @@
+---
+title: Updating the Server
+description: Moving the control plane to a new version — from the page, the CLI, or the desktop app — and how a bad one rolls itself back.
+---
+
+This page will cover server updates: `subshell-server update --check` against the release list, the update that swaps the binary (or `--from` a local file, air-gapped), and the transaction every path shares — a marker written, the old binary kept as `.previous`, the database snapshotted first, and the NEW binary finishing the job at boot: migrations pass and the update is audited, or it restores the snapshot, puts the old binary back, and exits for the service manager to respawn. It will name the trust honestly (the plane downloads and runs code from the release source; empty `SUBSHELL_RELEASE_URL` disables every network path) and the dashboard route an admin cookie can drive.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/superpowers/specs/2026-09-15-updates-design.md` §4 — the server half, incl. §15 amendments
+- `AGENTS.md` §"Updates: how an installation moves to the next version" — the four load-bearing facts
+- `.claude/rules/security-context.md` §"Updating is a new class of act" — the admin route and what it costs
+- `apps/server/api/src/services/releases.ts` — the release-list fetch behind every "what's available" answer

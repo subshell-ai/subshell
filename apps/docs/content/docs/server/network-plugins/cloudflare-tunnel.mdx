@@ -1,0 +1,16 @@
+---
+title: Cloudflare Tunnel
+description: Publish your server on a hostname you own — behind an Access gate that the server verifies itself.
+---
+
+This page will cover the Cloudflare Tunnel plugin, the one network plugin that inverts the posture: `exposure: "public-with-gate"` means this instance answers on the open internet, behind Cloudflare Access. It will explain the three bounds that make that sayable: the plugin refuses to publish until a pre-flight confirms an Access application covers the hostname; the server verifies the assertion itself on every request, keyed on the `Host` header and the pinned team JWKS, failing closed with no exemptions; and Disable/unpublish stop the tunnel first and drop the guard last, so a live tunnel is never unguarded. It will be explicit that the Access assertion is a front door, never a session — Subshell's own login is still required behind it. `cloudflared` is also the one daemon needing no root anywhere, which is why its install command is the one the server may run.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/cloudflare-tunnel/package.json` — the manifest: public-with-gate exposure and privileged steps
+- `docs/security.md` §11.13 — the Cloudflare-specific accounting (Host-header verification, no proxy headers trusted)
+- `packages/plugins/cloudflare-tunnel/src/preflight.ts` — the refuse-to-publish-without-Access check
+- `packages/plugins/cloudflare-tunnel/src/publish.ts` — the publish flow the page narrates

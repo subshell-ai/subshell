@@ -1,0 +1,15 @@
+---
+title: Managing the Agent
+description: Restart, service controls, logs and config for an enrolled node — from the browser.
+---
+
+This page will cover driving a node's agent from the control plane: the per-node Service card (status, start, stop, restart, install, uninstall), the node's own log view, flipping its debug logging, and repointing it at a different control plane — each with the exact permission it requires, because these are not one gate (stop, uninstall and repointing are owner-only; restart and logging take an edit share). It will explain why some verbs live only in a browser: most nodes are headless, so the plane's page is the only place left to ask — and why the browser still cannot start an agent that is not running, the command travels over the agent's own socket.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/superpowers/specs/2026-09-12-node-service-surface-design.md` — the service/log/config surface design and its two gates
+- `.claude/rules/security-context.md` §Nodes — every verb's permission and audit event in one place
+- `apps/node/agent/AGENTS.md` §`service` and §Logging — what the agent does with each command

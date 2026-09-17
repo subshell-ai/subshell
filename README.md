@@ -531,6 +531,9 @@ your VPN):
 
 ## Docs / API
 
+- **[docs.subshell.sh](https://docs.subshell.sh)** — the user-facing documentation
+  site, generated from [`apps/docs`](apps/docs) (Fumadocs). It is the place to read
+  about running Subshell; the files below are the engineering references.
 - **[Architecture reference](docs/architecture.md)** — processes, credentials, encrypted
   channels, the `subshell mcp` protocol, subshell/token choreography, and the invariants
   that hold them together. Start here to work on the backend.

@@ -1,0 +1,15 @@
+---
+title: Hermes Agent
+description: Nous Research's open agent CLI as a Subshell harness — and the one-time MCP registration it needs.
+---
+
+This page will cover running Hermes as a subshell: detection of the `hermes` binary (`HERMES_PATH` overrides), and the one difference from claude-code, opencode and codex — Hermes has no per-subshell config file, so the MCP server registers once per install: the preset editor shows a one-time registration command, run it and every later subshell authenticates through its own baked-in credentials. It will show that command's home, what "already registered" looks like, and where to install the CLI if detection finds nothing.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/hermes/package.json` — the detect block and install command as shipped
+- `docs/architecture.md` §4, "Registration per harness" — why hermes and pi register differently
+- `docs/overview.md` §Key decisions, "Harnesses" row — "one-time manual registration, steps shown in the preset editor"

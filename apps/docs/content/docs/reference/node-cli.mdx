@@ -1,0 +1,14 @@
+---
+title: subshell CLI
+description: Every verb of the node agent — setup, enroll, configure, run, service, maintenance, status, update.
+---
+
+This page will be the reference for the agent binary: `setup` (the whole enrollment in one command, including the service offer), `enroll` as the primitive, `configure --server` for repointing an enrolled node, `run`, the `service` family, `maintenance on/off/status`, `status` (with `--probe`), `update` with its transaction flags and `--rollback`, `version`/`license`, and the internal `mcp`/`report` verbs. It will state the exit-code contract (0 ok, 1 runtime failure, 2 usage) that makes the CLI scriptable, and cross-link the repoint-versus-re-enroll distinction, because those two commands look alike and are not.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `apps/node/agent/src/cli.ts` — the USAGE block and parser this page transcribes
+- `apps/node/agent/AGENTS.md` §CLI and §"Repointing vs re-enrolling" — the maintained notes on both

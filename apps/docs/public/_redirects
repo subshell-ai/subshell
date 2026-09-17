@@ -1,0 +1,8 @@
+# Cloudflare Workers static assets read this file from the assets directory
+# (copied here from public/ by `next build`); rules are
+# `<source> <destination> <status>`, and `#` lines are comments.
+#
+# Empty on purpose — the site's URLs are stable from the first deploy, so
+# there is nothing to redirect. This file EXISTS because the deploy asserts
+# it lands in the export, and a slug that moves (a page renamed, a section
+# reorganised) gains its redirect here rather than silently 404ing old links.

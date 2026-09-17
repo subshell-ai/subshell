@@ -1,0 +1,37 @@
+{
+  "name": "@internal/docs",
+  "description": "Public documentation site for Subshell — Fumadocs, statically exported",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "next dev -p 3400",
+    "build": "next build",
+    "preview": "bunx wrangler dev",
+    "clean": "rm -rf .turbo .next out .source node_modules/.cache",
+    "lint": "biome check --no-errors-on-unmatched --write --unsafe app lib components src content",
+    "lint:check": "biome check --no-errors-on-unmatched app lib components src content",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged app lib components src content",
+    "test": "bun test",
+    "verify-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fumadocs-core": "16.15.11",
+    "fumadocs-mdx": "15.4.1",
+    "fumadocs-ui": "16.15.11",
+    "next": "16.3.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/mdx": "2.0.14",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2"
+  }
+}

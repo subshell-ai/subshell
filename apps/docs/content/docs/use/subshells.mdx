@@ -1,0 +1,16 @@
+---
+title: Subshells
+description: What a subshell is, how to launch one, and how attach, detach, restart and terminate behave.
+---
+
+This page is the core concept in one place: a subshell is a real CLI agent (or plain shell) running in a tmux pane on some machine, kept alive by the server rather than by your browser. It will cover launching one (agent, folder, optional name and preset), watching it from any device after closing yours, typing into it, the restart that keeps the same row and rotates its credentials, terminate and delete and how they differ, and what the status indicators mean — including why an offline node says "node unreachable" instead of "crashed". Written for anyone who has launched one and wondered where it goes when the tab closes.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/overview.md` §Key flows — create, attach, terminate and the reconcile loop that marks dead rows
+- `docs/architecture.md` §5 "Subshell lifecycle & token choreography" — the lifecycle and what each transition does to credentials
+- `README.md` — the opening bullets: tmux-backed, survive browser close, attach/detach freely
+- `docs/node-protocol.md` §9 "Offline semantics" — the offline-node distinction the UI reflects

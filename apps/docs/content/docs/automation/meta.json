@@ -1,0 +1,4 @@
+{
+  "title": "Automation & MCP",
+  "pages": ["mcp-server", "mcp-tools", "rest-api", "system-api-keys"]
+}

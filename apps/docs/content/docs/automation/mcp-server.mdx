@@ -1,0 +1,15 @@
+---
+title: The subshell mcp Server
+description: The stdio MCP server every subshell gets — how it is launched, authenticated, and registered per harness.
+---
+
+This page will explain the MCP server an agent finds already wired into its session: `subshell mcp` is a stdio server the control plane launches as the harness's child, authenticated by the subshell's own bearer token from its injected environment — so an agent acts as itself and nothing else. It will cover how each harness registers it (claude-code via a generated `--mcp-config`, opencode via a merged `OPENCODE_CONFIG` layer, hermes and pi via a one-time command shown in the preset editor), the server binary's own `mcp` subcommand so a server-only host self-resolves the entrypoint, and the `SUBSHELL_MCP_COMMAND` / `SUBSHELL_MCP_ARGS` overrides. The tools themselves get their own page.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/architecture.md` §4 "The subshell mcp process" — registration per harness, boot sequence, env contract
+- `packages/mcp-core/src/server.ts` — the server and its tool registration
+- `README.md` §Channels & cross-subshell orchestration — the wiring described for users, incl. the overrides

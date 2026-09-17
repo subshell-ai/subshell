@@ -1,0 +1,15 @@
+---
+title: Directory Allowlist
+description: Restrict which folders subshells may be created on a node — empty means unrestricted.
+---
+
+This page will cover the directory allowlist: an owner-only setting that limits which directories subshells can launch in on a given machine. It will be exact about the semantics — empty means unrestricted, never deny-everything — because that is the rule an operator must not invert in their head; the owner-only gate and why an edit grantee deliberately cannot widen the list (any share already lets them launch, so widening rights would dissolve the restriction); and the enforcement being doubled, on the control plane against the resolved path and again on the node against its pushed copy of the list, because signing proves who, not whether.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §6 "Directory allowlist" — semantics, the owner-only gate, and double enforcement
+- `docs/superpowers/specs/2026-09-05-node-directory-allowlist-design.md` — the design and its two rules
+- `apps/node/agent/AGENTS.md` §On disk — `allowed-dirs.json` and its fail-open-on-corrupt choice

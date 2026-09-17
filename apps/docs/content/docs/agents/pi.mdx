@@ -1,0 +1,15 @@
+---
+title: pi
+description: The minimal pi.dev harness in Subshell — and the one-time MCP registration it needs.
+---
+
+This page will cover running pi as a subshell: detection of the `pi` binary (`PI_PATH` overrides, known install location under `~/.bun/bin`), and the same one-time MCP registration as hermes — pi has no per-subshell config, so the preset editor shows the registration command to run once, after which each subshell authenticates with its own injected credentials. Written for someone who chose pi for its minimalism and wants to know what Subshell adds to it.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `packages/plugins/pi/package.json` — the detect block and install command as shipped
+- `docs/architecture.md` §4, "Registration per harness" — the manual-registration path
+- `packages/plugins/pi/src/index.ts` — the plugin's launch code

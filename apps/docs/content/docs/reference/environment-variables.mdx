@@ -1,0 +1,15 @@
+---
+title: Environment Variables
+description: Every variable the server and the agent read — what it controls, its default, and where it may live.
+---
+
+This page will collect the environment surface in one table per binary: the server's (`SERVER_PORT`, `HOST`, `DATABASE_PATH`, `APP_BASE_URL`, `TRUSTED_ORIGINS`, `BETTER_AUTH_SECRET`, the data-dir and artifacts-dir pair, `SUBSHELL_MCP_COMMAND`/`ARGS`, `SUBSHELL_EMERGENCY_PASSWORD`, log level, replay lines, retention days, debug logging, release URL) and the agent's (its config/data home overrides, debug logging, no-service and test-skip hatches) — each with default, meaning, and whether config.env can carry it or only the process environment, which is the distinction the "environment wins" rule makes matter. The per-subshell injected variables get a closing section marked as not-for-setting.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `apps/server/api/src/constants.ts` — every server-side variable at its definition
+- `README.md` §Configuration — the maintained table with defaults
+- `apps/node/agent/src/config.ts` — the agent's own configuration reads

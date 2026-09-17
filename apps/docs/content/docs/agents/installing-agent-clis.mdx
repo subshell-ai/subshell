@@ -1,0 +1,15 @@
+---
+title: Installing Agent CLIs
+description: Getting an agent binary onto the control-plane host — the in-page installer, what it runs, and its limits.
+---
+
+This page will cover installing an agent CLI from inside Subshell: the setup screen's install button, which runs the built-in plugin manifest's install command as the server's user — admin only, audited, bounded output and a deadline. It will be clear about the boundary: this installs on the control-plane host, and it is admin work on that machine, not fleet provisioning; getting a CLI onto every node is a matter of logging into those machines (or packaging them), and this page should say that plainly. It will show the command each built-in runs and link the vendor docs for the manual path.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §11.10 — the control plane runs an agent CLI's installer on request: gate, bounds, accounting
+- `apps/server/api/src/api/setup-agent-install.route.ts` — the route behind the button
+- `packages/plugins/claude-code/package.json` — an `install.command` + `docsUrl` manifest block, one per built-in

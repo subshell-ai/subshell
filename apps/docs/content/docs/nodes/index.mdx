@@ -1,0 +1,15 @@
+---
+title: What a Node Is
+description: A node is any machine that runs agents on the control plane's behalf — and what enrolling one actually delegates.
+---
+
+This page defines the word and its cost. A node is a machine running the `subshell` agent daemon; it holds no UI of its own, receives signed commands from the control plane, and runs panes under its OS user — the browser cannot tell a remote pane from a local one because they stream over the same WebSocket. The page will state the delegation plainly before the how-to pages: registering a node hands this control plane the right to run arbitrary commands on that machine as that user, the signing key on the plane rules every enrolled node, and node traffic is authenticated but expected to ride your VPN or Tailscale. Then the short map of the rest of this section.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/architecture.md` §9 "Nodes (remote execution hosts)" — the model and the local/remote branch
+- `docs/security.md` §6 "Nodes" — the delegation, the signing, and the accepted risks
+- `README.md` §Nodes — the user-facing framing of "the control plane keeps the UI; the node just executes"

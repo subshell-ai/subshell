@@ -1,0 +1,4 @@
+{
+  "title": "Network Plugins",
+  "pages": ["index", "tailscale", "headscale", "netbird", "cloudflare-tunnel"]
+}

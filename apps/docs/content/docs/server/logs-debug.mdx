@@ -1,0 +1,16 @@
+---
+title: Logs & Debugging
+description: Where the server writes, how big it gets, and how to turn on detail without a restart.
+---
+
+This page will cover the server's own logging: one JSON-lines file at `<data dir>/logs/server.log`, 0600 in a 0700 directory, capped at 200 KB and replaced when full — bounded by size, never swept, unlike the pane logs swept by age. It will cover debug mode (an instance setting applied live from the dashboard, audited, request paths visible only while it is on, `SUBSHELL_DEBUG_LOGGING=1` forcing it from the environment), reading the log over HTTP as an admin, and the separate world of pane transcripts — each subshell's screen output on disk, the most sensitive thing the app writes. Open question to settle while writing: the exact boundary the page draws between `status`, this file, and the service manager's log.
+
+> [!warning] Draft
+> This page is a placeholder. The content is being migrated from the repository docs listed below.
+
+## Sources
+
+- `docs/security.md` §10 "The server's own log file" — the file's shape, the two disclosures, debug rules
+- `apps/server/api/AGENTS.md` §"The server's own log file" — transport, levels, the ignore list for polled routes
+- `.claude/rules/security-context.md` §"Pane logs" — what the transcripts hold and their permissions
+- `.claude/rules/security-context.md` §"The server's own log file" — the summary form

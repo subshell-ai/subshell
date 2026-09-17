@@ -10,6 +10,7 @@
     "reset:desktop": "bun scripts/reset-desktop.ts",
     "dev:desktop-server": "bun scripts/desktop-dev.ts server",
     "dev:desktop-client": "bun scripts/desktop-dev.ts client",
+    "dev:docs": "bun run --cwd apps/docs start",
     "build": "turbo run build",
     "brand:generate": "bun run --cwd brand make",
     "brand:test": "bun run --cwd brand check",
