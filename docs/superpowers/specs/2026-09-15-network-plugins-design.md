@@ -1308,6 +1308,69 @@ refusal is the safe default until someone builds and tests the re-derive.
   time: no disclosure opens onto nothing (`collapseSettings` checks
   `settingsFields.length`), and the implicit gap fallback stands alone.
 
+### 10f. Origins are derived, not written (2026-09-16) — the live trusted-origin registry
+
+Measured on a `HOST=0.0.0.0` instance joined to a tailnet:
+`http://100.117.173.95:3080` served the app (200) and a sign-in with that
+Origin was 403 "Invalid origin". Reachability was a network fact; the
+allowlist was the only thing in the way, and it was read once at boot.
+§ 5.4's "a publish adds its origins to `TRUSTED_ORIGINS`" and the 2026-09-16
+subtraction amendment are both superseded by this section.
+
+- **Network origins are DERIVED from plugin state, live.**
+  `services/trusted-origins.ts` assembles
+  `localOriginsFor(...) ∪ operator TRUSTED_ORIGINS ∪ ⋃ enabled plugin p:
+  originsOf(p)` on demand; better-auth (function-form `trustedOrigins`,
+  called per request in 1.7.1) and the CORS predicate read it.
+  `writePublishConfig`, `removePublishedConfig`, `unionOrigins`,
+  `subtractOrigins`, `keyOwnWarnings` and `prepare.ts`'s
+  `writeTrustedOrigins` are deleted. config.env's key is the operator's
+  extras only; entries earlier publishes wrote there are left as harmless
+  extras (no installed base).
+- **`restartRequired` is gone from every network act.** Unpublish and leave
+  answer `{ ok, origins, status }` (`origins` = what stopped being trusted,
+  as of the answer — a `private` network's unpublish is normally empty,
+  because membership keeps its addresses trusted, while the audit row and
+  the record name what the publish had held); publish's done frame is
+  `{ type, ok, addresses, status }` and join's is `{ type, outcome, status }`;
+  `NetworkConfigWriteSchema` and `NetworkRemovalResponseSchema` are deleted.
+  `PATCH /api/admin/server/config` still writes the key and the registry
+  reloads it, so the operator's list is live too and never contributes to
+  the deployment view's `restartRequired`.
+- **Trust scope by exposure.** `private` (Tailscale, Headscale, NetBird):
+  every address the plugin reports at `joined` or `published` —
+  `http://<ip>:<port>` answers with no `serve`, so membership is the honest
+  scope. `public-with-gate` (Cloudflare Tunnel): only from a record with
+  `published: true`, because the Access guard is armed before a publish
+  completes and never before.
+- **The record's `addresses` mean "where this host is on that network."**
+  Updated on every uncached status read that answers joined/published
+  (`readNetworkStatus`), on publish (result), and by boot's `reportIfDown`;
+  kept across an unpublish; cleared on leave, disable and uninstall, each of
+  which also forgets the plugin in the registry. Re-enabling trusts the
+  record at once and probes once.
+- **Boot seeds from records before the listener, probes once after the
+  processes, then refreshes every `ORIGIN_REFRESH_MS` (5 min).** A stated
+  exception to "detection is never a timer" (§ 5.5's `reportIfDown`
+  reasoning): the allowlist is consulted on every sign-in by people who
+  never open the Networking page, and the cost is one memoised `status()`
+  per enabled plugin per five minutes, skipping supervised plugins whose
+  child is armed. Refreshes are observations: info-logged when the set
+  changes, never audited.
+- **Every plugin origin is canonicalized with `URL.origin` and refused if
+  unparseable, if it serializes to `"null"`, or if it carries `*`/`?` in the
+  origin component (the authority region)** — a pattern character in the
+  path or query is discarded by `URL.origin` and can never reach the stored
+  list. A refusal is dropped with a `warn` naming the plugin and the value,
+  never thrown. Nothing in the registry ever comes from a request's
+  Host/Origin header.
+- **CORS matches exactly.** The plugin's string branch also accepted a
+  schemeless entry by stripping the incoming scheme; the function predicate
+  does not, closing the scheme-wildcard noted in security-context.md.
+- **Disable is a network act.** The Networking card offers Disable/Enable
+  through the existing `PATCH /api/plugins/:id { enabled }`; a disabled
+  plugin contributes nothing and its card says what it withholds.
+
 ### 10c. The one operator action phase 1 left outstanding — DONE 2026-09-16
 
 **Closed.** `@subshell-ai/plugin-tailscale` was published by hand at `0.0.1`,
