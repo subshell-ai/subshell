@@ -25,6 +25,18 @@ name: Test
 # `timeout-minutes` on every job is still not boilerplate: minutes are now
 # metered, so a hung job costs money instead of just fleet time — and the
 # 360-minute GitHub default is an outage either way.
+#
+# The TypeScript suites are split into six jobs (web / mobile / desktop /
+# backend / packages / smoke) rather than one `bun run test`. The single job
+# had become the place failures were hard to LOCATE — a red "Testing" check
+# meant eleven workspaces of scrollback. Per-slice jobs make the job name the
+# diagnosis, and run in parallel, so wall-clock drops even as total metered
+# minutes rise: six jobs each pay checkout + `bun install` + `bun run build`.
+# That build is near-free on a turbo cache hit (the shared `-turbo-`
+# restore-key prefix is what buys this), which is the trade as made.
+# Each slice is a `turbo run test --filter=…` over the SAME workspaces the
+# old job ran — `--dry` verified the five filters cover the unfiltered task
+# set exactly, with every package in exactly one slice.
 
 on:
   pull_request:
@@ -50,11 +62,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Testing
+  # ─── The TypeScript suites, one job per slice ────────────────────────────
+  #
+  # The preamble (checkout, safe.directory, Node, caches, install, build) is
+  # identical across all six and repeated on purpose — this workflow already
+  # repeats it across jobs, and the alternative (a composite action) would
+  # hide the container/safe.directory traps that the comments above each step
+  # exist to keep visible. `bun run build` is full-repo in every job: turbo's
+  # cache makes the repeat nearly free, and a filtered `turbo run test` would
+  # rebuild the same dependency graph anyway.
+  #
+  # Filters are pinned against the unfiltered task set by
+  # `turbo run test --dry` — every workspace with a `test` script lands in
+  # exactly one slice. The packages filter is `./packages/**`, NOT
+  # `./packages/*`: the harness and network plugins live at
+  # `packages/plugins/*` and a single star silently misses ten suites.
+
+  test-web:
+    name: "Test: web"
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     defaults:
       run:
         # A container job defaults to `sh`, not bash, and these steps use
@@ -72,19 +100,6 @@ jobs:
       # image's /root/.gitconfig is never read. Same step release.yml carries.
       - name: Trust the bind-mounted workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      # The TmuxRunner suite drives a real tmux server. Idempotent so it costs
-      # nothing once the image bakes tmux in (it is in the Dockerfile now, but
-      # a PR still pulls whatever tag `main` last published).
-      - name: Ensure tmux and jq
-        run: |
-          set -euo pipefail
-          missing=()
-          for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
-          if [ ${#missing[@]} -gt 0 ]; then
-            apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
-          fi
-          tmux -V && jq --version
 
       # tsdown/rolldown run under NODE, not bun — their bin shebang is
       # `#!/usr/bin/env node` — so the repo has always had a Node requirement
@@ -121,8 +136,328 @@ jobs:
       - name: Build workspace packages
         run: bun run build
 
-      - name: Run Package(s) Tests
-        run: bun run test
+      - name: Run web tests
+        run: bunx turbo run test --continue --filter=@internal/server-web
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  test-mobile:
+    name: "Test: mobile"
+    runs-on: ubuntu-24.04
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # tsdown/rolldown run under NODE, not bun — see the test-web job.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
+
+      - name: Run mobile tests
+        run: bunx turbo run test --continue --filter=@internal/mobile
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  test-desktop:
+    name: "Test: desktop apps"
+    runs-on: ubuntu-24.04
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # tsdown/rolldown run under NODE, not bun — see the test-web job.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
+
+      # The TS half of both Tauri apps (release scripts, ui tests); their
+      # Rust halves are the desktop-rust matrix job below. Neither suite
+      # execs tmux — the desktop tests stub every spawn.
+      - name: Run desktop-app tests
+        run: bunx turbo run test --continue --filter=@internal/desktop-server --filter=@internal/desktop-client
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  test-backend:
+    name: "Test: backend"
+    runs-on: ubuntu-24.04
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The TmuxRunner suite drives a real tmux server — the ONLY consumer of
+      # one in the split (the web/desktop suites name tmux in strings only,
+      # and the compiled smoke never execs it). Idempotent so it costs nothing
+      # now that the image bakes tmux in, but a PR still pulls whatever tag
+      # `main` last published.
+      - name: Ensure tmux and jq
+        run: |
+          set -euo pipefail
+          missing=()
+          for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+          if [ ${#missing[@]} -gt 0 ]; then
+            apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
+          tmux -V && jq --version
+
+      # tsdown/rolldown run under NODE, not bun — see the test-web job.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
+
+      - name: Run backend tests
+        run: bunx turbo run test --continue --filter=@internal/server --filter=@internal/node
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  test-packages:
+    name: "Test: packages"
+    runs-on: ubuntu-24.04
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # tsdown/rolldown run under NODE, not bun — see the test-web job.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
+
+      # `./packages/**`, recursive: the harness and network plugins live at
+      # `packages/plugins/*` and carry real suites; a single `*` matches one
+      # path segment and would have dropped all ten silently.
+      - name: Run package tests
+        run: bunx turbo run test --continue --filter='./packages/**'
+
+      - name: Un-root the workspace
+        if: always()
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  test-smoke:
+    name: "Test: smoke (backend)"
+    runs-on: ubuntu-24.04
+    container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` ITSELF, whose root `prepare` script runs
+      # `lefthook install`. The image sets safe.directory too, but a container
+      # job overrides HOME to /github/home, where that config is not — so the
+      # image's /root/.gitconfig is never read. Same step release.yml carries.
+      - name: Trust the bind-mounted workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The smoke reads the expected version out of package.json with jq.
+      - name: Ensure jq
+        run: |
+          set -euo pipefail
+          command -v jq >/dev/null || { apt-get update && apt-get install -y --no-install-recommends jq; }
+          jq --version
+
+      # tsdown/rolldown run under NODE, not bun — see the test-web job.
+      - name: Use Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Turbo v2 writes its local cache here.
+          path: node_modules/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: bun run build
 
       # `bun run test` is `turbo run test`, which only reaches WORKSPACES —
       # and `scripts/` is not one, so its tests would never run anywhere

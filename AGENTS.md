@@ -680,7 +680,7 @@ the repo variable `NPM_PUBLISH_ENABLED` is `true`, so ordinary pushes never
 attempt a publish. The alternative it displaced — an `NPM_TOKEN` checked
 into repo secrets — remains rejected rather than quietly adopted.
 
-`test.yml`'s four jobs run **inside the repo's own builder image**
+`test.yml`'s nine jobs run **inside the repo's own builder image**
 (`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
 image as well as the release one). It already carries bun (1.4.2, pinned to
 the root `packageManager` so CI runs what developers run), rustup stable and
