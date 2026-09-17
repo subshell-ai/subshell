@@ -131,6 +131,21 @@ export function derivedBaseUrl(port: string): string {
 }
 
 /**
+ * Where the dashboard will answer, given what the form currently holds.
+ *
+ * The Set Up screen's URL row is this one rule: a chosen `APP_BASE_URL`
+ * outranks the port (that is what the save does with it), and with no chosen
+ * address the CLI's own derivation rules, so the row follows the port while
+ * someone types it. Callers pass the EFFECTIVE values — the form's field if it
+ * holds one, else what `status --json` reports — because the form may never
+ * have been opened on this machine.
+ */
+export function dashboardUrl(baseUrl: string, port: string): string {
+  const chosen = (baseUrl ?? "").trim();
+  return chosen || derivedBaseUrl(port);
+}
+
+/**
  * Which fields must be SENT rather than left to the CLI, before any editing.
  *
  * A field whose value came from `config.env` or a real environment variable
