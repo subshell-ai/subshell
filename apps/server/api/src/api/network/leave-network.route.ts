@@ -13,6 +13,7 @@ import { apiModels } from "@/schema/index.js";
 import { forgetNetworkOrigins } from "@/services/network/origins.js";
 import { clearNetworkState } from "@/services/network/state.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 
 const LeaveBodySchema = t.Object(
   {
@@ -37,9 +38,13 @@ const LeaveBodySchema = t.Object(
  *
  * **The record is gone, and so is the trust** (spec § 10f): leave ran the
  * § 5.3 sequence, cleared the record, and the registry forgets this plugin
- * outright. The response still names the origins the undone publish had
- * trusted — the same `{ok, origins, status}` the unpublish route answers
- * with, rendered by the same card block.
+ * outright. **The wire's `origins` is what that forget ended** (ruling
+ * R-D-lite): the route snapshots the registry's set for this plugin before
+ * clearing and forgetting, and the snapshot is the answer — the full set for
+ * a private network (whose trust survived the inner unpublish and dies here),
+ * empty for a gated one (whose trust the inner unpublish already ended). The
+ * audit keeps `{ origins: unpublished.origins }` — the recorded list, as on
+ * unpublish.
  *
  * **`clearNetworkState` forgets the settings, never the secrets.** The secret
  * store beside it is the installer's business: conflating "this machine is off
@@ -88,6 +93,9 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
       }
 
       await resolved.entry.plugin.leave(ctx);
+      // Snapshot BEFORE the forget: for a private network this IS the set
+      // whose trust ends right here — the only act that answers non-empty.
+      const trusted = [...originRegistry().pluginOrigins(id)];
       await clearNetworkState(id);
       // The record is gone and so is the trust; the fresh re-read below only
       // re-learns an address if the machine is, in fact, still on the network.
@@ -96,7 +104,7 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
       await auditNetwork(request, "network.leave", id, { origins: unpublished.origins });
       return {
         ok: true as const,
-        origins: unpublished.origins,
+        origins: trusted,
         status: await readNetworkStatus(resolved.entry, ctx, { fresh: true }),
       };
     } finally {
@@ -118,7 +126,7 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "leaveNetwork",
       tags: ["network"],
       description:
-        "Takes this machine off the network (admin cookie only): unpublish, then the plugin's own leave, then the host forgets this plugin's recorded state and the trusted-origin registry forgets the plugin. `confirm` must equal the plugin id. The plugin's stored secrets are NOT deleted — that is an uninstall, not a leave. The response names the origins the undone publish had trusted and carries the fresh status. Audited as network.leave with the origins.",
+        "Takes this machine off the network (admin cookie only): unpublish, then the plugin's own leave, then the host forgets this plugin's recorded state and the trusted-origin registry forgets the plugin. `confirm` must equal the plugin id. The plugin's stored secrets are NOT deleted — that is an uninstall, not a leave. The response names the origins whose trust this forget ended and carries the fresh status; the audit row names the recorded addresses. Audited as network.leave with the origins.",
     },
   },
 );

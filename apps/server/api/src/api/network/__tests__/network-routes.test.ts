@@ -1038,8 +1038,12 @@ describe("/api/network", () => {
 
       const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
       expect(res.status).toBe(200);
+      // R-D-lite: the wire's `origins` is what STOPPED being trusted, and a
+      // private network stopped trusting nothing — the trust follows the
+      // membership the unpublish left untouched. The audit row keeps naming
+      // what the record had held.
       const body = (await res.json()) as Record<string, unknown>;
-      expect(body).toMatchObject({ ok: true, origins: ["https://box.ts.net"] });
+      expect(body).toMatchObject({ ok: true, origins: [] });
       expect(body.status).toBeDefined();
 
       const state = await readNetworkState(FAKE_ID);
@@ -1050,6 +1054,52 @@ describe("/api/network", () => {
       expect(originRegistry().has("https://box.ts.net")).toBe(true);
       // The audit row still names what the act stopped serving.
       expect((await auditRows("network.unpublish"))[0]?.metadata).toMatchObject({ origins: ["https://box.ts.net"] });
+    });
+
+    it("reports nothing stopped for a seeded private unpublish, and its leave names the whole snapshot", async () => {
+      // The route-level diff/forget, pinned through the registry directly
+      // (the lead-flagged gap): a private network whose addresses ARE in the
+      // trust set today keeps them — so the unpublish answer is empty even
+      // though the record names them, and the AUDIT is what keeps naming the
+      // record. `leave` is the act that actually ends the trust, and the
+      // snapshot it took before forgetting is its answer.
+      // The daemon answers `joined` until LEAVE happens — which is what a
+      // real one does, and what makes the fresh status read AFTER the forget
+      // a non-observation (S4 re-learns only what is still true).
+      const { entry, calls } = makeFakePlugin({
+        exposure: "private",
+        status: () =>
+          calls.leave === 0
+            ? { state: "joined" as const, addresses: [BOX], hints: [] }
+            : { state: "needs-login" as const, addresses: [], hints: [] },
+      });
+      setNetworkDepsForTests(fakeDeps(entry));
+      quietSequence(entry);
+      await writeNetworkState(FAKE_ID, { published: true, port: 3080, addresses: [BOX] });
+      originRegistry().setPluginOrigins(FAKE_ID, ["https://box.ts.net"]);
+      expect(originRegistry().has("https://box.ts.net")).toBe(true);
+
+      const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ ok: true, origins: [] });
+      // Kept: the keep-mutation is the whole point of the seed.
+      expect(originRegistry().pluginOrigins(FAKE_ID)).toEqual(["https://box.ts.net"]);
+      expect((await auditRows("network.unpublish"))[0]?.metadata).toMatchObject({ origins: ["https://box.ts.net"] });
+
+      const left = await app.fetch(
+        withCookie(`/api/network/${FAKE_ID}/leave`, adminCookie, {
+          method: "POST",
+          body: JSON.stringify({ confirm: FAKE_ID }),
+        }),
+      );
+      expect(left.status).toBe(200);
+      // Leave IS the end of the trust here — the snapshot taken before the
+      // forget is the full set.
+      expect((await left.json()) as Record<string, unknown>).toMatchObject({
+        ok: true,
+        origins: ["https://box.ts.net"],
+      });
+      expect(originRegistry().pluginOrigins(FAKE_ID)).toEqual([]);
     });
 
     it("re-derives an implicit-publish network's trust the same way, however many times it published", async () => {
@@ -1071,9 +1121,12 @@ describe("/api/network", () => {
 
       const res = await app.fetch(withCookie(`/api/network/${FAKE_ID}/unpublish`, adminCookie, { method: "POST" }));
       expect(res.status).toBe(200);
+      // Seeded by the two REAL publishes above, and a private network keeps
+      // every one of them — so nothing stopped being trusted, whatever the
+      // record (and the audit) still name.
       expect((await res.json()) as Record<string, unknown>).toMatchObject({
         ok: true,
-        origins: ["https://host.example.ts.net"],
+        origins: [],
       });
       const state = await readNetworkState(FAKE_ID);
       expect(state.published).toBe(false);
@@ -1088,10 +1141,12 @@ describe("/api/network", () => {
   });
 
   describe("POST /api/network/:id/leave", () => {
-    it("forgets the plugin's origins, and names the ones that stopped", async () => {
-      // For NetBird, LEAVE is the normal way off the network — so it answers
-      // with what the undone publish had trusted, and the registry forgets
-      // the plugin outright: the record is gone and so is the trust.
+    it("forgets the plugin's origins; a gated network's trust stopped at the inner unpublish", async () => {
+      // The gated half of the pair the private test above pins: a publish DID
+      // put the address in the trust set (seeded here, as the publish route
+      // would have), and it is leave's OWN unpublish step that takes it out —
+      // so by the time the snapshot before the forget is taken, nothing is
+      // left to report. The audit still names the record.
       const { entry } = makeFakePlugin();
       setNetworkDepsForTests(fakeDeps(entry));
       setUnpublishDepsForTests({
@@ -1105,7 +1160,8 @@ describe("/api/network", () => {
         port: 3080,
         addresses: [{ url: "https://host.example.ts.net", scheme: "https", label: "MagicDNS", secureContext: true }],
       });
-      expect(originRegistry().has("https://host.example.ts.net")).toBe(false);
+      originRegistry().setPluginOrigins(FAKE_ID, ["https://host.example.ts.net"]);
+      expect(originRegistry().has("https://host.example.ts.net")).toBe(true);
 
       const res = await app.fetch(
         withCookie(`/api/network/${FAKE_ID}/leave`, adminCookie, {
@@ -1116,7 +1172,7 @@ describe("/api/network", () => {
       expect(res.status).toBe(200);
       expect((await res.json()) as Record<string, unknown>).toMatchObject({
         ok: true,
-        origins: ["https://host.example.ts.net"],
+        origins: [],
       });
       expect(originRegistry().pluginOrigins(FAKE_ID)).toEqual([]);
       const leaves = await auditRows("network.leave");

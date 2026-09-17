@@ -245,7 +245,7 @@ export const NetworkActionResponseSchema = t.Object({
   ok: t.Literal(true, { description: "The act completed" }),
   origins: t.Array(t.String(), {
     description:
-      "Origins the recorded publish had trusted and no longer does, as of this answer; empty when nothing had been recorded. Every kind subtracts, publishImplicit included",
+      "Origins that stopped being trusted as of this answer. A private network keeps trusting its addresses while this host stays a member, so an unpublish there is normally empty; the audit row and the record name what the publish had held",
   }),
   status: NetworkStatusSchema,
 });

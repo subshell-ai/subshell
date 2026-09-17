@@ -11,6 +11,7 @@ import { NetworkActionResponseSchema, NetworkParamsSchema } from "@/api/network/
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { unpublishNetwork } from "@/services/network/unpublish.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 
 /**
  * `POST /api/network/:id/unpublish` (spec 2026-09-15 § 5.1, § 5.3).
@@ -31,10 +32,16 @@ import { unpublishNetwork } from "@/services/network/unpublish.js";
  * leave the network — and the registry re-derives from the record as it
  * stands: a private network keeps trusting what it is joined at, and only a
  * `public-with-gate` one stops the moment `published` goes false. Nothing is
- * written to config.env and nothing waits on a restart. The response still
- * names the `origins` the undone publish had trusted, because the page's
- * result line says what stopped accepting sign-ins; `leave`, the verb that
- * actually leaves, is what clears the record outright.
+ * written to config.env and nothing waits on a restart.
+ *
+ * **The wire's `origins` is the diff, not the record** (ruling R-D-lite). The
+ * page's result line says what STOPPED accepting sign-ins, so the route
+ * snapshots the registry's set for this plugin before the sequence and
+ * reports what is gone after it: normally empty on a private network (the
+ * trust follows the membership the act left untouched), the full set on a
+ * gated one. The AUDIT keeps naming the recorded addresses (plan D9) — the
+ * record and the audit say what the publish had held; only the answer
+ * answers "what stopped".
  */
 export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
   "/:id/unpublish",
@@ -47,6 +54,9 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
     const { resolved, ctx, release } = prepared;
     const id = resolved.entry.manifest.id;
     try {
+      // The diff of two reads of ONE in-memory registry, taken around the
+      // sequence whose fifth step re-derives it — nothing to race.
+      const before = [...originRegistry().pluginOrigins(id)];
       const result = await unpublishNetwork(id);
       invalidateNetworkStatus(id);
       if (!result.ok) {
@@ -65,7 +75,10 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
       await auditNetwork(request, "network.unpublish", id, { origins: result.origins });
       return {
         ok: true as const,
-        origins: result.origins,
+        // What the sequence took OUT of the trust set. The service's
+        // `result.origins` stays the recorded list (its own tests pin it);
+        // the wire wants this answer instead.
+        origins: before.filter((o) => !originRegistry().pluginOrigins(id).includes(o)),
         status: await readNetworkStatus(resolved.entry, ctx, { fresh: true }),
       };
     } finally {
@@ -89,7 +102,7 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "unpublishNetwork",
       tags: ["network"],
       description:
-        "Stops publishing this server on the network (admin cookie only): the supervised process is stopped and awaited, the plugin unpublishes, the request guard is dropped, and the record is rewritten — the trusted-origin registry follows the record, so nothing is written to config.env and no restart is needed. The response names the origins the undone publish had trusted and carries the fresh status. 409 with the child's last lines when the process would not stop. Audited as network.unpublish.",
+        "Stops publishing this server on the network (admin cookie only): the supervised process is stopped and awaited, the plugin unpublishes, the request guard is dropped, and the record is rewritten — the trusted-origin registry follows the record, so nothing is written to config.env and no restart is needed. The response names the origins that stopped being trusted (normally empty for a private network, whose trust follows membership) and carries the fresh status; the audit row names the recorded addresses. 409 with the child's last lines when the process would not stop. Audited as network.unpublish.",
     },
   },
 );
