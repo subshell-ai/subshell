@@ -1,7 +1,6 @@
 import {
   getNetworkPlugin,
   hostPlatform,
-  type NetworkAddress,
   type NetworkContext,
   type NetworkPluginEntry,
   type PluginPlatform,
@@ -9,16 +8,14 @@ import {
   type RequestGuardSpec,
   type SupervisedProcessSpec,
 } from "@internal/pane-runtime";
-import { applyConfig } from "@/commands/configure.js";
-import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-env.js";
-import { DEFAULT_TRUSTED_ORIGINS, IS_TEST, SERVER_PORT } from "@/constants.js";
+import { IS_TEST, SERVER_PORT } from "@/constants.js";
 import { type OwnedGuard, setAccessGuards } from "@/plugins/access-guard.plugin.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
+import { observeNetworkStatus, syncNetworkOrigins } from "@/services/network/origins.js";
 import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
 import { networkContext, publishStateVisible, readNetworkState, writeNetworkState } from "@/services/network/state.js";
 import { armProcess, processState } from "@/services/network/supervisor.js";
 import { enabledNetworkPlugins } from "@/services/nodes/local-plugins.js";
-import { settingSource } from "@/services/server-deployment.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
@@ -65,14 +62,6 @@ export interface NetworkPrepareDeps {
   /** Record an event. */
   audit(event: AuditEventInput): Promise<void>;
   /**
-   * Union a republish's addresses into `TRUSTED_ORIGINS`.
-   *
-   * Injected rather than called directly because the production writer rewrites
-   * the config home's `config.env` — a suite that reached it would edit the
-   * developer's own instance configuration, which no assertion is worth.
-   */
-  trustOrigins(pluginId: string, addresses: NetworkAddress[]): void;
-  /**
    * Say something an operator will read later.
    *
    * A seam only so a test can assert the boot health report is MADE. Every
@@ -90,7 +79,6 @@ const defaultDeps: NetworkPrepareDeps = {
   childArmed: (pluginId) => processState(pluginId) !== null,
   setGuards: setAccessGuards,
   audit,
-  trustOrigins: writeTrustedOrigins,
   warn: (message) => getLogger().warn(message),
 };
 
@@ -270,6 +258,10 @@ export async function prepareNetworkProcesses(prepared?: Prepared[]): Promise<vo
  * would spawn a vendor CLI forever for every published network — the same cost
  * the page's own cadence was just narrowed to avoid. Once per boot per
  * published plugin is nearly free, and a reboot is exactly when this breaks.
+ * One deliberate exception exists — `services/network/origin-refresh.ts`
+ * probes every enabled network plugin every `ORIGIN_REFRESH_MS`, because the
+ * allowlist must be right for a non-admin who never opens this page; its
+ * docstring carries the argument.
  *
  * It reports rather than repairs. `joined` means the machine is on the network
  * and not serving, which a re-publish would fix — but a publish is an admin's
@@ -293,7 +285,12 @@ async function reportIfDown({ id, entry, ctx }: Eligible): Promise<void> {
     // which is the `recordPublished` argument; `publishStateVisible` only
     // upgrades a `publishImplicit` plugin's `joined`, so a Tailscale whose
     // serve was reset outside this app still earns its warning.
-    const status = publishStateVisible(entry.manifest.network, true, await entry.plugin.status(ctx));
+    const raw = await entry.plugin.status(ctx);
+    // The one boot read of a published network is also the first observation
+    // of its addresses; the registry was seeded from the record before the
+    // listener, and this is where the record meets the daemon.
+    await observeNetworkStatus(id, entry.manifest.network, raw);
+    const status = publishStateVisible(entry.manifest.network, true, raw);
     if (status.state === "published") return;
     const because = status.hints[0]?.text ?? `it reports "${status.state}"`;
     deps().warn(
@@ -400,12 +397,11 @@ async function reconcilePort({ id, entry, ctx, publishedPort }: Eligible): Promi
     addresses: outcome.addresses,
     publishedAt: new Date().toISOString(),
   });
-  // NOT armed here. This used to call `deps().arm` directly, which made the
-  // reconcile a third arming site outside the guard refusal — and then made
-  // the arming loop skip this row, so the refusal could not reach it even when
-  // it correctly named the plugin. The outcome goes back to the one loop that
-  // arms and checks.
-  deps().trustOrigins(id, outcome.addresses);
+  // NOT armed here (see the arming loop). The record is what the registry
+  // derives from, so the republished addresses are trusted from this line —
+  // no file, no restart — which is the change that retired the config write
+  // that used to sit here (2026-09-16).
+  await syncNetworkOrigins(id, entry.manifest.network);
 
   // Actor null: nobody asked for this, the boot noticed. The pair with the
   // admin-actored `network.publish` row that recorded the original decision
@@ -423,75 +419,4 @@ async function reconcilePort({ id, entry, ctx, publishedPort }: Eligible): Promi
     }),
   });
   return outcome;
-}
-
-/**
- * Adds any new address origin to `TRUSTED_ORIGINS` in config.env.
- *
- * A publish invites a browser to a NAME this instance has never heard of, and
- * the allowlist is static by design — deriving it from the request's own Host
- * is the DNS-rebinding hole it exists to close (docs/security.md §8). So the
- * new origin has to be written down, and the writer is `applyConfig`: the same
- * validated, canonicalizing, wildcard-refusing writer the CLI and the
- * Addresses card use, rather than a second one that would make those
- * guarantees true only of the surfaces that remembered them.
- *
- * Three rules, each of which was a bug in the obvious version:
- *
- * - **Only ever a union.** Removing an origin here would take away an address
- *   an operator typed by hand because a plugin's answer changed.
- * - **An absent key starts from the BUILT-IN default, not from empty.** That
- *   default is non-empty (the dev Vite origins) and the file beats `.env` in
- *   the precedence ladder, so writing only the new origin would silently strip
- *   them on a developer's own machine.
- * - **A key the environment owns is not written.** The same refusal
- *   `PATCH /api/admin/server/config` makes: a file write the next boot would
- *   mask is a success report for a change that never happens.
- *
- * It takes effect at the next RESTART, because this process derived its own
- * allowlist at boot. The line says so rather than reporting a success an
- * operator would test immediately and disbelieve.
- */
-function writeTrustedOrigins(pluginId: string, addresses: NetworkAddress[]): void {
-  const wanted: string[] = [];
-  for (const address of addresses) {
-    try {
-      wanted.push(new URL(address.url).origin);
-    } catch {
-      getLogger().warn(`network plugin "${pluginId}" reported an address that is not a URL: ${address.url}`);
-    }
-  }
-  if (wanted.length === 0) return;
-
-  let values: Record<string, string>;
-  try {
-    values = resolveConfig().values;
-  } catch (err) {
-    getLogger()
-      .withError(err)
-      .warn(`could not read config.env, so "${pluginId}"'s addresses were not added to TRUSTED_ORIGINS`);
-    return;
-  }
-  if (settingSource("TRUSTED_ORIGINS", process.env, configEnvAppliedKeys(), values) === "process env") {
-    getLogger().warn(
-      `TRUSTED_ORIGINS is set in this server's environment, so "${pluginId}"'s addresses were not added; add ${wanted.join(", ")} where the server is started`,
-    );
-    return;
-  }
-
-  const base = (values.TRUSTED_ORIGINS ?? DEFAULT_TRUSTED_ORIGINS)
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-  const added = wanted.filter((origin) => !base.includes(origin));
-  if (added.length === 0) return;
-
-  const result = applyConfig({ trustedOrigins: [...base, ...added].join(",") }, serverConfigDir());
-  if (!result.ok) {
-    getLogger().warn(
-      `could not add ${added.join(", ")} to TRUSTED_ORIGINS: ${result.kind === "unreadable" ? result.reason : `${result.key}: ${result.reason}`}`,
-    );
-    return;
-  }
-  getLogger().info(`networks: added ${added.join(", ")} to TRUSTED_ORIGINS; trusted from the next restart`);
 }

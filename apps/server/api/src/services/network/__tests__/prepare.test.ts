@@ -19,6 +19,7 @@ import {
   setNetworkPrepareDepsForTests,
 } from "@/services/network/prepare.js";
 import { readNetworkState, writeNetworkState } from "@/services/network/state.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 
 /**
  * Boot, without a database, a plugin registry, or a config.env this suite
@@ -64,7 +65,6 @@ interface Recorder {
   armed: { id: string; spec: SupervisedProcessSpec }[];
   guards: OwnedGuard[][];
   audits: AuditEventInput[];
-  origins: { id: string; addresses: NetworkAddress[] }[];
 }
 
 function recorderDeps(
@@ -82,7 +82,6 @@ function recorderDeps(
     audit: async (event) => {
       recorder.audits.push(event);
     },
-    trustOrigins: (id, addresses) => recorder.origins.push({ id, addresses }),
     warn: (message) => recorder.warnings.push(message),
     // The default is the honest "nothing is armed": only the cases about the
     // supervised-child health line say otherwise.
@@ -92,7 +91,7 @@ function recorderDeps(
 }
 
 function recorder(): Recorder {
-  return { warnings: [], armed: [], guards: [], audits: [], origins: [] };
+  return { warnings: [], armed: [], guards: [], audits: [] };
 }
 
 /** A fresh plugin id per case: `bun test` shares one process and one data dir. */
@@ -102,6 +101,7 @@ function id(): string {
 
 afterEach(() => {
   setNetworkPrepareDepsForTests(null);
+  resetOriginRegistryForTests();
 });
 
 describe("prepareNetworkGuards", () => {
@@ -276,7 +276,10 @@ describe("prepareNetworkProcesses", () => {
       // carries a process at all. This assertion previously expected both and
       // said the opposite in its comment.
       expect(rec.armed.map((row) => row.spec)).toEqual([newSpec]);
-      expect(rec.origins).toEqual([{ id: plugin, addresses: [address] }]);
+      // The republish's addresses are trusted at once, from the record it just
+      // wrote — the `private` fake needs no publish for that, but the record
+      // is what makes the registry agree with the audit row above.
+      expect(originRegistry().pluginOrigins(plugin)).toEqual([address.url]);
       expect(rec.audits).toHaveLength(1);
       expect(rec.audits[0]).toMatchObject({ actorUserId: null, action: "network.publish", targetId: plugin });
       expect(JSON.parse(rec.audits[0].metadataJson ?? "{}")).toMatchObject({
@@ -373,6 +376,21 @@ describe("prepareNetworkProcesses", () => {
       // everyone is re-asked rather than reasoning about whose changed.
       expect(rec.guards.map((set) => set.map((g) => g.spec))).toEqual([[guard]]);
     });
+  });
+
+  it("the boot health read records a joined host's addresses and trusts them", async () => {
+    const plugin = id();
+    const rec = recorder();
+    await writeNetworkState(plugin, { published: true, port: SERVER_PORT });
+    setNetworkPrepareDepsForTests(
+      recorderDeps(rec, {
+        [plugin]: entry({ status: async () => ({ state: "joined", addresses: [address], hints: [] }) }),
+      }),
+    );
+    await prepareNetworkProcesses();
+    expect(rec.warnings.some((w) => w.includes("NOT publishing"))).toBe(true);
+    expect((await readNetworkState(plugin)).addresses).toEqual([address]);
+    expect(originRegistry().pluginOrigins(plugin)).toEqual([address.url]);
   });
 });
 
