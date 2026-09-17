@@ -57,10 +57,11 @@ export function AddNetworkCard() {
                 install.mutate(
                   { pluginId: plugin.id },
                   {
-                    // The plugin hook refreshes the CATALOG; this list is the
-                    // other thing the install just changed. Without it the
-                    // new network is gone from the card above and absent from
-                    // the list below until the next poll.
+                    // The plugin hook refreshes the CATALOG; the Networks
+                    // list above is the other thing the install just
+                    // changed. Without it the new network vanishes from this
+                    // card (it no longer reads as available) and is absent
+                    // from that list until the next poll.
                     onSuccess: () => void queryClient.invalidateQueries({ queryKey: NETWORK_QUERY_KEY }),
                     onError: () => setFailedId(plugin.id),
                   },

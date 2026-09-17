@@ -1002,11 +1002,13 @@ export function NetworkPluginCard({
   // control and another does not. A bare div with an aria-label exposes
   // neither.
   if (headerless) {
-    // The caller's grouped card owns the frame AND the padding: `NetworkRow`
-    // renders inside its CardContent, which already insets. A second Card, a
-    // second name, or a second set of side padding would nest one border (and
-    // one gutter) inside another.
-    return <CardContent className="pt-2 pb-6">{body}</CardContent>;
+    // The caller's grouped card owns the frame AND the gutter: `NetworkRow`
+    // renders inside its CardContent, which already insets the sides. Not a
+    // `CardContent` here — the primitive's base `p-6` would survive a
+    // `className` override of the other sides and double the inset
+    // (reviewer, 2026-09-17); a plain div says what this is, and the row's
+    // collapsed head (also side-less) stays aligned with it.
+    return <div className="pt-2 pb-4">{body}</div>;
   }
   return (
     <Card role="group" aria-label={row.name}>

@@ -145,7 +145,10 @@ function NetworkingPage() {
               opens the card body in place; the difference is only what
               expands — here the whole card, fields and supervisor detail
               included. */}
-          <Card>
+          {/* `role="region"` because the old per-network cards each exposed
+              a named landmark; a bare div inside one unnamed card would be
+              a downgrade for a screen reader moving between networks. */}
+          <Card role="region" aria-label="Installed networks">
             <CardHeader>
               <CardTitle>Networks</CardTitle>
             </CardHeader>
