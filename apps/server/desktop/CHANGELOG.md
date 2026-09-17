@@ -1,5 +1,15 @@
 # @internal/desktop-server
 
+## 0.7.2
+
+### Patch Changes
+
+- [#68](https://github.com/subshell-ai/subshell/pull/68) [`d1f9a20`](https://github.com/subshell-ai/subshell/commit/d1f9a20f8ffe0468aa77d1dafcc9bc4c195be3d1) Thanks [@theogravity](https://github.com/theogravity)! - The "What macOS Will Ask" screen now shows three rows, and the Photos row has a button. Background Items went: the banner it explained is real, but the row had no state to read, no pane to open and nothing to press, so it could never change — and a row that can never change is prose standing in the column a person reads for decisions. Photos gained **Allow**, which is not the no-op it first sounds like: the panel that normally raises that prompt is this app's own image picker, so a sheet raised here arms exactly what the picker would otherwise arm later — one question, asked on a screen that has already said what it is for. It asks at the same access level the row reads, so sheet and row answer one question, and once the answer is in the way back is System Settings, as it was.
+  
+  Two things underneath had to change for the button to be honest. The renderer hardcoded the label "Allow notifications" and the notifications handler for every row that could ask, so an allow-row for Photos would have shown one permission's name on a button that spent the other's — the words and the request now travel on the row, and the handler lookup is a `Record` over a closed union, so a third ask without its handler is a compile error. And `request_photos` needed its non-macOS stub plus registration in the command list: `cargo clippy` on a Mac cannot see what Linux compiles, and the missing half would have shipped green from a laptop.
+
+- [#69](https://github.com/subshell-ai/subshell/pull/69) [`bd38e1b`](https://github.com/subshell-ai/subshell/commit/bd38e1b47c03baf0cf53f8d263a5a35450631868) Thanks [@theogravity](https://github.com/theogravity)! - The Set Up screen now names the address the dashboard will run at — a "Dashboard URL" row above the supervision question, showing the chosen base URL when one exists and the CLI's own `http://localhost:<port>` derivation otherwise. It is live: typing a new port under "Customize port and addresses…" moves the row with every keystroke, without the re-render that would take the cursor out of the field. This is the deleted plan rows' address half returned by request (operator's call): the install row stays gone, and what came back is not a promise of what setup will do but the address the reader dials afterwards.
+
 ## 0.7.1
 
 ### Patch Changes
