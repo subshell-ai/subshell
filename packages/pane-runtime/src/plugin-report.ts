@@ -102,6 +102,13 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
               // Plugins that describe manual steps embed the command, which is
               // why this is reported at all rather than recomputed on the
               // control plane.
+              //
+              // This literal intentionally mirrors `PORTABLE_MCP_LAUNCH` in
+              // `apps/server/api/src/services/mcp-resolve.ts` — the same PATH
+              // spelling the preset editor shows (issue #57). Spelled twice on
+              // purpose: importing the server's constant here would breach the
+              // type-only licence carve-out, so `plugin-report.test.ts` pins
+              // both sides to the same literal instead.
               mcpSetup: harness.mcpSetup?.({ command: "subshell", args: ["mcp"] }),
             }
           : {}),

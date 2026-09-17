@@ -44,6 +44,25 @@ describe("buildPluginReports", () => {
     expect(report?.broken).toBeUndefined();
   });
 
+  it("renders manual harness steps against the PORTABLE launch — the preset editor's own spelling", async () => {
+    // Cross-package contract, reviewed after #57: `PORTABLE_MCP_LAUNCH`
+    // (`apps/server/api/src/services/mcp-resolve.ts`) pins
+    // { command: "subshell", args: ["mcp"] } for the schema route, and THIS
+    // package spells the same literal at `plugin-report.ts`. It cannot import
+    // the constant — pane-runtime is Apache, the constant is a VALUE export
+    // from AGPL `apps/server/`, and the section-7 carve-out is type-only —
+    // so both sides pin the literal and drift fails a test here or there.
+    // Drift otherwise means the Nodes page and the preset editor show users
+    // different manual-registration commands: the exact disagreement class
+    // #57 closed.
+    const dir = tempDataDir();
+    await installEmbedded(dir, "pi");
+    const [report] = await buildPluginReports(dir);
+    const mcp = report?.mcpSetup as { mode: string; steps: { command: string }[] };
+    expect(mcp.mode).toBe("manual");
+    expect(JSON.parse(mcp.steps[1].command).mcpServers.subshell).toEqual({ command: "subshell", args: ["mcp"] });
+  });
+
   it("reports a plugin that fails to load, carrying its error", async () => {
     // Dropping the row would make a broken plugin look uninstalled, and the
     // node page could not explain the difference.
