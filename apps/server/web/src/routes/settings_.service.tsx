@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
-import { AddressesCard } from "@/components/service/addresses-card";
 import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
@@ -16,9 +15,11 @@ import { useSetSupervision } from "@/hooks/use-set-supervision";
 export const Route = createFileRoute("/settings_/service")({ component: ServicePage });
 
 /**
- * Server Settings → Service: where this server listens, who supervises it,
- * and what it logged (spec 2026-09-12 § 4.1; the Locations card moved to
- * `/settings/status` in spec 2026-09-14, where the read-only facts live).
+ * Server Settings → Service: who supervises this server and what it logged
+ * (spec 2026-09-12 § 4.1; the Locations card moved to `/settings/status` in
+ * spec 2026-09-14, where the read-only facts live, and the Addresses card to
+ * `/settings/networking` on 2026-09-17, where the question it answers — how
+ * this server is reached — is the page's whole subject).
  *
  * Called Service rather than Server because the control-plane host's own node
  * row is named "Server" by default, and because every card here is about the
@@ -54,7 +55,7 @@ function ServicePage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader title="Service" subtitle="Where this server listens, who supervises it, and what it logged." />
+      <PageHeader title="Service" subtitle="Who supervises this server, and what it logged." />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           {error && (
@@ -85,7 +86,6 @@ function ServicePage() {
               <DevProxyNotice />
               <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />
               <SupervisionCard view={view} autostart={autostart} supervision={supervision} />
-              <AddressesCard view={view} restart={restart} />
               <ServerLogCard view={view} enabled={isAdmin} />
             </>
           )}

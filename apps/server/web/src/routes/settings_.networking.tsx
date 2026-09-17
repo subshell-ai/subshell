@@ -2,12 +2,16 @@ import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { AddNetworkCard } from "@/components/networking/add-network-card";
+import { AddressesCard } from "@/components/networking/addresses-card";
 import { PageHeader } from "@/components/page-header";
 import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAdminStatus } from "@/hooks/use-admin-status";
 import { NETWORK_MUTATION_KEY, NETWORK_QUERY_KEY, useNetwork } from "@/hooks/use-network";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useServerDeployment } from "@/hooks/use-server-deployment";
+import { useServerRestart } from "@/hooks/use-server-restart";
 import { baseUrlLine } from "@/lib/network-base-url";
 import type { NetworkList, NetworkRow } from "@/types/network";
 
@@ -80,14 +84,22 @@ function NetworkingPage() {
     isAdmin,
     acting || awaitingLogin(cached?.networks) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
   );
-  // The base URL's SAVED value, for the 'what am I addressed as' line.
+  // Two consumers: the 'what am I addressed as' line (the base URL's SAVED
+  // value) and the Addresses card, which moved here from `/settings/service`
+  // on 2026-09-17 — where this server listens and which addresses a browser
+  // may use is the same question the page answers, asked of config.env.
   // 60 s, not this hook's 5 s default, for the `/settings/status` Locations
   // card's reason: every read of `/api/admin/server` runs the service-manager
-  // and port probes synchronously. Nothing on THIS page writes config.env at
-  // all — a publish trusts its addresses live and moves no base URL
-  // (2026-09-16) — so the line follows Server Settings → Service, the page
-  // that writes it, at the poll's pace.
+  // and port probes synchronously. The card writing config.env from here does
+  // not change the cadence: a save writes the fresh view into the cache
+  // itself, so the poll only ever catches up with an edit made over ssh.
   const deployment = useServerDeployment(isAdmin, 60_000);
+  // The Addresses card's restart half: press, 202, wait for the new boot.
+  // `useAdminStatus` supplies the `bootedAt` baseline the waiter compares
+  // against — the same reason `/settings/service` mounts it; without it the
+  // first answer after the press would count as "back" whatever it was.
+  const restart = useServerRestart();
+  useAdminStatus(isAdmin);
   // `settings?.` because a server older than the view sends `{}` where the
   // type says a full record — this page must degrade to no pending half, not
   // to a crash, exactly the rule `use-public-settings` follows.
@@ -119,17 +131,11 @@ function NetworkingPage() {
             />
           )}
           {isLoading && !data && <p className="text-muted-foreground text-sm">Loading…</p>}
-          {/* Collapsed rows, same as the wizard's Network step: the list says
-              WHO is here (name, state chip) and Configure opens the card.
-              The difference is only what expands — here it is the whole
-              card, fields and supervisor detail included. */}
           {/* Where this server says it lives, and which network's address
-              that is — printed once on the page that shows the cards, whose
-              acts write no config; the value itself is written on Server
-              Settings → Service. A saved change names itself as pending
-              rather than pretending the boot-time constant has moved:
-              `APP_BASE_URL` is still read at boot, even though the allowlist
-              no longer is. */}
+              that is — printed once, above the fields that write it. A saved
+              change names itself as pending rather than pretending the
+              boot-time constant has moved: `APP_BASE_URL` is still read at
+              boot, even though the allowlist no longer is. */}
           {base && (
             <p className="text-detail text-muted-foreground">
               This server's address: <span className="font-mono">{base.running}</span>
@@ -143,12 +149,33 @@ function NetworkingPage() {
               )}
             </p>
           )}
+          {/* Where the server listens and which addresses a browser may use,
+              moved from `/settings/service` on 2026-09-17: this page's whole
+              subject is reaching this server, and the base URL and origin
+              list are that subject's config.env half — the Networks card
+              below is the live half. It leads because you join a network to
+              reach an address, not the other way round. */}
+          {deployment.data && <AddressesCard view={deployment.data} restart={restart} />}
+          {/* One card grouping the networks, so the page reads as two
+              sections — the addresses this server has, and the networks that
+              give it more. Inside, collapsed rows as in the wizard's Network
+              step: the row says WHO is here (name, state chip) and Configure
+              opens the card body in place; the difference is only what
+              expands — here the whole card, fields and supervisor detail
+              included. */}
           {data && data.networks.length > 0 && (
-            <ul className="space-y-3">
-              {data.networks.map((row) => (
-                <NetworkRowItem key={row.id} row={row} full />
-              ))}
-            </ul>
+            <Card>
+              <CardHeader>
+                <CardTitle>Networks</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <ul>
+                  {data.networks.map((row) => (
+                    <NetworkRowItem key={row.id} row={row} body="full" />
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
           )}
           <AddNetworkCard />
         </>

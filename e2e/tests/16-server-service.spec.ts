@@ -9,21 +9,17 @@ test.use({ storageState: ADMIN_STATE });
  * out of the Subshell Server desktop console and into the SPA, so a browser
  * on the LAN and a headless install get it too.
  *
- * This suite's stack is the ideal subject for three of these assertions, by
- * accident of how it boots:
+ * This suite's stack is the ideal subject for these assertions, by accident
+ * of how it boots:
  *
  * - It is spawned BY HAND (`stack.ts` runs `bun src/index.ts`), so no service
  *   manager claims its pid. That is exactly the state a self-restart must
  *   refuse rather than exit into, and it cannot be staged in a unit test —
  *   there, `isSupervised` is a pure function over an injected answer.
- * - It takes `SERVER_PORT`, `HOST`, `APP_BASE_URL` and `DATABASE_PATH` from
- *   the ENVIRONMENT rather than from a config.env, which is the same shape a
- *   systemd host has (`EnvironmentFile=` exports all five before the process
- *   starts). Those fields must render read-only, naming the variable, because
- *   a file write the next boot would mask is a success report for a change
- *   that never happens.
- * - It sets no `TRUSTED_ORIGINS`, so that one field is the control: it must
- *   stay editable while its neighbours do not.
+ *
+ * The other accident-of-boot facts — the environment-owned address fields
+ * and the unset `TRUSTED_ORIGINS` — still hold of this stack, but they are
+ * asserted where the Addresses card lives now: spec 18, /settings/networking.
  *
  * What is deliberately NOT here: pressing Restart. The button is disabled on
  * this stack, which is the assertion; and a spec that restarted the backend
@@ -81,14 +77,17 @@ test.describe("server service page", () => {
     await expect(page.getByText(paths.paths.dataDir as string).first()).toBeVisible();
 
     // And it is GONE from Service — the move, rather than a copy. The
-    // Addresses title is asserted FIRST because it is the anchor that makes
+    // Server log title is asserted FIRST because it is the anchor that makes
     // the next line mean anything: `toHaveCount(0)` is satisfied by a page
     // that has not rendered yet, so without waiting for something this page
     // really does draw, a regression putting the card back here would race
-    // past the check rather than fail it.
+    // past the check rather than fail it. (The Addresses card moved the same
+    // way in the other direction on 2026-09-17 — it is asserted on
+    // /settings/networking, in spec 18.)
     await page.goto("/settings/service");
-    await expect(page.getByText("Addresses", { exact: true })).toBeVisible();
+    await expect(page.getByText("Server log", { exact: true })).toBeVisible();
     await expect(page.getByText("Locations", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Addresses", { exact: true })).toHaveCount(0);
   });
 
   test("refuses a self-restart on a hand-started server, and stays up", async ({ page }) => {
@@ -157,30 +156,6 @@ test.describe("server service page", () => {
       expect(res.status()).toBe(409);
       expect(((await res.json()) as { code: string }).code).toBe("AUTOSTART_UNAVAILABLE");
     }
-  });
-
-  test("renders environment-owned addresses read-only, and the others editable", async ({ page }) => {
-    await page.goto("/settings/service");
-
-    // The systemd shape. Every one of these is exported before the process
-    // starts, so config.env cannot change it and the form must not pretend
-    // otherwise.
-    for (const [label, key] of [
-      ["Port", "SERVER_PORT"],
-      ["Bind address", "HOST"],
-      ["Public base URL", "APP_BASE_URL"],
-    ] as const) {
-      const field = page.getByLabel(label, { exact: true });
-      await expect(field).toHaveAttribute("readonly", "");
-      await expect(page.getByText(`Set by the environment (${key}); change it there.`)).toBeVisible();
-    }
-
-    // The control: this stack sets no TRUSTED_ORIGINS, so the one field the
-    // environment does not own stays editable. Without this the assertions
-    // above would pass on a form that was simply broken.
-    const origins = page.getByLabel("Other addresses browsers will use", { exact: true });
-    await expect(origins).not.toHaveAttribute("readonly", "");
-    await expect(origins).toBeEditable();
   });
 
   test("keeps HTTP request lines out of the log until debug is turned on, live", async ({ page }) => {

@@ -73,8 +73,11 @@ below.
 
 **Managing a running server is the SPA's job, not the GUI's** (spec
 2026-09-12). `apps/server/desktop` had a management console window; it is gone,
-and everything it showed lives at `/settings/service` in `apps/server/web`, so
-a browser on the LAN and a headless install reach it too. What stayed native is
+and what it showed lives in `apps/server/web` across three Server Settings
+pages — `/settings/service` (the process and its supervision),
+`/settings/status` (Locations, since 2026-09-14) and `/settings/networking`
+(the Addresses card, since 2026-09-17) — so a browser on the LAN and a
+headless install reach it too. What stayed native is
 only what a page the server serves cannot do — first run, a server that is not
 running, updating the bundled server, and reset — and that is one assistant
 window. The rule it follows: if the act leaves the server unreachable, it

@@ -11,8 +11,9 @@ import type { ServerDeployment } from "@/types/server-deployment";
 /**
  * Server Settings → Networking.
  *
- * The page itself is thin — a gate, a list, and one card that offers what
- * this build ships — so these tests are about the gate and the composition.
+ * The page itself is thin — a gate, the Addresses card, the grouped Networks
+ * card, and one card that offers what this build ships — so these tests are
+ * about the gate and the composition.
  * What a row can DO is the card's own suite
  * (`components/__tests__/network-plugin-card.test.tsx`).
  */
@@ -118,16 +119,18 @@ function renderPage() {
 afterEach(cleanup);
 
 describe("the networking page", () => {
-  it("lists one collapsed row per network for an admin, and Configure opens the card", async () => {
+  it("groups the networks in one card of collapsed rows, and Configure opens the card body", async () => {
     const m = mockServer({
       admin: true,
       networks: [network({ id: "tailscale", name: "Tailscale" }), network({ id: "netbird", name: "NetBird" })],
     });
     try {
       renderPage();
-      // Rows, not cards: the list names each network and answers for itself;
-      // no card chrome exists until a press.
-      expect(await screen.findByRole("listitem", { name: "Tailscale" })).toBeTruthy();
+      // ONE card titled Networks, holding collapsed rows — the page reads as
+      // addresses + networks, and a card per row inside the group would nest
+      // one border inside another for a distinction the group already draws.
+      expect(await screen.findByText("Networks")).toBeTruthy();
+      expect(screen.getByRole("listitem", { name: "Tailscale" })).toBeTruthy();
       expect(screen.getByRole("listitem", { name: "NetBird" })).toBeTruthy();
       // The needs-login card's join-mode choice is the body's own landmark: the
       // whole card, not the wizard's stripped frame. (This was the "Access key"
@@ -219,6 +222,32 @@ describe("the networking page", () => {
       expect(await screen.findByText(/This server's address/)).toBeTruthy();
       expect(screen.getByText(/Saved for the next restart/)).toBeTruthy();
       expect(screen.getByText(/— over NetBird/)).toBeTruthy();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("carries the Addresses card, since the page now owns these fields", async () => {
+    // Moved from /settings/service on 2026-09-17: the fields that decide
+    // which addresses name this server sit on the page about reaching it.
+    const m = mockServer({ admin: true });
+    try {
+      renderPage();
+      expect(await screen.findByText("Addresses")).toBeTruthy();
+      // The four fields, not a summary line — this is the editable card.
+      expect(screen.getByLabelText("Port", { exact: true })).toBeTruthy();
+      expect(screen.getByLabelText("Other addresses browsers will use", { exact: true })).toBeTruthy();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("shows no Networks card when nothing is installed — Add a network owns that case", async () => {
+    const m = mockServer({ admin: true, plugins: [] });
+    try {
+      renderPage();
+      await screen.findByText("Addresses");
+      expect(screen.queryByText("Networks")).toBeNull();
     } finally {
       m.restore();
     }

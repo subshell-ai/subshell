@@ -564,8 +564,9 @@ address) — which equals no IP-shaped entry, ever. The probe is re-asked on
 `GET /api/settings/public` — the request the mobile dialog repeats on open —
 so a laptop that switched Wi-Fi stops offering, and stops trusting, the
 address of the network it left. What changed is only where the list is reachable FROM: the `subshell-server` CLI
-(`--trusted-origins`) since 2026-09-08, and the dashboard's Server Settings →
-Service since 2026-09-12, instead of a hand-edit of config.env. The Subshell
+(`--trusted-origins`) since 2026-09-08, and the dashboard since 2026-09-12 — the
+Addresses card, on Server Settings → Service until it moved to → Networking on
+2026-09-17 — instead of a hand-edit of config.env. The Subshell
 Server console that first carried the field is gone; its half moved into the
 served page. Every one of those surfaces writes through the same `applyConfig`,
 so the validator below is one narrow point rather than one of several.
@@ -679,8 +680,8 @@ code. Full accounting: `docs/security.md` §11.13.
   passkey-neutral, and origins are all a publish touches: the opt-in promotion
   of `APP_BASE_URL` the publish checkbox carried was removed 2026-09-16 (a
   checkbox moving the passkey rpID sat in a flow about reaching the server,
-  not about identity). The base URL is changed on the Service page, where it
-  still MOVES the rpID and the field says so. Audit rows
+  not about identity). The base URL is changed on the Networking page's
+  Addresses card, where it still MOVES the rpID and the field says so. Audit rows
   (`network.configure|install|join|publish|unpublish|leave`) name origins and
   field
   NAMES, never values.

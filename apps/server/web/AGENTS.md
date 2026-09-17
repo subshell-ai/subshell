@@ -372,7 +372,7 @@ on one for exactly that reason.
 
 `trustedOrigins` is a field on `GET /api/settings/public` added for this, and
 it is the EFFECTIVE allowlist — local origins ∪ this machine's derived LAN
-interfaces ∪ the Service page's extras ∪ every enabled network plugin's
+interfaces ∪ the Addresses card's extras ∪ every enabled network plugin's
 addresses, computed live, and re-asked of the kernel by the read itself so a
 laptop that switched Wi-Fi stops offering the network it left; its disclosure
 is accounted in `docs/security.md` §3. Optional in the client type for the
@@ -446,15 +446,31 @@ acts — it drops card chrome, the description, the supervisor line and every
 non-required settings field, because hiding a required one would leave a
 Connect button nothing on screen could satisfy.
 
+**The page itself is two cards and a form, since 2026-09-17.** The
+`AddressesCard` moved in from `/settings/service` — where this server listens
+and which addresses a browser may use is the same question this page answers,
+asked of config.env — so the page now owns its 60 s `useServerDeployment`
+poll's second consumer (the card's save writes the fresh view into that cache
+itself, which is why the cadence did not move with the card) and mounts
+`useServerRestart` + `useAdminStatus` for its restart half. Below it sits ONE
+grouped **Networks** card holding the installed plugins as collapsed rows —
+`NetworkRow`'s `full` prop became `body="compact"|"full"` because the group
+drew the distinction the per-network card frame used to: two surfaces, one
+flat row frame, different bodies. The card renders only when something is
+installed; `AddNetworkCard` owns the nothing-yet case.
+
 Three rules the card keeps, each with a defect behind it:
 
 - **The plugin owns its copy.** Hints, labels and step text render verbatim.
   What this page owns is the shape, and the consequences that are the SERVER's
   rather than the network's — what a non-secure-context address costs, that
 `subshell-server backup` does not include a plugin secret. Publishing moves
-  no boot-time identity and writes no config: the base URL is the Service
-  page's field, and the server's allowlist is a LIVE registry — its own local
-  origins ∪ the Service page's `TRUSTED_ORIGINS` extras (consulted on every
+  no boot-time identity and writes no config: the base URL is the Addresses
+  card's field — that card moved onto THIS page from `/settings/service` on
+  2026-09-17, the one config.env writer here, saving through the same
+  `PATCH /api/admin/server/config` the Service page used to host it — and
+  the server's allowlist is a LIVE registry — its own local
+  origins ∪ the Addresses card's `TRUSTED_ORIGINS` extras (consulted on every
   request) ∪ every ENABLED network plugin's addresses (a `private` network
   from `joined` up; a `public-with-gate` one only while published). So a join
   to a tailnet is enough for a phone to sign in, a publish trusts its

@@ -2,7 +2,6 @@ import { useId, useState } from "react";
 import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
 import { PluginIcon } from "@/components/plugin-icon";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { NetworkRow as NetworkRowData } from "@/types/network";
 
@@ -10,22 +9,23 @@ import type { NetworkRow as NetworkRowData } from "@/types/network";
  * One network as a collapsed row: name, a state chip, and one button that
  * expands the card in place.
  *
- * Two surfaces use it and they differ in exactly one thing — the FRAME and
- * what opens inside it. The wizard's Network step (`full` unset) uses the
- * flat list rows `AgentRow` next door established, expanding to the compact
- * first-run card. The settings page (`full`) uses one CARD per network —
- * consistent with every other card on that page — and expands to the WHOLE
- * card inside the same frame: every field, the supervisor detail, less the
- * header this row already renders. `NetworkPluginCard` owns both bodies; the
- * two surfaces cannot answer "what can I do from here" differently because
- * there is only one answer to render.
+ * Two surfaces use it and they differ in exactly one thing — what opens
+ * inside. The wizard's Network step expands to the compact first-run card;
+ * the settings page expands to the WHOLE card: every field, the supervisor
+ * detail, less the header this row already renders. The FRAME is shared —
+ * the flat list row `AgentRow` next door established — because the settings
+ * page groups its rows inside one "Networks" card, and a card per row inside
+ * a card is nesting for a distinction the group already draws.
+ * `NetworkPluginCard` owns both bodies; the two surfaces cannot answer
+ * "what can I do from here" differently because there is only one answer to
+ * render.
  *
  * Nothing is visible until asked, everywhere. This replaced a wizard layout
  * that opened on an "Other networks" heading relative to nothing and two
  * numbered sudo commands (spec 2026-09-15), and a settings page that listed
  * every network pre-expanded.
  */
-export function NetworkRow({ row, full = false }: { row: NetworkRowData; full?: boolean }) {
+export function NetworkRow({ row, body = "compact" }: { row: NetworkRowData; body?: "compact" | "full" }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   const chip = chipFor(row);
@@ -34,7 +34,7 @@ export function NetworkRow({ row, full = false }: { row: NetworkRowData; full?: 
   // are not reached through either surface.
   const actionable = row.supported && row.enabled;
   const head = (
-    <div className={cn("flex min-h-11 items-center gap-3", full ? "px-4 py-3" : "py-2")}>
+    <div className="flex min-h-11 items-center gap-3 py-2">
       <PluginIcon pluginId={row.id} name={row.name} />
       <span className="flex-1 font-strong">{row.name}</span>
       <span className={cn("text-detail", chip.className)}>{chip.text}</span>
@@ -56,31 +56,19 @@ export function NetworkRow({ row, full = false }: { row: NetworkRowData; full?: 
   );
   /* Expansion is per-row local state: several may be open at once, and with
      one plugin shipped a rule forbidding that would be a rule about nothing. */
-  const body =
-    open &&
-    (full ? (
-      <div id={bodyId}>
-        <NetworkPluginCard row={row} headerless />
-      </div>
-    ) : (
-      <div id={bodyId} className="pb-3">
-        <NetworkPluginCard row={row} compact />
-      </div>
-    ));
-  if (full) {
-    return (
-      <li aria-label={row.name}>
-        <Card>
-          {head}
-          {body}
-        </Card>
-      </li>
-    );
-  }
   return (
     <li aria-label={row.name} className="border-border/60 border-b last:border-b-0">
       {head}
-      {body}
+      {open &&
+        (body === "full" ? (
+          <div id={bodyId} className="pb-3">
+            <NetworkPluginCard row={row} headerless />
+          </div>
+        ) : (
+          <div id={bodyId} className="pb-3">
+            <NetworkPluginCard row={row} compact />
+          </div>
+        ))}
     </li>
   );
 }

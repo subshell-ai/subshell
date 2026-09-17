@@ -830,7 +830,7 @@ address: the machine's own IP addresses are trusted automatically since
 LAN *name* still needs `APP_BASE_URL` pointed at it (or `TRUSTED_ORIGINS`),
 because an interface address proves the entry names this host and a name
 proves nothing. Both fields are settable from the CLI and from the
-dashboard's Server Settings → Service.
+dashboard's Addresses card (Server Settings → Networking since 2026-09-17; → Service before that).
 
 **CORS is an allowlist with STATIC SOURCES and a LIVE READ.** Four sources,
 none of them the request: the instance's own origins (derived from
@@ -865,9 +865,10 @@ here only because the service is not internet-facing.
 
 **Since 2026-09-08 the list is configurable without editing config.env** —
 `subshell-server configure --trusted-origins <origin,origin>`, and since
-2026-09-12 the dashboard's Server Settings → Service as well (the Subshell
-Server console that first carried the field is gone; its half of this moved
-into the served page, §11.11). This is a usability fix for a real trap rather
+2026-09-12 the dashboard as well — the Addresses card, on Server Settings →
+Service until it moved to → Networking on 2026-09-17 (the Subshell Server
+console that first carried the field is gone; its half of this moved into the
+served page, §11.11). This is a usability fix for a real trap rather
 than a widening of the model, and the DNS-rebinding rule above is untouched.
 Every one of those surfaces writes through the same `applyConfig`, so the
 validator below is still the one narrow point rather than one of several. The
@@ -936,8 +937,8 @@ Six properties of that surface are load-bearing:
 - **The bypass is diagnosed, not blocked.** `subshell-server status` reports
   per-entry `problems` for `TRUSTED_ORIGINS` and `APP_BASE_URL` — what a
   browser will do with a value the boot accepted — together with the LAYER
-  that supplied it, and the dashboard's Server Settings → Service renders it
-  beside the field. That is deliberately a diagnostic rather than a boot
+  that supplied it, and the dashboard's Addresses card (Server Settings →
+  Networking since 2026-09-17) renders it beside the field. That is deliberately a diagnostic rather than a boot
   check: a throw in
   `constants.ts` would brick the `configure` that repairs the value, and a boot
   warning could not name the layer, so it would send an operator to edit a
@@ -1949,7 +1950,7 @@ this project did not write.
   trusts its addresses at once, and audits its own `network.publish` row
   (`by: join`); it was always the same act one press earlier, not a new
   surface. None of this touches the passkey rpID: that is `APP_BASE_URL`,
-  changed on the Service page, warned at the field (§2, §8).
+  changed on the Networking page's Addresses card, warned at the field (§2, §8).
   Audit rows (`network.configure`, `network.install`, `network.join`,
   `network.publish`, `network.unpublish`, `network.leave`) name origins and
   field NAMES, never values. **`network.install` is the §11.10-class act in
