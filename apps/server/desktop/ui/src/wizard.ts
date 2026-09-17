@@ -37,7 +37,7 @@ import {
 import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
-import { permissionRows } from "./lib/permissions-model";
+import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
   applySupervisionChoice,
@@ -129,15 +129,20 @@ let ranSetupHere = false;
 /** They pressed Continue on that screen. */
 let continued = false;
 /**
- * The notifications request is in flight — macOS's own sheet is up.
+ * A request of ours is in flight — macOS's own sheet is up.
+ *
+ * One flag per permission, never one shared flag: the two sheets are different
+ * questions, and a single flag would spin the Photos row while the person read
+ * the notifications sheet.
  *
  * Page state rather than a probe fact, because no probe can see it: the sheet
- * is modal to the app and the answer only reaches `notificationPermission` on
- * a later tick. Without it the row would sit at `pending` with a dead button
- * for as long as the person takes to read the sheet, which is the same shape
- * as a hang.
+ * is modal to the app and the answer only reaches `notificationPermission` or
+ * `photosPermission` on a later tick. Without it the row would sit at
+ * `pending` with a dead button for as long as the person takes to read the
+ * sheet, which is the same shape as a hang.
  */
 let requestingNotifications = false;
+let requestingPhotos = false;
 /**
  * Who made this app, its version and its terms — read ONCE and kept.
  *
@@ -1198,11 +1203,11 @@ function renderAppUpdate(): void {
  *   own family already holds this screen, so there is no second flag to drift.
  */
 function renderPermissions(p: Probe, requested: boolean): void {
-  setFrame("none", "What macOS Will Ask", "Four things, each once. Here is what they are for.");
+  setFrame("none", "What macOS Will Ask", "Three things, each once. Here is what they are for.");
   const content = el("content");
   const ul = document.createElement("ul");
   ul.className = "checklist";
-  for (const row of permissionRows(p, requestingNotifications)) {
+  for (const row of permissionRows(p, { notifications: requestingNotifications, photos: requestingPhotos })) {
     const li = document.createElement("li");
     li.dataset.state = row.state;
     // The setup checklist's own glyphs, deliberately: "allowed" should look
@@ -1215,7 +1220,14 @@ function renderPermissions(p: Probe, requested: boolean): void {
     const side = document.createElement("div");
     side.className = "permission-side";
     if (row.suffix) side.append(text("span", row.suffix, "detail"));
-    if (row.action === "allow") side.append(button("Allow notifications", allowNotifications, "primary"));
+    // Both the WORDS and the handler come from the row. These were hardcoded
+    // to notifications when it was the only row that could ask anything; with
+    // Photos asking too, the label would put one permission's name on a button
+    // that spends the other's question. `REQUESTS` is a `Record` over the
+    // model's closed union, so a request added there without its handler here
+    // is a type error rather than a silent mis-wiring.
+    const allow = row.allow;
+    if (row.action === "allow" && allow) side.append(button(allow.label, () => REQUESTS[allow.request](), "primary"));
     if (row.action === "open-settings" && row.pane !== null) {
       const pane = row.pane;
       // No `ghost`: on the tmux screen that treatment read as a link and did
@@ -1266,6 +1278,43 @@ function allowNotifications(): void {
     return null;
   });
 }
+
+/**
+ * Ask macOS for Photos, once — [`allowNotifications`] in every way that
+ * matters, including the discarded result: this row renders from
+ * `probe.photosPermission`, which the poll refreshes.
+ *
+ * What it raises is the sheet the image picker would have raised for itself,
+ * so pressing this is not asking macOS a favour — it is moving the same
+ * question to a screen that has already explained it (spec 2026-09-14 § 9, as
+ * amended by the operator on 2026-09-17; `request_photos`'s docblock in
+ * `desktop-core` carries the reasoning).
+ */
+function allowPhotos(): void {
+  if (busy || running) return;
+  requestingPhotos = true;
+  void act(async () => {
+    try {
+      await ipc.requestPhotos();
+    } finally {
+      requestingPhotos = false;
+    }
+    return null;
+  });
+}
+
+/**
+ * Which handler each row's `allow` button reaches.
+ *
+ * A `Record` over the model's closed union rather than a chain of `if`s on
+ * `row.id`: adding a third request to `PermissionRequest` without naming it
+ * here is a compile error, where a dispatch that defaults would route it to
+ * notifications and render a button that lies.
+ */
+const REQUESTS: Record<PermissionRequest, () => void> = {
+  notifications: allowNotifications,
+  photos: allowPhotos,
+};
 
 /**
  * **How Your Server Runs** — reached from the recovery screen's link, never

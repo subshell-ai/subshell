@@ -175,6 +175,7 @@ pub fn run() {
             control::desktop_open_in_browser,
             control::desktop_permissions,
             control::desktop_request_notifications,
+            control::desktop_request_photos,
             control::desktop_open_system_settings,
             control::desktop_check_app_update,
             control::desktop_install_app_update,

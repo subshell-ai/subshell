@@ -587,16 +587,40 @@ dpkg -l libxdo-dev >/dev/null 2>&1 && echo "OK      libxdo-dev" || echo "MISSING
 
 ## macOS permissions (spec 2026-09-14)
 
-A first run on a Mac meets four system prompts or banners, and only ONE is the
-app's own: Notifications. Files-and-Folders is attributed to whichever process
-lists the folder (`subshell-server` under launchd, this app under "runs with
-this app"), Photos is raised by the image picker's own panel, and Background
-Items is a banner, not a permission. So the `permissions` screen — macOS only,
-between Install tmux and Set Up — REQUESTS Notifications and EXPLAINS the
-other three, and never blocks Continue. It is also a REQUESTED screen (the one
-in both lists): the dashboard raises it as the fix for every missing-permission
-notice, and it tells a requested visit from a first-run one by whether
-`screensFor` already holds it.
+A first run on a Mac meets four system prompts or banners. THREE of them are
+the app's own to raise: Notifications, and — since 2026-09-17 — Photos.
+Files-and-Folders is attributed to whichever process lists the folder
+(`subshell-server` under launchd, this app under "runs with this app"), and
+Background Items is a banner, not a permission. So the `permissions` screen —
+macOS only, between Install tmux and Set Up — shows THREE rows, REQUESTS the
+two it owns, EXPLAINS the one it cannot, and never blocks Continue. It is also a
+REQUESTED screen (the one in both lists): the dashboard raises it as the fix for
+every missing-permission notice, and it tells a requested visit from a
+first-run one by whether `screensFor` already holds it.
+
+**The fourth row — Background Items — was removed on the operator's request,
+and the reason is worth keeping** (it is the same reason the second rule below
+exists). The banner is real: starting at login does add Subshell Server to
+Login Items and macOS says so. But the row had no state to read, no pane to
+open and nothing to press, so it could never change — and a row that can never
+change is not information, it is prose standing in the column a person reads
+for decisions. Where the banner appears the sentence belongs: the login
+screens that arm it.
+
+**The Photos button is not a second door to the same room, and that needed
+proving.** The screen shipped with the row EXPLAINED and never ASKED (spec
+2026-09-14 § 9): the system raises the prompt at the moment an image is picked,
+which is where Apple puts it. What makes asking here sound rather than merely
+possible is recorded in `desktop-core`'s `request_photos` — **the panel that
+normally raises this prompt is THIS app's own image picker**, running in this
+process, and `Info.plist` already carries the `NSPhotoLibraryUsageDescription`
+sentence the sheet shows. So a sheet raised on this screen arms exactly the TCC
+subject the picker would otherwise arm later: one question, asked where it can
+be explained. The ask is at `PHAccessLevel::ReadWrite`, the SAME level
+`photos_permission()` reads, so the sheet and the row answer one question, and
+the answer is RE-READ from that function rather than mapped from the handler —
+this row renders the difference between `authorized` and `limited`, and one read
+keeps that mapping in one place.
 
 **Tauri's notification plugin cannot see any of this.** Its desktop
 `permission_state()` and `request_permission()` are stubs that answer
@@ -620,9 +644,16 @@ notifies. Two facts about that module are load-bearing:
   `photosPermission`), so the screen re-reads them on the poll it already runs.
   The dashboard cannot read the probe, so it has `desktop_permissions` — the
   sixth `main` command, read-only, no argument, argued in `docs/security.md`
-  and in `capabilities/main.json`'s own comment. Requesting and opening a
-  System Settings pane are `wizard`-only; `desktop_open_system_settings` takes
-  a closed `SettingsPane`, never a URL, the `WebTarget` shape.
+  and in `capabilities/main.json`'s own comment. Everything that ACTS stays
+  `wizard`-only: `desktop_request_notifications`, `desktop_request_photos` and
+  `desktop_open_system_settings` (which takes a closed `SettingsPane`, never a
+  URL, the `WebTarget` shape). The two requests take NO argument either —
+  pinned in `ipc-acl.test.ts` beside the read's own no-argument pin — so
+  neither can be aimed at a permission the screen did not name. And each has a
+  `#[cfg(not(target_os = "macos"))]` stub answering `Unavailable`:
+  `control.rs` names them on every platform, and **`cargo clippy` on a Mac
+  cannot see what Linux compiles** — a missing stub is a Linux build failure
+  that ships green from a laptop.
 
 `src-tauri/Info.plist` carries the four usage descriptions; they are the
 sentence a prompt attributed to THIS APP shows, and a prompt attributed to
@@ -642,8 +673,22 @@ because the pane is there whether or not the question has been asked. So the
 construction, so a button gated on `denied` would render never, while the
 picker's "Blocked by macOS" notice raises this screen as the fix regardless.
 `SettingsPane::FilesAndFolders` being defined, granted and sent by nothing was
-the tell. `photos` offers it once denied, which is the state its notice fires
-in.
+the tell. `photos` now follows `notifications` exactly — **Allow** while
+`not-determined`, **Open System Settings** once `denied`, nothing once allowed —
+because it has a prompt of its own to raise now (see above), and its notice
+fires in the `denied` state the pane answers.
+
+**A second rule came out of the same screen: an `allow` row carries its own
+button WORDS.** The renderer used to hardcode `("Allow notifications",
+allowNotifications)` for `row.action === "allow"`, which was true of one row and
+became a lie the moment two rows could ask — the Photos row would have shown a
+button naming notifications and spent the Photos question. So `PermissionRow`
+carries `allow: { label, request } | null` (present exactly where `action` is
+`"allow"`, pinned by `permissions-model.test.ts`), and `wizard.ts` looks the
+handler up in a `Record<PermissionRequest, () => void>`. A `Record` over the
+model's closed union, not a chain of `if`s on `row.id`: a third request added to
+the union without its handler is a COMPILE error, where dispatch defaulting to
+notifications is a button that lies and a test nothing fails.
 
 **The three enums that cross as WORDS are pinned to Rust's own spelling** —
 `WebTarget` and `SettingsPane` (`control.rs`), `Permission` (`desktop-core`) —
@@ -993,7 +1038,7 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the twenty its page invokes — probe, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
+| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
 `main`'s first five are chosen for what they cannot do: raise a window, drop

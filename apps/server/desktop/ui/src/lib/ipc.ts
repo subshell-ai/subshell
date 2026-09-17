@@ -14,7 +14,7 @@
  * like an omission, so: this page does not need it. Both permission states
  * ride on the PROBE ({@link Probe.notificationPermission},
  * {@link Probe.photosPermission}), which the assistant already re-reads every
- * 1500 ms — so the Allow button's result lands on the next tick like every
+ * 1500 ms — so an Allow button's result lands on the next tick like every
  * other fact about this machine, and there is nothing here for a second read
  * to answer. Granting the assistant a command with no caller is the erosion
  * these pins exist to catch, read from the other end (see
@@ -414,6 +414,21 @@ export const installAppUpdate = (): Promise<void> => invoke<void>("desktop_insta
  * there is one source for what this machine allows.
  */
 export const requestNotifications = (): Promise<Permission> => invoke<Permission>("desktop_request_notifications");
+
+/**
+ * Ask macOS for permission to read the Photos library, and answer where that
+ * left things.
+ *
+ * **Assistant-only, and it fires at most once per install**, exactly like
+ * {@link requestNotifications}. It is not the no-op it first looks like: the
+ * panel that normally raises this prompt is this app's own image picker, so a
+ * sheet raised here arms the same subject the picker would hit — which is what
+ * earns the row its button.
+ *
+ * The returned state is for reporting a failure, not for rendering the row:
+ * the row reads {@link Probe.photosPermission} on the next poll.
+ */
+export const requestPhotos = (): Promise<Permission> => invoke<Permission>("desktop_request_photos");
 
 /**
  * Open one System Settings pane. A member of a closed set, never a URL — Rust

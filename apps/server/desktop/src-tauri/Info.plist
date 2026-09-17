@@ -19,7 +19,11 @@
   - There is no notifications key, and there is no such key to add. That prompt
     is raised by `UNUserNotificationCenter` and carries no usage description;
     what explains it is the assistant's own permissions screen, which is why
-    that screen exists and why the Allow button lives on it.
+    that screen exists and why its Allow button lives on it. (The Photos key
+    below is the exception on that screen: its sheet DOES carry a sentence, and
+    since 2026-09-17 the screen can raise it directly — see `request_photos` in
+    `crates/desktop-core/src/permissions.rs` for why that is the same prompt the
+    image picker asks rather than a second one.)
   - These describe prompts attributed to THIS APP. Under the launchd service
     the directory picker's `readdir` runs in `subshell-server`, a plain binary
     with no bundle and no plist, so its Files and Folders prompt carries no
