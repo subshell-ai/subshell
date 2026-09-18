@@ -121,7 +121,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "0.10.2",
+      "version": "0.11.0",
       "dependencies": {
         "@clack/prompts": "1.8.1",
         "@internal/backend-errors": "workspace:*",
