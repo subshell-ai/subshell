@@ -195,10 +195,14 @@ export function AddNodeDialog({
       Release into its node-artifacts dir), or install the agent another way and enroll directly.
     </p>
   );
-  // Said once, quietly, and only where it is true: the first machine of a
-  // platform waits for a ~80 MB download that later ones do not. Step 1 says
-  // it alone; step 2 folds the same sentence into the paragraph that explains
-  // the command (2026-09-18) — one sentence, two homes, one predicate.
+  // Said once, quietly — and where both homes render, the same predicate
+  // decides (step 2 folds the sentence into the paragraph that explains the
+  // command, 2026-09-18). The gate is `autoFetch`, which is its exact truth
+  // condition: a server that fetches does delay a platform's first machine;
+  // an installed-but-not-fetching one never shows this sentence even though
+  // it is true there too, because that server's louder amber refusal
+  // (`missingNote`) already owns the screen and telling someone to wait for
+  // a download that will never come would be worse than saying nothing.
   const showFirstRunNote = autoFetch && targets !== undefined && targets.length < NODE_TARGETS.length;
   const firstRunNote = showFirstRunNote && (
     <p className="text-detail text-muted-foreground">
@@ -247,8 +251,8 @@ export function AddNodeDialog({
               {showFirstRunNote && (
                 <>
                   {" "}
-                  The agent binary for a platform is downloaded from the project&apos;s release the first time a machine
-                  of that platform installs, so the first run on each takes a little longer.
+                  The agent binary for a platform is downloaded from the project's release the first time a machine of
+                  that platform installs, so the first run on each takes a little longer.
                 </>
               )}
             </p>

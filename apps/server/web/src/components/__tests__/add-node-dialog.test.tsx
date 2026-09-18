@@ -359,6 +359,11 @@ describe("AddNodeDialog", () => {
       expect(screen.getByText('subshell enroll --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
       // The one-liner stays visible — it still works once artifacts exist.
       expect(screen.getByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
+      // And the first-run sentence appears in NEITHER home: `autoFetch` is
+      // false, so the note is gated off even though "the binary is missing"
+      // is true here (review, 2026-09-18) — the sentence describes a download
+      // that will never happen; the amber refusal owns this screen.
+      expect(screen.queryByText(/downloaded from the project/i)).toBeNull();
     } finally {
       restore();
     }
@@ -382,7 +387,10 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("stays silent when every target is published", async () => {
+  it("stays silent when every target is published (step 2 shape)", async () => {
+    // Reaching step 2 and minting, as named — the predicate is shared, but
+    // this fixture does not walk there; the step 1 shape is the other test's
+    // "says the first run is slower, once and quietly" assertion.
     // Two shapes, TWO its: a loop here would keep iteration 1's dialog
     // mounted (cleanup is an afterEach hook), so iteration 2's findByText
     // resolves against the stale tree — a false green either way.
@@ -478,10 +486,13 @@ describe("AddNodeDialog", () => {
 
   it("folds the first-run sentence INTO the what-it-does paragraph on step 2", async () => {
     // The two sentences that described one command now share one paragraph
-    // (2026-09-18). Step 1 keeps its own standalone note; here the sentence
-    // rides the paragraph it explains, on the SAME predicate — so a server
-    // that fetches on demand with gaps in its published targets says both,
-    // and the default `{}` shape (no verdict) says only the first.
+    // (2026-09-18), gated on the one shared predicate (`autoFetch` + partial
+    // published targets — the only combination where the sentence is TRUE-
+    // AND-SPOKEN: a server that fetches really does delay a platform's first
+    // machine). Step 1 keeps its standalone note on the same predicate; an
+    // installed-but-not-fetching server never shows the sentence in either
+    // home — pinned by the nulls in the air-gapped test below, since that
+    // server's amber refusal owns the screen instead.
     const { restore } = mockFetch({
       nodeArtifactTargets: ["linux-x64"],
       nodeArtifactsAutoFetch: true,
