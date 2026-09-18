@@ -81,6 +81,9 @@ old cards carried them, and below `sm` the version pair folds into the name
 cell as `running → newest` (`row-cells.tsx`). The row order — desktop apps,
 Server, Nodes last — is the operator's 2026-09-17 call and is pinned by
 `updates-table.test.tsx`, since nothing else on the page would notice a swap.
+The old card descriptions ("X is available. Running Y.", "Nodes can be updated
+to X.") are gone on purpose: the two version cells state that per row, in one
+voice.
 
 **Inside Subshell Server the app row and the Server row are ONE row** (spec
 2026-09-18 D4, `folded-server-row.tsx`). That app SHIPS the server it would
@@ -100,9 +103,6 @@ anything on a machine the page is not running on.
 deliberately, so no row keeps stating what the previous read said while the
 Server row moves — so sitting in that row's action cell only made a global
 control read as a server-only one. Its behaviour did not change.
-The old card descriptions ("X is available. Running Y.", "Nodes can be updated
-to X.") are gone on purpose: the two version cells state that per row, in one
-voice.
 
 **There is ONE new-account form.** `components/account/new-account-fields.tsx`
 renders the four fields (name, email, password, confirmation) plus the two
