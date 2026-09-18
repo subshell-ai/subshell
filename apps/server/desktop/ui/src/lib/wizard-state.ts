@@ -149,8 +149,13 @@ export function prereqState(probe: Probe): PrereqState {
  *
  * `settings` — **Server Addresses** (spec 2026-09-18 § 14) — is the newest, and
  * its doors say what it is for: the TRAY, and a link on the recovery screen.
- * Never the dashboard, because the machine it exists for is the one whose
- * dashboard cannot be signed into.
+ * No dashboard surface links it, because the machine it exists for is the one
+ * whose dashboard cannot be signed into — a description of what we built, not
+ * a rule anything enforces: `settings` is a member of this list like the
+ * others, so a dashboard surface could name it tomorrow through the
+ * `desktop_open_assistant` grant it already holds. That would be a decision to
+ * take on its merits rather than a hole; the screen changes nothing a signed-in
+ * admin cannot change on the Networking page.
  */
 export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision", "permissions", "settings"];
 

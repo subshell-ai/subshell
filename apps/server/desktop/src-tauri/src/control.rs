@@ -491,13 +491,21 @@ fn url_host(url: &str) -> Option<String> {
 /// The loopback spellings this app will open a window on.
 ///
 /// Deliberately NARROWER than the server's own `localOriginsFor()`, which also
-/// trusts `::1`. `capabilities/main.json` has to name the same origins, and a
-/// bracketed IPv6 host is not expressible in the URL patterns Tauri matches —
-/// so accepting `[::1]` here produced a window that loaded fine and whose every
-/// IPC call was then silently refused: no title-bar handshake, no server pill,
-/// no notifications, all with no error anywhere. Falling back to `127.0.0.1`
-/// for an IPv6 base URL loses the hostname's cookie jar, which is visible and
-/// recoverable, where the alternative was invisible.
+/// trusts `::1`, and it answers two questions at once: what `Probe::origin`
+/// may BUILD, and what `trust::MainTrust::trusts` accepts as loopback. Keeping
+/// those one function is what stops the app opening a window on an address its
+/// own guard would then refuse.
+///
+/// The narrowness was learned rather than chosen. It used to be forced by
+/// `capabilities/main.json`, which had to name the same origins and cannot
+/// express a bracketed IPv6 host in Tauri's URL patterns — so accepting
+/// `[::1]` produced a window that loaded fine and whose every IPC call was
+/// then silently refused: no title-bar handshake, no server pill, no
+/// notifications, no error anywhere. That scope is a wildcard since
+/// 2026-09-18 (spec § 15) and no longer constrains this, but the answer is
+/// unchanged: falling back to `127.0.0.1` for an IPv6 base URL loses the
+/// hostname's cookie jar, which is visible and recoverable, where the
+/// alternative was invisible.
 pub fn is_loopback(host: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1")
 }

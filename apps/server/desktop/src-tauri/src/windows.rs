@@ -326,6 +326,12 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
             // Nothing to re-point — but the base may have moved under a page
             // that stayed put, and this is the tick that learns it.
             trust.evaluate(&current);
+        } else {
+            // The window would not say where it is (review, 2026-09-18). An
+            // unreadable URL is not evidence of a trusted one, and this branch
+            // goes on to RAISE the window — so the flag it keeps would be one
+            // nothing re-checked. A commit re-arms it; until then, nothing.
+            trust.clear();
         }
         raise(&w);
         return Ok(());

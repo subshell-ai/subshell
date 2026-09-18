@@ -57,9 +57,22 @@ function LoginPage() {
    *
    * So the redirect is gated on the session EXISTING. One extra round trip on
    * the one press where being wrong costs a person their way in.
+   *
+   * **A check that could not run is its own answer** (review, 2026-09-18).
+   * `getSessionUser` returns null only for a 401/403 and THROWS on anything
+   * else, precisely so a failed read is never read as signed-out — so
+   * swallowing that into null here would put the cookie diagnosis on screen
+   * for a dropped request, which has nothing to do with cookies and whose
+   * remedy would send someone to change a working address.
    */
   async function leaveIfSignedIn() {
-    const user = await getSessionUser().catch(() => null);
+    let user: Awaited<ReturnType<typeof getSessionUser>>;
+    try {
+      user = await getSessionUser();
+    } catch {
+      setError("Signed in, but this page could not check the session. Try again.");
+      return;
+    }
     if (user !== null) {
       window.location.href = redirect ?? "/";
       return;

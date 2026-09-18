@@ -101,7 +101,22 @@ pub fn spawn(app: AppHandle) {
         // trust state would keep answering for an address the machine no longer
         // has until something happened to re-open the window.
         crate::trust::window_state().set_base(probe.base_origin());
-        let current = window.url().ok().map(|u| u.to_string());
+        // **Recording the new base is not applying it** (review, 2026-09-18).
+        // The flag is written when a page COMMITS, so a base that moves under
+        // a window nobody navigated leaves that page answering for an address
+        // the machine no longer has — for as long as it sits there. Re-asking
+        // here is what makes "live rather than captured" true of this path as
+        // well as of `open_main`'s.
+        let here = window.url().ok();
+        match here.as_ref() {
+            Some(u) => {
+                crate::trust::window_state().evaluate(u);
+            }
+            // Same rule as `open_main`'s: a window that will not say where it
+            // is has not earned anything.
+            None => crate::trust::window_state().clear(),
+        }
+        let current = here.map(|u| u.to_string());
         if let Some(next) = origin_changed(current.as_deref(), &probe) {
             // `open_main`'s existing-window branch navigates and re-raises;
             // it also re-validates the origin against the two this app may

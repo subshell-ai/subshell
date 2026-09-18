@@ -5,9 +5,8 @@
  * It exists because of one lockout, and the lockout is structural rather than
  * unlucky. Saving an `https://` base URL signs THIS APP's window out for good:
  * better-auth marks the session cookie `Secure` for an https `APP_BASE_URL`
- * (measured, 1.7.1), and the `main` window is pinned to
- * `http://127.0.0.1:<port>` — the pin that earns it its privileged commands —
- * so it can never store a session again. The value that caused it could only
+ * (measured, 1.7.1), and the `main` window is OPENED on
+ * `http://127.0.0.1:<port>`, so it can never store a session again. The value that caused it could only
  * be changed from the dashboard, which needs the session that was just lost,
  * so the app had no way back from inside itself.
  *

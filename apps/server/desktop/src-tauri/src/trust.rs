@@ -81,6 +81,15 @@ pub struct MainTrust {
     /// window is opened, and false again when one is destroyed: a command is
     /// answered because a trusted page asked, never because none did.
     trusted: AtomicBool,
+    /// Whether a refusal has already been printed for the page now loaded.
+    ///
+    /// A refused page can call `invoke()` in a loop, and one line per call
+    /// fills this app's stderr — which on Linux is the journal (review,
+    /// 2026-09-18). So the line is worth printing once per page and worthless
+    /// after that: it says which address is untrusted, and that does not
+    /// change until something commits. Reset by [`MainTrust::evaluate`], i.e.
+    /// by the next page.
+    warned: AtomicBool,
 }
 
 impl MainTrust {
@@ -88,6 +97,7 @@ impl MainTrust {
         Self {
             base: Mutex::new(None),
             trusted: AtomicBool::new(false),
+            warned: AtomicBool::new(false),
         }
     }
 
@@ -145,6 +155,8 @@ impl MainTrust {
     pub fn evaluate(&self, url: &Url) -> bool {
         let trusted = self.trusts(url, self.base().as_deref());
         self.trusted.store(trusted, Ordering::SeqCst);
+        // A new page gets a new sentence; see `warned`.
+        self.warned.store(false, Ordering::SeqCst);
         trusted
     }
 
@@ -157,6 +169,13 @@ impl MainTrust {
     /// pointed anywhere, so the flag can never outlive the page that earned it.
     pub fn clear(&self) {
         self.trusted.store(false, Ordering::SeqCst);
+        self.warned.store(false, Ordering::SeqCst);
+    }
+
+    /// Whether this refusal is the first since the page changed — and record
+    /// that it has been made. See [`warned`](Self::warned).
+    fn first_refusal(&self) -> bool {
+        !self.warned.swap(true, Ordering::SeqCst)
     }
 
     /// The navigation handler's whole decision: refuse anything the OS would
@@ -182,19 +201,24 @@ impl MainTrust {
     /// on GTK — both main-frame-only and both at COMMIT, which is exactly the
     /// two properties this handler lacks.
     ///
-    /// Clearing here was considered and rejected: it would disarm a legitimate
-    /// page every time it loaded a third-party iframe, and it buys nothing,
-    /// because a flag only ever written by a commit cannot be armed by a
-    /// navigation that fails.
+    /// **Clearing here was considered and rejected**, and the reason is
+    /// sharper than "it would be inconvenient". Once the flag is written only
+    /// at commit, it describes the document ON SCREEN exactly: between a
+    /// request and its commit, what is loaded is still whatever committed
+    /// last, and the flag still matches it. Clearing early would make the flag
+    /// pessimistic about a page that legitimately earned it — disarming a
+    /// trusted SPA the moment it loaded a third-party iframe, or for good if
+    /// it asked for a URL that never arrived — and would buy nothing, since a
+    /// navigation that fails cannot arm anything either.
     pub fn allow_navigation(&self, url: &Url) -> bool {
         browsable_scheme(url.scheme())
     }
 
     /// Recompute the flag for a page the window has actually COMMITTED to.
     ///
-    /// The only writer outside [`MainTrust::set_open`] and [`MainTrust::clear`],
-    /// and the reason the guard means anything: a document that is on screen is
-    /// the one whose origin should decide what this window may do.
+    /// The one arming path, and the reason the guard means anything: a
+    /// document that is on screen is the one whose origin should decide what
+    /// this window may do.
     pub fn committed(&self, url: &Url) {
         self.evaluate(url);
     }
@@ -230,19 +254,33 @@ where
     F: Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
 {
     move |invoke| {
-        let from_main = invoke.message.webview_ref().label() == MAIN;
-        if from_main && !window_state().is_trusted() {
-            // Named on stderr because the page's own console is the SPA's, and
-            // a refusal nobody can see reads as an app that hangs.
-            eprintln!(
-                "subshell: refused {} — the dashboard window is on an untrusted address",
-                invoke.message.command()
-            );
+        let label = invoke.message.webview_ref().label().to_string();
+        if refuses(&label, window_state().is_trusted()) {
+            if window_state().first_refusal() {
+                // Named on stderr because the page's own console is the SPA's,
+                // and a refusal nobody can see reads as an app that hangs.
+                // Once per page — see `MainTrust::warned`.
+                eprintln!(
+                    "subshell: refused {} — the dashboard window is on an untrusted address",
+                    invoke.message.command()
+                );
+            }
             invoke.resolver.reject(REFUSAL);
             return true;
         }
         handler(invoke)
     }
+}
+
+/// The guard's whole decision, split out so it can be tested.
+///
+/// Building a real `Invoke` to exercise [`guarding`] is not worth it, but the
+/// two properties that decide whether the guard fires at all — the label check
+/// and the assistant's exemption — were pinned only by a string match in
+/// `ipc-acl.test.ts` (review, 2026-09-18). They are a branch; a branch gets a
+/// test.
+fn refuses(label: &str, trusted: bool) -> bool {
+    label == MAIN && !trusted
 }
 
 #[cfg(test)]
@@ -251,6 +289,35 @@ mod tests {
 
     fn url(raw: &str) -> Url {
         raw.parse().expect("test url")
+    }
+
+    /// The guard fires for the dashboard window and for nothing else. The
+    /// assistant is a bundled page this repo ships and is the surface that
+    /// repairs a machine whose server is unreachable — refusing it because the
+    /// OTHER window wandered onto a sign-in page would be a new way to strand
+    /// someone.
+    #[test]
+    fn only_the_dashboard_window_is_guarded_and_only_while_untrusted() {
+        assert!(refuses(MAIN, false), "an untrusted dashboard page is refused");
+        assert!(!refuses(MAIN, true), "a trusted dashboard page is not");
+        assert!(!refuses("wizard", false), "the assistant is never subject to the flag");
+        assert!(!refuses("wizard", true));
+    }
+
+    /// One line per PAGE, not one per call: a refused page can loop `invoke()`,
+    /// and on Linux this app's stderr is the journal.
+    #[test]
+    fn a_refused_page_is_named_once_and_the_next_page_is_named_again() {
+        let trust = MainTrust::new();
+        assert!(trust.first_refusal(), "the first refusal prints");
+        assert!(!trust.first_refusal(), "a second one for the same page does not");
+        assert!(!trust.first_refusal());
+
+        trust.evaluate(&url("http://127.0.0.1:3080/"));
+        assert!(trust.first_refusal(), "a new page earns a new sentence");
+
+        trust.clear();
+        assert!(trust.first_refusal(), "and so does a window that went away");
     }
 
     /// Loopback is trusted with no configured base at all — a machine that

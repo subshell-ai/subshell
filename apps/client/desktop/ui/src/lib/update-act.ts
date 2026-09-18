@@ -362,7 +362,8 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // The app row states itself whenever it has an act, and whenever it has a
   // REASON it does not — an air-gapped install is a fact about this machine
   // the table should carry rather than leave to a paragraph.
-  if (check !== undefined && (appAvailable || check.reason !== null)) {
+  const appRowShown = check !== undefined && (appAvailable || check.reason !== null);
+  if (appRowShown) {
     rows.push({
       id: "app",
       label: APP_LABEL,
@@ -373,13 +374,23 @@ export function updateAct(input: UpdateActInput): UpdateAct {
       reason: appAvailable ? null : "cannot be checked",
     });
   }
-  // The agent row is shown whenever the act would touch the agent — because
-  // the installed copy is behind the one in THIS bundle, or because a new app
-  // is coming and will bring its own — and whenever it would NOT and a person
-  // reading the app row would assume otherwise (spec § 13.1). It stays absent
-  // where nothing about the agent is in question: an app that is current
-  // beside an agent that is not behind is what `upToDate` is for.
-  if (bundled !== null && (appAvailable || agentBehind || unmanaged)) {
+  /**
+   * **A table never omits a component it knows about** (review, 2026-09-18).
+   *
+   * This gated on the agent alone — shown where the act would touch it, or
+   * where a person reading the app row would assume otherwise — and that
+   * dropped the row in a case the app row survives: an air-gapped check with a
+   * current agent renders "cannot be checked" against the app and says nothing
+   * at all about the agent, which is the guess § 13.1 exists to remove. It is
+   * also how the two apps came to implement one stated rule two ways; Subshell
+   * Server states BOTH rows unconditionally and argues exactly this.
+   *
+   * So the rule is now: whenever there is a TABLE, every component is in it.
+   * Where nothing is in question at all the screen still has no rows, which is
+   * what `upToDate` and `settled` are read from — an empty table is this app's
+   * "nothing to say", and that half was never the defect.
+   */
+  if (appRowShown || agentBehind || unmanaged) {
     rows.push({
       id: "agent",
       label: AGENT_LABEL,
@@ -391,7 +402,14 @@ export function updateAct(input: UpdateActInput): UpdateAct {
           : { kind: "none" },
       selected: agentSelected || agentRidesAlong,
       selectable: agentStandalone && !inFlight,
-      reason: agentRowReason({ unmanaged, agentNewerInstalled, agentRidesAlong, agentStandalone, inFlight }),
+      reason: agentRowReason({
+        unmanaged,
+        agentNewerInstalled,
+        agentRidesAlong,
+        agentStandalone,
+        inFlight,
+        unknownBundle: bundled === null,
+      }),
     });
   }
 
@@ -459,12 +477,18 @@ function agentRowReason(at: {
   agentRidesAlong: boolean;
   agentStandalone: boolean;
   inFlight: boolean;
+  /** This build does not say which agent it ships, so nothing can be offered. */
+  unknownBundle: boolean;
 }): string | null {
   // Ordered by which fact outranks which: a machine this app may not write to
   // is that before it is anything else, and a newer installed agent is a
   // refusal rather than a choice — `--force` may never install an older CLI
   // over a newer one (§ 13.2), so there is deliberately no way to tick it.
   if (at.unmanaged) return "runs another binary";
+  // Below `unmanaged` because that is the stronger statement about the same
+  // machine, and above everything else because a build that will not name what
+  // it ships cannot be up to date or behind — it is unanswerable.
+  if (at.unknownBundle) return "this build does not say which agent it ships";
   if (at.agentNewerInstalled) return "you run a newer one";
   if (at.agentRidesAlong) return "installs with the app";
   if (at.agentStandalone || at.inFlight) return null;

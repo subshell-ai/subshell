@@ -15,11 +15,12 @@
  * `http`, so on an `http` origin the session cookie is discarded on receipt.
  *
  * That is ordinarily invisible, because a person browsing an https instance is
- * on https. It bites in exactly one place: **Subshell Server's own window is
- * pinned to `http://127.0.0.1:<port>`** — that loopback pin is what lets the
- * window hold seven privileged commands — so the moment the instance's base
- * URL becomes an https address, the app's own window can never store a
- * session again, while every browser on the real address works fine.
+ * on https. It bites in exactly one place: **Subshell Server's own window loads
+ * this machine over http** (`http://127.0.0.1:<port>` — that is what the app
+ * opens it on, and it is the origin that window sits on unless a sign-in takes
+ * it elsewhere). So the moment the instance's base URL becomes an https
+ * address, the app's own window can never store a session again, while every
+ * browser on the real address works fine.
  *
  * So the diagnosis is inferred from three facts the page already has, with no
  * new anonymous read (the sign-in page is pre-auth and `appBaseUrl` lives

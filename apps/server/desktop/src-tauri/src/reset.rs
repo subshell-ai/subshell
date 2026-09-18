@@ -79,7 +79,7 @@ pub enum Screen {
     /// Reached from the TRAY and from the recovery screen, and the tray is the
     /// load-bearing door: the screen exists for a machine whose dashboard
     /// cannot be signed into — an `https://` base URL marks the session cookie
-    /// `Secure`, and this app's `main` window is pinned to loopback http, so it
+    /// `Secure`, and this app opens its `main` window on loopback http, so it
     /// can never store one again. The dashboard was the only place that value
     /// could be changed, which left the app with no way back from inside
     /// itself. The assistant needs no session because it drives the CLI.

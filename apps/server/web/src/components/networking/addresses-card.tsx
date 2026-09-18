@@ -103,22 +103,15 @@ function wireValue(key: EditableKey, draft: string): string {
 }
 
 /**
- * One key's contribution to the PATCH body — the SPA's spelling of the key on
- * the left, the value in the shape the route wants on the right.
- *
- * Takes a {@link wireValue}, so the split below is over an already-normalized
- * string and cannot disagree with what was validated.
- */
-/**
  * Whether saving this base URL would lock Subshell Server's own window out.
  *
  * TRUE only inside that app, and only for an `https://` value: better-auth
  * derives cookie security from `APP_BASE_URL` rather than from the request
  * (measured, 1.7.1), so an https base URL marks the session cookie `Secure`
- * and prefixes it `__Secure-` — and that app's window is pinned to
- * `http://127.0.0.1:<port>`, which is what earns it seven privileged
- * commands. A browser on the https address keeps working; the app's own
- * window cannot store a session again until the base URL points back here.
+ * and prefixes it `__Secure-` — and that app opens its window on
+ * `http://127.0.0.1:<port>`. A browser on the https address keeps working; the
+ * app's own window cannot store a session again until the base URL points back
+ * here.
  *
  * A warning rather than a refusal, because an https base URL is the RIGHT
  * setting for an instance people reach over the network — the cost just has
@@ -129,6 +122,13 @@ function strandsThisApp(value: string): boolean {
   return isServerDesktop() && value.trim().toLowerCase().startsWith("https://");
 }
 
+/**
+ * One key's contribution to the PATCH body — the SPA's spelling of the key on
+ * the left, the value in the shape the route wants on the right.
+ *
+ * Takes a {@link wireValue}, so the split below is over an already-normalized
+ * string and cannot disagree with what was validated.
+ */
 function patchFor(key: EditableKey, value: string): ServerConfigPatch {
   switch (key) {
     case "SERVER_PORT":

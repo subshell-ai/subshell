@@ -437,6 +437,13 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // knows about and does not state is a component the person has to guess at —
   // which is how "installing it also installs the server it ships" came to be
   // printed over a machine where it could not happen (§ 13).
+  //
+  // Subshell Client states the same rule and reaches this screen from a
+  // different direction: it has an EMPTY table for "nothing is in question"
+  // (its `upToDate` and `settled` are read from the row count), so what it
+  // holds is that wherever there IS a table, every component is in it. The two
+  // agreed in words and not in code until 2026-09-18 (review), when its agent
+  // row could be dropped from a table its app row was already in.
   const notes: string[] = [];
   const appRow = offerAppRow(appUpdate, selection, notes);
   const cliRow = offerCliRow(probe, appRow.selected !== null, selection, notes);

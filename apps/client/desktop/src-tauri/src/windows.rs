@@ -305,7 +305,6 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
     }
 
     pin.set(&url);
-    let allowed = pin.0.clone();
     let level = crate::zoom::level(app);
     let floor = clamped_floor(level, work_area(app));
     WebviewWindowBuilder::new(app, PLANE_LABEL, WebviewUrl::External(url))
@@ -326,12 +325,13 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
         // window was OPENED with. Scheme is checked rather than origin so the
         // window cannot be steered into `file:`, a custom handler or anything
         // else the OS would act on.
-        .on_navigation(move |u| {
-            // `allowed` is kept live so the pin still names the plane for the
-            // command above; it deliberately no longer gates the navigation.
-            let _pinned = allowed.lock().unwrap_or_else(|e| e.into_inner());
-            subshell_desktop_core::browser::browsable_scheme(u.scheme())
-        })
+        //
+        // The handler therefore reads NOTHING. It held a clone of the pin and
+        // locked it for no effect (review, 2026-09-18) — a leftover of the
+        // version that compared against it, kept on the theory that the clone
+        // was what held the pin alive. It is not: the pin is app-managed state
+        // that `control.rs` reads through `app.state::<PlanePin>()`.
+        .on_navigation(|u| subshell_desktop_core::browser::browsable_scheme(u.scheme()))
         .on_new_window({
             // Tauri DENIES a page's request for a new window (`target="_blank"`,
             // `window.open`) unless a handler answers it, and it denies SILENTLY —

@@ -420,6 +420,42 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     expect(a.press).toBeNull();
   });
 
+  /**
+   * **A table never omits a component it knows about** (review, 2026-09-18).
+   *
+   * An air-gapped check beside a current agent used to render the app row
+   * alone — "cannot be checked" against one component and silence about the
+   * other — which is the guess § 13.1 exists to remove, and is the case where
+   * this app and Subshell Server implemented one stated rule two ways.
+   */
+  it("states the agent beside an app row it cannot answer for", () => {
+    const a = act({ check: check({ reason: "the release source answered 503" }) });
+    expect(a.rows.map((r) => r.id)).toEqual(["app", "agent"]);
+    expect(a.rows[1].reason).toBe("up to date");
+  });
+
+  /** And where nothing at all is in question there is no table to be in. */
+  it("still shows no rows when neither half has anything to say", () => {
+    const a = act();
+    expect(a.rows).toEqual([]);
+    expect(a.upToDate).toBe(true);
+  });
+
+  /**
+   * A build that will not name the agent it ships cannot be called up to date
+   * or behind — so the row says that, rather than being dropped from a table
+   * the app row is already in.
+   */
+  it("names a build that does not report what it ships", () => {
+    const a = act({
+      check: check({ reason: "the release source answered 503" }),
+      probe: makeProbe({ bundledVersion: null }),
+    });
+    expect(a.rows.map((r) => r.id)).toEqual(["app", "agent"]);
+    expect(a.rows[1].reason).toBe("this build does not say which agent it ships");
+    expect(a.rows[1].selectable).toBe(false);
+  });
+
   it("leaves no checkbox anywhere while an act is running", () => {
     const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind(), installingApp: true });
     expect(a.rows.every((r) => !r.selectable)).toBe(true);

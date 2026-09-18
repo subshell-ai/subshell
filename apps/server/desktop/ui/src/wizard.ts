@@ -1667,12 +1667,20 @@ function renderUpdate(p: Probe): void {
   if (view.press !== null) {
     const press = view.press;
     if (press.kind === "app") {
+      // **"Open subshells keep running" is only true where nothing refuses the
+      // restart** (review, 2026-09-18). On a pane-risk machine the Force box
+      // above this line carries the amber sentence saying the restart closes
+      // every subshell here — and this sentence then promised the opposite,
+      // about the same press, two lines apart. The box's own presence is the
+      // condition, because it renders exactly when the definition would refuse.
+      const panesKeepRunning = view.force === null;
       content.append(
         text(
           "p",
           press.bundled
             ? "The update is downloaded, its signature is checked against the key built into this app, and then " +
-                "Subshell Server restarts and installs the server it ships. Open subshells keep running throughout."
+                "Subshell Server restarts and installs the server it ships." +
+                (panesKeepRunning ? " Open subshells keep running throughout." : "")
             : "The update is downloaded, its signature is checked against the key built into this app, and then " +
                 "Subshell Server restarts. The server on this machine is left as it is.",
           "hint",
