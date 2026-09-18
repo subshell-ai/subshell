@@ -170,7 +170,9 @@ own both, and `lib/recovery-model.ts` owns the subtitle and the facts. Behind a
 **Show Details** disclosure: the pre-boot facts (binary and its rung, config
 file, service definition, manager state and detail, log location), the server's
 own log tail, the last action's verbatim output, and what this app itself is.
-A footer link reaches Reset.
+A footer link reaches Reset, and three more reach **Update Subshell Server**,
+**How Your Server Runs** and **Server Addresses** — each here for the same
+reason: a machine on this screen has no dashboard to open those doors from.
 
 **A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
 `screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason
@@ -193,15 +195,63 @@ aliased** — this product has no installed base to keep compatible, so a caller
 still sending that word falls to `Home` where it can be seen. See "Updating in
 one act" below.
 
-**Update Subshell Server**, **Reset**, **How Your Server Runs** and **What macOS Will Ask** are never in `screensFor`'s list. They are
+**Update Subshell Server**, **Reset**, **How Your Server Runs**, **What macOS Will Ask** and **Server Addresses** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window), the `desktop_pending_screen` pull (a window still coming up, which is also how the BOOT resume routes) — carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update` | `supervision` | `permissions`; `home` parses to "whatever the probe implies") — which is what lets one
+`reset::Screen` enum (`home` | `reset` | `update` | `supervision` | `permissions` | `settings`; `home` parses to "whatever the probe implies") — which is what lets one
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
 dashboard it was asked to leave — and, since 2026-09-18, a machine that came up
 to finish an update would open the dashboard over it and never show the
 screen at all.
+
+**Server Addresses** is the newest of them (spec 2026-09-18 § 14), and the
+only one the dashboard never names — because the machine it exists for is one
+whose dashboard cannot be signed into. Saving an `https://` base URL signs THIS
+APP's window out for good: better-auth marks the session cookie `Secure` for an
+https `APP_BASE_URL` (measured, 1.7.1) and the `main` window is pinned to
+`http://127.0.0.1:<port>`, the pin that earns it its privileged commands, so it
+can never store a session again. Browsers on the https address are fine. The
+value that caused it could only be changed from the dashboard, which needs the
+session just lost — so the app had **no way back from inside itself**. The
+assistant is the way out structurally rather than conveniently: it is the
+BUNDLED page, it drives the CLI rather than the API, and it therefore needs no
+session. Read the app's own rule in the other direction — *if the act is what
+makes the server unreachable TO YOU, the page the server serves cannot be where
+you undo it.*
+
+Four things hold it up:
+
+- **No new Tauri command, and that was a requirement rather than an outcome**
+  (§ 14.2). Save goes through `desktop_setup` and Restart through
+  `desktop_service`, both already granted to `wizard`; `ipc-acl.test.ts`'s
+  exact-set pin is therefore untouched. A screen that needed a fresh grant
+  would have widened the IPC surface in the name of fixing a lockout.
+- **It sends the machine's OWN supervision, every time** (`settingsSupervision`).
+  `desktop_setup`'s `supervision` argument is optional and its absence means
+  "a background service, armed for login" — today's first-run chain — so a save
+  that omitted it would install a service on a machine deliberately left in app
+  mode, as a side effect of editing a port. What the chain still does beyond
+  writing config.env is install the bundled server where it is newer than the
+  installed one; that is the update screen's own act rather than a new one, and
+  it is stated at `settingsPayload`.
+- **The https sentence is the DASHBOARD's, verbatim** —
+  `apps/server/web/src/components/networking/addresses-card.tsx` renders it at
+  the same field, and `settings-screen.test.ts` reads that file and pins the two
+  equal. Someone who lands here has already met the consequence; two wordings
+  would read as two problems.
+- **The Force box is the update act's box**, moved to `lib/pane-force.ts` when
+  the second screen needed it: same sentence, same fail-closed `paneRisk`, same
+  unticked default. This restart IS that restart.
+
+Its doors are the TRAY (**Server Addresses…**, which raises the bundled page
+through `arm_and_raise` and so works with the server down, stopped, or running
+and refusing every sign-in) and the recovery screen's link. Not the dashboard,
+which is the point. `SETTINGS_LABEL` is one string across both doors and the
+screen's own title, and the tray's Rust copy is pinned to it by an
+`include_str!` containment test; it is deliberately NOT "Server Settings",
+which is the View menu's ⌘4 into the SPA's settings routes — the pages that
+need the session this screen exists to get back.
 
 **Show Details keeps its openness in PAGE state**, not the element's.
 `#content` is rebuilt on every render and the poll renders every 1500 ms, so a
@@ -1121,12 +1171,14 @@ ui/
 │   │   ├── wizard-state.ts   # screensFor, autoSetupDecision, recoveryTitle/Action, RESET_LABEL, the checklist
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
 │   │   ├── update-act.ts     # the ONE update act: rows, phases, presses, refusals
+│   │   ├── pane-force.ts     # the pane-safety Force box, shared by both screens that restart
+│   │   ├── settings-screen.ts # Server Addresses: the https warning, what Save sends, its refusals
 │   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
 │   │   └── reset.ts          # the reset screen's pure decisions: rows, refusal, arming
 │   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model,
-│                       # update-act, permissions-model, copy-flash, reset, wire-names,
-│                       # ipc-acl, tauri-config
+│                       # update-act, settings-screen, permissions-model, copy-flash,
+│                       # reset, wire-names, ipc-acl, tauri-config
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
@@ -1722,6 +1774,19 @@ libayatana-appindicator can still fall back to `GtkStatusIcon`; that is why
 every string says "none was detected" rather than "there is none". And every
 tray action also exists in the window UI or the menu bar regardless — the tray
 is a shortcut, never the only route.
+
+**One item is a near-exception, and it is worth stating rather than
+discovering.** **Server Addresses…** (spec 2026-09-18 § 14) exists in the
+window UI too — the recovery screen's link — but that screen renders only while
+the server is not answering, and the case this item was added for is a server
+that answers and refuses every sign-in. So on a Linux desktop with no
+StatusNotifier host, and on that particular machine, the tray really is the
+only route: the remaining doors are `subshell-server configure` at a terminal
+and hand-editing config.env, which are the CLI acts this screen wraps. macOS
+keeps the menu bar, where the item is not duplicated for a different reason —
+the View menu's ⌘4 already reads "Server Settings" and points at the SPA, and
+two items a word apart leading to two places would cost more than the
+shortcut buys.
 
 ### Notifications
 

@@ -148,6 +148,25 @@ pub fn set_update_available(app: &AppHandle, version: Option<&str>) {
     }
 }
 
+/// The tray's **Server Addresses…** id, and the screen it opens.
+///
+/// The item exists for a machine whose dashboard cannot be signed into (spec
+/// 2026-09-18 § 14): an `https://` base URL marks the session cookie `Secure`,
+/// and this app's `main` window is pinned to loopback http, so it can never
+/// store a session again — and the value that caused it lived only on a page
+/// that needs one. So this press must work when the server is DOWN, or not
+/// running, or running and refusing every sign-in, which is exactly what
+/// `reset::arm_and_raise` gives it: the assistant is a BUNDLED page, it opens
+/// without asking the server anything, and it drives the CLI.
+///
+/// Named constants rather than inline literals for the same reason
+/// [`UPDATE_SCREEN`] is one: the test below pins the word the dispatch actually
+/// passes, and the LABEL is pinned against the page's own `SETTINGS_LABEL` — a
+/// tray item and the screen it opens must not disagree about what they are for.
+const SETTINGS_ID: &str = "tray:settings";
+const SETTINGS_SCREEN: &str = "settings";
+const SETTINGS_LABEL: &str = "Server Addresses…";
+
 /// The tray's "Open in Browser" id.
 ///
 /// Distinct from the menu bar's (`menu.rs`) ON PURPOSE, and the reason is the
@@ -170,6 +189,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // fresh probe's origin, so there is no state in which this needs a probe
     // to know whether it can be pressed.
     let browser = MenuItem::with_id(app, BROWSER_ID, "Open in Browser", true, None::<&str>)?;
+    // Beside the two doors home, and always enabled for the same reason they
+    // are: it raises a bundled page, which needs no probe and no server. On a
+    // machine signed out of its own dashboard this is the only route to the
+    // value that signed it out — the recovery screen's link is the other, and
+    // a machine whose server is answering never shows that screen.
+    let settings = MenuItem::with_id(app, SETTINGS_ID, SETTINGS_LABEL, true, None::<&str>)?;
     // The two names for one idea, each the one that platform's users read.
     let keep_label = if cfg!(target_os = "macos") {
         "Keep Running in Menu Bar"
@@ -204,6 +229,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         &[
             &open,
             &browser,
+            &settings,
             &PredefinedMenuItem::separator(app)?,
             &update,
             &PredefinedMenuItem::separator(app)?,
@@ -288,6 +314,13 @@ fn on_menu(app: &AppHandle, id: &str) {
         // program, and it works whether or not a window exists. `control`
         // reads the dashboard's own url for the path when there is one.
         BROWSER_ID => crate::control::open_current_in_browser(app),
+        // The SAME raise the dashboard's deep links and the update item take,
+        // and deliberately nothing more: no probe, no server question, no verb.
+        // Whatever this machine is doing, the assistant comes up on the screen
+        // that can edit the addresses and restart.
+        SETTINGS_ID => {
+            let _ = crate::reset::arm_and_raise(app, Some(SETTINGS_SCREEN.into()));
+        }
         // Two states, two acts (spec 2026-09-17 § 5.2), and the SAME
         // non-empty rule the label was drawn from — read from the settings
         // file, which is what both the launch check and `set_update_available`
@@ -421,6 +454,29 @@ mod tests {
             crate::reset::parse_screen(Some(UPDATE_SCREEN.to_string())),
             crate::reset::Screen::Update,
             "the tray's word must survive `parse_screen`, not fall back to Home"
+        );
+    }
+
+    /// The settings item's word survives `parse_screen`, and its LABEL is the
+    /// page's own — `ui/src/lib/settings-screen.ts`'s `SETTINGS_LABEL`, plus
+    /// the ellipsis every tray item that opens a screen carries. A tray item
+    /// and the screen it opens disagreeing about what they are for is the same
+    /// small betrayal `RESET_LABEL` exists to prevent, and the two halves are
+    /// in different languages, so only a containment test holds them together.
+    #[test]
+    fn the_settings_item_names_the_screen_and_the_pages_own_label() {
+        assert_eq!(
+            crate::reset::parse_screen(Some(SETTINGS_SCREEN.to_string())),
+            crate::reset::Screen::Settings,
+            "the tray's word must survive `parse_screen`, not fall back to Home"
+        );
+        let page = include_str!("../../ui/src/lib/settings-screen.ts");
+        assert!(
+            page.contains(&format!(
+                "export const SETTINGS_LABEL = \"{}\";",
+                SETTINGS_LABEL.trim_end_matches('…')
+            )),
+            "the tray item and the screen must carry one label"
         );
     }
 }

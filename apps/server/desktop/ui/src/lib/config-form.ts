@@ -117,6 +117,34 @@ export function effectiveForm(settings: Record<string, SettingEntry> | undefined
 }
 
 /**
+ * One visit's form state: what the inputs show, and which fields a save must
+ * send.
+ *
+ * Two screens edit these four values — the first run's *Customize port and
+ * addresses…* and **Server Addresses** (spec 2026-09-18 § 14) — and they hold
+ * their state separately on purpose: a half-typed port on one is not an answer
+ * the other should show. What they must NOT hold separately is the contract
+ * below, which is why the seeding is here rather than at either call site.
+ */
+export interface AddressForm {
+  values: FormValues;
+  explicit: ExplicitMap;
+}
+
+/**
+ * Both halves of a form seeded from the machine: the effective values, and the
+ * fields somebody had already chosen.
+ *
+ * {@link effectiveForm} and {@link explicitFields} are one act at every call
+ * site — a form seeded with values but no explicit map sends a stored
+ * `TRUSTED_ORIGINS` as empty on the first save, which WIPES it. Pairing them
+ * in one function is what keeps the two from being seeded a field apart.
+ */
+export function seedAddressForm(settings: Record<string, SettingEntry> | undefined): AddressForm {
+  return { values: effectiveForm(settings), explicit: { ...explicitFields(settings) } };
+}
+
+/**
  * The CLI's own derivation of `APP_BASE_URL` from a port.
  *
  * Duplicated here so a prefilled base URL can FOLLOW the port while nobody has

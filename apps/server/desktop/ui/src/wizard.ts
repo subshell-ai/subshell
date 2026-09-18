@@ -9,9 +9,12 @@
  * screen (spec 2026-09-18: the app and the server it ships, in one act across
  * the relaunch between them), and Reset — and it is the only page granted the
  * commands that drive the CLI. `screensFor(probe, onboarded)` picks the
- * family; `update`, `permissions` and `reset` are entered by REQUEST, from the
- * SPA's own cards over `desktop_open_assistant`, from the tray, or from the
- * recovery screen's links.
+ * family; `update`, `permissions`, `reset`, `supervision` and `settings` are
+ * entered by REQUEST, from the SPA's own cards over `desktop_open_assistant`,
+ * from the tray, or from the recovery screen's links. `settings` — **Server
+ * Addresses**, spec 2026-09-18 § 14 — is the one no dashboard names: it is the
+ * way back from a base URL that signed this app's own window out, so its doors
+ * have to be ones a signed-out machine still has.
  *
  * DOM only. Every judgment is imported from `lib/wizard-state.ts` and
  * `lib/recovery-model.ts`, both pure and tested without a webview, and every
@@ -29,21 +32,35 @@ import { renderOutput, renderTail } from "./assistant/logs";
 import { createResetView } from "./assistant/reset-view";
 import { buildTmuxWarning, type TmuxWarning } from "./assistant/tmux-warning";
 import {
+  type AddressForm,
   CONFIG_FIELDS,
+  type ConfigField,
   configPayload,
   dashboardUrl,
   derivedBaseUrl,
   type ExplicitMap,
   effectiveForm,
-  explicitFields,
+  type FormName,
   type FormValues,
   fieldProblems,
+  seedAddressForm,
 } from "./lib/config-form";
 import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
 import { recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
+import {
+  HTTPS_LOCKOUT_WARNING,
+  httpsLockout,
+  SETTINGS_LABEL,
+  SETTINGS_RESTART_NOTE,
+  SETTINGS_SUBTITLE,
+  settingsEdited,
+  settingsForce,
+  settingsPayload,
+  settingsSaveRefusal,
+} from "./lib/settings-screen";
 import {
   type ActState,
   NO_SELECTION,
@@ -298,6 +315,23 @@ let supervision: SupervisionChoice = DEFAULT_SUPERVISION;
 let supervisionForm: SupervisionChoice | null = null;
 let seeded = false;
 /**
+ * The **Server Addresses** screen's own form, seeded on its first render of a
+ * visit and cleared when the screen is left.
+ *
+ * Separate from the setup screen's `form`/`explicit` deliberately. They are the
+ * same four fields, but a half-typed port left behind on one screen is not an
+ * answer the other should show — and this screen is reached over whatever was
+ * on screen, first run included. `null` means "not seeded for this visit".
+ */
+let settingsForm: AddressForm | null = null;
+/**
+ * That screen's Force box, once touched; `null` is untouched, and untouched
+ * means unticked — an override that arrives pre-accepted is not an override.
+ */
+let settingsForceChecked: boolean | null = null;
+/** That screen's own last Save or Restart, so it renders nobody else's words. */
+let settingsResult: ActionResult | null = null;
+/**
  * The last port this page asked about, and the answer for it.
  *
  * Not a probe field, for the same reason the release check is not one: the
@@ -406,7 +440,13 @@ const host: AssistantHost = {
     resetView.hide();
     // A pending selection belongs to one visit: leaving and coming back must
     // show the machine's real state, not what someone half-chose last time.
+    // The address form and its Force box follow the same rule, and for the
+    // address form it is the stronger one — its fields are PREFILLED from the
+    // machine, so a stale draft would read as the configuration.
     supervisionForm = null;
+    settingsForm = null;
+    settingsForceChecked = null;
+    settingsResult = null;
     screen = null;
     render();
   },
@@ -429,12 +469,15 @@ const resetView = createResetView(host);
  */
 const tmuxWarn: TmuxWarning = buildTmuxWarning(host, () => startTmuxInstall());
 
-// Screens. Each fills #content and the bar; ordering comes from screensFor.
+// Screens. Each fills #content and the bar; ordering comes from screensFor for
+// the probe's own family, and from `REQUESTED_SCREENS` for the rest.
 //
-// Welcome is GONE (spec 2026-09-17 D1). It announced what the setup chain
-// would do, and the chain now does it on sight — the progress checklist that
-// used to follow the announcement is the first screen, and it names each act
-// as it happens, which is the announcement, at the moment it is true.
+// Welcome was deleted by spec 2026-09-17 (D1) and restored the next day by
+// operator request — "reset / initial state should always show it again" — and
+// D1's zero-touch half survived the restoration intact: the intro does not
+// re-arm the journey, it PRECEDES it, and the auto-fire lives in `renderSetup`,
+// which the welcome screen does not call. So nothing touches this machine until
+// the press.
 // ---------------------------------------------------------------------------
 /**
  * Redraws the install screen once a second while it runs.
@@ -814,7 +857,7 @@ function manualRouteSteps(route: ManualRoute): HTMLElement {
 /**
  * The port the setup chain would actually bind.
  *
- * Seeded the way {@link addressForm} seeds its own field, because the form may
+ * Seeded the way {@link setupAddressForm} seeds its own field, because the form may
  * never have been opened: `form.port` stays empty until it renders once, so
  * reading it alone would ask about port 3080 on a machine configured for 4000.
  * `effectiveForm` is the one place that turns `status --json`'s settings into
@@ -1030,7 +1073,7 @@ function renderSetup(p: Probe): void {
   if (p.serverChoice === "no-bundled")
     links.append(button("Choose an existing server…", () => void pickBinary(), "linkish"));
   content.append(links);
-  if (customizeOpen) content.append(addressForm(p));
+  if (customizeOpen) content.append(setupAddressForm(p));
   // No Back: this is the first screen a machine without tmux trouble ever
   // shows, and the form is the whole screen, not a step with a step before
   // it. The gate and button stay because the fallback path is walked by hand:
@@ -1290,6 +1333,12 @@ function renderRecovery(p: Probe): void {
   // appeared only after an answer nobody had asked for would mean checking on
   // the poll.
   content.append(button("Check for updates…", () => go("update"), "linkish"));
+  // The third link here for the third instance of one reason: a machine on this
+  // screen has no dashboard, and a wrong port or bind address is one of the few
+  // things that puts it here. The tray carries the same door for the case this
+  // screen never renders — a server that answers but will not accept a sign-in
+  // (spec 2026-09-18 § 14.1).
+  content.append(button(`${SETTINGS_LABEL}…`, () => go("settings"), "linkish"));
   content.append(detailsDisclosure());
   // The ellipsis stays: it correctly says a screen follows rather than an act.
   el("bar-left").append(button(`${RESET_LABEL}…`, () => void openReset(), "ghost"));
@@ -1974,6 +2023,137 @@ function renderSupervision(p: Probe): void {
   );
 }
 
+/** The https warning's one handle, shared by the render and the input toggle. */
+const HTTPS_NOTE_ID = "settings-https-note";
+
+/**
+ * **Server Addresses** (spec 2026-09-18 § 14) — the four values that decide
+ * whether this server is reachable, edited from the one page that needs no
+ * session to save them.
+ *
+ * It exists because of a lockout this app could not undo from inside itself:
+ * an `https://` base URL marks the session cookie `Secure`, the `main` window
+ * is pinned to loopback http, and the only place that value could be changed
+ * was the dashboard that had just stopped accepting a sign-in. So the warning
+ * under the base URL field is the dashboard's own sentence, verbatim
+ * (`HTTPS_LOCKOUT_WARNING`, pinned against `addresses-card.tsx` by test): the
+ * person who lands here has already met the consequence, and two surfaces
+ * describing it differently would leave them wondering whether these are two
+ * different things.
+ *
+ * **Two acts, kept apart.** Save writes config.env through `desktop_setup` —
+ * no new command, which is a requirement of § 14.2 rather than an outcome:
+ * a screen that needed a fresh grant would widen the IPC surface in the name
+ * of fixing a lockout. Restart is `desktop_service`, with the pane-safety
+ * refusal and its Force override exactly as the update act has them. Nothing
+ * here changes supervision — `settingsPayload` sends the machine's own answer
+ * so an edit to a port cannot install a service — and **How Your Server Runs**
+ * is one screen away for that.
+ */
+function renderSettings(p: Probe): void {
+  // Seeded once per VISIT, not once per load: this screen is opened to look at
+  // what the machine currently has, and a value left over from a visit before
+  // a CLI-side edit would be the stale field the prefill exists to prevent.
+  // `applyScreen` and `host.close()` clear it on the way out.
+  settingsForm ??= seedAddressForm(p.status?.settings);
+  const state = settingsForm;
+  setFrame("none", SETTINGS_LABEL, SETTINGS_SUBTITLE);
+  const content = el("content");
+  content.append(
+    addressForm(p, state, {
+      // Toggled IN PLACE as the field is typed, never by a re-render: the poll
+      // skips a render while a hand is in an input, so a warning that waited
+      // for one would appear only once the person had left the field — which
+      // for this sentence is the moment they reach for Save. The element is
+      // always built and merely hidden, so the toggle needs no rebuild.
+      note: (field, values) => {
+        if (field.name !== "baseUrl") return null;
+        const note = text("p", HTTPS_LOCKOUT_WARNING, "hint warn-text");
+        note.id = HTTPS_NOTE_ID;
+        note.hidden = !httpsLockout(values.baseUrl);
+        return note;
+      },
+      onEdit: () => {
+        // Both fields, because the port moves the base URL too while nobody
+        // has chosen one (`addressForm`'s mirror).
+        const note = document.getElementById(HTTPS_NOTE_ID);
+        if (note) note.hidden = !httpsLockout(state.values.baseUrl);
+      },
+    }),
+  );
+  content.append(text("p", SETTINGS_RESTART_NOTE, "hint"));
+
+  // The Force box, above the bar that carries the Restart it governs — the same
+  // box, the same sentence and the same fail-closed rule as the update act's,
+  // because it is the same restart of the same server.
+  const force = settingsForce(p, settingsForceChecked ?? false);
+  if (force !== null) {
+    content.append(text("p", force.warning, "hint warn-text"));
+    const line = document.createElement("label");
+    line.className = "switch update-force";
+    line.htmlFor = "settings-force";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = "settings-force";
+    box.checked = force.checked;
+    box.disabled = busy || running;
+    box.addEventListener("change", () => {
+      settingsForceChecked = box.checked;
+      render();
+      refocus("settings-force");
+    });
+    line.append(box, text("span", force.label, "label"));
+    content.append(line);
+  }
+
+  // The CLI's own words where the person still is — `init`'s refusals name the
+  // config key they are about, and this screen is where that is actionable.
+  // THIS screen's result, not the page's `lastResult`: that one is written by
+  // every action on every screen, so a recovery Start from ten seconds ago
+  // would render here as though Save had said it.
+  if (settingsResult !== null) {
+    const out = document.createElement("pre");
+    out.className = "pane-pre";
+    if (renderOutput(out, settingsResult)) content.append(out);
+  }
+
+  const refusal = settingsSaveRefusal(p);
+  const locked = busy || running;
+  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  if (refusal !== null) el("bar-right").append(text("span", refusal, "reason"));
+  // Restart is offered whatever the form holds: someone who reached this screen
+  // because their server is unreachable may have nothing to save and still need
+  // the restart that applies a change made elsewhere.
+  el("bar-right").append(
+    button("Restart", () => void runSettings(() => ipc.service("restart", force?.checked === true)), "ghost", locked),
+  );
+  el("bar-right").append(
+    button(
+      "Save",
+      () => void runSettings(() => ipc.setup(settingsPayload(p, state))),
+      "primary",
+      locked || refusal !== null || !settingsEdited(p, state),
+    ),
+  );
+}
+
+/**
+ * Run one of this screen's two acts, keeping its result where the screen can
+ * render it.
+ *
+ * `act` already settles and re-probes; what it cannot do is say WHICH screen
+ * the words belong to, because `lastResult` is the page's and every screen
+ * writes it. One wrapper rather than two, so Save and Restart cannot come to
+ * report themselves differently.
+ */
+async function runSettings(fn: () => Promise<ActionResult>): Promise<void> {
+  settingsResult = null;
+  await act(async () => {
+    settingsResult = await fn();
+    return settingsResult;
+  }, true);
+}
+
 /**
  * Whether focus is somewhere a redraw would destroy typing.
  *
@@ -2059,15 +2239,33 @@ function checklist(p: Probe, undoneState: "active" | "failed"): HTMLUListElement
   return ul;
 }
 
-function addressForm(p: Probe): HTMLElement {
-  if (!seeded) {
-    const s = effectiveForm(p.status?.settings);
-    for (const { name } of CONFIG_FIELDS) form[name] = form[name] || s[name];
-    for (const [name, on] of Object.entries(explicitFields(p.status?.settings)) as [keyof ExplicitMap, boolean][]) {
-      if (on) explicit[name] = true;
-    }
-    seeded = true;
-  }
+/**
+ * The four address fields, drawn from {@link CONFIG_FIELDS}.
+ *
+ * Shared by the two screens that edit them — the first run's *Customize port
+ * and addresses…* and **Server Addresses** — because what they draw is one
+ * contract (`lib/config-form.ts`) and a second copy of the grid is a second
+ * place for the send rules to drift. What differs is passed in: each screen
+ * brings its OWN state, so neither shows the other's half-typed values, and
+ * `onEdit` is where the setup screen re-measures the port and mirrors the
+ * dashboard row.
+ *
+ * The base-URL-follows-the-port mirror stays HERE rather than in a hook,
+ * because it is a rule about these fields rather than about either screen: a
+ * base URL nobody chose is derived from the port, so a filled field reading
+ * `http://localhost:3080` beside a port of 4000 would look like the value about
+ * to be written. Neither the mirror nor `onEdit` may force a re-render — that
+ * would take the cursor out of the field mid-keystroke.
+ */
+function addressForm(
+  p: Probe,
+  state: AddressForm,
+  opts: {
+    onEdit?: (name: FormName) => void;
+    note?: (field: ConfigField, values: FormValues) => HTMLElement | null;
+  } = {},
+): HTMLElement {
+  const { values, explicit: chosen } = state;
   const grid = document.createElement("div");
   grid.className = "mt-4 grid w-full grid-cols-2 gap-2.5";
   for (const field of CONFIG_FIELDS) {
@@ -2078,41 +2276,68 @@ function addressForm(p: Probe): HTMLElement {
     label.textContent = field.label;
     const input = document.createElement("input");
     input.id = `field-${field.name}`;
-    input.value = form[field.name];
+    input.value = values[field.name];
     input.placeholder = field.placeholder;
     input.spellcheck = false;
     input.autocapitalize = "off";
     if (field.numeric) input.inputMode = "numeric";
     input.addEventListener("input", () => {
-      form[field.name] = input.value;
-      explicit[field.name] = true;
-      if (field.name === "port") {
-        if (explicit.baseUrl !== true) {
-          form.baseUrl = derivedBaseUrl(input.value);
-          const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
-          if (mirror) mirror.value = form.baseUrl;
-        }
-        // Ask about the new number now rather than at the next render. The
-        // poll skips a tick while a text field has focus (`tick()`), so
-        // without this the answer for a port someone just typed would not
-        // start being measured until they left the field — and the screen
-        // would keep naming the old conflict while they looked at the fix.
-        checkPort(chosenPort(p));
+      values[field.name] = input.value;
+      chosen[field.name] = true;
+      if (field.name === "port" && chosen.baseUrl !== true) {
+        values.baseUrl = derivedBaseUrl(input.value);
+        const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
+        if (mirror) mirror.value = values.baseUrl;
       }
-      // Two things mirror the port as it is typed: the baseUrl field,
-      // updated in place above, and the dashboard row at the top of the
-      // screen — neither may force a re-render, which would take the cursor
-      // out of the field mid-keystroke. The next poll's render picks the
-      // values up from `form` regardless.
-      if (field.name === "port" || field.name === "baseUrl") syncDashboardUrl(p);
+      opts.onEdit?.(field.name);
     });
     cell.append(label, input);
     if (field.hint) cell.append(text("p", field.hint, "hint"));
+    const note = opts.note?.(field, values);
+    if (note) cell.append(note);
     for (const pe of fieldProblems(p.status?.settings, field.name)) cell.append(text("p", pe.reason, "hint warn-text"));
     grid.append(cell);
   }
   return grid;
 }
+
+/**
+ * The setup screen's arm of {@link addressForm}: its own state, seeded once
+ * per page load and preserved across renders, plus the two things only that
+ * screen mirrors.
+ *
+ * The seeding keeps whatever has been typed (`values[name] || seeded[name]`),
+ * because this form opens and closes under the Customize link while the page
+ * stays loaded — unlike Server Addresses, which is seeded fresh on every visit.
+ */
+function setupAddressForm(p: Probe): HTMLElement {
+  if (!seeded) {
+    const s = seedAddressForm(p.status?.settings);
+    for (const { name } of CONFIG_FIELDS) form[name] = form[name] || s.values[name];
+    for (const [name, on] of Object.entries(s.explicit) as [keyof ExplicitMap, boolean][]) {
+      if (on) explicit[name] = true;
+    }
+    seeded = true;
+  }
+  return addressForm(
+    p,
+    { values: form, explicit },
+    {
+      onEdit: (name) => {
+        // Ask about a new number now rather than at the next render. The poll
+        // skips a tick while a text field has focus (`tick()`), so without this
+        // the answer for a port someone just typed would not start being
+        // measured until they left the field — and the screen would keep naming
+        // the old conflict while they looked at the fix.
+        if (name === "port") checkPort(chosenPort(p));
+        // The dashboard row at the top of the screen mirrors both of these; it
+        // is patched in place for the same reason the baseUrl field is.
+        if (name === "port" || name === "baseUrl") syncDashboardUrl(p);
+      },
+    },
+  );
+}
+
 function resetForm(): void {
   for (const { name } of CONFIG_FIELDS) {
     form[name] = "";
@@ -2361,6 +2586,7 @@ function render(): void {
     }
     if (screen === "supervision") renderSupervision(p);
     if (screen === "permissions") renderPermissions(p);
+    if (screen === "settings") renderSettings(p);
     return;
   }
   if (list.length === 0) {
@@ -2478,6 +2704,12 @@ function applyScreen(payload: string): void {
   // this is its other exit: the sidebar pill, an Update request or a Reset
   // request all land here while that screen may be showing.
   supervisionForm = null;
+  // Server Addresses has the same two exits and the same rule: its fields are
+  // seeded from the machine, so a draft surviving into the next visit would be
+  // showing a configuration the machine may no longer have.
+  settingsForm = null;
+  settingsForceChecked = null;
+  settingsResult = null;
   // Same rule for the update act: its result and its fired-once latch belong
   // to ONE visit. Without this a window that finished an update and came back
   // would render "up to date" from a page fact rather than from the machine —

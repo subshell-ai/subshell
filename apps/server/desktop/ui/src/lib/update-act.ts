@@ -36,7 +36,7 @@
  * judgment left in `wizard.ts` is a judgment with no coverage at all.
  */
 import type { ActionResult, AppUpdateCheck, Probe } from "./ipc";
-import { paneRisk } from "./recovery-model";
+import { type PaneForce, paneForceBox } from "./pane-force";
 
 /**
  * Where this window is in the act.
@@ -121,31 +121,6 @@ export interface UpdateActPress {
   forced: boolean;
 }
 
-/**
- * The Force box under the table (§ 13.2).
- *
- * Rendered only where the act, as selected, will restart a service whose
- * definition does not spare live panes — i.e. only where there is a refusal to
- * overrule. Unticked by default: an override that arrives pre-accepted is not
- * an override, and the press without it still runs the install and lets the
- * CLI refuse the restart, which leaves the machine on the server it had.
- *
- * It governs the pane-safety refusal and NOTHING else. In particular it can
- * never install an older bundled CLI over a newer installed one — root
- * `AGENTS.md`, "never downgrade the installed server": boot runs
- * `migrateToLatest()`, which is forward-only, so an older server cannot boot on
- * a database a newer one has migrated. That is a hard rule rather than a scope
- * decision, which is why the adopt-installed row states it instead of offering
- * a box.
- */
-export interface UpdateActForce {
-  checked: boolean;
-  /** The amber sentence: what this restart costs on this machine. */
-  warning: string;
-  /** The box's own label: what ticking it permits. */
-  label: string;
-}
-
 export interface UpdateAct {
   phase: UpdatePhase;
   /** The frame's subtitle: one sentence naming where this machine stands. */
@@ -159,8 +134,22 @@ export interface UpdateAct {
    * a machine. The SHORT form of the same fact is the row's `reason`.
    */
   notes: string[];
-  /** The Force box, or `null` where nothing it governs is selected. */
-  force: UpdateActForce | null;
+  /**
+   * The Force box, or `null` where nothing it governs is selected (§ 13.2).
+   *
+   * Its shape and its words are `lib/pane-force.ts`, shared with Server
+   * Addresses, which restarts the same server through the same refusal. It is
+   * offered only where the act, as selected, will restart a service whose
+   * definition does not spare live panes — i.e. only where there is a refusal
+   * to overrule — and it governs the pane-safety refusal and NOTHING else. In
+   * particular it can never install an older bundled CLI over a newer
+   * installed one — root `AGENTS.md`, "never downgrade the installed server":
+   * boot runs `migrateToLatest()`, which is forward-only, so an older server
+   * cannot boot on a database a newer one has migrated. That is a hard rule
+   * rather than a scope decision, which is why the adopt-installed row states
+   * it instead of offering a box.
+   */
+  force: PaneForce | null;
 }
 
 /**
@@ -228,10 +217,6 @@ const APP_LABEL = "Subshell Server app";
  * 2026-09-18).
  */
 const CLI_LABEL = "subshell-server CLI";
-
-const PANE_WARNING =
-  "The installed service definition does not spare live panes, so this restart closes every subshell running here.";
-const PANE_FORCE_LABEL = "Restart anyway, closing every subshell running on this machine";
 
 /**
  * Whether the CLI half can run at all on this machine.
@@ -382,7 +367,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     const failedHere = finished?.ok === false;
     // The marker carried phase 1's answer, so an untouched box shows it rather
     // than asking again for something already granted (§ 5).
-    const force = forceBox(probe, true, selection.force ?? pending.forced);
+    const force = paneForceBox(probe, true, selection.force ?? pending.forced);
     const retry: UpdateActPress = {
       label: "Try Again",
       kind: "cli",
@@ -473,7 +458,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // counts, and has to — it IS the restart that failed, so a screen offering it
   // without the box would offer the press and withhold the only answer that
   // makes it succeed.
-  const force = forceBox(probe, cliPicked || (selectable.length === 0 && retryable), selection.force ?? false);
+  const force = paneForceBox(probe, cliPicked || (selectable.length === 0 && retryable), selection.force ?? false);
   const press = offerPress({
     appLatest: appRow.selected !== null ? appRow.to : null,
     appPicked: appRow.selected === true,
@@ -566,19 +551,6 @@ function offerCliRow(probe: Probe, appActs: boolean, selection: UpdateActSelecti
     selected: null,
     reason: probe.bundledVersion === null ? "this app ships no server" : "up to date",
   };
-}
-
-/**
- * The Force box, where there is a refusal for it to overrule.
- *
- * `restarts` is the whole gate besides the machine's own definition: the box
- * exists to permit a restart, so an act that restarts nothing must not show
- * one. Fail-closed comes from {@link paneRisk}, which counts an unreadable
- * definition as risk.
- */
-function forceBox(probe: Probe, restarts: boolean, checked: boolean): UpdateActForce | null {
-  if (!restarts || !paneRisk(probe)) return null;
-  return { checked, warning: PANE_WARNING, label: PANE_FORCE_LABEL };
 }
 
 /**

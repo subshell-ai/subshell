@@ -516,17 +516,20 @@ describe("prereqState", () => {
  */
 describe("screens entered by request", () => {
   it("names all of them, and none is in the list of a machine that can ask", () => {
-    // Four. "How Your Server Runs" joined them in 2026-09-12 and "What macOS
-    // Will Ask" on 2026-09-14 — and they are different kinds of member, which
-    // is the thing this test has to say out loud.
+    // Five. "How Your Server Runs" joined them in 2026-09-12, "What macOS Will
+    // Ask" on 2026-09-14 and "Server Addresses" on 2026-09-18 — and they are
+    // different kinds of member, which is the thing this test has to say out
+    // loud.
     //
-    // There were five between 2026-09-15 and 2026-09-18, because `update` (the
-    // server this app wraps) and `app-update` (the app itself) were two
-    // screens. They are ONE act now, under `update`: the app ships the server,
-    // so updating one without the other was never a thing a person wanted. The
-    // sorted comparison is what makes the retired id coming back — or any of
-    // these four being dropped — loud.
-    expect([...REQUESTED_SCREENS].sort()).toEqual(["permissions", "reset", "supervision", "update"]);
+    // There were five once before, between 2026-09-15 and 2026-09-18, for a
+    // different reason: `update` (the server this app wraps) and `app-update`
+    // (the app itself) were two screens. They are ONE act now, under `update`,
+    // because the app ships the server. `settings` is not that member coming
+    // back — it is the way out of a base URL that signed this app's own window
+    // out (spec 2026-09-18 § 14), and it is the only one of the five no
+    // dashboard names. The sorted comparison is what makes the retired id
+    // returning — or any of these five being dropped — loud.
+    expect([...REQUESTED_SCREENS].sort()).toEqual(["permissions", "reset", "settings", "supervision", "update"]);
     const ready = virgin({ next: "ready", onboarded: true });
     for (const requested of REQUESTED_SCREENS) {
       // The property that matters is about the machine that can ASK: a

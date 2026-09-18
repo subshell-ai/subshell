@@ -72,6 +72,18 @@ pub enum Screen {
     /// not at launch — and it stays requestable because every
     /// missing-permission notice in the dashboard sends people here.
     Permissions,
+    /// **Server Addresses**: port, bind address, public base URL and the extra
+    /// addresses browsers may use, with Save and Restart (spec 2026-09-18
+    /// § 14).
+    ///
+    /// Reached from the TRAY and from the recovery screen, and the tray is the
+    /// load-bearing door: the screen exists for a machine whose dashboard
+    /// cannot be signed into — an `https://` base URL marks the session cookie
+    /// `Secure`, and this app's `main` window is pinned to loopback http, so it
+    /// can never store one again. The dashboard was the only place that value
+    /// could be changed, which left the app with no way back from inside
+    /// itself. The assistant needs no session because it drives the CLI.
+    Settings,
 }
 
 impl Screen {
@@ -82,11 +94,12 @@ impl Screen {
             Screen::Update => "update",
             Screen::Supervision => "supervision",
             Screen::Permissions => "permissions",
+            Screen::Settings => "settings",
         }
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Four accepted words;
+/// Parse the (untrusted, optional) `screen` argument. Five accepted words;
 /// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
@@ -94,6 +107,7 @@ pub fn parse_screen(raw: Option<String>) -> Screen {
         Some("update") => Screen::Update,
         Some("supervision") => Screen::Supervision,
         Some("permissions") => Screen::Permissions,
+        Some("settings") => Screen::Settings,
         _ => Screen::Home,
     }
 }
@@ -970,6 +984,7 @@ mod tests {
         assert_eq!(parse_screen(Some("update".into())), Screen::Update);
         assert_eq!(parse_screen(Some("supervision".into())), Screen::Supervision);
         assert_eq!(parse_screen(Some("permissions".into())), Screen::Permissions);
+        assert_eq!(parse_screen(Some("settings".into())), Screen::Settings);
         assert_eq!(parse_screen(Some("/etc".into())), Screen::Home);
     }
 
@@ -997,6 +1012,7 @@ mod tests {
             Screen::Update,
             Screen::Supervision,
             Screen::Permissions,
+            Screen::Settings,
         ] {
             assert_eq!(parse_screen(Some(screen.as_str().to_string())), screen);
         }
@@ -1004,6 +1020,7 @@ mod tests {
         assert_eq!(Screen::Update.as_str(), "update");
         assert_eq!(Screen::Supervision.as_str(), "supervision");
         assert_eq!(Screen::Permissions.as_str(), "permissions");
+        assert_eq!(Screen::Settings.as_str(), "settings");
         assert_eq!(Screen::Home.as_str(), "home");
     }
 
