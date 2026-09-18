@@ -49,10 +49,12 @@ const WITH_TMUX = { tmux: "/opt/homebrew/bin/tmux" };
 const LINUX = { platform: "linux" };
 
 /**
- * The zero-touch first run (spec 2026-09-17 § 4.1). These cases replaced the
- * four-screen journey: Welcome left because the chain now says what it does
- * by doing it, permissions left because the dashboard notices are the better
- * door (it stays on REQUESTED_SCREENS), and the dot arithmetic left with the
+ * The first run (spec 2026-09-17 § 4.1, amended 2026-09-18: Welcome came
+ * back by operator request — "reset / initial state should always show it
+ * again"; the auto-fire behind it waits for the press). These cases replaced
+ * the four-screen journey: permissions left because the dashboard notices
+ * are the better door (it stays on REQUESTED_SCREENS), and the dot
+ * arithmetic left with the
  * row it existed for — which is also what retired the 2026-09-12 rule that
  * showed the tmux screen on EVERY first run. A machine that already has tmux
  * no longer presses through a screen about it; the tmux screen is the one
@@ -60,29 +62,38 @@ const LINUX = { platform: "linux" };
  */
 describe("screensFor", () => {
   it("stops a first run at tmux only while tmux is missing", () => {
-    expect(screensFor(virgin(), false)).toEqual(["tmux"]);
-    expect(screensFor(virgin({ ...LINUX, hasBrew: false }), false)).toEqual(["tmux"]);
-    expect(screensFor(virgin(WITH_TMUX), false)).toEqual(["setup"]);
-    expect(screensFor(virgin({ ...WITH_TMUX, ...LINUX }), false)).toEqual(["setup"]);
+    expect(screensFor(virgin(), false)).toEqual(["welcome", "tmux"]);
+    expect(screensFor(virgin({ ...LINUX, hasBrew: false }), false)).toEqual(["welcome", "tmux"]);
+    expect(screensFor(virgin(WITH_TMUX), false)).toEqual(["welcome", "setup"]);
+    expect(screensFor(virgin({ ...WITH_TMUX, ...LINUX }), false)).toEqual(["welcome", "setup"]);
   });
 
-  it("lists one screen, never a journey", () => {
-    // The list's LENGTH is the pin: a second entry would mean the journey
-    // crept back, and there is no longer anything downstream to advance
-    // through it (`next()` is gone with the dots).
+  it("lists the welcome and one act, never a journey", () => {
+    // The list's SHAPE is the pin: `welcome` first, then exactly ONE of
+    // tmux/setup. The zero-touch rule ("the machine asks at most one thing")
+    // survives the intro's return; what the intro reclaims is only the beat
+    // before the asking. Nothing downstream can walk a longer list anyway —
+    // `next()` left with the dots and was not restored.
     for (const probe of [virgin(), virgin(WITH_TMUX), virgin({ ...WITH_TMUX, ...LINUX })]) {
-      expect(screensFor(probe, false).length).toBe(1);
+      const list = screensFor(probe, false);
+      expect(list[0]).toBe("welcome");
+      expect(list.slice(1)).toHaveLength(1);
     }
   });
 
-  it("holds neither Welcome nor permissions", () => {
-    // Widened to `string[]` deliberately: `welcome` is no longer a member of
-    // `ScreenId` at all — no render path can draw it, and no stale request
+  it("welcomes first, and holds no permissions", () => {
+    // Widened to `string[]` deliberately: `permissions` is no longer a member
+    // of `ScreenId` at all — no render path can draw it, and no stale request
     // can name one — but the ABSENCE is only pinned while the word still
-    // appears somewhere, and a plain `ScreenId[]` would not type it.
+    // appears somewhere, and a plain `ScreenId[]` would not type it. Welcome
+    // came back 2026-09-18 (operator request: "reset / initial state should
+    // always show it again"); permissions did not.
     const firstRun: string[] = screensFor(virgin(WITH_TMUX), false);
+    expect(firstRun).toContain("welcome");
     expect(firstRun).not.toContain("permissions");
-    expect(firstRun).not.toContain("welcome");
+    // The recovery family repairs; it does not greet.
+    const recovery: string[] = screensFor(virgin({ ...WITH_TMUX, next: "start" }), true);
+    expect(recovery).not.toContain("welcome");
   });
 });
 
@@ -150,12 +161,49 @@ describe("auto-fire, pinned at the source", () => {
     expect(body.indexOf("if (failure)")).toBeLessThan(body.indexOf("if (!autoFired &&"));
   });
 
-  it("leaves Welcome unrendered and the requested-screen routing intact", () => {
-    expect(wizard).not.toContain("function renderWelcome");
+  it("keeps the welcome INERT and the requested-screen routing intact", () => {
+    // Welcome left with spec 2026-09-17 and returned the next day by
+    // operator request. What the return must not smuggle back is a fire
+    // beside the greeting: the intro's whole honesty is that nothing has
+    // touched the machine while it is up, and the fire's placement inside
+    // `renderSetup` is the structural guarantee of that. If Welcome ever
+    // grows a `startSetup`, the machine is configured while the reader is
+    // still reading — which is the sentence this pin exists to keep true.
+    const wAt = wizard.indexOf("function renderWelcome(");
+    expect(wAt, "renderWelcome must exist").toBeGreaterThan(-1);
+    const wBody = wizard.slice(wAt, wizard.indexOf("\nfunction ", wAt + 1));
+    expect(wBody).not.toContain("startSetup");
+    expect(wBody).not.toContain("autoFired");
+    expect(wBody).toContain('"Continue"');
     // A requested screen still outranks the probe's family; `permissions`
     // lost its dual-role and the routing lost the disambiguator with it.
     expect(wizard).toContain("if (isRequestedScreen(screen)) {");
     expect(wizard).not.toContain("isRequestedScreen(screen) && !list.includes(screen)");
+  });
+
+  it("advances a finished tmux screen PAST the welcome, not back to it", () => {
+    // The re-resolution used to be `list[0]`, which WAS the act until
+    // 2026-09-18 put the greeting at the head. A reader who installed tmux
+    // is done greeting; land them on the act where the chain fires.
+    expect(wizard).toContain('list[0] === "welcome" ? list[1] : list[0]');
+  });
+
+  it("is re-armed by a completed reset, never by a cancelled one", () => {
+    const resetView = readFileSync(join(import.meta.dir, "../assistant/reset-view.ts"), "utf8");
+    // After the chain ran: the wipe is a new first run inside this load,
+    // and its welcome press must be able to fire like the first one did.
+    expect(resetView.indexOf("host.rearmFirstRun()")).toBeGreaterThan(resetView.indexOf("await ipc.reset(typed)"));
+    // Not in the cancel handler: closing the screen mid-nothing must not
+    // un-fire a chain that already ran this load.
+    const cancel = resetView.slice(
+      resetView.indexOf('el("reset-cancel").addEventListener'),
+      resetView.indexOf('el("reset-run").addEventListener'),
+    );
+    expect(cancel).not.toContain("rearmFirstRun");
+    // And the rearm clears both pre-wipe ghosts.
+    const host = wizard.slice(wizard.indexOf("rearmFirstRun: () => {"));
+    expect(host.slice(0, host.indexOf("};"))).toContain("autoFired = false;");
+    expect(host.slice(0, host.indexOf("};"))).toContain("failure = null;");
   });
 });
 

@@ -31,6 +31,15 @@ export interface AssistantHost {
   fail(err: unknown): void;
   /** Leave a requested screen (reset, update) for whatever the probe implies. */
   close(): void;
+  /**
+   * Forget the page-scoped one-shot flags a wipe invalidates: the fired-this-
+   * load latch and the last setup-chain failure. A reset is not a retry of
+   * what ran before — the machine is a first run again, and its welcome
+   * press must earn the auto-fire the same way the first one did. Called
+   * when a reset CHAIN completes, never on cancel: closing the screen mid-
+   * nothing must not un-fire a chain that already ran.
+   */
+  rearmFirstRun(): void;
 }
 
 /**

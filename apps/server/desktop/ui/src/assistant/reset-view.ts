@@ -286,6 +286,12 @@ export function createResetView(host: AssistantHost): ResetView {
         steps.plan = "done";
         host.render();
         const result = await ipc.reset(typed);
+        // The machine answered — even a partial wipe answers as a first run
+        // through the refreshed probe — so the page's fired-already latch and
+        // any pre-reset failure describe a machine that no longer exists.
+        // The close-to-first-run handoff must meet a fresh welcome that can
+        // fire again (see `AssistantHost.rearmFirstRun`).
+        host.rearmFirstRun();
         const parts: string[] = [];
         if (result?.stdout?.trim()) parts.push(result.stdout.trim());
         if (result?.stderr?.trim()) parts.push(result.stderr.trim());

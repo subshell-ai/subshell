@@ -16,20 +16,32 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
 /**
  * Every screen this window can show.
  *
- * `tmux` and `setup` are the first run — at most ONE of them is ever on the
- * list (spec 2026-09-17 § 4.1), and `setup` auto-fires rather than being
- * walked to (see {@link autoSetupDecision}). `recovery` is what a machine that
+ * `welcome` leads the first run (back by operator request, 2026-09-18), and
+ * behind it `tmux` and `setup` are the first run's ACT — at most ONE of them
+ * is ever on the list (spec 2026-09-17 § 4.1), and `setup` auto-fires rather
+ * than being walked to (see {@link autoSetupDecision}; the fire waits for the
+ * welcome's press because it lives in `renderSetup`). `recovery` is what a
+ * machine that
  * has been set up sees while its server is not answering, and `permissions`,
  * `update`, `app-update`, `reset` and `supervision` are entered by REQUEST — a
  * `desktop-screen` event from the SPA or the tray, or a link on the recovery
  * screen — over whatever is showing.
  *
- * `welcome` and the permissions step left the journey with spec 2026-09-17
- * (D1/D3): a first run announces itself by DOING, and the permission prompts
- * it explained are deferred until the dashboard notices one is missing —
- * which is exactly when the screen is still reachable, as a request.
+ * The permissions step left the journey with spec 2026-09-17 (D3) and stays
+ * gone: the permission prompts it explained are deferred until the dashboard
+ * notices one is missing — which is exactly when the screen is still
+ * reachable, as a request.
+ *
+ * `welcome` left with the same spec (D1, "a first run announces itself by
+ * DOING") and came BACK the next day by operator request — "reset / initial
+ * state should always show it again". The zero-touch half of D1 survives
+ * unchanged: the intro does not re-arm the journey, it PRECEDES it, and the
+ * automatic setup fires on the first render past the press rather than under
+ * the intro (the gate is structural — the fire lives in `renderSetup`, which
+ * the welcome screen does not call).
  */
 export type ScreenId =
+  | "welcome"
   | "tmux"
   | "setup"
   | "recovery"
@@ -184,7 +196,12 @@ export function isRequestedScreen(screen: ScreenId | null): screen is ScreenId {
  */
 export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
   if (probe.next === "ready") return [];
-  if (!onboarded) return probe.tmux === null ? ["tmux"] : ["setup"];
+  // `welcome` leads a first run ONLY — recovery repairs, it does not greet.
+  // A reset makes the machine un-onboarded again, and the list is derived
+  // from the probe every render, so "reset / initial state should always
+  // show it again" (operator, 2026-09-18) needs no state of its own: the
+  // derivation already restarts.
+  if (!onboarded) return ["welcome", probe.tmux === null ? "tmux" : "setup"];
   return ["recovery"];
 }
 
@@ -192,7 +209,8 @@ export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
  * Whether the first-run setup screen may FIRE ITSELF, or must show the form
  * (spec 2026-09-17 § 4.2/§ 4.3).
  *
- * Fire is the ordinary path — window open, defaults fine, the chain starts.
+ * Fire is the ordinary path — past the welcome press, defaults fine, the
+ * chain starts.
  * Form means "this machine earned the questions": something already answers
  * on the port (auto-picking a different one silently is refused on the
  * "config written the user never saw" rule), or there is no bundled server to
