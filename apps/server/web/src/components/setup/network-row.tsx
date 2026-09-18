@@ -61,9 +61,9 @@ export function NetworkRow({ row, body = "compact" }: { row: NetworkRowData; bod
       {head}
       {open &&
         (body === "full" ? (
-          // No bottom padding here: the headerless body carries its own
-          // `pb-6`, and a `pb-3` wrapper would stack into the gutter the
-          // grouped card already owns.
+          // No padding wrapper here: the headerless body carries its own
+          // `pt-2 pb-4`, and a `pb-3` wrapper would stack into the gutter
+          // the grouped card already owns.
           <div id={bodyId}>
             <NetworkPluginCard row={row} headerless />
           </div>

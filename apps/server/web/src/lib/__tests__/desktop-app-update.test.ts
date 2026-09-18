@@ -27,6 +27,18 @@ describe("appUpdateRowVisible", () => {
     expect(appUpdateRowVisible(update(null), null)).toBe(false);
   });
 
+  it("shows nothing when the 'available' version is the one already running", () => {
+    // The stale-notice backstop (review 2026-09-17): the app's own read
+    // filters this now, but a NEW page can meet an OLD binary that stored
+    // the announcement and never cleared it — after an in-app update (the
+    // restart did not clear the field) or a hand-replaced `.app` (nothing
+    // clears it at all). A row saying "v0.7.2 available" while running
+    // 0.7.2 is the lie this comparison exists to refuse.
+    expect(appUpdateRowVisible({ currentVersion: "0.7.2", availableVersion: "0.7.2" }, null)).toBe(false);
+    // Same-version under any spelling the payload carries: still equality.
+    expect(appUpdateRowVisible({ currentVersion: "0.7.2", availableVersion: "0.7.2" }, "0.8.0")).toBe(false);
+  });
+
   it("shows nothing before the shell answers, or when it answered nothing", () => {
     expect(appUpdateRowVisible(undefined, null)).toBe(false);
     expect(appUpdateRowVisible(null, null)).toBe(false);

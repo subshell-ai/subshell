@@ -16,7 +16,7 @@ export function releasePageUrl(tag: string): string {
  * cosmetic — it follows what each window is ALLOWED to do:
  *
  * - **Subshell Server** gets a button, because `desktop_open_assistant` is one
- *   of the six commands its remote window holds, and `app-update` is one more
+ *   of the seven commands its remote window holds, and `app-update` is one more
  *   screen name on an existing closed enum. Zero new grants.
  * - **Subshell Client** gets a SENTENCE, because its remote window is granted
  *   exactly one command (`desktop_open_in_browser`) and this design does not

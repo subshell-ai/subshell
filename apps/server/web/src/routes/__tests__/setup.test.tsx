@@ -834,7 +834,7 @@ describe("setup wizard: going back", () => {
   });
 });
 
-describe("setup wizard: the dot row continues the native assistant", () => {
+describe("setup wizard: the dot row counts its own steps on every shell", () => {
   afterEach(() => {
     resetDesktopShellForTests();
   });

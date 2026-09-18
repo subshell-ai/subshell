@@ -49,7 +49,9 @@ PKG_BACKUP="$(mktemp /tmp/ss-nupd-pkg-XXXX)"
 cp "$PKG" "$PKG_BACKUP"
 # Step 11 patches the publisher pubkey the way step 2 patches the version —
 # same rule: restore from a byte copy on every exit path, never `git
-# checkout`, several sessions share this checkout. Empty until step 11 runs.
+# checkout`, several sessions share this checkout. Empty until step 11 runs,
+# and — load-bearing — it stays set until the RESTORED source has been
+# rebuilt into the dist, because cleanup() gates that rebuild on it.
 PUBKEY_TS="$ROOT/packages/subshell-protocol/src/releases.ts"
 PUBKEY_BACKUP=""
 FAKE_PID=""
@@ -61,8 +63,11 @@ cleanup() {
     cp "$PUBKEY_BACKUP" "$PUBKEY_TS" && rm -f "$PUBKEY_BACKUP"
     # The rebuilt dist carries the patched constant until rebuilt again:
     # leaving the tree holding a throwaway publisher identity would feed it
-    # to the NEXT compile of anything.
-    (cd "$ROOT/packages/subshell-protocol" && bun run build >/dev/null 2>&1) || true
+    # to the NEXT compile of anything. Best-effort still — this is the exit
+    # path — but SILENT is the failure being fixed: a dist nobody names is a
+    # dist nobody rebuilds.
+    (cd "$ROOT/packages/subshell-protocol" && bun run build >/dev/null 2>&1) \
+      || echo "WARN: could not rebuild the protocol dist from the restored source; it may still carry the throwaway pubkey. Fix by hand: (cd packages/subshell-protocol && bun run build)" >&2
   fi
 }
 trap cleanup EXIT
@@ -280,8 +285,15 @@ mkdir -p "$W/bin2"
 # the rebuild above is what puts the throwaway armor inside this binary.
 (cd "$AGENT" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
    --outfile "$W/bin2/subshell" >/dev/null) || fail "could not build the patched-pubkey binary"
-cp "$PUBKEY_BACKUP" "$PUBKEY_TS" && rm -f "$PUBKEY_BACKUP" && PUBKEY_BACKUP=""
+# Restore the source, rebuild the dist FROM it, and retire the backup only
+# after the rebuild succeeded. Retiring it first was the ordering bug: `fail`
+# exits, cleanup() gates its dist-rebuild branch on this variable, and a
+# shared checkout left holding a throwaway-pubkey DIST is exactly what the
+# several-sessions rule exists to prevent — the next bare `bun run compile`
+# would bundle the fake publisher identity.
+cp "$PUBKEY_BACKUP" "$PUBKEY_TS"
 (cd "$ROOT/packages/subshell-protocol" && bun run build >/dev/null) || fail "could not rebuild the protocol dist from the restored source"
+rm -f "$PUBKEY_BACKUP" && PUBKEY_BACKUP=""
 "$W/bin2/subshell" version | grep -q "subshell $CURRENT" || fail "the patched-pubkey binary does not report $CURRENT"
 cp "$W/bin2/subshell" "$W/bin2/subshell.patched"
 ok "compiled a $CURRENT agent holding a throwaway publisher pubkey (source and dist restored)"

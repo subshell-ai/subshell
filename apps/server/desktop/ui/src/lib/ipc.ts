@@ -14,8 +14,8 @@
  * command this page never calls would break the exact-set pin below by
  * describing a surface the assistant does not have.
  *
- * `desktop_permissions` is the newest of the four and the one that might look
- * like an omission, so: this page does not need it. Both permission states
+ * `desktop_permissions` is the one that might look like an omission, so: this
+ * page does not need it. Both permission states
  * ride on the PROBE ({@link Probe.notificationPermission},
  * {@link Probe.photosPermission}), which the assistant already re-reads every
  * 1500 ms — so an Allow button's result lands on the next tick like every

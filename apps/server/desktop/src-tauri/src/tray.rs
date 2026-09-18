@@ -82,6 +82,13 @@ pub struct UpdateItem(MenuItem<Wry>);
 /// The tray's "Check for Updates…" id.
 const UPDATE_ID: &str = "tray:update";
 
+/// The screen the tray's OpenScreen press routes to (spec 2026-09-17 § 5.2).
+///
+/// A named constant rather than an inline literal so the test below pins the
+/// WORD THE DISPATCH ACTUALLY PASSES — a test against a second copy of the
+/// literal would stay green through the rename it exists to catch.
+const APP_UPDATE_SCREEN: &str = "app-update";
+
 /// The item's label: a full notice when the last check found an update, the
 /// ask otherwise.
 ///
@@ -178,14 +185,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // Seeded from what the LAST check found, because the launch check runs
     // after this menu is built and may not run at all today — an item that
     // only ever said "Check for Updates…" until a check happened would hide a
-    // waiting update for up to a day.
-    let update = MenuItem::with_id(
-        app,
-        UPDATE_ID,
-        update_label(app.state::<SettingsState>().get().last_update_version.as_deref()),
-        true,
-        None::<&str>,
-    )?;
+    // waiting update for up to a day. Filtered through `notice_for`: a stored
+    // version this app now IS is not an update notice, and this seed reads
+    // stored state with no source consulted (review 2026-09-17).
+    let seed = crate::app_update::notice_for(
+        &app.package_info().version.to_string(),
+        app.state::<SettingsState>().get().last_update_version.as_deref(),
+    );
+    let update = MenuItem::with_id(app, UPDATE_ID, update_label(seed.as_deref()), true, None::<&str>)?;
     app.manage(UpdateItem(update.clone()));
     let menu = Menu::with_items(
         app,
@@ -279,21 +286,31 @@ fn on_menu(app: &AppHandle, id: &str) {
         // Two states, two acts (spec 2026-09-17 § 5.2), and the SAME
         // non-empty rule the label was drawn from — read from the settings
         // file, which is what both the launch check and `set_update_available`
-        // write, so label and press cannot disagree.
-        UPDATE_ID => match tray_update_action(app.state::<SettingsState>().get().last_update_version.as_deref()) {
-            // Nothing known: force today's check now rather than re-raising
-            // a screen to ask a question that has no answer yet. Opens
-            // nothing — the answer lands on this label, and a SECOND press
-            // goes to the screen.
-            TrayUpdateAction::Check => crate::app_update::check_now(app),
-            // An update is known: raise the assistant AT the screen through
-            // the SAME route the dashboard's deep link takes, where install
-            // and restart live. No check is run here: re-checking what the
-            // label just announced is the wrong act for this press.
-            TrayUpdateAction::OpenScreen => {
-                let _ = crate::reset::arm_and_raise(app, Some("app-update".into()));
+        // write, so label and press cannot disagree. Both read it through
+        // `notice_for`: a stored version this app now runs is no notice, and
+        // the press must not open a screen the label no longer promises
+        // (review 2026-09-17 — the same filtered input to both keeps the
+        // pure agreement test true of the real item, not just of the model).
+        UPDATE_ID => {
+            let stored = crate::app_update::notice_for(
+                &app.package_info().version.to_string(),
+                app.state::<SettingsState>().get().last_update_version.as_deref(),
+            );
+            match tray_update_action(stored.as_deref()) {
+                // Nothing known: force today's check now rather than re-raising
+                // a screen to ask a question that has no answer yet. Opens
+                // nothing — the answer lands on this label, and a SECOND press
+                // goes to the screen.
+                TrayUpdateAction::Check => crate::app_update::check_now(app),
+                // An update is known: raise the assistant AT the screen through
+                // the SAME route the dashboard's deep link takes, where install
+                // and restart live. No check is run here: re-checking what the
+                // label just announced is the wrong act for this press.
+                TrayUpdateAction::OpenScreen => {
+                    let _ = crate::reset::arm_and_raise(app, Some(APP_UPDATE_SCREEN.into()));
+                }
             }
-        },
+        }
         "tray:keep" => set_close_to_tray(app),
         // The TEXT SIZE items are deliberately absent. A menu event in Tauri
         // is global — the app-level handler in `lib.rs` sees this menu's items
@@ -382,5 +399,23 @@ mod tests {
             let opens = tray_update_action(available) == TrayUpdateAction::OpenScreen;
             assert_eq!(announced, opens, "label and press disagree for {available:?}");
         }
+    }
+
+    /// The OpenScreen press names the app-update screen by WORD, and
+    /// `reset::parse_screen` is what turns that word into the enum the
+    /// deep-link route consumes. A rename on either side silently falls to
+    /// `Home` — the assistant raised onto a screen nobody recognised, which
+    /// bounced the person back to the dashboard they had just pressed a tray
+    /// item away from: the exact failure `REQUESTED_SCREENS` exists for on the
+    /// page side. Pinned HERE because this file owns the dispatch's word (the
+    /// constant the arm passes, not a second copy a rename could walk past),
+    /// and in `reset.rs` beside the parse.
+    #[test]
+    fn the_tray_press_names_a_screen_the_router_recognises() {
+        assert_eq!(
+            crate::reset::parse_screen(Some(APP_UPDATE_SCREEN.to_string())),
+            crate::reset::Screen::AppUpdate,
+            "the tray's word must survive `parse_screen`, not fall back to Home"
+        );
     }
 }

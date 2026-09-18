@@ -89,12 +89,41 @@ pub struct AppUpdateStatus {
     pub available_version: Option<String>,
 }
 
+/// The one rule behind every rendering of the STORED notice: it may name only
+/// a version strictly newer than what is running.
+///
+/// `last_update_version` is what the last answering check found, and the
+/// answer goes stale the moment the person installs what was announced.
+/// [`install_app_update`] clears the field; a hand replacement of the `.app`
+/// does not, and an app that updated itself across a crash between the write
+/// and the clear will not answer the release source for a day. Every site
+/// that paints the stored value without consulting the source — the tray
+/// seed, the launch check's not-due branch, the unanswered-check branch, and
+/// the SPA-facing [`status_view`] — routes through here, so "Update
+/// available — 0.8.0" can never be shown BY 0.8.0 (review 2026-09-17:
+/// `run_check`'s own comment already called that state "worse than none";
+/// only the check-answered path honoured it).
+///
+/// `version_lt` ignores suffixes on both sides, so a canary of the announced
+/// version counts as installed — the same rule every other comparison here
+/// uses.
+pub fn notice_for(current: &str, stored: Option<&str>) -> Option<String> {
+    stored
+        .filter(|version| version_lt(current, version))
+        .map(str::to_string)
+}
+
 /// The pure body of `desktop_app_update`, so the camelCase contract the SPA
 /// codes against is pinned without a Tauri runtime.
+///
+/// The stored value is filtered through [`notice_for`] HERE rather than at
+/// the command, so every reader of this view gets the rule; the SPA adds a
+/// matching backstop because a NEW page can meet an OLD binary that stored
+/// the announcement and never cleared it.
 pub fn status_view(current_version: &str, available_version: Option<&str>) -> AppUpdateStatus {
     AppUpdateStatus {
         current_version: current_version.to_string(),
-        available_version: available_version.map(str::to_string),
+        available_version: notice_for(current_version, available_version),
     }
 }
 
@@ -228,6 +257,14 @@ pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
         )
         .await
         .map_err(|e| e.to_string())?;
+    // Clear the stored notice BEFORE the restart, not after — `restart()` is
+    // `-> !` (this file's own header says so), so anything sequenced behind it
+    // never runs. A stored 0.8.0 met by a relaunched 0.8.0 is the stale-notice
+    // bug exactly: the not-due launch branch and the tray seed would repaint
+    // "Update available — 0.8.0" from it for up to a day. The read side filters
+    // that shape now ([`notice_for`]); this keeps the STORED fact honest, which
+    // is what `run_check`'s comment demands of a check that found nothing newer.
+    let _ = app.state::<SettingsState>().update(|s| s.last_update_version = None);
     app.restart();
 }
 
@@ -291,8 +328,15 @@ pub fn check_on_launch(app: &AppHandle) {
         if !due_for_check(settings.get().last_update_check_at.as_deref(), now_epoch_secs()) {
             // Still refresh the label from what the last check found: the item
             // is built before this runs, and a stored version it does not know
-            // about would otherwise only appear a day later.
-            crate::tray::set_update_available(&handle, settings.get().last_update_version.as_deref());
+            // about would otherwise only appear a day later. Filtered through
+            // `notice_for` — this branch paints STORED state with no source
+            // consulted, which is precisely where an installed-update lie
+            // survives (a hand-replaced `.app` never clears the field).
+            let stored = notice_for(
+                &handle.package_info().version.to_string(),
+                settings.get().last_update_version.as_deref(),
+            );
+            crate::tray::set_update_available(&handle, stored.as_deref());
             return;
         }
         // `settings` is a borrowed guard and `run_check` re-takes the state
@@ -359,8 +403,14 @@ async fn run_check(handle: &AppHandle) {
     let answered = check_app_update(handle).await.ok().filter(|c| c.reason.is_none());
     let Some(check) = answered else {
         // Leave the stamp and the stored version exactly as they were, and
-        // keep showing whatever the last check that DID answer found.
-        crate::tray::set_update_available(handle, settings.get().last_update_version.as_deref());
+        // keep showing whatever the last check that DID answer found —
+        // filtered through `notice_for`, since "found" here means a stored
+        // value painted with no source consulted.
+        let stored = notice_for(
+            &handle.package_info().version.to_string(),
+            settings.get().last_update_version.as_deref(),
+        );
+        crate::tray::set_update_available(handle, stored.as_deref());
         return;
     };
     let found = check.latest;
@@ -430,6 +480,38 @@ mod tests {
         assert_eq!(
             unknown,
             serde_json::json!({ "currentVersion": "0.7.2", "availableVersion": null })
+        );
+    }
+
+    /// The stored notice outliving the install it announced (review
+    /// 2026-09-17): the daily check stores `0.8.0`, the person installs
+    /// `0.8.0`, and from then on every site that paints the STORED value
+    /// without consulting the source must answer "nothing to announce" —
+    /// equal is not newer, and OLDER is not newer either (the reverse case
+    /// is reachable when an app reverts, or when a newer app is handed a
+    /// settings file from an older install).
+    #[test]
+    fn a_notice_names_only_a_version_newer_than_the_one_running() {
+        assert_eq!(notice_for("0.7.2", Some("0.8.0")).as_deref(), Some("0.8.0"));
+        assert_eq!(notice_for("0.8.0", Some("0.8.0")), None);
+        assert_eq!(notice_for("0.9.0", Some("0.8.0")), None);
+        assert_eq!(notice_for("0.8.0", None), None);
+        // The empty stored word is the "nothing known" case `update_label`
+        // already renders as a bare ask; the filter must not resurrect it.
+        assert_eq!(notice_for("0.8.0", Some("")), None);
+        // Suffix-ignoring comparison: a canary of the announced version IS
+        // that version, same rule every other comparison here uses.
+        assert_eq!(notice_for("0.8.0-canary.1", Some("0.8.0")), None);
+    }
+
+    /// The filter is inside `status_view`, not at the command — so the one
+    /// pure body that feeds the SPA serialises the stale answer as null.
+    #[test]
+    fn the_status_view_answers_null_when_the_notice_names_the_running_version() {
+        let stale = serde_json::to_value(status_view("0.8.0", Some("0.8.0"))).unwrap();
+        assert_eq!(
+            stale,
+            serde_json::json!({ "currentVersion": "0.8.0", "availableVersion": null })
         );
     }
 }
