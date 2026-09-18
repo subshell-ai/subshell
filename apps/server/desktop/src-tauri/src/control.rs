@@ -2826,10 +2826,11 @@ pub fn desktop_open_tmux_docs(app: AppHandle) -> Result<(), String> {
 fn browser_origin(app: &AppHandle) -> Option<String> {
     let trust = crate::trust::window_state();
     let base = trust.base();
-    let trusted = app
-        .get_webview_window("main")
-        .and_then(|w| w.url().ok())
-        .filter(|url| trust.trusts(url, base.as_deref()));
+    // The COMMITTED page, never `w.url()` — that is the ACTIVE url, which a
+    // page can point at anything it likes while the load hangs (review,
+    // 2026-09-18). What this decides is which page of this server opens in the
+    // person's real browser, with their cookies.
+    let trusted = trust.committed_url().filter(|url| trust.trusts(url, base.as_deref()));
     if let Some(url) = trusted {
         return Some(url.origin().ascii_serialization());
     }
@@ -2862,9 +2863,9 @@ pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), Strin
 
 /// The path "Open in Browser" opens from the tray or the View menu.
 ///
-/// The CURRENT route when a window is showing one, so the menu item and the
-/// SPA's own row do the same thing; `/` when there is no window (or its url
-/// cannot be read), because the app still has a sensible page to offer and a
+/// The CURRENT route of the page the window last COMMITTED to, so the menu
+/// item and the SPA's own row do the same thing; `/` when no page has
+/// committed, because the app still has a sensible page to offer and a
 /// disabled menu item would need a probe to know it should be.
 ///
 /// `/` as well when the window is on an UNTRUSTED origin (spec 2026-09-18
@@ -2875,11 +2876,13 @@ pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), Strin
 /// Rust-side, deliberately: this is not a `DesktopAction`. Those are
 /// ROUTER-level operations the page performs, and they need a page — here the
 /// act is opening another program, which works with no window at all.
-fn current_path(app: &AppHandle) -> String {
-    let Some(url) = app.get_webview_window("main").and_then(|w| w.url().ok()) else {
+fn current_path() -> String {
+    let trust = crate::trust::window_state();
+    // The COMMITTED page, for `browser_origin`'s reason: the active url is a
+    // page's to choose, and this one becomes a path in the person's browser.
+    let Some(url) = trust.committed_url() else {
         return "/".to_string();
     };
-    let trust = crate::trust::window_state();
     if !trust.trusts(&url, trust.base().as_deref()) {
         return "/".to_string();
     }
@@ -2916,7 +2919,7 @@ pub const MENU_BROWSER_ID: &str = "menu:browser";
 /// ways this fails (no server address yet, no browser) are both states the
 /// person can see for themselves.
 pub fn open_current_in_browser(app: &AppHandle) {
-    let path = current_path(app);
+    let path = current_path();
     if let Err(err) = desktop_open_in_browser(app.clone(), path) {
         eprintln!("subshell: could not open this page in a browser: {err}");
     }

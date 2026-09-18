@@ -131,6 +131,20 @@ impl MainTrust {
         self.base.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// The page the window last COMMITTED to, for anything that needs to know
+    /// where it really is.
+    ///
+    /// The only sanctioned answer to that question. `WebviewWindow::url()`
+    /// reports the ACTIVE url — a navigation a page merely requested, which it
+    /// can pick — so anything deciding from it is deciding from an attacker's
+    /// input. The seven commands stopped doing that in review on 2026-09-18;
+    /// `control.rs`'s `browser_origin` and `current_path` followed, because
+    /// what they choose is the PATH the tray opens on this server's origin, in
+    /// the person's own browser, carrying their cookies.
+    pub fn committed_url(&self) -> Option<Url> {
+        self.page.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// **The whole boundary, in one predicate.**
     ///
     /// `base` is passed IN rather than read from `self` so that `open_main`
@@ -145,6 +159,18 @@ impl MainTrust {
     /// `https://plane.example.com` and `http://plane.example.com:8443` are
     /// different servers.
     pub fn trusts(&self, url: &Url, base: Option<&str>) -> bool {
+        // **The scheme is checked once, for both branches** (review,
+        // 2026-09-18). The loopback branch below pins `http` and so refused a
+        // `blob:` URL by accident; the base-URL branch compared ORIGINS, and
+        // `blob:https://plane.example.com/…` has a tuple origin equal to
+        // `https://plane.example.com` (measured, url 2.x) — so one shape was
+        // trusted on one branch and refused on the other. Not a cross-origin
+        // bypass, since only a document already on that origin can mint such a
+        // URL, but two branches disagreeing about one URL is how a real
+        // disagreement gets in later.
+        if !browsable_scheme(url.scheme()) {
+            return false;
+        }
         // An opaque origin (a non-special scheme) compares equal to nothing,
         // including itself — so this is a refusal before the comparison rather
         // than a subtlety inside it.
@@ -224,14 +250,19 @@ impl MainTrust {
     /// here, and that was a privilege escalation with two spellings:
     ///
     /// - A page on an untrusted origin runs `location.href =
-    ///   "http://127.0.0.1:1/"`. The scheme passes, the flag went TRUE, the
+    ///   "http://127.0.0.1:49999/"`. The scheme passes, the flag went TRUE, the
     ///   connection is refused and the document never changes — so the
     ///   attacker's page kept running with all seven commands armed, including
     ///   `desktop_set_supervision` and the reset screen.
     /// - wry calls this handler for SUBFRAME loads too, with no frame filter
     ///   on either backend (`wkwebview/navigation.rs`, `webkitgtk/mod.rs`), so
-    ///   an `<iframe src="http://127.0.0.1:1/">` armed it without the top frame
-    ///   moving at all.
+    ///   an `<iframe src="http://127.0.0.1:49999/">` armed it without the top
+    ///   frame moving at all.
+    ///
+    /// **A HIGH dead port in those examples, not port 1** (review,
+    /// 2026-09-18): WebKit refuses its blocked-port list before the policy
+    /// delegate runs, so `:1` delivers no callback at all and models nothing.
+    /// The attack is real; that spelling of it is not.
     ///
     /// So arming belongs to [`MainTrust::committed`], which is driven by
     /// `PageLoadEvent::Started`. Verified in wry 0.55.1 that `Started` is
@@ -340,6 +371,26 @@ mod tests {
         assert!(!refuses(MAIN, true), "a trusted dashboard page is not");
         assert!(!refuses("wizard", false), "the assistant is never subject to the flag");
         assert!(!refuses("wizard", true));
+    }
+
+    /// A `blob:` URL is refused on BOTH branches, which it was not.
+    ///
+    /// `blob:https://plane.example.com/<uuid>` has a TUPLE origin equal to
+    /// `https://plane.example.com` (measured, url 2.x), so the base-URL branch
+    /// accepted it while the loopback branch refused the same shape only
+    /// because it pins `http`. Minting one needs a document already on that
+    /// origin, so this was never a cross-origin bypass — but two branches
+    /// disagreeing about one URL shape is how a real disagreement arrives
+    /// later (review, 2026-09-18).
+    #[test]
+    fn a_blob_url_is_refused_on_both_branches() {
+        let trust = MainTrust::new();
+        let base = Some("https://plane.example.com");
+        assert!(!trust.trusts(&url("blob:https://plane.example.com/9115d58c"), base));
+        assert!(!trust.trusts(&url("blob:http://127.0.0.1:3080/9115d58c"), None));
+        // The plain origins they are built from are unaffected.
+        assert!(trust.trusts(&url("https://plane.example.com/"), base));
+        assert!(trust.trusts(&url("http://127.0.0.1:3080/"), None));
     }
 
     /// **Re-deciding never re-reads the WINDOW.**
@@ -536,7 +587,7 @@ mod tests {
         assert!(!trust.is_trusted());
 
         // The attack: aim at something trusted, never arrive.
-        assert!(trust.allow_navigation(&url("http://127.0.0.1:1/")));
+        assert!(trust.allow_navigation(&url("http://127.0.0.1:49999/")));
         assert!(
             !trust.is_trusted(),
             "a navigation request must not arm the guard; only a committed load may"
@@ -545,7 +596,7 @@ mod tests {
 
     /// The other spelling of the same defect: wry calls the navigation handler
     /// for SUBFRAME loads with no frame filter on either backend, so an
-    /// `<iframe src="http://127.0.0.1:1/">` armed it without the top frame
+    /// `<iframe src="http://127.0.0.1:49999/">` armed it without the top frame
     /// moving. It must also not DISARM a legitimate page that embeds a
     /// third-party frame, which is why the handler writes nothing at all.
     #[test]
@@ -554,7 +605,7 @@ mod tests {
         trust.set_base(Some("https://plane.example.com".into()));
         trust.committed(&url("https://plane.example.com/"));
 
-        assert!(trust.allow_navigation(&url("http://127.0.0.1:1/")));
+        assert!(trust.allow_navigation(&url("http://127.0.0.1:49999/")));
         assert!(
             trust.is_trusted(),
             "an embedded frame does not disarm the page around it"
