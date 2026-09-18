@@ -246,6 +246,16 @@ const AGENT_LABEL = "subshell CLI";
 
 /** How a machine with no agent installed reads in a version column. */
 const NOT_INSTALLED = "not installed";
+/**
+ * What the app row's "running" cell says before a check has answered.
+ *
+ * The app's own version reaches this model only through the release check
+ * (`check.current`), so a table opened by the AGENT half alone — the agent is
+ * behind, and the check has not landed or rejected outright — has a row it
+ * cannot number. A dash and a reason beat omitting the component, which is the
+ * guess § 13.1 exists to remove.
+ */
+const NOT_ASKED = "—";
 
 /**
  * Decide the whole screen.
@@ -389,19 +399,33 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   const appInQuestion = check !== undefined && (appAvailable || check.reason !== null);
   const agentInQuestion = agentBehind || unmanaged;
   const showTable = appInQuestion || agentInQuestion;
-  if (showTable && check !== undefined) {
+  if (showTable) {
     rows.push({
       id: "app",
       label: APP_LABEL,
-      from: check.current,
-      to: check.latest !== null ? { kind: "version", version: check.latest } : { kind: "none" },
+      // **Including when no check has answered** (second review, 2026-09-18).
+      // `check` is undefined on the first paint and PERMANENTLY when
+      // `node_check_app_update` rejects — a build with no updater pubkey, the
+      // reserved `Err` case — and gating the app row on it put the agent row
+      // alone in a table both this file and AGENTS.md say cannot happen.
+      from: check?.current ?? NOT_ASKED,
+      to: check?.latest != null ? { kind: "version", version: check.latest } : { kind: "none" },
       selected: appSelected,
       selectable: appAvailable && !inFlight,
-      // Three states, not two (review, 2026-09-18): the row is shown on any
-      // table now, so "no act" is either a check that could not run or an app
-      // that is simply current — and calling the second one "cannot be
-      // checked" reports a failure that did not happen.
-      reason: appAvailable ? null : check.reason !== null ? "cannot be checked" : "up to date",
+      // Four states, not two (review, 2026-09-18): "no act" is a check still
+      // running, a check that could not run, or an app that is simply
+      // current — and calling the last one "cannot be checked" reports a
+      // failure that did not happen.
+      reason:
+        check === undefined
+          ? checking
+            ? "checking…"
+            : "cannot be checked"
+          : appAvailable
+            ? null
+            : check.reason !== null
+              ? "cannot be checked"
+              : "up to date",
     });
   }
   // The agent's own row, on the same gate as the app's — see `showTable`.

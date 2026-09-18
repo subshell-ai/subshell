@@ -139,6 +139,28 @@ describe("what the screen states (§ 4.1)", () => {
     ]);
   });
 
+  /**
+   * **Even a table the AGENT half opened states the app** (second review,
+   * 2026-09-18). `check` is undefined on the first paint and PERMANENTLY when
+   * `node_check_app_update` rejects — a build with no updater pubkey is the
+   * reserved `Err` case — and gating the app row on it left the agent row
+   * alone in a table this file and AGENTS.md both say cannot exist.
+   */
+  it("states an app it has not been able to ask about", () => {
+    const checkingNow = act({ check: undefined, checking: true, probe: agentBehind() });
+    expect(checkingNow.rows.map((r) => r.id)).toEqual(["app", "agent"]);
+    expect(checkingNow.rows[0]).toEqual(
+      row({ id: "app", label: "Subshell Client app", from: "—", to: { kind: "none" }, reason: "checking…" }),
+    );
+
+    // And once the check has REJECTED rather than answered, the row says so
+    // rather than claiming the app is current.
+    const rejected = act({ check: undefined, checking: false, probe: agentBehind() });
+    expect(rejected.rows[0]?.reason).toBe("cannot be checked");
+    // The agent half is unaffected by any of it — it is entirely local.
+    expect(rejected.press).toBe("agent");
+  });
+
   it("is still checking until a release answer has landed", () => {
     expect(act({ check: undefined, checking: true }).phase).toBe("checking");
     // And never claims up-to-date over a question that has not been answered.
