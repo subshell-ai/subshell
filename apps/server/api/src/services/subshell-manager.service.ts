@@ -1643,8 +1643,9 @@ export const normalizePaneTitleForTests = normalizePaneTitle;
  * Intentional control characters: the whole point is to recognise terminal
  * escape sequences.
  */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: recognising terminal escape sequences
-const ESCAPE_SEQUENCE = /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[ -/]+[0-~]|\x1b[@-Z\\-_]/g;
+const ESCAPE_SEQUENCE =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: recognising terminal escape sequences
+  /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[ -/]+(?:[0-~]|$)|\x1b[@-Z\\-_]/g;
 
 /**
  * Cleans a raw tmux `pane_title` for use as a subshell name: escape sequences
@@ -1674,6 +1675,12 @@ const ESCAPE_SEQUENCE = /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]
  * control pass below deleted the bare `ESC`, and a pane running `npm run dev`
  * was named `Bnpm run dev` in every sidebar it appeared in. Exactly the same
  * laundering as the Kitty query, by a shorter route.
+ *
+ * A TRUNCATED one goes too — `ESC (` at end of string, with the final byte
+ * past the capture — the way the OSC branch already takes an unterminated
+ * string. Without it the `ESC` fell to the control pass and the intermediate
+ * byte survived as a stray `(`: one character rather than a payload, but it is
+ * the class this function claims to close (review, 2026-09-18).
  */
 function normalizePaneTitle(raw: string): string {
   const withoutSequences = raw.replace(ESCAPE_SEQUENCE, " ");

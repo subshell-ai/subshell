@@ -114,6 +114,12 @@ pub fn spawn(app: AppHandle) {
         // all seven commands for a document that never moved. The guard re-runs
         // over the last COMMITTED address instead.
         crate::trust::window_state().revalidate();
+        // **Routing only, never privileges** (review, 2026-09-18). This is the
+        // ACTIVE url, so a page can put a value of its choosing here — which
+        // buys it nothing but being navigated to a trusted origin, with
+        // `open_main` clearing trust before it goes. Anything DECIDING from it
+        // must use `trust::MainTrust::committed_url()` instead; this read is
+        // one line from the guard and the next reuse of it will not know.
         let current = window.url().ok().map(|u| u.to_string());
         if let Some(next) = origin_changed(current.as_deref(), &probe) {
             // `open_main`'s existing-window branch navigates and re-raises;

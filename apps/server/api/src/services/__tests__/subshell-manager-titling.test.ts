@@ -223,6 +223,10 @@ describe("normalizePaneTitle", () => {
     expect(norm("\x1b)0abc")).toBe("abc");
     // And one that is nothing else has nothing displayable left.
     expect(norm("\x1b(B")).toBe("");
+    // Truncated mid-sequence, the way the OSC branch already handles one: the
+    // intermediate byte goes with the ESC rather than surviving as a stray `(`.
+    expect(norm("\x1b(")).toBe("");
+    expect(norm("title \x1b(")).toBe("title");
   });
 
   it("drops an OSC string whole", () => {
