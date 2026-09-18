@@ -95,8 +95,11 @@ export function jobLine(job: UpdateJob): string {
  *   made a global control read as a server-only one.
  * - **The bundled-server offer**, which required `shell.app === "server"` and
  *   is therefore unreachable from a row this app no longer renders. It lives
- *   in `folded-server-row.tsx` as that row's detail line. `bundledServerUpdate`
- *   stays exported here because that component and its tests use it.
+ *   in `folded-server-row.tsx`, which CALLS `bundledServerUpdate` — the reason
+ *   it is still exported. It briefly re-implemented the comparison instead,
+ *   which is the duplication `.claude/rules/code-style.md` names and the
+ *   review caught (I6): two copies of "is the bundle newer than what is
+ *   installed", one of them untested.
  */
 export function ServerRow({
   view,

@@ -11,13 +11,7 @@ function renderTable() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <UpdatesTable
-        view={updatesView()}
-        update={idleUpdate}
-        onCheck={() => {}}
-        checking={false}
-        serverVersion="0.6.0"
-      />
+      <UpdatesTable view={updatesView()} update={idleUpdate} onCheck={() => {}} checking={false} />
     </QueryClientProvider>,
   );
 }
@@ -116,11 +110,35 @@ describe("the Components table inside Subshell Server", () => {
   it("puts the CLI's versions in the version columns, not in prose", () => {
     setUA(SERVER_UA);
     const { container } = renderTable();
-    // `b=0.10.0` in the UA is what this app ships; the view's server is older.
     const cells = Array.from(container.querySelectorAll("div.font-mono")).map((n) => n.textContent);
-    expect(cells).toContain("0.10.0");
-    // And no sentence carrying the same number instead.
+    // The CLI's own running version, in a real cell.
+    expect(cells).toContain(updatesView().server.current);
+    // And no sentence carrying versions instead of columns.
     expect(screen.queryByText(/installed with the app\./)).toBeNull();
+  });
+
+  /**
+   * "Newest" means the newest PUBLISHED release in EVERY row (review I10).
+   *
+   * It briefly held the version this app bundles, which can be older than what
+   * was published — one row's column quietly meaning something else while
+   * looking like it obeyed the header, which breaks the table's only read in
+   * the way hardest to notice. What the app ships is a fact about the act, so
+   * it belongs in the act cell.
+   */
+  it("keeps Newest meaning the newest published release, even on the CLI row", () => {
+    setUA(SERVER_UA);
+    const { container } = renderTable();
+    const cells = Array.from(container.querySelectorAll("div.font-mono")).map((n) => n.textContent);
+    // Non-null via the fixture: `updatesView()` always publishes a server
+    // release, and `toContain` will not take `string | undefined`.
+    const published = updatesView().server.latest?.version ?? "";
+    expect(published).not.toBe("");
+    expect(cells).toContain(published);
+    // The bundled version (`b=0.10.0` in the UA) is NOT in a version cell.
+    expect(cells).not.toContain("0.10.0");
+    // It is stated where the act is, because that is what it is about.
+    expect(screen.getByText(/ships 0\.10\.0, with the app/)).toBeTruthy();
   });
 
   // One act, so one button — the CLI half says where its act lives rather
@@ -129,7 +147,16 @@ describe("the Components table inside Subshell Server", () => {
     setUA(SERVER_UA);
     renderTable();
     expect(screen.getAllByRole("button", { name: "Open the update assistant" }).length).toBe(1);
-    expect(screen.getByText("with the app")).toBeTruthy();
+    expect(screen.getByText(/with the app/)).toBeTruthy();
+  });
+
+  // M13: a shell that does not report what it bundles is a real state (a
+  // cached bundle, a build predating the `b=` marker) and the row said so
+  // before the restructure dropped it to a bare dash.
+  it("still explains a build that does not report the server it ships", () => {
+    setUA("Mozilla/5.0 SubshellDesktop/0.8.0 (macos; p=1)");
+    renderTable();
+    expect(screen.getByText(/does not report the server it ships/)).toBeTruthy();
   });
 
   it("offers the assistant and no release-source update", () => {

@@ -1,6 +1,7 @@
 import { semverLt } from "@internal/subshell-protocol";
 import { Button } from "@/components/ui/button";
 import { DASH, MobilePair, VersionCell } from "@/components/updates/row-cells";
+import { bundledServerUpdate } from "@/components/updates/server-row";
 import { type DesktopShell, desktopInvoke } from "@/lib/desktop";
 import type { ReleaseRef, ServerUpdateView } from "@/types/updates";
 
@@ -51,12 +52,11 @@ export function FoldedServerRow({
   server: ServerUpdateView;
 }) {
   const appBehind = app !== null && semverLt(shell.version, app.version);
-  // The release source's newest server, and separately the one this app ships.
-  // Either can be ahead of what is installed, and the assistant installs the
-  // BUNDLED one — so the sentence names that, not the release index's.
-  const bundled = shell.bundledServer ?? null;
-  const serverBehind = bundled !== null && server.current !== "" && semverLt(server.current, bundled);
-  const behind = appBehind || serverBehind;
+  // I6: the SAME helper the standalone row uses, not a second copy of the
+  // comparison. It answers "the bundle is newer than what is installed", or
+  // null — including for a shell that does not report what it bundles.
+  const bundledNewer = bundledServerUpdate(shell, server.current || undefined);
+  const behind = appBehind || bundledNewer !== null;
 
   return (
     <>
@@ -88,18 +88,41 @@ export function FoldedServerRow({
       </div>
       <div className="contents">
         <div className="min-w-0">
-          {/* "CLI", so the version below is unambiguously the binary's and not
-              this app's — the two are different numbers and the row above
-              carries the other one. */}
+          {/* "CLI", so the version beside it is unambiguously the binary's and
+              not this app's — the row above carries the other one. */}
           <p className="truncate font-strong text-label">subshell-server CLI</p>
-          <MobilePair running={server.current || DASH} newest={bundled ?? DASH} />
+          <MobilePair running={server.current || DASH} newest={server.latest?.version ?? DASH} />
         </div>
         <VersionCell value={server.current || DASH} />
-        <VersionCell value={bundled ?? DASH} />
-        {/* Not a dash: this half HAS an act, and it is the row above's. A dash
-            would say "nothing to do here", which is the opposite. */}
+        {/*
+         * **"Newest" means the newest PUBLISHED release here, exactly as it
+         * does in every other row of this grid** (review finding I10).
+         *
+         * It briefly held the version this app BUNDLES, which can be older
+         * than what has been published — so one row's column quietly meant
+         * something else while looking like it obeyed the header. That breaks
+         * the only read the table has (scan the middle two columns, spot the
+         * mismatch) in the way hardest to notice, and combined with this app
+         * rendering no standalone Server row it left an admin unable to learn
+         * that a newer `subshell-server` existed at all.
+         *
+         * What the app ships is a fact about the ACT, not about the release
+         * feed, so it lives in the act cell below.
+         */}
+        <VersionCell value={server.latest?.version ?? DASH} />
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="text-detail text-muted-foreground">{bundled === null ? DASH : "with the app"}</span>
+          {/* Not a dash where there is an act: this half HAS one and it is the
+              row above's. M13: the no-bundle case keeps its explanation rather
+              than collapsing to a bare dash — a shell that predates the `b=`
+              marker, or a cached bundle, is a real state and the row said so
+              before the restructure. */}
+          <span className="text-detail text-muted-foreground">
+            {/* `bundledServer` is OPTIONAL on the parsed shell, not nullable —
+                a `=== null` check here silently never fired. */}
+            {shell.bundledServer
+              ? `ships ${shell.bundledServer}, with the app`
+              : "this build does not report the server it ships"}
+          </span>
         </div>
       </div>
     </>

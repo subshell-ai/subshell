@@ -36,7 +36,6 @@ export function UpdatesTable({
   update,
   onCheck,
   checking,
-  serverVersion,
 }: {
   /** `GET /api/admin/updates` in full */
   view: UpdatesView;
@@ -46,8 +45,6 @@ export function UpdatesTable({
   onCheck: () => void;
   /** True while that check is in flight */
   checking: boolean;
-  /** What the instance reports it is running, for the bundled-server line */
-  serverVersion: string | undefined;
 }) {
   const shell = desktopShell();
   // Narrowed rather than asked twice, so the branch below and `FoldedServerRow`

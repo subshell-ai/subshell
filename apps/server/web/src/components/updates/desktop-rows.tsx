@@ -101,9 +101,18 @@ export function DesktopRows({
           </div>
         );
       })}
+      {/*
+       * Worded for the rows it is ACTUALLY about (review M12). Inside Subshell
+       * Server this component is asked for the client alone, so the old
+       * sentence — "No desktop release could be read from the release source"
+       * — claimed the source had said nothing while the SERVER's release was
+       * read and sitting in the folded row directly above it.
+       */}
       {rows.length > 0 && rows.every((row) => row.release === null) && (
         <p className="col-span-full text-detail text-muted-foreground">
-          No desktop release could be read from the release source.
+          {rows.length === 1
+            ? `No ${rows[0]?.name} release could be read from the release source.`
+            : "No desktop release could be read from the release source."}
         </p>
       )}
     </>

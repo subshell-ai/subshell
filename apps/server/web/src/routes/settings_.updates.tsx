@@ -67,15 +67,7 @@ function UpdatesPage() {
               Nodes LAST — an operator's call, 2026-09-17: the node rows are
               per-machine and grow with the fleet, so they belong below the
               rows that stay a screenful however many machines enroll. */}
-          {view && (
-            <UpdatesTable
-              view={view}
-              update={update}
-              onCheck={check.check}
-              checking={check.pending}
-              serverVersion={publicSettings?.serverVersion}
-            />
-          )}
+          {view && <UpdatesTable view={view} update={update} onCheck={check.check} checking={check.pending} />}
         </>
       ) : (
         <p className="text-muted-foreground text-sm">
