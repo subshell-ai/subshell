@@ -273,7 +273,25 @@ pub fn run() {
                         Err(err) => eprintln!("subshell: could not start the server: {err}"),
                     }
                 }
-                control::boot_window(&probe)
+                // PHASE 2 of one update act (spec 2026-09-18 § 4.2). If this
+                // build came up because the person pressed Update in the
+                // PREVIOUS one, the bundled server it ships is still not
+                // installed — `boot_resume` decides that from the marker and
+                // the machine, and requests the `update` screen through the
+                // same stash every deep link uses. It counts nothing: the
+                // attempt is spent where the install runs, so a launch that
+                // opens this screen and quits costs the bound nothing.
+                //
+                // It outranks `boot_window`, and has to: a machine whose
+                // server is running answers `Main`, which would open the
+                // dashboard over an act the person started and never see the
+                // assistant again. Dismissing the screen hands off to the
+                // dashboard anyway, through the page's ordinary ready path.
+                if control::boot_resume(&handle, &settings, &probe) {
+                    control::WindowChoice::Wizard
+                } else {
+                    control::boot_window(&probe)
+                }
             };
             match choice {
                 control::WindowChoice::Wizard => {

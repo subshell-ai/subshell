@@ -5,10 +5,11 @@
  * It owns everything that has to render with the server DOWN — the first run
  * (spec 2026-09-17: one automatic screen, with the named tmux stop in front
  * of it only where tmux is missing), the one Recovery screen a machine sees
- * once it has been set up and its server is not answering, the Update screen,
- * and Reset — and it is the only page granted the commands that drive the
- * CLI. `screensFor(probe, onboarded)` picks the family; `update`,
- * `app-update`, `permissions` and `reset` are entered by REQUEST, from the
+ * once it has been set up and its server is not answering, the one Update
+ * screen (spec 2026-09-18: the app and the server it ships, in one act across
+ * the relaunch between them), and Reset — and it is the only page granted the
+ * commands that drive the CLI. `screensFor(probe, onboarded)` picks the
+ * family; `update`, `permissions` and `reset` are entered by REQUEST, from the
  * SPA's own cards over `desktop_open_assistant`, from the tray, or from the
  * recovery screen's links.
  *
@@ -43,6 +44,7 @@ import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/
 import * as ipc from "./lib/ipc";
 import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
+import { type ActState, rejectedResult, UPDATE_TITLE, updateAct } from "./lib/update-act";
 import {
   applySupervisionChoice,
   autoSetupDecision,
@@ -230,7 +232,7 @@ let requestingPhotos = false;
  */
 let about: About | null = null;
 /**
- * The app-update screen's own state, which is a NETWORK read and therefore
+ * The update screen's release answer, which is a NETWORK read and therefore
  * not on the 1500 ms poll.
  *
  * Every other fact this page shows comes from `desktop_probe`, which reads
@@ -240,9 +242,31 @@ let about: About | null = null;
  * and on Check Again, and its answer lives here across the renders in between.
  */
 let appUpdate: AppUpdateCheck | null = null;
-let appUpdateState: "idle" | "checking" | "installing" = "idle";
+/** What the update screen is doing; the machine's half rides the probe. */
+let updateState: ActState = "idle";
 /** The download's own last line, from the plugin's progress events. */
-let appUpdateProgress = "";
+let updateProgress = "";
+/**
+ * The update act's last answer in THIS window — the install, or the restart
+ * behind it.
+ *
+ * Page state, and it has to be, for the reason `ranSetupHere` is: a successful
+ * bundled install CLEARS the marker the probe reports, so a screen reading the
+ * probe alone would forget what it had just done between one poll and the next
+ * and fall back to offering the act again. Its own slot rather than
+ * `lastResult`, which every other press overwrites.
+ */
+let updateResult: ActionResult | null = null;
+/**
+ * The second half of an update has been fired in THIS window load.
+ *
+ * One fire per load, exactly like {@link autoFired}: the poll re-renders the
+ * screen twice a second, and the thing that bounds RETRIES is the marker's own
+ * attempt count (`MAX_RESUME_ATTEMPTS`, incremented at boot), not this. What
+ * this prevents is a second chain inside one load — a press and a tick racing
+ * for the same install.
+ */
+let resumeFired = false;
 const form: FormValues = effectiveForm(undefined);
 const explicit: ExplicitMap = {};
 /** The two supervision boxes on the setup screen; reset with the form. */
@@ -258,7 +282,7 @@ let seeded = false;
 /**
  * The last port this page asked about, and the answer for it.
  *
- * Not a probe field, for the same reason the app-update check is not one: the
+ * Not a probe field, for the same reason the release check is not one: the
  * probe reports the MACHINE, and this reports a number the person may be
  * typing into the address form, which changes without the machine changing.
  * Re-asking on the 1500 ms poll would be a connect attempt per tick for a
@@ -1242,12 +1266,12 @@ function renderRecovery(p: Probe): void {
   // get such a machine running again.
   content.append(button("Change how it runs…", () => go("supervision"), "linkish"));
   // Also reachable here, for the same reason: the dashboard is the ordinary
-  // door to the app's own update and a machine on this screen has no
-  // dashboard. It is always offered rather than gated on a known update —
-  // nothing on THIS page knows whether one exists until the screen behind it
-  // asks, and a row that appeared only after an answer nobody had asked for
-  // would mean checking on the poll.
-  content.append(button("Check for app updates…", () => go("app-update"), "linkish"));
+  // door to updating and a machine on this screen has no dashboard. It is
+  // always offered rather than gated on a known update — nothing on THIS page
+  // knows whether one exists until the screen behind it asks, and a row that
+  // appeared only after an answer nobody had asked for would mean checking on
+  // the poll.
+  content.append(button("Check for updates…", () => go("update"), "linkish"));
   content.append(detailsDisclosure());
   // The ellipsis stays: it correctly says a screen follows rather than an act.
   el("bar-left").append(button(`${RESET_LABEL}…`, () => void openReset(), "ghost"));
@@ -1347,48 +1371,6 @@ function detailsDisclosure(): HTMLElement {
 }
 
 /**
- * Update Your Server: the bundled copy is newer than the installed one.
- *
- * Reached from the SPA's Update card (`desktop_open_assistant({ screen:
- * "update" })`) or from the recovery screen, and it renders over a RUNNING
- * server — which is why `render()` lets a requested screen outrank the ready
- * handoff, or this window would bounce straight back to the dashboard it was
- * just asked to leave.
- */
-function renderUpdate(p: Probe): void {
-  setFrame(
-    "none",
-    "Update Your Server",
-    `Subshell Server includes ${p.bundledVersion ?? "no server"}; ${here()} is running ${p.server?.version ?? "an unknown version"}.`,
-  );
-  const content = el("content");
-  if (paneRisk(p)) {
-    content.append(
-      text(
-        "p",
-        "The installed service definition does not spare live panes, so this restart closes every subshell running here.",
-        "hint warn-text",
-      ),
-    );
-  }
-  content.append(
-    button(
-      "Update and Restart",
-      () =>
-        void act(async () => {
-          const installed = await ipc.installServer();
-          if (!installed.ok) return installed;
-          // `--force` only where the definition would refuse over live panes;
-          // the CLI rejects the flag on every other verb.
-          return ipc.service("restart", paneRisk(p));
-        }, true),
-      "primary big",
-    ),
-  );
-  el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
-}
-
-/**
  * Ask Rust whether a newer app exists, and re-render around the answer.
  *
  * @param force - a press of Check Again rather than the screen opening. It
@@ -1396,10 +1378,10 @@ function renderUpdate(p: Probe): void {
  *   first render would re-ask on every render, which is the poll this screen
  *   exists to stay off.
  */
-async function runAppUpdateCheck(force: boolean): Promise<void> {
-  if (appUpdateState !== "idle") return;
+async function runUpdateCheck(force: boolean): Promise<void> {
+  if (updateState !== "idle") return;
   if (appUpdate !== null && !force) return;
-  appUpdateState = "checking";
+  updateState = "checking";
   render();
   try {
     appUpdate = await ipc.checkAppUpdate();
@@ -1410,112 +1392,200 @@ async function runAppUpdateCheck(force: boolean): Promise<void> {
     setProblem(err);
     appUpdate = null;
   } finally {
-    appUpdateState = "idle";
+    updateState = "idle";
     render();
   }
 }
 
 /**
- * Download, verify, install and relaunch.
+ * Phase 1's app half: download, verify, install, write the marker, relaunch.
  *
- * Does not resolve on success: the app restarts out from under this page. A
+ * Does not resolve on success: the app restarts out from under this page, and
+ * the CLI half runs in the build that comes up (see {@link finishUpdate}). A
  * rejection is therefore always a real failure, which is why the `catch` puts
  * it on the problem line rather than treating it as a state to render.
  */
 async function startAppUpdate(): Promise<void> {
-  if (appUpdateState !== "idle") return;
-  appUpdateState = "installing";
-  appUpdateProgress = "Starting the download…";
+  if (updateState !== "idle") return;
+  updateState = "downloading";
+  updateProgress = "Starting the download…";
   render();
   try {
     await ipc.installAppUpdate();
   } catch (err) {
     setProblem(err);
-    appUpdateState = "idle";
-    appUpdateProgress = "";
+    updateState = "idle";
+    updateProgress = "";
     render();
   }
 }
 
 /**
- * **Update Subshell Server** — the APP, not the server it wraps.
+ * The CLI half: install the server this app ships, then restart the service.
  *
- * The screen beside `renderUpdate`, and the two are deliberately separate:
- * that one replaces `~/.local/bin/subshell-server` through that binary's own
- * `update --from`, this one replaces the `.app` (or the `.deb`) and relaunches.
- * A person who has both offers waiting is being asked about two different
- * things on two different days, and one screen doing both could not say which
- * button costs a restart of what.
+ * Both phases end here — the act when the app is already current, and phase 2
+ * after the relaunch — because it is the same two steps either way. What
+ * differs is only the pane-safety answer, and the difference is a consent
+ * rule rather than a mechanism:
  *
- * Reached from the tray's **Check for Updates…**, from the recovery screen's
- * footer, and from the SPA's Updates page
- * (`desktop_open_assistant({ screen: "app-update" })` — a screen name, and
- * zero new grants on `main`).
+ * - **A PRESS consents to what this screen says now.** The warning above the
+ *   button names the risk the current definition carries, so `paneRisk(p)` is
+ *   the answer the person just agreed to.
+ * - **The automatic resume consents to nothing new.** It carries the answer
+ *   phase 1 recorded (`pendingInstall.forced`), because the person who pressed
+ *   Update is not at this window and cannot be asked again. Where the
+ *   definition has changed under it the CLI refuses, this screen shows that
+ *   refusal verbatim, and the Try Again under the fresh warning is where the
+ *   new consent comes from.
  *
- * **It asks on first render, not on the poll.** Every other screen here is
- * drawn from a probe that re-reads this machine twice a second; this one is a
- * network call to a third party, and polling it would be the background update
- * check the design explicitly does not have (spec § 14).
+ * **A REJECTION is recorded as a result too**, which is not bookkeeping: `act`
+ * turns a throw into the problem line and leaves `updateResult` null, and null
+ * reads to the screen as "nothing has been attempted in this window" — so the
+ * finishing phase showed an error line under "Installing the server it ships…"
+ * with no Try Again, and with the automatic fire already latched for the visit
+ * there was nothing left to press (review, 2026-09-18). The throw is re-raised
+ * so `act` still says what went wrong.
  */
-function renderAppUpdate(): void {
-  const current = appUpdate?.current ?? "";
-  setFrame(
-    "none",
-    "Update Subshell Server",
-    appUpdateState === "checking"
-      ? "Checking for a newer version of this app…"
-      : appUpdate?.latest
-        ? `${here()} runs Subshell Server ${current}; ${appUpdate.latest} is available.`
-        : appUpdate?.reason
-          ? "This app could not check for updates."
-          : `${here()} runs Subshell Server ${current} — the newest release.`,
-  );
+async function finishUpdate(p: Probe, pressed: boolean): Promise<void> {
+  const forced = pressed ? paneRisk(p) : (p.pendingInstall?.forced ?? false);
+  await act(async () => {
+    try {
+      const installed = await ipc.installServer();
+      updateResult = installed;
+      if (!installed.ok) return installed;
+      // `--force` only where the definition would refuse over live panes; the
+      // CLI rejects the flag on every other verb.
+      const restarted = await ipc.service("restart", forced);
+      updateResult = restarted;
+      return restarted;
+    } catch (err) {
+      updateResult = rejectedResult(errText(err));
+      throw err;
+    }
+  }, true);
+}
+
+/**
+ * **Update Subshell Server** — the app AND the server it ships, in one act
+ * (spec 2026-09-18).
+ *
+ * There were two screens here, *Update Your Server* and *Update Subshell
+ * Server*, and they were never two acts: every desktop bundle SHIPS the CLI it
+ * wraps, so installing the app is what makes a newer server available, and the
+ * old pair asked a person to do our packaging's bookkeeping. The names differed
+ * by a possessive.
+ *
+ * **It is two phases, separated by the relaunch** and by nothing else. Phase 1
+ * downloads and installs the application and writes a marker; the build that
+ * comes up reads that marker, opens this screen in its finishing state, and
+ * installs the bundled server. The order is forced rather than chosen: the new
+ * app carries the newer server, so installing the server first installs the
+ * OUTGOING bundle's copy and leaves the machine behind again the moment the app
+ * lands.
+ *
+ * Reached from the tray, from the recovery screen's footer, and from the SPA
+ * (`desktop_open_assistant({ screen: "update" })` — a screen name, and zero new
+ * grants on `main`). It renders over a RUNNING server, which is why `render()`
+ * lets a requested screen outrank the ready handoff.
+ *
+ * **Every judgment is in `lib/update-act.ts`**, which is pure and tested; what
+ * is left here is the DOM and the two presses.
+ */
+function renderUpdate(p: Probe): void {
+  const view = updateAct({ probe: p, appUpdate, state: updateState, finished: updateResult });
+  setFrame("none", UPDATE_TITLE, view.subtitle);
   const content = el("content");
-  if (appUpdateState === "checking") {
-    content.append(text("p", "Reading the project's release list.", "hint"));
-  } else if (appUpdate?.reason) {
-    // A reason is not an error banner: an air-gapped install and a source that
-    // would not answer are ordinary states, and this screen's own subtitle has
-    // already said the app could not check. The reason is the detail under it.
-    content.append(text("p", appUpdate.reason, "hint"));
-  } else if (appUpdate?.latest) {
-    if (appUpdateProgress !== "") content.append(text("p", appUpdateProgress, "hint"));
+
+  if (view.rows.length > 0) {
+    const dl = document.createElement("dl");
+    dl.className = "facts";
+    for (const row of view.rows) {
+      const dt = document.createElement("dt");
+      dt.textContent = row.label;
+      const dd = document.createElement("dd");
+      // A null target is the one number this build cannot know: only the new
+      // bundle knows which server it carries (spec § 4.3).
+      dd.append(text("span", row.to === null ? `${row.from} → the server it ships` : `${row.from} → ${row.to}`));
+      dl.append(dt, dd);
+    }
+    content.append(dl);
+  }
+
+  if (updateProgress !== "") content.append(text("p", updateProgress, "hint"));
+  // The last run's own words, wherever it stopped. Phase 2 has no other way to
+  // report itself — nobody pressed anything, so a silent failure would be a
+  // screen that says "installing…" forever.
+  if (view.phase === "halted" || (updateResult !== null && !updateResult.ok)) {
+    const out = document.createElement("pre");
+    out.className = "pane-pre";
+    if (renderOutput(out, updateResult)) content.append(out);
+  }
+
+  for (const note of view.notes) content.append(text("p", note, "hint"));
+
+  if (view.paneWarning) {
     content.append(
       text(
         "p",
-        "The update is downloaded, its signature is checked against the key built into this app, and then " +
-          "Subshell Server restarts. The server itself keeps running throughout, and so do open subshells.",
-        "hint",
-      ),
-    );
-    // Linux installs through dpkg, which raises a system password sheet. A
-    // sheet nobody was told about reads as malware, which is the whole reason
-    // this sentence is here and is platform-branched — a genuine difference in
-    // what the user has to DO, not in voice.
-    if (probe?.platform === "linux") {
-      content.append(
-        text("p", "Linux installs the package with dpkg, so your system will ask for your password.", "hint"),
-      );
-    }
-    content.append(
-      button(
-        appUpdateState === "installing" ? "Installing…" : `Download and Install ${appUpdate.latest}`,
-        () => void startAppUpdate(),
-        "primary big",
-        appUpdateState === "installing",
+        "The installed service definition does not spare live panes, so this restart closes every subshell running here.",
+        "hint warn-text",
       ),
     );
   }
-  el("bar-left").append(button("Back", () => host.close(), "ghost"));
-  if (appUpdateState !== "installing") {
-    el("bar-right").append(button("Check Again", () => void runAppUpdateCheck(true), "ghost"));
+
+  if (view.press !== null) {
+    if (view.press.kind === "app") {
+      content.append(
+        text(
+          "p",
+          "The update is downloaded, its signature is checked against the key built into this app, and then " +
+            "Subshell Server restarts and installs the server it ships. Open subshells keep running throughout.",
+          "hint",
+        ),
+      );
+      // Linux installs through dpkg, which raises a system password sheet. A
+      // sheet nobody was told about reads as malware, which is the whole reason
+      // this sentence is here and is platform-branched — a genuine difference in
+      // what the user has to DO, not in voice.
+      if (p.platform === "linux") {
+        content.append(
+          text("p", "Linux installs the package with dpkg, so your system will ask for your password.", "hint"),
+        );
+      }
+    }
+    const press = view.press;
+    content.append(
+      button(
+        press.label,
+        () => (press.kind === "app" ? void startAppUpdate() : void finishUpdate(p, true)),
+        "primary big",
+        !press.enabled,
+      ),
+    );
+  }
+
+  // The automatic half of phase 2 — the only thing on this page that acts
+  // without a press, and it is the SECOND half of a press already made. Fired
+  // once per VISIT to this screen (`applyScreen` clears the latch), like the
+  // first run's chain: the poll re-renders twice a second, and what bounds
+  // automatic RETRIES is the marker's own attempt count, not this. Deferred
+  // for the reason {@link afterRender} gives.
+  if (view.phase === "finishing" && view.press === null && !resumeFired) {
+    resumeFired = true;
+    afterRender(() => void finishUpdate(p, false));
+  }
+
+  el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
+  // Hidden while anything is in flight: re-checking mid-act asks a question
+  // nothing will read, and closing this window out from under a running
+  // download is how the app would quit mid-update.
+  if (updateState === "idle" && !busy && view.phase !== "finishing") {
+    el("bar-right").append(button("Check Again", () => void runUpdateCheck(true), "ghost"));
     // **Later** (spec 2026-09-17 § 5.4): the update stays exactly where it
     // is, and so does this window's part in remembering it — no state, no
     // snooze. The dismissal that DOES exist lives per app run in the SPA
     // row's sessionStorage, and the tray item is not dismissed away at all:
-    // it is a request surface, not a notification. Hidden while installing,
-    // because closing this page's window out from under a running download
-    // is how the app would quit mid-update.
+    // it is a request surface, not a notification.
     el("bar-right").append(button("Later", () => void closeAssistantWindow(), "ghost"));
   }
 }
@@ -2006,6 +2076,28 @@ async function refreshTail(): Promise<void> {
  * fine — and the recovery screen would snap back to the diagnosis the press
  * had just fixed.
  */
+/**
+ * Run something THIS RENDER asked for, after the render has finished.
+ *
+ * `render()` starts by clearing `#content` and both bars and then rebuilds
+ * them, and everything scheduled here calls `render()` on its own first line —
+ * so firing one from inside a render re-enters it, and the outer render, which
+ * is still part-way down its own body, appends a SECOND copy of everything
+ * below the call site.
+ *
+ * That is not hypothetical: the app-update screen shipped with it. Its first
+ * render kicked the release check, which set its state and re-rendered from
+ * inside the arm that had not drawn yet, and the screen was drawn twice into
+ * one frame. It was survivable there only because the poll redraws 1500 ms
+ * later and the duplicated screen was one line of text.
+ *
+ * A microtask runs after the current render returns and before the next paint,
+ * so nothing flickers and nothing re-enters.
+ */
+function afterRender(fn: () => void): void {
+  queueMicrotask(fn);
+}
+
 async function act(fn: () => Promise<ActionResult | null>, settle = false): Promise<void> {
   if (busy || running) return;
   busy = true;
@@ -2145,9 +2237,10 @@ function render(): void {
   // is the rule `isRequestedScreen` states beside `screensFor`. The SPA
   // deep-links here on a machine whose server is running (Update from its
   // card, Reset from its danger card, Permissions from any of the detection
-  // notices), the tray opens the app-update screen, and the ready handoff
-  // below would otherwise send the window straight back to the dashboard it
-  // was just asked to leave.
+  // notices), the tray opens the update screen, the BOOT resume opens it to
+  // finish an update that spans a relaunch, and the ready handoff below would
+  // otherwise send the window straight back to the dashboard it was just asked
+  // to leave.
   //
   // `update` draws itself here. `reset` does not: its screen replaces the
   // frame from `resetView` at the top of this function. Since `open()` shows
@@ -2162,15 +2255,20 @@ function render(): void {
   // `!list.includes(screen)` disambiguation this call site used to carry has
   // nothing left to disambiguate.
   if (isRequestedScreen(screen)) {
-    if (screen === "update") renderUpdate(p);
-    if (screen === "app-update") {
+    if (screen === "update") {
       // The check is kicked off from the render rather than from the routing,
-      // because every door — the tray item on both of its labels and the
-      // SPA's deep link — arrives through `screen`, and a second place that
-      // started it is a second place to forget. `runAppUpdateCheck(false)` is
-      // a no-op once an answer exists, so the poll's re-renders cost nothing.
-      void runAppUpdateCheck(false);
-      renderAppUpdate();
+      // because every door — the tray item on both of its labels, the SPA's
+      // deep link, and the boot resume — arrives through `screen`, and a
+      // second place that started it is a second place to forget.
+      // `runUpdateCheck(false)` is a no-op once an answer exists, so the
+      // poll's re-renders cost nothing.
+      //
+      // NOT while a marker is pending: phase 2 is about installing the server
+      // the app it just installed ships, and asking a third party whether a
+      // newer app exists is both irrelevant and the one thing on this screen
+      // that can hang for 20 seconds.
+      if (p.pendingInstall === null) afterRender(() => void runUpdateCheck(false));
+      renderUpdate(p);
     }
     if (screen === "supervision") renderSupervision(p);
     if (screen === "permissions") renderPermissions(p);
@@ -2291,6 +2389,14 @@ function applyScreen(payload: string): void {
   // this is its other exit: the sidebar pill, an Update request or a Reset
   // request all land here while that screen may be showing.
   supervisionForm = null;
+  // Same rule for the update act: its result and its fired-once latch belong
+  // to ONE visit. Without this a window that finished an update and came back
+  // would render "up to date" from a page fact rather than from the machine —
+  // and, worse, a phase 2 that FAILED would come back to a screen with the
+  // latch still set: no auto-fire, and no Try Again either, because the button
+  // hangs off the result this would otherwise have kept.
+  updateResult = null;
+  resumeFired = false;
   // A REQUESTED permissions screen is not the handoff's, whatever this window
   // was doing a moment ago: it was asked for from somewhere the person can go
   // back to, so it takes Back rather than the Continue that opens a dashboard.
@@ -2334,7 +2440,7 @@ void listen<{ step: string; state: string }>("desktop-reset-step", (event) =>
 void listen<{ received: number; total: number | null }>("desktop-app-update-progress", (event) => {
   const { received, total } = event.payload;
   const mb = (n: number) => (n / 1_000_000).toFixed(1);
-  appUpdateProgress =
+  updateProgress =
     total === null ? `Downloading… ${mb(received)} MB` : `Downloading… ${mb(received)} of ${mb(total)} MB`;
   render();
 });

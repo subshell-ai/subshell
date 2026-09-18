@@ -745,18 +745,36 @@ describe("rewriting the service definition", () => {
 });
 
 describe("replacing the installed agent", () => {
+  /**
+   * The status screen's button is a DOOR now (spec 2026-09-18 § 7.4), so the
+   * confirmation it used to raise directly is raised one screen further in —
+   * by the one update act, which is where both halves of an update live. What
+   * the test still pins is that nothing is installed before someone accepts.
+   */
   it("confirms first, and never applies it unasked", async () => {
     const fake = await boot({
       probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "1.10.0" }),
-      handlers: { node_install_agent: () => ({ ok: true, stdout: "Installed subshell", stderr: "" }) },
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell", stderr: "" }),
+        node_check_app_update: () => ({ current: "0.6.1", latest: null, notes: null, reason: null }),
+      },
     });
 
     fireEvent.click(button("Update the agent to 1.10.0"));
+    await waitFor(() => expect(buttonOrNull("Install the agent (1.10.0)")).not.toBeNull());
+    fireEvent.click(button("Install the agent (1.10.0)"));
 
     await waitFor(() => expect(confirmPanelOrNull()).not.toBeNull());
     expect(fake.callsTo("node_install_agent").length).toBe(0);
     expect(confirmPanel().getByText(/Nothing is downloaded/)).toBeTruthy();
-    expect(confirmPanel().getByText(/is NOT started again/)).toBeTruthy();
+    // NOT "the service is stopped first" and NOT "start it afterwards": the
+    // managed path swaps through the CLI's `update --from`, whose rename(2)
+    // the running daemon never notices, so nothing is stopped and the daemon
+    // is still up — on the OLD binary. Both halves of the old sentence were
+    // false, and the second one named the wrong verb (2026-09-18).
+    expect(confirmPanel().queryByText(/stopped first/i)).toBeNull();
+    expect(confirmPanel().queryByText(/is NOT started again/)).toBeNull();
+    expect(confirmPanel().getByText(/keeps running the previous version until you restart it/)).toBeTruthy();
 
     fireEvent.click(confirmPanel().getByRole("button", { name: "Update the agent" }));
     await waitFor(() => expect(fake.callsTo("node_install_agent").length).toBe(1));

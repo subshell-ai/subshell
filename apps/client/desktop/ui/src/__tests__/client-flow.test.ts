@@ -135,8 +135,8 @@ describe("clientScreen", () => {
     const s = settings("https://plane.test");
     expect(clientScreen({ probe: probe(), settings: s, step: null, override: "reset" })).toBe("reset");
     expect(clientScreen({ probe: probe(), settings: s, step: "node", override: "about" })).toBe("about");
-    expect(clientScreen({ probe: probe(), settings: settings(null), step: "choice", override: "app-update" })).toBe(
-      "app-update",
+    expect(clientScreen({ probe: probe(), settings: settings(null), step: "choice", override: "update" })).toBe(
+      "update",
     );
     expect(clientScreen({ probe: probe(), settings: s, step: null, override: "enroll" })).toBe("enroll");
     // …but not over "nothing has been read yet": there is no screen to show.

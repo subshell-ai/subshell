@@ -1214,13 +1214,28 @@ describe("dispatchCli — update and backup", () => {
     expect(err.join("\n")).toContain("unexpected argument '--jsonn'");
   });
 
-  test("update refuses before reaching the network when no binary is installed", async () => {
-    // The suite runs under `bun src/...` with an empty temp home, so the
-    // ladder's answer is `unknown` — which is the refusal, before any release
-    // is read and with SUBSHELL_RELEASE_URL empty under test anyway.
+  /**
+   * The property is **that it refuses before the network**, not which of the
+   * two refusals wins — because which one wins depends on a fact about the
+   * HOST that this test cannot control.
+   *
+   * The installed-binary ladder reads the service definition in the real
+   * launchd/systemd user domain, and no injected temp home hides it. So on a
+   * machine with a Subshell Server installed, the ladder SUCCEEDS and the
+   * air-gapped refusal (`SUBSHELL_RELEASE_URL` is empty under test) is the one
+   * that fires; on a clean machine, and in CI, the ladder answers `unknown`
+   * and the binary refusal fires first.
+   *
+   * It used to assert the binary refusal alone, so it failed on every
+   * developer machine that had the product installed — reporting a defect
+   * whose whole content was "this host runs the thing you are building"
+   * (measured 2026-09-18). Both branches are refusals, both are reached with
+   * no request made, and that is what the test is for.
+   */
+  test("update refuses before reaching the network", async () => {
     const { deps, err, exits } = collectingDeps({ home: newConfigDir(), configDir: newConfigDir() });
     expect(await dispatchCli(["update", "--yes"], deps)).toBe(true);
     expect(exits).toEqual([1]);
-    expect(err.join("\n")).toMatch(/no service definition|cannot replace/);
+    expect(err.join("\n")).toMatch(/no service definition|cannot replace|does not fetch releases/);
   });
 });

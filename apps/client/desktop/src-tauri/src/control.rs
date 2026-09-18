@@ -36,9 +36,10 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
+use subshell_desktop_core::pending_install::{resume_decision, Resume};
 use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::reset_guards::machine_hostname;
-use subshell_desktop_core::settings::{Settings, SettingsState};
+use subshell_desktop_core::settings::{PendingBundledInstall, Settings, SettingsState};
 use subshell_desktop_core::shell_env::{home_dir, which};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
@@ -482,6 +483,40 @@ pub struct Probe {
     /// and the platform where it costs exactly what it is repairing are
     /// opposite, and the page cannot know which it is on.
     pub rewrite_tears_down: bool,
+    /// The second half of an app update that has not been finished yet.
+    ///
+    /// Filled by [`node_probe`] alone — [`probe_now`] is also what
+    /// [`install_agent_now`] reads the machine with, and a marker on that
+    /// answer would be a fact nobody asked for. See [`resume_view`] for why
+    /// this rides the probe rather than `node_settings`.
+    pub pending_install: Option<PendingInstall>,
+}
+
+/// What a page is told about an unfinished update (spec 2026-09-18 § 5).
+///
+/// The ANSWER, never the inputs: `desktop_core::pending_install::resume_decision`
+/// has already weighed the marker against this machine by the time this is
+/// built, so a marker whose work turned out to be done never reaches the page
+/// at all. `forced` is deliberately absent — it carries a pane-safety consent
+/// for a service RESTART, and this app's phase 2 restarts nothing (spec § 7.1).
+///
+/// **The name and every field name are Subshell Server's**, deliberately: the
+/// two apps run the same act over different second halves, and one is read
+/// beside the other whenever either is changed. This app carried
+/// `PendingUpdateView`/`pendingUpdate`/`exhausted` until 2026-09-18, which
+/// made a straight diff of the two screens read as a difference in design
+/// where there was only a difference in spelling. `attempts` is the one field
+/// this app had first (it counts at the FIRE — see [`node_install_agent`] —
+/// which is the rule both apps now follow).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingInstall {
+    /// The app version that was running when the person pressed.
+    pub from_app_version: String,
+    /// How many attempts have already been made and failed.
+    pub attempts: u32,
+    /// Whether it has failed often enough to stop firing on its own.
+    pub halted: bool,
 }
 
 impl Default for Probe {
@@ -502,6 +537,7 @@ impl Default for Probe {
             // for `probe_now` to fill, and `machine_hostname` spawns.
             hostname: String::new(),
             rewrite_tears_down: cfg!(target_os = "macos"),
+            pending_install: None,
         }
     }
 }
@@ -534,17 +570,32 @@ impl Probe {
     /// Recomputed on every probe on purpose: the user may have enrolled from a
     /// terminal, stopped the service or deleted the config while this window
     /// was open, and a remembered step would be wrong.
-    fn decide(&mut self) {
-        // A newer INSTALLED agent is adopted, so the upgrade offer only makes
-        // sense against the copy this app owns. Offering it for an agent the
-        // user installed elsewhere would write ~/.local/bin, change nothing
-        // about what the service runs, and offer again forever.
-        let comparable = if self.managed || self.agent.is_none() {
+    /// The installed agent version to COMPARE the bundle against — which is
+    /// not always the installed version.
+    ///
+    /// A newer INSTALLED agent is adopted, so the upgrade offer only makes
+    /// sense against the copy this app owns. Offering it for an agent the user
+    /// installed elsewhere would write `~/.local/bin`, change nothing about
+    /// what the service runs, and offer again forever — so an unmanaged
+    /// machine answers the BUNDLE's own version, i.e. "nothing to offer".
+    ///
+    /// **Shared with the resume path deliberately** (spec 2026-09-18 § 6).
+    /// `resume_decision` was fed the raw installed version, so a machine whose
+    /// service names a binary elsewhere was refused the CLI half in phase 1 —
+    /// the screen said the agent is left alone — and then had it installed
+    /// anyway at the next boot. One rule, asked in both places, is what makes
+    /// the refusal hold across the relaunch. (Found in review; the server app
+    /// carries the identical fix and the identical comment.)
+    fn comparable_agent_version(&self) -> Option<&str> {
+        if self.managed || self.agent.is_none() {
             self.agent.as_ref().and_then(|a| a.version.as_deref())
         } else {
-            self.bundled_version.as_deref() // nothing to offer: treat as up to date
-        };
-        self.agent_choice = decide_agent(self.bundled_version.as_deref(), comparable);
+            self.bundled_version.as_deref()
+        }
+    }
+
+    fn decide(&mut self) {
+        self.agent_choice = decide_agent(self.bundled_version.as_deref(), self.comparable_agent_version());
 
         self.step = if self.agent.is_none() {
             ProbeStep::NoAgent
@@ -597,7 +648,89 @@ fn bundled_version() -> Option<String> {
 /// Look at the machine and report what it would take to get this node running.
 #[tauri::command(async)]
 pub fn node_probe(settings: State<'_, SettingsState>) -> Probe {
-    probe_now(settings.get().binary_path.as_deref())
+    let mut probe = probe_now(settings.get().binary_path.as_deref());
+    probe.pending_install = resume_view(&settings, &probe);
+    probe
+}
+
+/// Weigh an update marker against this machine, and say what is left of it.
+///
+/// **The decision is `desktop-core`'s and is shared with Subshell Server**
+/// (spec 2026-09-18 § 5): both apps ask the same question — is there still
+/// something to install, and has it failed too often to keep trying — and
+/// differ only in what they DO with the answer. The server app installs its
+/// bundled server and restarts the service; this one installs the bundled
+/// agent and deliberately does not restart the daemon (§ 7.1).
+///
+/// It rides the PROBE rather than `node_settings` for two reasons, and both
+/// are about not inventing anything: the probe is the command that already
+/// computes the bundled version against the installed one, which is exactly
+/// the pair `resume_decision` weighs; and putting the answer on a read the
+/// page already makes every few seconds is what let the whole two-phase act
+/// ship without a new Tauri command — the window that finishes an update is a
+/// process that did not exist when the person pressed, and it must not need a
+/// wider IPC surface to find that out.
+///
+/// A marker whose work is DONE is cleared here, on the read that noticed. That
+/// is the one write this function makes, and it is idempotent: the next probe
+/// finds no marker and decides nothing. **This is where this app differs from
+/// Subshell Server's twin**, which is read-only and leaves the clearing to its
+/// boot path: nothing here runs at boot, because the process that finishes the
+/// act learns about it from the poll the page already makes.
+///
+/// A marker with an EMPTY `from_app_version` is no marker, and
+/// `resume_decision` says so for BOTH apps: `PendingBundledInstall` derives
+/// `Default` under `#[serde(default)]`, so a truncated or hand-edited
+/// `{"pendingBundledInstall":{}}` deserializes into a marker that names no
+/// act — and what a marker IS is the record of one app version having handed
+/// off to the next. The crate answers `Resume::Clear` for it, which reaches
+/// the `view.is_none()` branch below and DROPS it.
+///
+/// This function had its own early return for that case, which returned
+/// before the clear and so hid such a marker permanently instead of dropping
+/// it — the opposite of what its comment claimed (review N4). The guard lives
+/// in `desktop-core` beside the field it guards; there is nothing to repeat
+/// here.
+fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingInstall> {
+    let current = settings.get();
+    let marker = current.pending_bundled_install.as_ref()?;
+    let decision = resume_decision(
+        Some(marker),
+        probe.bundled_version.as_deref(),
+        // The managed-aware version, the same one `decide()` compares — see
+        // `comparable_agent_version`. The raw installed version here let an
+        // unmanaged machine resume an install phase 1 had refused.
+        probe.comparable_agent_version(),
+    )?;
+    let view = view_of(marker, &decision);
+    if view.is_none() {
+        // Nothing left to install — someone ran `subshell update` by hand in
+        // between, say. Drop the marker rather than keep an opinion the
+        // machine disagrees with.
+        let _ = settings.update(|s| s.pending_bundled_install = None);
+    }
+    view
+}
+
+/// What a decided marker looks like to the page, or `None` where it is spent.
+///
+/// Split from [`resume_view`] so the mapping is testable without a settings
+/// file: everything above it is I/O, and everything below it is already
+/// covered by `desktop-core`'s own tests.
+fn view_of(marker: &PendingBundledInstall, decision: &Resume) -> Option<PendingInstall> {
+    let halted = match decision {
+        Resume::Clear => return None,
+        // `forced` is ignored on purpose: it consents to a service RESTART,
+        // and this app's phase 2 offers that rather than performing it
+        // (spec 2026-09-18 § 7.1).
+        Resume::Install { .. } => false,
+        Resume::Halt => true,
+    };
+    Some(PendingInstall {
+        from_app_version: marker.from_app_version.clone(),
+        attempts: marker.attempts,
+        halted,
+    })
 }
 
 pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
@@ -760,7 +893,10 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// started.** The CLI's swap is a `rename(2)` a running daemon does not
 /// notice, so the stop that `install_bundled` needed (and the pane warning it
 /// carried) has nothing left to protect. `--no-restart` keeps the deliberate
-/// no-restart this command has always had: the screen says to start it.
+/// no-restart this command has always had, and since spec 2026-09-18 § 7.1 the
+/// screen OFFERS that restart rather than telling anyone to start something.
+/// Nothing here was ever stopped: the daemon is running, on the previous
+/// binary's inode, which is exactly the fact the offer exists to state.
 fn install_agent_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
@@ -874,8 +1010,10 @@ fn classify_update(run: Run) -> AfterUpdate {
 /// about something this CLI's own `update` never does either.
 ///
 /// No `stop_first` and no restart: both are exactly as they are on the
-/// `update` path, which passes `--no-restart` and leaves the start to the
-/// screen.
+/// `update` path, which passes `--no-restart` and leaves the RESTART to the
+/// screen — nothing was stopped, so the daemon is up on the previous binary's
+/// inode until someone restarts it (spec § 7.1/§ 7.2; review N2, the second
+/// site of the wrong verb I9 fixed one function up).
 fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result<ActionResult, String> {
     match sidecar::install_bundled(&AGENT_SIDECAR, bundled, || {})? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
@@ -892,9 +1030,36 @@ fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result
     }
 }
 
+/// Install the bundled agent, and settle any update marker the install belongs
+/// to.
+///
+/// **The attempt is counted BEFORE the install and the marker is dropped after
+/// a successful one**, which is what bounds the second phase (spec
+/// 2026-09-18 § 5). Counting here rather than at boot is deliberate: an
+/// attempt is an attempt whoever asked for it, and this is the one place every
+/// route into the agent half passes through — the resumed act, the Retry the
+/// screen offers once it has halted, and the status screen's own door.
+///
+/// A successful install by ANY of those routes finishes the act, because what
+/// the marker records is that the bundled agent had not been installed yet.
 #[tauri::command(async)]
 pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
-    install_agent_now(&settings)
+    let resuming = settings.get().pending_bundled_install.is_some();
+    if resuming {
+        let _ = settings.update(|s| {
+            if let Some(marker) = s.pending_bundled_install.as_mut() {
+                marker.attempts = marker.attempts.saturating_add(1);
+            }
+        });
+    }
+    let outcome = install_agent_now(&settings);
+    // Only a run that actually replaced the file clears it. A rejection or a
+    // refusal leaves the marker for the Retry the screen offers, which is the
+    // whole reason the marker outlives a failure.
+    if resuming && matches!(&outcome, Ok(result) if result.ok) {
+        let _ = settings.update(|s| s.pending_bundled_install = None);
+    }
+    outcome
 }
 
 /// The event each output line is emitted on while tmux installs.
@@ -1997,6 +2162,146 @@ mod command_set_tests {
     }
 }
 
+/// The marker's own half of the probe (spec 2026-09-18 § 5).
+///
+/// `desktop_core::pending_install` owns and tests the DECISION; what belongs
+/// here is the mapping onto what the page is told, because the two halves
+/// this app leaves out of it are decisions in their own right: `forced` never
+/// crosses, since phase 2 restarts nothing here, and a spent marker is
+/// reported as `halted` rather than withheld, so the screen can still
+/// offer Retry.
+#[cfg(test)]
+mod resume_tests {
+    use super::*;
+    // Production code no longer names this: the guard lives inside
+    // `resume_decision` (review M17/N4). The tests still assert it directly,
+    // because "a nameless marker is not an act" is the rule they pin.
+    use subshell_desktop_core::pending_install::names_an_act;
+
+    fn marker(attempts: u32) -> PendingBundledInstall {
+        PendingBundledInstall {
+            from_app_version: "0.6.0".into(),
+            started_at: "2026-09-18T12:00:00Z".into(),
+            attempts,
+            forced: true,
+        }
+    }
+
+    /// The refusal phase 1 renders must survive the relaunch (spec
+    /// 2026-09-18 § 6; found in review, and fixed identically in the server
+    /// app).
+    ///
+    /// `resume_decision` was fed the RAW installed version while `decide()`
+    /// fed it a managed-aware one, so a machine whose service names an agent
+    /// outside `~/.local/bin` was told the agent is left alone and then had it
+    /// installed anyway at the next boot.
+    #[test]
+    fn an_unmanaged_machine_has_no_second_half_to_resume() {
+        let p = Probe {
+            bundled_version: Some("1.10.0".into()),
+            agent: Some(AgentBinary {
+                argv: vec!["/usr/local/bin/subshell".into()],
+                source: agent_bin::AgentSource::Service,
+                version: Some("1.8.0".into()),
+            }),
+            managed: false,
+            ..Default::default()
+        };
+        // The bundle really IS newer; the raw comparison would say "work".
+        assert_eq!(p.comparable_agent_version(), Some("1.10.0"));
+        assert_eq!(
+            resume_decision(
+                Some(&marker(0)),
+                p.bundled_version.as_deref(),
+                p.comparable_agent_version()
+            ),
+            Some(Resume::Clear)
+        );
+    }
+
+    /// And the managed machine still resumes.
+    #[test]
+    fn a_managed_machine_still_has_its_second_half() {
+        let p = Probe {
+            bundled_version: Some("1.10.0".into()),
+            agent: Some(AgentBinary {
+                argv: vec!["/home/u/.local/bin/subshell".into()],
+                source: agent_bin::AgentSource::LocalBin,
+                version: Some("1.8.0".into()),
+            }),
+            managed: true,
+            ..Default::default()
+        };
+        assert_eq!(p.comparable_agent_version(), Some("1.8.0"));
+        assert_eq!(
+            resume_decision(
+                Some(&marker(0)),
+                p.bundled_version.as_deref(),
+                p.comparable_agent_version()
+            ),
+            Some(Resume::Install { forced: true })
+        );
+    }
+
+    #[test]
+    fn an_install_reaches_the_page_as_work_still_to_do() {
+        let m = marker(0);
+        let view = view_of(&m, &Resume::Install { forced: true }).expect("a view");
+        assert_eq!(view.from_app_version, "0.6.0");
+        assert_eq!(view.attempts, 0);
+        assert!(!view.halted);
+    }
+
+    /// Halting must still REPORT: the marker stays so the screen can name the
+    /// update and offer Retry, and only the automatic firing stops.
+    #[test]
+    fn halting_is_reported_rather_than_hidden() {
+        let m = marker(2);
+        let view = view_of(&m, &Resume::Halt).expect("a view");
+        assert_eq!(view.attempts, 2);
+        assert!(view.halted);
+    }
+
+    /// A marker that names no app version is a corrupt file, not an act — and
+    /// it reaches this app as a `Clear`, which is what DROPS it.
+    ///
+    /// Asserted through `resume_decision` rather than `names_an_act` alone,
+    /// because the guard moved into the crate and the thing worth pinning here
+    /// is the answer this app acts on. The local early return that used to sit
+    /// in `resume_view` returned before the clear, so a nameless marker was
+    /// hidden forever rather than dropped (review N4).
+    #[test]
+    fn a_marker_naming_no_version_is_cleared_rather_than_hidden() {
+        assert!(names_an_act(&marker(0)));
+        let mut blank = marker(0);
+        blank.from_app_version = String::new();
+        assert!(!names_an_act(&blank));
+        assert_eq!(
+            resume_decision(Some(&blank), Some("1.10.0"), Some("1.8.0")),
+            Some(Resume::Clear)
+        );
+        assert_eq!(view_of(&blank, &Resume::Clear), None);
+        // Whitespace too: `serde(default)` is one way to get here and a hand
+        // edit is the other, and a space is what a hand edit leaves.
+        blank.from_app_version = "  ".into();
+        assert!(!names_an_act(&blank));
+    }
+
+    #[test]
+    fn a_spent_marker_tells_the_page_nothing() {
+        assert_eq!(view_of(&marker(0), &Resume::Clear), None);
+    }
+
+    /// The pane-safety consent is the server app's field, and carrying it
+    /// here would be consent to a restart this app never performs.
+    #[test]
+    fn the_phase_one_force_does_not_cross_into_this_app() {
+        let m = marker(0);
+        let json = serde_json::to_string(&view_of(&m, &Resume::Install { forced: true }).unwrap()).unwrap();
+        assert!(!json.contains("forced"), "{json}");
+    }
+}
+
 #[cfg(test)]
 mod probe_tests {
     use super::*;
@@ -2910,6 +3215,10 @@ mod path_tests {
             // update is a screen a person asks for, not a fact on the probe.
             last_update_check_at: None,
             last_update_version: None,
+            // The unfinished half of an update (spec 2026-09-18 § 5). Written
+            // before the relaunch, read by the NEW build at boot; nothing
+            // here has one.
+            pending_bundled_install: None,
             // Subshell Server's own: who runs the control plane there. This
             // app has a node agent with its own service and no such mode, so
             // it shares the struct and ignores the field, exactly as the

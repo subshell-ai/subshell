@@ -22,7 +22,11 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
-import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
+import {
+  normalizePaneTitleForTests,
+  SubshellManagerService,
+  type SubshellTokenProvider,
+} from "@/services/subshell-manager.service.js";
 
 /**
  * Titling contract (spec 2026-09-03): a name only reaches the pane command
@@ -170,5 +174,105 @@ describe("pane titling — who gets --name", () => {
     await subshells.update(created.id, { nameLocked: 1 });
     await manager.restartSubshell("u1", created.id);
     expect(tmux.newSubshellCmds[1]).toContain("'--name' 'Pinned'");
+  });
+});
+
+/**
+ * What a pane may name a subshell (operator's screenshot, 2026-09-18).
+ *
+ * A pane's title is program output, and programs write escape sequences into
+ * the same byte stream. The cleaner used to blank control characters ONE AT A
+ * TIME, which deleted the `ESC` that identified a sequence and kept its
+ * payload as if it were text — and the leading-punctuation trim then removed
+ * the introducer too. A Kitty graphics capability QUERY, which an agent emits
+ * to ask whether the terminal can show images, therefore arrived in the
+ * sidebar as a subshell named `Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA`.
+ *
+ * The rule now: a sequence is removed WHOLE, so a title that is nothing but a
+ * sequence normalizes to "" and the caller keeps the name it already had.
+ */
+describe("normalizePaneTitle", () => {
+  const norm = normalizePaneTitleForTests;
+
+  it("drops a Kitty graphics query instead of laundering it into a name", () => {
+    expect(norm("\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")).toBe("");
+  });
+
+  // A title captured mid-sequence has no displayable remainder, and keeping
+  // the tail is exactly how the payload got through before.
+  it("drops an UNTERMINATED sequence rather than keeping its tail", () => {
+    expect(norm("\x1b_Gi=31,s=1,v=1,a=q")).toBe("");
+  });
+
+  // The same defect in its commonest clothing: a colour code used to become
+  // "31m…" glued to the front of the real title.
+  it("removes CSI colour codes without gluing their parameters to the text", () => {
+    expect(norm("\x1b[31mnpm run dev\x1b[0m")).toBe("npm run dev");
+  });
+
+  it("drops an OSC string whole", () => {
+    expect(norm("\x1b]0;hello\x07")).toBe("");
+  });
+
+  // The behaviour that already existed and must survive the reordering.
+  it("still strips the harness's cycling status glyph", () => {
+    expect(norm("✳ Building the thing")).toBe("Building the thing");
+  });
+
+  it("still passes an ordinary title through, and still bounds it", () => {
+    expect(norm("my-macbook")).toBe("my-macbook");
+    expect(norm("x".repeat(200))).toHaveLength(120);
+  });
+
+  it("still answers empty for a title with nothing displayable", () => {
+    expect(norm("   \x00\x07  ")).toBe("");
+  });
+
+  /**
+   * The properties that matter because this input is ATTACKER-INFLUENCED: a
+   * pane's title is program output, the result becomes a subshell NAME, and a
+   * name reaches other users' sidebars and this server's log lines
+   * (`.claude/rules/security-context.md`, "normalized so it cannot carry
+   * control characters into another user's screen or a log line").
+   */
+  it("lets no control character survive, whatever the input", () => {
+    const hostile = "\x1b_G;AAA\x1b\\ok\x00\x07\x1b[31m\x1b]0;t\x07\x7f more";
+    const out = norm(hostile);
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting none survive
+    expect(out).not.toMatch(/[\x00-\x1f\x7f]/);
+    // The TEXT between the sequences survives, which is the point — this
+    // strips structure, it does not censor. Only the sequences go.
+    expect(out).toBe("ok     more");
+  });
+
+  /**
+   * 8-bit C1 introducers (review N3). Valid UTF-8 can carry U+0080–U+009F, and
+   * U+009B is CSI — the sequence sweep only knows the 7-bit `ESC x` forms, so
+   * without the widened class one would ride through with its payload.
+   */
+  it("drops 8-bit C1 controls, which the escape sweep cannot see", () => {
+    expect(norm("\u009b31mhello")).toBe("31mhello");
+    expect(norm("\u009dtitle\u009c")).toBe("title");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting none survive
+    expect(norm("a\u0080\u009fb")).not.toMatch(/[\u0080-\u009f]/);
+  });
+
+  it("stays bounded however long the title is", () => {
+    expect(norm(`${"\x1b[31m".repeat(500)}${"n".repeat(500)}`)).toHaveLength(120);
+  });
+
+  /**
+   * Linear, not quadratic. The lazy string-kind branch has `$` as a
+   * terminator alternative, so the FIRST unterminated introducer consumes the
+   * remainder and the scan happens once rather than per introducer — measured
+   * at 1.9 ms for 1.6 MB of nothing but introducers. Pinned with a generous
+   * budget because the point is the ORDER of growth, not a millisecond count
+   * on any particular machine.
+   */
+  it("does not degrade on a title that is nothing but escape introducers", () => {
+    const evil = `${"\x1b_".repeat(20_000)}x`;
+    const started = performance.now();
+    expect(norm(evil)).toBe("");
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DASH, MobilePair, VersionCell } from "@/components/updates/row-cells";
 import { UpdateDialog } from "@/components/updates/update-dialog";
 import type { StartServerUpdate } from "@/hooks/use-updates";
-import { type DesktopShell, desktopInvoke, desktopShell } from "@/lib/desktop";
+import type { DesktopShell } from "@/lib/desktop";
 import { endOnce } from "@/lib/update-copy";
 import type { ServerUpdateView, UpdateJob } from "@/types/updates";
 
@@ -85,27 +85,32 @@ export function jobLine(job: UpdateJob): string {
  * The confirm dialog carries the pane-safety sentence and the forced path,
  * exactly as `RestartDialog` does — an update ends in a restart, so it
  * inherits the restart's one destructive case.
+ *
+ * **This row is a BROWSER's row now** (spec 2026-09-18 D4). Inside Subshell
+ * Server the app and the server are one folded row whose single control opens
+ * the assistant, because the app SHIPS the server — so two things left here:
+ *
+ * - **Re-check**, which moved to the card header. It always invalidated the
+ *   whole table (`useCheckUpdates`), so sitting in this row's action cell only
+ *   made a global control read as a server-only one.
+ * - **The bundled-server offer**, which required `shell.app === "server"` and
+ *   is therefore unreachable from a row this app no longer renders. It lives
+ *   in `folded-server-row.tsx`, which CALLS `bundledServerUpdate` — the reason
+ *   it is still exported. It briefly re-implemented the comparison instead,
+ *   which is the duplication `.claude/rules/code-style.md` names and the
+ *   review caught (I6): two copies of "is the bundle newer than what is
+ *   installed", one of them untested.
  */
 export function ServerRow({
   view,
   update,
-  onCheck,
-  checking,
-  serverVersion,
 }: {
   /** The server half of `GET /api/admin/updates` */
   view: ServerUpdateView;
   /** The page's update handle */
   update: StartServerUpdate;
-  /** Re-read the release source now */
-  onCheck: () => void;
-  /** True while that check is in flight */
-  checking: boolean;
-  /** What the instance reports it is running, for the bundled-server line */
-  serverVersion: string | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const bundled = bundledServerUpdate(desktopShell(), serverVersion);
   // A job is a fact about the SERVER, so it outlives this page: an admin who
   // reloads mid-update must still see the phase. `update.outcome` is this
   // tab's own story on top of it.
@@ -127,9 +132,6 @@ export function ServerRow({
           onClick={() => setConfirming(true)}
         >
           {view.latest ? `Update to ${view.latest.version}` : "Update"}
-        </Button>
-        <Button variant="outline" disabled={!view.source.enabled || checking || busy} onClick={onCheck}>
-          {checking ? "Checking…" : "Re-check"}
         </Button>
       </div>
 
@@ -207,21 +209,6 @@ export function ServerRow({
         <p className="col-span-full text-detail text-muted-foreground">
           Replaces <span className="break-all font-mono">{view.binary.path}</span>.
         </p>
-      )}
-
-      {/* The bundled-server offer, folded in from the Service page's old
-          UpdateCard. It renders nothing at all in a browser. Its top margin is
-          the grid's own row gap, not a divider — inside a row there is nothing
-          for a rule to separate. */}
-      {bundled && (
-        <div className="col-span-full space-y-1.5">
-          <p className="text-sm">
-            Subshell Server includes server {bundled}; this instance is running {serverVersion}.
-          </p>
-          <Button variant="outline" onClick={() => void desktopInvoke("desktop_open_assistant", { screen: "update" })}>
-            Update...
-          </Button>
-        </div>
       )}
 
       <UpdateDialog

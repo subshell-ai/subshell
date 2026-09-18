@@ -1622,20 +1622,64 @@ export async function assertDirAllowed(nodeId: string, resolvedDir: string): Pro
  */
 export const assertDirAllowedForTests = assertDirAllowed;
 
+/**
+ * {@link normalizePaneTitle}, for the tests that pin what a pane may name a
+ * subshell. Exported the way `assertDirAllowedForTests` is: the function is an
+ * internal of this module, and the alternative is a test that drives a whole
+ * tmux sweep to assert one string.
+ * @internal
+ */
+export const normalizePaneTitleForTests = normalizePaneTitle;
+
 /** JSON-safe subshell view (no internal fields). */
 /**
- * Cleans a raw tmux `pane_title` for use as a subshell name: control/escape
- * residue collapses to single spaces, a leading status decoration is dropped
- * (Claude Code prefixes the title with a cycling glyph — ✳/✻/· — that would
- * otherwise churn the name between sweeps), and the result is bounded like
- * every other name the API accepts (120 chars). Returns "" for a title that
- * has nothing displayable in it.
+ * Whole escape sequences, matched so they can be removed as UNITS.
+ *
+ * The string kinds first (OSC/APC/DCS/PM/SOS run to a terminator), then CSI,
+ * then any remaining two-character escape. An UNTERMINATED string kind eats
+ * the rest of the input on purpose: a title captured mid-sequence has no
+ * displayable remainder, and keeping the tail is how the payload gets through.
+ *
+ * Intentional control characters: the whole point is to recognise terminal
+ * escape sequences.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: recognising terminal escape sequences
+const ESCAPE_SEQUENCE = /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]/g;
+
+/**
+ * Cleans a raw tmux `pane_title` for use as a subshell name: escape sequences
+ * are removed whole, control residue collapses to single spaces, a leading
+ * status decoration is dropped (Claude Code prefixes the title with a cycling
+ * glyph — ✳/✻/· — that would otherwise churn the name between sweeps), and the
+ * result is bounded like every other name the API accepts (120 chars). Returns
+ * "" for a title that has nothing displayable in it.
+ *
+ * **Sequences go first, and that ORDER is the fix** (operator's screenshot,
+ * 2026-09-18). This blanked control characters one at a time, which deleted
+ * the `ESC` from an APC and left its payload behind as ordinary text — and the
+ * leading-punctuation trim then ate the `_` introducer too, so a Kitty
+ * graphics capability QUERY the agent emitted to probe for image support
+ * arrived in the sidebar as a subshell named
+ * `Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA`. Every step of that laundering was this
+ * function's own: it removed exactly the two characters that identified the
+ * text as not a title, then kept the rest.
+ *
+ * So a title that is nothing but a sequence now normalizes to "", and the
+ * caller falls back to the name it already had.
  */
 function normalizePaneTitle(raw: string): string {
-  // Intentional: the whole point is to strip terminal control characters
-  // that can ride along in a raw OSC title.
+  const withoutSequences = raw.replace(ESCAPE_SEQUENCE, " ");
+  // Intentional: whatever control characters survive a sequence sweep are
+  // stray bytes, not structure.
+  //
+  // The range covers C1 (U+0080–U+009F) as well as C0, because valid UTF-8 can
+  // carry an 8-bit introducer — U+009B is CSI — and one would otherwise pass
+  // both this pass and the sequence sweep above, which only knows the 7-bit
+  // `ESC x` forms (review N3). Not a laundering path of the kind this function
+  // exists to close, since a name renders as text, but it is the one thing the
+  // sweep does not cover and a title has no business carrying one.
   // biome-ignore lint/suspicious/noControlCharactersInRegex: sanitizing terminal output
-  const cleaned = raw.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
+  const cleaned = withoutSequences.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").trim();
   return cleaned
     .replace(/^[^\p{L}\p{N}]+/u, "")
     .trim()

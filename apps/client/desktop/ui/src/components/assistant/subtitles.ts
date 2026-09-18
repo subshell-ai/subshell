@@ -91,10 +91,15 @@ export function subtitleFor(
       return "Delete this node's configuration, its key and its data. Nothing else on this computer is touched.";
     case "about":
       return "What this app is, which versions are running, and under what terms.";
-    case "app-update":
-      // Deliberately says nothing about whether one exists: the answer is a
-      // NETWORK read the screen itself makes, and a subtitle that claimed
+    case "update":
+      // Deliberately says nothing about whether one exists: half the answer is
+      // a NETWORK read the screen itself makes, and a subtitle that claimed
       // either way would be drawn before anything had been asked.
-      return "Whether a newer Subshell Client is published, and installing it.";
+      //
+      // It names BOTH halves because the act is both: this app ships the agent
+      // it drives, so replacing the app is only ever the first of two steps,
+      // and a sentence about the application alone would make our packaging
+      // the reader's problem (spec 2026-09-18 § 1).
+      return "This app and the node agent that ships inside it.";
   }
 }

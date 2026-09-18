@@ -1945,9 +1945,48 @@ version that is not the one booting is RECORDED as a failure rather than
 ignored, which is also what stops a stuck marker refusing every later update
 forever.
 
-**The deep-link surface is unchanged.** `app-update` is one more name on the
-existing closed screen enum in Subshell Server's assistant, and `main` gains no
-command in either app: the four new updater commands
+**One update act now spans a relaunch, and a consent travels with it** (spec
+2026-09-18). Each desktop bundle ships the CLI it wraps, so updating the app
+and installing that CLI became one press: phase 1 replaces the application and
+relaunches, phase 2 runs in the NEW process and installs the bundled binary.
+Three properties of that are security-relevant and are recorded here rather
+than in the spec alone.
+
+**A pane-safety consent is PERSISTED and honoured by a different process.**
+The server app's phase 2 ends in a service restart, and on a definition that
+does not spare panes that restart closes every live subshell. The confirm
+happens in phase 1; the act happens after the relaunch. So the answer is
+written to `settings.json` as `pendingBundledInstall.forced` and read by the
+new build. Re-asking would be asking again for something already granted, on a
+screen nobody chose to open — but it IS a destructive consent at rest, so it is
+narrow by construction: one boolean, about one restart, cleared with the marker
+that carries it, and never written by the page (`desktop_install_app_update`
+takes no argument; the answer is read in Rust at the press). Its worst case is
+what the file's owner can already do by hand — that user can stop the service
+themselves — which is why a hand-edited `true` buys nothing.
+
+**The marker never decides that work exists.** Whether phase 2 has anything to
+install is re-derived at boot from the machine (the bundled version against the
+installed one), using the SAME managed-aware comparison the offer uses — so a
+marker can only continue an act the probe would have offered anyway, and one
+whose work is done, or whose machine runs a binary this app does not manage, is
+dropped without acting. That equivalence is load-bearing: while the two paths
+compared differently, a machine whose service named a binary outside
+`~/.local/bin` was told the CLI half was refused and then had it installed at
+the next boot, with a forced restart nobody had been warned about (found in
+review, 2026-09-18, before release).
+
+**Retries are bounded.** An install that fails every boot would otherwise take
+the window to a failure screen on every launch forever; after two attempts the
+marker stays — so the screen can still name the update and offer Retry — and
+nothing fires by itself.
+
+**The deep-link surface is unchanged.** Updating is one more name on the
+existing closed screen enum in Subshell Server's assistant — `app-update`
+until 2026-09-18, when it and the separate bundled-server screen COLLAPSED
+into a single `update` that performs both halves of one act (spec
+2026-09-18 D3); the enum lost a member rather than gaining one. `main` gains
+no command in either app: the four new updater commands
 (`desktop_check_app_update` / `desktop_install_app_update`,
 `node_check_app_update` / `node_install_app_update`) are granted to the BUNDLED
 window only, in `wizard.json` and `node.json`, and each app's `ipc-acl.test.ts`

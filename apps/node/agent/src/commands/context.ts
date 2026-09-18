@@ -9,6 +9,7 @@ import type {
 import type { AgentConfig } from "../config.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
+import type { AgentBinaryDeps } from "../update.js";
 
 /**
  * The command-executor seam (spec 2026-08-31 §7): everything an executor may
@@ -93,6 +94,18 @@ export interface CommandContext {
   meta: SubshellMetaStore;
   /** Epoch-ms clock (injectable; stamps inventory `ts` and friends). */
   nowMs: () => number;
+  /**
+   * How `update` resolves the binary it replaces (default: the real ladder).
+   *
+   * Injectable for the reason `nowMs` is, and with a sharper consequence: the
+   * ladder asks the SERVICE DEFINITION first, which reads the real
+   * launchd/systemd user domain. No temp directory hides that — `homedir()`
+   * answers from the password database rather than `$HOME` — so without this
+   * seam the update tests resolved the DEVELOPER's own installed agent instead
+   * of their fixture, and the suite passed only on machines that do not run
+   * Subshell (measured 2026-09-18).
+   */
+  binaryDeps?: AgentBinaryDeps;
   /** Outbound event seam (inventory events now; tail output/exit events later). */
   ws: CommandWs;
   /**

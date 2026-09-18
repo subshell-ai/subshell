@@ -47,7 +47,7 @@
  *   same way: no argument, two facts the daily launch check already wrote to
  *   this app's own settings file, no CLI, no filesystem beyond that. It makes
  *   the SPA's sidebar row possible; the assistant page never invokes it (its
- *   own app-update screen asks the release list live, through
+ *   own update screen asks the release list live, through
  *   `desktop_check_app_update`, which stays `wizard`-only along with the
  *   installer — reading a remembered answer is not the half that acts).
  */
@@ -223,14 +223,13 @@ describe("the assistant's IPC contract", () => {
     // this line exists to make loud; so is quietly widening any of these.
     //
     // `desktop_open_assistant` is the deep link the SPA sends — the Settings
-    // danger card (`{ screen: "reset" }`), the Service page's Update card
-    // (`{ screen: "update" }`), the permission notices
-    // (`{ screen: "permissions" }`), the sidebar update row
-    // (`{ screen: "app-update" }`, spec 2026-09-17 § 5.3) and the sidebar
-    // pill (no argument). It names a SCREEN, never a command: raising
-    // `update` performs one read-only probe, raising `permissions` performs
-    // none at all, and every verb behind any of those screens needs a press
-    // inside the bundled page.
+    // danger card (`{ screen: "reset" }`), the Service page's Update card and
+    // the sidebar update row (`{ screen: "update" }` — ONE screen since spec
+    // 2026-09-18, where there were two), the permission notices
+    // (`{ screen: "permissions" }`) and the sidebar pill (no argument). It
+    // names a SCREEN, never a command: raising `update` performs one read-only
+    // probe, raising `permissions` performs none at all, and every verb behind
+    // any of those screens needs a press inside the bundled page.
     const manifest = manifestPermissions();
     const appCommands = capabilityPermissions("main.json")
       .filter((id) => !id.includes(":"))

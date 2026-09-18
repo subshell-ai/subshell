@@ -8,7 +8,7 @@
  * reaches them through its own bridge (`apps/server/web/src/lib/desktop.ts`,
  * which reads `window.__TAURI__`). `desktop_app_update` (spec 2026-09-17
  * § 5.3) is the newest — the SPA's update row asks it once per page load —
- * and the assistant has no use for it: the app-update screen runs its own
+ * and the assistant has no use for it: the update screen runs its own
  * live check through `desktop_check_app_update`, which is a different
  * question (the release list, not the settings file). A wrapper here for a
  * command this page never calls would break the exact-set pin below by
@@ -182,6 +182,34 @@ export interface Probe {
    * better moment than any screen here could make.
    */
   photosPermission: Permission;
+  /**
+   * The second half of an app update, waiting to be finished here (spec
+   * 2026-09-18 § 4.2). `null` on every ordinary boot.
+   *
+   * A probe field for the reason the two permission states are: the update
+   * screen already re-renders on the 1500 ms poll, and this is a fact about
+   * this machine. It is the marker's VIEW rather than the marker — Rust runs
+   * the shared `resume_decision` before answering, so a marker whose work
+   * turns out to be done arrives here as `null`.
+   */
+  pendingInstall: PendingInstall | null;
+}
+
+/**
+ * An interrupted update's second half. `PendingInstall` in `control.rs`.
+ *
+ * It carries neither the timestamp nor the attempt count the stored marker
+ * holds: the page has no use for either, and the one thing it does need —
+ * whether the automatic attempts are spent — is `resume_decision`'s answer
+ * rather than a field anyone could read off the file.
+ */
+export interface PendingInstall {
+  /** The app version that was running when the person pressed Update. */
+  fromAppVersion: string;
+  /** Phase 1's pane-safety consent, so the restart is not asked about twice. */
+  forced: boolean;
+  /** The automatic attempts are spent: the screen offers Try Again instead. */
+  halted: boolean;
 }
 
 /** The app's own child, when it is the one running the server. */

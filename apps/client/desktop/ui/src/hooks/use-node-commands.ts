@@ -149,9 +149,12 @@ export function useNodeCommands(args: {
     installAgent: () => runner.run(async () => finished(await nodeInstallAgent())),
 
     /**
-     * Replacing the installed agent stops the service that runs it — and does
-     * not start it again. On a stale definition, stopping is also what ends
-     * every live subshell. Neither is something to do on a single click.
+     * Replacing the installed agent is worth a confirmation even though it
+     * interrupts nothing: it overwrites the binary this machine runs, from a
+     * copy that ships inside this app, and the daemon goes on running the
+     * previous version afterwards. That last fact is the one a single click
+     * would hide — see the messages below, which state it rather than the
+     * stop-and-start this path has not done since spec 2026-09-15 § 7.1.
      */
     updateAgent: () =>
       runner.run(async () => {
@@ -160,16 +163,26 @@ export function useNodeCommands(args: {
             "~/.local/bin/subshell. Nothing is downloaded.",
         ];
         if (probe?.managed === true) {
+          // What this actually does, measured rather than remembered. It said
+          // "The service is stopped first so the file can be replaced, and is
+          // NOT started again. Start it from here afterwards." — false twice
+          // over (operator's question, 2026-09-18):
+          //
+          // - Nothing is stopped. `install_agent_now` passes a no-op closure
+          //   where the stop callback used to be, and the managed path goes
+          //   through the CLI's `update --from`, whose swap is a `rename(2)`
+          //   a running daemon never notices.
+          // - So it was never stopped, and "start it" names the wrong verb:
+          //   the daemon is UP, on the old binary, because rename leaves a
+          //   running process on its original inode.
+          //
+          // The pane-safety line is gone from HERE and belongs to the restart,
+          // which is the act that costs panes. An install that interrupts
+          // nothing cannot kill a subshell.
           messages.push(
-            "The service is stopped first so the file can be replaced, and is NOT started again. Start it from " +
-              "here afterwards.",
+            "The running daemon is not interrupted — the swap is a rename it never notices — so it keeps running " +
+              "the previous version until you restart it.",
           );
-          if (paneRisk(probe)) {
-            messages.push(
-              "The installed definition does not spare live panes, so stopping it kills every subshell running on " +
-                "this machine.",
-            );
-          }
         }
         return asks({
           title: "Update the agent",

@@ -43,7 +43,23 @@ const app = new Elysia()
   .use(cors({ origin: corsOriginAllowed }))
   .all("/api/auth/*", ({ request }) => auth.handler(request));
 
-const LEARNED = "http://100.117.173.95:3080";
+/**
+ * The origin the registry learns — a **documentation-range** address
+ * (RFC 5737 TEST-NET-3), chosen so it can never be one of this machine's own.
+ *
+ * It was `http://100.117.173.95:3080`, a plausible-looking Tailscale CGNAT
+ * address — and on a developer machine ACTUALLY ON a tailnet, `lanOrigins()`
+ * derives that interface and the origin is trusted before the registry is
+ * told anything. The first assertion then reads 401 (better-auth refusing the
+ * bogus credentials) instead of 403, and the test fails for being right about
+ * the machine it runs on. Measured 2026-09-18 on a host with the mesh up; it
+ * passes in CI only because a container has no tailnet, which is luck rather
+ * than a property.
+ *
+ * 203.0.113.0/24 is reserved for documentation and assigned to no interface
+ * anywhere, so this test now asserts the registry's behaviour on every host.
+ */
+const LEARNED = "http://203.0.113.10:3080";
 const PLUGIN = "live-origins-test";
 
 function signInFrom(origin: string): Request {

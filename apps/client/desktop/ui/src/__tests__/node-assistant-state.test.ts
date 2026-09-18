@@ -54,18 +54,24 @@ describe("screenTitle", () => {
     expect(screenTitle("connect")).toBe("Connect to a Server");
     expect(screenTitle("enroll")).toBe("Enroll This Machine");
     expect(screenTitle("about")).toBe("About Subshell Client");
-    expect(screenTitle("app-update")).toBe("Update Subshell Client");
+    expect(screenTitle("update")).toBe("Update Subshell Client");
   });
 
-  it("never lets the APP's update and the AGENT's share a word", () => {
-    // Two things on this machine can be out of date at once, and they are
-    // replaced by different acts that cost different amounts: this screen
-    // replaces the APPLICATION and relaunches it, while the status screen's
-    // "Update the agent to X" replaces `~/.local/bin/subshell` through that
-    // binary's own `update --from` and leaves the app alone. A title that said
-    // only "Update" would be the one place a person could not tell which.
-    expect(screenTitle("app-update")).toContain("Subshell Client");
-    expect(screenTitle("app-update")).not.toContain("agent");
+  it("has ONE update screen, named for the product the person is looking at", () => {
+    // This used to pin the opposite premise — that the APP's update and the
+    // AGENT's must never share a word — because there were two screens with
+    // two buttons. Spec 2026-09-18 made them one act in two phases (this app
+    // SHIPS the agent it drives), so the thing to hold is that there is one
+    // screen: `app-update` is DELETED from the ids rather than aliased, which
+    // this product can do because it has no installed base to keep compatible,
+    // and an id this build does not know is ignored as it always was.
+    expect(NODE_SCREEN_IDS as readonly string[]).toContain("update");
+    expect(NODE_SCREEN_IDS as readonly string[]).not.toContain("app-update");
+    // The title names the APP because the app is what the person opened and
+    // what relaunches. The agent half is the tail of that same act and is
+    // stated on the screen — `update-act.test.ts` pins both rows — rather than
+    // in a heading that would then name two products.
+    expect(screenTitle("update")).toBe("Update Subshell Client");
   });
 
   it("names the product rather than the computer, identically on both platforms", () => {

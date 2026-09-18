@@ -49,6 +49,14 @@ else. So a machine whose server is already running opens the **dashboard** —
 including one provisioned entirely from the CLI, on its first app launch,
 because the boot probe answers `ready` before the branch runs.
 
+**One thing outranks that choice**: `control::boot_resume` finding an update
+whose second half never ran, which opens the assistant at `update` instead
+(spec 2026-09-18 § 4.2). It has to outrank — a machine whose server is running
+answers `Main`, which would open the dashboard over an act the person started
+and never show the screen finishing it — and it costs that machine nothing,
+because dismissing the screen hands off to the dashboard anyway, through the
+page's ordinary ready path.
+
 **`onboarded` no longer decides the window.** It decides which FAMILY of
 assistant screens a not-ready machine sees: the first-run trio while setup has
 never completed, the one recovery screen once it has. `mark_onboarded` is still
@@ -173,20 +181,27 @@ screen it did not recognise, which then bounced the user back to the dashboard
 they had just pressed a button on. Adding a screen means the Rust enum and
 that list; there is no third place to forget.
 
-**Two screens say "update", and they are about different things.** *Update
-Server* replaces `~/.local/bin/subshell-server`; *Update Subshell Server*
-(`app-update`) replaces the `.app` or the `.deb` this page is running inside
-and relaunches. Both can be waiting at once, they cost different amounts, and
-the enum keeps them apart (`Screen::Update` vs `Screen::AppUpdate`,
-`"update"` vs `"app-update"`) — see "Updating the app itself" below.
+**ONE screen says "update", and it does both halves** (spec 2026-09-18).
+There were two — *Update Your Server*, which installed the bundled
+`subshell-server`, and *Update Subshell Server* (`app-update`), which replaced
+the `.app` or the `.deb` and relaunched — and they were never two acts. Every
+desktop bundle SHIPS the CLI it wraps, so the second CONTAINED the first: a
+person who updated the app met, on the next boot, a probe finding a bundled
+server newer than the installed one, and was asked again. The names differed by
+a possessive. `Screen::AppUpdate` and the word `app-update` are **deleted, not
+aliased** — this product has no installed base to keep compatible, so a caller
+still sending that word falls to `Home` where it can be seen. See "Updating in
+one act" below.
 
-**Update Server**, **Update Subshell Server**, **Reset**, **How Your Server Runs** and **What macOS Will Ask** are never in `screensFor`'s list. They are
-entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update` | `app-update` | `supervision` | `permissions`; `home` parses to "whatever the probe implies") — which is what lets one
+**Update Subshell Server**, **Reset**, **How Your Server Runs** and **What macOS Will Ask** are never in `screensFor`'s list. They are
+entered by REQUEST — a `desktop-screen` event (a LIVE window), the `desktop_pending_screen` pull (a window still coming up, which is also how the BOOT resume routes) — carrying a member of the closed
+`reset::Screen` enum (`home` | `reset` | `update` | `supervision` | `permissions`; `home` parses to "whatever the probe implies") — which is what lets one
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
-dashboard it was asked to leave.
+dashboard it was asked to leave — and, since 2026-09-18, a machine that came up
+to finish an update would open the dashboard over it and never show the
+screen at all.
 
 **Show Details keeps its openness in PAGE state**, not the element's.
 `#content` is rebuilt on every render and the poll renders every 1500 ms, so a
@@ -306,6 +321,14 @@ installed CLI to ask** (spec 2026-09-15 § 7.1):
 
 Three details that are not obvious from the diff:
 
+- **`install_server_now` is the wrapper, `install_bundled_server` is the act.**
+  The wrapper exists for one line: an install that SUCCEEDED clears the update
+  marker (spec 2026-09-18 § 5), because the marker means "the CLI this app
+  ships is not installed yet" and that has stopped being true. Every door — the
+  update screen's press, the boot resume, the first-run chain — goes through
+  the wrapper, so "the bundled CLI is installed now" has one writer rather than
+  one per caller. A FAILURE leaves the marker, which is what lets the next boot
+  try again inside the attempt bound.
 - **The flags are a CONTRACT, held in one place.** `desktop-core`'s
   `cli_update::update_args` spells them for both apps, and its tests pin the
   exact list. `--yes` because the consent happened on the screen that named the
@@ -340,10 +363,87 @@ Three details that are not obvious from the diff:
   precisely so that decision is testable without a test able to reach
   `install_bundled` and write into someone's own `~/.local/bin`.
 
-## Updating the app itself
+## Updating in one act
 
-`src-tauri/src/app_update.rs`, `tauri-plugin-updater`, and the `app-update`
-screen (spec 2026-09-15 § 7.2). Four things carry the weight:
+`src-tauri/src/app_update.rs`, `tauri-plugin-updater`, `control::boot_resume`,
+and the one `update` screen (spec 2026-09-15 § 7.2; spec 2026-09-18).
+
+**One press updates the app AND the server that app ships**, because on a
+desktop machine those were never independent: each bundle SHIPS the CLI it
+wraps, so `desktop_install_server` installs precisely the copy a new bundle
+would bring. The act is **two phases separated by the relaunch**, and the order
+is forced rather than chosen — the new app carries the newer server, so
+installing the server first installs the OUTGOING bundle's copy and leaves the
+machine behind again the moment the app lands.
+
+| | phase 1 | phase 2 |
+|---|---|---|
+| runs in | the process the person pressed in | the build that came up |
+| does | download, verify, install the bundle | install the bundled server, restart the service |
+| ends by | writing the marker, then `app.restart()` | clearing the marker |
+
+Four things about the seam:
+
+- **The marker is written BEFORE the relaunch, never after** (`app_update::install_app_update`,
+  in the same `SettingsState::update` that clears the stale notice — one lock,
+  one save). A crash between the two must leave a machine that knows what it
+  was doing. `PendingBundledInstall` and the pure `resume_decision` live in
+  `crates/desktop-core`, shared with Subshell Client; what each app DOES with
+  `Resume::Install` does not, because this one restarts a service and that one
+  deliberately does not.
+- **The marker converts an OFFER into a continuation and never decides there is
+  work.** `resume_decision` re-asks the machine — the bundled version against
+  the installed one, the same comparison `decide_server` makes — so a marker
+  whose work turns out to be done (a hand `subshell-server update` in between)
+  is cleared without acting. It is therefore impossible for a marker to cause
+  an install the probe would not have offered anyway.
+- **The attempt is counted at the FIRE, not at the offer** —
+  `install_server_now`, the one door every install goes through, spends one
+  before it acts, and `boot_resume` counts nothing. It counted at the offer
+  until 2026-09-18, which made `MAX_RESUME_ATTEMPTS` (2) a bound on BOOTS: two
+  launch-and-quits reached the limit having never attempted an install, and the
+  screen then said the install had failed twice (review). Counting before the
+  act still spends one on a crash INSIDE the install, which is the case the
+  bound exists for, and it is where Subshell Client counts too. At the limit
+  the marker STAYS — so the screen can still name the update and offer Try
+  Again — and nothing fires by itself.
+- **The pane-safety consent crosses in the marker's `forced`.** The confirm
+  happens in phase 1 and the restart it consents to happens in phase 2, in
+  another process, so re-asking would be asking again for something already
+  granted on a screen nobody chose to open. The answer is READ in Rust at the
+  press (`control::pane_risk_now`, the twin of the page's `paneRisk`) rather
+  than passed from the page, because `desktop_install_app_update` takes no
+  argument and that is the whole case for granting it. A Try Again on the
+  phase-2 screen is a FRESH consent and uses today's answer instead.
+
+**Two things here differ from Subshell Client STRUCTURALLY**, and both are
+worth stating because the two apps' docblocks would otherwise read as
+contradicting each other (review, 2026-09-18). The wire names are NOT among
+them: `pendingInstall`, `halted`, `{ fromAppVersion, forced, halted }` and the
+Rust `PendingInstall` are this app's spelling and the shared one.
+
+- **Who raises the screen.** This app decides at BOOT, in Rust (`lib.rs`'s
+  `setup`, through `boot_resume`), because a ready machine would otherwise
+  open the dashboard and never show the assistant at all. The client decides
+  in the WEBVIEW, and that is sound there for a reason worth recording rather
+  than assuming: `windows::open_at_startup` always opens its node window, so
+  a page that can raise the screen is guaranteed to exist. Were that to
+  change, the client would need this app's boot branch.
+- **Who clears a marker whose work is done.** Here `resume_view` is READ-ONLY
+  — a poll that merely renders never writes — and `boot_resume` is the one
+  place a spent marker is dropped. The client's `resume_view` clears it on the
+  poll instead. Both are defensible; this one is the stricter rule, and the
+  cost is that a marker which becomes pointless while the window is open
+  survives until the next boot, where it reads as `None` anyway.
+
+The screen itself is `ui/src/lib/update-act.ts` — pure, every judgment, and
+the only thing in this app that CAN be tested, since `ui/src/__tests__/` has
+no DOM harness. `install_server_now` is the one place the marker is cleared on
+success, which is why the act itself moved into `install_bundled_server`:
+every door (the press, the boot resume, the first-run chain) installs through
+the wrapper.
+
+Four more things carry the weight of the app half specifically:
 
 - **The plugin is pointed at ONE release, chosen here.** It wants a static
   manifest URL, and this repository publishes four components under four tag
@@ -371,8 +471,10 @@ screen (spec 2026-09-15 § 7.2). Four things carry the weight:
   forces today's background check now — `check_now`, same body as the daily
   one (`run_check`), same silence, no window — because a person may not want
   to wait for tomorrow's. "Update available — Subshell Server {version}"
-  opens the assistant at `app-update` through the same deep-link route the
-  dashboard uses, instead of re-checking what it just announced.
+  opens the assistant at `update` through the same deep-link route the
+  dashboard uses, instead of re-checking what it just announced. The label is
+  unchanged by the two screens becoming one: it always named the APP, and the
+  act it opens now genuinely covers the app and the server that app ships.
 - **The dashboard can now SEE the stored answer** through `desktop_app_update`
   — the read-only seventh `main` command: no argument, no fetch,
   `{ currentVersion, availableVersion }` from `PackageInfo` and the one
@@ -385,7 +487,7 @@ screen (spec 2026-09-15 § 7.2). Four things carry the weight:
 
 **Both commands are `wizard`-only**, and the check is there too even though it
 looks harmless: its sibling replaces the application, and the dashboard reaches
-this screen by NAME (`desktop_open_assistant({ screen: "app-update" })`) — a
+this screen by NAME (`desktop_open_assistant({ screen: "update" })`) — a
 grant it already has. Neither takes an argument, which is the whole of the
 case for granting them: the release is re-resolved in Rust, so the page asks
 for "the newest" and can never name a URL. `ipc-acl.test.ts` pins both facts.
@@ -937,7 +1039,7 @@ Three things about that table are load-bearing:
 
 ```
 src-tauri/src/
-├── lib.rs         # plugins, command registration, setup (boot PROBEs, opens `main` or `wizard`, spawns the watch)
+├── lib.rs         # plugins, command registration, setup (boot PROBEs, resumes an interrupted update, opens `main` or `wizard`, spawns the watch)
 ├── windows.rs     # the two windows, the 360x240 floor, the UA marker with its `b=` group
 ├── watch.rs       # the 5s poll: the tray's state, and re-pointing `main` when the origin moves
 ├── control.rs     # the tauri commands — argument-poor wrappers over the CLI; open_home; ACTION_IN_FLIGHT
@@ -980,11 +1082,13 @@ ui/
 │   │   ├── installers.ts     # the pure install plans
 │   │   ├── wizard-state.ts   # screensFor, autoSetupDecision, recoveryTitle/Action, RESET_LABEL, the checklist
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
+│   │   ├── update-act.ts     # the ONE update act: rows, phases, presses, refusals
 │   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
 │   │   └── reset.ts          # the reset screen's pure decisions: rows, refusal, arming
 │   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model,
-│                       # permissions-model, copy-flash, reset, wire-names, ipc-acl, tauri-config
+│                       # update-act, permissions-model, copy-flash, reset, wire-names,
+│                       # ipc-acl, tauri-config
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
@@ -1022,6 +1126,16 @@ Four things about that arrangement are load-bearing:
   what the busy state reaches. (A `data-always` opt-out existed for the
   console's sweep, which read it; the sweep went with the console and the
   attribute outlived its only reader by three months.)
+- **`lib/update-act.ts` holds every judgment the update screen makes**, for
+  the same reason and with a sharper edge: the screen has six phases, two
+  presses and three sentences it refuses in — a server this app did not
+  install, a release source that would not answer, and the automatic attempts
+  being spent — never more than TWO of them at once, since a phase-2 screen
+  returns before the release answer is consulted. None of it could be covered
+  at all from inside `renderUpdate`. Which rows appear, which press they get,
+  what the act will not do, and whether phase 2 fires by itself are all
+  decisions there, and `update-act.test.ts` walks § 4.1's four cases, § 4.2's
+  two phases and each of § 6's refusals.
 - **`lib/recovery-model.ts` exists so the recovery screen's WORDS are
   testable.** Its subtitle and its facts were the console's step table and
   Details list — DOM, in a render that needs a webview, which is why neither
@@ -1148,14 +1262,26 @@ origin opened is LOOPBACK, where a passkey works only if `APP_BASE_URL` is
 loopback.
 Nothing else that touches the CLI, the config, the service or the filesystem
 is reachable from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
-`screen` argument, and the SPA sends it from exactly three places: the
-Settings danger card (`{ screen: "reset" }`), the Service page's Update card
-(`{ screen: "update" }`) and the sidebar pill (no argument). The supervision
-card sends none: it confirms in its own dialog and calls
-`desktop_set_supervision` itself. It names a SCREEN
+`screen` argument, and the SPA sends it from the Settings danger card
+(`{ screen: "reset" }`), the Service page's Update card (`{ screen: "update" }`),
+the permission notices (`{ screen: "permissions" }`) and the sidebar pill (no
+argument). The supervision card sends none: it confirms in its own dialog and
+calls `desktop_set_supervision` itself. It names a SCREEN
 and never a command — raising `update` performs one read-only probe, arming
 `reset` performs one `status --json` the watch already runs on its own timer,
 and every verb behind either needs a press inside the bundled page.
+
+**`app-update` is no longer a word this enum knows** (spec 2026-09-18, the two
+update screens becoming one). Every sender says `update` now: the SPA's
+sidebar update row (`components/desktop/desktop-app-update-row.tsx`) and its
+Updates page, whose Subshell Server row is FOLDED into the Server row inside
+this app (D4) and whose remaining desktop row cannot raise an assistant at all.
+
+Deleting the id rather than aliasing it is what made that sweep finishable: the
+old word parses to `Home`, so a sender left behind raises the assistant at
+whatever the probe implies — visibly wrong on a machine whose server is
+running, rather than silently correct until someone notices the wrong screen.
+Two senders were found exactly that way while this work was in flight.
 
 **`dialog:allow-ask` is deliberately NOT granted.** It was the console's, for
 its update and restart confirmations. Both of those are screens now, with

@@ -47,6 +47,39 @@ impl SettingsPaths {
     }
 }
 
+/// The unfinished half of an update, as [`Settings::pending_bundled_install`]
+/// records it.
+///
+/// Deliberately small: everything about WHAT to install is re-derived at boot
+/// from the probe (the bundled version against the installed one), because a
+/// marker that also carried the answer would be a second opinion that could
+/// disagree with the machine. What it carries is only what the new process
+/// cannot work out for itself.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PendingBundledInstall {
+    /// The app version that was running when the person pressed.
+    ///
+    /// For the audit line and for a human reading the file on a machine that
+    /// will not finish — it is the one fact that says WHICH update this was.
+    pub from_app_version: String,
+    /// RFC 3339, written at the press.
+    pub started_at: String,
+    /// How many boots have tried and failed. Bounded — see `resume_decision`.
+    pub attempts: u32,
+    /// The pane-safety override the person accepted in phase 1, if they did.
+    ///
+    /// The confirm happens before the relaunch and the act it consents to —
+    /// a service restart that may close live subshells — happens after it, in
+    /// a different process. Re-asking would be asking again for something
+    /// already granted, on a screen nobody chose to open; carrying the answer
+    /// here is what makes one press mean one act. Narrow by construction: one
+    /// boolean, about one restart, cleared with the marker, and worth nothing
+    /// to anyone who edits it in — the file's owner can already stop the
+    /// service.
+    pub forced: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -122,6 +155,25 @@ pub struct Settings {
     /// Cleared by a check that finds nothing newer — a suffix naming a version
     /// the person already installed is worse than none.
     pub last_update_version: Option<String>,
+    /// An app update has landed and the CLI it bundles is not installed yet.
+    ///
+    /// The second half of one act, carried across the relaunch that separates
+    /// them (spec 2026-09-18 § 5). Each bundle SHIPS the CLI it wraps, so
+    /// "update the app" and "update the CLI" are not independent on a desktop
+    /// machine — the second is the tail of the first — and the app update ends
+    /// in `app.restart()`, so the tail necessarily runs in a process that did
+    /// not exist when the person pressed.
+    ///
+    /// Written BEFORE the relaunch, never after: a crash between the two must
+    /// leave a machine that knows what it was doing.
+    ///
+    /// **No `kind` field.** Each app keys its own `settings.json` by its own
+    /// bundle identifier, so the subject is implied by which app is reading —
+    /// the server app's marker means its bundled server, the client's means
+    /// its bundled agent. The two apps share this struct's FORMAT and never
+    /// the file, exactly as `plane_url` and `supervision` do in the other
+    /// direction.
+    pub pending_bundled_install: Option<PendingBundledInstall>,
     /// Who runs the server on this machine (Subshell Server only).
     ///
     /// A PREFERENCE, and the disk outranks it: a unit or plist that exists
@@ -171,6 +223,7 @@ impl Default for Settings {
             zoom: ZOOM_DEFAULT,
             last_update_check_at: None,
             last_update_version: None,
+            pending_bundled_install: None,
             supervision: Supervision::Service,
         }
     }
@@ -285,6 +338,12 @@ mod tests {
             zoom: 1.25,
             last_update_check_at: Some("2026-09-15T10:00:00Z".into()),
             last_update_version: Some("0.7.0".into()),
+            pending_bundled_install: Some(PendingBundledInstall {
+                from_app_version: "0.8.0".into(),
+                started_at: "2026-09-18T12:00:00Z".into(),
+                attempts: 1,
+                forced: true,
+            }),
             supervision: Supervision::App,
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
@@ -295,6 +354,23 @@ mod tests {
         assert_eq!(back.zoom, 1.25);
         assert_eq!(back.last_update_check_at.as_deref(), Some("2026-09-15T10:00:00Z"));
         assert_eq!(back.last_update_version.as_deref(), Some("0.7.0"));
+        // The marker survives the file, which is the whole of its job: it is
+        // written by one process and read by a DIFFERENT BUILD after a
+        // relaunch, so a field that did not round-trip would strand the second
+        // half of an update.
+        let pending = back.pending_bundled_install.expect("the marker round-trips");
+        assert_eq!(pending.from_app_version, "0.8.0");
+        assert_eq!(pending.attempts, 1);
+        assert!(pending.forced);
+    }
+
+    // Every settings file written before this existed has no marker, and must
+    // read as "nothing was interrupted" rather than failing the whole load —
+    // which would take the app's binary path and tray preference with it.
+    #[test]
+    fn an_absent_marker_reads_as_nothing_pending() {
+        let s: Settings = serde_json::from_str(r#"{"closeToTray":true,"onboarded":true}"#).unwrap();
+        assert_eq!(s.pending_bundled_install, None);
     }
 
     // A settings file written before the launch update check existed must read

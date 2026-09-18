@@ -66,6 +66,7 @@ export async function execUpdate(ctx: CommandContext, cmd: Cmd<"update">): Promi
       restart: false,
       origin: "plane",
       dataDir: ctx.config.dataDir,
+      binaryDeps: ctx.binaryDeps,
     });
   } catch (err) {
     // The wire constant, never the sentence: the plane maps

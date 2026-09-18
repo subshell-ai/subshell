@@ -44,7 +44,7 @@ use subshell_desktop_core::release_feed::{
     self, due_for_check, format_rfc3339, latest_manifest_url, newest_release, now_epoch_secs, release_feed_rows_from,
     ReleaseRow,
 };
-use subshell_desktop_core::settings::SettingsState;
+use subshell_desktop_core::settings::{PendingBundledInstall, SettingsState};
 use subshell_desktop_core::version::version_lt;
 
 /// The tag prefix this app's own releases carry.
@@ -169,10 +169,22 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
 /// answer travelled to a webview and back, and the only argument this command
 /// accepts is therefore no argument at all.
 ///
-/// **The node agent is not touched.** Replacing this app replaces the agent it
-/// BUNDLES, which is a source to install from and is on no rung of the
-/// resolution ladder — so a running `subshell` daemon keeps running the binary
-/// in `~/.local/bin` until someone presses Update on the agent's own screen.
+/// **This is PHASE 1 of one act** (spec 2026-09-18 § 4.2). Replacing this app
+/// replaces the agent it BUNDLES, which is a source to install FROM and is on
+/// no rung of the resolution ladder — so a running `subshell` daemon keeps
+/// running `~/.local/bin/subshell` whatever lands here. The second half is
+/// installing that bundled agent, and it necessarily runs in a process that
+/// did not exist when the person pressed, so the marker written below is what
+/// carries the act across the relaunch. `node_probe` weighs it against the
+/// machine on the new build's first read and the update screen finishes the
+/// act (`control::resume_view`).
+///
+/// **The marker is written AFTER the install and BEFORE the relaunch, never
+/// after.** A crash between the two must leave a machine that knows what it
+/// was doing; a crash before the install leaves none, which is right, because
+/// nothing was replaced. It is written even on a machine with nothing to
+/// install, because deciding that is `resume_decision`'s job and not this
+/// one's — a marker whose work turns out to be done is cleared without acting.
 ///
 /// **`app.restart()` never returns**: it is `-> !`.
 pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
@@ -207,6 +219,23 @@ pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
         )
         .await
         .map_err(|e| e.to_string())?;
+
+    // `forced` is always false here, and that is not an omission: it carries a
+    // pane-safety consent for a service RESTART, and this app's phase 2 offers
+    // that restart rather than performing it (spec § 7.1). The field exists
+    // for Subshell Server, which does restart, and the two apps share the
+    // struct's format and never the file.
+    let started_at = format_rfc3339(now_epoch_secs());
+    let from_app_version = app.package_info().version.to_string();
+    let _ = app.state::<SettingsState>().update(|s| {
+        s.pending_bundled_install = Some(PendingBundledInstall {
+            from_app_version,
+            started_at,
+            attempts: 0,
+            forced: false,
+        });
+    });
+
     app.restart();
 }
 

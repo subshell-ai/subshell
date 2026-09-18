@@ -36,10 +36,10 @@ afterEach(() => {
  * The fixture's releases: desktop-server 0.7.0, desktop-client 0.5.0. The rows
  * are `contents` fragments; a grid div is their real parent on the page.
  */
-function renderRows(desktop = updatesView().desktop) {
+function renderRows(desktop = updatesView().desktop, apps?: readonly ("server" | "client")[]) {
   return render(
     <div className="grid">
-      <DesktopRows desktop={desktop} />
+      <DesktopRows desktop={desktop} apps={apps} />
     </div>,
   );
 }
@@ -68,19 +68,34 @@ describe("a browser", () => {
 });
 
 describe("inside Subshell Server", () => {
-  it("puts the assistant button on its OWN behind row, and a dash on the other", () => {
+  /**
+   * This component no longer draws Subshell Server's own row in that app
+   * (spec 2026-09-18 D4) — `UpdatesTable` asks it for the client alone and
+   * `folded-server-row.tsx` carries the server, because the app SHIPS the
+   * server and updating them separately was our packaging presented as the
+   * user's decision.
+   *
+   * What is pinned here is that the row is GONE rather than merely
+   * button-less: the branch that drew the button required `shell.app ===
+   * "server"`, so leaving it in place would have been unreachable code
+   * claiming to be a surface.
+   */
+  it("draws no server row when it is asked for the client alone", () => {
+    setUA(SERVER_BEHIND_UA);
+    renderRows(undefined, ["client"]);
+    expect(screen.queryByText("Subshell Server app", { exact: true })).toBeNull();
+    expect(screen.getByText("Subshell Client app", { exact: true })).toBeTruthy();
+    // No button anywhere: this surface cannot install the OTHER app, and the
+    // one it could install is not its row any more.
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("never offers a button for its own row, even when asked for both", () => {
     setUA(SERVER_BEHIND_UA);
     renderRows();
-    expect(screen.getByRole("button", { name: "Open the update assistant" })).toBeTruthy();
-    // The other app is a release a person can fetch elsewhere, but this page
-    // cannot act on it and links are the browser's answer, not the app's.
+    expect(screen.queryByRole("button", { name: "Open the update assistant" })).toBeNull();
+    // Still no links: a link is the browser's answer, not the app's.
     expect(screen.queryByRole("link")).toBeNull();
-    // Exactly two "—" cells, both the Client row's: its Running cell (this
-    // window cannot know the other app's version) and its act cell — a row
-    // this surface can neither act on nor link out of says so with a dash.
-    expect(screen.getAllByText("—", { exact: true }).length).toBe(2);
-    // Its own Running cell is the app version, which the old sentence carried.
-    expect(screen.getByText("0.6.0", { exact: true })).toBeTruthy();
   });
 
   it("offers no act at all when its own row is up to date", () => {

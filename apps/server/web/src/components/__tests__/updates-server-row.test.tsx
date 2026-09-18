@@ -12,7 +12,7 @@ const updateButton = (label = /^Update to /) => screen.getByRole("button", { nam
 function renderRow(view: ServerUpdateView, update = idleUpdate) {
   return render(
     <div className="grid">
-      <ServerRow view={view} update={update} onCheck={() => {}} checking={false} serverVersion="0.6.0" />
+      <ServerRow view={view} update={update} />
     </div>,
   );
 }

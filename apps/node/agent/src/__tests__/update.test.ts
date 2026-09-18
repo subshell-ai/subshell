@@ -119,6 +119,28 @@ afterEach(() => {
   Object.defineProperty(process, "execPath", { value: realExecPath, configurable: true, writable: true });
   Object.assign(updateSeams, realUpdateSeams);
 });
+/**
+ * A machine with NO service definition, whatever the host has.
+ *
+ * The binary ladder asks the definition first, and that read reaches the real
+ * launchd/systemd user domain: `homedir()` answers from the password database,
+ * not `$HOME`, so no temp directory hides it. Without this every test below
+ * resolved the DEVELOPER's own installed agent instead of its fixture — so the
+ * whole file passed only on machines that do not run Subshell, and failed on
+ * the ones most likely to be running these tests (measured 2026-09-18).
+ *
+ * `fileExists` false and `readFile` null together mean "no unit, no plist",
+ * which is the state CI is in by accident and every other machine should be
+ * able to state on purpose.
+ */
+const NO_SERVICE_DEFINITION = {
+  fileExists: async () => false,
+  readFile: async () => null,
+  // All THREE, because the darwin branch also shells out (`plutil`) and would
+  // otherwise still find the developer's real plist through that route alone.
+  runCmd: async () => ({ code: 1, out: "", err: "" }),
+} as const;
+
 function pretendInstalledAt(binary: string): void {
   Object.defineProperty(process, "execPath", { value: binary, configurable: true, writable: true });
 }
@@ -132,7 +154,9 @@ describe("resolveAgentBinary", () => {
     const argv1 = process.argv[1];
     process.argv[1] = "/repo/apps/node/agent/src/index.ts";
     try {
-      await expect(resolveAgentBinary()).rejects.toMatchObject({ detail: NODE_RESULT_NOT_COMPILED });
+      await expect(resolveAgentBinary(NO_SERVICE_DEFINITION)).rejects.toMatchObject({
+        detail: NODE_RESULT_NOT_COMPILED,
+      });
     } finally {
       process.argv[1] = argv1;
     }
@@ -141,7 +165,7 @@ describe("resolveAgentBinary", () => {
   it("names the installed binary and its directory", async () => {
     const { binary, binDir } = await installedAgent();
     pretendInstalledAt(binary);
-    expect(await resolveAgentBinary()).toEqual({ binary, dir: binDir, source: "this process" });
+    expect(await resolveAgentBinary(NO_SERVICE_DEFINITION)).toEqual({ binary, dir: binDir, source: "this process" });
   });
 
   it("prefers the binary the SERVICE DEFINITION names over the one this process is", async () => {
@@ -257,6 +281,7 @@ describe("applyUpdate", () => {
     const artifact = serveArtifact(bytes);
     try {
       const applied = await applyUpdate({
+        binaryDeps: NO_SERVICE_DEFINITION,
         source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: signedManifest(sha256(bytes)) },
         version: "0.9.1",
         restart: false,
@@ -286,6 +311,7 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
+          binaryDeps: NO_SERVICE_DEFINITION,
           source: {
             kind: "url",
             url: artifact.url,
@@ -325,6 +351,7 @@ describe("applyUpdate", () => {
     const withToken = `${artifact.url}?update_token=nut_SECRETVALUE`;
     try {
       const thrown: unknown = await applyUpdate({
+        binaryDeps: NO_SERVICE_DEFINITION,
         source: {
           kind: "url",
           url: withToken,
@@ -369,6 +396,7 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
+          binaryDeps: NO_SERVICE_DEFINITION,
           source: {
             kind: "url",
             url: artifact.url,
@@ -397,6 +425,7 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
+          binaryDeps: NO_SERVICE_DEFINITION,
           source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: signedManifest(sha256(bytes)) },
           version: "0.9.1",
           restart: false,
@@ -424,6 +453,7 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
+          binaryDeps: NO_SERVICE_DEFINITION,
           source: {
             kind: "url",
             url: artifact.url,
@@ -457,6 +487,7 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
+          binaryDeps: NO_SERVICE_DEFINITION,
           source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: null },
           version: "0.9.1",
           restart: false,
@@ -483,6 +514,7 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
+          binaryDeps: NO_SERVICE_DEFINITION,
           source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: signedManifest("f".repeat(64)) },
           version: "0.9.1",
           restart: false,
@@ -504,6 +536,7 @@ describe("applyUpdate", () => {
     const local = join(root, "downloaded-subshell");
     await writeFile(local, "FROM A FILE");
     const applied = await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.2",
       restart: false,
@@ -522,6 +555,7 @@ describe("applyUpdate", () => {
     await writeFile(local, "NEXT");
     const asked: boolean[] = [];
     const applied = await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.3",
       force: true,
@@ -547,6 +581,7 @@ describe("applyUpdate", () => {
     const local = join(root, "next");
     await writeFile(local, "NEXT");
     const applied = await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.3",
       restart: true,
@@ -568,6 +603,7 @@ describe("the 4406 rollback", () => {
     const local = join(root, "next");
     await writeFile(local, "THE REFUSED VERSION");
     await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.4",
       restart: false,
@@ -602,6 +638,7 @@ describe("the 4406 rollback", () => {
     const local = join(root, "next");
     await writeFile(local, "NEXT");
     await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.5",
       restart: false,
@@ -623,6 +660,7 @@ describe("completeUpdate", () => {
     const local = join(root, "next");
     await writeFile(local, "ACCEPTED");
     await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.6",
       restart: false,
@@ -643,7 +681,7 @@ describe("rollbackUpdate", () => {
   it("refuses when there is no .previous to go back to", async () => {
     const { binary, dataDir } = await installedAgent();
     pretendInstalledAt(binary);
-    await expect(rollbackUpdate(dataDir)).rejects.toBeInstanceOf(UpdateRefused);
+    await expect(rollbackUpdate(dataDir, NO_SERVICE_DEFINITION)).rejects.toBeInstanceOf(UpdateRefused);
   });
 
   it("puts the previous binary back and names the version it restored", async () => {
@@ -652,6 +690,7 @@ describe("rollbackUpdate", () => {
     const local = join(root, "next");
     await writeFile(local, "REGRETTED");
     const applied = await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.7",
       restart: false,
@@ -659,7 +698,7 @@ describe("rollbackUpdate", () => {
       dataDir,
       probeVersion: async () => "0.9.7",
     });
-    const back = await rollbackUpdate(dataDir);
+    const back = await rollbackUpdate(dataDir, NO_SERVICE_DEFINITION);
     expect(back.binary).toBe(binary);
     expect(back.to).toBe(applied.from);
     expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
@@ -683,6 +722,7 @@ describe("rollbackUpdate", () => {
     const local = join(root, "next");
     await writeFile(local, "REGRETTED");
     await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
       source: { kind: "file", path: local },
       version: "0.9.7",
       restart: false,
@@ -692,7 +732,7 @@ describe("rollbackUpdate", () => {
     });
     const beforeIno = statSync(binary).ino;
     const previousIno = statSync(`${binary}.previous`).ino;
-    await rollbackUpdate(dataDir);
+    await rollbackUpdate(dataDir, NO_SERVICE_DEFINITION);
     // The destination path held a file throughout; what changed is WHICH file.
     expect(statSync(binary).ino).toBe(previousIno);
     expect(statSync(binary).ino).not.toBe(beforeIno);

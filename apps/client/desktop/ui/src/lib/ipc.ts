@@ -130,6 +130,41 @@ export interface NodePaths {
   agentLogHint: string | null;
 }
 
+/**
+ * The unfinished half of an update, as the probe reports it.
+ * `PendingInstall` in `control.rs`.
+ *
+ * An app update is one act in two phases across the relaunch it ends in (spec
+ * 2026-09-18 § 5): phase 1 writes a marker into this app's `settings.json`
+ * before it restarts, and the NEW build finishes the act by installing the
+ * agent that bundle ships. The DECISION is Rust's, shared with the server app
+ * (`desktop-core`'s `resume_decision`), so this is the answer and never the
+ * inputs: a marker whose work turns out to be done is cleared by the probe
+ * that read it, and never reaches this page at all.
+ *
+ * **Every name here is Subshell Server's**, down to the field spellings, so
+ * the two apps' update screens read identically side by side — they run one
+ * act over different second halves, and a diff between them should show a
+ * difference in design rather than in vocabulary. `forced` is the server's
+ * alone (a pane-safety consent for a service RESTART, which phase 2 here does
+ * not perform), and a Rust test pins its absence.
+ */
+export interface PendingInstall {
+  /** The app version that was running when the person pressed. */
+  fromAppVersion: string;
+  /** How many attempts have already been made and failed. */
+  attempts: number;
+  /**
+   * Whether it has failed often enough to stop firing on its own.
+   *
+   * Bounded because the failure mode is a loop nobody can escape: an install
+   * that fails on every boot would take this window to a failure screen on
+   * every launch. At the limit the marker STAYS — so the screen can still name
+   * the update and offer Retry — and nothing runs automatically.
+   */
+  halted: boolean;
+}
+
 /** Everything the window needs to decide what to offer, in one round trip. `Probe`. */
 export interface Probe {
   bundledVersion: string | null;
@@ -169,6 +204,17 @@ export interface Probe {
    * the way — true on macOS, because launchd has no reload.
    */
   rewriteTearsDown: boolean;
+  /**
+   * The second half of an app update that has not been finished yet, or null.
+   *
+   * Carried on the PROBE rather than on `node_settings`, and the reason is the
+   * decision behind it: `resume_decision` needs the bundled version against
+   * the installed one, which is exactly the pair this command already
+   * computes. Reading it here also means no new Tauri command was needed to
+   * finish an act that crosses a process boundary — the page learns about the
+   * marker from the read it already makes every few seconds.
+   */
+  pendingInstall: PendingInstall | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -564,8 +610,12 @@ export function nodeCheckAppUpdate(): Promise<AppUpdateCheck> {
  * matching the public key compiled into this build.
  *
  * It does not resolve on success — the app restarts. The installed node agent
- * is untouched: this replaces the application, and the agent it bundles is a
- * source to install FROM, on no rung of the resolution ladder.
+ * is untouched BY THIS CALL: it replaces the application, and the agent that
+ * application bundles is a source to install FROM, on no rung of the
+ * resolution ladder. What Rust does write before the relaunch is the marker
+ * that makes this phase 1 of one act (spec 2026-09-18 § 4.2) — the new build
+ * reads it back as {@link Probe.pendingInstall} and installs that bundled
+ * agent, which is the half this call deliberately does not do.
  */
 export function nodeInstallAppUpdate(): Promise<void> {
   return invoke<void>("node_install_app_update");
