@@ -44,6 +44,25 @@ pub enum Resume {
     Halt,
 }
 
+/// Whether a marker records an act at all.
+///
+/// [`PendingBundledInstall`] derives `Default` under `#[serde(default)]`, so a
+/// truncated or hand-edited `{"pendingBundledInstall":{}}` deserializes
+/// happily into a marker whose `from_app_version` is empty — and that field is
+/// the whole record of WHICH update this is. The server app renders it into a
+/// sentence, which an empty string turns into "… was updated from , but …".
+/// Nothing else in the struct can say the file was garbage, so this is the one
+/// field worth refusing on: an act with no version handing off is not one of
+/// ours, and installing off it would be acting on a file nobody wrote.
+///
+/// **Here rather than in either app** (review M17): the client grew this guard
+/// and the server did not, in the same commit whose stated purpose was
+/// removing drift between the two — and the field it guards belongs to this
+/// crate, so the guard does too.
+pub fn names_an_act(marker: &PendingBundledInstall) -> bool {
+    !marker.from_app_version.trim().is_empty()
+}
+
 /// The decision, from the marker and the two versions that say whether there
 /// is anything to do.
 ///
@@ -67,6 +86,12 @@ pub fn resume_decision(
     installed: Option<&str>,
 ) -> Option<Resume> {
     let marker = marker?;
+    // A marker that names no act is a garbage file, not an interrupted
+    // update. Refusing HERE rather than at each caller is what stops the two
+    // apps from disagreeing about it again — `Clear` so the caller drops it.
+    if !names_an_act(marker) {
+        return Some(Resume::Clear);
+    }
     let has_work = match (bundled, installed) {
         (Some(b), Some(i)) => version_lt(i, b),
         // A bundle with nothing installed is work: the first install.
@@ -94,6 +119,25 @@ mod tests {
             attempts,
             forced,
         }
+    }
+
+    /// A truncated or hand-edited `{"pendingBundledInstall":{}}` is a garbage
+    /// file, not an interrupted update — and the field that says so is the
+    /// only one that can (review M17).
+    #[test]
+    fn a_marker_that_names_no_act_is_cleared_rather_than_run() {
+        let mut m = marker(0, true);
+        m.from_app_version = String::new();
+        assert!(!names_an_act(&m));
+        assert_eq!(
+            resume_decision(Some(&m), Some("0.10.0"), Some("0.9.0")),
+            Some(Resume::Clear)
+        );
+        m.from_app_version = "   ".into();
+        assert_eq!(
+            resume_decision(Some(&m), Some("0.10.0"), Some("0.9.0")),
+            Some(Resume::Clear)
+        );
     }
 
     #[test]

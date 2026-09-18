@@ -25,6 +25,7 @@ use subshell_desktop_core::legal;
 use subshell_desktop_core::pending_install::{resume_decision, Resume};
 use subshell_desktop_core::permissions::{self, Permission};
 use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
+use subshell_desktop_core::settings::PendingBundledInstall;
 use subshell_desktop_core::settings::{SettingsState, Supervision};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
@@ -218,11 +219,6 @@ fn is_true(v: &Option<serde_json::Value>, key: &str) -> bool {
 }
 
 impl Probe {
-    /// The single next action, derived from facts rather than remembered.
-    ///
-    /// Recomputed on every probe on purpose: the user may have installed a
-    /// server, edited config.env or stopped the service in a terminal while
-    /// this window was open, and a remembered step would be wrong.
     /// The installed server version to COMPARE the bundle against — which is
     /// not always the installed version.
     ///
@@ -247,11 +243,16 @@ impl Probe {
         }
     }
 
+    /// The single next action, derived from facts rather than remembered.
+    ///
+    /// Recomputed on every probe on purpose: the user may have installed a
+    /// server, edited config.env or stopped the service in a terminal while
+    /// this window was open, and a remembered step would be wrong.
+    ///
+    /// (Its docblock was absorbed into `comparable_server_version`'s when that
+    /// method was split out, leaving the paragraph documenting a version
+    /// comparator and this function undocumented — review I10.)
     fn decide(&mut self) {
-        // A newer INSTALLED server is adopted, so the upgrade offer only makes
-        // sense against the copy this app owns. Offering it for a server the
-        // user installed elsewhere would write ~/.local/bin, change nothing
-        // about what the service runs, and offer again forever.
         self.server_choice = decide_server(self.bundled_version.as_deref(), self.comparable_server_version());
 
         self.next = if self.server.is_none() {
@@ -738,10 +739,26 @@ pub fn wait_for_boot(app: &AppHandle, settings: &SettingsState) -> Probe {
 /// Read-only: the marker is CLEARED by whoever finishes or abandons it — the
 /// boot resume, or the install that succeeds — never by a poll that happens to
 /// look at it 1500 ms after the fact.
+/// The resume decision for THIS machine — the one place the probe's two
+/// versions are handed to `resume_decision`.
+///
+/// Both callers go through it, and that is the point rather than tidiness.
+/// They each used to spell the comparison themselves, and the first fix for
+/// the not-managed defect changed one of them: `resume_view` began asking the
+/// managed-aware question while `boot_resume` kept asking the raw one, so the
+/// destructive half was fixed and the marker became unclearable instead
+/// (review C1 then C2, 2026-09-18). With one function there is no second site
+/// to miss, and a test of it is a test of both — which the tests that called
+/// `resume_decision` directly with the accessor already applied were not: they
+/// asserted the fix's intent and passed while the real call site did something
+/// else (review I11).
+fn resume_for(marker: Option<&PendingBundledInstall>, p: &Probe) -> Option<Resume> {
+    resume_decision(marker, p.bundled_version.as_deref(), p.comparable_server_version())
+}
+
 fn resume_view(settings: &SettingsState, p: &Probe) -> Option<PendingInstall> {
     let marker = settings.get().pending_bundled_install?;
-    let installed = p.comparable_server_version();
-    let halted = match resume_decision(Some(&marker), p.bundled_version.as_deref(), installed)? {
+    let halted = match resume_for(Some(&marker), p)? {
         Resume::Clear => return None,
         Resume::Install { .. } => false,
         Resume::Halt => true,
@@ -778,12 +795,11 @@ fn resume_view(settings: &SettingsState, p: &Probe) -> Option<PendingInstall> {
 /// opened for (`desktop_pending_screen`).
 pub(crate) fn boot_resume(app: &AppHandle, settings: &SettingsState, p: &Probe) -> bool {
     let marker = settings.get().pending_bundled_install;
-    // The MANAGED-aware version, exactly as [`resume_view`] and `decide()` ask
-    // it: a machine whose service runs a binary this app did not install has
-    // nothing for the CLI half to do, so its marker clears here instead of
-    // opening a screen over an install that was refused in phase 1.
-    let installed = p.comparable_server_version();
-    let Some(decision) = resume_decision(marker.as_ref(), p.bundled_version.as_deref(), installed) else {
+    // [`resume_for`], like every other caller: a machine whose service runs a
+    // binary this app did not install has nothing for the CLI half to do, so
+    // its marker clears here instead of opening a screen over an install that
+    // was refused in phase 1.
+    let Some(decision) = resume_for(marker.as_ref(), p) else {
         return false;
     };
     match decision {
@@ -3326,7 +3342,12 @@ mod tests {
             ..Default::default()
         };
         // The bundle really IS newer than what is installed — the raw
-        // comparison would answer "there is work", which is the bug.
+        // comparison would answer "there is work", which is the bug. Asked
+        // through `resume_for`, which is what BOTH `resume_view` and
+        // `boot_resume` call, so this cannot pass while a call site differs
+        // (review I11: the earlier version of this test called
+        // `resume_decision` with the accessor already applied, and passed
+        // while `boot_resume` did the raw comparison).
         assert_eq!(p.comparable_server_version(), Some("2.0.0"));
         let marker = subshell_desktop_core::settings::PendingBundledInstall {
             from_app_version: "0.8.0".into(),

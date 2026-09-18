@@ -36,7 +36,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
-use subshell_desktop_core::pending_install::{resume_decision, Resume};
+use subshell_desktop_core::pending_install::{names_an_act, resume_decision, Resume};
 use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::reset_guards::machine_hostname;
 use subshell_desktop_core::settings::{PendingBundledInstall, Settings, SettingsState};
@@ -688,6 +688,9 @@ pub fn node_probe(settings: State<'_, SettingsState>) -> Probe {
 fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingInstall> {
     let current = settings.get();
     let marker = current.pending_bundled_install.as_ref()?;
+    // `resume_decision` refuses a nameless marker too (one rule, in the crate
+    // that owns the field — review M17), so this is the early exit that lets
+    // the poll DROP it rather than asking twice.
     if !names_an_act(marker) {
         return None;
     }
@@ -707,21 +710,6 @@ fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingInstall
         let _ = settings.update(|s| s.pending_bundled_install = None);
     }
     view
-}
-
-/// Whether a marker records an act at all.
-///
-/// `PendingBundledInstall` derives `Default` under `#[serde(default)]`, so a
-/// truncated or hand-edited `{"pendingBundledInstall":{}}` deserializes
-/// happily into a marker whose `from_app_version` is empty — and that field is
-/// the whole record of WHICH update this is (the server app's twin renders it
-/// into a sentence, which an empty string turns into "… was updated from ,
-/// but …"). Nothing else in the struct can say the file was garbage, so this
-/// is the one field worth refusing on: an act with no version handing off is
-/// not one of ours, and running an install off it would be acting on a file
-/// nobody wrote.
-fn names_an_act(marker: &PendingBundledInstall) -> bool {
-    !marker.from_app_version.trim().is_empty()
 }
 
 /// What a decided marker looks like to the page, or `None` where it is spent.
