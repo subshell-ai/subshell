@@ -105,15 +105,14 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   await expect(body.getByText("this machine", { exact: false })).not.toBeVisible();
   await expect(body.getByText("online", { exact: true })).toBeVisible();
 
-  // Add node → one press → the reveal. There is no field any more: the node is
-  // named by the machine that becomes it, so the first step IS the mint.
+  // Add node → the screen itself. There is no first step any more (2026-09-18):
+  // the dialog opens on the instructions and the mint is one press IN them; the
+  // node is named by the machine that becomes it, so there was never a field.
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("heading", { name: "Add a node" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Install Subshell client" })).toBeVisible();
   await expect(dialog.locator("#node-name")).toHaveCount(0);
-  await dialog.getByRole("button", { name: "Create setup key" }).click();
-
-  await expect(dialog.getByRole("heading", { name: "Set up the new machine" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Generate setup key" }).click();
 
   // The rendered install command: curl … /install.sh?setup_key=<the key> |
   // bash. Since 2026-09-18 the key's only carrier is a COMMAND (the
@@ -125,7 +124,11 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   // not). The strict "no element embeds the key outside a command" count
   // lives in the unit suite.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
-  await expect(command).toBeVisible();
+  // The row exists BEFORE the press now (placeholder token, copy disabled), so
+  // `toBeVisible` is satisfied by the un-minted command and no longer syncs on
+  // the mint. Wait on the TOKEN, not the row: `toContainText` retries, while
+  // `textContent()` has no predicate and would read the placeholder mid-flight.
+  await expect(command).toContainText(/setup_key=nsk_/);
   // `mintedKey`, not `key`: Playwright's `page.keyboard` is in scope under the
   // fixture name too, and a shadowed input there is the kind of bug that only
   // shows up when someone later reaches for `keyboard` in this test.
@@ -158,7 +161,7 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   // only ever in the dialog that had closed. The regex is safe unescaped — the mint
   // shape is `nsk_` plus base64url.
   // `exact`, or the name matches the card's own "Copy setup key" and the dialog's
-  // "Create setup key" as well — three elements, strict mode, no click.
+  // "Generate setup key" as well — three elements, strict mode, no click.
   await page.getByRole("button", { name: "Setup", exact: true }).click();
   const steps = page.getByRole("dialog");
   await expect(steps.getByText("Set up a machine with this key")).toBeVisible();
@@ -220,11 +223,16 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await page.goto("/nodes");
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Create setup key" }).click();
-  await expect(dialog.getByRole("heading", { name: "Set up the new machine" })).toBeVisible();
+  // One screen now (2026-09-18): the heading is up before the mint is spent.
+  await expect(dialog.getByRole("heading", { name: "Install Subshell client" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Generate setup key" }).click();
   // The key's only carrier is a command now (the standalone box is gone,
   // 2026-09-18) — read it off the one-liner, not from a separate element.
+  // And sync on the TOKEN: the row itself is on screen before the press with
+  // `<generate setup key first>` in its slot, so `textContent()` unguarded
+  // would race the mint and read the placeholder.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
+  await expect(command).toContainText(/setup_key=nsk_/);
   const setupKey = (((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "").trim();
   expect(setupKey, "plaintext key rides the command").toMatch(/^nsk_/);
   await expect(command).toContainText(`${BASE_URL}/install.sh?setup_key=${setupKey}`);

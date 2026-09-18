@@ -20,8 +20,13 @@ import { Button } from "@/components/ui/button";
  * sets the accessible name (`Copy server address`, then `server address copied` while
  * the check is up). It stays OPTIONAL because every other caller is a lone command on
  * its own screen, where it keeps the two names it has always had.
+ *
+ * `disabled` keeps the value visible but refuses the copy. The Add-node dialog's
+ * one-liner uses it before the key exists: the command shape is the instruction and
+ * belongs on screen from the start, but copying a command whose token slot is a
+ * placeholder would run it as-is on a stranger's machine.
  */
-export function CopyCommandRow({ text, label }: { text: string; label?: string }) {
+export function CopyCommandRow({ text, label, disabled }: { text: string; label?: string; disabled?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -48,7 +53,14 @@ export function CopyCommandRow({ text, label }: { text: string; label?: string }
   return (
     <div className="flex items-center gap-2 rounded-md bg-muted p-2">
       <code className="min-w-0 flex-1 break-all font-mono text-detail">{text}</code>
-      <Button type="button" variant="ghost" size="icon-sm" aria-label={name} onClick={() => void copy()}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={name}
+        disabled={disabled}
+        onClick={() => void copy()}
+      >
         {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
       </Button>
     </div>

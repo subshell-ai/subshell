@@ -159,6 +159,11 @@ describe("SetupKeysSection", () => {
       expect(within(dialog).getByRole("button", { name: "Copy setup key" })).toBeDefined();
       expect(within(dialog).getByRole("button", { name: "Copy server address" })).toBeDefined();
       expect(within(dialog).getByText("nsk_alpha_alpha_alpha_alpha_1")).toBeDefined();
+      // The other half of the shared `NodeKeySetup` contract: this surface always
+      // HAS a key, so it passes no generate slot and shows no placeholder —
+      // pinned as absences the way the Add-node dialog pins the placeholders.
+      expect(within(dialog).queryByRole("button", { name: "Generate setup key" })).toBeNull();
+      expect(within(dialog).queryByText("Generate setup key first")).toBeNull();
 
       fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
