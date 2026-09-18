@@ -370,11 +370,26 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   const inFlight = installingApp || installingAgent || resume !== null;
 
   const rows: UpdateActRow[] = [];
-  // The app row states itself whenever it has an act, and whenever it has a
-  // REASON it does not — an air-gapped install is a fact about this machine
-  // the table should carry rather than leave to a paragraph.
-  const appRowShown = check !== undefined && (appAvailable || check.reason !== null);
-  if (appRowShown) {
+  /**
+   * **Whether there is a TABLE at all** — and if there is, every component is
+   * in it (§ 13.1; review, 2026-09-18).
+   *
+   * Two rules used to be one gate each, and between them they could drop a
+   * component from a table the other one had opened: an air-gapped check with
+   * a current agent stated the app and said nothing about the agent, and a
+   * current app beside a behind agent stated the agent and said nothing about
+   * the app. Either way the reader is left guessing at exactly the component
+   * the table exists to describe.
+   *
+   * So the question is asked ONCE. Where nothing is in question there are no
+   * rows — that is this app's "nothing to say", and what `upToDate` and
+   * `settled` are read from — and where anything is, both rows appear, which
+   * is what Subshell Server does unconditionally.
+   */
+  const appInQuestion = check !== undefined && (appAvailable || check.reason !== null);
+  const agentInQuestion = agentBehind || unmanaged;
+  const showTable = appInQuestion || agentInQuestion;
+  if (showTable && check !== undefined) {
     rows.push({
       id: "app",
       label: APP_LABEL,
@@ -382,26 +397,15 @@ export function updateAct(input: UpdateActInput): UpdateAct {
       to: check.latest !== null ? { kind: "version", version: check.latest } : { kind: "none" },
       selected: appSelected,
       selectable: appAvailable && !inFlight,
-      reason: appAvailable ? null : "cannot be checked",
+      // Three states, not two (review, 2026-09-18): the row is shown on any
+      // table now, so "no act" is either a check that could not run or an app
+      // that is simply current — and calling the second one "cannot be
+      // checked" reports a failure that did not happen.
+      reason: appAvailable ? null : check.reason !== null ? "cannot be checked" : "up to date",
     });
   }
-  /**
-   * **A table never omits a component it knows about** (review, 2026-09-18).
-   *
-   * This gated on the agent alone — shown where the act would touch it, or
-   * where a person reading the app row would assume otherwise — and that
-   * dropped the row in a case the app row survives: an air-gapped check with a
-   * current agent renders "cannot be checked" against the app and says nothing
-   * at all about the agent, which is the guess § 13.1 exists to remove. It is
-   * also how the two apps came to implement one stated rule two ways; Subshell
-   * Server states BOTH rows unconditionally and argues exactly this.
-   *
-   * So the rule is now: whenever there is a TABLE, every component is in it.
-   * Where nothing is in question at all the screen still has no rows, which is
-   * what `upToDate` and `settled` are read from — an empty table is this app's
-   * "nothing to say", and that half was never the defect.
-   */
-  if (appRowShown || agentBehind || unmanaged) {
+  // The agent's own row, on the same gate as the app's — see `showTable`.
+  if (showTable) {
     rows.push({
       id: "agent",
       label: AGENT_LABEL,

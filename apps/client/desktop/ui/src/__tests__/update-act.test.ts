@@ -80,9 +80,13 @@ describe("what the screen states (§ 4.1)", () => {
     expect(a.pressLabel).toBe("Download and Install 0.8.1");
   });
 
-  it("states the agent alone when only it is behind, with the number in hand", () => {
+  it("states BOTH halves when only the agent is behind, with the number in hand", () => {
     const a = act({ probe: agentBehind() });
     expect(a.rows).toEqual([
+      // The app is current and says so, rather than being dropped from a table
+      // its sibling opened (review, 2026-09-18) — Subshell Server's rule, and
+      // the one § 13.1 states for both.
+      row({ id: "app", label: "Subshell Client app", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
       row({
         id: "agent",
         label: "subshell CLI",
@@ -104,7 +108,8 @@ describe("what the screen states (§ 4.1)", () => {
    */
   it("offers the agent half on an app that is already current", () => {
     const a = act({ probe: agentBehind() });
-    expect(a.rows.some((r) => r.id === "app")).toBe(false);
+    expect(a.rows.find((r) => r.id === "app")?.selectable).toBe(false);
+    expect(a.press).toBe("agent");
     expect(a.upToDate).toBe(false);
   });
 
@@ -122,6 +127,7 @@ describe("what the screen states (§ 4.1)", () => {
       probe: makeProbe({ agentChoice: "install-bundled", agent: null, managed: false, bundledVersion: "1.10.0" }),
     });
     expect(a.rows).toEqual([
+      row({ id: "app", label: "Subshell Client app", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
       row({
         id: "agent",
         label: "subshell CLI",

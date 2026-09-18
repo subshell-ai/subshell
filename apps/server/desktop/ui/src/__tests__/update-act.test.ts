@@ -92,6 +92,7 @@ function act(over: Partial<UpdateActInput> = {}) {
     state: "idle",
     finished: null,
     selection: UNTOUCHED,
+    busy: false,
     ...over,
   });
 }
@@ -320,6 +321,21 @@ describe("the two phases of §4.2", () => {
   it("does not call the app current after a press that only touched the server", () => {
     const view = act({ finished: { ok: true }, appUpdate: APP_BEHIND });
     expect(view.subtitle).toBe("The server on this machine is up to date. Subshell Server 0.8.1 is still available.");
+  });
+
+  /**
+   * **`busy` is not `state`** (review, 2026-09-18). `state` tracks the APP
+   * install's phases; the CLI half runs through the page's action runner and
+   * never touches it. Without this the primary button stayed live through a
+   * `subshell-server update --from` budgeted at 300 s — greyed checkboxes, a
+   * live-looking button and no progress line, which reads as a hung screen.
+   */
+  it("goes dead while this window is already doing something", () => {
+    const running = act({ probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND, busy: true });
+    expect(running.press?.enabled).toBe(false);
+    // The press is still NAMED: a button that vanished mid-act would take the
+    // only description of what is happening with it.
+    expect(running.press?.label).toBe("Download and Install 0.8.1");
   });
 
   it("says the app restarts while the download runs", () => {

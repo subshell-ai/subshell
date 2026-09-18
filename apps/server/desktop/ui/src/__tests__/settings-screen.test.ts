@@ -25,6 +25,7 @@ import {
   SETTINGS_RESTART_NOTE,
   settingsEdited,
   settingsForce,
+  settingsKnown,
   settingsPayload,
   settingsSaveRefusal,
   settingsSupervision,
@@ -145,6 +146,29 @@ describe("the two refusals", () => {
     expect(settingsSaveRefusal(machine({ tmux: null }))).toContain("tmux");
     // Before the first probe there is no machine to save to.
     expect(settingsSaveRefusal(null)).not.toBeNull();
+  });
+
+  /**
+   * **A failed `status --json` is not an unconfigured machine** (review,
+   * 2026-09-18), and here the difference is a wipe. The form seeds from
+   * `status.settings`, so a tick whose CLI spawn failed would prefill the
+   * DEFAULTS — port 3080 — while the machine runs 4000; the next tick's real
+   * settings then make the form look edited and Save writes 3080 over it, from
+   * the one screen that exists to repair a server nobody can reach.
+   */
+  it("holds the form while the machine's configuration is unknown", () => {
+    const unreadable = machine({ status: null });
+    expect(settingsKnown(unreadable)).toBe(false);
+    expect(settingsSaveRefusal(unreadable)).toContain("Reading");
+
+    // A machine with no server binary is a different case and IS known: there
+    // is nothing to read, defaults are the right prefill, and this screen is
+    // where a first configuration gets written.
+    const fresh = machine({ status: null, server: null });
+    expect(settingsKnown(fresh)).toBe(true);
+    expect(settingsSaveRefusal(fresh)).toBeNull();
+
+    expect(settingsKnown(machine())).toBe(true);
   });
 
   it("offers Force only where a definition would actually refuse the restart", () => {

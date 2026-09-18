@@ -197,6 +197,17 @@ export interface UpdateActInput {
   finished: { ok: boolean } | null;
   /** What the person has ticked. */
   selection: UpdateActSelection;
+  /**
+   * Whether an action is running in this window.
+   *
+   * The page's own `busy`, and it is NOT the same fact as {@link state}: that
+   * one tracks the APP install's phases, which the CLI half never touches. So
+   * a `subshell-server update --from` run — budgeted at 300 s — left the
+   * primary button looking live for five minutes beside greyed checkboxes and
+   * no progress line, which reads as a hung screen (review, 2026-09-18).
+   * Subshell Client folds the same flag into its own `canPress`.
+   */
+  busy: boolean;
 }
 
 /** The screen's title — one act, one name, on every phase. */
@@ -319,7 +330,7 @@ export function rejectedResult(message: string): ActionResult {
  * 5. Otherwise the offer — the selection table.
  */
 export function updateAct(input: UpdateActInput): UpdateAct {
-  const { probe, appUpdate, state, finished, selection } = input;
+  const { probe, appUpdate, state, finished, selection, busy } = input;
   const pending = probe?.pendingInstall ?? null;
 
   // 1. Finished here. Page state, because the success CLEARS the marker.
@@ -378,7 +389,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     const retry: UpdateActPress = {
       label: "Try Again",
       kind: "cli",
-      enabled: state === "idle",
+      enabled: state === "idle" && !busy,
       bundled: true,
       forced: force?.checked === true,
     };
@@ -481,6 +492,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     retryable,
     forced: force?.checked === true,
     state,
+    busy,
   });
 
   return {
@@ -596,8 +608,9 @@ function offerPress(o: {
   retryable: boolean;
   forced: boolean;
   state: ActState;
+  busy: boolean;
 }): UpdateActPress | null {
-  const enabled = o.state === "idle";
+  const enabled = o.state === "idle" && !o.busy;
   if (o.appPicked && o.appLatest !== null) {
     return {
       label: `Download and Install ${o.appLatest}`,

@@ -58,6 +58,7 @@ import {
   SETTINGS_SUBTITLE,
   settingsEdited,
   settingsForce,
+  settingsKnown,
   settingsPayload,
   settingsSaveRefusal,
 } from "./lib/settings-screen";
@@ -1521,9 +1522,14 @@ async function startAppUpdate(forced: boolean, bundled: boolean): Promise<void> 
  * so `act` still says what went wrong.
  */
 async function finishUpdate(_p: Probe, forced: boolean): Promise<void> {
+  // The CLI half can take minutes — `update --from` is budgeted at 300 s — and
+  // it emits nothing on the way (review, 2026-09-18). One line, so the screen
+  // is not silent while the button is dead beside it.
+  updateProgress = "Installing the server it ships…";
   await act(async () => {
     try {
       const installed = await ipc.installServer();
+      updateProgress = "Restarting the server…";
       updateResult = installed;
       if (!installed.ok) return installed;
       // `--force` only where the definition would refuse over live panes; the
@@ -1534,6 +1540,8 @@ async function finishUpdate(_p: Probe, forced: boolean): Promise<void> {
     } catch (err) {
       updateResult = rejectedResult(errText(err));
       throw err;
+    } finally {
+      updateProgress = "";
     }
   }, true);
 }
@@ -1580,6 +1588,10 @@ function renderUpdate(p: Probe): void {
     state: updateState,
     finished: updateResult,
     selection: updateSelection,
+    // The CLI half runs through `act`, which sets `busy` and never touches
+    // `updateState` — so without this the primary button stayed live through a
+    // five-minute `update --from` (review, 2026-09-18).
+    busy,
   });
   setFrame("none", UPDATE_TITLE, view.subtitle);
   const content = el("content");
@@ -2063,10 +2075,29 @@ function renderSettings(p: Probe): void {
   // what the machine currently has, and a value left over from a visit before
   // a CLI-side edit would be the stale field the prefill exists to prevent.
   // `applyScreen` and `host.close()` clear it on the way out.
-  settingsForm ??= seedAddressForm(p.status?.settings);
+  //
+  // **And never from a probe that could not read the machine** (review,
+  // 2026-09-18). `p.status` is null both for a failed `status --json` spawn and
+  // for a machine with no server at all, and seeding on the first is how a
+  // configured port 4000 gets a form full of 3080 and a Save that looks like a
+  // repair. `settingsKnown` is the distinction; until it is true the screen
+  // renders its own "reading this machine" line and no form, and
+  // `settingsSaveRefusal` holds Save in the same state.
+  if (settingsForm === null && settingsKnown(p)) settingsForm = seedAddressForm(p.status?.settings);
   const state = settingsForm;
   setFrame("none", SETTINGS_LABEL, SETTINGS_SUBTITLE);
   const content = el("content");
+  if (state === null) {
+    // Nothing to show yet, and nothing this screen could honestly prefill. The
+    // poll is 1500 ms and the bar still carries Back and Restart, so this is a
+    // moment rather than a dead end.
+    content.append(text("p", "Reading this machine's configuration…", "hint"));
+    el("bar-left").append(button("Back", () => host.close(), "ghost"));
+    el("bar-right").append(
+      button("Restart", () => void runSettings(() => ipc.service("restart", false)), "ghost", busy || running),
+    );
+    return;
+  }
   content.append(
     addressForm(p, state, {
       // Toggled IN PLACE as the field is typed, never by a re-render: the poll

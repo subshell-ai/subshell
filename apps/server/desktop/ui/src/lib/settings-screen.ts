@@ -98,8 +98,30 @@ export const SETTINGS_RESTART_NOTE =
  */
 export function settingsSaveRefusal(probe: Probe | null): string | null {
   if (probe === null) return "Checking this machine…";
+  if (!settingsKnown(probe)) return "Reading this machine's configuration…";
   if (probe.tmux === null) return "tmux is missing, and the server refuses to write its configuration without it.";
   return null;
+}
+
+/**
+ * Whether this probe KNOWS what the machine is configured with.
+ *
+ * **A failed `status --json` is not an unconfigured machine** (review,
+ * 2026-09-18), and on this screen that distinction decides whether a save is
+ * a repair or a wipe. `probe.status` is null both when the CLI spawn failed on
+ * that tick and when there is no server to ask — and the form seeds from
+ * `status.settings`, so on the first reading it would prefill the DEFAULTS
+ * (port 3080, `http://localhost:3080`). The next tick carries the machine's
+ * real settings, the edited-check then sees a difference, Save lights up, and
+ * pressing it writes 3080 over a configured 4000 — from the one screen whose
+ * whole premise is repairing a server nobody can reach.
+ *
+ * A machine with no server binary at all is a different case and is KNOWN:
+ * there is nothing to read, defaults are the right prefill, and this screen is
+ * where a first configuration is written.
+ */
+export function settingsKnown(probe: Probe): boolean {
+  return probe.status !== null || probe.server === null;
 }
 
 /**

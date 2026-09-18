@@ -560,6 +560,15 @@ So the screen is a table — component, what it runs, what it would become, and 
 checkbox where there is something to do. Four rules, each closing one of the
 defects above:
 
+- **The table is all-or-nothing.** Where nothing is in question there are no
+  rows at all — that is this app's "everything is current", and what
+  `upToDate` and `settled` read — and where anything is, BOTH components are
+  stated. Asked as two separate gates it could drop a component from a table
+  its sibling had opened (review, 2026-09-18): an air-gapped check beside a
+  current agent said nothing about the agent, a current app beside a behind
+  agent said nothing about the app. Subshell Server states both rows
+  unconditionally because it has no empty-table state to protect; this is the
+  same rule with one.
 - **A row with an available act carries a checkbox, ticked by default**, so
   both halves behind is still ONE press. That default is D1 unchanged.
 - **A row with no available act states WHY where its checkbox would be** —

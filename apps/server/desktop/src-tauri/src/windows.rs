@@ -364,14 +364,19 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
 
     let level = crate::zoom::level(app);
     let floor = clamped_floor(level, work_area(app));
-    // **Before the window exists, not after it loads.** The first page is not a
-    // navigation `on_navigation` is guaranteed to see, so the flag is set for
-    // the address this side chose — and set HERE, because a webview that has
-    // painted can invoke, and a guard that trails the page it guards would
-    // refuse the SPA's own title-bar handshake on a fast machine. Nothing can
-    // be invoking in the meantime: this branch runs only when no `main` window
-    // exists. It cannot say "true" for an untrusted address either — the
-    // refusal above already returned.
+    // **Before the window exists**, for the address THIS SIDE chose — the
+    // refusal above already returned for anything untrusted, and no page can be
+    // invoking in the meantime, because this branch runs only when no `main`
+    // window exists.
+    //
+    // It does NOT exist to beat the page to the guard (review, 2026-09-18): the
+    // old comment claimed a trailing guard "would refuse the SPA's own
+    // title-bar handshake on a fast machine", which is not a race that exists.
+    // `PageLoadEvent::Started` is raised from `didCommitNavigation:` (macOS)
+    // and `LoadEvent::Committed` (GTK), both BEFORE the document's scripts run,
+    // so arming always precedes the first `invoke()`. Leaving that claim here
+    // would be the precedent for the next eager arm, which is exactly how the
+    // one this batch removed came to exist.
     trust.evaluate(&url);
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         // **Navigation follows the sign-in; the PRIVILEGES do not** (operator's

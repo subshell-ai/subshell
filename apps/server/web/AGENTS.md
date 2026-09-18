@@ -716,6 +716,27 @@ components are the better-auth sign-in/sign-out posts:
 - Uploads/streaming: the fetch paths in `src/lib/subshell-uploads.ts` (driven by
   `src/hooks/use-terminal-uploads.ts`).
 
+**A 200 from better-auth is not a stored session, so sign-in verifies before it
+redirects** (2026-09-18). better-auth derives cookie security from
+`APP_BASE_URL` rather than from the request, so an instance whose base URL is
+an https address marks its session cookie `Secure` and prefixes it
+`__Secure-` — which a browser on an http page discards on receipt. The POST
+succeeds, the redirect to `/` finds no session and bounces straight back, and
+the form reads as having rejected a correct password. So `routes/login.tsx`
+pays one extra `getSessionUser()` round trip on the one press where being wrong
+costs a person their way in; **do not remove it as redundant with
+`useCurrentUser`**, which is the read that already ran and found nothing.
+
+There are THREE outcomes, not two, and `lib/sign-in-diagnosis.ts` owns the
+words for the ones that are not a redirect. A session that exists redirects; a
+session that does not gets the diagnosis (which never blames the credentials,
+and whose remedy inside Subshell Server names the assistant's Server Addresses
+screen — the dashboard cannot be reached without the session just lost). A
+check that could not RUN is its own answer: `getSessionUser` throws on anything
+that is not a 401/403 precisely so a failed read is never read as signed-out,
+and folding it into the second case would tell someone to change an address
+that works.
+
 ## Testing
 
 `bun test` with `src/test-setup.ts` preloaded (via `bunfig.toml`; it registers
