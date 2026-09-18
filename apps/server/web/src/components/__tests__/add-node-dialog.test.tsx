@@ -11,7 +11,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useEffect, useState } from "react";
 import { AddNodeDialog, installCommandFor } from "@/components/nodes/add-node-dialog";
 import { NODES_QUERY_KEY } from "@/lib/query-keys";
-import { tmuxInstallHint } from "@/lib/tmux-install";
 
 interface Call {
   method: string;
@@ -136,14 +135,22 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("step 2 shows the plaintext key once with the rendered install command", async () => {
+  it("step 2 shows the key exactly once — inside the command, its only copy target", async () => {
+    // The standalone key box and its subtitle are gone (operator's call,
+    // 2026-09-18): the command carries the key, and a second box was a
+    // second thing to copy for one paste. The load-bearing regression is
+    // that removal did not drop the key from the command — hence the
+    // count: the key-bearing element IS the command, and there is exactly
+    // one of it.
     const { restore } = mockFetch();
     try {
       await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      expect(await screen.findByText("nsk_secret")).toBeDefined();
-      expect(screen.getByText('curl -fsSL "http://localhost/install.sh?setup_key=nsk_secret" | bash')).toBeDefined();
+      expect(
+        await screen.findByText('curl -fsSL "http://localhost/install.sh?setup_key=nsk_secret" | bash'),
+      ).toBeDefined();
+      expect(screen.getAllByText(/nsk_secret/)).toHaveLength(1);
       expect(screen.getByText(/only time the full key is shown/i)).toBeDefined();
       expect(screen.getByText(/Waiting for enrollment/i)).toBeDefined();
     } finally {
@@ -254,7 +261,7 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      await screen.findByText("nsk_secret");
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
 
       // async act: opening the Select arms Base UI's positioner, whose update
       // lands a microtask after a sync dispatch returns (mobile-install-dialog's precedent).
@@ -328,7 +335,7 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      expect(await screen.findByText("nsk_secret")).toBeDefined();
+      expect(await screen.findByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
       expect(screen.queryByText(/points at loopback/i)).toBeNull();
     } finally {
       restore();
@@ -387,7 +394,7 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      await screen.findByText("nsk_secret");
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
     } finally {
       restore();
@@ -420,7 +427,7 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      await screen.findByText("nsk_secret");
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
     } finally {
       restore();
@@ -445,10 +452,15 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("says what the command does to the machine before it is run", async () => {
+  it("says what the command does to the machine before it is run — and nothing about tmux", async () => {
     // The dialog is the one place in the product where a headless node
     // install is described; it used to describe nothing at all (spec
     // 2026-09-15 §5.4). Every clause here is a clause of install-script.ts.
+    // The tmux paragraph is GONE (operator's call, 2026-09-18): `subshell
+    // setup` preflights tmux and refuses before spending the key, and the
+    // script's own output names the fix at the moment it matters — the
+    // dialog's job is the command. The absence is pinned the way the mobile
+    // dialog pins its removed address-explainer.
     const { restore } = mockFetch();
     try {
       await renderDialog();
@@ -458,19 +470,28 @@ describe("AddNodeDialog", () => {
       expect(what.textContent).toContain("~/.local/bin");
       expect(what.textContent).toMatch(/background service/i);
       expect(what.textContent).toMatch(/at login/i);
-      const tmux = screen.getByText(/setup refuses without it/i);
-      expect(tmux.textContent).toContain("tmux");
-      // Asserted against the SHARED table, not a literal. The dialog used to
-      // hardcode its own spelling, which made four in the repo for one command
-      // and is what this test pinned in place (review, 2026-09-15).
-      const mac = tmuxInstallHint("darwin");
-      const linux = tmuxInstallHint("linux");
-      // Both platforms must HAVE a command; a table that answered null would
-      // otherwise make the two assertions below vacuously pass.
-      expect(mac?.command).toBeTruthy();
-      expect(linux?.command).toBeTruthy();
-      expect(tmux.textContent).toContain(mac?.command ?? "");
-      expect(tmux.textContent).toContain(linux?.command ?? "");
+      expect(screen.queryByText(/setup refuses without it/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("folds the first-run sentence INTO the what-it-does paragraph on step 2", async () => {
+    // The two sentences that described one command now share one paragraph
+    // (2026-09-18). Step 1 keeps its own standalone note; here the sentence
+    // rides the paragraph it explains, on the SAME predicate — so a server
+    // that fetches on demand with gaps in its published targets says both,
+    // and the default `{}` shape (no verdict) says only the first.
+    const { restore } = mockFetch({
+      nodeArtifactTargets: ["linux-x64"],
+      nodeArtifactsAutoFetch: true,
+    });
+    try {
+      await renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      const what = await screen.findByText(/installs the agent to/i);
+      expect(what.textContent).toMatch(/downloaded from the project's release the first time/i);
     } finally {
       restore();
     }
@@ -483,7 +504,7 @@ describe("AddNodeDialog", () => {
       const { arrive } = await renderDialog(1);
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      await screen.findByText("nsk_secret");
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       nodes.rows = [
         { id: "local", name: "Server" },
         { id: "n2", name: "mac mini" },
@@ -507,7 +528,7 @@ describe("AddNodeDialog", () => {
       const { arrive } = await renderDialog(1);
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      await screen.findByText("nsk_secret");
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       nodes.rows = [
         { id: "local", name: "Server" },
         { id: "n2", name: "mac mini" },
@@ -530,7 +551,7 @@ describe("AddNodeDialog", () => {
       const { arrive } = await renderDialog(1);
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      await screen.findByText("nsk_secret");
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       await arrive(2);
       expect(await screen.findByText(/Node enrolled\. Close this dialog/i)).toBeDefined();
       expect(screen.queryByRole("link", { name: /open its page/i })).toBeNull();

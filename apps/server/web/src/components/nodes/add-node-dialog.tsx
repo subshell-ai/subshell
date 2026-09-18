@@ -18,15 +18,16 @@ import { useCreateSetupKey, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
 import { installAddresses } from "@/lib/install-addresses";
-import { tmuxInstallHint } from "@/lib/tmux-install";
 import type { CreatedSetupKey } from "@/types/node";
 
 /**
  * Two-step "Add node" flow (spec 2026-08-31 §5.1/§9): a label → a single-use
- * setup key whose plaintext is shown EXACTLY ONCE here, together with the
- * copy-ready install command to run on the new machine. While the dialog is
- * open the page polls the node list every 3 s, and the waiting hint flips to
- * "enrolled" when the machine shows up.
+ * setup key whose plaintext is shown EXACTLY ONCE here — inside the
+ * copy-ready install command and nowhere else (operator's call, 2026-09-18:
+ * the standalone key box, its subtitle, and the tmux paragraph went, as
+ * copy targets and prose the command and the script's own output already
+ * carry). While the dialog is open the page polls the node list every 3 s,
+ * and the waiting hint flips to "enrolled" when the machine shows up.
  *
  * Step 2 names the address the node will DIAL FOREVER, not merely the host
  * of the curl: the download address and the dial address are separate facts
@@ -103,7 +104,6 @@ export function AddNodeDialog({
   const addressId = useId();
   // The one-time reveal: set after a successful create, cleared on close.
   const [created, setCreated] = useState<CreatedSetupKey | null>(null);
-  const [copied, setCopied] = useState(false);
   const [baselineCount, setBaselineCount] = useState<number | null>(null);
   // WHICH machine arrived, not just that one did. The parent's count answers
   // "something enrolled"; only the ids answer "this is yours", and a
@@ -119,7 +119,6 @@ export function AddNodeDialog({
     setName("");
     setFormError(null);
     setChosen(null);
-    setCopied(false);
     setBaselineCount(null);
     setBaselineIds(null);
     // Clear the mutation too — a failed create would otherwise flash its error
@@ -140,16 +139,6 @@ export function AddNodeDialog({
       setName("");
     } catch (err) {
       setFormError(errMessage(err, "Something went wrong. No key was created."));
-    }
-  }
-
-  async function copyKey() {
-    if (!created) return;
-    try {
-      await navigator.clipboard.writeText(created.key);
-      setCopied(true);
-    } catch {
-      // Clipboard blocked (non-secure context) — the text stays selectable.
     }
   }
 
@@ -207,8 +196,11 @@ export function AddNodeDialog({
     </p>
   );
   // Said once, quietly, and only where it is true: the first machine of a
-  // platform waits for a ~80 MB download that later ones do not.
-  const firstRunNote = autoFetch && targets && targets.length < NODE_TARGETS.length && (
+  // platform waits for a ~80 MB download that later ones do not. Step 1 says
+  // it alone; step 2 folds the same sentence into the paragraph that explains
+  // the command (2026-09-18) — one sentence, two homes, one predicate.
+  const showFirstRunNote = autoFetch && targets !== undefined && targets.length < NODE_TARGETS.length;
+  const firstRunNote = showFirstRunNote && (
     <p className="text-detail text-muted-foreground">
       The agent binary for a platform is downloaded from the project's release the first time a machine of that platform
       installs, so the first run on each takes a little longer.
@@ -228,37 +220,37 @@ export function AddNodeDialog({
           <>
             <DialogHeader>
               <DialogTitle>Run this on the new machine</DialogTitle>
-              <DialogDescription>
-                The setup key below is shown once. Copy the command now; a lost key means creating a new one.
-              </DialogDescription>
             </DialogHeader>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 overflow-x-auto rounded-md bg-muted p-3 font-mono text-sm">{created.key}</code>
-              <Button type="button" variant="outline" size="sm" onClick={() => void copyKey()}>
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
+            {/* One copy target since 2026-09-18 (operator's call): the key box
+                and the "the setup key below is shown once" subtitle are gone,
+                because the command below already carries the key — a second
+                box was a second thing to copy for one paste. The key still
+                appears EXACTLY ONCE on this screen, inside the command; the
+                destructive line below says as much. The tmux paragraph went
+                with them: `subshell setup` preflights tmux and refuses before
+                spending the key, and the script's own output names the fix at
+                the moment it matters — the dialog's job is the command. The
+                two explanatory sentences merged into the one block below. */}
             {/* What the one-liner will do, said BEFORE it is pasted into a
                 terminal on a machine the operator is standing at. Every
                 clause is a clause of the rendered script (api/install-script
                 .ts): the dest is `$HOME/.local/bin` unless SUBSHELL_DATA_DIR
                 relocates it, the script ends at one `subshell setup`, and
                 that verb's single question is "Run the agent in the
-                background and start it at login?", default yes. */}
+                background and start it at login?", default yes. The
+                first-run clause is the same truth `firstRunNote` says in
+                step 1 — it belongs to the sentence it explains, so here it
+                rides INSIDE this paragraph rather than standing alone. */}
             <p className="text-detail text-muted-foreground">
               It installs the agent to <code className="font-mono">~/.local/bin</code>, enrolls this machine, and then
               asks whether to install a background service that starts it at login.
-            </p>
-            {/* tmux is a refusal, not a warning: `subshell setup` preflights
-                it before the single-use key is spent. Saying so here is what
-                keeps an operator from discovering it at the end of a 70 MB
-                download — or, before the script warned, from a launch that
-                failed an hour later. */}
-            <p className="text-detail text-muted-foreground">
-              That machine needs <span className="font-mono">tmux</span> first — setup refuses without it, and a node
-              runs every subshell inside it. Install with{" "}
-              <code className="font-mono">{tmuxInstallHint("darwin")?.command}</code> on macOS or{" "}
-              <code className="font-mono">{tmuxInstallHint("linux")?.command}</code> on Linux.
+              {showFirstRunNote && (
+                <>
+                  {" "}
+                  The agent binary for a platform is downloaded from the project&apos;s release the first time a machine
+                  of that platform installs, so the first run on each takes a little longer.
+                </>
+              )}
             </p>
             {/* The dropdown, not a paragraph. Every row is an address this
                 instance trusts a sign-in from — and the one chosen is what
@@ -289,7 +281,6 @@ export function AddNodeDialog({
                 <CopyCommandRow text={enrollCommand} />
               </div>
             )}
-            {firstRunNote}
             {unknownNote}
             <p className="text-destructive text-detail">
               Single-use, expires in 24 h. This is the only time the full key is shown.

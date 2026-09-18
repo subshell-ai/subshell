@@ -113,12 +113,16 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   await dialog.getByRole("button", { name: "Create setup key" }).click();
 
   await expect(dialog.getByRole("heading", { name: "Run this on the new machine" })).toBeVisible();
-  const key = (await dialog.getByText(/^nsk_/).textContent()) ?? "";
-  expect(key, "plaintext key is shown once").toMatch(/^nsk_/);
 
-  // The rendered install command: curl … /install.sh?setup_key=<the key> | bash
+  // The rendered install command: curl … /install.sh?setup_key=<the key> |
+  // bash. The command is the key's ONE reveal since 2026-09-18 — the
+  // standalone key box was removed as a second copy target — so the key is
+  // read OFF the command, and nothing may stand alone with it.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
   await expect(command).toBeVisible();
+  const key = ((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "";
+  expect(key, "plaintext key rides the command").toMatch(/^nsk_/);
+  await expect(dialog.getByText(/^nsk_/)).toHaveCount(0);
   await expect(command).toContainText(`?setup_key=${key}`);
 
   await dialog.getByRole("button", { name: "Done" }).click();
@@ -181,9 +185,11 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await dialog.locator("#node-name").fill(keyLabel);
   await dialog.getByRole("button", { name: "Create setup key" }).click();
   await expect(dialog.getByRole("heading", { name: "Run this on the new machine" })).toBeVisible();
-  const setupKey = ((await dialog.getByText(/^nsk_/).textContent()) ?? "").trim();
-  expect(setupKey, "plaintext key is shown once").toMatch(/^nsk_/);
+  // The key's one reveal is the command (the standalone key box is gone,
+  // 2026-09-18) — read it off there, not from a separate element.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
+  const setupKey = (((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "").trim();
+  expect(setupKey, "plaintext key rides the command").toMatch(/^nsk_/);
   await expect(command).toContainText(`${BASE_URL}/install.sh?setup_key=${setupKey}`);
   // The dropdown stands where the amber loopback paragraph used to be. Its
   // one row is the base URL (a loopback-only stack knows no reachable

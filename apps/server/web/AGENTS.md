@@ -369,6 +369,14 @@ until then. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-
 published artifact set is visible at once.
+Step 2 is ONE copy target (operator's call, 2026-09-18): the standalone setup-
+key box, its "the setup key below is shown once" subtitle, and the tmux
+paragraph are GONE — the command already carries the key, so the box was a
+second thing to copy for one paste, and tmux is the script's own refusal at
+the moment it matters, not dialog prose. The two explanatory sentences
+(~/.local/bin + the per-platform first-run download) merged into the one
+paragraph they always described; the "Single-use, expires in 24 h…" line
+stays, now beside the command that is the key's only reveal.
 
 ## Subshell for Mobile (the PWA install dialog)
 
