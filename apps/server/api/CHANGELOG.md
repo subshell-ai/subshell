@@ -1,5 +1,123 @@
 # @internal/server
 
+## 0.10.0
+
+### Minor Changes
+
+- [#82](https://github.com/subshell-ai/subshell/pull/82) [`636ad46`](https://github.com/subshell-ai/subshell/commit/636ad462daa81cad41bcda92628c7fe65aaed0a9) Thanks [@theogravity](https://github.com/theogravity)! - Subshell Client's first run asks what you came to do. It used to land on one screen
+  whose primary button read **Open**, which persisted the address *and* threw the server's
+  dashboard on screen while the setup carried on in the window behind it. Now: Welcome →
+  "What would you like to do?" → either **use this machine as a node** (tmux → the
+  registration details → how the node runs → a Setting Up… checklist) or **connect to a
+  server**. A configured client lands on a client-status screen on every launch
+  afterwards, where the dashboard is a button. The rule the whole flow exists for: this
+  app never opens the control plane's dashboard by itself.
+  
+  The details screen says **Continue**, because that press spends nothing; the press that
+  installs the agent, enrols and starts the service is on the start-up screen, so that one
+  says **Register**. Nothing verifies the server or the key before it — a setup key is
+  single-use and `enroll` is the only operation that tests one, and an endpoint answering
+  "is this key good?" would be an oracle for guessing them — so the press checks the
+  answers' SHAPE and the checklist reports the rest.
+  
+  A failed registration can be edited and retried. The failed act shows the CLI's own
+  words, **Edit details** goes back to the form with the server and name intact and the
+  spent key cleared, and a retry with the machine already registered resumes at the
+  service act rather than enrolling a second time. Enrolling over a live `config.json`
+  mints a second node row and discards the only copy of the node key, so the chain stops
+  and asks rather than doing it silently. Every walk screen has a way out, and a client
+  that was already configured returns to its status screen rather than to a choice it
+  never saw.
+  
+  The tmux pane is the server's. tmux is a hard requirement for registration, and on a Mac
+  with no Homebrew the old screen could only refuse while telling you to run `brew`. It
+  now streams the package manager's own output with a clock, and offers Homebrew and
+  MacPorts where it cannot install for you. The node agent gained
+  `service install --no-autostart` to back the start-up choice — on macOS that is which
+  DIRECTORY the plist lives in, since launchd auto-loads only `~/Library/LaunchAgents`, so
+  `status`, `start`, `uninstall` and `update` learned to read both places.
+  
+  A node's harness inventory refreshes itself: when the node comes online, and periodically
+  while it stays online. Detection used to fire only on a node-detail page load, a manual
+  Re-check, or a launch, so a machine that had just enrolled — or had a CLI installed on it
+  afterwards — carried a stale inventory until somebody opened its page.
+  
+  The agent's log is the one you are shown. It was already capped at 200 KB and replaced
+  when full; what diverged was that the desktop revealed launchd's redirect instead, which
+  is appended to forever. Both surfaces name the same file now, and the launchd copy is
+  0600 rather than world-readable.
+  
+  Two touch bugs on a phone, in the browser and in the app. A tap on the grid raises the
+  keyboard again — xterm 6 focuses its helper textarea only from `mousedown`, and its own
+  gesture layer cancels the touch that would produce one, so nothing was ever focused. And
+  a flick no longer types `NaN` into the pane: xterm reports momentum frames as wheel
+  events without coordinates, and those reports are now dropped on their way out while
+  well-formed ones still scroll.
+  
+  And **Choose an existing agent…** is gone. It pointed at a `subshell` binary, but *agent*
+  already means an agent-harness plugin here, so the label offered to choose the wrong
+  thing entirely.
+
+- [`de05252`](https://github.com/subshell-ai/subshell/commit/de0525249e1820148d5fae9bc9409e33f12a2d18) Thanks [@theogravity](https://github.com/theogravity)! - Server Settings → Updates is one Components table instead of three cards: the two desktop apps, the Server and every enrolled node now answer the same four columns — name, running, newest, act — and each row states its own blockers, job phases and held-node reasons as detail lines inside the row.
+
+- [#74](https://github.com/subshell-ai/subshell/pull/74) [`a2ebcc3`](https://github.com/subshell-ai/subshell/commit/a2ebcc34e7444ee78fbec9efd0f60d181c3ed232) Thanks [@theogravity](https://github.com/theogravity)! - Inside Subshell Server's window, the sidebar now reports the app's own version under the user panel, with an **Update** action when one is known and a per-version dismiss — desktop-only, and it never installs anything by itself. (spec 2026-09-17-zero-touch-desktop-setup)
+
+- [`9be2954`](https://github.com/subshell-ai/subshell/commit/9be295447629937de3447ec8e1e2b70b00198be3) Thanks [@theogravity](https://github.com/theogravity)! - Server Settings → Networking now owns the Addresses card (moved from Service: port, bind, base URL and trusted origins are the page's own question), and the installed network plugins are grouped into one Networks card instead of a card each.
+
+- [#77](https://github.com/subshell-ai/subshell/pull/77) [`ffca436`](https://github.com/subshell-ai/subshell/commit/ffca43632642776c7ccdc6a6ef3e4278367910cf) Thanks [@theogravity](https://github.com/theogravity)! - Adding a node now lets you PICK the address the new machine dials: step 2 grew the same dropdown the "Subshell for Mobile" dialog has (the instance's trusted addresses, loopback dropped when anything else is known), the chosen one rides to `install.sh` as `server=` and is baked as the agent's permanent `SERVER` — accepted only if the live trusted-origin registry still names it. The amber "APP_BASE_URL points at loopback… replace the host" paragraph is gone: hand-editing the curl host only ever changed where the script downloaded from, never what the node dialed, and the dropdown is the control that sentence was describing. The mobile dialog also drops its two explanatory blurbs — the audience is developers, and both restated the address bar.
+
+- [#80](https://github.com/subshell-ai/subshell/pull/80) [`d959af5`](https://github.com/subshell-ai/subshell/commit/d959af54fb17a953f2aed3f48efe9c54e77e27e2) Thanks [@theogravity](https://github.com/theogravity)! - A node now names itself, on the machine. The Add-node dialog's "Node name" field is
+  gone — its text became only the setup key's label, while the node was named by its own
+  hostname whatever you typed — so step 1 is one press that mints a key, and the name is
+  asked where it can be answered: `subshell setup` asks "Name this node" with the
+  hostname prefilled, `--name` answers for a script, `SUBSHELL_NODE_NAME` answers through
+  the install pipe, and `subshell enroll` — the primitive that asks nothing — requires
+  `--name` outright, as does `setup` under `--yes`, `--json` or no terminal.
+  
+  The reveal has two paths now, on a **Terminal | Desktop App** switch under the address
+  both of them need: the one-liner, or the two values Subshell Client's Enroll step
+  actually takes — server address and setup key, each copyable.
+  
+  And the key is readable again after the dialog closes. The Setup keys card lists each of
+  your own keys in full until it is used, expires (24 h) or is revoked, which is why the
+  server stores the key itself rather than its SHA-256 digest: an unused key you cannot
+  read was a door you could only close. Single-use, owner-scoped, never in the audit log;
+  `docs/security.md` accounts for it. The migration drops every outstanding key, so mint
+  again after upgrading.
+  
+  And the cap on that name is counted in ONE unit now. `normalizeNodeName` caps
+  CHARACTERS, while a JSON Schema `maxLength` and a DOM `maxlength` count UTF-16 units, so
+  enroll's body, rename's body and the rename field each said 64 where the rule says 64
+  characters — a machine named with 40 emoji was legal at every door and refused at these
+  three. `NODE_NAME_MAX_UNITS` is the unit spelling of the same limit (twice the cap, which
+  is the most 64 characters can occupy), and the agent's `--name` preflight and `setup`'s
+  prompt count code points like the desktop field and Rust already did, so an emoji name
+  measures the same whether it was typed, pasted, prompted for or piped.
+  
+  And the card now hands back the COMMAND as well as the key. A `Setup` button on each
+  usable row opens the same fields the mint dialog shows — address picker, Terminal |
+  Desktop App, the one-liner or the two values — because closing the dialog mid-copy still
+  lost the command, and re-reading instructions that had never been lost meant minting a
+  second single-use key. Rows whose key is spent or expired have no such button; steps for
+  an inert credential only end in a 401. The reveal itself moved to
+  `node-key-setup.tsx`, shared by both surfaces, and its two explanatory paragraphs are
+  gone: the command and the two labelled rows are the instruction. The tabbed group control
+  now divides its width between its options instead of leaving the rest of the pill empty.
+
+- [`decd321`](https://github.com/subshell-ai/subshell/commit/decd3211cedd9536c36985202d4f82b1e8d15520) Thanks [@theogravity](https://github.com/theogravity)! - Signed releases: the update paths stop trusting the release source (spec 2026-09-17). Every release now carries `release-manifest.json` plus a detached minisign signature over its exact bytes (`release-manifest.json.sig`), made with the same publisher keypair the desktop apps' updater uses — one key now guards all four components — and every install digests come from the manifest's signed `assets` map instead of the release source's `.sha256` sidecar. `subshell update`, `subshell-server update`, the dashboard's Server and node update flows, and the downloads route's lazy artifact fetch all verify the signature against a pubkey compiled into the product before anything is downloaded or replaced, and an unsigned or unverifiable release is refused by name rather than offered. `update --from` stays signature-free — a file the operator named is their decision.
+  
+  Node protocol 12: the `update` command carries the verified manifest and its signature, and the agent re-verifies both against its own compiled-in key before swapping, so a node's trust is the publisher's, not its plane's. Agents below protocol 12 are no longer sent update commands at all (they would ignore the new fields); the Nodes and Updates pages say so and name the by-hand verb. Server and agent must ship together: this node release is 0.11.1, one patch above the new `MIN_AGENT_VERSION` floor of 0.11.0. The floor has one consequence a fleet admin will feel: nodes running agents below 0.11.0 are not offered updates at all — each must be updated by hand once on the machine (`subshell update` at its keyboard, or a reinstall) before the page can keep it current from there.
+  
+  Operator action: `release.yml` now refuses every CLI shard, not just the desktop ones, when `TAURI_SIGNING_PRIVATE_KEY` is unset, and the publish job merges the per-shard manifests into one signed release manifest.
+
+### Patch Changes
+
+- [#81](https://github.com/subshell-ai/subshell/pull/81) [`4500102`](https://github.com/subshell-ai/subshell/commit/45001024030c87d6530423460bc317ba7e3cc844) Thanks [@theogravity](https://github.com/theogravity)! - The Add-node flow is now ONE screen titled **"Install Subshell client"**. The trigger button stays "Add node"; opening it used to land on a first screen whose entire content was one button, and pressing it swapped in the instructions. Now the instructions open immediately and the mint is a **Generate setup key** press between the address picker (labelled **"Select Subshell server address"**) and the Terminal | Desktop App switch. Until the press no key exists, and the screen says so instead of leaving holes: the app path's key row reads "Generate setup key first" and the terminal one-liner shows with `<generate setup key first>` in its token slot and its copy button disabled — the command's shape is the instruction from the start, the placeholder is unmistakable next to real `nsk_` keys, and nothing runnable leaves the page.
+  
+  The terminal tab is never empty: its one-liner shows from the start with `<generate setup key first>` in the key slot and the copy button disabled until the mint replaces it — the command's shape is the instruction, the placeholder is unmistakable, and nothing runnable leaves the page. The amber no-binary refusal moved into the terminal panel beside the command it refuses, and the first-run-per-platform sentence is gone; nothing sits between the address picker and the button but the button's own failure line.
+  
+  The Desktop App path also LEADS with getting the app — "First, download the Subshell Client app," linking to the release list filtered to `desktop-client` (never `/releases/latest`: four components share this repo and "latest" is whichever was tagged last) — because the desktop bundles are served by nobody but GitHub Releases and a reader without the app was otherwise at a dead end. Three reveal sentences went the same day: the key-lifetime note (single-use / 24 h is said once, on the Setup keys card), "Waiting for enrollment" (an open dialog that polls IS the waiting), and "it will ask what to call itself" (the machine asks; the dialog says nothing about naming now).
+
 ## 0.9.0
 
 ### Minor Changes
