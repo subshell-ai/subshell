@@ -1404,12 +1404,18 @@ is the boundary**. Four facts to hold:
   configured `APP_BASE_URL`. `MainTrust::trusts` answers both "where may
   `open_main` POINT the window" and "may this page invoke anything", so where we
   aim it and what it may do cannot drift apart.
-- **The flag is the navigation handler's, never a page's.** `allow_navigation`
-  refuses any non-http(s) scheme (the window must not be steerable into `file:`
-  or a custom handler) and recomputes trust for everything it allows, so a
-  redirect chain ending elsewhere cannot leave it true. `open_main` sets it for
-  the URL it opens with — the first page is not a navigation the handler is
-  guaranteed to see — and a destroyed window clears it.
+- **The flag belongs to the COMMITTED document, never to a page and never to a
+  navigation request.** `allow_navigation` refuses any non-http(s) scheme (the
+  window must not be steerable into `file:` or a custom handler) and **arms
+  nothing** — it runs at request time and fires for subframes, so an untrusted
+  page could otherwise arm all seven commands by aiming at a loopback port that
+  refuses the connection, or by embedding an iframe. Arming is
+  `on_page_load(PageLoadEvent::Started)`, which wry raises from
+  `didCommitNavigation:` (macOS) and `LoadEvent::Committed` (GTK) — main-frame
+  only, at commit, and before any script in the new page runs, so the SPA's own
+  title-bar handshake is never refused. `open_main` sets it for the URL it
+  opens a NEW window with (nothing can be invoking yet) and CLEARS it when it
+  re-points an existing one; a destroyed window clears it.
 - **The guard sits at the INVOKE HANDLER** (`trust::guarding` wraps
   `generate_handler!` in `lib.rs`), keyed on the calling webview's label, and is
   uniform over all seven. Not per-command, because Tauri identifies a caller

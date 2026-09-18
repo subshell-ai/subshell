@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { signInDiagnosis } from "@/lib/sign-in-diagnosis";
+import { SESSION_CHECK_FAILED, signInDiagnosis } from "@/lib/sign-in-diagnosis";
 
 /**
  * A sign-in the server ACCEPTED that left no session (operator's report,
@@ -10,13 +10,38 @@ import { signInDiagnosis } from "@/lib/sign-in-diagnosis";
  * password.
  */
 describe("signInDiagnosis", () => {
-  it("names the window's own pin when inside Subshell Server on http", () => {
+  it("names this page's own protocol when inside Subshell Server on http", () => {
     const d = signInDiagnosis({ inServerApp: true, protocol: "http:" });
-    // The fact a person cannot see: this window is ALWAYS http, so the
-    // mismatch is the app's shape rather than something they chose.
-    expect(d.message).toMatch(/always loads this machine over http/);
+    // The fact a person cannot see: the cookie was refused because of the
+    // protocol this page is on, not because of what they typed.
+    expect(d.message).toMatch(/This page is on http/);
     expect(d.message).toMatch(/Secure/);
-    expect(d.remedy).toMatch(/Server Settings → Networking/);
+    // **The remedy has to be reachable from here** (review, 2026-09-18). It
+    // named Server Settings → Networking, which is precisely what this branch
+    // says cannot be opened: no session can be stored. The assistant's Server
+    // Addresses screen drives the CLI and needs none.
+    expect(d.remedy).toMatch(/tray menu/);
+    expect(d.remedy).not.toMatch(/Server Settings/);
+  });
+
+  /**
+   * A check that could not RUN is its own answer (review, 2026-09-18).
+   *
+   * `getSessionUser` throws on anything that is not a 401/403, precisely so a
+   * failed read is never read as signed-out — so the login page must not fold
+   * that into the cookie diagnosis, whose remedy would send someone to change
+   * an address that works.
+   */
+  it("keeps 'could not check' apart from every diagnosis it could be mistaken for", () => {
+    expect(SESSION_CHECK_FAILED).toMatch(/^Signed in, but/);
+    expect(SESSION_CHECK_FAILED).not.toMatch(/password|incorrect|invalid/i);
+    // It names no remedy about addresses, because it is not about one.
+    expect(SESSION_CHECK_FAILED).not.toMatch(/https|Secure|tray|base URL/);
+    for (const inServerApp of [true, false]) {
+      for (const protocol of ["http:", "https:"]) {
+        expect(signInDiagnosis({ inServerApp, protocol }).message).not.toBe(SESSION_CHECK_FAILED);
+      }
+    }
   });
 
   // Never "wrong password": the server accepted it, and saying otherwise sends

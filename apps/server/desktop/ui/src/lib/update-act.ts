@@ -446,7 +446,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // row could be dropped from a table its app row was already in.
   const notes: string[] = [];
   const appRow = offerAppRow(appUpdate, selection, notes);
-  const cliRow = offerCliRow(probe, appRow.selected !== null, selection, notes);
+  const cliRow = offerCliRow(probe, appRow.selected === true, selection, notes);
   const rows = [appRow, cliRow];
 
   const selectable = rows.filter((r) => r.selected !== null);
@@ -515,19 +515,32 @@ function offerAppRow(appUpdate: AppUpdateCheck | null, selection: UpdateActSelec
 /**
  * The CLI's row — the one § 13 was written about.
  *
- * `appActs` is whether the app half can run, and it changes what the CLI row
- * MEANS rather than merely whether it is shown: when the app is being replaced
- * the server that lands is the NEW bundle's, whose version this build cannot
- * know (§ 4.3), so the row's target is the sentence "the server it ships".
- * When the app is not being replaced the target is this bundle's own number.
+ * `appRides` is whether the app half is actually GOING TO RUN — the app row
+ * ticked, not merely tickable — and it changes what the CLI row MEANS rather
+ * than merely whether it is shown: when the app is being replaced the server
+ * that lands is the NEW bundle's, whose version this build cannot know
+ * (§ 4.3), so the row's target is the sentence "the server it ships". When the
+ * app is not being replaced the target is this bundle's own number, and there
+ * is a row at all only if the CLI is genuinely behind.
  *
- * What does NOT change with `appActs` is the refusals. A server this app did
+ * **Tickable was the wrong question, and answering it was destructive**
+ * (review, 2026-09-18). With a behind app beside an up-to-date CLI, unticking
+ * the app left this row ticked — because "the app CAN act" was still true —
+ * and the press became `Update and Restart`. `subshell-server update --from`
+ * prints "Already at X." and exits 0, so the install "succeeds" and the
+ * service is restarted: on a definition that does not spare panes, every live
+ * subshell on the machine closed for an install that changed nothing. Subshell
+ * Client had this right from the start (`agentStandalone = agentAvailable &&
+ * !appSelected`), which is what the two models being read against each other
+ * found.
+ *
+ * What does NOT change with `appRides` is the refusals. A server this app did
  * not install stays untouched either way, and a server NEWER than the bundle
- * outranks it either way — that second one is the defect: the row used to be
- * pushed unconditionally under a behind app, naming a version older than the
- * running one as a target.
+ * outranks it either way — that second one is the older defect: the row used
+ * to be pushed unconditionally under a behind app, naming a version older than
+ * the running one as a target.
  */
-function offerCliRow(probe: Probe, appActs: boolean, selection: UpdateActSelection, notes: string[]): UpdateActRow {
+function offerCliRow(probe: Probe, appRides: boolean, selection: UpdateActSelection, notes: string[]): UpdateActRow {
   const from = cliFrom(probe);
   if (cliHalfRefused(probe)) {
     notes.push(refusalNote(probe));
@@ -537,7 +550,7 @@ function offerCliRow(probe: Probe, appActs: boolean, selection: UpdateActSelecti
     notes.push(downgradeNote(probe));
     return { id: "cli", label: CLI_LABEL, from, to: null, selected: null, reason: "you run a newer one" };
   }
-  if (appActs) {
+  if (appRides) {
     return { id: "cli", label: CLI_LABEL, from, to: null, selected: selection.rows.cli ?? true, reason: null };
   }
   if (cliBehind(probe)) {
@@ -622,10 +635,14 @@ function subtitleForOffer(
   cliRow: UpdateActRow,
   failedHere: boolean,
 ): string {
-  if (appRow.selected !== null && appRow.to !== null) {
-    // Keyed on TICKED rather than on tickable: a row the person cleared and a
-    // row that cannot act are the same fact to this sentence — the server half
-    // is not going to run — and promising it in either case is the § 13 lie.
+  // Keyed on TICKED rather than on tickable, in BOTH halves: a row the person
+  // cleared and a row that cannot act are the same fact to this sentence —
+  // that half is not going to run — and promising it in either case is the
+  // § 13 lie. The outer guard read `!== null` until 2026-09-18 (review), so an
+  // unticked app row still produced "Subshell Server 0.8.1 is available.
+  // Installing it also installs the server it ships." over a press that
+  // installs no app at all.
+  if (appRow.selected === true && appRow.to !== null) {
     return cliRow.selected === true
       ? `Subshell Server ${appRow.to} is available. Installing it also installs the server it ships.`
       : `Subshell Server ${appRow.to} is available. The server on this machine is not part of this update.`;

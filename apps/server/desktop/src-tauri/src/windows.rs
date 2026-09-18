@@ -318,10 +318,21 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // the app is broken; navigating it is the whole fix.
         let current = w.url().ok();
         if current.as_ref().map(|u| u.origin() != url.origin()).unwrap_or(false) {
+            // **Disarm, and let the COMMIT re-arm** (review, 2026-09-18). This
+            // used to `evaluate(&url)` on the grounds that the navigation was
+            // ours rather than a page's — but `navigate()` is asynchronous and
+            // the page on screen keeps running until the new document commits,
+            // or forever if it never does. Arming for the TARGET is the same
+            // escalation that was removed from `on_navigation`, reached from
+            // the app's side: a window sitting on a third origin (mid proxied
+            // sign-in, say) would hold all seven commands the moment someone
+            // clicked the tray, for as long as loopback took to answer.
+            //
+            // Nothing is lost by waiting: `PageLoadEvent::Started` fires
+            // before any script in the new page runs, so the SPA's own
+            // title-bar handshake is never refused.
+            trust.clear();
             let _ = w.navigate(url.clone());
-            // The navigation handler fires for what a PAGE asks for; this one
-            // is ours, so the flag is recomputed here rather than waited for.
-            trust.evaluate(&url);
         } else if let Some(current) = current {
             // Nothing to re-point — but the base may have moved under a page
             // that stayed put, and this is the tick that learns it.

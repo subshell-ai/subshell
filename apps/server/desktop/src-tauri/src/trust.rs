@@ -22,9 +22,12 @@
 //!
 //! Three rules hold it up, and each is load-bearing:
 //!
-//! - **The flag is set by the navigation handler, never by a page.** It is
-//!   recomputed for every URL the window commits to, so a redirect chain that
-//!   ends somewhere else cannot leave it true.
+//! - **The flag is set by a COMMITTED page load, never by a page and never by
+//!   a request.** It is recomputed for every document the window commits to,
+//!   so a redirect chain that ends somewhere else cannot leave it true — and a
+//!   navigation that is merely ASKED FOR moves nothing, which is what stops an
+//!   untrusted page arming all seven commands by aiming at a loopback port
+//!   that will not answer.
 //! - **Navigation still refuses a non-http(s) scheme.** The window must not be
 //!   steerable into `file:`, a custom handler, or anything else the OS would
 //!   act on — an untrusted PAGE is the thing this module models, and handing

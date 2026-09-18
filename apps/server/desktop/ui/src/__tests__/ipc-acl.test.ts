@@ -66,6 +66,11 @@ const UI_SRC = join(import.meta.dir, "..");
 const ipcSource = readFileSync(join(UI_SRC, "lib/ipc.ts"), "utf8");
 
 /** The commands `lib/ipc.ts` actually invokes. */
+/** The window builder's own source — where the trust guard is wired up. */
+function windows_src(): string {
+  return readFileSync(join(TAURI_DIR, "src/windows.rs"), "utf8");
+}
+
 function invokedCommands(): Set<string> {
   // `invoke<Probe>("desktop_probe")` and `invoke<void>("desktop_open_path", args)`.
   const found = new Set<string>();
@@ -315,9 +320,18 @@ describe("the assistant's IPC contract", () => {
     // Two origins and no more: loopback, or the instance's configured base URL.
     expect(trust).toContain("pub fn trusts(");
     expect(trust).toContain("crate::control::is_loopback");
-    // Recomputed for every URL the window commits to.
+    // Navigation decides the SCHEME and arms nothing — it runs at request time
+    // and fires for subframes.
     expect(trust).toContain("pub fn allow_navigation(");
     expect(trust).toContain("browsable_scheme(url.scheme())");
+    // The arming is the COMMIT, and it is pinned at both ends (review,
+    // 2026-09-18). Deleting the `on_page_load` block leaves every other
+    // assertion in this file green and the guard armed permanently from
+    // `open_main`'s pre-build evaluate — a guard that fails OPEN, which is the
+    // one failure this file exists to make loud.
+    expect(trust).toContain("pub fn committed(");
+    expect(windows_src()).toContain("PageLoadEvent::Started");
+    expect(windows_src()).toContain("committed(payload.url())");
     // And applied in front of every command, keyed on the calling window.
     expect(trust).toContain("pub fn guarding<");
     const lib = readFileSync(join(TAURI_DIR, "src/lib.rs"), "utf8");
@@ -327,8 +341,7 @@ describe("the assistant's IPC contract", () => {
     // `open_main` points the window at those same two origins and no other,
     // which is what leaves "a page navigated there" as the only way onto a
     // third one.
-    const windows = readFileSync(join(TAURI_DIR, "src/windows.rs"), "utf8");
-    expect(windows).toContain("trust.trusts(&url, base_origin)");
+    expect(windows_src()).toContain("trust.trusts(&url, base_origin)");
   });
 
   it("keeps the served page's one CLI-driving command to its known signature", () => {

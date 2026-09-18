@@ -387,6 +387,45 @@ describe("§13: the act is a selection", () => {
     expect(neither.press).toEqual({ label: "Update", kind: "app", enabled: false, bundled: false, forced: false });
   });
 
+  /**
+   * **Unticking the app must not leave a restart behind** (review, 2026-09-18).
+   *
+   * The CLI row rode the app row's TICKABILITY, so on the commonest shape of
+   * all — a behind app beside a current server — clearing the app box left the
+   * CLI box ticked and the press became `Update and Restart`. That press is
+   * not a no-op: `subshell-server update --from` prints "Already at X." and
+   * exits 0, so the install reports success and the service is restarted —
+   * closing every live subshell on a machine whose definition does not spare
+   * them, for an install that changed nothing.
+   */
+  it("leaves nothing to press when the app is unticked and the server is current", () => {
+    const appBehindOnly = { probe: machine(KILLS_PANES), appUpdate: APP_BEHIND };
+    const ticked = act(appBehindOnly);
+    expect(ticked.press?.kind).toBe("app");
+    // The CLI rides along while the app runs — that is § 4.3, unchanged.
+    expect(row(ticked, "cli")?.selected).toBe(true);
+
+    const cleared = act({ ...appBehindOnly, selection: { rows: { app: false }, force: null } });
+    // Re-derived as a standalone act, which does not exist on this machine.
+    expect(row(cleared, "cli")).toMatchObject({ selected: null, reason: "up to date" });
+    expect(cleared.press?.enabled).toBe(false);
+    // And no Force box, because nothing here restarts anything.
+    expect(cleared.force).toBeNull();
+    // The sentence may not promise the app install either.
+    expect(cleared.subtitle).not.toContain("also installs the server it ships");
+  });
+
+  /** The same clearing on a machine where the server IS behind keeps its act. */
+  it("keeps the server's own act when the app is unticked and the server is behind", () => {
+    const cleared = act({
+      probe: machine(SERVER_BEHIND),
+      appUpdate: APP_BEHIND,
+      selection: { rows: { app: false }, force: null },
+    });
+    expect(row(cleared, "cli")).toMatchObject({ selected: true, to: "0.10.0" });
+    expect(cleared.press?.label).toBe("Update and Restart");
+  });
+
   it("offers Force only where a definition would actually refuse", () => {
     // § 13.2: the ONE refusal a person may overrule, and only where there is
     // one. `paneRisk` fails closed, so an unreadable definition counts.

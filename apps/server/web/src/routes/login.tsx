@@ -10,7 +10,7 @@ import { getSessionUser, useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { isServerDesktop } from "@/lib/desktop";
 import { safeRedirect } from "@/lib/redirect";
-import { signInDiagnosis } from "@/lib/sign-in-diagnosis";
+import { SESSION_CHECK_FAILED, signInDiagnosis } from "@/lib/sign-in-diagnosis";
 import { passkeysSupported } from "@/lib/webauthn";
 
 export const Route = createFileRoute("/login")({
@@ -70,7 +70,7 @@ function LoginPage() {
     try {
       user = await getSessionUser();
     } catch {
-      setError("Signed in, but this page could not check the session. Try again.");
+      setError(SESSION_CHECK_FAILED);
       return;
     }
     if (user !== null) {

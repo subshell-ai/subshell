@@ -612,9 +612,13 @@ notification in this app's name.
 
 Three rules, each load-bearing:
 
-- **The trust flag is set by the navigation handler, never by a page.** It is
-  recomputed for every URL the window commits to, so it cannot be left true by
-  a redirect chain that ends somewhere else.
+- **The trust flag is set by a COMMITTED page load, never by a page and never
+  by a navigation request.** It is recomputed for every document the window
+  commits to, so it cannot be left true by a redirect chain that ends somewhere
+  else. (Amended in review, 2026-09-18: as first built this ran in the
+  navigation handler, which fires at request time and for subframes — so a page
+  could arm it by aiming at a loopback port that would not answer. Arming moved
+  to `on_page_load(PageLoadEvent::Started)`.)
 - **`on_navigation` still refuses non-http(s).** The window must not be
   steerable into `file:`, a custom handler, or anything the OS would act on —
   that is unchanged and is why the scheme is checked rather than nothing.

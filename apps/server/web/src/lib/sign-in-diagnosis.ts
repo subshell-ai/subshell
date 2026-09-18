@@ -29,6 +29,17 @@
  * is.
  */
 
+/**
+ * What to say when the session check itself could not run.
+ *
+ * Its own sentence rather than a corner of {@link signInDiagnosis}, because it
+ * is a different fact: `getSessionUser` throws on anything that is not a
+ * 401/403 precisely so a failed read is never read as signed-out, and putting
+ * the cookie diagnosis on screen for a dropped request would send someone to
+ * change an address that works (review, 2026-09-18).
+ */
+export const SESSION_CHECK_FAILED = "Signed in, but this page could not check the session. Try again.";
+
 /** What to tell someone whose accepted sign-in produced no session. */
 export interface SignInDiagnosis {
   /** The sentence naming what happened. Never blames the credentials. */
@@ -44,7 +55,8 @@ export interface SignInDiagnosis {
  * The diagnosis for a sign-in the server accepted and the browser did not keep.
  *
  * @param opts.inServerApp - the page is inside Subshell Server's own window
- *   (`isServerDesktop()`), which is pinned to loopback
+ *   (`isServerDesktop()`), the window that app opens on this machine's loopback
+ *   address
  * @param opts.protocol - `window.location.protocol`, e.g. `"http:"`
  */
 export function signInDiagnosis(opts: { inServerApp: boolean; protocol: string }): SignInDiagnosis {
@@ -54,12 +66,17 @@ export function signInDiagnosis(opts: { inServerApp: boolean; protocol: string }
     // is fixed by the app rather than chosen by the reader.
     return {
       message:
-        "Signed in, but this window could not store the session. Subshell Server's window always loads this " +
-        "machine over http, and an instance whose base URL is an https address marks its session cookies Secure — " +
-        "which a browser will not keep on an http page.",
+        "Signed in, but this window could not store the session. This page is on http, and an instance whose base " +
+        "URL is an https address marks its session cookies Secure — which a browser will not keep on an http page.",
+      // **The remedy may not name a page that needs this session** (review,
+      // 2026-09-18). It pointed at Server Settings → Networking, which is
+      // exactly what cannot be reached: the premise of this branch is that no
+      // session can be stored. The way back is the assistant's own Server
+      // Addresses screen, which drives the CLI and needs no session — reached
+      // from this app's tray menu, with the server up or down.
       remedy:
-        "Open the instance in a browser at its https address to sign in there, or set the base URL back to this " +
-        "machine's own address on Server Settings → Networking.",
+        "Open the instance in a browser at its https address to sign in there, or open Server Addresses from " +
+        "Subshell Server's tray menu to point the base URL back at this machine.",
     };
   }
   if (insecureOrigin) {

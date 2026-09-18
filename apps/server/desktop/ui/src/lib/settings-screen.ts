@@ -62,8 +62,8 @@ export const SETTINGS_SUBTITLE = "Where this server listens, and which addresses
  * the moment it is chosen rather than discovered at the next sign-in.
  */
 export const HTTPS_LOCKOUT_WARNING =
-  "An https address will sign this app's own window out for good: it loads this machine over http, and a Secure " +
-  "session cookie is not kept on an http page. Browsers on the https address are unaffected.";
+  "An https address will sign this app's own window out for good: that window loads this machine over http, " +
+  "and a Secure session cookie is not kept on an http page. Browsers on the https address are unaffected.";
 
 /** Whether this draft base URL is the value that locks this app's window out. */
 export function httpsLockout(baseUrl: string): boolean {

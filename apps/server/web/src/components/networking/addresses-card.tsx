@@ -118,7 +118,14 @@ function wireValue(key: EditableKey, draft: string): string {
  * to be visible at the moment it is chosen rather than discovered at the next
  * sign-in.
  */
-function strandsThisApp(value: string): boolean {
+export function strandsThisApp(value: string): boolean {
+  // **The page's OWN protocol is half the condition** (review, 2026-09-18).
+  // The window is no longer pinned to loopback — since spec § 15 it may sit on
+  // the instance's configured address, which is exactly where a proxied
+  // sign-in leaves it — so without this check the card asserts a lockout on
+  // the https page the admin just signed into over https. A warning is worth
+  // having only while it is true where the reader can check it.
+  if (typeof window === "undefined" || window.location.protocol !== "http:") return false;
   return isServerDesktop() && value.trim().toLowerCase().startsWith("https://");
 }
 
@@ -324,14 +331,15 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                   BEFORE the save rather than discovered after (operator's
                   report, 2026-09-18). See `lib/sign-in-diagnosis.ts` for the
                   mechanism; the short version is that better-auth marks its
-                  session cookie `Secure` for an https base URL, and this app's
-                  own window is pinned to http on loopback, so it can never
-                  store one again. Shown only where it is true — inside that
-                  app, for that field, on an https draft. */}
+                  session cookie `Secure` for an https base URL, and this page
+                  is on http, so this window can never store one again. Shown
+                  only where it is true — inside that app, for that field, on
+                  an https draft, from an http page. */}
               {key === "APP_BASE_URL" && strandsThisApp(drafts[key] ?? setting.saved) && (
                 <p className="text-detail text-warning">
-                  An https address will sign this app's own window out for good: it loads this machine over http, and a
-                  Secure session cookie is not kept on an http page. Browsers on the https address are unaffected.
+                  An https address will sign this app's own window out for good: that window loads this machine over
+                  http, and a Secure session cookie is not kept on an http page. Browsers on the https address are
+                  unaffected.
                 </p>
               )}
               {setting.saved !== setting.running && (

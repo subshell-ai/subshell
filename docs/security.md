@@ -1853,10 +1853,13 @@ who runs the server. So:
   nothing at all — so a per-command check would have had to widen the very
   signatures §11.11 relies on being narrow; and a rule with exceptions is a rule
   someone has to re-derive.
-- **The flag is set by the navigation handler, never by a page.** It is
-  recomputed for every URL the window commits to, so a redirect chain that ends
-  elsewhere cannot leave it true, and it is cleared when the window is
-  destroyed.
+- **The flag is set by a COMMITTED page load, never by a page and never by a
+  navigation REQUEST.** It is recomputed for every document the window commits
+  to, so a redirect chain that ends elsewhere cannot leave it true, and it is
+  cleared when the window is destroyed. A navigation that is merely asked for
+  moves nothing — which is what stops an untrusted page arming all seven
+  commands by aiming at a loopback port that refuses the connection, and stops
+  an embedded iframe arming them without the top frame moving at all.
 - **`open_main` accepts exactly those two origins** and refuses the rest, using
   the same predicate. The app therefore never POINTS the window anywhere
   untrusted; reaching a third origin is always a page's doing, and the guard
