@@ -68,7 +68,7 @@ export function validateEnroll(values: EnrollValues): EnrollValidation {
   // Checked through the SAME rule the value is sent through, not by `=== ""` on the
   // trimmed text: `String.trim()` strips whitespace and nothing else, so a field
   // holding one stray control character — an NFC card's terminator, a paste with a
-  // `` in it — trims to itself, looks answered, and hands `normalizeNodeName`
+  // `\u000e` in it — trims to itself, looks answered, and hands `normalizeNodeName`
   // a name that reduces to "". Rust refuses that before any spawn, so no key is
   // spent, but a form that enables its own submit button for an answer it cannot
   // send is the bug whoever downstream catches it.

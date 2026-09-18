@@ -1043,8 +1043,6 @@ pub fn validate_setup_key(raw: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-/// Validate an optional node name. Absent (or blank) means "let the agent
-/// default to this machine's hostname", which is what the CLI does.
 /// The node's display name, REQUIRED, trimmed.
 ///
 /// The three rules of this form are shared with the bundled page

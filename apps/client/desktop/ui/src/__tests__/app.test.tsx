@@ -331,6 +331,45 @@ describe("enrolment is two-phase", () => {
     expect(fake.callsTo("node_enroll").length).toBe(2);
   });
 
+  it("sends the NORMALIZED name, never the text that was typed", async () => {
+    // The gap this closes is one the test above cannot see: it types "workstation",
+    // and for a clean name the raw field and `normalizeNodeName`'s output are the SAME
+    // string, so asserting on either passes. The claim the whole revamp rests on — one
+    // rule, applied once, so a name cannot be clean here and collapsed later — is only
+    // pinned by a name that NEEDS normalizing: this asserts the argv Rust receives, and
+    // therefore the POST body and the row on the Nodes page, is the normalized value.
+    const fake = await boot({
+      probe: notEnrolled,
+      handlers: {
+        node_enroll: () => ({
+          ok: true,
+          stdout: "enrolled",
+          stderr: "",
+          node: { nodeId: "abc", name: "mac mini two" },
+          requiresConfirmation: false,
+          confirmations: [],
+        }),
+      },
+    });
+
+    typeInto("Server URL", "https://subshell.example.com");
+    typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "  mac\u000emini\ttwo  ");
+    // The guard against a vacuous pass: if the DOM had swallowed the control character
+    // on the way in, the assertion below would only prove that a clean name round-trips.
+    // So first prove the FIELD holds the dirty value, and only then that the WIRE does not.
+    expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toContain("\u000e");
+    fireEvent.click(button("Enroll"));
+
+    await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
+    const sent = fake.callsTo("node_enroll")[0];
+    expect(sent).toMatchObject({ name: "mac mini two" });
+    // Pinned the other way too: had the raw field been sent, the control character and
+    // the tab would still be in it, and this is the assertion that says so.
+    expect(sent.name).not.toInclude("\u000e");
+    expect(sent.name).not.toContain("\t");
+  });
+
   it("never auto-retries a failed enrolment", async () => {
     const fake = await boot({
       probe: notEnrolled,
