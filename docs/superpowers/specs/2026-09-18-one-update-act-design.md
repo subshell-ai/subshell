@@ -201,6 +201,32 @@ what it refused.
   Writing a binary the service does not invoke is an update that reports
   success and changes nothing (root `AGENTS.md`, "never write the installed
   binary by convention").
+
+  **This is a property of the ACT, not of the screen** — amended 2026-09-18
+  after review, because the original wording described only phase 1 and that
+  silence is the hole two defects fell through. Phase 2 runs in a different
+  process, on a machine it re-reads; if it asks a different question it will
+  reach a different answer, and the refusal a person was shown before the
+  relaunch will simply not be honoured after it.
+
+  Concretely, both halves must ask the SAME managed-aware question the offer
+  asks — `Probe::decide()` deliberately compares the bundle against the
+  bundle's own version on an unmanaged machine, so the offer reads "up to
+  date" — and every call site that feeds `resume_decision` must use it. The
+  first fix changed one of the two server call sites and left `boot_resume`
+  reading the raw version: the destructive half was gone, but the marker
+  became unclearable, so the assistant opened on every launch forever. That is
+  the same "offer again forever" the comparison exists to prevent, arrived at
+  from the other side.
+
+  Two rules follow, and they are the reason this paragraph exists:
+  - **Grep for the raw read after touching this.** `p.server.as_ref()...version`
+    / `probe.agent.as_ref()...version` is correct in a few places and wrong in
+    the resume path; each hit should be confirmed rather than assumed.
+  - **A test for this must enter through `resume_view` or `boot_resume`**, not
+    call `resume_decision` with the accessor already applied. Tests written the
+    second way assert the fix's INTENT and pass while the real call site does
+    something else — which is exactly how the half-fix survived.
 - **Pane safety.** The server restart closes every live subshell on a
   definition that does not spare them. The existing confirm carries into the
   combined act unchanged — it is not skippable because it is now step 2 of 2 —
@@ -377,6 +403,10 @@ without them, and this section is what they are accountable to on return.
   silence it replaces.
 - §7.4's status-screen button becoming a door rather than being deleted.
 - §5's `attempts` bound of 2, and `forced` crossing the relaunch in the marker.
+- The **C1/C2 fix**: one managed-aware accessor per app
+  (`comparable_server_version` / `comparable_agent_version`), fed to every
+  `resume_decision` call site, so the not-managed refusal survives the
+  relaunch. Found in review; §6 now states it as a property of the act.
 - §4.3's `bundledCli` manifest field, DEFERRED — it changes the signed
   trust anchor for one number shown one phase early, and the fallback it
   would need runs for every already-published release anyway.
