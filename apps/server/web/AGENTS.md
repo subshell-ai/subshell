@@ -776,6 +776,46 @@ covers the promise. After any `dockview-react` upgrade, re-run the probe:
 
 If one does, the upgrade is not safe: pin back to the last known-good version.
 
+### Touch: tap types, swipe reads — and BOTH halves are ours
+
+`lib/terminal-touch-scroll.ts`'s `gateTouchKeyboard` decides whether a touch
+on the pane raises the soft keyboard, in both directions, because xterm
+decides neither on a touch device. It has shipped broken each way:
+
+- **2026-09-04: every touch raised it.** Swipes and scrollbar drags popped the
+  keyboard over half the pane. Those touches are un-focused.
+- **2026-09-18: nothing raised it.** xterm focuses its helper textarea only
+  from `mousedown`, and xterm 6's `Gesture` registers `.xterm-screen` as a
+  target and `preventDefault()`s the `touchstart` it dispatches gestures for —
+  which suppresses the compatibility mouse events in both WebKit and Blink. So
+  no `mousedown` ever reaches the grid and `document.activeElement` stayed at
+  `body`. The gate now focuses the terminal itself from `touchend`, inside the
+  user-gesture turn, for a one-finger tap only.
+
+Two measured facts about the xterm 6 DOM that this code depends on, and that
+an upgrade should re-check (`e2e/tests/09-mobile-touch-focus.spec.ts` covers
+the contract; the classification is unit-tested):
+
+- **The scrollbar is NOT `.xterm-viewport` any more.** That element is still
+  in the DOM at the full terminal size, but it paints under
+  `.xterm-scrollable-element`, its sibling, which holds the grid. The strip a
+  finger lands on is a `.xterm-slider` inside `div.xterm-visible
+  .xterm-scrollbar.xterm-vertical`. The gate matches both selectors; on the
+  6.1 DOM only the second fires. (`attachWheelScroll` still tests
+  `.xterm-viewport` alone for "this is xterm's own scrollbar, leave the wheel
+  native" — on this DOM that check never fires, which costs nothing today
+  because the fallback also scrolls the buffer. Fix it together with the next
+  version bump.)
+- **A flick's momentum frames carry no coordinates.** `Gesture._inertia`
+  builds its `-xterm-gesturechange` event with only `translationX/Y`, so a
+  pane with mouse reporting on gets `ESC[<65;NaN;NaNM` — measured, 45 frames
+  from one flick, typed into the harness prompt. `lib/terminal-input.ts`
+  drops SGR reports whose parameters are not decimals, on the one path xterm's
+  own output becomes pane input (`use-subshell-ws.ts`'s `onData`); well-formed
+  reports still flow, so swipe-scrolling inside a mouse-reporting program
+  works. It is a deliberate copy of `apps/client/mobile/src/lib/terminal-input.ts`
+  — the two UI surfaces run the same xterm and hit the same upstream defect.
+
 ### Swipe navigation
 
 `useSwipeNav` publishes `data-swipe-nav="ready"|"idle"` on the zone it binds

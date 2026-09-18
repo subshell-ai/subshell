@@ -12,7 +12,7 @@
  * PARAMETERS are not numbers.
  */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC introduces the sequence being matched, not a stray byte
-const SGR_MOUSE_REPORT = /\[<([^;]*);([^;]*);([^Mm;]*)[Mm]/g;
+const SGR_MOUSE_REPORT = /\x1b\[<([^;\x1b]*);([^;\x1b]*);([^Mm;\x1b]*)[Mm]/g;
 
 /** A parameter xterm could legitimately have produced: a plain decimal. */
 const DECIMAL = /^\d{1,7}$/;

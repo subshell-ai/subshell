@@ -252,6 +252,16 @@ describe("attachWheelScroll", () => {
   });
 });
 
+/** A touch event carrying as many live fingers as coordinates given. */
+function touchWith(type: string, ...points: [number, number][]) {
+  const e = new Event(type) as Event & { touches: { clientX: number; clientY: number }[] };
+  Object.defineProperty(e, "touches", {
+    value: points.map(([x, y]) => ({ clientX: x, clientY: y })),
+    configurable: true,
+  });
+  return e;
+}
+
 describe("gateTouchKeyboard", () => {
   function gateSetup() {
     const root = document.createElement("div");
@@ -259,11 +269,19 @@ describe("gateTouchKeyboard", () => {
     screen.className = "xterm-screen";
     const viewport = document.createElement("div");
     viewport.className = "xterm-viewport";
-    root.append(screen, viewport);
+    // xterm 6's real scrollbar: a slider inside `.xterm-scrollbar`, a sibling
+    // of the grid rather than anything inside `.xterm-viewport`.
+    const scrollbar = document.createElement("div");
+    scrollbar.className = "xterm-visible xterm-scrollbar xterm-vertical";
+    const slider = document.createElement("div");
+    slider.className = "xterm-slider";
+    scrollbar.append(slider);
+    root.append(screen, viewport, scrollbar);
     let blurs = 0;
-    const term = { textarea: { blur: () => blurs++ } };
+    let focuses = 0;
+    const term = { textarea: { blur: () => blurs++ }, focus: () => focuses++ };
     const detach = gateTouchKeyboard(term as never, root, () => true);
-    return { root, screen, viewport, blurs: () => blurs, detach };
+    return { root, screen, viewport, slider, blurs: () => blurs, focuses: () => focuses, detach };
   }
 
   it("a scrollbar (viewport) touch un-focuses before the gesture turn ends", async () => {
@@ -286,12 +304,72 @@ describe("gateTouchKeyboard", () => {
     detach();
   });
 
-  it("a tap keeps xterm's focus (that is how the keyboard is opened)", () => {
-    const { root, screen, blurs, detach } = gateSetup();
+  it("a tap FOCUSES the terminal — xterm never does it itself on touch", () => {
+    const { root, screen, blurs, focuses, detach } = gateSetup();
     screen.dispatchEvent(pointerDown(100, 300));
     root.dispatchEvent(touchAt("touchmove", 103, 298)); // a finger's tremble
-    root.dispatchEvent(new Event("touchend"));
+    root.dispatchEvent(touchWith("touchend"));
     expect(blurs()).toBe(0);
+    expect(focuses()).toBe(1);
+    detach();
+  });
+
+  it("a swipe ends without focusing (scrolling must never raise the keyboard)", () => {
+    const { root, screen, focuses, detach } = gateSetup();
+    screen.dispatchEvent(pointerDown(100, 300));
+    root.dispatchEvent(touchAt("touchmove", 100, 250));
+    root.dispatchEvent(touchWith("touchend"));
+    expect(focuses()).toBe(0);
+    detach();
+  });
+
+  it("a scrollbar drag ends without focusing", () => {
+    const { root, viewport, focuses, detach } = gateSetup();
+    viewport.dispatchEvent(pointerDown(300, 120));
+    root.dispatchEvent(touchWith("touchend"));
+    expect(focuses()).toBe(0);
+    detach();
+  });
+
+  it("xterm 6's own scrollbar counts as the scrollbar — a tap on the slider neither focuses nor keeps focus", async () => {
+    // The strip a finger actually lands on is `.xterm-slider` inside
+    // `.xterm-scrollbar`; `.xterm-viewport` is still in the DOM but paints
+    // underneath, so matching only that let a scrollbar tap type.
+    const { root, slider, blurs, focuses, detach } = gateSetup();
+    slider.dispatchEvent(pointerDown(385, 300));
+    await Promise.resolve();
+    expect(blurs()).toBe(1);
+    root.dispatchEvent(touchWith("touchend"));
+    expect(focuses()).toBe(0);
+    detach();
+  });
+
+  it("a two-finger gesture never focuses, even when both fingers lift together", () => {
+    const { root, screen, focuses, detach } = gateSetup();
+    screen.dispatchEvent(pointerDown(100, 300));
+    root.dispatchEvent(touchWith("touchstart", [100, 300], [140, 360]));
+    screen.dispatchEvent(pointerDown(140, 360)); // the second finger's pointerdown
+    root.dispatchEvent(touchWith("touchend")); // iOS can report both lifts at once
+    expect(focuses()).toBe(0);
+    detach();
+  });
+
+  it("a cancelled gesture (a call, the app backgrounding) does not focus", () => {
+    const { root, screen, focuses, detach } = gateSetup();
+    screen.dispatchEvent(pointerDown(100, 300));
+    root.dispatchEvent(touchWith("touchcancel"));
+    expect(focuses()).toBe(0);
+    detach();
+  });
+
+  it("lifting one of two fingers does not focus, and the rest of the gesture cannot either", () => {
+    const { root, screen, focuses, detach } = gateSetup();
+    screen.dispatchEvent(pointerDown(100, 300));
+    root.dispatchEvent(touchWith("touchstart", [100, 300], [140, 360]));
+    root.dispatchEvent(touchWith("touchend", [140, 360])); // one finger still down
+    expect(focuses()).toBe(0);
+    root.dispatchEvent(touchWith("touchend"));
+    expect(focuses()).toBe(0);
     detach();
   });
 
