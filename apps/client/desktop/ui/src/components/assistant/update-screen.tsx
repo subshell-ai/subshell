@@ -24,6 +24,15 @@
  * 2026-09-15 § 14). So the query is `staleTime: Infinity` with no refetch, and
  * Check Again is the only thing that asks twice.
  *
+ * **What it presses is a SELECTION** (spec § 13): a table of every component,
+ * a checkbox on every row that has something to do — ticked by default, so
+ * both halves behind is still one press — and, where a row has nothing to do,
+ * the reason in the cell where its checkbox would be. It exists because the
+ * two halves can diverge: a `subshell` installed by hand outranks the one
+ * inside this app, and the screen used to name that newer version as a target
+ * it would be replaced by. There is no Force checkbox here, deliberately —
+ * see the comment on the app press below.
+ *
  * Every decision it draws is {@link updateAct}'s, in `lib/update-act.ts`, where
  * `bun test` can reach it without a webview. What lives here is the two
  * queries, the progress subscription, and the page state that says what THIS
@@ -40,7 +49,7 @@ import type { NodeCommands } from "@/hooks/use-node-commands";
 import { IS_MACOS } from "@/lib/copy";
 import type { ActionResult } from "@/lib/ipc";
 import { type AppUpdateCheck, nodeCheckAppUpdate, nodeInstallAppUpdate, type Probe } from "@/lib/ipc";
-import { updateAct } from "@/lib/update-act";
+import { type UpdateRowId, type UpdateSelection, updateAct } from "@/lib/update-act";
 
 export const APP_UPDATE_KEY = ["node-app-update"] as const;
 
@@ -145,6 +154,20 @@ export function UpdateScreen(props: {
     setAwaiting(null);
   }, [awaiting, runner.busy, runner.pending, runner.output, runner.failure]);
 
+  /**
+   * Which halves the person has ticked (spec § 13).
+   *
+   * Sparse, and read through {@link updateAct}'s "absent means as this act
+   * decided" — so nothing here has to be seeded from facts that arrive one
+   * probe later, and a row cannot be ticked for a half that turns out to have
+   * no act at all.
+   */
+  const [selection, setSelection] = useState<UpdateSelection>({});
+  const toggle = useCallback(
+    (id: UpdateRowId, on: boolean) => setSelection((current) => ({ ...current, [id]: on })),
+    [],
+  );
+
   const act = updateAct({
     check: data,
     probe,
@@ -154,6 +177,7 @@ export function UpdateScreen(props: {
     installedAgentHere,
     restartedHere,
     busy: runner.busy,
+    selection,
   });
 
   /**
@@ -228,29 +252,66 @@ export function UpdateScreen(props: {
       )}
 
       {act.rows.length > 0 && (
-        <dl className="mx-auto flex max-w-sm flex-col gap-2 text-sm">
-          {act.rows.map((row) => (
-            <div key={row.id} className="flex items-baseline justify-between gap-4">
-              <dt>{row.label}</dt>
-              <dd className="text-muted-foreground">
-                {row.to === null ? (
-                  // The number the app cannot know before it downloads: a
-                  // desktop release manifest carries the component's version
-                  // and its asset digests, never the version of the CLI inside
-                  // the bundle (spec § 4.3). So this names the app that ships
-                  // it, and the number appears after the relaunch.
-                  <>
-                    {row.from} → <span className="font-strong">ships with the new app</span>
-                  </>
-                ) : (
-                  <>
-                    {row.from} → <span className="font-strong">{row.to}</span>
-                  </>
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        /*
+         * One line per component (spec § 13.1): what it runs, what it would
+         * become, and a checkbox where there is something to do. A row with no
+         * available act carries its REASON in the cell where the checkbox
+         * would be, never a disabled checkbox — a control that cannot be used
+         * says "not now" without saying anything, and here the reason is the
+         * content.
+         *
+         * A native `<input type="checkbox">` rather than one of the Base UI
+         * primitives: those hide a native input with an inline style
+         * attribute, which this bundle's `style-src 'self'` drops (see
+         * `styles.css`'s Switch workaround). Nothing here needs a workaround
+         * it does not have.
+         */
+        <table className="mx-auto w-full max-w-md text-sm">
+          <thead>
+            <tr className="text-detail text-muted-foreground">
+              <th className="pb-2 text-left font-regular">Component</th>
+              <th className="pb-2 text-left font-regular">Running</th>
+              <th className="pb-2 text-left font-regular">New</th>
+              <th className="pb-2 text-right font-regular">Update</th>
+            </tr>
+          </thead>
+          <tbody>
+            {act.rows.map((row) => (
+              <tr key={row.id}>
+                <td className="py-1 pr-4">{row.label}</td>
+                <td className="py-1 pr-4 text-muted-foreground">{row.from}</td>
+                <td className="py-1 pr-4">
+                  {row.to.kind === "version" ? (
+                    <span className="font-strong">{row.to.version}</span>
+                  ) : row.to.kind === "with-app" ? (
+                    // The number the app cannot know before it downloads: a
+                    // desktop release manifest carries the component's version
+                    // and its asset digests, never the version of the CLI
+                    // inside the bundle (spec § 4.3). So this names the app
+                    // that ships it, and the number appears after the
+                    // relaunch.
+                    <span className="font-strong">ships with the new app</span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="py-1 text-right">
+                  {row.selectable ? (
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary align-middle"
+                      aria-label={`Update ${row.label}`}
+                      checked={row.selected}
+                      onChange={(event) => toggle(row.id, event.target.checked)}
+                    />
+                  ) : row.reason !== null ? (
+                    <span className="text-detail text-muted-foreground">{row.reason}</span>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       {act.upToDate && data && (
@@ -292,10 +353,26 @@ export function UpdateScreen(props: {
 
       {act.press === "app" && (
         <div className="mt-4 space-y-2 text-center text-detail text-muted-foreground">
+          {/*
+           * The agent half is promised only where it will actually run (spec
+           * § 13). On the machine that report came from — an agent installed
+           * by hand that is NEWER than the one inside this app — phase 2
+           * answers `Resume::Clear` and installs nothing, and a sentence
+           * saying otherwise is the defect rather than the act.
+           *
+           * There is deliberately NO Force checkbox in this app (§ 13.3):
+           * Force overrides the pane-safety refusal on a service RESTART, and
+           * phase 2 here restarts nothing — it OFFERS the restart (§ 7.1),
+           * which carries its own override behind the CLI's own refusal. A
+           * control governing nothing, rendered for symmetry with Subshell
+           * Server, would be a promise of the same kind.
+           */}
           <p>
             The update is downloaded, its signature is checked against the key built into this app, and then Subshell
-            Client restarts. It finishes by installing the node agent it ships; the daemon on this machine keeps running
-            the previous agent until you restart it.
+            Client restarts.
+            {act.pressInstallsAgent
+              ? " It finishes by installing the node agent it ships; the daemon on this machine keeps running the previous agent until you restart it."
+              : " The agent on this machine is left exactly as it is."}
           </p>
           {/*
            * Linux installs through dpkg, which raises a system password sheet.

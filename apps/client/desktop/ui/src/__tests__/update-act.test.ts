@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import type { AppUpdateCheck, Probe } from "@/lib/ipc";
-import { type UpdateActInput, updateAct } from "@/lib/update-act";
+import { type UpdateActInput, type UpdateActRow, updateAct } from "@/lib/update-act";
 import { makeProbe } from "./harness";
 
 /** An answered check that found nothing newer. */
@@ -26,8 +26,16 @@ function act(overrides: Partial<UpdateActInput> = {}) {
     installedAgentHere: false,
     restartedHere: false,
     busy: false,
+    // Nothing ticked by hand: every actionable row is selected by default
+    // (§ 13.1), which is the old always-both behaviour.
+    selection: {},
     ...overrides,
   });
+}
+
+/** One row, with the three selection fields spelled out. */
+function row(over: Partial<UpdateActRow> & Pick<UpdateActRow, "id" | "label" | "from" | "to">): UpdateActRow {
+  return { selected: false, selectable: false, reason: null, ...over };
 }
 
 /** A machine whose installed agent is older than the one inside this app. */
@@ -44,19 +52,45 @@ describe("what the screen states (§ 4.1)", () => {
   it("names both halves when the app is behind, and cannot number the agent yet", () => {
     const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind() });
     expect(a.rows).toEqual([
-      { id: "app", label: "Subshell Client app", from: "0.8.0", to: "0.8.1" },
+      row({
+        id: "app",
+        label: "Subshell Client app",
+        from: "0.8.0",
+        to: { kind: "version", version: "0.8.1" },
+        selected: true,
+        selectable: true,
+      }),
       // The number this app cannot know before it downloads: a desktop release
       // manifest carries the component version and its asset digests, never
-      // the version of the CLI inside the bundle (§ 4.3).
-      { id: "agent", label: "subshell CLI", from: "1.9.0", to: null },
+      // the version of the CLI inside the bundle (§ 4.3). And no checkbox:
+      // the agent half is the app act's TAIL across the relaunch, which is
+      // what its cell says instead (§ 13.1).
+      row({
+        id: "agent",
+        label: "subshell CLI",
+        from: "1.9.0",
+        to: { kind: "with-app" },
+        selected: true,
+        reason: "installs with the app",
+      }),
     ]);
+    expect(a.pressInstallsAgent).toBe(true);
     expect(a.press).toBe("app");
     expect(a.pressLabel).toBe("Download and Install 0.8.1");
   });
 
   it("states the agent alone when only it is behind, with the number in hand", () => {
     const a = act({ probe: agentBehind() });
-    expect(a.rows).toEqual([{ id: "agent", label: "subshell CLI", from: "1.9.0", to: "1.10.0" }]);
+    expect(a.rows).toEqual([
+      row({
+        id: "agent",
+        label: "subshell CLI",
+        from: "1.9.0",
+        to: { kind: "version", version: "1.10.0" },
+        selected: true,
+        selectable: true,
+      }),
+    ]);
     expect(a.press).toBe("agent");
     expect(a.pressLabel).toBe("Install the agent (1.10.0)");
     expect(a.phase).toBe("idle");
@@ -86,7 +120,16 @@ describe("what the screen states (§ 4.1)", () => {
     const a = act({
       probe: makeProbe({ agentChoice: "install-bundled", agent: null, managed: false, bundledVersion: "1.10.0" }),
     });
-    expect(a.rows).toEqual([{ id: "agent", label: "subshell CLI", from: "not installed", to: "1.10.0" }]);
+    expect(a.rows).toEqual([
+      row({
+        id: "agent",
+        label: "subshell CLI",
+        from: "not installed",
+        to: { kind: "version", version: "1.10.0" },
+        selected: true,
+        selectable: true,
+      }),
+    ]);
   });
 
   it("is still checking until a release answer has landed", () => {
@@ -111,7 +154,12 @@ describe("the refusals (§ 6)", () => {
         agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
       }),
     });
-    expect(a.rows.map((r) => r.id)).toEqual(["app"]);
+    expect(a.rows.map((r) => r.id)).toEqual(["app", "agent"]);
+    // The agent row states the refusal where its checkbox would be, and is
+    // never a disabled one (§ 13.1).
+    expect(a.rows[1]).toEqual(
+      row({ id: "agent", label: "subshell CLI", from: "1.9.0", to: { kind: "none" }, reason: "runs another binary" }),
+    );
     expect(a.refusals.join(" ")).toContain("/opt/subshell/bin/subshell");
     // The app half still runs — the refusal is half an act, not the whole one.
     expect(a.press).toBe("app");
@@ -269,5 +317,114 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
       probe: makeProbe({ service: { installed: true, state: "running", paneSafety: "unknown" } }),
     });
     expect(a.restartCostsPanes).toBe(true);
+  });
+});
+
+/**
+ * Reported by the operator on 2026-09-18, against Subshell Server and true of
+ * this app for the same structural reason: a CLI updated by hand outranks the
+ * one inside the bundle (`decide_agent` adopts it and never downgrades), and
+ * the screen went on naming it as a target it would be replaced by.
+ */
+describe("the act is a selection, not always both halves (§ 13)", () => {
+  /** A machine running an agent NEWER than the one this app ships. */
+  const agentNewer = (overrides: Partial<Probe> = {}): Probe =>
+    makeProbe({
+      agentChoice: "adopt-installed",
+      bundledVersion: "1.9.0",
+      agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
+      ...overrides,
+    });
+
+  it("never names an older bundled agent as the target of a newer installed one", () => {
+    const a = act({ check: check({ latest: "0.8.1" }), probe: agentNewer() });
+    expect(a.rows[1]).toEqual(
+      row({ id: "agent", label: "subshell CLI", from: "1.11.0", to: { kind: "none" }, reason: "you run a newer one" }),
+    );
+    // And the sentence beside the press stops promising the half that will
+    // not run: phase 2 answers `Resume::Clear` on this machine.
+    expect(a.pressInstallsAgent).toBe(false);
+    // The app half is untouched by any of it.
+    expect(a.press).toBe("app");
+    expect(a.canPress).toBe(true);
+  });
+
+  it("refuses a marker on that machine rather than firing a downgrade (§ 13.2)", () => {
+    const a = act({ probe: agentNewer({ pendingInstall: { fromAppVersion: "0.8.0", attempts: 0, halted: false } }) });
+    expect(a.resume).toBeNull();
+    expect(a.autoFinish).toBe(false);
+    expect(a.phase).not.toBe("finishing");
+  });
+
+  it("hands the agent half its own checkbox once the app half is unticked", () => {
+    const behind = agentBehind();
+    const both = act({ check: check({ latest: "0.8.1" }), probe: behind });
+    expect(both.rows.map((r) => r.selectable)).toEqual([true, false]);
+
+    const appOff = act({ check: check({ latest: "0.8.1" }), probe: behind, selection: { app: false } });
+    // With nothing crossing a relaunch, the agent half is an act of its own —
+    // and its number is in hand, because it is THIS bundle's agent.
+    expect(appOff.rows[1]).toEqual(
+      row({
+        id: "agent",
+        label: "subshell CLI",
+        from: "1.9.0",
+        to: { kind: "version", version: "1.10.0" },
+        selected: true,
+        selectable: true,
+      }),
+    );
+    expect(appOff.press).toBe("agent");
+    expect(appOff.pressLabel).toBe("Install the agent (1.10.0)");
+    expect(appOff.pressInstallsAgent).toBe(false);
+  });
+
+  it("is dead, and says why, when everything is unticked", () => {
+    const a = act({
+      check: check({ latest: "0.8.1" }),
+      probe: agentBehind(),
+      selection: { app: false, agent: false },
+    });
+    expect(a.press).toBeNull();
+    expect(a.canPress).toBe(false);
+    // Dead rather than absent: a button that vanished would leave the table
+    // with no way back to the act it describes.
+    expect(a.pressLabel).toBe("Nothing selected");
+  });
+
+  it("offers no press at all when there was never anything to select", () => {
+    expect(act().pressLabel).toBeNull();
+  });
+
+  it("states an unreachable release source in the app row's own cell", () => {
+    const a = act({ check: check({ reason: "the release source answered 503" }), probe: agentBehind() });
+    expect(a.rows[0]).toEqual(
+      row({
+        id: "app",
+        label: "Subshell Client app",
+        from: "0.8.0",
+        to: { kind: "none" },
+        reason: "cannot be checked",
+      }),
+    );
+  });
+
+  /**
+   * The air-gapped sentence promises the local half, so it may only promise it
+   * where that half has something to do — the same rule § 13 applies to the
+   * press's own sentence.
+   */
+  it("stops promising a local install where there is none to make", () => {
+    const a = act({ check: check({ reason: "the release source answered 503" }), probe: agentNewer() });
+    expect(a.refusals).toEqual(["the release source answered 503"]);
+    expect(a.press).toBeNull();
+  });
+
+  it("leaves no checkbox anywhere while an act is running", () => {
+    const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind(), installingApp: true });
+    expect(a.rows.every((r) => !r.selectable)).toBe(true);
+    // And the app row says nothing where its checkbox was: the decision is
+    // made, and the progress line is what the screen has to say.
+    expect(a.rows[0].reason).toBeNull();
   });
 });

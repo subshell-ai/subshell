@@ -22,6 +22,23 @@
  * agent, so installing the agent first installs the OUTGOING bundle's copy and
  * leaves the machine behind again the moment the app lands.
  *
+ * **And it is a SELECTION rather than always both halves** (§ 13, amended
+ * after an operator ran an app at 0.8.1 beside a CLI they had updated by hand
+ * to 0.10.1). One act is a simplification exactly while the two halves point
+ * the same way; when they diverge it is a claim about the machine that is
+ * wrong — the screen named a version older than the running one as a target
+ * and promised an install that could not happen. So every component gets a
+ * row, a row with an available act carries a checkbox SELECTED BY DEFAULT, and
+ * a row with none states why in the cell where its checkbox would be. It
+ * degenerates correctly: with both halves behind, both are ticked and one
+ * press does both, which is § 2's D1 unchanged.
+ *
+ * **There is no Force here** (§ 13.3). Force overrides the pane-safety refusal
+ * on a service RESTART, and phase 2 in this app restarts nothing — it OFFERS
+ * the restart (§ 7.1), whose own override rides on the CLI's verbatim refusal.
+ * A checkbox governing nothing, rendered for symmetry with Subshell Server's
+ * screen, would be the same kind of false promise § 13 removes.
+ *
  * Everything here is a decision rather than a rendering, which is why it lives
  * in `lib/` and is exercised by `bun test` with no webview:
  * `components/assistant/update-screen.tsx` draws exactly what
@@ -34,22 +51,64 @@ import { paneRisk } from "@/lib/steps";
 export type UpdateRowId = "app" | "agent";
 
 /**
- * One version pair the screen states.
+ * What a component would become.
  *
- * `to` is nullable because of a fact the app cannot know before it downloads:
- * a desktop `release-manifest.json` carries the component version, the protocol
- * numbers and the asset digests — **not the version of the CLI inside the
- * bundle** (spec § 4.3). So while an app update is pending, the agent row can
- * name where the machine IS and not where it is going, and the screen falls
- * back to naming the app that ships it.
+ * `with-app` is a fact the app cannot know before it downloads: a desktop
+ * `release-manifest.json` carries the component version, the protocol numbers
+ * and the asset digests — **not the version of the CLI inside the bundle**
+ * (spec § 4.3). So while an app update is pending, the agent row names where
+ * the machine IS and not where it is going, and falls back to naming the app
+ * that ships it.
+ *
+ * `none` is a component that is not moving, whatever the press does — and it
+ * is the half of the § 13 fix that shows: a machine running an agent NEWER
+ * than the one inside this app had that agent named as a target it would be
+ * replaced by.
+ */
+export type UpdateRowTarget = { kind: "version"; version: string } | { kind: "with-app" } | { kind: "none" };
+
+/**
+ * One component's line in the table (spec § 13.1): what it runs, what it would
+ * become, and a checkbox where there is something to do.
+ *
+ * The three fields at the end are one decision read three ways, and the rule
+ * between them is § 13.1's: **never a disabled checkbox**. A control that
+ * cannot be used says "not now" without saying anything, and here the reason
+ * IS the content — so a row the person may change carries a checkbox, and a
+ * row they may not carries the sentence explaining why in the cell where the
+ * checkbox would have been.
  */
 export interface UpdateActRow {
   id: UpdateRowId;
   /** The product's own name, as a person reads it — never a package id. */
   label: string;
   from: string;
-  to: string | null;
+  to: UpdateRowTarget;
+  /** Whether the press will act on this row. */
+  selected: boolean;
+  /** Whether the person may change that — a checkbox is rendered if and only if this is true. */
+  selectable: boolean;
+  /**
+   * Why they may not, in the cell where the checkbox would be.
+   *
+   * Null while an act is in flight: there is no standing decision left to
+   * explain, the press is gone too, and the progress line below says what is
+   * happening.
+   */
+  reason: string | null;
 }
+
+/**
+ * Which halves the person has ticked — React state in the screen, passed in.
+ *
+ * Partial on purpose: an absent key means "as this act decided", which is
+ * SELECTED for anything actionable (§ 13.1 — the default is the old
+ * always-both behaviour, and with both halves behind one press still does
+ * both). Without that, the screen would need an effect to seed a selection
+ * against facts that arrive one probe later, and a seeding effect racing a
+ * probe is how a checkbox comes to disagree with the row it sits on.
+ */
+export type UpdateSelection = Partial<Record<UpdateRowId, boolean>>;
 
 /**
  * Where the act is.
@@ -90,6 +149,8 @@ export interface UpdateActInput {
   restartedHere: boolean;
   /** An action is in flight on the shared runner — § 6's "already in flight". */
   busy: boolean;
+  /** What the person has ticked, defaulting to everything actionable. */
+  selection: UpdateSelection;
 }
 
 /** What the screen draws. */
@@ -158,6 +219,16 @@ export interface UpdateAct {
   offerRestart: boolean;
   /** Whether that restart would close live subshells — the sentence beside the offer. */
   restartCostsPanes: boolean;
+  /**
+   * Whether pressing will also install the agent that ships inside the app.
+   *
+   * The screen's own promise reads off this and nothing else (§ 13: "any
+   * sentence promising the agent half must stop promising it when it will not
+   * run"). False on the machine § 13 was reported from — an agent installed by
+   * hand that is NEWER than the bundled one — where phase 2 answers
+   * `Resume::Clear` and installs nothing.
+   */
+  pressInstallsAgent: boolean;
 }
 
 /** What the app half is called on screen. */
@@ -183,7 +254,8 @@ const NOT_INSTALLED = "not installed";
  * is reachable from a fixture.
  */
 export function updateAct(input: UpdateActInput): UpdateAct {
-  const { check, probe, checking, installingApp, installingAgent, installedAgentHere, restartedHere, busy } = input;
+  const { check, probe, checking, installingApp, installingAgent, installedAgentHere, restartedHere, busy, selection } =
+    input;
 
   const bundled = probe?.bundledVersion ?? null;
   const installedAgent = probe?.agent?.version ?? null;
@@ -203,47 +275,76 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   const agentHalfRuns = bundled !== null && !unmanaged;
 
   /**
+   * What each half can do, before anyone ticks anything.
+   *
+   * `agentNewerInstalled` is the state § 13 was reported from: the ladder
+   * ADOPTS an agent somebody installed by hand when it is newer than the one
+   * inside this app (`decide_agent`, which never downgrades), so there is no
+   * act here at all — and the screen used to name that newer version as a
+   * target it would be replaced by.
+   */
+  const appAvailable = check?.latest != null;
+  const agentBehind = probe?.agentChoice === "upgrade-available" || probe?.agentChoice === "install-bundled";
+  const agentNewerInstalled = probe?.agentChoice === "adopt-installed";
+  const agentAvailable = agentHalfRuns && agentBehind;
+
+  /**
    * The marker, weighed once more against the half that would finish it.
    *
-   * Rust now resolves an unmanaged machine's marker to `Resume::Clear`, so
-   * this is defence in depth — but it is also the only layer that can SAY
-   * anything: a marker written by a build that predates that fix still exists
-   * on disk, and without this the act would report `finishing`, fire the
-   * install by itself, and refuse it in the same breath (the § 6 sentence
-   * below renders either way). Refusing it HERE means the screen shows that
-   * refusal and nothing else — no press, no automatic second phase.
+   * Rust resolves both of these to `Resume::Clear` — an unmanaged machine and
+   * one running a newer agent than the bundle (`comparable_agent_version` is
+   * what `decide()` always compared) — so this is defence in depth. But it is
+   * also the only layer that can SAY anything: a marker written by a build
+   * that predates those fixes still exists on disk, and without this the act
+   * would report `finishing`, fire the install by itself, and refuse it in the
+   * same breath (the § 6 sentence below renders either way). Refusing it HERE
+   * means the screen shows that refusal and nothing else — no press, no
+   * automatic second phase. On the newer-agent machine it is not only a
+   * display fix: § 13.2 forbids installing an older bundled CLI over a newer
+   * installed one under ANY consent, and an auto-firing marker is a consent
+   * given before the machine was in that state.
    */
-  const resume = agentHalfRuns ? (probe?.pendingInstall ?? null) : null;
+  const resume = agentHalfRuns && !agentNewerInstalled ? (probe?.pendingInstall ?? null) : null;
+
+  /**
+   * The ticks, resolved.
+   *
+   * The agent half is selectable only while the app half is NOT running, and
+   * that is a fact about the machine rather than a simplification: when the
+   * app is installed the act crosses a relaunch, and the only thing that
+   * crosses it is the marker — which carries no selection, and which the NEW
+   * build re-decides against the agent IT bundles. A checkbox offering to
+   * leave the agent behind there would be a control this process cannot
+   * honour in the process that acts on it. So when the app half runs, the
+   * agent half is its TAIL, and the row says so.
+   */
+  const ticked = (id: UpdateRowId): boolean => selection[id] ?? true;
+  const appSelected = appAvailable && ticked("app");
+  // An act of its OWN, rather than the app act's tail — which is what makes it
+  // a checkbox the person may untick.
+  const agentStandalone = agentAvailable && !appSelected;
+  const agentSelected = agentStandalone && ticked("agent");
+  /** Whether the app press ends by installing the agent that lands with it. */
+  const agentRidesAlong = appSelected && agentHalfRuns && !agentNewerInstalled;
 
   const refusals: string[] = [];
   if (unmanaged) {
     const runs = probe?.agent?.argv[0] ?? "a binary this app did not install";
     refusals.push(
-      `The agent this machine runs is ${runs}, which this app did not install and will not replace. The app is ` +
-        "updated; update that agent where it came from.",
+      `The agent this machine runs is ${runs}, which this app did not install and will not replace.` +
+        (appAvailable ? " The app half of this update still runs;" : "") +
+        " update that agent where it came from.",
     );
   }
   // An air-gapped install is an ordinary state of a machine, not an error —
-  // and the agent half is entirely local, so the screen still has a job.
-  if (check?.reason) refusals.push(`${check.reason}. The agent that ships inside this app can still be installed.`);
-
-  const rows: UpdateActRow[] = [];
-  const appBehind = check?.latest != null;
-  if (appBehind && check) {
-    rows.push({ id: "app", label: APP_LABEL, from: check.current, to: check.latest });
-  }
-  // The agent row is shown whenever the act would touch the agent: because
-  // the installed copy is behind the one in THIS bundle, or because a new app
-  // is coming and will bring its own. The second case is where `to` is null —
-  // see {@link UpdateActRow}.
-  const agentBehind = probe?.agentChoice === "upgrade-available" || probe?.agentChoice === "install-bundled";
-  if (agentHalfRuns && (agentBehind || appBehind)) {
-    rows.push({
-      id: "agent",
-      label: AGENT_LABEL,
-      from: installedAgent ?? NOT_INSTALLED,
-      to: appBehind ? null : bundled,
-    });
+  // and the agent half is entirely local, so the screen may still have a job.
+  // Only where it actually does, though: this sentence is one of the promises
+  // § 13 makes conditional, and on a machine running a newer agent by hand
+  // there is nothing here to install.
+  if (check?.reason) {
+    refusals.push(
+      agentAvailable ? `${check.reason}. The agent that ships inside this app can still be installed.` : check.reason,
+    );
   }
 
   const phase = decidePhase({
@@ -254,16 +355,45 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     checking,
     checked: check !== undefined,
   });
+  /** Nothing is left to decide while something is running. */
+  const inFlight = installingApp || installingAgent || resume !== null;
 
-  // App first, always: the new bundle carries a newer agent, so installing the
-  // agent first installs the outgoing copy.
-  const press: UpdatePress | null = appBehind ? "app" : agentBehind && agentHalfRuns ? "agent" : null;
-  const pressLabel =
-    press === "app"
-      ? `Download and Install ${check?.latest ?? ""}`.trim()
-      : press === "agent"
-        ? `Install the agent${bundled ? ` (${bundled})` : ""}`
-        : null;
+  const rows: UpdateActRow[] = [];
+  // The app row states itself whenever it has an act, and whenever it has a
+  // REASON it does not — an air-gapped install is a fact about this machine
+  // the table should carry rather than leave to a paragraph.
+  if (check !== undefined && (appAvailable || check.reason !== null)) {
+    rows.push({
+      id: "app",
+      label: APP_LABEL,
+      from: check.current,
+      to: check.latest !== null ? { kind: "version", version: check.latest } : { kind: "none" },
+      selected: appSelected,
+      selectable: appAvailable && !inFlight,
+      reason: appAvailable ? null : "cannot be checked",
+    });
+  }
+  // The agent row is shown whenever the act would touch the agent — because
+  // the installed copy is behind the one in THIS bundle, or because a new app
+  // is coming and will bring its own — and whenever it would NOT and a person
+  // reading the app row would assume otherwise (spec § 13.1). It stays absent
+  // where nothing about the agent is in question: an app that is current
+  // beside an agent that is not behind is what `upToDate` is for.
+  if (bundled !== null && (appAvailable || agentBehind || unmanaged)) {
+    rows.push({
+      id: "agent",
+      label: AGENT_LABEL,
+      from: installedAgent ?? NOT_INSTALLED,
+      to: agentRidesAlong
+        ? { kind: "with-app" }
+        : agentStandalone
+          ? { kind: "version", version: bundled }
+          : { kind: "none" },
+      selected: agentSelected || agentRidesAlong,
+      selectable: agentStandalone && !inFlight,
+      reason: agentRowReason({ unmanaged, agentNewerInstalled, agentRidesAlong, agentStandalone, inFlight }),
+    });
+  }
 
   // A marker halted at the attempt limit is the one state where the press is
   // a RETRY: the boot stopped firing on the person's behalf (spec § 5), so the
@@ -275,6 +405,23 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // is the one it has stopped making on its own.
   const silent = phase === "finishing" && !retrying;
   const offerRestart = installedAgentHere && !restartedHere && probe?.service?.installed === true;
+
+  // App first, always: the new bundle carries a newer agent, so installing the
+  // agent first installs the outgoing copy.
+  const press: UpdatePress | null = appSelected ? "app" : agentSelected ? "agent" : null;
+  /** Something is offered, and the person has unticked all of it. */
+  const nothingSelected = press === null && (appAvailable || agentAvailable);
+  const pressLabel =
+    press === "app"
+      ? `Download and Install ${check?.latest ?? ""}`.trim()
+      : press === "agent"
+        ? `Install the agent${bundled ? ` (${bundled})` : ""}`
+        : // Dead rather than absent (§ 13.1), and lettered with the reason it is
+          // dead: a button that still named an act nobody selected would be
+          // making the same claim the table just stopped making.
+          nothingSelected
+          ? "Nothing selected"
+          : null;
 
   return {
     phase,
@@ -295,7 +442,33 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     // The same fact every other teardown action on this machine reads, never
     // a second reading of it.
     restartCostsPanes: paneRisk(probe),
+    pressInstallsAgent: agentRidesAlong,
   };
+}
+
+/**
+ * What stands where the agent row's checkbox would be.
+ *
+ * Null means a checkbox is rendered there instead — or, while an act is in
+ * flight, nothing at all: the decision has been made and the progress line is
+ * what the screen has to say.
+ */
+function agentRowReason(at: {
+  unmanaged: boolean;
+  agentNewerInstalled: boolean;
+  agentRidesAlong: boolean;
+  agentStandalone: boolean;
+  inFlight: boolean;
+}): string | null {
+  // Ordered by which fact outranks which: a machine this app may not write to
+  // is that before it is anything else, and a newer installed agent is a
+  // refusal rather than a choice — `--force` may never install an older CLI
+  // over a newer one (§ 13.2), so there is deliberately no way to tick it.
+  if (at.unmanaged) return "runs another binary";
+  if (at.agentNewerInstalled) return "you run a newer one";
+  if (at.agentRidesAlong) return "installs with the app";
+  if (at.agentStandalone || at.inFlight) return null;
+  return "up to date";
 }
 
 /**

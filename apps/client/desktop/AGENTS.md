@@ -539,11 +539,56 @@ same commit as the press, so an effect guarded on `busy` alone ran once with
 the previous action's output still in place — and read the agent install's
 success as the restart's, retiring the offer nobody had taken.
 
+**It is a SELECTION, not always both halves** (§ 13, 2026-09-18). One act is a
+simplification exactly while the two halves point the same way; when they
+diverge it is a claim about the machine that is wrong. They diverge whenever
+somebody installs a `subshell` by hand that is NEWER than the one this bundle
+ships: `decide_agent` ADOPTS it (it never downgrades), so phase 2 would answer
+`Resume::Clear` and install nothing — while the screen named that newer version
+as a target it would be replaced by, and the press promised the install
+underneath it. Reported against Subshell Server; identical here.
+
+So the screen is a table — component, what it runs, what it would become, and a
+checkbox where there is something to do. Four rules, each closing one of the
+defects above:
+
+- **A row with an available act carries a checkbox, ticked by default**, so
+  both halves behind is still ONE press. That default is D1 unchanged.
+- **A row with no available act states WHY where its checkbox would be** —
+  *runs another binary*, *you run a newer one*, *installs with the app*, *up to
+  date*, *cannot be checked* — and **never a disabled checkbox**, which says
+  "not now" without saying anything.
+- **The agent half is selectable only while the app half is not running.** When
+  the app is installed the act crosses a relaunch, and the only thing that
+  crosses it is the marker, which carries no selection and which the NEW build
+  re-decides against the agent IT bundles. A checkbox offering to leave the
+  agent behind there would be a control this process cannot honour in the
+  process that acts on it — so the agent half is the app act's TAIL, and the
+  row says so. Untick the app and the agent row becomes an act of its own, with
+  the number in hand.
+- **Every sentence promising the agent half reads off `pressInstallsAgent`**,
+  including the air-gapped refusal's "can still be installed". A promise that
+  outlives the half it describes is the defect, not the act.
+
+**There is no Force checkbox here, deliberately** (§ 13.3). Force overrides the
+pane-safety refusal on a service RESTART; phase 2 in this app restarts nothing,
+it OFFERS the restart, and that offer carries its own override behind the CLI's
+verbatim refusal. A control governing nothing, rendered for symmetry with
+Subshell Server's screen, would be a promise of the same kind. A test pins its
+absence.
+
+The same amendment added one refusal that is not cosmetic: a marker on a
+machine running a NEWER agent is dropped here as well as in Rust, because
+§ 13.2 forbids installing an older bundled CLI over a newer installed one under
+any consent — and an auto-firing marker is a consent given before the machine
+was in that state.
+
 Everything with a contract rather than a rendering is `lib/update-act.ts`:
-which rows the screen states, which phase it is in, which halves are refused
-and whether the press is live. It is mirrored, not shared, with the server
-app's — one is React and one is vanilla DOM, exactly as the tmux screens are,
-and a diff between them is the drift signal.
+which rows the screen states, which of them carry a checkbox and which carry a
+reason, which phase it is in, which halves are refused and what the press says
+it will do. It is mirrored, not shared, with the server app's — one is React
+and one is vanilla DOM, exactly as the tmux screens are, and a diff between
+them is the drift signal.
 
 ## The IPC boundary
 
