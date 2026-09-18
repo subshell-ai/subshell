@@ -1360,6 +1360,38 @@ describe("the first run", () => {
     gate.resolve({ ok: true, stdout: "installed tmux", stderr: "" });
   });
 
+  /**
+   * The operator's own requirement, verbatim: "retry would also check for the
+   * presence of the install" (2026-09-18).
+   *
+   * It is the line most likely to be silently reverted by a later refactor —
+   * dropping the pre-probe leaves a button that still works, just wastefully
+   * and against the point — and it is untestable on Subshell Server, whose
+   * assistant has no DOM harness. Here it is one end-to-end press, so this is
+   * the only pin the requirement gets in either app.
+   *
+   * It covers the screen's self-exit in the same breath: the tmux screen has
+   * no Continue by design and leaves when the poll (or this probe) sees a
+   * tmux, so "installed nothing" and "left anyway" are the same assertion.
+   */
+  it("re-reads the machine before installing, and installs nothing when tmux turned up", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched({ tmux: null }),
+    });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Install tmux" });
+
+    // Someone went to a terminal and installed it themselves. The poll cannot
+    // have noticed — it is paused while an action is in flight and resumes
+    // only after one — so the press is what asks.
+    fake.setProbe(untouched({ tmux: "/opt/homebrew/bin/tmux" }));
+    fireEvent.click(button("Install tmux"));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Install tmux" })).toBeNull());
+    expect(fake.callsTo("node_install_tmux")).toEqual([]);
+  });
+
   // The other answer, and the rule the whole flow exists for: the watch path
   // touches nothing on this machine and opens no dashboard.
   it("takes the watch path without installing, enrolling or opening anything", async () => {

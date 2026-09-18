@@ -17,9 +17,10 @@
  *    those raises a confirmation that names the cost in the Rust side's words
  *    (or the CLI's) before the button that pays it.
  */
-import { asks, finished } from "@/lib/actions";
+import { asks, errorText, finished } from "@/lib/actions";
 import type { RegisterPhase, RegisterRow } from "@/lib/client-flow";
 import {
+  type ActionResult,
   type EnrolledNodeBody,
   type EnrollOutcome,
   nodeConfigure,
@@ -29,6 +30,7 @@ import {
   nodeOpenPath,
   nodeOpenPlane,
   nodeOpenPlaneUrl,
+  nodeProbe,
   nodeService,
   nodeSetPlane,
   type OpenTarget,
@@ -114,8 +116,21 @@ export function useNodeCommands(args: {
   form: EnrollForm;
   /** Called with the `enroll --json` body after a successful enrollment. */
   onEnrolled: (node: EnrolledNodeBody | null) => void;
+  /**
+   * What the tmux install itself answered — `null` at the press, the result on
+   * the way out.
+   *
+   * The tmux screen's failure card CANNOT read `runner.output`, which is the
+   * last of ANY action and outlives the screen it was produced on: the runner
+   * lives in `App`, so a failed `service` verb or agent install on the status
+   * screen would render under "The tmux install didn't finish." the next time
+   * anyone walked to the tmux screen. That is the defect the server app's own
+   * `tmuxResult` slot exists to prevent (`wizard.ts`), and this is its twin —
+   * a page-state slot only this command writes.
+   */
+  onTmuxInstall: (result: ActionResult | null) => void;
 }): NodeCommands {
-  const { runner, probe, form, onEnrolled } = args;
+  const { runner, probe, form, onEnrolled, onTmuxInstall } = args;
 
   /**
    * One `service` verb. `force` is never passed here — the CLI accepts it only
@@ -330,7 +345,41 @@ export function useNodeCommands(args: {
         { reprobe: false },
       ),
 
-    installTmux: () => runner.run(async () => finished(await nodeInstallTmux())),
+    /**
+     * Install tmux — and ASK THE MACHINE FIRST (operator's request,
+     * 2026-09-18: "retry would also check for the presence of the install").
+     *
+     * Someone who has gone off to a terminal, installed tmux by hand and come
+     * back is pressing this to say "look again", not to run brew a second
+     * time — and the probe poll is PAUSED while this screen's own last action
+     * was in flight, so it cannot have noticed for them. A tmux found here
+     * returns without spawning anything: the runner re-probes on the way out,
+     * the router stops routing to the tmux screen, and there is no result left
+     * behind for {@link tmuxInstallFailure} to report a failure from.
+     */
+    installTmux: () =>
+      runner.run(async () => {
+        // Cleared at the press rather than on the way out: a card from the
+        // last attempt sitting under a fresh spinner is a previous run's
+        // verdict.
+        onTmuxInstall(null);
+        // Swallowed rather than surfaced: a probe that could not run is not a
+        // reason to refuse the install the person actually asked for, and the
+        // install's own result is about to say something more useful.
+        const fresh = await nodeProbe().catch(() => null);
+        if (fresh?.tmux) return finished(null);
+        try {
+          const result = await nodeInstallTmux();
+          onTmuxInstall(result);
+          return finished(result);
+        } catch (err) {
+          // A rejection is a failure of THIS install and belongs on its card,
+          // not only on the shared message line — `NO_MANAGER` is the one that
+          // reaches here, on a platform with nothing to drive.
+          onTmuxInstall({ ok: false, stdout: "", stderr: errorText(err) });
+          throw err;
+        }
+      }),
 
     /**
      * Persist only. The runner still re-probes, because nothing about this

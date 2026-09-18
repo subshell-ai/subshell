@@ -249,3 +249,94 @@ the *while reading* doing that went back out. The probe-derived list restarts
 the intro after a reset by construction; the completed reset also clears the
 fired-this-load latch (`host.rearmFirstRun`) so the post-reset first run
 fires like a real one, and a cancelled reset clears nothing.
+
+## 10. Amendment (2026-09-18): D3 is reversed on the far side of the chain
+
+Reported from a macOS demo: "I did not see the permissions screen at all
+during FTE … I was expecting the macos permissions panel after". D3's
+reasoning is not withdrawn — the screen sat *four screens before anything
+needed a permission*, and a dashboard notice really is the better door for a
+permission that turns out to be missing later. What the report adds is the
+other half of the trade: macOS asks each of these exactly once, unannounced,
+and a first run that goes straight to a sign-in page has spent the one moment
+when explaining them is cheap.
+
+So the screen comes back **after** the chain rather than before it, which is
+what keeps D1 intact — nothing is asked of anyone until there is a running
+server to be notified about:
+
+```
+…chain → ready screen ("Subshell Server Is Ready", Continue)
+       → permissions (macOS, first run only)   ← this amendment
+       → the dashboard
+```
+
+The press that reaches it is the Continue the ready screen already had (§ 4.2,
+as restored the same day), and the permissions screen's own Continue does what
+that press used to. Three conditions, in `permissionsAfterSetup`:
+
+- **darwin only** — the screen is three macOS permissions.
+- **`ranSetupHere`** — the same flag the Continue itself is gated on, so a
+  window opened over an already-running server never routes here.
+- **`ranFirstRunHere`**, captured in `startSetup` before the chain fires,
+  because the probe flags `onboarded` on the very `ready` that reaches the
+  handoff. Without it a recovery Set Up would re-explain macOS to a machine
+  that has been through all of it before.
+
+**One consequence of the ordering, accepted rather than designed around.**
+The dashboard now opens one press later than it did, and the assistant window
+is destroyed on close (only `main`'s close is prevented) — so closing the
+window ON the permissions screen ends a first run with a running server and no
+window. It is recoverable from the tray, and the alternative is a screen that
+cannot be dismissed, which this screen's "nothing here blocks" rule forbids.
+
+**`screensFor` is unchanged**, and that is the point: `permissions` stayed on
+`REQUESTED_SCREENS` when D3 removed it from the journey, so it comes back with
+no routing change at all — the handoff names it exactly the way a dashboard
+notice does, and there is still one way into the screen. What the screen has
+to know is which door it came through: from a notice there is somewhere to go
+BACK to, and from the handoff there is not, so it carries a primary Continue
+that opens the dashboard instead of the ghost Back.
+
+## 11. Amendment (2026-09-18): a failed tmux install says so
+
+From the same demo: "the tmux install had an issue and it wasn't clear there
+was a problem". § 8's failure handling was true of the setup chain and not of
+the one act in front of it. The tmux screen reported a failed install by
+putting `failureLine`'s single line — the LAST non-empty stderr line — into
+the shared `#problem` paragraph above the title, and then redrawing the same
+"Install tmux" button underneath it. A package manager's last stderr line is
+routinely a fragment (`brew update-reset`, a "Please report this issue" tail),
+so the screen read as a press that had done nothing.
+
+Worse, **one of the two failures could not be seen at all**: an install that
+exits ZERO and leaves no tmux on the login PATH was indistinguishable from a
+button nobody had pressed.
+
+`tmuxInstallFailure(result, tmuxFound)` is the pure fork, mirrored into
+Subshell Client's `lib/copy.ts` beside `manualTmuxRoutes` (the two apps'
+tmux screens are copies by decision, so a diff between them is the drift
+signal). It answers `null` when no install has run in this window or tmux is
+now present, and otherwise a headline the app writes — *The tmux install
+didn't finish.* or *The installer finished, but tmux still isn't on this
+machine's PATH.* — the manager's own last word, and both streams for a
+disclosure. The screen then renders a failure card, relabels its button **Try
+again**, and prints the one line a person can paste.
+
+**Both of the server app's tmux surfaces render it**, not just the first
+run's: the recovery screen's amber `tmuxWarn` runs the same install through the
+same press, so without the card it would run one and then report either a
+fragment of stderr or — for a run that exits zero and changes nothing —
+nothing at all. The suppression of the shared problem line lives in the card
+builder for the same reason, so the two callers cannot drift apart on it. In
+Subshell Client the equivalent scoping is a `tmuxResult` slot in `App` written
+only by `installTmux`: `runner.output` is the last of ANY action and outlives
+the screen it was produced on, so a failed service verb would otherwise render
+later as a tmux failure.
+
+**Try again asks the machine before it asks the package manager.** Someone who
+went off to a terminal, installed tmux by hand and came back is pressing that
+button to say "look again" — and the poll cannot have noticed for them,
+because it is paused while an action is in flight. A tmux found there returns
+without spawning anything and the screen leaves by itself, which is the exit
+it already had.

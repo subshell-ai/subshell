@@ -823,6 +823,31 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* An install that did not work, said properly: the app's own sentence, the
+     manager's last word under it, and the whole run behind a disclosure. A
+     bordered card rather than the bare `#problem` line the screen reported
+     this with before — that line sat above the title in the same place a
+     probe error does, and under it the button redrew exactly as it had been,
+     which is how a failed install came to read as a press that did nothing
+     (operator's report, 2026-09-18). */
+  .install-failure {
+    width: 100%;
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    display: grid;
+    gap: 4px;
+    /* Stretched, not `start`: `.install-line` is `nowrap` with an ellipsis,
+       and a grid item sized to its own max-content would take the manager's
+       longest line straight out of the card instead of clipping it. */
+    text-align: left;
+    border: 1px solid var(--destructive);
+    border-radius: 8px;
+    background: color-mix(in oklch, var(--destructive) 8%, transparent);
+  }
+  /* The disclosure's first-line margin is the card's `gap` already. */
+  .install-failure details {
+    margin-top: 4px;
+  }
 
   /* The supervision question, mirroring Settings → Service's card: the modes
      as a radio group, then a rule, then the setting FOR the chosen mode. The
@@ -875,6 +900,19 @@
     /* A `<label>` element carrying this class must not keep the base rule's
        gap: here the detail is a sibling with its own spacing. */
     margin-bottom: 0;
+  }
+  /* The failure card's headline takes the warning colour; the manager's own
+     words keep the muted one they have while the install is running, because
+     they are the same words either way and only one of the two is this app
+     speaking.
+
+     AFTER `.label`, for the reason `.warn-text` is after `.hint`: a rule that
+     overrides another belongs below it, and biome's `noDescendingSpecificity`
+     says so out loud when it does not. A `warn-text` arm cannot serve here —
+     that rule is declared long before `.label`, so on an element carrying
+     both the base would win on source order. */
+  .install-failure .label {
+    color: var(--warning);
   }
   /* Left-aligned under the label it belongs to — the plan rows' right-aligned
      detail column is for a value (a path, a URL), and a sentence is not one. */
