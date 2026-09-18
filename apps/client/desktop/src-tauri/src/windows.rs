@@ -309,12 +309,28 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
     let level = crate::zoom::level(app);
     let floor = clamped_floor(level, work_area(app));
     WebviewWindowBuilder::new(app, PLANE_LABEL, WebviewUrl::External(url))
+        // **Navigation follows the sign-in, the PIN does not** (operator's
+        // report, 2026-09-18).
+        //
+        // This refused any URL whose origin was not the pinned plane's — which
+        // is exactly what a proxied sign-in does: an instance behind an OAuth
+        // proxy bounces the window to an identity provider on a different
+        // origin and back. The window simply would not follow, so such a plane
+        // could not be signed into from this app at all.
+        //
+        // Allowing http(s) costs this window nothing, because the pin is what
+        // the one granted command reads, not the current page:
+        // `desktop_open_in_browser` joins its path onto `PlanePin`'s origin
+        // (`control.rs`), so a page at the identity provider — or anywhere else
+        // a redirect chain leads — can still only open a path of the plane this
+        // window was OPENED with. Scheme is checked rather than origin so the
+        // window cannot be steered into `file:`, a custom handler or anything
+        // else the OS would act on.
         .on_navigation(move |u| {
-            allowed
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .is_some_and(|origin| &u.origin().ascii_serialization() == origin)
+            // `allowed` is kept live so the pin still names the plane for the
+            // command above; it deliberately no longer gates the navigation.
+            let _pinned = allowed.lock().unwrap_or_else(|e| e.into_inner());
+            subshell_desktop_core::browser::browsable_scheme(u.scheme())
         })
         .on_new_window({
             // Tauri DENIES a page's request for a new window (`target="_blank"`,
