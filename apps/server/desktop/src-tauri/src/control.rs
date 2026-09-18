@@ -23,7 +23,7 @@ use tauri_plugin_opener::OpenerExt;
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
 use subshell_desktop_core::permissions::{self, Permission};
-use subshell_desktop_core::proc::{run, run_streaming, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
+use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::{SettingsState, Supervision};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
@@ -86,7 +86,7 @@ pub struct Probe {
     ///
     /// The console's install offers branch on the machine; the webview's own
     /// UA sniff (`navigator.userAgent`) was the old source, and a UA string is
-    /// a guess where this is the fact `tmux_install_argv` will act on.
+    /// a guess where this is the fact `tmux::install_argv` will act on.
     /// Normalized through [`console_platform`] because the two sides speak
     /// different dialects, and a "macos" here silently drops every Mac user
     /// into the no-button fallback.
@@ -1375,12 +1375,6 @@ fn install_service_now(settings: &SettingsState, autostart: bool) -> ActionResul
     run(&cmd, ACTION_TIMEOUT).into()
 }
 
-/// A package install is not a probe. `ACTION_TIMEOUT` is sized for a CLI
-/// answering a question; fetching and unpacking a package over a slow link
-/// routinely takes minutes, and timing that out mid-write is worse than
-/// waiting.
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
-
 /// The OS name the console understands: the web convention `installers.ts`
 /// branches on ("darwin"), not `std::env::consts::OS`'s "macos". The Linux
 /// and every other spelling already agrees.
@@ -1407,7 +1401,6 @@ pub const INSTALL_LINE_EVENT: &str = "desktop-install-line";
 #[tauri::command(async)]
 pub fn desktop_install_tmux(app: AppHandle) -> Result<ActionResult, String> {
     let _guard = ActionGuard::new();
-    let argv = tmux_install_argv().ok_or("no package manager this app can drive")?;
     // STREAMED, unlike every other action here, because this one's wait is
     // the user experience: `brew install` on a cold cache runs for minutes
     // under a 10-minute deadline, and a screen that says nothing for that
@@ -1424,36 +1417,31 @@ pub fn desktop_install_tmux(app: AppHandle) -> Result<ActionResult, String> {
         // and still reports through its return value.
         let _ = handle.emit(INSTALL_LINE_EVENT, line.to_string());
     });
-    Ok(run_streaming(&argv, INSTALL_TIMEOUT, sink).into())
+    let (platform, has_brew) = tmux_host_facts();
+    Ok(subshell_desktop_core::tmux::install(platform, has_brew, sink)?.into())
 }
 
-/// The argv that installs tmux here, or None when no manager we can drive is
-/// present.
+/// The two facts `desktop_core::tmux` needs about THIS machine.
 ///
-/// Mirrors `tmuxInstallPlan` in `ui/src/lib/installers.ts`, which owns the same
-/// decision for the rendering side. Two copies because one runs in a webview
-/// with no process access and one runs where `which` works, and
-/// `the_console_install_table_and_the_rust_one_agree` fails the build when a token
-/// this runs is removed or changed in the console copy (containment, as that test
-/// documents). `apt-get` is hardcoded because the only Linux artifact this app
-/// ships is the `.deb`, so every machine this reaches is Debian-family; the
-/// note in `installers.ts` carries the lever if that changes.
-fn tmux_install_argv() -> Option<Vec<String>> {
-    let argv = match std::env::consts::OS {
-        // No package manager we can drive without installing one first, and
-        // Homebrew is too large a thing to install on someone's behalf from a
-        // setup screen. The console shows the MacPorts line instead.
-        "macos" => {
-            subshell_desktop_core::shell_env::which("brew")?;
-            vec!["brew", "install", "tmux"]
-        }
-        // pkexec so the user gets their desktop's own password prompt. A bare
-        // sudo spawned from a GUI has no terminal to read a password from and
-        // hangs until the timeout.
-        "linux" => vec!["pkexec", "apt-get", "install", "-y", "tmux"],
-        _ => return None,
-    };
-    Some(argv.into_iter().map(String::from).collect())
+/// The table itself lives in `desktop-core` — Subshell Client needs the same
+/// install and a second copy of a privileged argv is exactly the drift worth
+/// not having — and it is parameterized so it can be tested off the host
+/// platform. These are the arguments this app always passes, in one place so
+/// the containment pin below asks the shared table the same question the
+/// command does.
+///
+/// `desktop_core::tmux::install_argv` mirrors `tmuxInstallPlan` in
+/// `ui/src/lib/installers.ts`, which owns the same decision for the rendering
+/// side. Two copies because one runs in a webview with no process access and
+/// one runs where `which` works, and
+/// `the_console_install_table_and_the_rust_one_agree` fails the build when a
+/// token this runs is removed or changed in the console copy (containment, as
+/// that test documents).
+fn tmux_host_facts() -> (&'static str, bool) {
+    (
+        std::env::consts::OS,
+        subshell_desktop_core::shell_env::which("brew").is_some(),
+    )
 }
 
 /// The `init --yes` argv for one set of console answers.
@@ -2938,7 +2926,8 @@ mod tests {
 
     /// The two halves of the tmux-install contract speak different languages
     /// and each comment claims the other: `ui/src/lib/installers.ts` decides
-    /// what the console SHOWS, `tmux_install_argv` here decides what gets
+    /// what the console SHOWS, `desktop_core::tmux::install_argv` — asked with
+    /// THIS machine's facts, the way the command asks it — decides what gets
     /// RUN. Nothing else fails if they drift — the warning would display one
     /// command while its own button ran another, on CI that is green.
     /// Text-matching rather than a shared data file: the console copy is
@@ -2949,7 +2938,7 @@ mod tests {
     /// about what that catches: anything either side relies on being REMOVED
     /// or CHANGED in the other fails here (the drift that actually bit), on
     /// the host that ships. The mac tokens are compared only where they run,
-    /// since `tmux_install_argv` answers for the current OS only.
+    /// since the table is asked about the current OS only.
     ///
     /// Agent CLI installs used to be pinned here too (`AGENT_INSTALLS`); they
     /// moved to the control plane (spec 2026-09-11 § 7,
@@ -2957,7 +2946,8 @@ mod tests {
     #[test]
     fn the_console_install_table_and_the_rust_one_agree() {
         let ts = include_str!("../../ui/src/lib/installers.ts");
-        if let Some(argv) = tmux_install_argv() {
+        let (platform, has_brew) = tmux_host_facts();
+        if let Some(argv) = subshell_desktop_core::tmux::install_argv(platform, has_brew) {
             for token in &argv {
                 assert!(
                     ts.contains(token.as_str()),
@@ -2986,7 +2976,8 @@ mod tests {
         // A GUI-spawned sudo has no tty to read a password from: it hangs until
         // the timeout rather than failing, which reads to the user as a frozen
         // app. Elevation on Linux goes through pkexec or not at all.
-        if let Some(argv) = tmux_install_argv() {
+        let (platform, has_brew) = tmux_host_facts();
+        if let Some(argv) = subshell_desktop_core::tmux::install_argv(platform, has_brew) {
             assert_ne!(argv[0], "sudo");
         }
     }

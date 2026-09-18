@@ -25,6 +25,8 @@
 //!   two apps from sharing (or clobbering) each other's settings.
 //! - [`sidecar`] — installing a shipped binary over one that may be running,
 //!   quarantined, or half-written when the power goes.
+//! - [`tmux`] — the one package install either app may run, and why Linux
+//!   elevates through `pkexec` rather than a sudo with no terminal.
 //! - [`tray`] — a tray icon that is drawn on one desktop and silently
 //!   invisible on the next, and the window that gets hidden into it.
 //! - [`zoom`] — the text-size ladder, and why Rust owns the level rather than
@@ -78,6 +80,7 @@ pub mod reset_guards;
 pub mod settings;
 pub mod shell_env;
 pub mod sidecar;
+pub mod tmux;
 pub mod tray;
 pub mod version;
 pub mod zoom;

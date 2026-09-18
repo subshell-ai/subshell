@@ -1,29 +1,72 @@
 /**
- * The node assistant's decisions, pure (spec 2026-09-12 § 6.4).
+ * The node assistant's vocabulary, pure (spec 2026-09-12 § 6.4).
  *
- * Which screen this machine sees, what that screen is called, and which
- * service verb it offers. Page state — the action runner, the enroll form,
- * the screen the user asked for — stays in `app.tsx`; only facts a probe and
- * the app's own settings license live here, so the window renders honestly on
- * a reopen and every decision is testable without a webview.
- *
- * This replaces the card page's `override ?? probe?.step ?? null`: the same
- * idea, but it answers a SCREEN rather than a step, because two probe steps
- * (`stopped`, `offline`) and one absent plane address all resolve to screens
- * that ask one question each.
+ * What each screen is called, and which service verb a step calls for. Page
+ * state — the action runner, the enroll form, the screen the user asked for —
+ * stays in `app.tsx`, and the ROUTING moved to `lib/client-flow.ts` with the
+ * first run (spec 2026-09-18): `clientScreen` asks what a person came to do
+ * before it asks what the machine needs, which is a question this module's
+ * probe-shaped `screenFor` could not pose. There is no second router — the
+ * old one is gone rather than kept beside it, because two functions answering
+ * "which screen" is how they come to disagree.
  */
-import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
+import type { ProbeStep } from "@/lib/ipc";
 
-/** The assistant's screens. One decision each (spec § 6.4). */
+/**
+ * The assistant's screens. One decision each (spec § 6.4).
+ *
+ * The first seven are the first-run walk and the landing it ends on (spec
+ * 2026-09-18): a person is asked what they came to do before this app touches
+ * their machine, and a client that is already set up lands on `status` —
+ * never on a step screen, and never on the server's dashboard, which is a
+ * button there rather than something that happens to them.
+ *
+ * The rest are what a person asked for. `connect` is the WATCH path's one
+ * screen (an address, and nothing about this machine); `enroll` is only the
+ * re-enrolment a working node asks for.
+ *
+ * Three ids are GONE with the first run, and their absence is the design
+ * rather than an omission: `connected`, `service` and `install-agent` were the
+ * probe-derived landings, and `clientScreen` routes every configured client to
+ * `status` instead — which carries what each of them offered (the service
+ * verb, the pane-safety rewrite, the reveals, the agent-binary picker, and the
+ * refusal that keeps an unreadable agent from being offered registration). A
+ * screen nothing can route to is not a recovery path, it is dead code that
+ * reads like one.
+ */
 export type NodeScreenId =
+  | "welcome"
+  | "choice"
+  | "tmux"
+  | "register"
+  | "startup"
+  | "progress"
+  | "status"
   | "connect"
-  | "install-agent"
   | "enroll"
-  | "service"
-  | "connected"
   | "reset"
   | "about"
   | "app-update";
+
+/**
+ * The runtime list beside the type, for whatever has to iterate the set —
+ * today the title tests, which assert that every screen has one and that none
+ * of them re-introduces a label that reads as truncated.
+ */
+export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
+  "welcome",
+  "choice",
+  "tmux",
+  "register",
+  "startup",
+  "progress",
+  "status",
+  "connect",
+  "enroll",
+  "reset",
+  "about",
+  "app-update",
+];
 
 /**
  * A screen the USER chose rather than one the machine implies.
@@ -37,52 +80,9 @@ export type NodeScreenId =
  * `app-update` joined them on 2026-09-15 for the same reason and one more: it
  * is the only screen here whose facts come from the NETWORK rather than from
  * this machine, so no probe could imply it even in principle. Reached from the
- * tray's "Check for Updates…" and from the Connected screen's disclosure.
+ * tray's "Check for Updates…" and from the status screen's More….
  */
 export type NodeUserScreen = "enroll" | "reset" | "about" | "app-update";
-
-/**
- * Which screen this machine sees.
- *
- * A plane address comes FIRST, ahead of everything the probe says: without
- * one this app has nothing to show in its other window, and "enroll this
- * machine" is a question about a server the person has not named yet. Then a
- * screen the user explicitly asked for, then the probe's own step.
- *
- * `null` while nothing has been read — the frame renders its checking state
- * rather than guessing at a screen it may have to replace a moment later.
- *
- * @param probe - the machine's own state, `undefined` before the first read
- * @param settings - this app's settings, `undefined` before the first read
- * @param override - a screen the user asked for, or null
- */
-export function screenFor(
-  probe: Probe | undefined,
-  settings: NodeSettings | undefined,
-  override: NodeUserScreen | null,
-): NodeScreenId | null {
-  if (!settings) return null;
-  if (!settings.planeUrl) return "connect";
-  if (override) return override;
-  if (!probe) return null;
-  switch (probe.step) {
-    case "no-agent":
-      return "install-agent";
-    case "not-enrolled":
-      return "enroll";
-    case "no-service":
-    case "stopped":
-    case "offline":
-      return "service";
-    case "online":
-      return "connected";
-    default:
-      // A step this build predates: the machine is saying something this app
-      // does not understand, which is the service screen's territory (it is
-      // the one that shows the facts and the last output).
-      return "service";
-  }
-}
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
@@ -101,25 +101,53 @@ const HERE = "This Machine";
  * The screen's title, in the assistant's voice (spec 2026-09-11 § 3.2: Title
  * Case, one line, no trailing punctuation).
  *
- * The service screen names WHICH failure it is looking at, because "start the
- * service" and "the service stopped answering" are different problems with
- * the same button.
- *
+ * It takes the screen and nothing else. The one title that ever read the probe
+ * was the service screen's, which named WHICH failure it was looking at; that
+ * screen is gone, and the state a configured machine is in is now said by the
+ * status screen's own badge and problem line rather than by a heading that
+ * changes under a person while they read it.
  */
-export function screenTitle(screen: NodeScreenId, probe: Probe | undefined): string {
+export function screenTitle(screen: NodeScreenId): string {
   switch (screen) {
+    case "welcome":
+      // Subshell Server's own first screen reads "Welcome to Subshell"; this
+      // one names the PRODUCT the person just installed, because both apps
+      // can be on one machine and the welcome is the one moment nothing else
+      // on screen says which of them is asking.
+      return "Welcome to Subshell Client";
+    case "choice":
+      // The one title that is a question rather than a verb phrase, and so
+      // the one that carries punctuation: the screen's whole job is to ask
+      // (spec 2026-09-18 § 4), and a question mark removed to satisfy a house
+      // rule reads as a statement the app cannot make.
+      return "What Would You Like to Do?";
+    case "tmux":
+      // Verbatim the server's own tmux title. Both apps install the same
+      // program for the same reason, and one string is how they read as one
+      // product. Lower-case `tmux` because that is the program's name.
+      return "Install tmux";
+    case "register":
+      // "Register", not "Enroll": this is the press that makes the machine a
+      // node, and `enroll` is the CLI's word for the same act — which this
+      // window still uses for the DIFFERENT, destructive one (re-enrolling a
+      // working node). Two acts, two words.
+      return `Register ${HERE}`;
+    case "startup":
+      return "How This Node Runs";
+    case "progress":
+      // Names the act rather than its result, exactly as the server's
+      // "Setting Up Subshell…" does — and the ellipsis is the one thing on
+      // the screen that says it has not finished.
+      return "Setting Up…";
+    case "status":
+      // The landing, for a watcher and for a node alike, so it can claim
+      // neither. It is the one screen that asks nothing, which is why it is
+      // named after the app rather than after a decision.
+      return "Subshell Client";
     case "connect":
       return "Connect to a Server";
-    case "install-agent":
-      return "Install the Agent";
     case "enroll":
       return `Enroll ${HERE}`;
-    case "service":
-      if (probe?.step === "offline") return "The Node Service Isn't Responding";
-      if (probe?.step === "stopped") return "The Node Service Is Stopped";
-      return "Start the Node Service";
-    case "connected":
-      return `${HERE} Is a Node`;
     case "reset":
       // The one title that names no machine at all, on either platform
       // (operator's call, 2026-09-12). It was "Reset This Mac", and that was

@@ -158,10 +158,16 @@ pub fn node_install_tmux(app: AppHandle) -> Result<ActionResult, String> {
     // HERE, exactly as the server's own installer does, rather than adding
     // probe fields nothing else needs.
     let brew = subshell_desktop_core::shell_env::which("brew").is_some();
-    Ok(ActionResult::from(subshell_desktop_core::tmux::install(
-        std::env::consts::OS,
-        brew,
-    )))
+    // THIRD ARGUMENT, measured after Task 1 landed: the server's install is
+    // STREAMED (`run_streaming` + a sink emitting per-line events its page
+    // listens for), so the shared fn is
+    //   install(platform, has_brew, on_line: LineSink) -> Result<Run, String>
+    // with `LineSink = Arc<dyn Fn(&str) + Send + Sync>` (desktop-core `proc`).
+    // The client has no line display on this screen yet, so pass a no-op sink
+    // rather than dropping the argument. `Run` -> `ActionResult` conversion is
+    // app-level: desktop-core must not depend on tauri.
+    let sink: subshell_desktop_core::proc::LineSink = std::sync::Arc::new(|_: &str| {});
+    Ok(subshell_desktop_core::tmux::install(std::env::consts::OS, brew, sink)?.into())
 }
 ```
 

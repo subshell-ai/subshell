@@ -20,6 +20,7 @@ import {
   lingerReply,
   linuxServiceStub,
   PLIST,
+  SESSION_PLIST,
   showOut,
   serviceStub as stub,
   TARGET,
@@ -266,6 +267,86 @@ describe("installService — macOS (launchd agent)", () => {
   });
 });
 
+/**
+ * Start-at-login is a CHOICE, and on each platform it is a different fact.
+ *
+ * Ported from the server CLI, which solved this first (spec 2026-09-12
+ * server-supervision § 3.2): systemd has an `enabled` bit, and launchd has
+ * only the plist's DIRECTORY — it auto-loads `~/Library/LaunchAgents` at
+ * login and nothing else, so a definition kept anywhere else runs exactly
+ * when something bootstraps it. Both halves still START the service now;
+ * what `--no-autostart` decides is only what happens at the next login.
+ */
+describe("installService — --no-autostart (run now, not at login)", () => {
+  test("linux: the default still arms login start, with no disable in sight", async () => {
+    const s = installStub("yes");
+    const res = await installService(s.deps);
+    expect(res.code).toBe(0);
+    expect(s.calls).toContainEqual(["systemctl", "--user", "enable", "--now", "subshell.service"]);
+    expect(s.calls.some((c) => c.includes("disable"))).toBe(false);
+    expect(res.out).toInclude("is enabled and running");
+  });
+
+  test("linux: --no-autostart disables the unit and starts it anyway", async () => {
+    const s = installStub("yes");
+    const res = await installService(s.deps, { autostart: false });
+    expect(res.code).toBe(0);
+    // The `disable` is NOT redundant on a REINSTALL: `enable` wrote a symlink
+    // into default.target.wants, and leaving it there would make the success
+    // line below claim the opposite of what systemd would do at login.
+    expect(s.calls).toContainEqual(["systemctl", "--user", "disable", "subshell.service"]);
+    expect(s.calls).toContainEqual(["systemctl", "--user", "start", "subshell.service"]);
+    expect(s.calls.some((c) => c.includes("enable"))).toBe(false);
+    expect(res.out).toInclude("is running (not enabled at login)");
+  });
+
+  test("linux: a failed start is reported as the command that actually ran", async () => {
+    const s = stub({
+      respond: (cmd) =>
+        cmd.includes("start") ? { code: 1, out: "", err: "Job failed\n" } : { code: 0, out: "", err: "" },
+    });
+    const res = await installService(s.deps, { autostart: false });
+    expect(res.code).toBe(1);
+    expect(msgLine(res.err)).toInclude("systemctl --user start subshell.service failed");
+  });
+
+  test("darwin: the default writes the LOGIN plist, the one launchd auto-loads", async () => {
+    const s = stub({ platform: "darwin" });
+    const res = await installService(s.deps);
+    expect(res.code).toBe(0);
+    expect(s.files.has(PLIST)).toBe(true);
+    expect(s.files.has(SESSION_PLIST)).toBe(false);
+    expect(s.calls).toContainEqual(["launchctl", "bootstrap", "gui/1000", PLIST]);
+  });
+
+  test("darwin: --no-autostart keeps the plist OUT of ~/Library/LaunchAgents", async () => {
+    const s = stub({ platform: "darwin" });
+    const res = await installService(s.deps, { autostart: false });
+    expect(res.code).toBe(0);
+    // The location IS the setting: anything under LaunchAgents starts at login
+    // whatever its keys say, because the template carries KeepAlive.
+    expect([...s.files.keys()].join()).not.toInclude("LaunchAgents");
+    expect(s.files.has(SESSION_PLIST)).toBe(true);
+    // …and launchd is handed the path that exists, or the install "succeeds"
+    // having bootstrapped nothing.
+    expect(s.calls).toContainEqual(["launchctl", "bootstrap", "gui/1000", SESSION_PLIST]);
+    expect(res.out).toInclude("(not at login)");
+  });
+
+  test("darwin: each install removes the OTHER location — a leftover re-arms login start", async () => {
+    const armed = stub({ platform: "darwin" });
+    armed.files.set(SESSION_PLIST, "<plist>old</plist>");
+    expect((await installService(armed.deps)).code).toBe(0);
+    expect(armed.removed).toEqual([SESSION_PLIST]);
+
+    const disarmed = stub({ platform: "darwin" });
+    disarmed.files.set(PLIST, "<plist>old</plist>");
+    expect((await installService(disarmed.deps, { autostart: false })).code).toBe(0);
+    expect(disarmed.removed).toEqual([PLIST]);
+    expect(disarmed.files.has(PLIST)).toBe(false);
+  });
+});
+
 describe("installService — guards", () => {
   test("unsupported platform: exit 1 with an actionable message, no writes, no commands", async () => {
     const s = stub({ platform: "win32" as NodeJS.Platform });
@@ -336,6 +417,27 @@ describe("uninstallService — macOS (launchd agent)", () => {
     expect(res.out).toInclude("nothing installed");
     expect(s.calls.length).toBe(0);
     expect(s.removed.length).toBe(0);
+  });
+
+  test("a NOT-AT-LOGIN definition is found and removed, not reported as absent", async () => {
+    const s = stub({ platform: "darwin" });
+    s.files.set(SESSION_PLIST, "<plist>old</plist>"); // installed by --no-autostart
+
+    const res = await uninstallService(s.deps);
+    expect(res.code).toBe(0);
+    expect(s.calls).toEqual([["launchctl", "bootout", "gui/1000/dev.subshell.client"]]);
+    expect(s.removed).toEqual([SESSION_PLIST]);
+    expect(res.out).toInclude("Removed");
+  });
+
+  test("BOTH locations are cleared, so a stray copy cannot start what was uninstalled", async () => {
+    const s = stub({ platform: "darwin" });
+    s.files.set(PLIST, "<plist>login</plist>");
+    s.files.set(SESSION_PLIST, "<plist>session</plist>"); // a hand-copy, or a crash mid-move
+
+    expect((await uninstallService(s.deps)).code).toBe(0);
+    expect(s.removed.sort()).toEqual([PLIST, SESSION_PLIST].sort());
+    expect(s.files.size).toBe(0);
   });
 });
 
@@ -629,22 +731,37 @@ describe("queryService", () => {
     expect(state).toMatchObject({ installed: true, state: "running", pid: 5150, enabled: true, paneSafety: "keeps" });
   });
 
-  // The pairing that made `RunAtLoad` alone the wrong thing to read. Measured
-  // on macOS 26.6.2 (for the server's own agent, same launchd): a
-  // `KeepAlive=true` + `RunAtLoad=false` job reported `runs = 1` two seconds
-  // after `bootstrap`, while a control without `KeepAlive` reported `runs = 0`.
-  test("darwin: KeepAlive starts it at login even with RunAtLoad false", async () => {
+  /**
+   * WHERE the plist is, not what is in it — the same rule the writer follows.
+   *
+   * Reading `RunAtLoad`/`KeepAlive` was the old answer, and `--no-autostart`
+   * makes it a lie: every plist this file writes carries both keys, so the
+   * key-read says "starts at login" about the not-at-login install too. The
+   * keys are not even decisive on their own — measured on macOS 26.6.2 for
+   * the server's own agent, a `KeepAlive=true` + `RunAtLoad=false` job
+   * reported `runs = 1` two seconds after `bootstrap`. The login directory is
+   * what launchd actually scans at login, so the path is the fact.
+   */
+  test("darwin: starts-at-login is the plist's LOCATION, whatever its keys say", async () => {
     const s = darwinServiceStub();
     s.files.set(PLIST, "<key>RunAtLoad</key><false/><key>KeepAlive</key><true/>");
-    // Reporting "does not start at login" about a job that does is the failure
-    // worth avoiding; there is no verb on this side that turns it off.
     expect((await queryService(s.deps)).enabled).toBe(true);
   });
 
-  test("darwin: neither key means it really does not come back on its own", async () => {
+  test("darwin: the same definition in the config dir is installed but NOT at login", async () => {
     const s = darwinServiceStub();
-    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/>");
-    expect((await queryService(s.deps)).enabled).toBe(false);
+    s.files.delete(PLIST);
+    s.files.set(SESSION_PLIST, "<key>AbandonProcessGroup</key><true/><key>RunAtLoad</key><true/>");
+    const state = await queryService(s.deps);
+    expect(state).toMatchObject({ installed: true, definitionPath: SESSION_PLIST, enabled: false, state: "running" });
+  });
+
+  test("darwin: start bootstraps the definition that EXISTS, not the login path by convention", async () => {
+    const s = darwinServiceStub({ loaded: false });
+    s.files.delete(PLIST);
+    s.files.set(SESSION_PLIST, "<key>AbandonProcessGroup</key><true/>");
+    expect((await controlService(s.deps, "start")).code).toBe(0);
+    expect(s.calls).toContainEqual(["launchctl", "bootstrap", "gui/1000", SESSION_PLIST]);
   });
 
   // `launchctl print` nests `state = active` lines under endpoints; only the

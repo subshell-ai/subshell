@@ -14,10 +14,14 @@ import type { ServiceDeps } from "../../service.js";
 
 /** Fake home the unit/plist paths hang off — no test ever touches the real one. */
 export const HOME = "/home/tester";
+/** Fake agent config home (`clientHome()`'s shape), where a not-at-login plist lives. */
+export const CONFIG_DIR = join(HOME, ".config", "subshell");
 /** systemd user unit under {@link HOME}. */
 export const UNIT = join(HOME, ".config", "systemd", "user", "subshell.service");
-/** launchd plist under {@link HOME}. */
+/** launchd plist under {@link HOME} — the LOGIN location, which launchd auto-loads. */
 export const PLIST = join(HOME, "Library", "LaunchAgents", "dev.subshell.client.plist");
+/** The same plist kept where launchd does NOT look: installed, but not at login. */
+export const SESSION_PLIST = join(CONFIG_DIR, "dev.subshell.client.plist");
 /** The agent log the plist points both stdout and stderr at. */
 export const LOG = join(HOME, "Library", "Logs", "subshell.log");
 /** The explicit launchd domain target every darwin command names (uid 1000). */
@@ -51,6 +55,7 @@ export function serviceStub(over: Partial<ServiceDeps> & { respond?: Responder }
   const deps: ServiceDeps = {
     platform: "linux",
     home: HOME,
+    configDir: CONFIG_DIR,
     uid: 1000,
     execPath: "/usr/local/bin/subshell",
     argv1: "/repo/apps/node/agent/src/main.ts",

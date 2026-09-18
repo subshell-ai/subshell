@@ -18,17 +18,21 @@
  *    (or the CLI's) before the button that pays it.
  */
 import { asks, finished } from "@/lib/actions";
+import type { RegisterPhase, RegisterRow } from "@/lib/client-flow";
 import { pickAgentBinaryPath } from "@/lib/dialog";
 import {
   type EnrolledNodeBody,
+  type EnrollOutcome,
   nodeConfigure,
   nodeEnroll,
   nodeInstallAgent,
+  nodeInstallTmux,
   nodeOpenPath,
   nodeOpenPlane,
   nodeOpenPlaneUrl,
   nodeService,
   nodeSetAgentBin,
+  nodeSetPlane,
   type OpenTarget,
   type Probe,
   type ServiceVerb,
@@ -66,6 +70,48 @@ export interface NodeCommands {
   openPlane: (url: string | null) => void;
   /** Open the settled control-plane address in the SYSTEM browser. */
   openPlaneUrl: () => void;
+  /**
+   * Install tmux on this machine.
+   *
+   * Registration is GATED on tmux rather than merely warned about it: every
+   * subshell runs in a tmux pane, and `enroll` preflights it before its
+   * network call precisely so an unenrollable machine does not burn a
+   * one-time setup key.
+   */
+  installTmux: () => void;
+  /**
+   * Remember a control plane WITHOUT opening its window.
+   *
+   * {@link NodeCommands.openPlane} persists AND opens, which is right for a
+   * button labelled "open the dashboard" and wrong for the first run: the
+   * whole point of the new flow is that the dashboard does not appear until
+   * the machine is set up and someone asks for it.
+   */
+  connectOnly: (url: string) => void;
+  /**
+   * The first run's one press: install the agent if there is none, enroll this
+   * machine, then install and start its service.
+   *
+   * Reports progress through {@link RegisterOptions.onPhase} so the Setting
+   * Up… checklist can say which act is running — a chain of three spawns
+   * behind one disabled button reads exactly like a hang, which is the defect
+   * the reset screen's own step rows were added to close.
+   */
+  register: (opts: RegisterOptions) => void;
+}
+
+/** What {@link NodeCommands.register} needs from the page driving it. */
+export interface RegisterOptions {
+  /**
+   * Whether the node's service is armed for login, answered on the start-up
+   * screen BEFORE this runs — it parameterizes the chain's last act, so it
+   * cannot be asked afterwards without installing twice.
+   */
+  startAtLogin: boolean;
+  /** Which act is running now. */
+  onPhase: (phase: RegisterPhase) => void;
+  /** The act that failed, or `null` at the start of a run. */
+  onFailed: (act: RegisterRow["id"] | null) => void;
 }
 
 export function useNodeCommands(args: {
@@ -308,6 +354,120 @@ export function useNodeCommands(args: {
         },
         { reprobe: false },
       ),
+
+    installTmux: () => runner.run(async () => finished(await nodeInstallTmux())),
+
+    /**
+     * Persist only. The runner still re-probes, because nothing about this
+     * machine changed but the screen it should be on has.
+     */
+    connectOnly: (url) =>
+      runner.run(async () => {
+        const opened = await nodeSetPlane({ url });
+        return finished({ ok: true, stdout: `Using ${opened}`, stderr: "" });
+      }),
+
+    /**
+     * Three acts, one press, no confirmation.
+     *
+     * The press IS the consent: a person typed a single-use key into a field
+     * labelled as one and pressed Register, so `confirm: true` goes straight
+     * out rather than raising the panel {@link NodeCommands.enroll} raises.
+     * That is scoped to the FIRST run — re-enrolling from the status screen
+     * still asks, because there it overwrites a working `config.json`, mints a
+     * second node row and discards the only copy of a live node key.
+     */
+    register: ({ startAtLogin, onPhase, onFailed }) =>
+      runner.run(async () => {
+        // BEFORE any spawn: the Register button stays live for a malformed
+        // field on purpose, so this press is where `validateEnroll`'s per-field
+        // refusals are rendered. Refused here means nothing ran and no key was
+        // spent.
+        const args = form.validate();
+        if (args === null) return finished(null);
+        onFailed(null);
+
+        // A no-op where an agent is already installed, which is what makes a
+        // resumed run converge rather than refuse.
+        if (probe?.step === "no-agent") {
+          onPhase("installing");
+          const installed = await nodeInstallAgent();
+          if (!installed.ok) {
+            onFailed("install");
+            return finished(installed);
+          }
+        }
+
+        /** Everything after a decided enrolment: the key, the row, the service. */
+        const afterEnroll = async (enrolled: EnrollOutcome) => {
+          // Spent whatever happened — a consumed credential has no business
+          // sitting in a field the next click could re-send. The NAME survives:
+          // a taken name is the common retry and is what gets retyped anyway.
+          form.clearSpentKey();
+          if (!enrolled.ok) {
+            onFailed("enroll");
+            return finished(enrolled);
+          }
+          onEnrolled(enrolled.node);
+
+          onPhase("starting");
+          const started = await nodeService({ verb: "install", force: false, autostart: startAtLogin });
+          if (!started.ok) {
+            onFailed("start");
+            return finished(started);
+          }
+          // `service install` returns when the manager has spawned the process,
+          // not when the daemon has taken its lock — without this the run ends
+          // on "offline", which reads as a failure of the thing that just worked.
+          await runner.settle();
+          onPhase("done");
+          return finished(started);
+        };
+
+        onPhase("enrolling");
+        // `confirm: false` FIRST, always.
+        //
+        // The press IS the consent for a FIRST RUN, and on a machine with no
+        // `config.json` Rust raises nothing, so this still enrolls in one call
+        // and the person sees no panel. What a blanket `confirm: true` would
+        // ALSO do is skip Rust's already-enrolled guard, which reads
+        // `config.json` directly — and a machine can reach this chain with a
+        // live config: `no-agent` is reported for a missing binary AND for one
+        // that cannot answer `status --json`, so a machine whose agent was
+        // deleted still has its config, its node id and the only copy of its
+        // node key. Enrolling over that mints a SECOND node row and discards
+        // the key. The probe's own comment says a transient failure must never
+        // route to the destructive step; this is that rule, on this path.
+        const first = await nodeEnroll({ ...args, confirm: false });
+        if (!first.requiresConfirmation) return afterEnroll(first);
+
+        // Nothing ran and no key was spent. Loopback alone is ADVISORY — the
+        // enrol fields already carry that sentence under the URL, so stopping
+        // the press to say it a second time would be the nag this flow removed.
+        const overwrites = first.confirmations.some((c) => c.kind === "already-enrolled");
+        if (!overwrites) return afterEnroll(await nodeEnroll({ ...args, confirm: true }));
+
+        // Destructive, and the one thing this chain will not do silently.
+        //
+        // The row is deliberately left ACTIVE rather than marked failed: the
+        // act has not failed, it is waiting on a person, and a checklist that
+        // says "Failed" under a panel asking a question describes neither.
+        // What the page does on a CANCEL is mark it — see `app.tsx`, which is
+        // where that press is known.
+        return asks(
+          {
+            title: "This machine is already registered",
+            messages: first.confirmations.map((c) => c.message),
+            acceptLabel: "Register anyway",
+            run: async () => {
+              onFailed(null);
+              onPhase("enrolling");
+              return afterEnroll(await nodeEnroll({ ...args, confirm: true }));
+            },
+          },
+          first,
+        );
+      }),
 
     /** As {@link openPlane}: the browser is not this machine's state either. */
     openPlaneUrl: () =>

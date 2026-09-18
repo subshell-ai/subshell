@@ -159,6 +159,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             control::node_probe,
             control::node_install_agent,
+            control::node_install_tmux,
             control::node_enroll,
             control::node_configure,
             control::node_service,
@@ -168,6 +169,7 @@ pub fn run() {
             control::node_pending_screen,
             control::node_open_path,
             control::node_settings,
+            control::node_set_plane,
             control::node_open_plane,
             control::node_open_plane_url,
             control::desktop_open_in_browser,
@@ -226,13 +228,15 @@ pub fn run() {
             // § 14 — automatic updates are explicitly not this design). After
             // the tray, so the item it labels exists.
             app_update::check_on_launch(&handle);
-            // Which window LEADS says what this install is. An address already
-            // settled — chosen here before, or enrolled from the CLI — means a
-            // client whose job is the plane; anything else means a machine that
-            // has not been pointed anywhere yet, and the node page is where it
-            // gets pointed. `open_at_startup` also decides whether the node
-            // window has to be on screen anyway, which is a question about this
-            // desktop's tray rather than about this install.
+            // A launch lands on the NODE window, settled address or not: a
+            // client never opens a control plane's dashboard by itself (spec
+            // 2026-09-18 § 2). This used to be the branch that chose — an
+            // address already settled meant the dashboard led, which put a
+            // window belonging to the other half of the app in front of a
+            // person who had just launched it to set this machine up. The
+            // choice now lives in `windows::startup_window_choice`, where it is
+            // one pure function with a test; the address is resolved here
+            // because that function is the thing it is an input to.
             let plane = control::resolve_plane_url(&app.state::<SettingsState>());
             windows::open_at_startup(&handle, plane.as_deref())?;
             Ok(())

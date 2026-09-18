@@ -183,7 +183,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     // 1. Stop. Tolerates the CLI's refusal for a machine with no service:
     // without it a Retry after any later failure dies here forever, because
     // the uninstall in a half-run already removed what this step refuses on.
-    let stop = crate::control::service_now(&settings, ServiceCommand::Stop, false);
+    let stop = crate::control::service_now(&settings, ServiceCommand::Stop, false, true);
     if let Some(stderr) = push_step(&mut log, &stop, &["nothing installed"]) {
         return Ok(ActionResult {
             ok: false,
@@ -202,7 +202,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     }
     // 3. Uninstall the service, while the binary and the config it names still
     // exist — the CLI reads both to know what it is removing.
-    let un = crate::control::service_now(&settings, ServiceCommand::Uninstall, false);
+    let un = crate::control::service_now(&settings, ServiceCommand::Uninstall, false, true);
     if let Some(stderr) = push_step(&mut log, &un, &["nothing installed"]) {
         return Ok(ActionResult {
             ok: false,

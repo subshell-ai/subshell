@@ -1342,7 +1342,10 @@ answers.
 Missing tmux gets `desktop_install_tmux` (brew where it exists, pkexec apt-get
 on Linux — never a bare sudo, which has no tty from a GUI and hangs to the
 timeout). The decision is pure TypeScript in `ui/src/lib/installers.ts`
-(`tmuxInstallPlan`) and is MIRRORED in `control.rs` (`tmux_install_argv`),
+(`tmuxInstallPlan`) and is MIRRORED in Rust by
+`crates/desktop-core`'s `tmux::install_argv` (it lived in `control.rs` until
+2026-09-18, when Subshell Client needed the same installer and the table moved
+to the shared crate rather than being copied a third time),
 because the webview cannot look at the machine and the Rust side is what
 decides what may be EXECUTED. The copies are two languages on purpose — the
 page's decides what the user SEES, Rust's decides what runs — and they are

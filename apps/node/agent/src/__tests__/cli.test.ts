@@ -96,6 +96,18 @@ describe("service subtoken parsing", () => {
     expect(() => parseArgs(["service", "stop", "--force"])).toThrow(/not valid for 'service stop'/);
   });
 
+  test("--no-autostart is install's alone", () => {
+    expect(parseArgs(["service", "install", "--no-autostart"])).toEqual({
+      command: "service",
+      sub: "install",
+      flags: { noAutostart: "1" },
+    });
+    // The manager verbs drive a definition whose login behaviour is already
+    // written down, so accepting it there would read as meaningful.
+    expect(() => parseArgs(["service", "start", "--no-autostart"])).toThrow(/not valid for 'service start'/);
+    expect(() => parseArgs(["service", "status", "--no-autostart"])).toThrow(/only 'service install' accepts it/);
+  });
+
   test("the refusal names the subcommand that DOES accept the flag", () => {
     expect(() => parseArgs(["service", "install", "--json"])).toThrow(/only 'service status' accepts it/);
     expect(() => parseArgs(["service", "stop", "--force"])).toThrow(/only 'service restart' accepts it/);
@@ -282,6 +294,21 @@ describe("service commands (stubbed service manager)", () => {
     } finally {
       process.env.SUBSHELL_CONFIG_HOME = previous;
     }
+  });
+
+  // The flag has to REACH installService, which is the half a parser test
+  // cannot see: `service install` with no flag must keep arming login start.
+  test("`service install --no-autostart` runs it now and leaves login start unarmed", async () => {
+    const armed = serviceStub();
+    expect((await run(["service", "install"], { service: armed.deps })).code).toBe(0);
+    expect(armed.calls).toContainEqual(["systemctl", "--user", "enable", "--now", "subshell.service"]);
+
+    const disarmed = serviceStub();
+    const res = await run(["service", "install", "--no-autostart"], { service: disarmed.deps });
+    expect(res.code).toBe(0);
+    expect(disarmed.calls).toContainEqual(["systemctl", "--user", "disable", "subshell.service"]);
+    expect(disarmed.calls).toContainEqual(["systemctl", "--user", "start", "subshell.service"]);
+    expect(res.out).toInclude("not enabled at login");
   });
 
   test("start/stop/restart drive the manager and report which verb ran", async () => {

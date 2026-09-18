@@ -44,6 +44,7 @@ function fakeService(over: Partial<ServiceDeps> = {}): ServiceDeps & { ran: stri
   return {
     platform: "linux",
     home: "/home/t",
+    configDir: "/home/t/.config/subshell",
     uid: 501,
     execPath: "/usr/bin/subshell",
     argv1: "/usr/bin/subshell",

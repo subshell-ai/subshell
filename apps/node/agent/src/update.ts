@@ -1,4 +1,4 @@
-import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
@@ -17,6 +17,7 @@ import {
   releaseAssetNames,
 } from "@internal/subshell-protocol";
 import { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
+import { clientHome } from "./config.js";
 import { log } from "./log.js";
 import { looksLikeEntryScript, selfInvokePrefix } from "./self-invoke.js";
 import { serviceExecArgv } from "./service.js";
@@ -198,6 +199,15 @@ export interface AgentBinaryDeps {
   platform?: NodeJS.Platform;
   /** User home the unit/plist paths hang off (default: `homedir()`). */
   home?: string;
+  /**
+   * The agent's config home (default: `clientHome()`). On darwin a
+   * not-at-login install keeps its plist HERE rather than in
+   * `~/Library/LaunchAgents`, so a resolver without it would miss the
+   * definition of exactly the machines installed with `--no-autostart`.
+   */
+  configDir?: string;
+  /** Existence check used to pick between the two darwin plist locations. */
+  fileExists?: (path: string) => Promise<boolean>;
   /** Read a file's text, or null when absent/unreadable (default: a real read). */
   readFile?: (path: string) => Promise<string | null>;
   /** Run a command — only ever `plutil` (default: a real spawn). */
@@ -280,6 +290,13 @@ export async function resolveAgentBinaryPath(
   const argv = await serviceExecArgv({
     platform: deps.platform ?? process.platform,
     home: deps.home ?? homedir(),
+    configDir: deps.configDir ?? clientHome(),
+    fileExists:
+      deps.fileExists ??
+      (async (path) =>
+        await access(path)
+          .then(() => true)
+          .catch(() => false)),
     readFile: deps.readFile ?? (async (path) => await readFile(path, "utf8").catch(() => null)),
     runCmd:
       deps.runCmd ??

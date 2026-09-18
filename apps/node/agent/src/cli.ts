@@ -76,7 +76,9 @@ usage:
                           key; restart the agent to apply. Does NOT rename: the
                           plane owns a node's name (the Nodes page).
   subshell run
-  subshell service install|uninstall   (systemd user unit / launchd agent)
+  subshell service install [--no-autostart]   (systemd user unit / launchd agent)
+                          --no-autostart runs it now but not at login
+  subshell service uninstall
   subshell service status [--json]     (what the service manager reports)
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
   subshell maintenance on [--yes] [--json]
@@ -166,7 +168,10 @@ const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[]>> = {
  * as meaningful.
  */
 const SUBCOMMAND_FLAGS: Record<string, Record<string, string[]>> = {
-  service: { status: ["--json"], restart: ["--force"] },
+  // `--no-autostart` is install's alone: it decides what the NEXT login does,
+  // and the manager verbs drive a definition whose login behaviour is already
+  // written down.
+  service: { install: ["--no-autostart"], status: ["--json"], restart: ["--force"] },
   // `--yes` overrides ONE refusal, the live-pane one `on` raises; `off` and
   // `status` have nothing to confirm, so accepting it there would read as
   // meaningful.
@@ -183,6 +188,7 @@ const FLAGS: Record<string, boolean> = {
   "--force": false,
   "--yes": false,
   "--no-service": false,
+  "--no-autostart": false,
   "--check": false,
   "--to": true,
   "--from": true,
@@ -433,7 +439,11 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // a SUBCOMMANDS.service member; the real deps wire the config check to
         // loadConfig() so service.ts stays config-import-free.
         const sdeps = deps.service ?? DEFAULT_DEPS(configExists);
-        if (parsed.sub === "install") return await installService(sdeps);
+        // Default ON: start-at-login is what every install did before the
+        // flag existed, and the service is started NOW either way.
+        if (parsed.sub === "install") {
+          return await installService(sdeps, { autostart: parsed.flags.noAutostart !== "1" });
+        }
         if (parsed.sub === "uninstall") return await uninstallService(sdeps);
         if (parsed.sub === "status") {
           // A VIEW, not a command: it always exits 0 (the `subshell-server

@@ -142,7 +142,11 @@ subshell run                       # foreground daemon (what the service unit ru
                                      # binary detection is the plane's `detect` command.
                                      # A leftover <dataDir>/plugins/ directory is inert
                                      # residue — NOT seeded, NOT refreshed, NOT deleted.
-subshell service install|uninstall # systemd user unit / launchd agent
+subshell service install [--no-autostart]
+                                   # systemd user unit / launchd agent. The service
+                                     # is STARTED either way; --no-autostart decides
+                                     # only the next login (see below)
+subshell service uninstall         # remove it, from either location
 subshell service status [--json]   # what the service MANAGER reports; always exits 0
 subshell service start|stop         # drive an installed service; never installs one
 subshell service restart [--force]  # --force overrides the refusal to restart a
@@ -267,6 +271,33 @@ instead of the signing organization — the label and the association are the
 ONE protocol constant `DESKTOP_CLIENT_BUNDLE_ID`, which is also Subshell
 Client's own bundle id (the app's tests pin it; `LAUNCHD_LABEL` is that same
 constant).
+
+**`--no-autostart` runs it now but does not arm login start**, and each
+platform expresses that differently — the mechanism is a port of the server
+CLI's (spec 2026-09-12 server-supervision §3.2), not a second design. Linux:
+`disable` then plain `start` instead of `enable --now`; the `disable` is not
+redundant on a REINSTALL, because `enable` wrote a symlink into
+`default.target.wants` that would otherwise survive and make the success line
+claim the opposite of what systemd does at login. macOS: **the plist's
+LOCATION is the setting.** launchd auto-loads exactly
+`~/Library/LaunchAgents`, so a not-at-login definition is the SAME document
+written to `<configHome>/dev.subshell.client.plist` instead, and each install
+REMOVES the other copy — a leftover in the login directory silently re-arms
+autostart at the next reboot. The flag-shaped alternatives were measured and
+both fail: `RunAtLoad=false` does not stop a job that also carries
+`KeepAlive=true` (which this template needs, and `restart` relies on), and
+`launchctl disable` puts a mark in launchd's per-uid override database that
+survives `uninstall` and breaks the next fresh install.
+
+Everything that READS a definition therefore asks the disk which of the two
+exists (`darwinDefinition`): `service status` reports `enabled` from the
+plist's directory rather than its keys, `start`/`restart` bootstrap the path
+that is actually there, `uninstall` finds either and clears both, and
+`update`'s `serviceExecArgv` — which must name the file the MANAGER runs —
+reads the same answer. `ServiceDeps.configDir` exists for exactly this; a
+reader without it would report a `--no-autostart` install as "nothing
+installed" while the agent it wrote is running.
+
 `service status` also reports `logPath` (that file on macOS, `null` on Linux —
 the unit redirects nothing and the journal holds the output), so a GUI reveals
 what the plist names instead of re-deriving a platform path. `AGENT_LOG_HINT`

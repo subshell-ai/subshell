@@ -29,14 +29,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
-use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
+use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::reset_guards::machine_hostname;
 use subshell_desktop_core::settings::{Settings, SettingsState};
 use subshell_desktop_core::shell_env::{home_dir, which};
@@ -105,8 +105,21 @@ pub enum AgentCommand {
     Status,
     /// `service status --json` — what the service manager reports.
     ServiceStatus,
-    /// One `service` verb, `--force` only where the CLI accepts it.
-    Service { verb: ServiceCommand, force: bool },
+    /// One `service` verb, with the two flags the CLI accepts and where.
+    ///
+    /// `force` is `restart` only; `autostart` is `install` only, and `false`
+    /// spells `--no-autostart` — install it and run it NOW, but do not arm it
+    /// for login. Both are fields rather than variants because that is how
+    /// `force` was already modelled, and one invocation shape with two
+    /// qualifiers reads better than three variants of "install".
+    ///
+    /// `autostart: true` is the default everywhere except the first-run
+    /// register chain, which asks the person on its start-up screen.
+    Service {
+        verb: ServiceCommand,
+        force: bool,
+        autostart: bool,
+    },
     /// `enroll --json`. Destructive; guarded in [`node_enroll`].
     ///
     /// `name` is a `String` and always reaches the CLI as `--name`, because the
@@ -137,8 +150,15 @@ impl AgentCommand {
             AgentCommand::ServiceStatus => vec!["service".into(), "status".into(), "--json".into()],
             // The CLI refuses `--force` anywhere but `restart`, so passing it
             // elsewhere would turn a stop into a usage error.
-            AgentCommand::Service { verb, force } if *force && *verb == ServiceCommand::Restart => {
+            AgentCommand::Service { verb, force, .. } if *force && *verb == ServiceCommand::Restart => {
                 vec!["service".into(), verb.as_str().into(), "--force".into()]
+            }
+            // The CLI accepts `--no-autostart` on `install` alone (it is in
+            // that subcommand's flag allowlist and nowhere else), so passing
+            // it on a stop or a restart would turn the verb into a usage
+            // error — the same rule `--force` follows one arm above.
+            AgentCommand::Service { verb, autostart, .. } if *verb == ServiceCommand::Install && !*autostart => {
+                vec!["service".into(), "install".into(), "--no-autostart".into()]
             }
             AgentCommand::Service { verb, .. } => vec!["service".into(), verb.as_str().into()],
             AgentCommand::Enroll { server, key, name } => {
@@ -825,12 +845,53 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
     install_agent_now(&settings)
 }
 
+/// Install tmux with this machine's own package manager.
+///
+/// tmux is the one prerequisite an enrolled node cannot do without: the agent
+/// opens every pane through it, so a machine missing it comes up online and
+/// 409s every launch. Subshell Server has offered this since its own setup
+/// assistant existed; the table it drives is
+/// `desktop_core::tmux`, shared so the two apps cannot come to disagree about
+/// what may be run with a person's own privileges.
+///
+/// The client's [`Probe`] carries `tmux` — the path, or nothing — but neither
+/// the platform nor whether `brew` resolves, because nothing else on this page
+/// branches on either. So both are read HERE, exactly as the server's own
+/// installer reads them, rather than widening the probe for one caller.
+///
+/// `Err` — not an `ActionResult` — on a platform that offers nothing this app
+/// may drive (macOS without Homebrew; anything that is neither macOS nor
+/// Linux). That is the distinction the screen renders: "here is the command to
+/// type" rather than "the install failed".
+#[tauri::command(async)]
+pub fn node_install_tmux() -> Result<ActionResult, String> {
+    let brew = which("brew").is_some();
+    // `install` is STREAMED — a cold `brew install` runs for minutes and the
+    // manager's own output is the only honest progress signal — so it takes a
+    // per-line sink. This page has nowhere to put those lines yet, and an
+    // event emitted for no listener is a name with nothing on the other end
+    // (`apps/server/desktop`'s INSTALL_LINE_EVENT says as much at its own
+    // emit). Dropping them here costs only the live transcript: the `Run` that
+    // comes back carries the whole of stdout and stderr either way, and that
+    // is what the screen renders.
+    let sink: LineSink = Arc::new(|_: &str| {});
+    Ok(subshell_desktop_core::tmux::install(std::env::consts::OS, brew, sink)?.into())
+}
+
 /// One `service` verb, straight through. The agent decides whether to refuse —
 /// including the pane guard, which refuses a `restart` whose installed
 /// definition would SIGKILL every live subshell on this machine.
 #[tauri::command(async)]
-pub fn node_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
-    service_now(&settings, verb, force)
+pub fn node_service(
+    settings: State<'_, SettingsState>,
+    verb: ServiceCommand,
+    force: bool,
+    autostart: Option<bool>,
+) -> ActionResult {
+    // Absent means armed: every caller that predates the start-up screen —
+    // and every verb but `install`, for which the flag is meaningless — must
+    // keep installing a service that comes back at login.
+    service_now(&settings, verb, force, autostart.unwrap_or(true))
 }
 
 /// The body of [`node_service`], callable from inside another chain.
@@ -839,9 +900,14 @@ pub fn node_service(settings: State<'_, SettingsState>, verb: ServiceCommand, fo
 /// buttons run, rather than a second spelling of them — a reset whose teardown
 /// diverged from the one the user can press by hand is a reset that leaves a
 /// different machine behind.
-pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force: bool) -> ActionResult {
+pub(crate) fn service_now(
+    settings: &SettingsState,
+    verb: ServiceCommand,
+    force: bool,
+    autostart: bool,
+) -> ActionResult {
     let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
-    match run_agent(agent.as_ref(), &AgentCommand::Service { verb, force }) {
+    match run_agent(agent.as_ref(), &AgentCommand::Service { verb, force, autostart }) {
         Some(out) => out.into(),
         None => ActionResult::refused(NO_AGENT),
     }
@@ -1293,6 +1359,26 @@ pub fn resolve_plane_url(settings: &SettingsState) -> Option<String> {
     plane_url_from(settings.get().plane_url)
 }
 
+/// Remember a control plane WITHOUT opening its window.
+///
+/// [`node_open_plane`] persists AND opens, which is right for the button that
+/// says "open the dashboard" and wrong for every other moment an address
+/// becomes known. First run is the one that matters: the step where a person
+/// names their control plane has more to do afterwards — enrol this machine,
+/// install the agent, start the service — and persisting through the opener
+/// threw the dashboard on screen in the middle of it, over the assistant that
+/// was still asking. This is the half of that command the flow actually wants
+/// there; the window is opened when the person asks for it.
+///
+/// Returns the canonicalized address, from the same [`validate_server_url`]
+/// the opener uses, so the two cannot store two spellings of one plane.
+#[tauri::command(async)]
+pub fn node_set_plane(settings: State<'_, SettingsState>, url: String) -> Result<String, String> {
+    let resolved = validate_server_url(&url)?;
+    settings.update(|s| s.plane_url = Some(resolved.clone()))?;
+    Ok(resolved)
+}
+
 /// Show a control plane's own UI, and remember the address.
 ///
 /// `url` is what the user typed or what the page read off the probe; `None`
@@ -1620,7 +1706,11 @@ mod command_set_tests {
             ServiceCommand::Restart,
         ] {
             for force in [false, true] {
-                out.push(AgentCommand::Service { verb, force });
+                out.push(AgentCommand::Service {
+                    verb,
+                    force,
+                    autostart: true,
+                });
             }
         }
         out.push(AgentCommand::Enroll {
@@ -1676,13 +1766,19 @@ mod command_set_tests {
             ServiceCommand::Start,
             ServiceCommand::Stop,
         ] {
-            let args = AgentCommand::Service { verb, force: true }.args();
+            let args = AgentCommand::Service {
+                verb,
+                force: true,
+                autostart: true,
+            }
+            .args();
             assert!(!args.iter().any(|a| a == "--force"), "{verb:?} kept --force: {args:?}");
         }
         assert_eq!(
             AgentCommand::Service {
                 verb: ServiceCommand::Restart,
-                force: true
+                force: true,
+                autostart: true
             }
             .args(),
             ["service", "restart", "--force"]
@@ -1690,10 +1786,57 @@ mod command_set_tests {
         assert_eq!(
             AgentCommand::Service {
                 verb: ServiceCommand::Restart,
-                force: false
+                force: false,
+                autostart: true
             }
             .args(),
             ["service", "restart"]
+        );
+    }
+
+    // `--no-autostart` is in the CLI's flag allowlist for `install` and nothing
+    // else, so any other verb carrying it would die as a usage error — the
+    // same failure `--force` has on the arm above, and the reason both are
+    // qualifiers on one variant rather than free-floating flags.
+    #[test]
+    fn no_autostart_only_reaches_install() {
+        for verb in [
+            ServiceCommand::Uninstall,
+            ServiceCommand::Start,
+            ServiceCommand::Stop,
+            ServiceCommand::Restart,
+        ] {
+            let args = AgentCommand::Service {
+                verb,
+                force: false,
+                autostart: false,
+            }
+            .args();
+            assert!(
+                !args.iter().any(|a| a == "--no-autostart"),
+                "{verb:?} kept --no-autostart: {args:?}"
+            );
+        }
+        assert_eq!(
+            AgentCommand::Service {
+                verb: ServiceCommand::Install,
+                force: false,
+                autostart: false
+            }
+            .args(),
+            ["service", "install", "--no-autostart"]
+        );
+        // The default is armed: an install that says nothing about login start
+        // must keep coming back at login, which is what every caller before
+        // the start-up screen expected.
+        assert_eq!(
+            AgentCommand::Service {
+                verb: ServiceCommand::Install,
+                force: false,
+                autostart: true
+            }
+            .args(),
+            ["service", "install"]
         );
     }
 

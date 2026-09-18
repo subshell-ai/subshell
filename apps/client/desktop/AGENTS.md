@@ -91,9 +91,17 @@ and THAT window's size is a real user choice.
 
 **The node window existing is the whole "node functionality" toggle.** A client
 used only to watch subshells never opens it; there is no mode flag for the two
-halves to disagree about. A fresh install lands on it — `open_at_startup` leads
-with the plane window only when an address is already settled (the stored
-`planeUrl`, else the enrolled node's own `serverUrl`).
+halves to disagree about.
+
+**Every launch lands on the node window, settled address or not** (spec
+2026-09-18). `open_at_startup` opens it unconditionally, and
+`startup_leads_with_node` is the rule written down in one place with its own
+test. Until 2026-09-18 a stored `planeUrl` (else the enrolled node's own
+`serverUrl`) made the DASHBOARD lead, which is the defect the first-run work
+removed: pressing the one button on a fresh install threw the plane's window on
+screen while the setup carried on in the window behind it. A client never opens
+the control plane's dashboard by itself now — a configured client lands on its
+own client-status screen and the dashboard opens from the button there.
 
 **It must always have a route home, and the tray is not one.** The plane window
 is remote content whose one grant opens a browser, so it cannot offer a way
@@ -102,9 +110,12 @@ icon is silently invisible wherever no StatusNotifier host is registered. So:
 macOS gets **Window → This machine…** in the menu bar (always drawn, which also
 covers the notched-display hazard in `tray.rs`); everywhere else,
 `node_window_has_a_route_home()` asks `desktop-core`'s tray probe and, when the
-answer is no, `open_at_startup` puts the node window on screen alongside the
-plane and `focus_any` RE-CREATES it — so relaunching, which is what `tray.rs`
-calls the way back from an invisible tray, actually is one.
+answer is no, `focus_any` RE-CREATES the node window — so relaunching, which is
+what `tray.rs` calls the way back from an invisible tray, actually is one.
+`open_at_startup` no longer consults that probe, and does not need to: it opens
+the node window on every desktop, which is strictly more than the check ever
+bought. `focus_any` is the path where that window can genuinely be GONE, so the
+probe survives exactly there.
 
 The `csp` in `tauri.conf.json` governs the **bundled** page only. The plane's
 window carries whatever CSP the plane sends, which is the same split
@@ -323,7 +334,7 @@ ui/                the bundled page (React + Vite + Tailwind), built to ui/dist
 │                  screen this machine sees), probe-facts.ts, plane-coherence.ts, copy.ts
 ├── src/hooks/     the two queries, the serializing action runner, the commands
 ├── src/components/ui/   primitives copied from apps/server/web
-├── src/components/assistant/   the frame and the six screens
+├── src/components/assistant/   the frame and the screens (NodeScreenId)
 └── src/components/      what the screens compose (enroll fields, the confirmation, the footer)
 vite.config.ts     the web build; `ui/` is its root
 src/scripts/       the release script (TS) — `bun run compile:release`
@@ -443,6 +454,30 @@ reads both files and the invocations in `ui/src/lib/ipc.ts`, and fails on any
 three-way mismatch — add the command in all three or the test names the one
 you missed.
 
+**Two commands arrived with the first run** (spec 2026-09-18), both granted to
+the `node` window alone:
+
+- **`node_install_tmux`** installs tmux, so this app can offer what Subshell
+  Server always could. The table it runs is `crates/desktop-core`'s
+  `tmux::install_argv` — SHARED with the server rather than copied, which is
+  why the argv lives in the crate and not here: brew on macOS (nothing
+  runnable without it), `pkexec apt-get` on Linux (never a bare `sudo`, which
+  from a GUI has no tty and hangs to the timeout). The install is streamed
+  through a `LineSink`; this app passes a no-op one, because its tmux screen
+  listens for nothing and an event name with no listener is a dangling half of
+  a contract.
+- **`node_set_plane`** remembers a control plane WITHOUT opening its window.
+  It exists because `node_open_plane` does both, and the first run's connect
+  step must do only the first — a dashboard that appears mid-setup is the
+  defect that whole flow removed. The dashboard opens from the status screen's
+  own button afterwards.
+
+`node_service` also gained `autostart` beside `force` — `false` spells
+`--no-autostart`, the flag the node agent gained on the same day. The Rust side
+refuses to pass it on any verb but `install`, exactly as it refuses `--force`
+anywhere but `restart`: the CLI's flag allowlists are per-subcommand, so the
+wrong pairing is a usage error rather than a no-op.
+
 ## The node page is an assistant
 
 One screen at a time, each asking exactly one question, in the same frame
@@ -450,15 +485,43 @@ Subshell Server's setup assistant uses — so the two apps read as one product
 (spec 2026-09-12 § 6.4). It was seven stacked cards that showed everything at
 once and asked nothing in particular.
 
-`lib/node-assistant-state.ts` holds the routing, pure: `screenFor(probe,
-settings, override)` answers one of **connect**, **install-agent**, **enroll**,
-**service**, **connected**, **reset**, and `screenTitle` names it. A plane
-address comes FIRST, ahead of anything the probe says — without one this app
-has nothing to show in its other window, and "enroll this machine" is a
-question about a server nobody has named yet. Two screens are things a person
-ASKS for rather than states a machine implies (re-enrol, reset); those arrive
-as the `override`, which is why they are a separate argument rather than a
-seventh probe step.
+**The routing is `lib/client-flow.ts`, and `screenFor` is gone** (spec
+2026-09-18). It answered "which screen does this machine imply", and the first
+run needs the question that comes BEFORE that one: what did this person come
+to do. `clientScreen({probe, settings, step, override})` answers both, in that
+order — nothing read yet ⇒ `null`; a screen the user asked for; the in-memory
+walk (`FteStep`), which outranks the next rule because enrolling settles an
+address mid-chain; a CONFIGURED client ⇒ **status**; a half-built machine ⇒
+**register**; otherwise **welcome**. `lib/node-assistant-state.ts` keeps the
+vocabulary — `NodeScreenId`, `screenTitle`, `serviceAction` — and no longer
+decides anything. There is ONE router, deliberately: two functions answering
+"which screen" is how they come to disagree.
+
+Three screen ids went with it, and their absence is the design.
+**`connected`**, **`service`** and **`install-agent`** were the probe-derived
+landings; every configured client lands on `status` now, which carries what
+each of them offered — the contextual service verb, the pane-safety rewrite,
+the config and agent-log reveals, the agent-binary picker, and the split that
+decides whether registering may be offered at all (below). A screen nothing can
+route to is not a recovery path; it is dead code that reads like one.
+
+An address no longer comes first, either, and that reversal is load-bearing:
+`configured()` counts an ENROLLED machine as well as a stored `planeUrl`,
+because the walk ends at Register and Register on a node mints a second node
+row and discards its node key. Two screens are still things a person ASKS for
+rather than states a machine implies (re-enrol, reset, plus about and
+app-update); those arrive as the `override`.
+
+**`no-agent` reads two ways, and status must keep them apart.** The Rust side
+folds "nothing on the ladder answered" and "a binary answered `version` but not
+`status --json`" into one step on purpose (control.rs says why). Where nothing
+answered, installing is safe unconfirmed and is offered ON ITS OWN — not folded
+into Register, because a machine with no agent cannot say whether it is already
+a node and the register chain enrols with `confirm: true`. Where a binary
+answered but could not report, NOTHING is offered: the remedy is a different
+binary. Registering is also withheld over a probe that could not be read at all
+and over a step this build predates. That was `install-agent-screen.tsx`'s whole
+reason for existing; it is `status-screen.tsx`'s now.
 
 `app.tsx` is a host and nothing else: it reads the machine, holds the action
 runner and the enroll form, and composes the shared half of the frame (title,
@@ -713,7 +776,8 @@ would take it), and a Subshell Server on the same machine is untouched.
   that predate it (or that a CLI `subshell enroll` made behind the app's back).
   One address known is not a drift — an un-enrolled client has no `serverUrl`, a
   CLI-enrolled machine no stored `planeUrl` — so the notice stays silent there.
-- **Both addresses are shown in ONE place**, the connected screen's **More…**,
+- **Both addresses are shown in ONE place**, the STATUS screen's **More…**
+  (the connected screen's, until that screen was subsumed on 2026-09-18),
   and deliberately not as `probe-facts` rows: they are the only addresses on
   the page that can be CHANGED, so they live with the controls that change
   them — and they sit adjacent because the whole point is that they can
