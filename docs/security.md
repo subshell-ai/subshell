@@ -1945,9 +1945,12 @@ version that is not the one booting is RECORDED as a failure rather than
 ignored, which is also what stops a stuck marker refusing every later update
 forever.
 
-**The deep-link surface is unchanged.** `app-update` is one more name on the
-existing closed screen enum in Subshell Server's assistant, and `main` gains no
-command in either app: the four new updater commands
+**The deep-link surface is unchanged.** Updating is one more name on the
+existing closed screen enum in Subshell Server's assistant — `app-update`
+until 2026-09-18, when it and the separate bundled-server screen COLLAPSED
+into a single `update` that performs both halves of one act (spec
+2026-09-18 D3); the enum lost a member rather than gaining one. `main` gains
+no command in either app: the four new updater commands
 (`desktop_check_app_update` / `desktop_install_app_update`,
 `node_check_app_update` / `node_install_app_update`) are granted to the BUNDLED
 window only, in `wizard.json` and `node.json`, and each app's `ipc-acl.test.ts`

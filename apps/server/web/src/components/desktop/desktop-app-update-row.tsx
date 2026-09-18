@@ -46,7 +46,12 @@ export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
   }
   if (!appUpdateRowVisible(data, dismissed)) return null;
 
-  const openAssistant = () => void desktopInvoke("desktop_open_assistant", { screen: "app-update" });
+  // `update`, not the deleted `app-update` (spec 2026-09-18 D3). The two
+  // assistant update screens collapsed into ONE act — the app and the server
+  // it ships are updated by one press — and the old id now parses to `Home`,
+  // so a stale string here raised the assistant at whatever the probe implied
+  // instead of the update screen, silently.
+  const openAssistant = () => void desktopInvoke("desktop_open_assistant", { screen: "update" });
   const dismiss = () => {
     rememberAppUpdateDismissal(available);
     setDismissed(available);

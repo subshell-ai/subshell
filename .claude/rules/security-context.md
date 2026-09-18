@@ -535,9 +535,11 @@ shares and subshell shares are two independent axes:
   update takes is the WHOLE database (0600 in a 0700 dir inside the data dir,
   so the reset already covers it; five kept, `SUBSHELL_DB_BACKUPS_KEEP`), and
   a failed boot restores it before putting the old binary back — an old binary
-  cannot boot on a newer database at all. `app-update` is one more name on the
-  existing closed screen enum and `main` gains no command in either desktop
-  app.
+  cannot boot on a newer database at all. Updating is one more name on the
+  existing closed screen enum — `app-update` until 2026-09-18, when it and the
+  separate bundled-server screen collapsed into a single `update` performing
+  both halves of one act, so the enum lost a member rather than gaining one —
+  and `main` gains no command in either desktop app.
 - **Agent CLI installs are an admin act on the control-plane host** (spec
   2026-09-11 §7): `POST /api/setup/agents/:id/install` runs a BUILT-IN
   manifest's install command as the server's user; admin cookie only, never

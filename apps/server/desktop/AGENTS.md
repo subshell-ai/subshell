@@ -1242,12 +1242,16 @@ and never a command — raising `update` performs one read-only probe, arming
 and every verb behind either needs a press inside the bundled page.
 
 **`app-update` is no longer a word this enum knows** (spec 2026-09-18, the two
-update screens becoming one). As of that commit the SPA's sidebar update row
-and its Updates page still SEND it, from
-`apps/server/web/src/components/desktop/desktop-app-update-row.tsx` and
-`components/updates/desktop-rows.tsx`, so those two buttons raise the assistant
-at `home` until D4's folded row lands — the id is deleted rather than aliased
-precisely so that is visible rather than papered over.
+update screens becoming one). Every sender says `update` now: the SPA's
+sidebar update row (`components/desktop/desktop-app-update-row.tsx`) and its
+Updates page, whose Subshell Server row is FOLDED into the Server row inside
+this app (D4) and whose remaining desktop row cannot raise an assistant at all.
+
+Deleting the id rather than aliasing it is what made that sweep finishable: the
+old word parses to `Home`, so a sender left behind raises the assistant at
+whatever the probe implies — visibly wrong on a machine whose server is
+running, rather than silently correct until someone notices the wrong screen.
+Two senders were found exactly that way while this work was in flight.
 
 **`dialog:allow-ask` is deliberately NOT granted.** It was the console's, for
 its update and restart confirmations. Both of those are screens now, with

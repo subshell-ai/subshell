@@ -102,7 +102,7 @@ describe("DesktopAppUpdateRow", () => {
     renderRow();
     await waitFor(() => expect(screen.getByRole("button", { name: "Update" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Update" }));
-    expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "app-update" } });
+    expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "update" } });
   });
 
   it("shows the version line with no affordance when no update is known", async () => {
@@ -157,7 +157,7 @@ describe("DesktopAppUpdateRow", () => {
     });
     expect(screen.queryByText("v0.8.0 available")).toBeNull();
     fireEvent.click(button);
-    expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "app-update" } });
+    expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "update" } });
   });
 
   it("collapses to nothing when there is no update to offer", async () => {
