@@ -28,8 +28,8 @@ On the target machine this:
 
 If the server has no binary for your platform, it usually downloads one from the project's own public release on first request and serves it to you. When that is impossible — an air-gapped instance — the command says so rather than failing obscurely.
 
-> [!warning] The server URL is baked into the command
-> The address in the one-liner is the address the node will dial forever. If the instance's base URL is loopback, the dialog shows that resolved URL and warns: a remote machine dutifully pointed at `localhost` enrolls, then dials *itself* and sits there offline. Set the base URL to an address the node can actually reach — usually your VPN or tailnet address — before copying the command. See [Networking](/server/networking).
+> [!warning] The server address is baked into the command
+> The row you pick in the dialog's **Address the node dials** dropdown is the address the node will dial forever. Choose one the new machine can actually reach — usually your VPN or tailnet address — before copying: the choice rides along in the command (a `server=` argument the server accepts only for addresses it already trusts) and is baked into the script when the machine downloads it. A remote machine pointed at `localhost` enrolls, then dials *itself* and sits there offline. If the instance knows no other address, the dropdown has only that one row — set the base URL first. See [Networking](/server/networking).
 
 ## 3. `subshell setup`, the one verb
 

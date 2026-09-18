@@ -3,6 +3,8 @@ import { Elysia, t } from "elysia";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { canonicalPluginOrigin, originRegistry } from "@/services/trusted-origins.js";
+import { getLogger } from "@/utils/logger.js";
 
 /**
  * Rendered body for a missing/invalid setup key. It is a SCRIPT (still exit
@@ -20,6 +22,46 @@ echo "usage: curl -fsSL \\"${APP_BASE_URL}/install.sh?setup_key=SETUP_KEY\\" | b
 echo "       mint a key first: Settings → Node setup keys in the subshell web UI." >&2
 exit 2
 `;
+}
+
+/**
+ * What {@link resolveBakedServer} will bake, syntactically: a scheme and an
+ * authority, and nothing a shell could expand. An origin is also what
+ * `URL.origin` emits, so this is a belt — but the belt is load-bearing,
+ * because the registry stores OPERATOR entries verbatim (a hand-edited
+ * config.env bypasses `applyConfig`'s validator) and the baked string lands
+ * inside `SERVER="…"` in a script bash executes on the new machine.
+ */
+const BAKABLE_ORIGIN = /^[a-z][a-z0-9+.-]*:\/\/[A-Za-z0-9.\-:%[\]]+$/i;
+
+/**
+ * The address to bake as the node's `SERVER` — which the agent dials forever.
+ *
+ * `APP_BASE_URL` alone cannot answer this: it is one global spelling for an
+ * instance that may be reachable at several (LAN IP, tailnet name, proxied
+ * https domain), and on a loopback-misconfigured install it names a machine
+ * no remote node can dial. The process cannot OBSERVE the right answer either
+ * — a TLS proxy hands it loopback, the `Host` header is client-written (the
+ * rebinding hole the allowlist exists to close), and the scheme was decided
+ * outside the process. So the Add-node dialog carries its choice in the URL
+ * and this answers with it, but ONLY as exact membership of the live trusted-
+ * origin registry — the same allowlist the sign-in gate reads, which is also
+ * the exact set the dialog's dropdown was built from. An unparseable,
+ * wildcard-shaped, non-canonical, or foreign `server` is ignored and logged:
+ * the render then matches the no-param case byte-for-byte, because refusing
+ * to enroll on a drifted address is worse than dialing the configured one.
+ */
+function resolveBakedServer(raw: string | undefined): string {
+  if (raw === undefined) return APP_BASE_URL;
+  // `canonicalPluginOrigin` is the repo's general origin canonicalizer (`URL.origin`
+  // plus the wildcard/opaque refusals), named for its first caller. Using it here
+  // keeps "what is a canonical address" one spelling in the codebase.
+  const canonical = canonicalPluginOrigin(raw);
+  if (canonical !== null && BAKABLE_ORIGIN.test(canonical) && originRegistry().has(canonical)) {
+    return canonical;
+  }
+  getLogger().warn(`install.sh: refused to bake a "server" address it does not trust (${JSON.stringify(raw)})`);
+  return APP_BASE_URL;
 }
 
 /**
@@ -58,14 +100,15 @@ exit 2
  * SSH session that started it, with nothing on the whole path ever naming
  * `service install`.
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
+ * @param server - The address to bake as `SERVER` — resolved by {@link resolveBakedServer}
  */
-function renderInstallScript(key: string): string {
+function renderInstallScript(key: string, server: string): string {
   if (!/^nsk_[A-Za-z0-9_-]{32}$/.test(key)) return usageScript();
   return `#!/usr/bin/env bash
 # subshell installer: rendered by subshell for this instance (spec 2026-08-31 §8).
 set -euo pipefail
 
-SERVER="${APP_BASE_URL}"
+SERVER="${server}"
 KEY="${key}"
 
 # Install dest + setup --data-dir. Unset/empty SUBSHELL_DATA_DIR installs to
@@ -271,6 +314,12 @@ const InstallQuerySchema = t.Object({
         "One-time `nsk_…` setup key; absent or invalid renders the usage script (exit 2), never a JSON error",
     }),
   ),
+  server: t.Optional(
+    t.String({
+      description:
+        "Origin to bake as the node's SERVER (what the agent dials forever); accepted only when it is one of this instance's trusted origins, ignored otherwise",
+    }),
+  ),
 });
 
 /**
@@ -285,15 +334,19 @@ const InstallQuerySchema = t.Object({
  * failing it yields the usage script, so every response on this surface is
  * `text/plain`.
  *
- * The baked `SERVER` is `APP_BASE_URL` — the same source `enroll` derives its
- * `wsUrl` from, so the install pipeline and enrollment always agree.
+ * The baked `SERVER` is the `server` param when it names one of this
+ * instance's trusted origins (see {@link resolveBakedServer}), and
+ * `APP_BASE_URL` otherwise — the same source `enroll` derives its `wsUrl`
+ * from, so the install pipeline and enrollment agree on the default command.
  */
 export const installScriptRoute = new Elysia().get(
   "/install.sh",
   async ({ query }) => {
     const key = query.setup_key;
     const body =
-      key && (await new NodeSetupKeysRepository(db).peekValid(key)) ? renderInstallScript(key) : usageScript();
+      key && (await new NodeSetupKeysRepository(db).peekValid(key))
+        ? renderInstallScript(key, resolveBakedServer(query.server))
+        : usageScript();
     return new Response(body, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",

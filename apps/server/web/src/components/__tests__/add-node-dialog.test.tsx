@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
+import { AddNodeDialog, installCommandFor } from "@/components/nodes/add-node-dialog";
 import { NODES_QUERY_KEY } from "@/lib/query-keys";
 import { tmuxInstallHint } from "@/lib/tmux-install";
 
@@ -166,18 +166,142 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("warns in amber when appBaseUrl points at loopback (a remote node would dial itself)", async () => {
-    const { restore } = mockFetch({ appBaseUrl: "http://localhost:3080" });
+  it("offers the dialable address from the dropdown and carries it as the bake choice", async () => {
+    // The loopback case that used to earn an amber "APP_BASE_URL points at
+    // loopback… replace the host" paragraph. The paragraph is gone and the
+    // dropdown replaced it, because the advice it gave was only half true:
+    // editing the curl host changed where the script DOWNLOADED from, while
+    // the address the node dials forever is baked at render time. So the
+    // dialog now names the choice in the URL (`server=`), and the route
+    // bakes it — gated on the same trusted-origin registry the list came
+    // from. Loopback rows are dropped when anything else is known, so the
+    // default IS the reachable address.
+    const { restore } = mockFetch({
+      appBaseUrl: "http://localhost:3080",
+      trustedOrigins: ["http://localhost:3080", "http://127.0.0.1:3080", "http://192.0.2.10:3080"],
+    });
     try {
       await renderDialog();
       fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      const hint = await screen.findByText(/points at loopback/i);
-      expect(hint.textContent).toContain("http://localhost:3080");
-      expect(hint.textContent).toContain("VPN/LAN");
+      expect(
+        await screen.findByText(
+          'curl -fsSL "http://192.0.2.10:3080/install.sh?setup_key=nsk_secret&server=http://192.0.2.10:3080" | bash',
+        ),
+      ).toBeDefined();
+      expect(screen.queryByText(/points at loopback/i)).toBeNull();
     } finally {
       restore();
     }
+  });
+
+  it("omits the bake choice when the selection is the base URL — today's command, byte for byte", async () => {
+    // The stock case: the address the dropdown defaults to IS appBaseUrl, so
+    // there is no deviation to carry and the route's default applies.
+    const { restore } = mockFetch({
+      appBaseUrl: "http://subshell.lan:3080",
+      trustedOrigins: ["http://subshell.lan:3080"],
+    });
+    try {
+      await renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      expect(
+        await screen.findByText('curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_secret" | bash'),
+      ).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls back to today's single-address command when nothing reachable is known — and warns of nothing", async () => {
+    // Loopback-only (an old server with no LAN derivation): there is no
+    // better address to offer, so the dropdown carries the one row it has
+    // and the paragraph that used to shout about it is gone — the script's
+    // own runtime loopback guard fires on the new machine, where the fact
+    // is finally knowable.
+    const { restore } = mockFetch({
+      appBaseUrl: "http://localhost:3080",
+      trustedOrigins: ["http://localhost:3080", "http://127.0.0.1:3080"],
+    });
+    try {
+      await renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      expect(
+        await screen.findByText('curl -fsSL "http://localhost:3080/install.sh?setup_key=nsk_secret" | bash'),
+      ).toBeDefined();
+      expect(screen.queryByText(/points at loopback/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("the dropdown offers every reachable address and the default one drives both commands", async () => {
+    // Which address a NON-default row would produce is `installCommandFor`'s
+    // job, its'd below; this its the wiring: the list on screen is the
+    // allowlist, and what the commands name is the row the dropdown is on.
+    // (No test in this suite commits a Base UI selection — the mobile
+    // dialog's precedent stops at opening the list; the popup's pointer
+    // events are the library's, not the dialog's.)
+    const { restore } = mockFetch({
+      appBaseUrl: "https://subshell.example",
+      trustedOrigins: ["https://subshell.example", "https://plane.tail1234.ts.net"],
+      nodeArtifactTargets: [],
+      nodeArtifactsAutoFetch: false,
+    });
+    try {
+      await renderDialog();
+      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+      await screen.findByText("nsk_secret");
+
+      // async act: opening the Select arms Base UI's positioner, whose update
+      // lands a microtask after a sync dispatch returns (mobile-install-dialog's precedent).
+      await act(async () => {
+        fireEvent.click(document.querySelector('[data-slot="select-trigger"]') as HTMLElement);
+      });
+      const rows = [...document.querySelectorAll('[data-slot="select-item"]')];
+      expect(rows.map((r) => r.textContent)).toEqual([
+        expect.stringContaining("https://subshell.example"),
+        expect.stringContaining("https://plane.tail1234.ts.net"),
+      ]);
+      // The default (base URL) is on the commands, and needs no `server=`.
+      expect(
+        screen.getByText('curl -fsSL "https://subshell.example/install.sh?setup_key=nsk_secret" | bash'),
+      ).toBeDefined();
+      expect(screen.getByText('subshell enroll --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  describe("installCommandFor", () => {
+    it("carries the chosen address only when it deviates from the base URL", () => {
+      expect(installCommandFor("http://100.64.1.2:3080", "nsk_k", "http://localhost:3080")).toBe(
+        'curl -fsSL "http://100.64.1.2:3080/install.sh?setup_key=nsk_k&server=http://100.64.1.2:3080" | bash',
+      );
+      // The stock case stays byte-identical to the command this predates.
+      expect(installCommandFor("http://subshell.lan:3080", "nsk_k", "http://subshell.lan:3080")).toBe(
+        'curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_k" | bash',
+      );
+      // A path or trailing slash on the config value names the SAME origin,
+      // so nothing is carried for a spelling difference.
+      expect(installCommandFor("http://subshell.lan:3080", "nsk_k", "http://subshell.lan:3080/")).toBe(
+        'curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_k" | bash',
+      );
+    });
+
+    it("carries nothing when the base URL is unknown or unparseable", () => {
+      // Unloaded settings, and a server old enough to lack the field (which
+      // would ignore the param anyway).
+      expect(installCommandFor("http://192.168.1.14:3080", "nsk_k", undefined)).toBe(
+        'curl -fsSL "http://192.168.1.14:3080/install.sh?setup_key=nsk_k" | bash',
+      );
+      expect(installCommandFor("http://192.168.1.14:3080", "nsk_k", "not a url")).toBe(
+        'curl -fsSL "http://192.168.1.14:3080/install.sh?setup_key=nsk_k" | bash',
+      );
+    });
   });
 
   it("treats an unparseable appBaseUrl as not-loopback (no hint, no throw in render)", async () => {

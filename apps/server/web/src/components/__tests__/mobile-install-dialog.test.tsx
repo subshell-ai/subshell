@@ -137,23 +137,17 @@ describe("MobileInstallDialog", () => {
     expect(screen.queryByRole("button", { name: /copy address/i })).toBeNull();
   });
 
-  it("warns that an http address costs notifications, and names the fix for an admin", () => {
+  it("explains neither where the addresses come from nor what http costs — the audience is developers", () => {
+    // The picker used to carry a paragraph on how the allowlist is assembled
+    // and an amber note on secure contexts. Both went 2026-09-18: the people
+    // this dialog serves know what http:// means, and every clause of the
+    // two blurbs restated the address bar itself. They stay gone on purpose;
+    // this its the absence so a future "helpful" re-add trips here.
     renderDialog({ origin: "http://192.168.1.14:3080", trustedOrigins: [], admin: true });
-    const note = screen.getByTestId("insecure-note");
-    expect(note.textContent).toMatch(/notifications/i);
-    expect(note.textContent).toMatch(/Networking/);
-  });
-
-  it("does not point a non-admin at a page they cannot open", () => {
-    renderDialog({ origin: "http://192.168.1.14:3080", trustedOrigins: [], admin: false });
-    const note = screen.getByTestId("insecure-note");
-    expect(note.textContent).toMatch(/notifications/i);
-    expect(note.textContent).not.toMatch(/Networking/);
-  });
-
-  it("says nothing about secure contexts on an https address", () => {
-    renderDialog({ origin: "https://plane.tail1234.ts.net", trustedOrigins: [] });
     expect(screen.queryByTestId("insecure-note")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Every address this server accepts/);
+    expect(document.body.textContent).not.toMatch(/plain http/i);
+    expect(document.body.textContent).not.toMatch(/notifications never arrive/i);
   });
 
   it("opens on the steps for the device reading it, and every tab stays reachable", () => {

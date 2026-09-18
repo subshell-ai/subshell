@@ -340,11 +340,27 @@ someone a machine is quiet while panes are still alive on it. The wording is
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
-Add-node dialog renders the install one-liner from `GET /api/settings/public →
-appBaseUrl` — NOT `window.location.origin` (fallback only while settings load) —
-so the command always names the same SERVER the backend bakes into the served
-`/install.sh`; a loopback `appBaseUrl` renders the amber "remote node cannot
-dial this machine" hint. The dialog also reads `nodeArtifactTargets` — the
+Add-node dialog's step 2 has an **address dropdown, and it names what the
+node dials forever** (operator's call, 2026-09-18), not merely the curl's
+host. Rows come
+from the same `lib/install-addresses.ts` the mobile picker builds — the
+trusted-origin allowlist, loopback dropped when anything else is known,
+falling back to `appBaseUrl` alone when nothing is (`window.location.origin`
+only while settings load). The chosen address rides to `GET /install.sh` as
+`server=`, which the route bakes **only on exact membership in the live
+registry** (`api/install-script.ts`) — because the process cannot observe its
+own external address (a TLS proxy shows it loopback, the `Host` header is
+client-written, and several names are simultaneously true), so the operator's
+choice has to arrive written down, like NetBird's `--management-url` and the
+dialog's own `subshell enroll --server`. `&server=` is carried ONLY when the
+pick deviates from `APP_BASE_URL`, so the stock command is byte-identical to
+the one this predates. The amber "APP_BASE_URL points at loopback… replace
+the host" paragraph is GONE (operator's call, 2026-09-18): its advice could
+not work — hand-editing the curl host changed only the download source, while
+the baked `SERVER` came from config — and the dropdown replaced the whole
+sentence with the control it was telling you to build by hand. The script's
+runtime loopback guard stays: it fires on the new machine, where "is this
+address wrong *from here*" is finally knowable. The dialog also reads `nodeArtifactTargets` — the
 triples the server actually serves — and names the missing ones (in step 1,
 BEFORE a single-use key is minted, and in step 2 with a copyable
 `subshell enroll` fallback): a binary-only server install publishes no agent
@@ -366,10 +382,15 @@ The gate hid it from exactly them.
 
 **The steps are the easy half.** The person looking them up is usually at a
 desk on an address their phone cannot reach, so the dialog's first control is
-an address picker. Candidates come from `lib/mobile-install.ts` —
+an address picker. Candidates come from `lib/install-addresses.ts` (the
+shared half, since the Add-node dialog grew the same picker) —
 `window.location.origin`, `appBaseUrl` and `trustedOrigins` merged, normalized
 to origins and ordered by insertion (the address this browser is
-demonstrably on is the best guess for the phone beside it).
+demonstrably on is the best guess for the phone beside it). **And the picker
+now explains nothing about itself** (operator's call, 2026-09-18): the
+"every address this server accepts a sign-in from…" paragraph and the amber
+plain-http note are gone — the audience is developers, and every clause
+restated the address bar. The test its the absence.
 
 **Loopback rows are DROPPED in `installAddresses`, not labelled here.** They
 used to be listed and captioned "this device only" — never hidden, never

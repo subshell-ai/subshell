@@ -576,7 +576,15 @@ subshell may only be launched in one of them or beneath it.
   digests (`GET /api/downloads/node/*`) require a session cookie **or** a valid
   unconsumed setup key. `GET /install.sh` renders a usage script for an
   invalid/absent key — it is never a binary oracle — and the script it renders
-  digest-verifies the download before the first `chmod +x`.
+  digest-verifies the download before the first `chmod +x`. The render also
+  accepts `server=<origin>`, the address the node will dial forever (the
+  Add-node dialog's address choice; the process cannot observe its own
+  external address — §8): accepted ONLY
+  as exact membership of the live trusted-origin registry, else the configured
+  base URL is baked as before. The param therefore selects among addresses the
+  instance already trusts and already discloses to every signed-in caller
+  (§3) — it can name no new master for a node, and whoever runs the command
+  chose every byte of its URL.
 
 **Agent binaries are fetched lazily from the project's own release
 (2026-09-12).** A control plane installed from a release tarball has an empty
