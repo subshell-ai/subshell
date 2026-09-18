@@ -1216,6 +1216,43 @@
     color: var(--muted-foreground);
     cursor: default;
   }
+  /* The update screen's selection table (spec 2026-09-18 §13). One line per
+     component — what it runs, what it would become, and in the right-hand cell
+     either a checkbox or the REASON there is none. Never a disabled checkbox:
+     "not now" without a why is what the amendment removed, and the reason is
+     the content of that cell rather than a tooltip on a dead control. */
+  .update-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 2px 12px;
+    padding: 10px 0;
+  }
+  label.update-row {
+    cursor: pointer;
+  }
+  .update-row + .update-row {
+    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  }
+  .update-row input {
+    width: auto;
+    margin: 0;
+    accent-color: var(--primary);
+  }
+  .update-row .hint {
+    margin: 0;
+  }
+  .update-reason {
+    color: var(--muted-foreground);
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
+    text-align: right;
+  }
+  /* The Force box wears the plain `.switch`; this only puts air between it and
+     the amber sentence it answers. */
+  .update-force {
+    margin-top: 8px;
+  }
   /* The supervision screen's two mode choices. A radio in its own column so
      the description under each title hangs off the title rather than the
      control, which is what makes two multi-line options readable as a pair. */

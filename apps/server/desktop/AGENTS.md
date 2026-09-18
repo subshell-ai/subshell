@@ -376,6 +376,37 @@ is forced rather than chosen — the new app carries the newer server, so
 installing the server first installs the OUTGOING bundle's copy and leaves the
 machine behind again the moment the app lands.
 
+**It is a SELECTION, and that is not a reversal** (spec 2026-09-18 § 13). The
+screen is a table: one row per component — what it runs, what it would become,
+and a checkbox where there is something to do, ticked by default — plus one
+Force box below it. With both halves behind, both are ticked and one press does
+both, which is the paragraph above unchanged. What the table adds is the case
+where the two halves point in DIFFERENT directions, and it was a real machine:
+an operator at app 0.8.1 with a `subshell-server` they had updated by hand to
+0.10.1 was told the screen would install a server older than the one they were
+running. The CLI row was pushed whenever the app was behind, and the subtitle
+promised "installing it also installs the server it ships", while the ladder's
+answer was `adopt-installed` — so phase 2 would have answered `Resume::Clear`
+and installed nothing. The ACT was never unsafe; the DISPLAY was false.
+
+Three rules the table keeps, each with the defect behind it:
+
+- **A row with nothing to do states WHY, never a disabled checkbox.** "Not now"
+  with no reason is what sent the operator looking for a bug. The cell is short
+  ("you run a newer one", "not this app's", "could not check", "up to date");
+  the long form is a sentence under the table, which is what `notes` is.
+- **Force governs the pane-safety refusal and nothing else.** It is the one
+  refusal a person may overrule, it is UNTICKED by default — an override that
+  arrives pre-accepted is not an override — and it renders only where a
+  definition would actually refuse. It may **never** install an older bundled
+  CLI over a newer installed one: boot's migrator is forward-only, so that is
+  data loss rather than a choice to present, which is why the adopt-installed
+  row explains `subshell-server update --from <file>` instead of offering a box.
+- **The selection crosses the relaunch as the marker's PRESENCE.** A cleared
+  CLI row writes no `PendingBundledInstall` at all, so phase 2 does not run —
+  there is no second field for the two to disagree about. That is why
+  `desktop_install_app_update` takes two booleans now (below).
+
 | | phase 1 | phase 2 |
 |---|---|---|
 | runs in | the process the person pressed in | the build that came up |
@@ -410,11 +441,14 @@ Four things about the seam:
 - **The pane-safety consent crosses in the marker's `forced`.** The confirm
   happens in phase 1 and the restart it consents to happens in phase 2, in
   another process, so re-asking would be asking again for something already
-  granted on a screen nobody chose to open. The answer is READ in Rust at the
-  press (`control::pane_risk_now`, the twin of the page's `paneRisk`) rather
-  than passed from the page, because `desktop_install_app_update` takes no
-  argument and that is the whole case for granting it. A Try Again on the
-  phase-2 screen is a FRESH consent and uses today's answer instead.
+  granted on a screen nobody chose to open. It is the page's Force box that
+  answers now (§ 13.2) — it used to be read in Rust at the press, on the
+  grounds that the command took no argument — and Rust still NARROWS it:
+  `install_app_update` ANDs the page's answer with `control::pane_risk_now`,
+  the twin of the page's `paneRisk`, so a page asking to force a restart no
+  definition would refuse gets an ordinary one. A Try Again on the phase-2
+  screen is a FRESH consent, and the box is live under it, seeded from what the
+  marker recorded.
 
 **Two things here differ from Subshell Client STRUCTURALLY**, and both are
 worth stating because the two apps' docblocks would otherwise read as
@@ -488,9 +522,13 @@ Four more things carry the weight of the app half specifically:
 **Both commands are `wizard`-only**, and the check is there too even though it
 looks harmless: its sibling replaces the application, and the dashboard reaches
 this screen by NAME (`desktop_open_assistant({ screen: "update" })`) — a
-grant it already has. Neither takes an argument, which is the whole of the
-case for granting them: the release is re-resolved in Rust, so the page asks
-for "the newest" and can never name a URL. `ipc-acl.test.ts` pins both facts.
+grant it already has. Neither names a LOCATION, which is the whole of the case
+for granting them: the release is re-resolved in Rust, so the page asks for
+"the newest" and can never name a URL. `desktop_check_app_update` takes no
+argument at all; `desktop_install_app_update` takes exactly two booleans, the
+§ 13 selection (`forced`, `install_server`). `ipc-acl.test.ts` pins the
+parameter list of each and that every argument past the handle is a `bool` — a
+`String` there is the parameter this pin has always existed to catch.
 
 **The signing key is the operator's, and losing it is unrecoverable.** One
 keypair for BOTH desktop apps — they are one publisher, and a public key is
@@ -1128,14 +1166,20 @@ Four things about that arrangement are load-bearing:
   attribute outlived its only reader by three months.)
 - **`lib/update-act.ts` holds every judgment the update screen makes**, for
   the same reason and with a sharper edge: the screen has six phases, two
-  presses and three sentences it refuses in — a server this app did not
-  install, a release source that would not answer, and the automatic attempts
-  being spent — never more than TWO of them at once, since a phase-2 screen
-  returns before the release answer is consulted. None of it could be covered
-  at all from inside `renderUpdate`. Which rows appear, which press they get,
-  what the act will not do, and whether phase 2 fires by itself are all
-  decisions there, and `update-act.test.ts` walks § 4.1's four cases, § 4.2's
-  two phases and each of § 6's refusals.
+  presses and four sentences it refuses in — a server this app did not
+  install, one NEWER than the bundle, a release source that would not answer,
+  and the automatic attempts being spent — never more than two of them at once,
+  since a phase-2 screen returns before the release answer is consulted. None
+  of it could be covered at all from inside `renderUpdate`. Which rows appear,
+  which of them carry a checkbox and which carry a reason instead, what is
+  ticked by default, whether the Force box renders, what the press is called
+  and what it will do, and whether phase 2 fires by itself are all decisions
+  there, and `update-act.test.ts` walks § 4.1's four cases, § 4.2's two phases,
+  § 13's selection and each of § 6's refusals. The SELECTION itself is page
+  state in `wizard.ts` — held as overrides, so an absent id is the model's
+  default and a tick made against a row that stops existing takes nothing with
+  it — because the model is pure and is handed the answer rather than keeping
+  it.
 - **`lib/recovery-model.ts` exists so the recovery screen's WORDS are
   testable.** Its subtitle and its facts were the console's step table and
   Details list — DOM, in a render that needs a webview, which is why neither

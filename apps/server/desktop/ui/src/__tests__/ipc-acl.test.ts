@@ -399,22 +399,42 @@ describe("the assistant's IPC contract", () => {
     expect(main.has("desktop_install_app_update")).toBe(false);
   });
 
-  it("keeps the app installer to NO arguments, so a page names no release", () => {
+  it("keeps the app installer naming NO release, whatever else it takes", () => {
     // The whole reason this command can exist behind a single press: the
     // release to install is re-resolved in Rust, so the page asks for "the
-    // newest" and can never name a URL, a tag or a file. A parameter added
-    // later would make it a different command with the same name, and no ACL
+    // newest" and can never name a URL, a tag or a file.
+    //
+    // It is pinned as an exact parameter LIST rather than as "no arguments",
+    // which it was until spec 2026-09-18 § 13 made the act a selection. Two
+    // booleans carry what the person ticked — `install_server`, which decides
+    // whether a marker is written at all, and `forced`, the pane-safety
+    // override, which Rust narrows with its own `pane_risk_now` — and neither
+    // is a location. The list is the assertion: a `String` added here would be
+    // the parameter this test has always existed to catch, and no other
     // assertion in this file would see it.
     const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
-    for (const name of ["desktop_check_app_update", "desktop_install_app_update"]) {
+    const signatures: Record<string, string[]> = {
+      desktop_check_app_update: ["app"],
+      desktop_install_app_update: ["app", "forced", "install_server"],
+    };
+    for (const [name, expected] of Object.entries(signatures)) {
       const signature = rust.slice(rust.indexOf(`pub async fn ${name}(`));
       const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
-      const names = params
+      const parsed = params
         .split(",")
         .map((line) => line.trim())
         .filter(Boolean)
-        .map((line) => line.split(":")[0]?.trim());
-      expect(names, `${name} takes more than an AppHandle`).toEqual(["app"]);
+        .map((line) => [line.split(":")[0]?.trim(), line.split(":")[1]?.trim()] as const);
+      expect(
+        parsed.map(([n]) => n),
+        `${name} does not take what it is pinned to`,
+      ).toEqual(expected);
+      // And every argument beyond the handle is a BOOLEAN, which is the
+      // property that makes "names no release" true by shape rather than by
+      // reading the body.
+      for (const [n, type] of parsed.slice(1)) {
+        expect(type, `${name}'s ${n} is not a bool`).toBe("bool");
+      }
     }
   });
 

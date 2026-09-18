@@ -43,8 +43,15 @@ import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/insta
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
-import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
-import { type ActState, rejectedResult, UPDATE_TITLE, updateAct } from "./lib/update-act";
+import { recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
+import {
+  type ActState,
+  NO_SELECTION,
+  rejectedResult,
+  UPDATE_TITLE,
+  type UpdateActSelection,
+  updateAct,
+} from "./lib/update-act";
 import {
   applySupervisionChoice,
   autoSetupDecision,
@@ -267,6 +274,17 @@ let updateResult: ActionResult | null = null;
  * for the same install.
  */
 let resumeFired = false;
+/**
+ * What the person has ticked on the update screen (spec 2026-09-18 § 13).
+ *
+ * Page state for the reason {@link detailsOpen} is — `#content` is rebuilt on
+ * every render and the poll renders twice a second, so a tick living in the DOM
+ * would be cleared under the hand that made it. Held as OVERRIDES rather than
+ * as the answer: an absent row id means untouched, so the model's default
+ * ("everything actionable, ticked") follows the machine as the probe changes,
+ * and a box cleared for a row that stops existing takes nothing with it.
+ */
+let updateSelection: UpdateActSelection = NO_SELECTION;
 const form: FormValues = effectiveForm(undefined);
 const explicit: ExplicitMap = {};
 /** The two supervision boxes on the setup screen; reset with the form. */
@@ -1404,14 +1422,20 @@ async function runUpdateCheck(force: boolean): Promise<void> {
  * the CLI half runs in the build that comes up (see {@link finishUpdate}). A
  * rejection is therefore always a real failure, which is why the `catch` puts
  * it on the problem line rather than treating it as a state to render.
+ *
+ * **Both arguments are the SELECTION** (spec § 13), and they are the only
+ * things this press carries: `bundled` false writes no marker, so phase 2 does
+ * not run at all, and `forced` is the Force box's answer to a restart that
+ * happens in another process. Neither is re-derived on the far side — the
+ * marker IS the record, which is what keeps one answer in one place.
  */
-async function startAppUpdate(): Promise<void> {
+async function startAppUpdate(forced: boolean, bundled: boolean): Promise<void> {
   if (updateState !== "idle") return;
   updateState = "downloading";
   updateProgress = "Starting the download…";
   render();
   try {
-    await ipc.installAppUpdate();
+    await ipc.installAppUpdate(forced, bundled);
   } catch (err) {
     setProblem(err);
     updateState = "idle";
@@ -1425,18 +1449,19 @@ async function startAppUpdate(): Promise<void> {
  *
  * Both phases end here — the act when the app is already current, and phase 2
  * after the relaunch — because it is the same two steps either way. What
- * differs is only the pane-safety answer, and the difference is a consent
- * rule rather than a mechanism:
+ * differs is only the pane-safety answer, which the CALLER supplies, and the
+ * difference is a consent rule rather than a mechanism:
  *
- * - **A PRESS consents to what this screen says now.** The warning above the
- *   button names the risk the current definition carries, so `paneRisk(p)` is
- *   the answer the person just agreed to.
+ * - **A PRESS consents to what this screen says now**, through the Force box
+ *   under the table (spec § 13.2). Unticked is an ordinary restart, which the
+ *   CLI refuses where the definition would close live panes — and that refusal
+ *   renders here, with the box still on screen to answer it.
  * - **The automatic resume consents to nothing new.** It carries the answer
  *   phase 1 recorded (`pendingInstall.forced`), because the person who pressed
  *   Update is not at this window and cannot be asked again. Where the
  *   definition has changed under it the CLI refuses, this screen shows that
- *   refusal verbatim, and the Try Again under the fresh warning is where the
- *   new consent comes from.
+ *   refusal verbatim, and the Try Again under the fresh box is where the new
+ *   consent comes from.
  *
  * **A REJECTION is recorded as a result too**, which is not bookkeeping: `act`
  * turns a throw into the problem line and leaves `updateResult` null, and null
@@ -1446,8 +1471,7 @@ async function startAppUpdate(): Promise<void> {
  * there was nothing left to press (review, 2026-09-18). The throw is re-raised
  * so `act` still says what went wrong.
  */
-async function finishUpdate(p: Probe, pressed: boolean): Promise<void> {
-  const forced = pressed ? paneRisk(p) : (p.pendingInstall?.forced ?? false);
+async function finishUpdate(_p: Probe, forced: boolean): Promise<void> {
   await act(async () => {
     try {
       const installed = await ipc.installServer();
@@ -1488,27 +1512,71 @@ async function finishUpdate(p: Probe, pressed: boolean): Promise<void> {
  * grants on `main`). It renders over a RUNNING server, which is why `render()`
  * lets a requested screen outrank the ready handoff.
  *
+ * **It is a SELECTION, not always both halves** (spec § 13). An operator at
+ * app 0.8.1 with a hand-updated `subshell-server` 0.10.1 was told the screen
+ * wanted to install a server older than the one they were running: the CLI row
+ * was pushed whenever the app was behind, while the ladder would have ADOPTED
+ * the installed copy and installed nothing. So both components get a row, each
+ * carrying a checkbox where there is something to do and the reason where there
+ * is not, and one press runs what is ticked — which, with both halves behind,
+ * is still both halves under one press.
+ *
  * **Every judgment is in `lib/update-act.ts`**, which is pure and tested; what
- * is left here is the DOM and the two presses.
+ * is left here is the DOM, the ticks, and the two presses.
  */
 function renderUpdate(p: Probe): void {
-  const view = updateAct({ probe: p, appUpdate, state: updateState, finished: updateResult });
+  const view = updateAct({
+    probe: p,
+    appUpdate,
+    state: updateState,
+    finished: updateResult,
+    selection: updateSelection,
+  });
   setFrame("none", UPDATE_TITLE, view.subtitle);
   const content = el("content");
 
-  if (view.rows.length > 0) {
-    const dl = document.createElement("dl");
-    dl.className = "facts";
-    for (const row of view.rows) {
-      const dt = document.createElement("dt");
-      dt.textContent = row.label;
-      const dd = document.createElement("dd");
-      // A null target is the one number this build cannot know: only the new
-      // bundle knows which server it carries (spec § 4.3).
-      dd.append(text("span", row.to === null ? `${row.from} → the server it ships` : `${row.from} → ${row.to}`));
-      dl.append(dt, dd);
+  // The selection table (spec § 13.1). One line per component: what it runs,
+  // what it would become, and either a checkbox or the reason there is none.
+  const locked = busy || updateState !== "idle";
+  for (const row of view.rows) {
+    const id = `update-row-${row.id}`;
+    // A `<label>` only where there is a control to label — a label pointing at
+    // nothing is a click target that does nothing.
+    const line = document.createElement(row.selected === null ? "div" : "label");
+    line.className = "update-row";
+    if (line instanceof HTMLLabelElement) line.htmlFor = id;
+    const copy = document.createElement("div");
+    copy.append(text("div", row.label, "label"));
+    // A null target on a row that CAN act is the one number this build cannot
+    // know: only the new bundle knows which server it carries (§ 4.3). On a row
+    // that cannot act there is nothing it becomes, so the arrow goes with it.
+    const versions =
+      row.to !== null
+        ? `${row.from} → ${row.to}`
+        : row.selected !== null
+          ? `${row.from} → the server it ships`
+          : row.from;
+    copy.append(text("div", versions, "hint"));
+    line.append(copy);
+    if (row.selected === null) {
+      // The reason renders in the cell the checkbox would have occupied, and
+      // there is deliberately no disabled checkbox to render it beside: "not
+      // now" without a why is exactly what § 13 removed.
+      if (row.reason !== null) line.append(text("span", row.reason, "update-reason"));
+    } else {
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.id = id;
+      box.checked = row.selected;
+      box.disabled = locked;
+      box.addEventListener("change", () => {
+        updateSelection = { ...updateSelection, rows: { ...updateSelection.rows, [row.id]: box.checked } };
+        render();
+        refocus(id);
+      });
+      line.append(box);
     }
-    content.append(dl);
+    content.append(line);
   }
 
   if (updateProgress !== "") content.append(text("p", updateProgress, "hint"));
@@ -1523,23 +1591,41 @@ function renderUpdate(p: Probe): void {
 
   for (const note of view.notes) content.append(text("p", note, "hint"));
 
-  if (view.paneWarning) {
-    content.append(
-      text(
-        "p",
-        "The installed service definition does not spare live panes, so this restart closes every subshell running here.",
-        "hint warn-text",
-      ),
-    );
+  // The Force box, under the table it governs (§ 13.2). The amber sentence
+  // states what the restart costs; the box beside it is the only refusal on
+  // this screen a person may overrule — never the downgrade the adopt-installed
+  // row explains, which no box may perform.
+  if (view.force !== null) {
+    const force = view.force;
+    content.append(text("p", force.warning, "hint warn-text"));
+    const line = document.createElement("label");
+    line.className = "switch update-force";
+    line.htmlFor = "update-force";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = "update-force";
+    box.checked = force.checked;
+    box.disabled = locked;
+    box.addEventListener("change", () => {
+      updateSelection = { ...updateSelection, force: box.checked };
+      render();
+      refocus("update-force");
+    });
+    line.append(box, text("span", force.label, "label"));
+    content.append(line);
   }
 
   if (view.press !== null) {
-    if (view.press.kind === "app") {
+    const press = view.press;
+    if (press.kind === "app") {
       content.append(
         text(
           "p",
-          "The update is downloaded, its signature is checked against the key built into this app, and then " +
-            "Subshell Server restarts and installs the server it ships. Open subshells keep running throughout.",
+          press.bundled
+            ? "The update is downloaded, its signature is checked against the key built into this app, and then " +
+                "Subshell Server restarts and installs the server it ships. Open subshells keep running throughout."
+            : "The update is downloaded, its signature is checked against the key built into this app, and then " +
+                "Subshell Server restarts. The server on this machine is left as it is.",
           "hint",
         ),
       );
@@ -1553,11 +1639,11 @@ function renderUpdate(p: Probe): void {
         );
       }
     }
-    const press = view.press;
     content.append(
       button(
         press.label,
-        () => (press.kind === "app" ? void startAppUpdate() : void finishUpdate(p, true)),
+        () =>
+          press.kind === "app" ? void startAppUpdate(press.forced, press.bundled) : void finishUpdate(p, press.forced),
         "primary big",
         !press.enabled,
       ),
@@ -1568,11 +1654,14 @@ function renderUpdate(p: Probe): void {
   // without a press, and it is the SECOND half of a press already made. Fired
   // once per VISIT to this screen (`applyScreen` clears the latch), like the
   // first run's chain: the poll re-renders twice a second, and what bounds
-  // automatic RETRIES is the marker's own attempt count, not this. Deferred
-  // for the reason {@link afterRender} gives.
+  // automatic RETRIES is the marker's own attempt count, not this. It carries
+  // the consent the marker recorded rather than anything on screen — nobody is
+  // here to answer, which is the whole of § 5's argument. Deferred for the
+  // reason {@link afterRender} gives.
   if (view.phase === "finishing" && view.press === null && !resumeFired) {
     resumeFired = true;
-    afterRender(() => void finishUpdate(p, false));
+    const forced = p.pendingInstall?.forced ?? false;
+    afterRender(() => void finishUpdate(p, forced));
   }
 
   el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
@@ -2397,6 +2486,9 @@ function applyScreen(payload: string): void {
   // hangs off the result this would otherwise have kept.
   updateResult = null;
   resumeFired = false;
+  // The ticks belong to one visit too: a selection made against the machine as
+  // it was is not an answer about the machine as it is now.
+  updateSelection = NO_SELECTION;
   // A REQUESTED permissions screen is not the handoff's, whatever this window
   // was doing a moment ago: it was asked for from somewhere the person can go
   // back to, so it takes Back rather than the Continue that opens a dashboard.

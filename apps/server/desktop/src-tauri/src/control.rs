@@ -1335,18 +1335,27 @@ pub async fn desktop_check_app_update(app: AppHandle) -> Result<crate::app_updat
 
 /// Download, verify, install and relaunch into the newest app.
 ///
-/// **Takes no argument.** The version to install is re-resolved here rather
-/// than carried back from the page — the same shape every other command in
-/// this file keeps, and the reason this one can be granted at all: a page can
-/// ask for "the newest", never for a URL. That is also why the pane-safety
-/// consent this act carries into its second half is READ here rather than
-/// passed: see `app_update::install_app_update`.
+/// **Names no URL.** The version to install is re-resolved here rather than
+/// carried back from the page — the same shape every other command in this
+/// file keeps, and the reason this one can be granted at all: a page can ask
+/// for "the newest", never for a location.
+///
+/// The two booleans are the phase-1 SELECTION (spec 2026-09-18 § 13), and they
+/// are arguments rather than reads because only the page knows what was ticked:
+///
+/// - `install_server` is the `subshell-server CLI` row. False writes no marker,
+///   so phase 2 never installs a half the person unticked — the marker's
+///   PRESENCE is the selection, which is what keeps it from being recorded in
+///   two places that can disagree.
+/// - `forced` is the pane-safety override. It is still ANDed with this
+///   machine's own `pane_risk_now` inside `install_app_update`, so a page
+///   asking to force a restart that would not refuse gets an ordinary one.
 ///
 /// It does not return on success: `app.restart()` is `-> !`.
 #[tauri::command(async)]
-pub async fn desktop_install_app_update(app: AppHandle) -> Result<(), String> {
+pub async fn desktop_install_app_update(app: AppHandle, forced: bool, install_server: bool) -> Result<(), String> {
     let _guard = ActionGuard::new();
-    crate::app_update::install_app_update(&app).await
+    crate::app_update::install_app_update(&app, forced, install_server).await
 }
 
 /// The app's version and the update the daily check found, for the SPA's
@@ -2197,8 +2206,10 @@ fn pane_safety_now(settings: &SettingsState) -> Option<String> {
 /// unreadable definition counts as risk because absence of evidence is not
 /// evidence of safety. It exists because the app update's phase 1 has to
 /// record the pane-safety consent for a phase 2 that runs in another process
-/// (spec 2026-09-18 § 5), and the page cannot pass it — `desktop_install_app_update`
-/// takes no argument, which is the whole case for granting it at all.
+/// (spec 2026-09-18 § 5) — and, since § 13 made the override an explicit Force
+/// box, to NARROW what the page asks for: the two are ANDed, so a page that
+/// requests `--force` where no definition would refuse cannot turn an ordinary
+/// restart into a forced one.
 pub(crate) fn pane_risk_now(settings: &SettingsState) -> bool {
     matches!(pane_safety_now(settings).as_deref(), Some(word) if word != "keeps")
 }
