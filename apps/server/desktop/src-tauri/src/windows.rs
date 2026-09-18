@@ -333,16 +333,13 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
             // title-bar handshake is never refused.
             trust.clear();
             let _ = w.navigate(url.clone());
-        } else if let Some(current) = current {
-            // Nothing to re-point — but the base may have moved under a page
-            // that stayed put, and this is the tick that learns it.
-            trust.evaluate(&current);
         } else {
-            // The window would not say where it is (review, 2026-09-18). An
-            // unreadable URL is not evidence of a trusted one, and this branch
-            // goes on to RAISE the window — so the flag it keeps would be one
-            // nothing re-checked. A commit re-arms it; until then, nothing.
-            trust.clear();
+            // Nothing to re-point — but the base may have moved under a page
+            // that stayed put, and this is the call that learns it. Against the
+            // last COMMITTED page, never against `w.url()`, which is the
+            // ACTIVE url and may be one a page merely asked for (see
+            // `trust::MainTrust::page`).
+            trust.revalidate();
         }
         raise(&w);
         return Ok(());

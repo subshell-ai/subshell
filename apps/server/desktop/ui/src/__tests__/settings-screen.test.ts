@@ -29,6 +29,7 @@ import {
   settingsPayload,
   settingsSaveRefusal,
   settingsSupervision,
+  settingsUnreadable,
 } from "../lib/settings-screen";
 import { REQUESTED_SCREENS, screenForRequest } from "../lib/wizard-state";
 
@@ -169,6 +170,29 @@ describe("the two refusals", () => {
     expect(settingsSaveRefusal(fresh)).toBeNull();
 
     expect(settingsKnown(machine())).toBe(true);
+  });
+
+  /**
+   * **A hold needs a way out** (second review, 2026-09-18). Holding the form
+   * is right, but a server binary whose `status --json` keeps failing — wedged,
+   * or timing out on a loaded disk — would leave this screen saying "reading…"
+   * forever, with no form and no error, on the machine it exists to repair.
+   */
+  it("names why it cannot read, and lets a save happen anyway", () => {
+    // Nothing to say yet: the first tick has not failed, it has not answered.
+    expect(settingsUnreadable(machine({ status: null, error: null }))).not.toBeNull();
+    expect(settingsUnreadable(machine())).toBeNull();
+    expect(settingsUnreadable(machine({ status: null, server: null }))).toBeNull();
+
+    // With the CLI's own words, those words are what the screen shows.
+    const wedged = machine({ status: null, error: "`status --json` failed: timed out after 5s" });
+    expect(settingsUnreadable(wedged)).toBe("`status --json` failed: timed out after 5s");
+
+    // And the hold lifts once the person has chosen to configure blind.
+    expect(settingsSaveRefusal(wedged)).toContain("Reading");
+    expect(settingsSaveRefusal(wedged, true)).toBeNull();
+    // The tmux refusal is not a hold and survives the choice.
+    expect(settingsSaveRefusal(machine({ status: null, tmux: null }), true)).toContain("tmux");
   });
 
   it("offers Force only where a definition would actually refuse the restart", () => {

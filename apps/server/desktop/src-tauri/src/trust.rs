@@ -80,6 +80,18 @@ pub struct MainTrust {
     /// snapshot from window-open time would refuse the address the instance
     /// now answers on.
     base: Mutex<Option<String>>,
+    /// The URL of the page the window last COMMITTED to.
+    ///
+    /// Held because it is the only address that may decide privileges, and it
+    /// is not one anything can ask the window for: `WebviewWindow::url()` is
+    /// wry's `webview.uri()` / `WKWebView.URL`, i.e. WebKit's ACTIVE URL, which
+    /// is the REQUESTED one while a main-frame load is in flight (measured in
+    /// wry 0.55.1; webkitgtk documents it, and `WKWebView.URL` is
+    /// `PageLoadState::activeURL()`). So a caller that re-asks the window where
+    /// it is, in order to re-check trust, re-opens exactly the request-time
+    /// hole `allow_navigation` was stripped of — on a timer (review,
+    /// 2026-09-18). [`MainTrust::revalidate`] re-checks against THIS instead.
+    page: Mutex<Option<Url>>,
     /// Whether the URL the window last committed to is trusted. False until a
     /// window is opened, and false again when one is destroyed: a command is
     /// answered because a trusted page asked, never because none did.
@@ -99,6 +111,7 @@ impl MainTrust {
     pub const fn new() -> Self {
         Self {
             base: Mutex::new(None),
+            page: Mutex::new(None),
             trusted: AtomicBool::new(false),
             warned: AtomicBool::new(false),
         }
@@ -156,11 +169,32 @@ impl MainTrust {
     /// recorded base, because this runs from the navigation handler where no
     /// probe is at hand.
     pub fn evaluate(&self, url: &Url) -> bool {
+        *self.page.lock().unwrap_or_else(|e| e.into_inner()) = Some(url.clone());
         let trusted = self.trusts(url, self.base().as_deref());
         self.trusted.store(trusted, Ordering::SeqCst);
         // A new page gets a new sentence; see `warned`.
         self.warned.store(false, Ordering::SeqCst);
         trusted
+    }
+
+    /// Re-decide for the page the window is ALREADY on, against the base URL
+    /// as it now stands.
+    ///
+    /// What the watch thread wants when an admin moves `APP_BASE_URL` under a
+    /// window nobody navigated: the document has not changed, so re-asking the
+    /// window where it is would be reading a URL that may be merely requested
+    /// (see [`page`](Self::page)). This re-runs the same predicate over the
+    /// last COMMITTED address, which is the only one that ever earned
+    /// anything. With no committed page — before the first load, or after a
+    /// clear — there is nothing to re-decide and trust stays where `clear` put
+    /// it.
+    pub fn revalidate(&self) {
+        let page = self.page.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(url) = page else {
+            return;
+        };
+        let trusted = self.trusts(&url, self.base().as_deref());
+        self.trusted.store(trusted, Ordering::SeqCst);
     }
 
     /// Whether the page now in the window may invoke this app's commands.
@@ -171,6 +205,7 @@ impl MainTrust {
     /// Forget any trust. Called when the window is destroyed and before one is
     /// pointed anywhere, so the flag can never outlive the page that earned it.
     pub fn clear(&self) {
+        *self.page.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.trusted.store(false, Ordering::SeqCst);
         self.warned.store(false, Ordering::SeqCst);
     }
@@ -305,6 +340,75 @@ mod tests {
         assert!(!refuses(MAIN, true), "a trusted dashboard page is not");
         assert!(!refuses("wizard", false), "the assistant is never subject to the flag");
         assert!(!refuses("wizard", true));
+    }
+
+    /// **Re-deciding never re-reads the WINDOW.**
+    ///
+    /// `WebviewWindow::url()` is WebKit's active url — the requested one while
+    /// a load is in flight — so a caller re-checking trust from it lets a page
+    /// aim at a loopback port that will not answer, in a loop, and wait for a
+    /// 5-second tick to land in one of those provisional moments. Trust
+    /// re-decides over the last COMMITTED address, so the moving part is the
+    /// base URL and never the page.
+    #[test]
+    fn revalidating_judges_the_committed_page_and_the_current_base() {
+        let trust = MainTrust::new();
+        trust.set_base(Some("https://plane.example.com".into()));
+        trust.committed(&url("https://plane.example.com/subshells"));
+        assert!(trust.is_trusted());
+
+        // The admin moves the instance's address. Same document, and it has
+        // stopped being one this app points at.
+        trust.set_base(Some("https://other.example.com".into()));
+        trust.revalidate();
+        assert!(!trust.is_trusted(), "a page on the old base stops answering");
+
+        // And back again, without anything navigating.
+        trust.set_base(Some("https://plane.example.com".into()));
+        trust.revalidate();
+        assert!(trust.is_trusted());
+    }
+
+    /// A cleared guard has no page to re-judge, so nothing can raise it again
+    /// but a real commit.
+    #[test]
+    fn revalidating_cannot_resurrect_a_cleared_window() {
+        let trust = MainTrust::new();
+        trust.committed(&url("http://127.0.0.1:3080/"));
+        assert!(trust.is_trusted());
+        trust.clear();
+
+        trust.revalidate();
+        assert!(!trust.is_trusted(), "a destroyed or re-pointed window stays cleared");
+
+        // Nor does a fresh guard arm itself by being asked.
+        let empty = MainTrust::new();
+        empty.revalidate();
+        assert!(!empty.is_trusted());
+    }
+
+    /// The case the watch thread is FOR, and the one it must not create: a page
+    /// on an untrusted origin stays untrusted however the base moves, because
+    /// the address being judged is the one that committed.
+    #[test]
+    fn an_untrusted_page_is_not_rescued_by_a_moving_base() {
+        let trust = MainTrust::new();
+        trust.committed(&url("https://idp.example.com/authorize"));
+        assert!(!trust.is_trusted());
+
+        for base in ["https://plane.example.com", "https://idp.example.com.evil.test"] {
+            trust.set_base(Some(base.into()));
+            trust.revalidate();
+            assert!(
+                !trust.is_trusted(),
+                "{base} must not arm a page that did not commit here"
+            );
+        }
+
+        // Only the origin the page is ACTUALLY on can.
+        trust.set_base(Some("https://idp.example.com".into()));
+        trust.revalidate();
+        assert!(trust.is_trusted());
     }
 
     /// One line per PAGE, not one per call: a refused page can loop `invoke()`,

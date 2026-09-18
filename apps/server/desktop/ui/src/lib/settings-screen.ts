@@ -95,10 +95,17 @@ export const SETTINGS_RESTART_NOTE =
  * rejects — is the CLI's own answer, rendered verbatim where the person is.
  * Predicting those here would be a second validator to keep in step with the
  * one that decides.
+ *
+ * @param blind - the person chose to configure without a reading of the
+ *   machine (see {@link settingsUnreadable}), so the hold below no longer
+ *   applies: there is a form on screen and it has to be saveable.
  */
-export function settingsSaveRefusal(probe: Probe | null): string | null {
+export function settingsSaveRefusal(probe: Probe | null, blind = false): string | null {
   if (probe === null) return "Checking this machine…";
-  if (!settingsKnown(probe)) return "Reading this machine's configuration…";
+  // The hold, and only while the person has not chosen to go past it: a screen
+  // configuring BLIND (see `settingsUnreadable`) has a form on it and must be
+  // able to save what is in it.
+  if (!blind && !settingsKnown(probe)) return "Reading this machine's configuration…";
   if (probe.tmux === null) return "tmux is missing, and the server refuses to write its configuration without it.";
   return null;
 }
@@ -123,6 +130,37 @@ export function settingsSaveRefusal(probe: Probe | null): string | null {
 export function settingsKnown(probe: Probe): boolean {
   return probe.status !== null || probe.server === null;
 }
+
+/**
+ * Why the configuration could not be read, when that is what happened.
+ *
+ * **A hold needs a way out** (review, 2026-09-18). {@link settingsKnown} is
+ * right to stop the form seeding from a failed read — but a server binary
+ * whose `status --json` keeps failing (a wedged binary, a cold disk hitting
+ * the query timeout, a file the ladder resolved but cannot exec) would then
+ * leave this screen saying "reading…" forever, with no form and no error, on
+ * the machine it exists to repair.
+ *
+ * The probe carries the CLI's own words for exactly this, so the screen shows
+ * them and offers to configure blind rather than pretending to still be
+ * looking.
+ */
+export function settingsUnreadable(probe: Probe): string | null {
+  if (settingsKnown(probe)) return null;
+  return probe.error ?? "This machine's server did not answer when asked for its configuration.";
+}
+
+/**
+ * What a blind save is: writing these four values without having seen what is
+ * there now.
+ *
+ * Said above the form rather than at the button, because it changes what the
+ * fields MEAN — they are a proposal, not a reading — and someone who skips it
+ * would read defaults as the machine's own settings.
+ */
+export const SETTINGS_BLIND_WARNING =
+  "This machine's current configuration could not be read, so these are defaults rather than what it is running. " +
+  "Saving writes exactly what you see here.";
 
 /**
  * What a save says about supervision: **the machine as it already is**.

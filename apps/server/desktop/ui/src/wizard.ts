@@ -53,6 +53,7 @@ import { recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
   HTTPS_LOCKOUT_WARNING,
   httpsLockout,
+  SETTINGS_BLIND_WARNING,
   SETTINGS_LABEL,
   SETTINGS_RESTART_NOTE,
   SETTINGS_SUBTITLE,
@@ -61,6 +62,7 @@ import {
   settingsKnown,
   settingsPayload,
   settingsSaveRefusal,
+  settingsUnreadable,
 } from "./lib/settings-screen";
 import {
   type ActState,
@@ -326,6 +328,15 @@ let seeded = false;
  */
 let settingsForm: AddressForm | null = null;
 /**
+ * Whether the person chose to configure Server Addresses without a reading of
+ * the machine (review, 2026-09-18).
+ *
+ * Page state beside {@link settingsForm} and cleared with it, because it is a
+ * decision about THIS visit: a later one starts by looking again, which on a
+ * machine that has since been fixed is the right place to start.
+ */
+let settingsBlind = false;
+/**
  * That screen's Force box, once touched; `null` is untouched, and untouched
  * means unticked — an override that arrives pre-accepted is not an override.
  */
@@ -446,6 +457,7 @@ const host: AssistantHost = {
     // machine, so a stale draft would read as the configuration.
     supervisionForm = null;
     settingsForm = null;
+    settingsBlind = false;
     settingsForceChecked = null;
     settingsResult = null;
     screen = null;
@@ -2083,21 +2095,48 @@ function renderSettings(p: Probe): void {
   // repair. `settingsKnown` is the distinction; until it is true the screen
   // renders its own "reading this machine" line and no form, and
   // `settingsSaveRefusal` holds Save in the same state.
-  if (settingsForm === null && settingsKnown(p)) settingsForm = seedAddressForm(p.status?.settings);
+  if (settingsForm === null && (settingsKnown(p) || settingsBlind)) {
+    settingsForm = seedAddressForm(p.status?.settings);
+  }
   const state = settingsForm;
   setFrame("none", SETTINGS_LABEL, SETTINGS_SUBTITLE);
   const content = el("content");
   if (state === null) {
-    // Nothing to show yet, and nothing this screen could honestly prefill. The
-    // poll is 1500 ms and the bar still carries Back and Restart, so this is a
-    // moment rather than a dead end.
+    // **A hold needs a way out** (second review, 2026-09-18). While the read is
+    // merely pending this is a moment — the poll is 1500 ms and the bar still
+    // carries Back and Restart. But a server binary whose `status --json` keeps
+    // failing would sit here forever, on the machine this screen exists for, so
+    // the probe's own words appear as soon as it has any and the person can
+    // choose to configure without a reading.
+    const why = settingsUnreadable(p);
     content.append(text("p", "Reading this machine's configuration…", "hint"));
+    if (why !== null && p.error !== null) {
+      content.append(text("p", why, "hint warn-text"));
+      content.append(text("p", SETTINGS_BLIND_WARNING, "hint"));
+    }
     el("bar-left").append(button("Back", () => host.close(), "ghost"));
+    if (why !== null && p.error !== null) {
+      el("bar-right").append(
+        button(
+          "Configure anyway",
+          () => {
+            settingsBlind = true;
+            render();
+          },
+          "ghost",
+          busy || running,
+        ),
+      );
+    }
     el("bar-right").append(
       button("Restart", () => void runSettings(() => ipc.service("restart", false)), "ghost", busy || running),
     );
     return;
   }
+  // The same sentence, now above the fields it is about: they are a proposal
+  // rather than a reading, and someone who joined here would otherwise read
+  // defaults as the machine's own settings.
+  if (settingsBlind && !settingsKnown(p)) content.append(text("p", SETTINGS_BLIND_WARNING, "hint warn-text"));
   content.append(
     addressForm(p, state, {
       // Toggled IN PLACE as the field is typed, never by a re-render: the poll
@@ -2156,7 +2195,7 @@ function renderSettings(p: Probe): void {
     if (renderOutput(out, settingsResult)) content.append(out);
   }
 
-  const refusal = settingsSaveRefusal(p);
+  const refusal = settingsSaveRefusal(p, settingsBlind);
   const locked = busy || running;
   el("bar-left").append(button("Back", () => host.close(), "ghost"));
   if (refusal !== null) el("bar-right").append(text("span", refusal, "reason"));
@@ -2747,6 +2786,7 @@ function applyScreen(payload: string): void {
   // seeded from the machine, so a draft surviving into the next visit would be
   // showing a configuration the machine may no longer have.
   settingsForm = null;
+  settingsBlind = false;
   settingsForceChecked = null;
   settingsResult = null;
   // Same rule for the update act: its result and its fired-once latch belong

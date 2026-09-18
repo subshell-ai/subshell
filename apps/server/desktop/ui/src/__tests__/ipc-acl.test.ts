@@ -332,6 +332,15 @@ describe("the assistant's IPC contract", () => {
     expect(trust).toContain("pub fn committed(");
     expect(windows_src()).toContain("PageLoadEvent::Started");
     expect(windows_src()).toContain("committed(payload.url())");
+    // And re-deciding never re-reads the WINDOW (review, 2026-09-18): its
+    // `url()` is WebKit's ACTIVE url, which is the REQUESTED one while a load
+    // is in flight, so `evaluate`ing it on a timer hands the guard to a page
+    // that loops `location.href` at a port nothing answers on. Both re-check
+    // paths go through `revalidate`, which judges the last COMMITTED address.
+    expect(trust).toContain("pub fn revalidate(");
+    for (const src of [windows_src(), readFileSync(join(TAURI_DIR, "src/watch.rs"), "utf8")]) {
+      expect(src).not.toMatch(/evaluate\(&?(current|u|here)\b/);
+    }
     // And applied in front of every command, keyed on the calling window.
     expect(trust).toContain("pub fn guarding<");
     const lib = readFileSync(join(TAURI_DIR, "src/lib.rs"), "utf8");
