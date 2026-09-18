@@ -166,14 +166,15 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   const subshellName = `e2e-remote-${nonce}`;
 
   // ── 1. API truth: the server's own address is loopback under the e2e stack,
-  // which is what makes the dialog's amber hint (step 2) a mandatory render.
+  // which is what makes the address dropdown carry exactly one row (step 2):
+  // nothing else is reachable, and the old amber warning is gone.
   const pub = await request.get("/api/settings/public");
   expect(pub.ok(), await pub.text()).toBe(true);
   const { appBaseUrl } = (await pub.json()) as { appBaseUrl: string };
   expect(appBaseUrl).toBe(BASE_URL); // Task 3: appBaseUrl ≡ APP_BASE_URL ≡ the stack's origin
 
   // ── 2. Add-node dialog mints the key the agent will redeem; the rendered
-  // command carries the SERVER's address and the loopback warning is visible.
+  // command carries the SERVER's address and the address picker offers it.
   await page.goto("/nodes");
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
@@ -184,7 +185,12 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   expect(setupKey, "plaintext key is shown once").toMatch(/^nsk_/);
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
   await expect(command).toContainText(`${BASE_URL}/install.sh?setup_key=${setupKey}`);
-  await expect(dialog.getByText(/APP_BASE_URL points at loopback/)).toBeVisible(); // Task 3 pin
+  // The dropdown stands where the amber loopback paragraph used to be. Its
+  // one row is the base URL (a loopback-only stack knows no reachable
+  // address), and the command carries no `&server=` — the selection IS
+  // APP_BASE_URL, and a deviation is the only thing worth carrying.
+  await expect(dialog.locator('[data-slot="select-trigger"]')).toBeVisible();
+  await expect(command).not.toContainText("&server=");
   await dialog.getByRole("button", { name: "Done" }).click();
 
   // ── 3. The install script AS SERVED by this instance (Task 4 pins, through
@@ -197,6 +203,18 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   expect(script).toContain("SUBSHELL_DATA_DIR");
   expect(script).toMatch(/\*:\/\/localhost\*/); // the loopback warning's case branch
   expect(script).toContain(`SERVER="${BASE_URL}"`);
+  // The `server` param the address dropdown carries, asserted on the LIVE
+  // route (the bun test stages it through a plugin seam; this proves the
+  // production registry answers the same way). localhost:3199 is the other
+  // spelling of this stack's own origin; evil is nobody's origin.
+  const baked = await request.get(
+    `/install.sh?setup_key=${setupKey}&server=${encodeURIComponent("http://localhost:3199")}`,
+  );
+  expect(await baked.text()).toContain('SERVER="http://localhost:3199"');
+  const refused = await request.get(
+    `/install.sh?setup_key=${setupKey}&server=${encodeURIComponent("http://evil.invalid:3199")}`,
+  );
+  expect(await refused.text()).toContain(`SERVER="${BASE_URL}"`);
 
   // ── 4–7. The agent's lifetime is fully inside try/finally: a mid-story
   // failure must never leave a daemon, a node row, a spent key, or a tmux

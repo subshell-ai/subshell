@@ -1,6 +1,6 @@
 import { NODE_TARGETS } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,10 +13,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateSetupKey, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
-import { isLoopbackUrl } from "@/lib/loopback";
+import { installAddresses } from "@/lib/install-addresses";
 import { tmuxInstallHint } from "@/lib/tmux-install";
 import type { CreatedSetupKey } from "@/types/node";
 
@@ -26,7 +27,55 @@ import type { CreatedSetupKey } from "@/types/node";
  * copy-ready install command to run on the new machine. While the dialog is
  * open the page polls the node list every 3 s, and the waiting hint flips to
  * "enrolled" when the machine shows up.
+ *
+ * Step 2 names the address the node will DIAL FOREVER, not merely the host
+ * of the curl: the download address and the dial address are separate facts
+ * (a TLS proxy shows the server only loopback, the `Host` header is
+ * client-written, and one instance answers at several names), and only the
+ * operator's browser can see all of them. So the dialog offers the same
+ * address list the mobile picker builds — the trusted-origin allowlist,
+ * loopback rows dropped when anything else is known — and carries the pick
+ * to `GET /install.sh` as `server=`, which bakes it ONLY if the live
+ * registry still names it (`api/install-script.ts`). The paragraph that used
+ * to advise hand-editing the curl host is gone (operator's call, 2026-09-18):
+ * it was advice that could not work, since hand-editing never reached the
+ * baked address.
  */
+
+/** The `origin` of a config value, or null when it cannot be one. */
+function canonicalOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The one-liner for the chosen address.
+ *
+ * `&server=` rides ONLY on a deliberate deviation: when the pick is the
+ * canonicalized `APP_BASE_URL` the route's default already answers the
+ * chosen address, and the stock command stays byte-identical to the one this
+ * dialog has always rendered. When the base URL is unknown (still loading,
+ * a server predating the field) nothing is compared and nothing is carried —
+ * a server old enough to lack the field ignores the param anyway.
+ *
+ * A bracketed IPv6 row (a link-local or tailnet address the LAN probe
+ * derives) additionally earns `-g`: curl reads `[fe80::1]` as a glob range
+ * and dies with `(3) bad range in URL` before the server is reached, and the
+ * flag travels only with the commands that contain a glob character — every
+ * other command is the same bytes it has always been. With `-g` the param
+ * needs no percent-encoding, and the route admits the raw bracketed spelling
+ * (pinned in the downloads-route tests).
+ */
+export function installCommandFor(selected: string, key: string, appBaseUrl: string | undefined): string {
+  const canonical = canonicalOrigin(appBaseUrl);
+  const carry = canonical !== null && selected !== canonical ? `&server=${selected}` : "";
+  const glob = selected.includes("[") ? "g" : "";
+  return `curl -fsSL${glob} "${selected}/install.sh?setup_key=${key}${carry}" | bash`;
+}
 export function AddNodeDialog({
   open,
   onOpenChange,
@@ -50,6 +99,8 @@ export function AddNodeDialog({
   }, [open, refetch]);
   const [name, setName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const addressId = useId();
   // The one-time reveal: set after a successful create, cleared on close.
   const [created, setCreated] = useState<CreatedSetupKey | null>(null);
   const [copied, setCopied] = useState(false);
@@ -67,6 +118,7 @@ export function AddNodeDialog({
     setCreated(null);
     setName("");
     setFormError(null);
+    setChosen(null);
     setCopied(false);
     setBaselineCount(null);
     setBaselineIds(null);
@@ -107,13 +159,25 @@ export function AddNodeDialog({
   // they do not own. The generic line is still true in that case.
   const arrived = enrolled && baselineIds ? (nodeList?.nodes ?? []).filter((n) => !baselineIds.includes(n.id)) : [];
   const arrivedNode = arrived.length === 1 ? arrived[0] : undefined;
-  // Bake the SERVER's own address (APP_BASE_URL via /settings/public), not
-  // window.location.origin — the browser may reach the instance through a dev
-  // proxy port or a name the remote node cannot dial (spec 2026-08-31 §9.3
-  // loopback trap). The backend serves /install.sh and accepts the key as
-  // ?setup_key= (downloads route); origin is the pre-load fallback.
-  const baseUrl = publicSettings?.appBaseUrl ?? window.location.origin;
-  const installCommand = created ? `curl -fsSL "${baseUrl}/install.sh?setup_key=${created.key}" | bash` : "";
+  // The address comes from the trusted-origin allowlist (spec 2026-08-31 §9.3
+  // loopback trap), the same three sources and loopback drop the mobile
+  // picker uses — which is also the exact set the install.sh route will
+  // accept as `server=`. Nothing is reachable ⇒ the old single row
+  // (APP_BASE_URL, origin as pre-load fallback), because a command with no
+  // address is not a command.
+  const appBaseUrl = publicSettings?.appBaseUrl;
+  const baseUrl = appBaseUrl ?? window.location.origin;
+  const addressRows = installAddresses({
+    here: window.location.origin,
+    baseUrl: appBaseUrl,
+    trustedOrigins: publicSettings?.trustedOrigins,
+  }).map((address) => address.url);
+  const rows = addressRows.length > 0 ? addressRows : [baseUrl];
+  // Dropped when no longer on offer (the settings refetch-on-open can grow
+  // or shrink the list while this is open), then derived — not synced in an
+  // effect, so a selection cannot survive as a stale string.
+  const selected = rows.find((url) => url === chosen) ?? rows[0];
+  const installCommand = created ? installCommandFor(selected, created.key, appBaseUrl) : "";
   // The dialog cannot know the NEW machine's platform, so it judges the
   // one-liner by what the server can serve: a target missing from
   // nodeArtifactTargets 404s the download on that machine (the fresh
@@ -128,7 +192,7 @@ export function AddNodeDialog({
   const targets = publicSettings?.nodeArtifactTargets;
   const autoFetch = publicSettings?.nodeArtifactsAutoFetch ?? false;
   const missingTargets = targets && !autoFetch ? NODE_TARGETS.filter((t) => !targets.includes(t)) : [];
-  const enrollCommand = created ? `subshell enroll --server "${baseUrl}" --key "${created.key}"` : "";
+  const enrollCommand = created ? `subshell enroll --server "${selected}" --key "${created.key}"` : "";
   // Rendered in BOTH steps: the operator should learn the one-liner cannot
   // work BEFORE minting a single-use key they would then watch it 404 and
   // have to re-mint. The paragraph only reads nodeArtifactTargets, which is
@@ -196,6 +260,28 @@ export function AddNodeDialog({
               <code className="font-mono">{tmuxInstallHint("darwin")?.command}</code> on macOS or{" "}
               <code className="font-mono">{tmuxInstallHint("linux")?.command}</code> on Linux.
             </p>
+            {/* The dropdown, not a paragraph. Every row is an address this
+                instance trusts a sign-in from — and the one chosen is what
+                install.sh bakes as the node's SERVER (see the header), which
+                is why picking here and picking in the mobile dialog read the
+                same allowlist. A loopback-only instance gets the single row
+                it always got; the script's runtime loopback guard is the
+                note that fires where the fact is knowable. */}
+            <div className="space-y-2">
+              <Label htmlFor={addressId}>Address the node dials</Label>
+              <Select value={selected} onValueChange={(url: string | null) => url && setChosen(url)}>
+                <SelectTrigger id={addressId} className="w-full min-w-0">
+                  <SelectValue placeholder="Choose an address" />
+                </SelectTrigger>
+                <SelectContent>
+                  {rows.map((url) => (
+                    <SelectItem key={url} value={url}>
+                      <span className="truncate">{url}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <CopyCommandRow text={installCommand} />
             {missingNote && (
               <div className="space-y-2">
@@ -205,12 +291,6 @@ export function AddNodeDialog({
             )}
             {firstRunNote}
             {unknownNote}
-            {isLoopbackUrl(baseUrl) && (
-              <p className="text-amber-600 text-detail dark:text-amber-400">
-                APP_BASE_URL points at loopback ({baseUrl}). A remote node cannot dial this machine from itself; replace
-                the host with this machine's VPN/LAN address (or set APP_BASE_URL).
-              </p>
-            )}
             <p className="text-destructive text-detail">
               Single-use, expires in 24 h. This is the only time the full key is shown.
             </p>

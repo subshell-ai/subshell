@@ -132,7 +132,9 @@ let manualRoute: ManualRoute["target"] | null = null;
  * `failure` set. A reload after a crash re-fires, and the chain is idempotent
  * (`already_installed` compares size and version, `service install` no-ops on
  * an existing unit), so a half-finished first run resumes rather than
- * duplicating.
+ * duplicating. A completed RESET clears it through `host.rearmFirstRun` —
+ * the wipe is a new first run inside the same window load, and its welcome
+ * press must be able to fire.
  */
 let autoFired = false;
 /**
@@ -230,10 +232,10 @@ let portAsked: string | null = null;
  * title, and the box they sat in cost 124px of a frame that is now 620px
  * tall. They were decorative by construction (`aria-hidden`, and the title
  * under each said the same thing in words), so they were 124px spent on
- * repeating the heading. The wordmark stays for the boot frame: before the
- * first probe answers there is nothing to say but who is speaking. (Welcome
- * itself left with spec 2026-09-17 — the first run now names itself by
- * firing.)
+ * repeating the heading. The wordmark stays for the boot frame and for
+ * Welcome — screens where there is nothing to say but who is speaking.
+ * (Welcome left with spec 2026-09-17 and returned the next day by operator
+ * request; {@link renderWelcome} carries the reasoning.)
  *
  * Fixed set, inline, because the CSP allows no remote images.
  */
@@ -307,6 +309,14 @@ const host: AssistantHost = {
     supervisionForm = null;
     screen = null;
     render();
+  },
+  rearmFirstRun: () => {
+    // See {@link AssistantHost.rearmFirstRun}. `failure` goes with
+    // `autoFired` because both describe the PRE-reset chain: a first run
+    // that failed at `service install`, got reset instead, and then met the
+    // old failure screen under a brand-new welcome would be a ghost.
+    autoFired = false;
+    failure = null;
   },
 };
 
@@ -388,14 +398,47 @@ function installProgress(): HTMLElement {
 }
 
 /**
+ * The intro. Wordmark and one sentence — before the first probe there is
+ * nothing to say but who is speaking, and the D1 removal (spec 2026-09-17,
+ * "a first run announces itself by DOING") lasted one day: the operator
+ * asked for it back on 2026-09-18, "reset / initial state should always show
+ * it again", which the probe-derived list gives for free.
+ *
+ * Continue is the only control, and it carries weight: the setup chain's
+ * auto-fire lives in {@link renderSetup}, which this screen does not call,
+ * so NOTHING has touched the machine while the intro is up. The press does
+ * not start a journey — it steps to the one act `screensFor` has behind the
+ * greeting (form, auto-fire, or the tmux stop; the choice is the model's,
+ * computed here at press time so a tmux that appeared mid-read is honoured).
+ */
+function renderWelcome(p: Probe): void {
+  setFrame(
+    "icon",
+    "Welcome to Subshell",
+    `Subshell runs agent sessions in terminal panes you can watch from any device. Let's set up the server on ${here()}.`,
+  );
+  el("bar-right").append(
+    button(
+      "Continue",
+      () => {
+        const list = screensFor(p, p.onboarded);
+        go(list[1] ?? "setup");
+      },
+      "primary",
+    ),
+  );
+}
+
+/**
  * The one stop on the zero-touch first run (spec 2026-09-17 D2) — and it is
- * only ever reached with tmux MISSING. `screensFor` puts this screen on the
- * list exactly while `probe.tmux` is null, so there is no "already installed"
- * state to render and no Continue to press: the moment the poll sees a tmux,
- * the list stops containing this screen, `render()` re-resolves to `setup`,
- * and the chain fires itself. That advance is the whole point — the screen
- * that used to be shown on every first run needed the Continue its now-gone
- * found-state carried; this one leaves by itself.
+ * only ever reached with tmux MISSING, one Continue past the welcome.
+ * `screensFor` puts this screen on the list exactly while `probe.tmux` is
+ * null, so there is no "already installed" state to render and no Continue
+ * to press: the moment the poll sees a tmux, the list stops containing this
+ * screen, `render()` re-resolves PAST the already-pressed welcome to
+ * `setup`, and the chain fires itself. That advance is the whole point — the
+ * screen that used to be shown on every first run needed the Continue its
+ * now-gone found-state carried; this one leaves by itself.
  */
 function renderTmux(p: Probe): void {
   // The title names the STEP, not a result — a panel announcing something is
@@ -685,7 +728,9 @@ function renderSetup(p: Probe): void {
   }
   // --- Auto-fire (spec 2026-09-17 § 4.2). ---------------------------------
   // The ordinary first run never shows this screen's question: the chain
-  // fires itself and the progress checklist is the first thing on screen.
+  // fires itself and the progress checklist is what follows the intro. This
+  // function not running under Welcome is the fire's gate — the press at
+  // `renderWelcome` is what lets the machine be touched at all.
   // Two things must be true before the fire that the pure decision cannot
   // see, and both belong to the render rather than to `autoSetupDecision`:
   //
@@ -1891,14 +1936,24 @@ function render(): void {
   // screen list could not see and Back could not survive. A machine that
   // finishes its first run becomes onboarded, and "setup" is not on the
   // recovery family's list; same mechanism, same correction.
-  if (screen === null || !list.includes(screen)) screen = list[0] ?? "setup";
-  type JourneyScreen = "tmux" | "setup" | "recovery";
+  if (screen === null) {
+    screen = list[0] ?? "setup";
+  } else if (!list.includes(screen)) {
+    // A correction, not a greeting: the reader already pressed past the
+    // welcome, so a probe change must not land them back on it. This is the
+    // tmux-found advance — the list drops `tmux` mid-screen and the render
+    // walks to the ACT, where the chain fires. `list[0]` was that answer
+    // until Welcome returned to the head of the list on 2026-09-18.
+    screen = (list[0] === "welcome" ? list[1] : list[0]) ?? "setup";
+  }
+  type JourneyScreen = "welcome" | "tmux" | "setup" | "recovery";
   const views: Record<JourneyScreen, () => void> = {
+    welcome: () => renderWelcome(p),
     tmux: () => renderTmux(p),
     setup: () => renderSetup(p),
     recovery: () => renderRecovery(p),
   };
-  // `screen` is one of the three by construction — `list` only ever holds
+  // `screen` is one of the four by construction — `list` only ever holds
   // those — and the fallback exists so a family added later is the screen
   // that diagnoses rather than a blank window on a machine someone is
   // repairing.

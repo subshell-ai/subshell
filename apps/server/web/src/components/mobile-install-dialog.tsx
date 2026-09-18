@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { type InstallPlatform, installAddresses, installPlatformFor } from "@/lib/mobile-install";
+import { installAddresses } from "@/lib/install-addresses";
+import { type InstallPlatform, installPlatformFor } from "@/lib/mobile-install";
 
 /**
  * How to put Subshell on a phone — the address to open, and the gesture that
@@ -82,7 +83,7 @@ export function MobileInstallDialog({
   useEffect(() => {
     if (open) void refetch();
   }, [open, refetch]);
-  const ids = { address: useId(), hint: useId() };
+  const ids = { address: useId() };
   // The guess is the tab, never the only tab: someone at a desktop looking up
   // what their phone should do is a normal reason to be here.
   const [platform, setPlatform] = useState<InstallPlatform>(() => installPlatformFor());
@@ -98,10 +99,6 @@ export function MobileInstallDialog({
   // is open. Deriving instead of syncing in an effect is what keeps the
   // selection from surviving as a stale string.
   const selected = addresses.find((a) => a.url === chosen) ?? addresses[0];
-  // A `secureContext` statement about the BROWSER, not about encryption: a
-  // WireGuard mesh encrypts an http:// origin end to end, and service workers
-  // and passkeys still refuse it. Same wording as the Networking page's.
-  const insecure = selected?.url.startsWith("http://");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -130,9 +127,15 @@ export function MobileInstallDialog({
               its own LAN interfaces into the allowlist, so a row that cannot
               work for the phone is not a choice this picker should show. When
               there is genuinely nothing to offer, the refusal renders in the
-              QR slot below — not as an inert dropdown. */}
+              QR slot below — not as an inert dropdown.
+
+              And nothing explains the picker. It used to carry a paragraph on
+              how the allowlist is assembled and an amber note on what plain
+              http costs a PWA; both went 2026-09-18 (operator's call) because
+              the audience is developers and every clause restated the address
+              bar. `mobile-install-dialog.test.tsx` pins the absence. */}
           <Select value={selected?.url ?? ""} onValueChange={(url: string | null) => url && setChosen(url)}>
-            <SelectTrigger id={ids.address} aria-describedby={ids.hint} className="w-full min-w-0">
+            <SelectTrigger id={ids.address} className="w-full min-w-0">
               <SelectValue placeholder="Choose an address" />
             </SelectTrigger>
             <SelectContent>
@@ -143,11 +146,6 @@ export function MobileInstallDialog({
               ))}
             </SelectContent>
           </Select>
-          <p id={ids.hint} className="text-detail text-muted-foreground">
-            Every address this server accepts a sign-in from — its own, including the addresses of its own network
-            interfaces, any you added under Service, and every network it has joined. Pick one your phone can reach —
-            the same Wi-Fi, or the same VPN or mesh network.
-          </p>
         </div>
 
         {/* One slot, two states — and the refusal renders WHERE THE QR WOULD
@@ -190,17 +188,6 @@ export function MobileInstallDialog({
                 : "An admin can join a network, or add the address you reach it by, and it will appear here."}
             </p>
           </div>
-        )}
-
-        {insecure && (
-          <p data-testid="insecure-note" className="text-detail text-warning">
-            This address is plain <code>http://</code>, so a browser will not treat it as secure: an iPhone still adds
-            it to the Home Screen, but notifications never arrive there, and Chrome offers a shortcut rather than an
-            app.{" "}
-            {settings?.viewerIsAdmin
-              ? "An https address — one published under Server Settings → Networking — fixes both."
-              : "An admin can publish this server on a network to get an https address."}
-          </p>
         )}
 
         <div className="space-y-2">

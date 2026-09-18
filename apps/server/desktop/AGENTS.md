@@ -120,11 +120,18 @@ over a running server, or a recovery Start, has no result owed to a reader.
 `ranSetupHere` is page state because the `ready` probe cannot say it — the
 probe flags `onboarded` on the very read that reaches the handoff, so the flag
 that gates the press has to be remembered by the window that ran the chain.
-The one stop before that is Install tmux, shown ONLY while
+The one ACT before it is Install tmux, shown ONLY while
 tmux is missing (the old always-shown rule existed to keep the dots honest;
-the dots are gone); the poll seeing tmux re-resolves to the chain and it
-fires. Welcome left the journey and `ScreenId`; permissions left the first run
-and stays request-only (§ "macOS permissions"). A port conflict, a
+the dots are gone); the poll seeing tmux re-resolves PAST the intro to the
+chain and it fires. **Welcome leads the first run again** (operator's call
+2026-09-18, one day after D1 deleted it: "reset / initial state should always
+show it again" — the probe-derived list restarts on its own, and a completed
+reset re-arms the fired-this-load latch through `host.rearmFirstRun`; a
+cancelled one does not, and the pins in `wizard-state.test.ts` hold both
+halves). The intro is inert by construction: the auto-fire lives in
+`renderSetup`, which Welcome does not render, so nothing touches the machine
+until the press. Permissions stayed off the first run and request-only
+(§ "macOS permissions"). A port conflict, a
 busy gate, or a no-bundled build lands on the pre-filled form instead of
 failing a chain nobody pressed — `autoSetupDecision` is the pure fork,
 `canSetup` the one refusal predicate, and the page holds fire until the port
@@ -496,7 +503,8 @@ binary loads `devUrl`, so the relaunched window renders white against a dead
 Under `cfg!(debug_assertions)` (runtime, not `#[cfg]`, so `schedule_restart`
 never goes dead-code) the success arm takes the window-move fallback that
 already existed for "a restart that does not happen": the live page
-re-probes, sees `onboarded: false`, and draws first run in place. Release
+re-probes, sees `onboarded: false`, and draws first run in place — from
+Welcome, re-armed for the press (§ "The assistant"). Release
 ships embedded assets and restarts as designed — the white window was never
 a shipped-app bug, and nothing on the reset path branches on build kind
 except this gate.

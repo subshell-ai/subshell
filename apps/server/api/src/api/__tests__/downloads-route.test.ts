@@ -31,6 +31,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { mintUpdateToken, resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { originRegistry } from "@/services/trusted-origins.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 // Assembled like createApp(): the GLOBAL error handler is mounted before the
@@ -357,6 +358,129 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body.indexOf('$VERIFY "$TMP.sha256"')).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
     expect(body.indexOf("$TARGET.sha256")).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
     expect(body).not.toContain("exit 2");
+  });
+
+  // ── the `server` param (the Add-node dialog's address dropdown) ─────────
+  // The download address and the address the node DIALS FOREVER are separate
+  // facts, and the process cannot observe the second one (a TLS proxy shows
+  // only loopback; the Host header is client-written; several names are all
+  // true at once). So the dialog carries its choice in the URL, and the route
+  // accepts it ONLY as exact membership of the live trusted-origin registry —
+  // the same allowlist the sign-in gate reads. Anything else bakes
+  // APP_BASE_URL, exactly as before the param existed.
+
+  async function installWithServer(key: string, server: string): Promise<Response> {
+    const q = `?setup_key=${encodeURIComponent(key)}&server=${encodeURIComponent(server)}`;
+    return app.fetch(new Request(`http://localhost:3080/install.sh${q}`));
+  }
+
+  /** 192.0.2.0/24 is TEST-NET-1 (RFC 5737): never a real interface, so an
+   * accept here can only have come from the registry, not the LAN probe. */
+  const TRUSTED = "http://192.0.2.10:3080";
+
+  it("install.sh with a `server` param that is a trusted origin bakes that address, not APP_BASE_URL", async () => {
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", [TRUSTED]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, TRUSTED)).text();
+      expect(body).toContain(`SERVER="${TRUSTED}"`);
+      expect(body).not.toContain(`SERVER="${APP_BASE_URL}"`);
+    } finally {
+      registry.clearPlugin("dl-test");
+    }
+  });
+
+  it("install.sh refuses a `server` param outside the allowlist and bakes APP_BASE_URL instead", async () => {
+    // Unparseable, wildcard-shaped, and shell-shaped: all three answer the
+    // same way as an absent param. What makes the value unexpandable is the
+    // SYNTACTIC BELT plus registry membership — NOT the URL parse: measured
+    // on bun 1.4.2, `new URL("http://a%24(b)test").origin` percent-DECODES to
+    // `http://a$(b)test`, so `$(` does survive parsing (the `$(echo PWNED)`
+    // entry here is refused only because a space makes it unparseable). The
+    // belt itself is pinned by the next test, because a registry entry is the
+    // one input that reaches `has()` already trusted.
+    const key = await mkKey();
+    for (const bad of ["http://evil.example", "https://*", "http://a$(echo PWNED).test", "not a url", ""]) {
+      const body = await (await installWithServer(key, bad)).text();
+      expect(body).toContain(`SERVER="${APP_BASE_URL}"`);
+      expect(body).not.toContain("PWNED");
+    }
+  });
+
+  it("install.sh refuses even a registry member whose spelling bash would expand", async () => {
+    // THE belt test: every other refusal above falls out before the
+    // syntactic check, so deleting `BAKABLE_ORIGIN` would keep this suite
+    // green. Here the entry IS in the registry — `canonicalPluginOrigin`
+    // percent-DECODES, so `http://a%24(b)test` is stored as the literal
+    // `http://a$(b)test` (measured, bun 1.4.2) — canonicalization matches,
+    // `has()` matches, and ONLY the belt stands between it and
+    // `SERVER="http://a$(b)test"` in a script bash executes on the new
+    // machine. This is the hand-edited-config.env class (operator entries
+    // join the registry verbatim); the plugin staging seam is its test
+    // route because productionDeps reads a file this test cannot own.
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", ["http://a%24(b)test"]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, "http://a$(b)test")).text();
+      expect(body).toContain(`SERVER="${APP_BASE_URL}"`);
+      expect(body).not.toContain("$(b)");
+    } finally {
+      registry.clearPlugin("dl-test");
+    }
+  });
+
+  it("install.sh bakes an underscore hostname — URL.origin emits `_`, so the belt must admit it", async () => {
+    // `http://dev_server:3080` is a common LAN DNS spelling and the kernel
+    // probe puts it in the registry; a belt that refused it would offer the
+    // row, carry the param, then silently bake APP_BASE_URL instead — the
+    // feature no-opping on exactly the machines it exists for. `_` is inert
+    // inside bash double quotes UNLESS preceded by `$` (parameter
+    // expansion), and the class still excludes `$`, backtick, `!` and every
+    // other opener, so admitting it costs nothing.
+    const host = "http://dev_server:3080";
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", [host]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, host)).text();
+      expect(body).toContain(`SERVER="${host}"`);
+    } finally {
+      registry.clearPlugin("dl-test");
+    }
+  });
+
+  it("install.sh bakes a bracketed IPv6 origin spelled raw in the query", async () => {
+    // The Add-node dialog's `-g` variant sends `server=http://[fe80::1]:3080`
+    // UNencoded (brackets would otherwise trip curl's own globber); the
+    // route's canonicalizer and belt must both admit the IPv6 literal or the
+    // tailnet/link-local row is decoration.
+    const host = "http://[fe80::1]:3080";
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", [host]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, host)).text();
+      expect(body).toContain(`SERVER="${host}"`);
+    } finally {
+      registry.clearPlugin("dl-test");
+    }
+  });
+
+  it("install.sh canonicalizes the `server` param before matching it", async () => {
+    // The dialog sends a canonical origin, but a hand-edited command with a
+    // trailing slash or path names the SAME address and must bake the same
+    // canonical spelling — never the sloppy one.
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", [TRUSTED]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, `${TRUSTED}/install.sh`)).text();
+      expect(body).toContain(`SERVER="${TRUSTED}"`);
+    } finally {
+      registry.clearPlugin("dl-test");
+    }
   });
 
   it("install.sh checks tmux BEFORE the download, warns with the platform's command, and does not fail", async () => {

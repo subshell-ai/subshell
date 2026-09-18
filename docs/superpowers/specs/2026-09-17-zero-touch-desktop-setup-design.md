@@ -235,3 +235,17 @@ live panes exist. (Reuse the restart route's pane-safety framing, wording new.)
   `renderFailure` with the action's own output (the existing `failure`
   plumbing), Details expanded to the last action; the chain remains resumable
   per § 4.2.
+
+## 9. Amendment (2026-09-18): D1's intro half is reversed
+
+The operator asked for the Welcome screen back — "reset / initial state
+should always show it again". What returns is the screen only: wordmark,
+one sentence, Continue. What D1 keeps is everything else — no dot row, no
+always-shown tmux, no permissions step, and the ordinary first run still
+auto-fires with zero typing. The fire now waits one press: it lives in
+`renderSetup`, which the welcome does not render, so "a first run announces
+itself by DOING" still holds the moment anyone consents to it — it is only
+the *while reading* doing that went back out. The probe-derived list restarts
+the intro after a reset by construction; the completed reset also clears the
+fired-this-load latch (`host.rearmFirstRun`) so the post-reset first run
+fires like a real one, and a cancelled reset clears nothing.
