@@ -48,6 +48,7 @@ import {
   autoSetupDecision,
   autostartSupported,
   canSetup,
+  checklistAddresses,
   DEFAULT_SUPERVISION,
   failureLine,
   handoffView,
@@ -871,9 +872,12 @@ function renderProgress(p: Probe): void {
  * the moment it turns into an answer is the jarring thing the operator
  * reported (2026-09-17; {@link handoffView} carries the whole history).
  *
- * The title differs because the sentence does. A first run is finishing; an
- * onboarded machine whose server just came back was never setting anything
- * up, and telling it so would be the app narrating its own state machine.
+ * The NON-WAITING title differs by family because the sentences do. A first
+ * run is finishing; an onboarded machine whose server just came back was
+ * never setting anything up, and telling it so would be the app narrating
+ * its own state machine. The waiting title is family-blind by design — the
+ * press is owed for any run this window executed, whichever family it
+ * started in ({@link handoffView}).
  */
 function renderHandoff(p: Probe): void {
   if (openFailed) {
@@ -1565,7 +1569,10 @@ function renderFailure(p: Probe): void {
 function checklist(p: Probe, undoneState: "active" | "failed"): HTMLUListElement {
   const ul = document.createElement("ul");
   ul.className = "checklist";
-  const rows = setupRows(p, { port: form.port, host: form.host }, supervision);
+  // NOT `form.port`/`form.host` raw: on the auto-fired chain the form never
+  // rendered, and the row would read "port 3080" off a machine the chain
+  // just left on its stored 4000 — under a subtitle vouching for the list.
+  const rows = setupRows(p, checklistAddresses(p, form), supervision);
   const first = rows.find((r) => !r.done);
   for (const row of rows) {
     const li = document.createElement("li");
@@ -1724,6 +1731,13 @@ async function startSetup(): Promise<void> {
   running = true;
   failure = null;
   problem = "";
+  // A new run earns its own dismissal. `continued` latches the ready screen's
+  // press for the window; leaving it set would let a SECOND chain — a retry
+  // after a failed open, or a dev-build reset that redrew first run in place
+  // — auto-navigate on the FIRST visit's press, which is the skipped-press
+  // bug back. `ranSetupHere` is NOT cleared: a completed chain that ran here
+  // is still one that ran here, and the flag is what gates showing the result.
+  continued = false;
   render();
   let result: ActionResult | null = null;
   try {
@@ -1843,6 +1857,17 @@ function render(): void {
     return;
   }
   if (list.length === 0) {
+    // The progress screen owns the window while the chain runs, READY PROBE
+    // OR NOT. The poll ticks precisely because `running` is set, and the
+    // port binds before `startSetup`'s finally records `ranSetupHere` — a
+    // tick landing inside that window would render the handoff with the flag
+    // still false, and `handoffView` would auto-open: the skipped press this
+    // screen exists to prevent. Same guard `renderSetup` and `renderRecovery`
+    // run; the ready branch is where a chain's last seconds are spent.
+    if (running) {
+      renderProgress(p);
+      return;
+    }
     // Ready, in either family: the dashboard is what comes next. The replay
     // is triggered HERE because no button press routed through `go()` — and
     // it is guarded, because `next === "ready"` stays true on every later

@@ -10,6 +10,7 @@
  * last result) stays in wizard.ts; only facts a probe licenses live here, so a
  * reopen after a quit or a CLI-driven half-setup renders honestly.
  */
+import { effectiveForm } from "./config-form";
 import type { ActionResult, Probe, ProbeStep } from "./ipc";
 
 /**
@@ -290,6 +291,26 @@ export function recoveryAction(step: ProbeStep): { label: string; kind: Recovery
 // without a webview; with the row gone there is no arithmetic to test, and
 // keeping the function would keep the fiction that the positions mean
 // something.
+
+/**
+ * The two address facts the checklist shows, resolved the way the rest of
+ * the page resolves them: a value the FORM holds outranks (typed, or seeded
+ * when the Customize disclosure rendered), and until then the row reads the
+ * machine — `status --json`'s effective settings — not the form's blanks.
+ *
+ * `setupRows` cannot fall back internally because a field the person typed
+ * is not distinguishable from a field never rendered inside the form
+ * object alone, and this page's zero-touch path — and the recovery screen's
+ * Set Up — fires the chain without EVER rendering the form. Raw fields then
+ * printed "port 3080, all interfaces" under the ready screen's "Everything
+ * below is set up and running" on a machine the chain had just left on the
+ * stored 4000. Same ladder the page's `chosenPort` walks for the port
+ * conflict check.
+ */
+export function checklistAddresses(probe: Probe, form: { port: string; host: string }): { port: string; host: string } {
+  const stored = effectiveForm(probe.status?.settings);
+  return { port: form.port || stored.port, host: form.host || stored.host };
+}
 
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";
 
