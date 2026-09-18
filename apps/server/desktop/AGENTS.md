@@ -109,8 +109,18 @@ journey to count, and the row that counted screens the person never saw was
 the defect the removal closed.
 
 **First run is zero-touch** (spec 2026-09-17 § 4): the page FIRES the setup
-chain itself — the progress checklist is the first screen, and it opens the
-dashboard by itself when done. The one stop is Install tmux, shown ONLY while
+chain itself — the progress checklist is the first screen. It does NOT open the
+dashboard by itself when the chain that ran HERE finishes: a pane that
+navigates away at the moment it turns into an answer is jarring whichever way
+the run arrived, so the completed checklist holds under *Subshell Server Is
+Ready* until the person presses **Continue** (operator report, 2026-09-17,
+restoring what § 4.2 had deleted the same day — `handoffView` carries both
+rulings). A run this window did NOT start still hands off by itself: reopening
+over a running server, or a recovery Start, has no result owed to a reader.
+`ranSetupHere` is page state because the `ready` probe cannot say it — the
+probe flags `onboarded` on the very read that reaches the handoff, so the flag
+that gates the press has to be remembered by the window that ran the chain.
+The one stop before that is Install tmux, shown ONLY while
 tmux is missing (the old always-shown rule existed to keep the dots honest;
 the dots are gone); the poll seeing tmux re-resolves to the chain and it
 fires. Welcome left the journey and `ScreenId`; permissions left the first run

@@ -7,6 +7,7 @@ import {
   autoSetupDecision,
   autostartSupported,
   canSetup,
+  checklistAddresses,
   DEFAULT_SUPERVISION,
   failureLine,
   handoffView,
@@ -155,6 +156,85 @@ describe("auto-fire, pinned at the source", () => {
     // lost its dual-role and the routing lost the disambiguator with it.
     expect(wizard).toContain("if (isRequestedScreen(screen)) {");
     expect(wizard).not.toContain("isRequestedScreen(screen) && !list.includes(screen)");
+  });
+});
+
+/**
+ * The waiting handoff is render-path code importing Tauri, so its wiring is
+ * pinned at the source exactly as the auto-fire's is above. The pure
+ * decision cannot open a window or draw a checklist; these are the things
+ * only the page can get wrong.
+ */
+describe("the waiting handoff, pinned at the source", () => {
+  const wizard = readFileSync(join(import.meta.dir, "../wizard.ts"), "utf8");
+  const at = wizard.indexOf("function renderHandoff(");
+  const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
+
+  it("exists", () => {
+    expect(at, "renderHandoff must exist").toBeGreaterThan(-1);
+  });
+
+  it("opens the dashboard only when the view does not wait", () => {
+    // The whole report was an auto-navigation nobody dismissed:
+    // `openWhenReady()` must live INSIDE the not-waiting branch, and it must
+    // be the ONLY call in this function — the #74 shape (the call beside the
+    // frame, unconditional) is the behavior back. Range checks, not a brace
+    // regex: the property is WHERE the call sits, and a pin that forbids a
+    // comment with a `}` in the branch fails on correct code.
+    const guard = body.indexOf("if (!view.wait) {");
+    const open = body.indexOf("openWhenReady();");
+    expect(guard).toBeGreaterThan(-1);
+    expect(open, "renderHandoff must still open the dashboard, guarded").toBeGreaterThan(guard);
+    expect(body.indexOf("openWhenReady();", open + 1), "a second call site is an unguarded one").toBe(-1);
+    expect(open).toBeLessThan(body.indexOf('el("content").append(checklist', guard));
+  });
+
+  it("holds the progress screen while a chain runs, so the poll cannot skip the press", () => {
+    // The poll keeps ticking WHILE `running` (that is what keeps the progress
+    // screen alive), and the port binds before `startSetup`'s finally sets
+    // `ranSetupHere`. Without this guard a tick that observes `ready` inside
+    // that window renders the handoff with the flag still false — the exact
+    // skipped press the screen exists to prevent. Same guard renderSetup and
+    // renderRecovery already run; now the ready branch runs it too.
+    const render = wizard.slice(wizard.indexOf("function render(): void {"));
+    const readyAt = render.indexOf("if (list.length === 0) {");
+    const guardAt = render.indexOf("if (running)", readyAt);
+    expect(readyAt).toBeGreaterThan(-1);
+    expect(guardAt, "the ready branch must check `running`").toBeGreaterThan(-1);
+    expect(guardAt).toBeLessThan(render.indexOf("renderHandoff(p)", readyAt));
+  });
+
+  it("releases the previous press when a new chain starts", () => {
+    // `continued` latches for the window otherwise, so a second chain that
+    // ran here — after a failed open retried, or a dev-build reset that
+    // redrew first run in place — would auto-navigate on the FIRST visit's
+    // dismissal. Each run earns its own.
+    const start = wizard.slice(
+      wizard.indexOf("async function startSetup("),
+      wizard.indexOf("\nasync function pickBinary"),
+    );
+    expect(start).toContain("continued = false;");
+    expect(start.indexOf("continued = false;")).toBeLessThan(start.indexOf("await ipc.setup("));
+  });
+
+  it("feeds the checklist the stored addresses, not the empty form", () => {
+    const at = wizard.indexOf("function checklist(");
+    expect(wizard.slice(at, wizard.indexOf("\n", wizard.indexOf("setupRows(", at)))).toContain(
+      "checklistAddresses(p, form)",
+    );
+  });
+
+  it("keeps the completed checklist on screen and offers the press", () => {
+    expect(body).toContain('checklist(p, "active")');
+    expect(body).toContain('"Continue"');
+    expect(body).toContain("continued = true;");
+  });
+
+  it("records that this window ran the chain when the chain succeeded", () => {
+    // Not the probe: `onboarded` flips on the first `ready`, which is the
+    // same probe that reaches the handoff, so the page must remember the
+    // chain ran here.
+    expect(wizard).toContain("if (result?.ok) ranSetupHere = true;");
   });
 });
 
@@ -670,24 +750,90 @@ describe("MIN_AUTOSTART_SERVER_VERSION", () => {
   });
 });
 
+describe("checklistAddresses", () => {
+  // The checklist's Configuration row is drawn from the FORM first, and the
+  // form is empty until the Customize disclosure renders once. On the
+  // zero-touch path — the chain fires itself — and on the recovery screen's
+  // Set Up, it never has. Reading the raw fields then printed
+  // "port 3080, all interfaces" under "Everything below is set up and
+  // running" on a machine the chain had just left on 4000/127.0.0.1.
+  it("falls back to the stored settings when the form never rendered", () => {
+    const stored = virgin({
+      status: {
+        configEnv: { exists: true, path: "/home/op/.config/subshell-server/config.env" },
+        settings: {
+          SERVER_PORT: { value: "4000", source: "config-file" },
+          HOST: { value: "127.0.0.1", source: "config-file" },
+        },
+      },
+    });
+    expect(checklistAddresses(stored, { port: "", host: "" })).toEqual({ port: "4000", host: "127.0.0.1" });
+  });
+
+  it("keeps what the form holds, typed or seeded", () => {
+    expect(checklistAddresses(virgin(), { port: "4321", host: "" })).toEqual({ port: "4321", host: "" });
+  });
+
+  it("stays blank on a virgin machine, where setupRows' own defaults are the truth", () => {
+    expect(checklistAddresses(virgin(), { port: "", host: "" })).toEqual({ port: "", host: "" });
+  });
+});
+
 describe("handoffView", () => {
-  // The waiting variant (2026-09-14's "a run you watched must end on a
-  // screen you dismiss") left with the press it waited for: spec 2026-09-17
-  // § 4.2 fires the chain itself, so nobody chose to watch a run, and the
-  // handoff is only the moment its title already names.
-  it("hands off by itself, in both families", () => {
-    const onboarded = handoffView({ onboarded: true });
-    expect(onboarded.title).toBe("Your Server Is Running");
-    expect(onboarded.subtitle).toBe("Opening your dashboard…");
-    const firstRun = handoffView({ onboarded: false });
-    expect(firstRun.title).toBe("Setting Up Subshell…");
-    expect(firstRun.subtitle).toBe("Opening your dashboard…");
+  // Spec 2026-09-17 § 4.2 deleted the waiting variant — the chain fires
+  // itself, so nobody owed a run nobody chose to watch a dismissal. The
+  // operator report brought it back the same day: a run that DISMISSES
+  // itself is jarring in exactly the other way — the checklist vanishes at
+  // the moment it turns into an answer. A run this window executed ends on
+  // a screen the person dismisses; everything else still hands off by
+  // itself.
+  it("waits for a press after a chain that ran in this window", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: false });
+    expect(view.wait).toBe(true);
+    expect(view.title).toBe("Subshell Server Is Ready");
+    expect(view.subtitle).toContain("set up and running");
+  });
+
+  it("opens the dashboard once they continue", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: true });
+    expect(view.wait).toBe(false);
+    expect(view.subtitle).toBe("Opening your dashboard…");
+  });
+
+  it("never sends an already-set-up machine to account creation", () => {
+    // The recovery screen's "Set Up" runs the SAME chain (`runRecovery`'s
+    // "setup" action), so `ranSetupHere` cannot prove this was a first run
+    // — and `onboarded` cannot either at this moment: the probe marks the
+    // flag on the very `ready` that reaches this screen (R16). The waiting
+    // subtitle therefore states only the shared fact. The deleted design
+    // said "Next, create your account" unconditionally, which was a lie to
+    // a machine that lost its binary and re-set itself up.
+    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: false });
+    expect(view.subtitle).not.toMatch(/account/i);
+  });
+
+  // `onboarded` cannot stand in for `ranSetupHere`: a ready probe sets it on
+  // a machine that never saw the setup chain — the assistant reopened over a
+  // running server, or a deep link dismissed back to ready.
+  it("still hands off instantly when this window ran nothing", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
+    expect(view.wait).toBe(false);
+    expect(view.title).toBe("Your Server Is Running");
+    expect(view.subtitle).toBe("Opening your dashboard…");
+  });
+
+  it("keeps the first-run wording for a machine that never onboarded", () => {
+    const view = handoffView({ onboarded: false, ranSetupHere: false, continued: false });
+    expect(view.title).toBe("Setting Up Subshell…");
+    expect(view.subtitle).toBe("Opening your dashboard…");
   });
 
   it("names the machine's family, not the window's history", () => {
     // The title split survives because the SENTENCES differ: a first run is
     // finishing; an onboarded machine whose server came back was never
     // setting anything up.
-    expect(handoffView({ onboarded: true }).title).not.toBe(handoffView({ onboarded: false }).title);
+    const no = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
+    const yes = handoffView({ onboarded: false, ranSetupHere: false, continued: false });
+    expect(no.title).not.toBe(yes.title);
   });
 });

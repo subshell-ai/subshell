@@ -10,6 +10,7 @@
  * last result) stays in wizard.ts; only facts a probe licenses live here, so a
  * reopen after a quit or a CLI-driven half-setup renders honestly.
  */
+import { effectiveForm } from "./config-form";
 import type { ActionResult, Probe, ProbeStep } from "./ipc";
 
 /**
@@ -291,6 +292,26 @@ export function recoveryAction(step: ProbeStep): { label: string; kind: Recovery
 // keeping the function would keep the fiction that the positions mean
 // something.
 
+/**
+ * The two address facts the checklist shows, resolved the way the rest of
+ * the page resolves them: a value the FORM holds outranks (typed, or seeded
+ * when the Customize disclosure rendered), and until then the row reads the
+ * machine — `status --json`'s effective settings — not the form's blanks.
+ *
+ * `setupRows` cannot fall back internally because a field the person typed
+ * is not distinguishable from a field never rendered inside the form
+ * object alone, and this page's zero-touch path — and the recovery screen's
+ * Set Up — fires the chain without EVER rendering the form. Raw fields then
+ * printed "port 3080, all interfaces" under the ready screen's "Everything
+ * below is set up and running" on a machine the chain had just left on the
+ * stored 4000. Same ladder the page's `chosenPort` walks for the port
+ * conflict check.
+ */
+export function checklistAddresses(probe: Probe, form: { port: string; host: string }): { port: string; host: string } {
+  const stored = effectiveForm(probe.status?.settings);
+  return { port: form.port || stored.port, host: form.host || stored.host };
+}
+
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";
 
 export interface SetupRow {
@@ -496,29 +517,59 @@ export function failureLine(result: ActionResult): string {
 
 /** What the ready screen says before the dashboard takes over. */
 export interface HandoffView {
+  /**
+   * Whether the screen waits for a Continue instead of opening the
+   * dashboard itself. True only for the handoff of a chain that ran in
+   * THIS window, before the person has pressed (see {@link handoffView}).
+   */
+  wait: boolean;
   title: string;
   subtitle: string;
 }
 
 /**
- * Whether the last screen hands off by itself: it always does.
+ * Whether the last screen hands off by itself, or waits to be dismissed.
  *
- * It used to WAIT for a press when the setup chain had run in this window
- * (2026-09-14: a chain that finishes in under a second flashed its checklist
- * past and taught the reader the result was not worth reading). Spec
- * 2026-09-17 § 4.2 removed the press with the press it was waiting for — the
- * chain now fires itself, so nobody "watched a chain run" in the sense that
- * owed them a dismissal, and the handoff screen survives only as the "Opening
- * your dashboard…" moment its title already names. The progress checklist is
- * still the screen that ran; it simply hands off when it finishes.
+ * 2026-09-14 put a press here, because "a chain that finishes in under a
+ * second flashed its checklist past and taught the reader the result was
+ * not worth reading". Spec 2026-09-17 § 4.2 deleted it when the chain
+ * started firing itself: nobody owed a dismissal to a run nobody chose to
+ * watch. The operator report of 2026-09-17 restored it the same day, and
+ * the two rulings name the SAME defect from opposite ends — a screen that
+ * navigates away by itself at the moment it turns into an answer is
+ * jarring whichever way the run arrived. So: a chain that ran IN THIS
+ * WINDOW ends on the completed checklist with a Continue that is the
+ * person's press, not the window's; anything else — a window opened over a
+ * running server, a requested screen dismissed back to ready, a recovery
+ * Start that simply started the service — hands off as its title says.
  *
- * The title still differs by family: a first run is finishing, and an
- * onboarded machine whose server just came back was never setting anything up
- * — telling it so would be the app narrating its own state machine.
- * @param opts.onboarded - Whether this machine had completed setup before
+ * Why `ranSetupHere` must be page state rather than a probe fact: the
+ * probe marks `onboarded` on the very `ready` that reaches this screen
+ * (R16), so at handoff time `onboarded` cannot tell "this window just set
+ * the machine up" from "someone reopened the assistant over a server that
+ * was already running". It also cannot steer the waiting SUBTITLE: the
+ * recovery screen's Set Up runs the same chain, so on this screen
+ * `ranSetupHere` does not license an "account creation" sentence either —
+ * the deleted design carried one unconditionally, which lied to a machine
+ * that lost its binary and re-set itself up.
+ *
+ * The non-waiting title still differs by family: a first run is finishing,
+ * and an onboarded machine whose server just came back was never setting
+ * anything up — telling it so would be the app narrating its own state
+ * machine.
  */
-export function handoffView(opts: { onboarded: boolean }): HandoffView {
+export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; continued: boolean }): HandoffView {
+  if (opts.ranSetupHere && !opts.continued) {
+    return {
+      wait: true,
+      title: "Subshell Server Is Ready",
+      // States the fact the checklist below shows and nothing this screen
+      // cannot know — see the subtitle note above.
+      subtitle: "Everything below is set up and running.",
+    };
+  }
   return {
+    wait: false,
     title: opts.onboarded ? "Your Server Is Running" : "Setting Up Subshell…",
     subtitle: "Opening your dashboard…",
   };
