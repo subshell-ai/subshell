@@ -500,3 +500,27 @@ Identical shape, identical divergence (an agent installed by hand outranks the
 bundle), with one difference that follows from §7.1: the agent half has no
 restart to force, so Force applies to the server app's rows only and is not
 rendered where nothing it governs is selectable.
+
+### 13.4 Two decisions taken on the operator's "do what you think is best"
+
+**Force stays scoped to the pane-safety refusal.** The request was that it
+"force any selections". It governs the one refusal a person may legitimately
+overrule — a restart that closes live subshells — and nothing else. The
+refusal it may NOT overrule is the adopt-installed one, because
+`migrator.migrateToLatest()` is forward-only: an older server cannot boot on a
+database a newer one has migrated, so the checkbox would be offering an
+unbootable machine rather than a risk someone can accept. Root `AGENTS.md`
+already calls that "data loss, not a choice to present"; this is that rule
+applied to a control, not a new judgement.
+
+**The update screen does NOT name `update --from`.** Wanting an older CLI is a
+recovery motive — the newer one is broken — and this screen is about moving
+forward. Putting a downgrade command on it would advertise the act to everyone
+who came to do the opposite, and the people who need it are not looking here.
+
+They are looking at the RECOVERY screen, which already carries
+**"Choose subshell-server…"** (`recoveryAction`, the `no-server` step) — the
+affordance for pointing this app at a different binary, on the screen a person
+reaches when their server will not run. The path exists and is reachable from
+the state that motivates it, which is the test that matters; it does not also
+need to be on the screen where it would be a temptation.
