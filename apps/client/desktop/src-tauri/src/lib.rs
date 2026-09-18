@@ -144,7 +144,6 @@ pub fn run() {
     }
 
     builder
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // Updating THIS APP (spec 2026-09-15 § 7.2). The plugin's own
         // `endpoints` config is deliberately empty: this repository publishes
@@ -163,7 +162,6 @@ pub fn run() {
             control::node_enroll,
             control::node_configure,
             control::node_service,
-            control::node_set_agent_bin,
             control::node_about,
             control::node_open_web,
             control::node_pending_screen,

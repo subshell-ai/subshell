@@ -56,11 +56,6 @@ description = "Drive one `subshell service` verb. Includes stop and restart, whi
 commands.allow = ["node_service"]
 
 [[permission]]
-identifier = "allow-node-set-agent-bin"
-description = "Remember an explicitly chosen agent binary. The path is executed on every launch."
-commands.allow = ["node_set_agent_bin"]
-
-[[permission]]
 identifier = "allow-node-open-path"
 description = "Reveal one of a fixed set of the app's own directories or log files in the OS file manager. The set is closed in Rust; the page names a member, never a path."
 commands.allow = ["node_open_path"]

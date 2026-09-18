@@ -501,8 +501,8 @@ Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
 landings; every configured client lands on `status` now, which carries what
 each of them offered — the contextual service verb, the pane-safety rewrite,
-the config and agent-log reveals, the agent-binary picker, and the split that
-decides whether registering may be offered at all (below). A screen nothing can
+the config and agent-log reveals, and the split that decides whether
+registering may be offered at all (below). A screen nothing can
 route to is not a recovery path; it is dead code that reads like one.
 
 An address no longer comes first, either, and that reversal is load-bearing:

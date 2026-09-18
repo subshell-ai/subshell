@@ -299,13 +299,9 @@ describe("actions serialize", () => {
 
     // Both the guard and the disabled attribute; a click dispatched anyway
     // (a stale reference, a synthetic event) must still not reach the CLI.
-    // The second control is the agent-binary picker, which moved from the
-    // install screen's bar to the status screen's More… and is the other
-    // thing this card's state is about.
     fireEvent.click(button("Install the agent"));
-    fireEvent.click(button("Choose an existing agent…"));
     expect(fake.callsTo("node_install_agent").length).toBe(1);
-    expect(button("Choose an existing agent…").disabled).toBe(true);
+    expect(button("Install the agent").disabled).toBe(true);
 
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
     await waitFor(() => expect(button("Install the agent").disabled).toBe(false));
@@ -787,7 +783,6 @@ describe("what the page never asks for", () => {
       "node_service",
       "node_install_agent",
       "node_enroll",
-      "node_set_agent_bin",
       "node_open_path",
       // The tray's screen request, ASKED for on mount — a window the tray just
       // created has no listener yet, so the event alone would be lost.

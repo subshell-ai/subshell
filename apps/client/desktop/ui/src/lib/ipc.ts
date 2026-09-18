@@ -226,6 +226,13 @@ export interface EnrollOutcome {
  * the fields left with the switch rather than moving to another screen.
  */
 export interface NodeSettings {
+  /**
+   * An explicitly chosen agent binary, if the settings file names one.
+   *
+   * READ-ONLY from this app as of the picker's removal: `agent_bin::resolve`
+   * still honours it and `probe-facts.ts` still shows it, so a hand-edited
+   * `settings.json` is supported exactly as before — nothing here writes it.
+   */
   agentBinPath: string | null;
   /**
    * The control plane this client shows, once one is known — the stored
@@ -353,16 +360,6 @@ export function nodeEnroll(args: {
   confirm: boolean;
 }): Promise<EnrollOutcome> {
   return invoke<EnrollOutcome>("node_enroll", args);
-}
-
-/**
- * Remember (or forget, with `path: null`) an explicitly chosen agent binary.
- *
- * Rejects with a string for anything that is not an agent — the path is
- * executed on every launch, so the Rust side runs `version` on it first.
- */
-export function nodeSetAgentBin(args: { path: string | null }): Promise<void> {
-  return invoke<void>("node_set_agent_bin", args);
 }
 
 /**

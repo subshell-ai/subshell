@@ -1302,32 +1302,6 @@ pub fn close_to_tray_now(settings: &SettingsState) -> bool {
     effective_close_to_tray(settings.get().close_to_tray, tray_support())
 }
 
-/// Remember an explicitly chosen agent binary.
-///
-/// Validated before it is persisted: this path is EXECUTED on every launch, so
-/// accepting whatever a file dialog returned would let one mis-click wedge the
-/// app on a file that is not an agent — including
-/// `apps/server/desktop`'s `subshell-server`, which answers `version` with a
-/// line this app's prefix deliberately refuses.
-#[tauri::command(async)]
-pub fn node_set_agent_bin(settings: State<'_, SettingsState>, path: Option<String>) -> Result<(), String> {
-    let cleaned = match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
-        None => None,
-        Some(p) => {
-            if !Path::new(&p).is_absolute() {
-                return Err(format!("{p} is not an absolute path"));
-            }
-            if agent_bin::probe_version(std::slice::from_ref(&p)).is_none() {
-                return Err(format!(
-                    "{p} does not look like a subshell agent — it could not report a version"
-                ));
-            }
-            Some(p)
-        }
-    };
-    settings.update(|s| s.binary_path = cleaned)
-}
-
 /// The app's own preferences, for the window to render.
 ///
 /// TWO fields, since spec 2026-09-12 § 6.4. The tray preference used to be

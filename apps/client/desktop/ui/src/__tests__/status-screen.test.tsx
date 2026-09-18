@@ -16,6 +16,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { StatusScreen } from "@/components/assistant/status-screen";
+import { subtitleFor } from "@/components/assistant/subtitles";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
 import { makeProbe, makeSettings, renderApp } from "./harness";
@@ -60,8 +61,6 @@ function makeCommands(calls: Call[]): NodeCommands {
     enroll: rec("enroll"),
     repoint: rec("repoint"),
     openPath: rec("openPath"),
-    pickBinary: rec("pickBinary"),
-    clearBinary: rec("clearBinary"),
     openPlane: rec("openPlane"),
     openPlaneUrl: rec("openPlaneUrl"),
     // The first-run commands. This screen never invokes them — it is the
@@ -131,21 +130,6 @@ describe("an enrolled, online machine", () => {
     expect(calls).toEqual([{ name: "openPlane", args: [null] }]);
   });
 
-  /**
-   * The button says only "Open Dashboard", so which server that is has to be
-   * on the face of the screen — anchored here, because the same address is
-   * also under More… as two changeable values.
-   */
-  it("names the server it will open", () => {
-    mount();
-    // A function matcher, because the line is a label plus a `<span>` and the
-    // default one reads only an element's own text nodes.
-    const line = screen.getByText(
-      (_text, el) => el?.tagName === "P" && el.textContent === "Dashboard https://subshell.example.com",
-    );
-    expect(line).toBeTruthy();
-  });
-
   /** The node's name is a fact only when THIS session chose it (probe-facts.ts). */
   it("says the name it enrolled under when this session knows it", () => {
     mount({ enrolledNode: { nodeId: makeProbe().status?.nodeId ?? "", name: "mac mini" } });
@@ -162,6 +146,27 @@ describe("an enrolled, online machine", () => {
   it("offers no service action", () => {
     mount();
     expect(maybeButton(/^(start|restart|install and start)$/i)).toBeNull();
+  });
+});
+
+describe("the address the primary button will open", () => {
+  /**
+   * The button says only "Open Dashboard", so which server that is has to be
+   * on the face of the screen — and it is, in the SUBTITLE, in both branches.
+   * The screen used to repeat it in a "Dashboard <url>" line under the badge,
+   * which is the redundancy this replaced. `mount` supplies its own fixed
+   * shell subtitle, so this asks the function `app.tsx` builds the real one
+   * with rather than the rendered screen.
+   */
+  it("is named by the subtitle whether or not this machine is a node", () => {
+    const settings = makeSettings({ planeUrl: "https://plane.example" });
+    expect(subtitleFor("status", makeProbe(), settings)).toContain("https://plane.example");
+    expect(subtitleFor("status", watcherProbe(), settings)).toContain("https://plane.example");
+    // And with no stored preference, the node's own address is what the
+    // button's ladder falls back to — so that is what the sentence names.
+    expect(subtitleFor("status", makeProbe(), makeSettings({ planeUrl: null }))).toContain(
+      "https://subshell.example.com",
+    );
   });
 });
 

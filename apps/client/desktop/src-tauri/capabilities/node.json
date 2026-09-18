@@ -8,8 +8,6 @@
   ],
   "permissions": [
     "core:default",
-    "dialog:allow-open",
-    "dialog:allow-message",
     "opener:allow-reveal-item-in-dir",
     "allow-node-probe",
     "allow-node-install-agent",
@@ -17,7 +15,6 @@
     "allow-node-enroll",
     "allow-node-configure",
     "allow-node-service",
-    "allow-node-set-agent-bin",
     "allow-node-open-path",
     "allow-node-arm-reset",
     "allow-node-reset",

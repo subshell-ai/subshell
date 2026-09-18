@@ -19,7 +19,6 @@
  */
 import { asks, finished } from "@/lib/actions";
 import type { RegisterPhase, RegisterRow } from "@/lib/client-flow";
-import { pickAgentBinaryPath } from "@/lib/dialog";
 import {
   type EnrolledNodeBody,
   type EnrollOutcome,
@@ -31,7 +30,6 @@ import {
   nodeOpenPlane,
   nodeOpenPlaneUrl,
   nodeService,
-  nodeSetAgentBin,
   nodeSetPlane,
   type OpenTarget,
   type Probe,
@@ -62,10 +60,6 @@ export interface NodeCommands {
   repoint: (server: string) => void;
   /** Reveal one of the app's own directories or files. */
   openPath: (target: OpenTarget) => void;
-  /** Choose an agent binary by hand. */
-  pickBinary: () => void;
-  /** Forget the hand-chosen binary. */
-  clearBinary: () => void;
   /** Show a control plane's UI. `null` opens the address already settled. */
   openPlane: (url: string | null) => void;
   /** Open the settled control-plane address in the SYSTEM browser. */
@@ -319,25 +313,6 @@ export function useNodeCommands(args: {
         // line), which the runner surfaces as the failure message.
         await nodeOpenPath({ target });
         return finished(null);
-      }),
-
-    /** The Rust side validates the chosen file and rejects anything that is not an agent. */
-    pickBinary: () =>
-      runner.run(async () => {
-        const chosen = await pickAgentBinaryPath();
-        if (chosen === null) return finished(null);
-        await nodeSetAgentBin({ path: chosen });
-        return finished({ ok: true, stdout: `Using ${chosen}`, stderr: "" });
-      }),
-
-    clearBinary: () =>
-      runner.run(async () => {
-        await nodeSetAgentBin({ path: null });
-        return finished({
-          ok: true,
-          stdout: "Cleared. The app will resolve an agent again from the service definition, PATH, or its own install.",
-          stderr: "",
-        });
       }),
 
     /**

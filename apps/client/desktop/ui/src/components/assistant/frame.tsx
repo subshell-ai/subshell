@@ -28,6 +28,7 @@
  * scroll instead of past the unreachable top edge.
  */
 import type { ReactNode } from "react";
+import { cn } from "@/lib/cn";
 
 /**
  * The parts of the frame the HOST owns, spread into whichever screen is up.
@@ -54,6 +55,19 @@ export function Frame(props: {
   problem?: string;
   /** The one decision this screen asks for. */
   children?: ReactNode;
+  /**
+   * Pull the content up against the header, `mt-4` instead of the default
+   * `mt-9`.
+   *
+   * The wide gap is right for a screen whose content is a distinct SECTION
+   * under the question — a form, a checklist, a card that answers it. It is
+   * wrong for a screen whose content CONTINUES the header, which is what the
+   * status screen's badge is: a state chip and the sentence under it read as
+   * part of the title, and nine units of nothing between them looks like a
+   * layout that lost something. Opt-in per screen rather than a new default,
+   * because every other screen here wants the section break.
+   */
+  tightContent?: boolean;
   /** Bottom bar, left: ghost buttons only. */
   barLeft?: ReactNode;
   /** Bottom bar, right: the one primary. */
@@ -61,7 +75,7 @@ export function Frame(props: {
   /** A confirmation awaiting an answer, rendered under the content it is about. */
   confirm?: ReactNode;
 }) {
-  const { title, subtitle, icon, problem, children, barLeft, barRight, confirm } = props;
+  const { title, subtitle, icon, problem, children, barLeft, barRight, confirm, tightContent } = props;
   return (
     <div className="flex h-screen flex-col">
       <div className="flex-1 overflow-y-auto px-8 py-8">
@@ -83,7 +97,7 @@ export function Frame(props: {
               {problem}
             </p>
           )}
-          {children && <div className="mt-9 w-full">{children}</div>}
+          {children && <div className={cn("w-full", tightContent ? "mt-4" : "mt-9")}>{children}</div>}
           {confirm}
         </div>
       </div>

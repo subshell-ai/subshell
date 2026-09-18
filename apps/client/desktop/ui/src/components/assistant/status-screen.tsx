@@ -15,9 +15,9 @@
  * would have cost something the machine cannot recover on its own: the config
  * and agent-log reveals (`openPath`), the offline diagnosis and the log
  * location that answers it, the pane-safety card whose button the CLI's own
- * restart refusal names BY LABEL, the agent-binary picker, and — the one that
- * is a safety property rather than an affordance — the two ways `no-agent`
- * reads, which decide whether registration may be offered at all.
+ * restart refusal names BY LABEL, and — the one that is a safety property
+ * rather than an affordance — the two ways `no-agent` reads, which decide
+ * whether registration may be offered at all.
  *
  * So there are two axes, and they are independent:
  *
@@ -207,6 +207,7 @@ export function StatusScreen(props: {
   return (
     <Frame
       {...shell}
+      tightContent
       icon={enrolled ? <Bot /> : <Server />}
       barLeft={
         <>
@@ -252,29 +253,23 @@ export function StatusScreen(props: {
     >
       <div className="flex flex-col items-center gap-2 text-center">
         <Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>
+        {/*
+         * Said here only where the subtitle cannot say it. `subtitleFor`
+         * already names the address in BOTH branches — "This machine is a node
+         * of <url>." when enrolled, "Connected to <url>." when not — so an
+         * enrolled machine needs a sentence here only for the one fact the
+         * subtitle lacks, which is the NAME it enrolled under. Not enrolled is
+         * the other way round: "Connected to <url>" says nothing about whether
+         * subshells can run here, so that sentence stays.
+         */}
         {enrolled ? (
-          <p className="text-sm">
-            {named ? (
-              <>
-                Enrolled as <span className="font-strong">{named}</span>. Subshells can run on this machine.
-              </>
-            ) : (
-              <>This machine is registered as a node, so subshells can run on it.</>
-            )}
-          </p>
+          named ? (
+            <p className="text-sm">
+              Enrolled as <span className="font-strong">{named}</span>. Subshells can run on this machine.
+            </p>
+          ) : null
         ) : (
           <p className="text-sm">This machine is not registered as a node, so no subshells run on it.</p>
-        )}
-        {/*
-         * The address, on the face of the screen rather than under More…:
-         * this app can be pointed anywhere, the dashboard button says only
-         * "Open Dashboard", and which server that is is the one fact a person
-         * needs before pressing it.
-         */}
-        {dashboardUrl && (
-          <p className="text-detail text-muted-foreground">
-            Dashboard <span className="break-all font-mono">{dashboardUrl}</span>
-          </p>
         )}
       </div>
 
@@ -316,8 +311,10 @@ export function StatusScreen(props: {
        *   machine this is, and Register appears then if it is not one.
        * - **A binary answered `version` but not `status --json`.** Nothing is
        *   offered: the remedy for a binary that cannot state its own status is
-       *   a different binary (More… → Choose an existing agent…), and the
-       *   probe's own `error` is already on the problem line above.
+       *   a different binary on the machine — this app resolves one from the
+       *   service definition, PATH and its own install, and no longer offers
+       *   to be pointed at a file — and the probe's own `error` is already on
+       *   the problem line above.
        */}
       {mute && (
         <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 p-3">
@@ -343,7 +340,7 @@ export function StatusScreen(props: {
             </div>
           ) : (
             <p className="mt-2 text-muted-foreground text-detail">
-              This build ships no agent, so an existing one has to be pointed at.
+              This build ships no agent, so one has to be installed on this machine some other way.
             </p>
           )}
         </div>
@@ -659,21 +656,6 @@ export function StatusScreen(props: {
             {probe?.agentChoice === "upgrade-available" && (
               <Button variant="outline" size="sm" disabled={busy} onClick={commands.updateAgent}>
                 Update the agent to {probe.bundledVersion}
-              </Button>
-            )}
-            {/*
-             * Which `subshell` this app drives, for a machine where the
-             * ladder's answer is wrong — a build somewhere else, or a chosen
-             * path to forget. The Rust side validates the file before it is
-             * persisted and rejects anything that is not an agent, which is
-             * what makes this one click rather than two.
-             */}
-            <Button variant="outline" size="sm" disabled={busy} onClick={commands.pickBinary}>
-              Choose an existing agent…
-            </Button>
-            {settings?.agentBinPath && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={commands.clearBinary}>
-                Forget the chosen binary
               </Button>
             )}
             {/*
