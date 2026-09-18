@@ -153,7 +153,6 @@ export function useSetupKeyVerdict() {
     appBaseUrl,
     trustedOrigins: publicSettings?.trustedOrigins,
     hasMissingTargets: missingTargets.length > 0,
-    showFirstRunNote,
     missingNote,
     firstRunNote,
     unknownNote,

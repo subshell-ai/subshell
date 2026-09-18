@@ -1,3 +1,4 @@
+import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,8 +142,17 @@ export function SystemApiKeysCard() {
               </DialogHeader>
               <div className="flex items-center gap-2">
                 <code className="flex-1 overflow-x-auto rounded-md bg-muted p-3 font-mono text-sm">{created.key}</code>
-                <Button type="button" variant="outline" size="sm" onClick={() => void copyKey()}>
-                  {copied ? "Copied" : "Copy"}
+                {/* The copy ICON, not the word (Patterns, `docs/design-system.md`) — and
+                    the sentence above still says "Copy it now", so the verb is on the
+                    screen even though the button no longer repeats it. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={copied ? "API key copied" : "Copy API key"}
+                  onClick={() => void copyKey()}
+                >
+                  {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
               </div>
               <p className="text-destructive text-detail">
