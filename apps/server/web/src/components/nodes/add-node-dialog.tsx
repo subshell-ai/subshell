@@ -1,43 +1,52 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { NodeKeySetup, useSetupKeyVerdict } from "@/components/nodes/node-key-setup";
+import { NodeKeySetup } from "@/components/nodes/node-key-setup";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCreateSetupKey, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { errMessage } from "@/lib/api";
 import type { CreatedSetupKey } from "@/types/node";
 
 /**
- * "Add node": mint a single-use setup key (spec 2026-08-31 §5.1/§9), then hand it to
- * the machine.
+ * "Add node": ONE screen — the address, the mint press, and how to hand the key to
+ * the machine (spec 2026-08-31 §5.1/§9).
+ *
+ * **The two-step is gone** (operator's call, 2026-09-18): the dialog used to open on
+ * a "Add a node" screen whose whole content was one button, and clicking it swapped
+ * in the instructions. Now opening the trigger lands directly on the instructions —
+ * titled "Install Subshell Client" — and the mint is a **Generate setup key** press
+ * between the address picker and the path switch. Until that press the key does not
+ * exist, and the screen says so rather than leaving a hole: the app path's key row
+ * reads "Generate setup key first" and the terminal one-liner shows with
+ * `<generate setup key first>` in its token slot, copy disabled (the command's shape
+ * is the instruction and is on screen from the start; the fake token is unmistakable
+ * and nothing runs until the press). The generate slot between the picker and the
+ * switch carries the button and its failure line and NOTHING ELSE (operator's call,
+ * 2026-09-18) — the old first screen's descriptive sentences are gone, and the amber
+ * no-binary verdict now sits in the terminal panel beside the command it refuses,
+ * which keeps the old point (do not make the operator mint a key to discover the
+ * one-liner cannot work) while putting the refusal where the command is read.
  *
  * **It asks no name, and never did what it looked like it did.** This dialog used to
  * open with a "Node name" field whose text became only the setup key's `label`: the
  * one-liner ran `subshell setup` with no name, so the node was named by its own
  * hostname whatever was typed here. The field is gone with the 2026-09-17 revamp, and
  * the name is asked where it can actually be answered — on the machine, by `setup`, or
- * by `--name` for a script, or by the Subshell Client enroll form. What the mint does
- * now is spend a key, and the one press that does it is the whole first step.
+ * by `--name` for a script, or by the Subshell Client enroll form.
  *
- * **The second step lives in `node-key-setup.tsx`**, shared with the Setup keys card's
- * Setup dialog: which address the node dials, and the Terminal | Desktop App paths.
- * This file owns only what is specific to a key that was JUST minted — the create
- * press, and the watcher that says when the machine has arrived.
+ * **The instructions themselves live in `node-key-setup.tsx`**, shared with the Setup
+ * keys card's Setup dialog. This file owns only what is specific to minting now: the
+ * generate press, its errors, and the watcher that says when the machine has arrived.
  *
  * **The key is no longer a once-only secret.** The Setup keys card on this same page
  * lists it until it is spent or expires, which is why closing this dialog mid-copy
  * stopped being a re-mint — and why that card can offer the same instructions later.
  *
- * While the dialog is open the page polls the node list every 3 s, and the waiting hint
- * flips to "enrolled" when the machine shows up.
+ * While the dialog is open the page polls the node list every 3 s, and the "enrolled"
+ * line appears when the machine shows up. Nothing marks the waiting itself: the open
+ * dialog IS the waiting (operator's call, 2026-09-18, same day the key-lifetime
+ * paragraph went — its facts live on the Setup keys card).
  */
 export function AddNodeDialog({
   open,
@@ -46,25 +55,25 @@ export function AddNodeDialog({
 }: {
   /** Whether the dialog is shown (drives the parent's polling too) */
   open: boolean;
-  /** Open/close from inside (Cancel/Done/overlay) */
+  /** Open/close from inside (Done/overlay) */
   onOpenChange: (open: boolean) => void;
   /** Current visible-node count — its rise over the creation-time baseline means "enrolled" */
   nodeCount: number;
 }) {
   const create = useCreateSetupKey();
-  const { missingNote, firstRunNote } = useSetupKeyVerdict();
   // refetch-on-open: the shared query is 30 s fresh, but the warning's whole
   // job is tracking a fact the OPERATOR changes (publishing artifacts) and
   // then immediately re-checking by reopening this dialog — a stale verdict
   // here is the bug this field exists to prevent, in the other direction.
-  // It refetches for the reveal too, through the same query: `NodeKeySetup`
+  // It refetches for the panels too, through the same query: `NodeKeySetup`
   // reads the verdict off this hook, so one fetch feeds both.
   const { refetch } = usePublicSettings();
   useEffect(() => {
     if (open) void refetch();
   }, [open, refetch]);
   const [formError, setFormError] = useState<string | null>(null);
-  // The reveal: set after a successful create, cleared on close.
+  // The minted key: set after a successful generate, cleared on close. Null is
+  // the screen's initial state, not a loading state — nothing is spent yet.
   const [created, setCreated] = useState<CreatedSetupKey | null>(null);
   const [baselineCount, setBaselineCount] = useState<number | null>(null);
   // WHICH machine arrived, not just that one did. The parent's count answers
@@ -110,73 +119,51 @@ export function AddNodeDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogContent>
-        {created ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>Set up the new machine</DialogTitle>
-              <DialogDescription>
-                It will ask what to call itself — the name is chosen there, on the machine, not here.
-              </DialogDescription>
-            </DialogHeader>
-            <NodeKeySetup keyText={created.key} />
-            <p className="text-detail text-muted-foreground">
-              Single-use, and it expires in 24 h. Until then it stays readable on the Setup keys list below, so closing
-              this dialog costs nothing.
+        {/* One header for one screen. Base UI, unlike Radix, warns over the missing
+            description, and the old two descriptions are gone on purpose: the naming
+            fact rides the mint no more (the machine answers), and single-use/24 h is
+            said once on the Setup keys card. The e2e suite keys on this heading
+            (12-nodes.spec.ts), so a retitle moves both. */}
+        <DialogHeader>
+          <DialogTitle>Install Subshell Client</DialogTitle>
+        </DialogHeader>
+        <NodeKeySetup
+          keyText={created?.key ?? null}
+          generate={
+            created === null ? (
+              <div className="space-y-2">
+                {formError && <p className="text-destructive text-detail">{formError}</p>}
+                <Button onClick={() => void mint()} disabled={create.isPending}>
+                  {create.isPending ? "Generating…" : "Generate setup key"}
+                </Button>
+              </div>
+            ) : null
+          }
+        />
+        {/* No key-lifetime paragraph and no waiting line (operator's call,
+            2026-09-18): single-use/24 h is the card's business, said once on
+            the Setup keys list that IS the "you can come back to it" answer,
+            and a dialog that polls does not need a sentence announcing that
+            it is waiting. Both asserted as absences in the dialog's tests. */}
+        {enrolled &&
+          // The guidance used to end here, at the moment the operator most
+          // needs the next step (spec 2026-09-15 §5.4). The node's own page
+          // is where detection has run, so it is the page that says what
+          // this machine can actually launch.
+          (arrivedNode ? (
+            <p className="text-sm text-success">
+              {arrivedNode.name} enrolled.{" "}
+              <Link to="/nodes/$id" params={{ id: arrivedNode.id }} className="underline" onClick={close}>
+                Open its page
+              </Link>{" "}
+              to see what it can launch.
             </p>
-            {enrolled ? (
-              // The guidance used to end here, at the moment the operator most
-              // needs the next step (spec 2026-09-15 §5.4). The node's own page
-              // is where detection has run, so it is the page that says what
-              // this machine can actually launch.
-              arrivedNode ? (
-                <p className="text-sm text-success">
-                  {arrivedNode.name} enrolled.{" "}
-                  <Link to="/nodes/$id" params={{ id: arrivedNode.id }} className="underline" onClick={close}>
-                    Open its page
-                  </Link>{" "}
-                  to see what it can launch.
-                </p>
-              ) : (
-                <p className="text-sm text-success">Node enrolled. Close this dialog to see it in the list.</p>
-              )
-            ) : (
-              <p className="text-muted-foreground text-sm">Waiting for enrollment. Run it on that machine.</p>
-            )}
-            <DialogFooter>
-              <Button onClick={close}>Done</Button>
-            </DialogFooter>
-          </>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void mint();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>Add a node</DialogTitle>
-              <DialogDescription>
-                This creates a single-use setup key. The machine names itself when it enrolls — nothing to fill in here.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2 py-2">
-              {formError && <p className="text-destructive text-detail">{formError}</p>}
-              {/* The verdict needs no key — do not make the operator mint
-                  (and burn) one to discover the one-liner cannot work. The two
-                  notes are about the TERMINAL path's download, so they say so. */}
-              {missingNote}
-              {firstRunNote}
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={close}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={create.isPending}>
-                {create.isPending ? "Creating…" : "Create setup key"}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
+          ) : (
+            <p className="text-sm text-success">Node enrolled. Close this dialog to see it in the list.</p>
+          ))}
+        <DialogFooter>
+          <Button onClick={close}>Done</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

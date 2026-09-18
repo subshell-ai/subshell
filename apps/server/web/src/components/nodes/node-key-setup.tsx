@@ -1,5 +1,5 @@
 import { NODE_TARGETS, SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
@@ -8,16 +8,34 @@ import { usePublicSettings } from "@/hooks/use-public-settings";
 import { installAddresses } from "@/lib/install-addresses";
 
 /**
- * The reveal: how a machine is handed a setup key it already has.
+ * How a machine is handed a setup key.
  *
- * This is the half of the Add-node dialog that outgrew it. The dialog needs it after
- * a mint; the Setup keys card needs it for a key minted TWENTY MINUTES AGO, which is
- * the whole reason that card lists the key text — and an operator who closed the
- * dialog mid-copy could get the key back but not the command, so the only way to
- * re-read the instructions was to mint a SECOND single-use key to get instructions
- * that were never lost. Both surfaces now render this one component, and neither can
- * drift from the other on the two things it exists to get right: which address the
- * node will dial, and what each of the two paths actually needs.
+ * This is the half of the Add-node dialog that outgrew it. The dialog needs it (now
+ * as its WHOLE body — the two-step was folded into one screen on 2026-09-18, with
+ * the mint itself arriving here as the optional `generate` slot); the Setup keys
+ * card needs it for a key minted TWENTY MINUTES AGO, which is the whole reason that
+ * card lists the key text — and an operator who closed the dialog mid-copy could get
+ * the key back but not the command, so the only way to re-read the instructions was
+ * to mint a SECOND single-use key to get instructions that were never lost. Both
+ * surfaces render this one component, and neither can drift from the other on the
+ * two things it exists to get right: which address the node will dial, and what each
+ * of the two paths actually needs.
+ *
+ * **A null `keyText` is a real state, not a loading state**: nothing has been minted
+ * yet, and nothing here pretends the token exists. The command shows from the start
+ * — its shape is the instruction, and an empty terminal panel reads as a broken tab
+ * (operator's call, 2026-09-18) — but its key slot holds `<generate setup key first>`
+ * and the copy button is DISABLED until a real `nsk_` value replaces it: the reader
+ * sees where the key will land without being handed a command that would run with a
+ * fake one. The app path is the same sentence in its own shape: the key row says
+ * "Generate setup key first" where the copy row will be. The address row is copyable
+ * either way; it needs no key.
+ *
+ * The terminal panel also owns the two verdicts about THIS SERVER's binaries — the
+ * amber no-binary refusal (with the `setup` fallback row it explains) and the
+ * could-not-check line. They are statements about the command, so they sit beside it,
+ * not beside the generate press. The first-run-per-platform sentence is gone entirely
+ * (operator's call, 2026-09-18).
  *
  * **The address is the one the node dials FOREVER**, not merely the host of the curl.
  * The download address and the dial address are separate facts (a TLS proxy shows the
@@ -34,11 +52,13 @@ import { installAddresses } from "@/lib/install-addresses";
  * Nothing on that half warns about unpublished agent binaries, because the app
  * carries its own agent.
  *
- * The one line on that half that is not a value names where to GET the app. It earns
- * the exception to "the rows ARE the instruction" the way the dialog's two surviving
- * sentences do — by changing what the operator can do: the terminal path is
- * self-sufficient (curl exists everywhere), but Subshell Client is served by nobody
- * but the project's GitHub Releases, so a reader without it is otherwise stuck.
+ * **The app half reads as steps, starting with getting the app** (operator's call,
+ * 2026-09-18): the reader is NOT assumed to have Subshell Client — it is served by
+ * nobody but the project's GitHub Releases, so "download the Subshell Client app" is
+ * step one, said first, and the two values the Enroll step takes are what follow.
+ * This is the exception to "the rows ARE the instruction" the way the dialog's two
+ * surviving sentences are: it changes what the operator can do — the terminal path
+ * needs nothing (curl exists everywhere), this one needs an install. The link is
  * `?q=desktop-client` and never `/releases/latest`: four components share this repo
  * and GitHub's "latest" is whichever was tagged last, which can be a server release.
  */
@@ -99,25 +119,23 @@ export function setupCommandFor(selected: string, key: string): string {
 }
 
 /**
- * The one sentence about the first machine of a platform, owned by ONE home: the mint
- * step of the Add-node dialog (see `AddNodeDialog`), which is the last moment the fact
- * can change what the operator does — after the press the key is minted and the command
- * is copied regardless. It used to be folded into the reveal's terminal paragraph too
- * (2026-09-18, then removed the same day with that paragraph), and it belongs to the
- * TERMINAL path in either telling: the desktop app ships its own agent binary, so
- * nothing is downloaded on that machine whatever this server has published.
+ * The key slot of a command that cannot be copied yet. Angle brackets and words —
+ * unmistakably not an `nsk_` token — and the copy button beside it is disabled until
+ * the mint replaces it. (Operator's call, 2026-09-18: the command shows from the
+ * start; an empty terminal panel reads as a broken tab, and the shape IS the
+ * instruction.)
  */
-export const FIRST_RUN_SENTENCE =
-  "The agent binary for a platform is downloaded from the project's release the first time a machine of that " +
-  "platform installs, so the first run on each takes a little longer.";
+export const KEY_PENDING_TOKEN = "<generate setup key first>";
 
 /**
- * What this server can actually serve, and the three paragraphs that say so.
+ * What this server can actually serve, and the paragraphs that say so.
  *
- * Called by the mint step (BEFORE a key is spent — the operator should learn the
- * one-liner cannot work without minting and burning one to find out) and by
- * {@link NodeKeySetup} (where the same verdict decides whether the fallback command
- * appears). Both read ONE query, so the two can never disagree mid-dialog.
+ * Read by {@link NodeKeySetup} alone now that the dialog is one screen: the amber
+ * no-binary refusal and the could-not-check line render in the terminal panel beside
+ * the command they describe, and the same `hasMissingTargets` verdict decides whether
+ * the fallback command appears. The Add-node dialog shares only the QUERY (it
+ * refetches on open through `usePublicSettings`), so no two surfaces can disagree
+ * mid-dialog.
  */
 export function useSetupKeyVerdict() {
   const { data: publicSettings, isPending, isError } = usePublicSettings();
@@ -143,14 +161,6 @@ export function useSetupKeyVerdict() {
       or add the machine with the Subshell Client app, which ships its own agent.
     </p>
   );
-  // Said once, quietly, beside the mint. The gate is `autoFetch`, which is its exact
-  // truth condition: a server that fetches does delay a platform's first machine; an
-  // installed-but-not-fetching one never shows this sentence even though it is true
-  // there too, because that server's louder amber refusal already owns the screen and
-  // telling someone to wait for a download that will never come is worse than saying
-  // nothing.
-  const showFirstRunNote = autoFetch && targets !== undefined && targets.length < NODE_TARGETS.length;
-  const firstRunNote = showFirstRunNote && <p className="text-detail text-muted-foreground">{FIRST_RUN_SENTENCE}</p>;
   // Settings neither loaded nor errored ⇒ no verdict exists; say so instead of
   // silently showing the 404-bound command (undefined field on a LOADED older server is
   // a different case, and stays silent by design).
@@ -162,7 +172,6 @@ export function useSetupKeyVerdict() {
     trustedOrigins: publicSettings?.trustedOrigins,
     hasMissingTargets: missingTargets.length > 0,
     missingNote,
-    firstRunNote,
     unknownNote,
   };
 }
@@ -170,18 +179,21 @@ export function useSetupKeyVerdict() {
 /**
  * The address picker, the Terminal | Desktop App switch, and what each shows.
  *
- * `keyText` is the ONLY thing a caller supplies: everything here is a function of the
- * key and of this instance's own public settings. It renders no dialog and no footer,
- * so the Add-node dialog can wrap it in its enrollment watcher and the Setup keys card
- * can wrap it in a plain close button, around the same fields.
+ * `keyText` is the only FACT a caller supplies (null = nothing minted yet), and
+ * `generate` is an optional slot rendered between the picker and the switch — the
+ * Add-node dialog puts the mint press and the terminal-path verdicts there, and the
+ * Setup keys card puts nothing, because its key already exists. Everything else is a
+ * function of the key and of this instance's own public settings. It renders no
+ * dialog and no footer, so the Add-node dialog can wrap it in its enrollment watcher
+ * and the Setup keys card can wrap it in a plain close button, around the same fields.
  */
-export function NodeKeySetup({ keyText }: { keyText: string }) {
+export function NodeKeySetup({ keyText, generate }: { keyText: string | null; generate?: ReactNode }) {
   const addressId = useId();
   const [chosen, setChosen] = useState<string | null>(null);
   // Terminal first: it is the one that works on a headless box, which is most of what
   // gets added.
   const [method, setMethod] = useState<Method>("terminal");
-  const { appBaseUrl, trustedOrigins, hasMissingTargets, unknownNote } = useSetupKeyVerdict();
+  const { appBaseUrl, trustedOrigins, hasMissingTargets, missingNote, unknownNote } = useSetupKeyVerdict();
 
   // The address comes from the trusted-origin allowlist (spec 2026-08-31 §9.3 loopback
   // trap), the same three sources and loopback drop the mobile picker uses — which is
@@ -211,7 +223,7 @@ export function NodeKeySetup({ keyText }: { keyText: string }) {
           single row it always got; the script's runtime loopback guard is the note that
           fires where the fact is knowable. */}
       <div className="space-y-2">
-        <Label htmlFor={addressId}>Address the node dials</Label>
+        <Label htmlFor={addressId}>Select Subshell server address</Label>
         <Select value={selected} onValueChange={(url: string | null) => url && setChosen(url)}>
           <SelectTrigger id={addressId} className="w-full min-w-0">
             <SelectValue placeholder="Choose an address" />
@@ -225,6 +237,7 @@ export function NodeKeySetup({ keyText }: { keyText: string }) {
           </SelectContent>
         </Select>
       </div>
+      {generate}
       <Segmented
         ariaLabel="How the machine joins"
         options={METHOD_OPTIONS}
@@ -239,20 +252,51 @@ export function NodeKeySetup({ keyText }: { keyText: string }) {
               enrolls it, and then asks about the background service…"), and it is GONE
               — operator's call, 2026-09-18. The command is the instruction; the script
               says what it is doing, on the machine, at the moment it does it. Pinned as
-              an absence in the dialog's tests so it is not "restored" as an oversight. */}
-          <CopyCommandRow text={installCommandFor(selected, keyText, appBaseUrl)} label="install command" />
+              an absence in the dialog's tests so it is not "restored" as an oversight.
+              Before the key exists the command shows with `KEY_PENDING_TOKEN` in the
+              key slot and copy disabled — the shape is the instruction, the fake token
+              is unmistakable, and nothing runs until the mint replaces it. */}
+          <CopyCommandRow
+            text={installCommandFor(selected, keyText ?? KEY_PENDING_TOKEN, appBaseUrl)}
+            label="install command"
+            disabled={keyText === null}
+          />
+          {/* The amber verdict sits with the command it refuses — the panel, not the
+              generate slot, is where the operator reads the command and decides. */}
+          {missingNote}
           {/* The fallback only reads as a fallback when the one-liner cannot work here,
-              which is the same verdict `missingNote` states beside the mint. */}
-          {hasMissingTargets && <CopyCommandRow text={setupCommandFor(selected, keyText)} label="setup command" />}
+              which is the verdict `missingNote` states two lines above it. */}
+          {hasMissingTargets && (
+            <CopyCommandRow
+              text={setupCommandFor(selected, keyText ?? KEY_PENDING_TOKEN)}
+              label="setup command"
+              disabled={keyText === null}
+            />
+          )}
           {unknownNote}
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Two values and nothing else. The app cannot be handed a command — its
-              Enroll step takes these two — so the rows ARE the instruction, and the
-              sentence that used to walk someone through opening the app is gone
-              (operator's call, 2026-09-18), the same decision as the path above. */}
-          {/* Label over value, the line-item shape: two rows, and the button in each
+          {/* Step one, stated as a step: nobody is assumed to already have the app.
+              The sentence that used to walk someone through opening it is gone
+              (operator's call, 2026-09-18), but GETTING it was never such a
+              sentence — it is a download, and it comes before the values. */}
+          <p className="text-detail text-muted-foreground">
+            First,{" "}
+            <a
+              href={`https://github.com/${SUBSHELL_REPO_SLUG}/releases?q=desktop-client`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              download the Subshell Client app
+            </a>
+            .
+          </p>
+          {/* Then the two values, and nothing else. The app cannot be handed a
+              command — its Enroll step takes these two — so the rows ARE the rest
+              of the instruction.
+              Label over value, the line-item shape: two rows, and the button in each
               says out loud which of the two it copies. */}
           <div className="space-y-1">
             <p className="font-strong text-label">Server address</p>
@@ -260,21 +304,14 @@ export function NodeKeySetup({ keyText }: { keyText: string }) {
           </div>
           <div className="space-y-1">
             <p className="font-strong text-label">Setup key</p>
-            <CopyCommandRow text={keyText} label="setup key" />
+            {/* The placeholder names the one press that fills this row — and the row
+                above it was copyable all along, because it needs no key. */}
+            {keyText === null ? (
+              <p className="text-detail text-muted-foreground">Generate setup key first</p>
+            ) : (
+              <CopyCommandRow text={keyText} label="setup key" />
+            )}
           </div>
-          {/* The one line that is not a value: where to GET the app. See the module
-              header for why this path alone needs it and why the link is filtered. */}
-          <p className="text-detail text-muted-foreground">
-            Don't have the app?{" "}
-            <a
-              href={`https://github.com/${SUBSHELL_REPO_SLUG}/releases?q=desktop-client`}
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              Download Subshell Client
-            </a>
-          </p>
         </div>
       )}
     </>

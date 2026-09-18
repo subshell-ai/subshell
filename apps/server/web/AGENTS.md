@@ -340,11 +340,20 @@ someone a machine is quiet while panes are still alive on it. The wording is
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
-Add-node dialog's reveal has an **address dropdown, and it names what the
-node dials forever** (operator's call, 2026-09-18), not merely the curl's
-host — and it sits ABOVE the Terminal / Desktop App switch rather than inside
-the terminal panel, because both paths need the same address: the script bakes
-it, and the app's Connect step is typed this same URL. Rows come
+**Add-node dialog is ONE screen** (operator's call, 2026-09-18) titled
+**"Install Subshell Client"** — the trigger button stays "Add node", but opening it
+lands on the instructions; the old first screen, whose whole content was one
+button, is gone. Its address dropdown is labelled **"Select Subshell server
+address"**, and it **names what the node dials forever** (operator's call,
+2026-09-18), not merely the curl's host — and it sits ABOVE the mint press and the
+Terminal / Desktop App switch rather than inside the terminal panel, because both
+paths need the same address: the script bakes it, and the app's Connect step is
+typed this same URL. Between it and the switch sits the **Generate setup key**
+button: until it is pressed NO KEY EXISTS and nothing pretends otherwise — the app
+path's key row reads "Generate setup key first" where the copy row will be, and the
+terminal path shows NO command at all (a one-liner with a fake token is a copy-able
+lie, and the command is the key's only carrier there). The address row IS copyable
+from the start; it needs no key. Rows come
 from the same `lib/install-addresses.ts` the mobile picker builds — the
 trusted-origin allowlist, loopback dropped when anything else is known,
 falling back to `appBaseUrl` alone when nothing is (`window.location.origin`
@@ -363,27 +372,25 @@ the baked `SERVER` came from config — and the dropdown replaced the whole
 sentence with the control it was telling you to build by hand. The script's
 runtime loopback guard stays: it fires on the new machine, where "is this
 address wrong *from here*" is finally knowable. The dialog also reads `nodeArtifactTargets` — the
-triples the server actually serves — and names the missing ones (on the mint
-screen, BEFORE a single-use key is minted, and on the terminal panel with a
-copyable `subshell setup` fallback — `setup`, not `enroll`, because `enroll`
-requires `--name` and a person reading a command off a browser should be ASKED
-for the name instead): a binary-only server install publishes no agent
+triples the server actually serves — and names the missing ones IN THE TERMINAL PANEL
+(both the refusal and the copyable `subshell setup` fallback it drives live beside the
+command they describe, not in the generate slot above; `setup`, not `enroll`, because
+`enroll` requires `--name` and a person reading a command off a browser should be
+ASKED for the name instead): a binary-only server install publishes no agent
 binaries until `release:node` runs, and the one-liner 404s on every machine
 until then. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-
-published artifact set is visible at once. Neither note follows the operator onto
-the **Desktop App** panel, and that is the point of that path: the app ships its
-own agent binary, so what this server has or has not published is nobody's
-problem on that machine. The amber refusal DOES name the app as the third door
-while the operator is still choosing.
+published artifact set is visible at once. The **Desktop App** panel sees NONE of
+this, and that is the point of that path: the app ships its own agent binary, so what
+this server has or has not published is nobody's problem on that machine. The amber
+refusal DOES name the app as the third door while the operator is still choosing.
 **The dialog asks no name, and the invariant about the key moved.** Its first
 screen used to be a "Node name" field whose text became only the setup key's
 `label` — the one-liner never passed it on, so the node was named by its own
 hostname whatever was typed. With the 2026-09-17 revamp the field is gone, the mint
 takes no body, and the name is asked on the machine (`subshell setup`'s first
-question, `--name` for a script, Subshell Client's required Enroll field). So step 1
-is ONE press.
+question, `--name` for a script, Subshell Client's required Enroll field).
 
 What each panel shows is now the SHORTEST true version of itself, because the
 explanatory prose was cut on 2026-09-18 (operator's call): the terminal panel had a
@@ -398,18 +405,25 @@ a command and never outside one** (one row in the common shape, two — curl and
 `setup` fallback, alternatives that each carry it — on the air-gapped branch), while
 the app panel shows the two VALUES its Enroll step takes, address and key, each with
 its own copy button that `label`s what it copies. The standalone key box, its "shown
-once" subtitle and the tmux paragraph stay gone too. Two sentences of guidance
-survive, and both sit where they can still change what the operator does: the amber
-no-binary note and the first-run-per-platform sentence, beside the MINT and before the
-key exists — after the press the key is minted and the command gets copied either way.
+once" subtitle and the tmux paragraph stay gone too — and so, same day, does the
+first-run-per-platform sentence (operator's call, 2026-09-18): NOTHING sits between
+the address picker and the Generate button but its own failure line. One sentence of
+guidance survives, and it sits where it can change what the operator does: the amber
+no-binary refusal, INSIDE the terminal panel beside the command it refuses (the
+verdict is about the command, and the command is on screen from the start — its key
+slot holds `<generate setup key first>` and copy is DISABLED until the mint, since
+the shape is the instruction but a copied placeholder would run nowhere). The same
+verdict drives the `setup` fallback row two lines below it.
 
-**The reveal is its own component**, `components/nodes/node-key-setup.tsx`
+**The fields are their own component**, `components/nodes/node-key-setup.tsx`
 (`NodeKeySetup`, plus `installCommandFor` / `setupCommandFor` / `useSetupKeyVerdict`),
 because a second surface needs it: the address picker, the `Terminal | Desktop App`
-switch and both panels are a function of a key and of public settings, not of a key
-that was minted thirty seconds ago. `AddNodeDialog` keeps only what belongs to a
-just-minted key — the create press and the enrollment watcher — and `SetupKeysSection`
-renders the same fields for a key minted earlier.
+switch and both panels are a function of a key (which may be `null` — the not-yet-
+minted state above) and of public settings, not of a key that was minted thirty
+seconds ago. The mint itself is an OPTIONAL `generate` slot between the picker and the
+switch — the dialog passes the button, its error line and the two verdicts; the card
+passes nothing. `AddNodeDialog` therefore keeps only the mint press and the enrollment
+watcher, and `SetupKeysSection` renders the same fields for a key minted earlier.
 
 `components/nodes/setup-keys-section.tsx` is that card, and it is the reason the
 server can show a key after the mint: `GET /api/nodes/setup-keys` returns each of the

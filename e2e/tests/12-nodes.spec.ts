@@ -105,15 +105,14 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   await expect(body.getByText("this machine", { exact: false })).not.toBeVisible();
   await expect(body.getByText("online", { exact: true })).toBeVisible();
 
-  // Add node → one press → the reveal. There is no field any more: the node is
-  // named by the machine that becomes it, so the first step IS the mint.
+  // Add node → the screen itself. There is no first step any more (2026-09-18):
+  // the dialog opens on the instructions and the mint is one press IN them; the
+  // node is named by the machine that becomes it, so there was never a field.
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("heading", { name: "Add a node" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Install Subshell Client" })).toBeVisible();
   await expect(dialog.locator("#node-name")).toHaveCount(0);
-  await dialog.getByRole("button", { name: "Create setup key" }).click();
-
-  await expect(dialog.getByRole("heading", { name: "Set up the new machine" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Generate setup key" }).click();
 
   // The rendered install command: curl … /install.sh?setup_key=<the key> |
   // bash. Since 2026-09-18 the key's only carrier is a COMMAND (the
@@ -158,7 +157,7 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   // only ever in the dialog that had closed. The regex is safe unescaped — the mint
   // shape is `nsk_` plus base64url.
   // `exact`, or the name matches the card's own "Copy setup key" and the dialog's
-  // "Create setup key" as well — three elements, strict mode, no click.
+  // "Generate setup key" as well — three elements, strict mode, no click.
   await page.getByRole("button", { name: "Setup", exact: true }).click();
   const steps = page.getByRole("dialog");
   await expect(steps.getByText("Set up a machine with this key")).toBeVisible();
@@ -220,8 +219,9 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await page.goto("/nodes");
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Create setup key" }).click();
-  await expect(dialog.getByRole("heading", { name: "Set up the new machine" })).toBeVisible();
+  // One screen now (2026-09-18): the heading is up before the mint is spent.
+  await expect(dialog.getByRole("heading", { name: "Install Subshell Client" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Generate setup key" }).click();
   // The key's only carrier is a command now (the standalone box is gone,
   // 2026-09-18) — read it off the one-liner, not from a separate element.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
