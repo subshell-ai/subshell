@@ -1,5 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { NODE_NAME_MAX, normalizeNodeName } from "@internal/subshell-protocol";
+import { NODE_NAME_MAX_UNITS, normalizeNodeName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { HttpError } from "@/api/auth-guard.js";
 import { assertImportablePublicJwk } from "@/api/public-jwk.js";
@@ -23,9 +23,12 @@ const EnrollBodySchema = t.Object({
     maxLength: 128,
     description: "One-time `nsk_…` setup key, minted on the Nodes page (Add node) and listed there until used",
   }),
+  // `_UNITS`, not the cap itself: JSON Schema counts UTF-16 code units, and a
+  // `64` here would 400 a name the rule below accepts — an astral character is two
+  // units. `normalizeNodeName` is what enforces 64 characters.
   name: t.String({
     minLength: 1,
-    maxLength: NODE_NAME_MAX,
+    maxLength: NODE_NAME_MAX_UNITS,
     description:
       "Display name for the new node (unique per owner), chosen ON THE MACHINE becoming the node — `subshell setup` asks for it there, `--name` answers for a script. Control characters are stripped and whitespace collapsed",
   }),
@@ -136,9 +139,12 @@ export const enrollRoute = new Elysia().use(apiModels).post(
     // its name now that the mint dialog stopped asking (the machine supplies it, so it
     // arrives from a prompt, from `--name`, from the desktop field, or from a body a
     // script wrote). Same rule as rename — the shared `normalizeLabel` binding, and an
-    // empty result is a refusal rather than a blank row. Before `consume`, because a
-    // single-use key must not be spent by a body that cannot be stored (the same
-    // argument the publicKey checks below make).
+    // empty result is a refusal rather than a blank row. An OVER-long name is capped
+    // by that rule rather than refused, which is what rename has always done; every
+    // real client bounces it first (the CLI's preflight, the desktop field, `setup`'s
+    // prompt) precisely so nobody watches their name get shorter. Before `consume`,
+    // because a single-use key must not be spent by a body that cannot be stored (the
+    // same argument the publicKey checks below make).
     const name = normalizeNodeName(body.name);
     if (!name) {
       return status(

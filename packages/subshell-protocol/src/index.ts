@@ -19,6 +19,7 @@ export {
   type ClientFrame,
   DEVICE_LABEL_MAX,
   NODE_NAME_MAX,
+  NODE_NAME_MAX_UNITS,
   normalizeDeviceLabel,
   normalizeLabel,
   normalizeNodeName,

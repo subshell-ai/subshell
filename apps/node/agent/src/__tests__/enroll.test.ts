@@ -590,3 +590,46 @@ test("an over-long --name refuses before the network rather than being truncated
   expect(res.err).toInclude("65 characters");
   expect(res.err).toInclude("64");
 });
+
+test("an astral --name is measured in characters, as every other door measures it", async () => {
+  // \u{1F5A5} is two UTF-16 units, so 40 of them are 80 units and 40 CHARACTERS.
+  // Measuring this pre-flight with `String.length` refused a name the desktop field
+  // accepted, Rust's `chars().count()` accepted, and `normalizeNodeName` capped at
+  // nothing — four doors that had just agreed on `NODE_NAME_MAX` while disagreeing on
+  // how to count it. The one that disagreed was the one that spends the setup key.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const name = "\u{1F5A5}".repeat(40);
+  const res = await run([
+    "enroll",
+    "--server",
+    url,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    name,
+    "--data-dir",
+    dataDir,
+  ]);
+  expect(res.code).toBe(0);
+  expect(seenBody().name).toBe(name);
+});
+
+test("an over-long astral --name says its length in characters, not in units", async () => {
+  // The message is what an operator acts on. Saying "130 characters" about a name
+  // they pasted as 65 emoji reads as a broken tool.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const res = await run([
+    "enroll",
+    "--server",
+    url,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    "\u{1F5A5}".repeat(65),
+    "--data-dir",
+    dataDir,
+  ]);
+  expect(res.code).toBe(1);
+  expect(res.err).toInclude("65 characters");
+  expect(res.err).not.toInclude("130");
+});

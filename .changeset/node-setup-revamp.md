@@ -21,3 +21,12 @@ server stores the key itself rather than its SHA-256 digest: an unused key you c
 read was a door you could only close. Single-use, owner-scoped, never in the audit log;
 `docs/security.md` accounts for it. The migration drops every outstanding key, so mint
 again after upgrading.
+
+And the cap on that name is counted in ONE unit now. `normalizeNodeName` caps
+CHARACTERS, while a JSON Schema `maxLength` and a DOM `maxlength` count UTF-16 units, so
+enroll's body, rename's body and the rename field each said 64 where the rule says 64
+characters — a machine named with 40 emoji was legal at every door and refused at these
+three. `NODE_NAME_MAX_UNITS` is the unit spelling of the same limit (twice the cap, which
+is the most 64 characters can occupy), and the agent's `--name` preflight and `setup`'s
+prompt count code points like the desktop field and Rust already did, so an emoji name
+measures the same whether it was typed, pasted, prompted for or piped.

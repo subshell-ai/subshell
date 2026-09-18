@@ -239,6 +239,19 @@ export function normalizeDeviceLabel(raw: string): string {
 export const NODE_NAME_MAX = 64;
 
 /**
+ * The UTF-16 ceiling that admits every legal {@link NODE_NAME_MAX}-character name.
+ *
+ * A cap written in CHARACTERS cannot be handed to a reader that counts CODE UNITS,
+ * and two do: JSON Schema's `maxLength` — the enroll and rename bodies, where a
+ * `64` would 400 a name of 40 emoji that the normalizer counts as 40 characters —
+ * and an HTML `maxlength` attribute. A code point occupies at most two units, so twice
+ * the cap admits every name the shared rule accepts and nothing it would not cap
+ * anyway. The semantic limit stays {@link normalizeNodeName}'s; this is the
+ * transport guard sized so it never fires before that one does.
+ */
+export const NODE_NAME_MAX_UNITS = NODE_NAME_MAX * 2;
+
+/**
  * The node-name binding of {@link normalizeLabel}.
  *
  * A node name is the row a person reads on the Nodes page, the pickers and the clone

@@ -12,6 +12,43 @@ function renderLine(onSave: (next: string) => Promise<void>) {
 describe("EditableText", () => {
   afterEach(cleanup);
 
+  it("maxChars enforces a character-counting rule under a unit-counting ceiling", async () => {
+    // Node names arrived at this by being capped twice over. `normalizeNodeName`
+    // caps CHARACTERS; a DOM `maxlength` counts UTF-16 units, so the rename field
+    // has to carry both numbers — 128 units of ceiling, 64 characters of rule. An
+    // emoji name at the character cap is 128 units and must still save; a name one
+    // character past it must be refused here, in the field, with the number the rule
+    // speaks rather than the number the input happens to count.
+    const saved: string[] = [];
+    render(
+      <EditableText
+        value="deck"
+        label="Rename node"
+        onSave={async (v) => {
+          saved.push(v);
+        }}
+        maxLength={128}
+        maxChars={64}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Rename node" }));
+    const input = screen.getByRole("textbox", { name: "Rename node" });
+
+    const widest = "\u{1F5A5}".repeat(64); // 64 characters, 128 units
+    fireEvent.change(input, { target: { value: widest } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(saved).toEqual([widest]));
+
+    // A saved commit closes the field, so the second half needs it opened again —
+    // firing on the detached node would test nothing and pass by accident.
+    fireEvent.click(screen.getByRole("button", { name: "Rename node" }));
+    const again = screen.getByRole("textbox", { name: "Rename node" });
+    fireEvent.change(again, { target: { value: "a".repeat(65) } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    expect(await screen.findByText("Keep it under 64 characters")).toBeDefined();
+    expect(saved).toEqual([widest]);
+  });
+
   it("click opens the value as a draft; Enter saves it trimmed", async () => {
     const saved: string[] = [];
     const input = renderLine(async (v) => void saved.push(v));

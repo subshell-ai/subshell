@@ -65,8 +65,15 @@ export function validateEnroll(values: EnrollValues): EnrollValidation {
   // The cap is checked on what was TYPED because `normalizeNodeName` truncates,
   // and a name silently chopped at 64 characters is a worse surprise than one
   // bounced back to the person who typed it.
+  // Checked through the SAME rule the value is sent through, not by `=== ""` on the
+  // trimmed text: `String.trim()` strips whitespace and nothing else, so a field
+  // holding one stray control character — an NFC card's terminator, a paste with a
+  // `` in it — trims to itself, looks answered, and hands `normalizeNodeName`
+  // a name that reduces to "". Rust refuses that before any spawn, so no key is
+  // spent, but a form that enables its own submit button for an answer it cannot
+  // send is the bug whoever downstream catches it.
   const nameLength = [...name].length;
-  if (name === "") {
+  if (normalizeNodeName(name) === "") {
     errors.name = "Name this machine — the Nodes page lists it by this name.";
   } else if (nameLength > NODE_NAME_MAX) {
     errors.name = `That name is ${nameLength} characters. The control plane accepts at most ${NODE_NAME_MAX}.`;

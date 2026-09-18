@@ -127,6 +127,20 @@ describe("the node name", () => {
     expect(validateEnroll(values({ name: "🖥".repeat(NODE_NAME_MAX) })).invalid).toBe(false);
   });
 
+  it("refuses a name that is nothing but control characters", () => {
+    // The bug this pins is the form's own gate, not the transport: `String.trim()`
+    // strips whitespace and NOTHING else, so "\u000e" survives it, passes a
+    // `name === ""` check, and then reduces to "" in `normalizeNodeName`. Rust
+    // refuses that before any spawn, so no setup key was ever spent on it — but a
+    // form that enables its own submit button for an answer it cannot send is the
+    // defect whoever catches it, and the person standing at it sees a live button
+    // and an error from somewhere else.
+    const only = validateEnroll(values({ name: "  \u000e\u007f  " }));
+    expect(only.invalid).toBe(true);
+    expect(only.errors.name).toContain("Name this machine");
+    expect(only.args.name).toBe("");
+  });
+
   it("trims before sending", () => {
     expect(validateEnroll(values({ name: "  workstation  " })).args.name).toBe("workstation");
   });

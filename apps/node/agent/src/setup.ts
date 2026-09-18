@@ -64,8 +64,13 @@ export type PromptTextFn = (question: string, def: string) => string | null | Pr
  */
 export function nodeNameProblem(raw: string): string | undefined {
   if (normalizeNodeName(raw) === "") return "A node name needs at least one printable character";
-  if (raw.trim().length > NODE_NAME_MAX) {
-    return `At most ${NODE_NAME_MAX} characters — this is ${raw.trim().length}`;
+  // Code points, not `String.length` — the unit `normalizeNodeName` caps in, and the
+  // unit `runEnroll`'s identical preflight counts (review, 2026-09-18). Measuring this
+  // one in UTF-16 units would have the live prompt reject an emoji name at half length
+  // and the same name pass `--name`.
+  const typed = [...raw.trim()].length;
+  if (typed > NODE_NAME_MAX) {
+    return `At most ${NODE_NAME_MAX} characters — this is ${typed}`;
   }
   return undefined;
 }

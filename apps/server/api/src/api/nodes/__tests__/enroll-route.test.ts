@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import { NODE_NAME_MAX } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { exportJWK, generateKeyPair } from "jose";
@@ -284,6 +285,21 @@ describe("/api/nodes/enroll", () => {
     const { nodeId } = (await res.json()) as { nodeId: string };
     createdNodeIds.push(nodeId);
     expect((await nodes.findById(nodeId))?.name).toBe("mac mini two");
+  });
+
+  it("the schema counts units, so a 64-character astral name enrolls intact", async () => {
+    // `NODE_NAME_MAX_UNITS` exists for THIS body. JSON Schema counts UTF-16 code
+    // units, so `maxLength: NODE_NAME_MAX` answered a name the shared rule calls
+    // legal with a validation error naming nothing the operator could act on — and
+    // the machine had already been asked for it. Widening the schema moved no limit:
+    // `normalizeNodeName` still caps at 64 characters, which is what gets stored.
+    const setupKey = await makeKey();
+    const widest = "\u{1F5A5}".repeat(NODE_NAME_MAX); // 64 characters, 128 units
+    const res = await enroll(bodyFor(setupKey, { name: widest }));
+    expect(res.status).toBe(201);
+    const { nodeId } = (await res.json()) as { nodeId: string };
+    createdNodeIds.push(nodeId);
+    expect((await nodes.findById(nodeId))?.name).toBe(widest);
   });
 
   it("duplicate name for the same owner → 409 NODE_NAME_TAKEN", async () => {

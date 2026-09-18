@@ -18,6 +18,7 @@ export function EditableText({
   className,
   inputClassName,
   maxLength = NAME_MAX_DEFAULT,
+  maxChars,
 }: {
   /** The stored value; empty renders the placeholder */
   value: string;
@@ -30,8 +31,15 @@ export function EditableText({
   className?: string;
   /** Width and friends for the editing input, which the text class lacks */
   inputClassName?: string;
-  /** Reject commits longer than this (post-trim) and cap typing; mirrors the backend rule for this entity */
+  /** Reject commits longer than this (post-trim) and cap typing; mirrors the backend rule for this entity, counted in UTF-16 units the way a DOM `maxlength` and a JSON Schema `maxLength` count them */
   maxLength?: number;
+  /**
+   * The same limit counted in CHARACTERS, for an entity whose rule counts
+   * characters — node names, capped by `normalizeNodeName` since 2026-09-17. When
+   * set this is what a commit is refused on and what the message names; `maxLength`
+   * then only caps what the input will take.
+   */
+  maxChars?: number;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -59,6 +67,16 @@ export function EditableText({
     // why in place instead of reverting silently or eating a round-trip.
     if (!next) {
       setError("A name is required");
+      return;
+    }
+    // The cap the ENTITY's rule sets, in the unit that rule counts. `maxLength` is
+    // UTF-16 units, which is what a DOM `maxlength` and a JSON Schema `maxLength`
+    // count; `maxChars` is code points, for a rule that counts characters — node
+    // names since the 2026-09-17 revamp, whose cap `normalizeNodeName` applies to
+    // characters. A name within `maxChars` is always within twice its units, so the
+    // two never both have an opinion about the same commit.
+    if (maxChars !== undefined && [...next].length > maxChars) {
+      setError(`Keep it under ${maxChars} characters`);
       return;
     }
     if (next.length > maxLength) {

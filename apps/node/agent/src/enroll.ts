@@ -75,10 +75,16 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   // cap is NODE_NAME_MAX and the shape is normalizeNodeName, so a name cannot be
   // stored differently depending on whether it came from --name, setup's prompt
   // or the desktop field. (Everything else stays the server's call.)
+  // Counted in CODE POINTS, the unit the shared cap counts. `String.prototype.length`
+  // is UTF-16 units, which would refuse a 40-emoji name here while the desktop field,
+  // Rust's `chars().count()` and `normalizeNodeName` itself all called it 40 — four
+  // doors agreeing on the constant and disagreeing on how to measure it is worse than
+  // two constants.
   const raw = opts.name.trim();
-  if (raw.length > NODE_NAME_MAX) {
+  const nameLength = [...raw].length;
+  if (nameLength > NODE_NAME_MAX) {
     throw new Error(
-      `--name is ${raw.length} characters; the control plane accepts at most ${NODE_NAME_MAX}, so pass a shorter --name`,
+      `--name is ${nameLength} characters; the control plane accepts at most ${NODE_NAME_MAX}, so pass a shorter --name`,
     );
   }
   const name = normalizeNodeName(raw);

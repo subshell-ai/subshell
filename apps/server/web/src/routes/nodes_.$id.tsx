@@ -1,4 +1,10 @@
-import { agentVersionSupported, MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import {
+  agentVersionSupported,
+  MIN_AGENT_VERSION,
+  NODE_NAME_MAX,
+  NODE_NAME_MAX_UNITS,
+  NODE_PROTOCOL_VERSION,
+} from "@internal/subshell-protocol";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -15,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { useDeleteNode, useNode, useRenameNode } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
-import { NODE_NAME_MAX } from "@/lib/name-limits";
 
 export const Route = createFileRoute("/nodes_/$id")({
   component: NodeDetailPage,
@@ -82,7 +87,8 @@ function NodeDetailPage() {
             placeholder={node.data.id}
             label="Rename node"
             onSave={saveName}
-            maxLength={NODE_NAME_MAX}
+            maxLength={NODE_NAME_MAX_UNITS}
+            maxChars={NODE_NAME_MAX}
           />
         ) : undefined
       }
