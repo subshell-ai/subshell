@@ -502,6 +502,20 @@ function installProgress(): HTMLElement {
  * a "Please report this issue" tail) and the reason is four lines above it.
  */
 function tmuxFailureBlock(failure: TmuxInstallFailure): HTMLElement {
+  // The shared problem line said this once, in one sentence taken from
+  // whatever the manager's stderr happened to end on. This card is that
+  // failure said properly, so the line is cleared rather than reporting it
+  // twice in two different wordings.
+  //
+  // Only when the line IS this failure, though. `refresh` puts `probe.error`
+  // there over the top of an action's message, and a card about a package
+  // manager is no reason to hide a machine that cannot be read at all.
+  //
+  // Here rather than at the two call sites, because both screens that render
+  // this card owe the same rule and a copy of it in each is a copy that can
+  // drift — the client app pays for the same rule with a prop, for the same
+  // reason.
+  if (tmuxResult !== null && problem === failureLine(tmuxResult)) el("problem").textContent = "";
   const box = document.createElement("div");
   box.className = "install-failure";
   box.append(text("p", failure.headline, "label"));
@@ -609,21 +623,9 @@ function renderTmux(p: Probe): void {
     if (busy) {
       content.append(installProgress());
     } else {
-      if (failed !== null) {
-        // The shared problem line said this once, in one sentence taken from
-        // whatever the manager's stderr happened to end on, above a button
-        // that looked exactly as it had before the press. It says it here
-        // now, in the app's own words, next to the manager's — so the line is
-        // cleared rather than reporting the same failure twice in two
-        // different wordings.
-        //
-        // Only when the line IS this failure, though. `refresh` puts
-        // `probe.error` there over the top of an action's message, and a card
-        // about a package manager is no reason to hide a machine that cannot
-        // be read at all.
-        if (tmuxResult !== null && problem === failureLine(tmuxResult)) el("problem").textContent = "";
-        content.append(tmuxFailureBlock(failed));
-      }
+      // It says it here now, in the app's own words, next to the manager's,
+      // above the button that looked exactly as it had before the press.
+      if (failed !== null) content.append(tmuxFailureBlock(failed));
       content.append(
         // "Try again", because pressing a button labelled with the act that
         // just failed asks the reader to believe the same press will do
@@ -1186,6 +1188,17 @@ function renderRecovery(p: Probe): void {
     tmuxWarn.applyPlan(tmuxInstallPlan(p.platform, p.hasBrew));
     tmuxWarn.hidden = false;
     content.append(tmuxWarn);
+    // THIS screen can run the install too — `tmuxWarn`'s button goes through
+    // the same `startTmuxInstall` — so it owes the same answer. The operator's
+    // report was written from a first run, but the defect is the surface's
+    // rather than the journey's: without this the recovery screen runs an
+    // install and then says either one fragment of stderr on the problem line
+    // or, for a run that exits zero and changes nothing, nothing at all. The
+    // manual command is already covered here (`tmux-warning.ts` always shows
+    // the line), which is what made the asymmetry worth closing rather than
+    // scoping out.
+    const failedHere = tmuxInstallFailure(tmuxResult, p.tmux !== null);
+    if (failedHere !== null) content.append(tmuxFailureBlock(failedHere));
   }
   // Reachable HERE as well as from the dashboard, and that is the point: a
   // machine whose service definition is broken has no dashboard to open the
@@ -1485,11 +1498,23 @@ function closeAssistantWindow(): void {
 }
 
 /**
- * **What macOS Will Ask** (spec 2026-09-14 § 3) — entered by REQUEST only,
- * since spec 2026-09-17 (D3) took it off the first run. The dashboard's
- * detection notices are now the only door, and it is the better one: the
- * screen appears when a permission is actually missing, next to the notice
- * that says so, rather than four screens before anything needs one.
+ * **What macOS Will Ask** (spec 2026-09-14 § 3) — reached TWO ways, both of
+ * them requests.
+ *
+ * Spec 2026-09-17 (D3) took it off the first run, on the grounds that a
+ * dashboard detection notice is the better door: the screen appears when a
+ * permission is actually missing, next to the notice that says so, rather
+ * than four screens before anything needs one. That door is unchanged. The
+ * 2026-09-18 operator report added the second (spec § 10): on a Mac's first
+ * run the ready screen's Continue hands off HERE before the dashboard, once,
+ * because macOS asks each of these exactly once and a first run that goes
+ * straight to a sign-in page has spent the one moment when explaining them is
+ * cheap. It is still after the chain, so D1's zero-touch first run is intact.
+ *
+ * Both doors NAME the screen — `permissions` never left `REQUESTED_SCREENS`
+ * — so `isRequestedScreen` remains the whole routing and there is still one
+ * way in. See {@link permissionsAfterSetup} for the three conditions on the
+ * second one.
  *
  * It exists because macOS asks each of these exactly ONCE, unannounced, and
  * attributes some of them to a binary the person never typed. Declining is one
@@ -1501,9 +1526,14 @@ function closeAssistantWindow(): void {
  * **Nothing here blocks.** Every row answers in its own state and no Continue
  * gates anything: declining is a legitimate answer, and this screen is also
  * the way back from one, so gating the flow on an allow would make the
- * recovery path unreachable from the only place that offers it. Back closes
- * the screen for whatever the probe implies, exactly as the supervision
- * screen's does.
+ * recovery path unreachable from the only place that offers it.
+ *
+ * **The bottom bar says which door it came through.** From a notice there is
+ * somewhere to go back TO, and Back closes the screen for whatever the probe
+ * implies, exactly as the supervision screen's does. From the handoff there
+ * is not — this window's whole remaining job is to open the dashboard — so it
+ * carries a primary Continue that does it, and a Back there would be the
+ * button lying about where it leads.
  */
 function renderPermissions(p: Probe): void {
   setFrame("none", "What macOS Will Ask", "Three things, each once. Here is what they are for.");

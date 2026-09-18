@@ -441,16 +441,38 @@ describe("the tmux screen after a failed install", () => {
   // said properly, so the generic sentence would be the same news twice.
   it("drops the shell's generic failure line while the block is up", () => {
     fakeIpc();
+    const generic = "That did not work. See the output below.";
     renderApp(
       <TmuxScreen
-        shell={{ ...shell, problem: "That did not work. See the output below." }}
+        shell={{ ...shell, problem: generic }}
         probe={noTmux}
         onInstall={() => {}}
         busy={false}
         result={failed}
+        runnerFailure={generic}
       />,
     );
-    expect(screen.queryByText("That did not work. See the output below.")).toBeNull();
+    expect(screen.queryByText(generic)).toBeNull();
+  });
+
+  // `shell.problem` is `runner.failure || readError || probe?.error`, and only
+  // the first is this card's to speak for. The card states confidently that
+  // the installer finished and tmux is not on the PATH; hiding the reason the
+  // machine could not be read under that is confidently wrong AND silent.
+  it("keeps a problem line it cannot speak for", () => {
+    fakeIpc();
+    renderApp(
+      <TmuxScreen
+        shell={{ ...shell, problem: "subshell status --json: could not run" }}
+        probe={noTmux}
+        onInstall={() => {}}
+        busy={false}
+        result={{ ok: true, stdout: "==> Summary", stderr: "" }}
+        runnerFailure=""
+      />,
+    );
+    expect(screen.getByText("subshell status --json: could not run")).toBeTruthy();
+    expect(screen.getByText("The installer finished, but tmux still isn't on this machine's PATH.")).toBeTruthy();
   });
 
   // The screen leaves by itself the moment tmux appears, so a verdict on the
@@ -470,5 +492,35 @@ describe("the tmux screen after a failed install", () => {
     for (const name of buttonNames()) {
       expect(name ?? "").not.toMatch(/continue|skip|later|not now/i);
     }
+  });
+});
+
+/**
+ * The card belongs to the install, and to the branch that has one.
+ *
+ * `runner.output` is the last of ANY action and outlives the screen it was
+ * produced on, so the page keeps a `tmuxResult` slot only the install writes —
+ * the twin of `apps/server/desktop`'s. This pins the half a component test can
+ * see: on a Mac with no Homebrew there is no install this app may run and no
+ * button is drawn, so a card there could only ever be describing something
+ * else.
+ */
+describe("the failure card belongs to the install", () => {
+  it("is not drawn on the branch that has no install button", () => {
+    on(MAC_UA);
+    fakeIpc();
+    const failed = { ok: false, stdout: "", stderr: "Error: no bottle available" };
+    renderApp(<TmuxScreen shell={shell} probe={brewless} onInstall={() => {}} busy={false} result={failed} />);
+    expect(screen.queryByText("The tmux install didn't finish.")).toBeNull();
+    // …and the screen is still the two-route one it was.
+    expect(buttonNames()).toContain("Homebrew");
+  });
+
+  it("is drawn beside the button on the branch that has one", () => {
+    fakeIpc();
+    const failed = { ok: false, stdout: "", stderr: "Error: no bottle available" };
+    renderApp(<TmuxScreen shell={shell} probe={noTmux} onInstall={() => {}} busy={false} result={failed} />);
+    expect(screen.getByText("The tmux install didn't finish.")).toBeTruthy();
+    expect(buttonNames()).toContain("Try again");
   });
 });

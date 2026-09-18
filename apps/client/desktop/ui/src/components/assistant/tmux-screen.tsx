@@ -117,9 +117,23 @@ export function TmuxScreen(props: {
    * /install tmux|continue|skip|later|not now/.
    */
   onBack?: () => void;
+  /**
+   * The runner's own generic sentence, or `""` — the ONE line the failure card
+   * replaces.
+   *
+   * Passed separately rather than inferred from `shell.problem`, because that
+   * string is `runner.failure || readError || probe?.error` and only the first
+   * of those three is this card's business. Blanking the lot would hide a
+   * machine that could not be read at all underneath a card stating
+   * confidently that the installer finished and tmux is not on the PATH —
+   * confidently wrong with the explanation suppressed, which is worse than
+   * either alone. `apps/server/desktop` makes the same call at its own
+   * suppression and says so there.
+   */
+  runnerFailure?: string;
   busy: boolean;
 }) {
-  const { shell, probe, onInstall, onBack, busy, result } = props;
+  const { shell, probe, onInstall, onBack, busy, result, runnerFailure = "" } = props;
   /**
    * What the last install left behind, or `null` when there is nothing to
    * report. Recomputed every render off the live probe, so a tmux that turns
@@ -127,6 +141,12 @@ export function TmuxScreen(props: {
    * that starts this screen leaving.
    */
   const failure = tmuxInstallFailure(result, Boolean(probe?.tmux));
+  /**
+   * Whether the shell's line is the runner's generic one AND the card is up —
+   * the only case the card speaks for. Anything else on that line (a read
+   * error, a probe error) is a fact this card cannot state and must not hide.
+   */
+  const genericLineSuppressed = failure !== null && runnerFailure !== "" && shell.problem === runnerFailure;
   // Empty means "this app can install tmux here", which is every machine but a
   // brew-less Mac. `true` while the probe has not answered: a screen that
   // dropped its button for the half-second before the first read would flicker
@@ -209,12 +229,13 @@ export function TmuxScreen(props: {
     <Frame
       {...shell}
       icon={<SquareTerminal />}
-      // The site button's own refusal outranks; otherwise the shell's line,
-      // EXCEPT while the failure block is up — that block is this failure said
-      // properly, and the runner's generic sentence above it would be the same
-      // news twice in two wordings, one of them pointing at a pane that is not
-      // on this screen.
-      problem={problem !== "" ? problem : failure === null ? shell.problem : ""}
+      // The site button's own refusal outranks; otherwise the shell's line —
+      // suppressed ONLY when it is the runner's own generic sentence and the
+      // card is up, because that block is this failure said properly and the
+      // generic one would be the same news twice in two wordings, one of them
+      // pointing at a pane that is not on this screen. A probe error reaching
+      // `shell.problem` is a different fact and survives.
+      problem={problem !== "" ? problem : genericLineSuppressed ? "" : shell.problem}
       barLeft={
         // Live during the install, where every other bottom-bar control in this
         // app is disabled by `busy`. Leaving changes nothing — the install runs
@@ -238,11 +259,19 @@ export function TmuxScreen(props: {
           {status}
         </p>
       )}
-      {!busy && failure !== null && <InstallFailure failure={failure} />}
       {routes.length === 0 ? (
         <div className="mt-6">
           {!busy && (
             <>
+              {/*
+               * INSIDE this branch, with the button it explains. The other
+               * branch is a Mac with no Homebrew, where `node_install_tmux`
+               * has nothing it may run and no button is drawn at all — so a
+               * failure card there could only ever be describing some other
+               * action, which is the misattribution `tmuxResult` exists to
+               * prevent.
+               */}
+              {failure !== null && <InstallFailure failure={failure} />}
               {/*
                * "Try again", because a button lettered with the act that just
                * failed asks the reader to believe the same press will do

@@ -52,7 +52,7 @@ import {
   type RegisterRow,
   registerSteps,
 } from "@/lib/client-flow";
-import type { EnrolledNodeBody } from "@/lib/ipc";
+import type { ActionResult, EnrolledNodeBody } from "@/lib/ipc";
 import * as ipc from "@/lib/ipc";
 import { type NodeUserScreen, screenTitle } from "@/lib/node-assistant-state";
 
@@ -126,6 +126,18 @@ export function App() {
    * reports no name and `config.json`'s is not among the facts Rust hands out.
    */
   const [enrolledNode, setEnrolledNode] = useState<EnrolledNodeBody | null>(null);
+  /**
+   * What the TMUX INSTALL answered, and nothing else.
+   *
+   * Its own slot rather than `runner.output`, which is the last of any action
+   * and lives as long as this component does — so a failed `service` verb or
+   * agent install, produced on the status screen, would render under "The tmux
+   * install didn't finish." the next time anyone walked to the tmux screen.
+   * `apps/server/desktop` keeps a `tmuxResult` for exactly that reason and says
+   * so at the declaration; this is its twin, written only by
+   * {@link NodeCommands.installTmux}.
+   */
+  const [tmuxResult, setTmuxResult] = useState<ActionResult | null>(null);
 
   const commands = useNodeCommands({
     runner,
@@ -135,6 +147,7 @@ export function App() {
       setEnrolledNode(node);
       setOverride(null);
     },
+    onTmuxInstall: setTmuxResult,
   });
 
   const screen = clientScreen({ probe, settings, step, override });
@@ -225,11 +238,14 @@ export function App() {
           probe={probe}
           busy={runner.busy}
           onInstall={commands.installTmux}
-          // The install's own words, so a failure says something on THIS
-          // screen: the shell's problem line carries the runner's generic
-          // "See the output below", and this screen has no output block for
-          // it to point at.
-          result={runner.output}
+          // The TMUX INSTALL's own words, never `runner.output` — that is the
+          // last of any action and outlives the screen it was produced on, so
+          // a failed service verb would render here as a tmux failure. The
+          // server app keeps its own slot for exactly this reason.
+          result={tmuxResult}
+          // Which of `problem`'s three sources is the runner's — the only one
+          // the failure card replaces. See the prop's own docblock.
+          runnerFailure={runner.failure}
           // Same asymmetry as Register's: Choice for a fresh machine, the
           // status screen for a configured client that came here from
           // "Register this machine". This screen needs it most — a machine

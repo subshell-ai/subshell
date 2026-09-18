@@ -316,6 +316,17 @@ machine's PATH.* — the manager's own last word, and both streams for a
 disclosure. The screen then renders a failure card, relabels its button **Try
 again**, and prints the one line a person can paste.
 
+**Both of the server app's tmux surfaces render it**, not just the first
+run's: the recovery screen's amber `tmuxWarn` runs the same install through the
+same press, so without the card it would run one and then report either a
+fragment of stderr or — for a run that exits zero and changes nothing —
+nothing at all. The suppression of the shared problem line lives in the card
+builder for the same reason, so the two callers cannot drift apart on it. In
+Subshell Client the equivalent scoping is a `tmuxResult` slot in `App` written
+only by `installTmux`: `runner.output` is the last of ANY action and outlives
+the screen it was produced on, so a failed service verb would otherwise render
+later as a tmux failure.
+
 **Try again asks the machine before it asks the package manager.** Someone who
 went off to a terminal, installed tmux by hand and came back is pressing that
 button to say "look again" — and the poll cannot have noticed for them,
