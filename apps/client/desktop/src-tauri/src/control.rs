@@ -36,7 +36,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
-use subshell_desktop_core::pending_install::{names_an_act, resume_decision, Resume};
+use subshell_desktop_core::pending_install::{resume_decision, Resume};
 use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::reset_guards::machine_hostname;
 use subshell_desktop_core::settings::{PendingBundledInstall, Settings, SettingsState};
@@ -678,22 +678,22 @@ pub fn node_probe(settings: State<'_, SettingsState>) -> Probe {
 /// boot path: nothing here runs at boot, because the process that finishes the
 /// act learns about it from the poll the page already makes.
 ///
-/// A marker with an EMPTY `from_app_version` is no marker.
-/// `PendingBundledInstall` derives `Default` under `#[serde(default)]`, so a
-/// truncated or hand-edited `{"pendingBundledInstall":{}}` deserializes into a
-/// marker that names no act — and what a marker IS is the record of one app
-/// version having handed off to the next. The server app's twin renders that
-/// string into a sentence ("… was updated from , but …"); this app does not
-/// today, which is a rendering choice rather than a reason to trust the field.
+/// A marker with an EMPTY `from_app_version` is no marker, and
+/// `resume_decision` says so for BOTH apps: `PendingBundledInstall` derives
+/// `Default` under `#[serde(default)]`, so a truncated or hand-edited
+/// `{"pendingBundledInstall":{}}` deserializes into a marker that names no
+/// act — and what a marker IS is the record of one app version having handed
+/// off to the next. The crate answers `Resume::Clear` for it, which reaches
+/// the `view.is_none()` branch below and DROPS it.
+///
+/// This function had its own early return for that case, which returned
+/// before the clear and so hid such a marker permanently instead of dropping
+/// it — the opposite of what its comment claimed (review N4). The guard lives
+/// in `desktop-core` beside the field it guards; there is nothing to repeat
+/// here.
 fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingInstall> {
     let current = settings.get();
     let marker = current.pending_bundled_install.as_ref()?;
-    // `resume_decision` refuses a nameless marker too (one rule, in the crate
-    // that owns the field — review M17), so this is the early exit that lets
-    // the poll DROP it rather than asking twice.
-    if !names_an_act(marker) {
-        return None;
-    }
     let decision = resume_decision(
         Some(marker),
         probe.bundled_version.as_deref(),
@@ -1010,8 +1010,10 @@ fn classify_update(run: Run) -> AfterUpdate {
 /// about something this CLI's own `update` never does either.
 ///
 /// No `stop_first` and no restart: both are exactly as they are on the
-/// `update` path, which passes `--no-restart` and leaves the start to the
-/// screen.
+/// `update` path, which passes `--no-restart` and leaves the RESTART to the
+/// screen — nothing was stopped, so the daemon is up on the previous binary's
+/// inode until someone restarts it (spec § 7.1/§ 7.2; review N2, the second
+/// site of the wrong verb I9 fixed one function up).
 fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result<ActionResult, String> {
     match sidecar::install_bundled(&AGENT_SIDECAR, bundled, || {})? {
         sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
@@ -2171,6 +2173,10 @@ mod command_set_tests {
 #[cfg(test)]
 mod resume_tests {
     use super::*;
+    // Production code no longer names this: the guard lives inside
+    // `resume_decision` (review M17/N4). The tests still assert it directly,
+    // because "a nameless marker is not an act" is the rule they pin.
+    use subshell_desktop_core::pending_install::names_an_act;
 
     fn marker(attempts: u32) -> PendingBundledInstall {
         PendingBundledInstall {
@@ -2256,13 +2262,25 @@ mod resume_tests {
         assert!(view.halted);
     }
 
-    /// A marker that names no app version is a corrupt file, not an act.
+    /// A marker that names no app version is a corrupt file, not an act — and
+    /// it reaches this app as a `Clear`, which is what DROPS it.
+    ///
+    /// Asserted through `resume_decision` rather than `names_an_act` alone,
+    /// because the guard moved into the crate and the thing worth pinning here
+    /// is the answer this app acts on. The local early return that used to sit
+    /// in `resume_view` returned before the clear, so a nameless marker was
+    /// hidden forever rather than dropped (review N4).
     #[test]
-    fn a_marker_naming_no_version_is_no_marker() {
+    fn a_marker_naming_no_version_is_cleared_rather_than_hidden() {
         assert!(names_an_act(&marker(0)));
         let mut blank = marker(0);
         blank.from_app_version = String::new();
         assert!(!names_an_act(&blank));
+        assert_eq!(
+            resume_decision(Some(&blank), Some("1.10.0"), Some("1.8.0")),
+            Some(Resume::Clear)
+        );
+        assert_eq!(view_of(&blank, &Resume::Clear), None);
         // Whitespace too: `serde(default)` is one way to get here and a hand
         // edit is the other, and a space is what a hand edit leaves.
         blank.from_app_version = "  ".into();

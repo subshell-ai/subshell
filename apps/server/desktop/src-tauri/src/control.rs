@@ -727,18 +727,6 @@ pub fn wait_for_boot(app: &AppHandle, settings: &SettingsState) -> Probe {
     }
 }
 
-/// The stored update marker as the screen needs to see it, or `None`.
-///
-/// **`resume_decision` first, always.** The marker records that a press
-/// happened; it never decides that there is work, because the machine already
-/// answers that — the bundled version against the installed one, the same
-/// comparison `decide_server` makes. So a marker whose work turns out to be
-/// done (a hand `subshell-server update` in between, say) reads as `None`
-/// here, and the screen cannot offer an install nothing needs.
-///
-/// Read-only: the marker is CLEARED by whoever finishes or abandons it — the
-/// boot resume, or the install that succeeds — never by a poll that happens to
-/// look at it 1500 ms after the fact.
 /// The resume decision for THIS machine — the one place the probe's two
 /// versions are handed to `resume_decision`.
 ///
@@ -756,6 +744,25 @@ fn resume_for(marker: Option<&PendingBundledInstall>, p: &Probe) -> Option<Resum
     resume_decision(marker, p.bundled_version.as_deref(), p.comparable_server_version())
 }
 
+/// The stored update marker as the screen needs to see it, or `None`.
+///
+/// **`resume_decision` first, always.** The marker records that a press
+/// happened; it never decides that there is work, because the machine already
+/// answers that — the bundled version against the installed one, the same
+/// comparison `decide_server` makes. So a marker whose work turns out to be
+/// done (a hand `subshell-server update` in between, say) reads as `None`
+/// here, and the screen cannot offer an install nothing needs.
+///
+/// Read-only: the marker is CLEARED by whoever finishes or abandons it — the
+/// boot resume, or the install that succeeds — never by a poll that happens to
+/// look at it 1500 ms after the fact. That is this app's half of a documented
+/// divergence from Subshell Client, whose `resume_view` clears on the poll
+/// because nothing there runs at boot.
+///
+/// (This docblock was absorbed into `resume_for`'s when that function was
+/// split out — the same slip as I10, in the commit that fixed I10, and worse
+/// here because the sentence above lands on a function that clears nothing and
+/// IS called by the poll. Review N5.)
 fn resume_view(settings: &SettingsState, p: &Probe) -> Option<PendingInstall> {
     let marker = settings.get().pending_bundled_install?;
     let halted = match resume_for(Some(&marker), p)? {
@@ -3355,14 +3362,7 @@ mod tests {
             attempts: 0,
             forced: true,
         };
-        assert_eq!(
-            resume_decision(
-                Some(&marker),
-                p.bundled_version.as_deref(),
-                p.comparable_server_version()
-            ),
-            Some(Resume::Clear)
-        );
+        assert_eq!(resume_for(Some(&marker), &p), Some(Resume::Clear));
     }
 
     /// The managed machine still resumes — the guard above must not have
@@ -3386,14 +3386,7 @@ mod tests {
             attempts: 0,
             forced: false,
         };
-        assert_eq!(
-            resume_decision(
-                Some(&marker),
-                p.bundled_version.as_deref(),
-                p.comparable_server_version()
-            ),
-            Some(Resume::Install { forced: false })
-        );
+        assert_eq!(resume_for(Some(&marker), &p), Some(Resume::Install { forced: false }));
     }
 
     // The replace path hands the STAGED sidecar to the INSTALLED server, and
