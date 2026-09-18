@@ -1,9 +1,12 @@
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DesktopRows } from "@/components/updates/desktop-rows";
+import { FoldedServerRow } from "@/components/updates/folded-server-row";
 import { NodeRows } from "@/components/updates/node-rows";
 import { RowRule } from "@/components/updates/row-cells";
 import { ServerRow } from "@/components/updates/server-row";
 import type { StartServerUpdate } from "@/hooks/use-updates";
+import { desktopShell } from "@/lib/desktop";
 import type { UpdatesView } from "@/types/updates";
 
 /**
@@ -46,14 +49,29 @@ export function UpdatesTable({
   /** What the instance reports it is running, for the bundled-server line */
   serverVersion: string | undefined;
 }) {
+  const shell = desktopShell();
+  // Narrowed rather than asked twice, so the branch below and `FoldedServerRow`
+  // cannot disagree about which shell this is — the component takes a non-null
+  // shell precisely because it is unreachable without one.
+  const inServerApp = shell?.app === "server";
   return (
     <Card>
       {/* No description: the page header already says what this table is.
           The old cards' captions ("X is available. Running Y.", "Nodes can be
           updated to X.") stated what the Running and Newest columns now state
           per row — one voice, in the middle of each row, not above sections. */}
-      <CardHeader>
+      {/* Re-check sits HERE, not in the Server row, because that is what it
+          has always done: `useCheckUpdates` invalidates the whole
+          `UPDATES_QUERY_KEY` on success — deliberately, so the desktop and
+          node rows cannot keep stating what the previous read said while the
+          Server row moves. In the Server row's action cell it READ as
+          server-only, which is the operator's report of 2026-09-18 ("re-check
+          should be a global button"). Nothing about its behaviour changed. */}
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle>Components</CardTitle>
+        <Button variant="outline" size="sm" disabled={!view.server.source.enabled || checking} onClick={onCheck}>
+          {checking ? "Checking…" : "Re-check"}
+        </Button>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
@@ -69,15 +87,28 @@ export function UpdatesTable({
               updates-table.test.tsx): the two desktop rows lead, the Server
               follows, and the fleet is last because it is the only section
               that grows with the machines enrolled. */}
-          <DesktopRows desktop={view.desktop} />
-          <RowRule />
-          <ServerRow
-            view={view.server}
-            update={update}
-            onCheck={onCheck}
-            checking={checking}
-            serverVersion={serverVersion}
-          />
+          {/* Inside Subshell Server the app row and the Server row are ONE
+              row (spec 2026-09-18 D4): the app SHIPS the server, so they are
+              one act, and the assistant is the only surface that can drive
+              either half. The client app's row stays beside it — that is a
+              different product, and this window cannot install it.
+
+              In a BROWSER nothing folds: the page cannot raise a window on a
+              machine it is not running on, so the release-source update and
+              the release links are the only controls that can exist there. */}
+          {inServerApp ? (
+            <>
+              <FoldedServerRow shell={shell} app={view.desktop.server} server={view.server} />
+              <RowRule />
+              <DesktopRows desktop={view.desktop} apps={["client"]} />
+            </>
+          ) : (
+            <>
+              <DesktopRows desktop={view.desktop} />
+              <RowRule />
+              <ServerRow view={view.server} update={update} />
+            </>
+          )}
           <NodeRows fleet={view.nodes} />
         </div>
       </CardContent>

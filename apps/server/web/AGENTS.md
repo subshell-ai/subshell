@@ -81,6 +81,25 @@ old cards carried them, and below `sm` the version pair folds into the name
 cell as `running → newest` (`row-cells.tsx`). The row order — desktop apps,
 Server, Nodes last — is the operator's 2026-09-17 call and is pinned by
 `updates-table.test.tsx`, since nothing else on the page would notice a swap.
+
+**Inside Subshell Server the app row and the Server row are ONE row** (spec
+2026-09-18 D4, `folded-server-row.tsx`). That app SHIPS the server it would
+install, so on that machine "update the app" and "update the server" are one
+act whose second half is the first half's tail — two rows and three controls
+for it was our packaging presented as the user's decision. The folded row
+states BOTH pairs (the app's in the cells, since the row is named for the app;
+the server's as its detail line) and offers ONE control, which opens the
+assistant — the only surface allowed to drive either install. `DesktopRows` is
+asked for the client alone there, and its server branch is DELETED rather than
+left unreachable. A browser is untouched and keeps both rows, the
+release-source Update and the release links, because nothing there can install
+anything on a machine the page is not running on.
+
+**Re-check lives in the card header**, not in the Server row (operator's call,
+2026-09-18). It always invalidated the whole `UPDATES_QUERY_KEY` —
+deliberately, so no row keeps stating what the previous read said while the
+Server row moves — so sitting in that row's action cell only made a global
+control read as a server-only one. Its behaviour did not change.
 The old card descriptions ("X is available. Running Y.", "Nodes can be updated
 to X.") are gone on purpose: the two version cells state that per row, in one
 voice.
