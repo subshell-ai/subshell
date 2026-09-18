@@ -393,15 +393,41 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
   it("install.sh refuses a `server` param outside the allowlist and bakes APP_BASE_URL instead", async () => {
     // Unparseable, wildcard-shaped, and shell-shaped: all three answer the
-    // same way as an absent param. The baked string lands inside bash double
-    // quotes, so membership-first is not paranoia — it is what makes the
-    // value unexpandable (`$(…)` cannot survive URL parsing of an http host,
-    // and no registry entry a hand-edit wrote can be baked on its own say).
+    // same way as an absent param. What makes the value unexpandable is the
+    // SYNTACTIC BELT plus registry membership — NOT the URL parse: measured
+    // on bun 1.4.2, `new URL("http://a%24(b)test").origin` percent-DECODES to
+    // `http://a$(b)test`, so `$(` does survive parsing (the `$(echo PWNED)`
+    // entry here is refused only because a space makes it unparseable). The
+    // belt itself is pinned by the next test, because a registry entry is the
+    // one input that reaches `has()` already trusted.
     const key = await mkKey();
     for (const bad of ["http://evil.example", "https://*", "http://a$(echo PWNED).test", "not a url", ""]) {
       const body = await (await installWithServer(key, bad)).text();
       expect(body).toContain(`SERVER="${APP_BASE_URL}"`);
       expect(body).not.toContain("PWNED");
+    }
+  });
+
+  it("install.sh refuses even a registry member whose spelling bash would expand", async () => {
+    // THE belt test: every other refusal above falls out before the
+    // syntactic check, so deleting `BAKABLE_ORIGIN` would keep this suite
+    // green. Here the entry IS in the registry — `canonicalPluginOrigin`
+    // percent-DECODES, so `http://a%24(b)test` is stored as the literal
+    // `http://a$(b)test` (measured, bun 1.4.2) — canonicalization matches,
+    // `has()` matches, and ONLY the belt stands between it and
+    // `SERVER="http://a$(b)test"` in a script bash executes on the new
+    // machine. This is the hand-edited-config.env class (operator entries
+    // join the registry verbatim); the plugin staging seam is its test
+    // route because productionDeps reads a file this test cannot own.
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", ["http://a%24(b)test"]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, "http://a$(b)test")).text();
+      expect(body).toContain(`SERVER="${APP_BASE_URL}"`);
+      expect(body).not.toContain("$(b)");
+    } finally {
+      registry.clearPlugin("dl-test");
     }
   });
 
