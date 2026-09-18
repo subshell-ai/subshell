@@ -756,7 +756,14 @@ describe("replacing the installed agent", () => {
     await waitFor(() => expect(confirmPanelOrNull()).not.toBeNull());
     expect(fake.callsTo("node_install_agent").length).toBe(0);
     expect(confirmPanel().getByText(/Nothing is downloaded/)).toBeTruthy();
-    expect(confirmPanel().getByText(/is NOT started again/)).toBeTruthy();
+    // NOT "the service is stopped first" and NOT "start it afterwards": the
+    // managed path swaps through the CLI's `update --from`, whose rename(2)
+    // the running daemon never notices, so nothing is stopped and the daemon
+    // is still up — on the OLD binary. Both halves of the old sentence were
+    // false, and the second one named the wrong verb (2026-09-18).
+    expect(confirmPanel().queryByText(/stopped first/i)).toBeNull();
+    expect(confirmPanel().queryByText(/is NOT started again/)).toBeNull();
+    expect(confirmPanel().getByText(/keeps running the previous version until you restart it/)).toBeTruthy();
 
     fireEvent.click(confirmPanel().getByRole("button", { name: "Update the agent" }));
     await waitFor(() => expect(fake.callsTo("node_install_agent").length).toBe(1));
