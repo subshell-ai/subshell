@@ -65,6 +65,12 @@ export function EditableText({
     }
     // Pre-flight the backend's rules (name-limits) so a rejected value says
     // why in place instead of reverting silently or eating a round-trip.
+    // Deliberately `!next` and not "would the backend's normalizer call this empty":
+    // emptiness is the ONE rule every entity shares, while a name that trims to
+    // something printable but normalizes to nothing (a stray control character) is a
+    // per-entity rule, and the entity's own route refuses it — the message lands here
+    // anyway, through the rejection below. Importing `normalizeNodeName` into this
+    // shared component would have the workspace form refuse by the node's rule.
     if (!next) {
       setError("A name is required");
       return;

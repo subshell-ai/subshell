@@ -80,11 +80,23 @@ curl -s -c "$JAR" -X POST "$BASE/api/auth/sign-in/email" -H 'content-type: appli
 ok "sign-in HTTP $(cat "$W/signin.code")"
 
 echo "== 7. mint a node setup key (admin cookie)"
-curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" -H 'content-type: application/json' -d '{"label":"e2e"}' \
-  -o "$W/key.json" -w '%{http_code}\n' > "$W/key.code"
+# No body: the mint takes nothing since the node started naming itself, and posting a
+# `label` here would hide that — and pass, because a route ignores what it does not read.
+curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" -o "$W/key.json" -w '%{http_code}\n' > "$W/key.code"
 KEY=$(sed -n 's/.*"key":"\([^"]*\)".*/\1/p' "$W/key.json")
 [ -n "$KEY" ] || { echo "HTTP $(cat "$W/key.code")"; head -c 400 "$W/key.json"; echo; fail "no setup key minted"; }
 ok "setup key minted"
+
+echo "== 7b. the COMPILED enroll refuses a nameless invocation, and spends nothing"
+# Unit level this is one argv check; compiled, it is the only proof that the refusal
+# still happens before the identity, the network and the key. The next step is that
+# proof: it redeems THIS key, so a refusal that had spent it fails there instead.
+ENROLL_OUT=$("$NODE" enroll --server "$BASE" --key "$KEY" --data-dir "$W/node-data-nope" 2>&1)
+ENROLL_RC=$?
+[ "$ENROLL_RC" -eq 2 ] || { echo "exit $ENROLL_RC: $ENROLL_OUT"; fail "a nameless enroll must be a usage error (exit 2)"; }
+echo "$ENROLL_OUT" | grep -q -- "--name" || { echo "$ENROLL_OUT"; fail "the refusal did not name the flag to pass"; }
+[ -e "$W/node-data-nope/identity.json" ] && fail "a refused enroll minted an identity before it refused"
+ok "nameless enroll: exit 2, named --name, minted no identity, left the key unspent"
 
 echo "== 8. node CLI: subshell setup"
 export SUBSHELL_CONFIG_HOME="$W/node-config"

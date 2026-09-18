@@ -13,8 +13,8 @@ subshell: node agent daemon
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
                  [--no-service] [--yes] [--json]
-                          the whole enrollment: names this machine, checks tmux,
-                          enrolls, then offers to run the agent in the background
+                          the whole enrollment: checks tmux, asks this machine's
+                          name, enrolls, then offers to run it in the background
                           and start it at login. Without --name it ASKS (default:
                           the hostname); --yes, --json or no terminal make the
                           name required instead. --no-service skips the service

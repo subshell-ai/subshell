@@ -73,8 +73,9 @@ function resolveBakedServer(raw: string | undefined): string {
  *
  * The key is interpolated only into the single `KEY=` assignment (spec §11
  * posture: it rode in on the query string anyway) — every later use goes
- * through `$KEY`. It is safe to embed because `peekValid` just proved it
- * hashes to a live DB row, i.e. it matches the `nsk_<base64url>` mint shape;
+ * through `$KEY`. It is safe to embed because `peekValid` just matched it — byte
+ * for byte, against the stored text — to a live DB row, which means it can only be
+ * something this instance minted in the `nsk_<base64url>` shape;
  * no attacker-controlled string ever reaches this template.
  *
  * That safety argument leans on the CALLER, so the template also defends
