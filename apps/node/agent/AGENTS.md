@@ -378,9 +378,15 @@ pre-verify (the bytes come from the plane's tokened route) and re-verifies
 against the actual digest instead. `--from` and `--rollback` stay
 signature-free: a file the operator named IS their decision, already verified
 as far as it can be (it must say it is the agent at the expected version).
-The CLI refuses, with three differently-worded messages that all end by
-naming `--from`: an empty release source, a release with no manifest asset,
-and a signature that does not verify.
+The CLI's refusals name `--from` only where it is the answer. Three end
+with "install a file with `--from`" — an empty release source, a release
+with no `release-manifest.json` ("cannot be verified"), and a release with
+no `release-manifest.json.sig` ("is not signed"). Two deliberately do not:
+a signature that does not verify answers `<tag> is not installable:
+<reason>`, and a manifest that cannot be read answers `could not read the
+release manifest from <tag>: …` — "the publisher did not sign this" is not
+answered by hand-installing some other file; the test suite pins the first
+of these two sentences verbatim.
 
 **The `update` command's wire shape is FROZEN across protocol bumps**
 (`node-frames.ts`). It is the one command the plane sends to an agent whose
@@ -411,10 +417,16 @@ no single file to name) and `update: { pending, lastFailure }`.
 it installs this build, compiles a `99.0.0` one from the same source with a
 patched `package.json` (restored from a trap), and drives `--check`, the
 `--from` swap, the "already at" refusal, `--rollback`, a rollback with nothing
-to roll back to, and a file that cannot say what it is. It boots no server and
-dials no plane — an agent has no database and no boot-time transaction, so the
-only state `update` reads is `config.json`'s `dataDir`, which the script
-writes by hand. The **4406 revert** is deliberately not compiled there: it
+to roll back to, and a file that cannot say what it is. Against a local fake
+release source it also carries the compiled signature story end to end: a
+bogus armor refuses (step 10); a release signed by a throwaway keypair —
+patched into `RELEASE_PUBKEY` and compiled in the way the version is patched,
+restored from a byte copy, never an env override — INSTALLS on the signed
+manifest's digest while the sidecar beside it lies, and refuses after one
+hex character of the signed bytes is tampered (step 11). It boots no server
+and dials no plane — an agent has no database and no boot-time transaction,
+so the only state `update` reads is `config.json`'s `dataDir`, which the
+script writes by hand. The **4406 revert** is deliberately not compiled there: it
 needs a control plane built on a different protocol constant, a second ~110 MB
 build to exercise a close handler `daemon.test.ts` already drives directly.
 

@@ -15,9 +15,11 @@
 # gate of spec 2026-09-17 applies to NETWORK sources, whose refusal IS signature
 # verification — `--from` and `--rollback` are its two named exceptions. The
 # network path's refusal is exercised COMPILED by `node-update.sh` step 10
-# against a fake release source with a bogus armor; the server's own network
-# selection is covered at unit level (`releases.test.ts` — unsigned, forged,
-# digest-mismatched manifests all refuse by name).
+# against a fake release source with a bogus armor (and step 11 proves the
+# acceptance side compiled too, against a throwaway pubkey compiled into the
+# exercising binary); the server's own network selection is covered at unit
+# level (`releases.test.ts` — unsigned, forged, digest-mismatched manifests
+# all refuse by name).
 #
 # What is NOT covered here, and why: the migration-failure REVERT. Making a
 # compiled binary fail a migration on demand would mean a test seam inside

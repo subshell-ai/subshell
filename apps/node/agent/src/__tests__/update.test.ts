@@ -11,6 +11,8 @@ import {
   NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_VERSION_MISMATCH,
   parseReleaseManifest,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
   releaseAssetNames,
 } from "@internal/subshell-protocol";
 import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
@@ -23,6 +25,7 @@ import {
   redactUrl,
   releaseApiUrl,
   resolveAgentBinary,
+  resolveNodeRelease,
   revertAfterRefusal,
   rollbackUpdate,
   type UpdateFailure,
@@ -693,6 +696,156 @@ describe("rollbackUpdate", () => {
     // The destination path held a file throughout; what changed is WHICH file.
     expect(statSync(binary).ino).toBe(previousIno);
     expect(statSync(binary).ino).not.toBe(beforeIno);
+  });
+});
+
+describe("resolveNodeRelease", () => {
+  /**
+   * A fake release source: one `Bun.serve`, routes keyed by pathname, and a
+   * record of every path it was asked for. The record is half the test —
+   * `resolveNodeRelease` must cost exactly the list read plus two small
+   * metadata reads, never the artifact and never the sidecar — and the
+   * sidecar route existing-but-unserved is what makes a regression that
+   * re-reads it fail on the digest instead of passing quietly.
+   */
+  function serveReleaseSource(): {
+    origin: string;
+    routes: Record<string, string>;
+    requested: string[];
+    stop: () => void;
+  } {
+    const requested: string[] = [];
+    const routes: Record<string, string> = {};
+    const server = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const path = new URL(req.url).pathname;
+        requested.push(path);
+        const body = routes[path];
+        return body === undefined ? new Response("not here", { status: 404 }) : new Response(body);
+      },
+    });
+    return { origin: `http://127.0.0.1:${server.port}`, routes, requested, stop: () => void server.stop(true) };
+  }
+
+  /** The gh-JSON list shape `resolveNodeRelease` reads: tags with named assets. */
+  function releaseList(origin: string, tag: string, names: string[]): string {
+    return JSON.stringify([
+      { tag_name: "node-v0.8.0", draft: false, assets: [] },
+      {
+        tag_name: tag,
+        draft: false,
+        assets: names.map((name) => ({ name, browser_download_url: `${origin}/dl/${name}` })),
+      },
+    ]);
+  }
+
+  const MANIFEST_DIGEST = sha256("THE PUBLISHED BINARY");
+  const SIDECAR_DIGEST = sha256("bytes nobody published");
+
+  const releaseManifest = (version = "0.9.1"): string =>
+    JSON.stringify({
+      component: "node",
+      version,
+      nodeProtocol: 12,
+      minAgentVersion: "0.11.0",
+      commit: "0".repeat(40),
+      // The decoy triple proves the lookup is by THIS host's exact published
+      // filename: resolveNodeRelease must ask for HOST_ASSET, not for a
+      // plausible sibling.
+      assets: { [HOST_ASSET]: MANIFEST_DIGEST, "subshell-node-cli-other-triple": "a".repeat(64) },
+    });
+
+  /** The whole fake release: list, manifest, sig, artifact, and a LYING sidecar. */
+  function fakeRelease(source: ReturnType<typeof serveReleaseSource>, manifestText: string): void {
+    const { origin, routes } = source;
+    routes["/releases"] = releaseList(origin, "node-v0.9.1", [
+      HOST_ASSET,
+      `${HOST_ASSET}.sha256`,
+      RELEASE_MANIFEST_NAME,
+      RELEASE_MANIFEST_SIG_NAME,
+    ]);
+    routes[`/dl/${HOST_ASSET}`] = "THE PUBLISHED BINARY";
+    routes[`/dl/${HOST_ASSET}.sha256`] = `${SIDECAR_DIGEST}  ${HOST_ASSET}\n`;
+    routes[`/dl/${RELEASE_MANIFEST_NAME}`] = manifestText;
+    routes[`/dl/${RELEASE_MANIFEST_SIG_NAME}`] = "TEST-ARMOR";
+  }
+
+  /** Run one resolve against the fake, with the env restored either way. */
+  async function resolveAgainst(
+    source: ReturnType<typeof serveReleaseSource>,
+  ): Promise<{ ok: true; offer: Awaited<ReturnType<typeof resolveNodeRelease>> } | { ok: false; error: Error }> {
+    const before = process.env.SUBSHELL_RELEASE_URL;
+    process.env.SUBSHELL_RELEASE_URL = `${source.origin}/releases`;
+    try {
+      return { ok: true as const, offer: await resolveNodeRelease() };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err : new Error(String(err)) };
+    } finally {
+      if (before === undefined) delete process.env.SUBSHELL_RELEASE_URL;
+      else process.env.SUBSHELL_RELEASE_URL = before;
+    }
+  }
+
+  it("verifies the publisher before the bytes move and takes the digest from the SIGNED manifest", async () => {
+    // The CLI path's ACCEPTANCE case (spec 2026-09-17 §4). This function is a
+    // node's own trust anchor — it holds no REST credential, so it checks the
+    // publisher directly rather than asking its plane. The seams were the
+    // executor's only; the CLI now runs through the same object (whose
+    // defaults ARE the production call), which is what lets this suite stand
+    // in for the crypto — pinned for real against `tauri signer` fixtures in
+    // the protocol package.
+    const source = serveReleaseSource();
+    const manifestText = releaseManifest();
+    fakeRelease(source, manifestText);
+    try {
+      const result = await resolveAgainst(source);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      // Newest node release wins…
+      expect(result.offer).toMatchObject({ version: "0.9.1", tag: "node-v0.9.1" });
+      // …for THIS host's exact artifact, not the decoy triple in the list…
+      expect(result.offer.url).toBe(`${source.origin}/dl/${HOST_ASSET}`);
+      // …with the digest the signed map names, never the sidecar's. A
+      // regression re-reading the sidecar answers SIDECAR_DIGEST and fails here.
+      expect(result.offer.sha256).toBe(MANIFEST_DIGEST);
+      // The verified pair rides into applyUpdate, which re-checks the digest
+      // against the bytes as they arrive.
+      expect(result.offer.manifest).toEqual({ bytes: manifestText, sig: "TEST-ARMOR" });
+      // Two small metadata reads and the list — never the artifact, never the
+      // sidecar. An unsigned release costs exactly this much.
+      expect([...source.requested].sort()).toEqual(
+        [`/dl/${RELEASE_MANIFEST_NAME}`, `/dl/${RELEASE_MANIFEST_SIG_NAME}`, "/releases"].sort(),
+      );
+    } finally {
+      source.stop();
+    }
+  });
+
+  it("answers a refused signature with the tag and the reason, and never names --from", async () => {
+    // `${tag} is not installable: ${reason}` — verbatim, because the sentence
+    // is the operator's only diagnosis, and because this branch deliberately
+    // does NOT point at `--from`: "the publisher did not sign this" is not
+    // answered by hand-installing some other file. Nothing is downloaded and
+    // nothing is written — `resolveNodeRelease` touches no filesystem.
+    updateSeams.verifyManifest = async () => ({
+      ok: false as const,
+      reason: "test: the fixture signature was refused",
+    });
+    const source = serveReleaseSource();
+    fakeRelease(source, releaseManifest());
+    try {
+      const result = await resolveAgainst(source);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.message).toBe("node-v0.9.1 is not installable: test: the fixture signature was refused");
+      expect(result.error.message).not.toContain("--from");
+      expect([...source.requested].sort()).toEqual(
+        [`/dl/${RELEASE_MANIFEST_NAME}`, `/dl/${RELEASE_MANIFEST_SIG_NAME}`, "/releases"].sort(),
+      );
+    } finally {
+      source.stop();
+    }
   });
 });
 

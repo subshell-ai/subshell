@@ -62,13 +62,16 @@ export interface ShardManifest {
 /**
  * Every `release-manifest.json` under `dir`, at the top level or one
  * directory down. Sorted, so a merge is reproducible and a failure names a
- * stable file. The intended output file itself is excluded when `out` is
- * given: re-merging a previous run's output would claim every asset twice —
- * and if a later shard disagreed, it would be found and refused as a "shard",
- * which is a confusing way to discover the directory was reused.
+ * stable file. The destination's own manifest is ALWAYS excluded, `--out`
+ * given or not — the write happens after the scan, so the file about to be
+ * written can never be a shard it needs to read, and re-running without
+ * `--out` in a reused directory must merge only the shards rather than
+ * re-ingest a previous run's output as a "shard" (which claims every asset
+ * twice, and refuses with a duplicate-digest error that names nothing
+ * reuse-related).
  */
-export function findShardManifests(dir: string, out?: string): string[] {
-  const mergedOut = out === undefined ? null : resolve(join(resolve(out), RELEASE_MANIFEST_NAME));
+export function findShardManifests(dir: string, out: string): string[] {
+  const mergedOut = resolve(join(resolve(out), RELEASE_MANIFEST_NAME));
   const found: string[] = [];
   const scan = (at: string, depth: number): void => {
     let entries: string[];
@@ -84,7 +87,7 @@ export function findShardManifests(dir: string, out?: string): string[] {
         continue;
       }
       if (name !== RELEASE_MANIFEST_NAME) continue;
-      if (mergedOut !== null && resolve(path) === mergedOut) continue;
+      if (resolve(path) === mergedOut) continue;
       found.push(path);
     }
   };
@@ -172,7 +175,10 @@ async function main(argv: readonly string[]): Promise<void> {
   if (!existsSync(from)) throw new Error(`${from} does not exist`);
 
   const destDir = resolve(out ?? from);
-  const paths = findShardManifests(from, out === undefined ? undefined : destDir);
+  // Always exclude the destination's own file, even when it IS `from`: the
+  // scan runs before the write, so that file can only ever be a previous
+  // run's merged output — never a shard.
+  const paths = findShardManifests(from, destDir);
   if (paths.length === 0) throw new Error(`no ${RELEASE_MANIFEST_NAME} under ${from}`);
   const merged = mergeReleaseManifests(loadShardManifests(paths));
 

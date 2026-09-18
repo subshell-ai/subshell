@@ -113,6 +113,41 @@ describe("findShardManifests / loadShardManifests", () => {
     }
   });
 
+  it("excludes the destination's own manifest even when the destination IS the scanned dir", () => {
+    // A re-run WITHOUT `--out` in a directory a previous run already merged
+    // into: the old scan took `out` only when the flag was given, so the
+    // previous merged output — sitting at the top level of `dir`, exactly
+    // where the scan looks — came back as a fourth "shard". The write happens
+    // after the scan, so that file can never be input this run needs.
+    const root = mkdtempSync(join(tmpdir(), "merge-manifest-reuse-"));
+    try {
+      const mergedAssets: Record<string, string> = {};
+      NODE_TARGETS.forEach((t, i) => {
+        const name = releaseAssetNames("node", t).binary;
+        mergedAssets[name] = digestFor(i + 1);
+        const shardDir = join(root, `node-${t}`);
+        mkdirSync(shardDir, { recursive: true });
+        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("node", { [name]: digestFor(i + 1) }).manifest));
+      });
+      // The previous run's merged output, disagreeing with a shard on purpose:
+      // ingested as a "shard" it would refuse with "two digests across shards"
+      // — an error that names nothing reuse-related.
+      writeFileSync(
+        join(root, RELEASE_MANIFEST_NAME),
+        JSON.stringify(
+          shard("node", { ...mergedAssets, [releaseAssetNames("node", NODE_TARGETS[0]!).binary]: digestFor(77) }).manifest,
+        ),
+      );
+      const paths = findShardManifests(root, root);
+      expect(paths.length).toBe(3);
+      expect(paths.some((p) => p === join(root, RELEASE_MANIFEST_NAME))).toBe(false);
+      // And the merge over them stays clean — the exclusion is the whole fix.
+      expect(Object.keys(mergeReleaseManifests(loadShardManifests(paths)).assets).length).toBe(3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("refuses to load a file that is not a manifest, naming it", () => {
     const root = mkdtempSync(join(tmpdir(), "merge-manifest-bad-"));
     try {
@@ -157,6 +192,41 @@ describe("merge-release-manifest CLI", () => {
       });
       const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
       expect(code).toBe(1);
+      expect(err).toContain("TAURI_SIGNING_PRIVATE_KEY");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("re-running without --out in a used directory refuses at the key, never at its own output", async () => {
+    // The reused-directory case end to end: a previous run's merged manifest
+    // sits at the top level of the scanned dir (where the without-`--out`
+    // output lands) and disagrees with a shard on one digest. Before the
+    // always-exclude fix that file was ingested as a fourth "shard" and the
+    // run died with "two digests across shards" — an error naming nothing
+    // about reuse. Now the merge passes and the only refusal left is the one
+    // this environment genuinely deserves: no signing key.
+    const root = mkdtempSync(join(tmpdir(), "merge-manifest-cli-reuse-"));
+    try {
+      const mergedAssets: Record<string, string> = {};
+      NODE_TARGETS.forEach((t, i) => {
+        const name = releaseAssetNames("node", t).binary;
+        mergedAssets[name] = digestFor(i + 1);
+        const shardDir = join(root, `node-${t}`);
+        mkdirSync(shardDir, { recursive: true });
+        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("node", { [name]: digestFor(i + 1) }).manifest));
+      });
+      mergedAssets[releaseAssetNames("node", NODE_TARGETS[0]!).binary] = digestFor(77);
+      writeFileSync(join(root, RELEASE_MANIFEST_NAME), JSON.stringify(shard("node", mergedAssets).manifest));
+      const proc = Bun.spawn(["bun", "scripts/merge-release-manifest.ts", root], {
+        cwd: new URL("../../", import.meta.url).pathname,
+        env: { PATH: process.env.PATH ?? "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+      expect(code).toBe(1);
+      expect(err).not.toContain("two digests");
       expect(err).toContain("TAURI_SIGNING_PRIVATE_KEY");
     } finally {
       rmSync(root, { recursive: true, force: true });

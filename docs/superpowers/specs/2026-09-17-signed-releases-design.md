@@ -141,7 +141,15 @@ Consequences, each intended:
   check the binding comment, then parse the manifest, then return it. Tauri's
   updater signs `Ed` (Ed25519) over the file bytes with a `global signature`
   over the same bytes; the verifier checks the signature, and the format's own
-  global-sig cross-check comes for free from the same public key. **Fail-closed
+  global-sig cross-check comes for free from the same public key.
+  **Amended at build-out (2026-09-17, measured against the real tool):** what
+  `tauri signer` 2.11 actually emits is not the legacy `Ed` but the minisign
+  **pre-hashed** scheme — `alg = "ED"`: Ed25519 over BLAKE2b-512(file bytes) —
+  and the committed fixture trio is what pins that, exactly as this bullet
+  intended. The legacy `Ed` alg is REFUSED, so the two verifiers never
+  disagree about what is installable: `minisign-verify` (what every installed
+  desktop app uses) rejects legacy signatures unless a caller opts in.
+  **Fail-closed
   on every shape anomaly**: bad armor, wrong key ID, comment mismatch,
   unparseable manifest → `{ ok: false, reason }` with a human-readable reason,
   never a throw at call sites.

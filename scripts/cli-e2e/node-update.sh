@@ -28,10 +28,14 @@
 # What step 10 adds is the other side of that line: a release fetched over the
 # network whose manifest signature does not verify must abort with NOTHING
 # replaced — proven here against a LOCAL fake release source, compiled, with
-# no stub anywhere.
+# no stub anywhere. Step 11 closes the pair from the ACCEPTANCE side: a
+# release signed by a throwaway keypair — compiled into the exercising binary
+# the way the version is patched — must INSTALL, taking its digest from the
+# signed manifest even when the sidecar beside it lies, and must refuse the
+# same bytes once one hex character of the manifest is tampered after signing.
 #
 # Temp dirs and a throwaway config home — it touches no service manager, and
-# step 10's throwaway port is the only network anything here opens.
+# steps 10 and 11's throwaway ports are the only network anything here opens.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AGENT="$ROOT/apps/node/agent"
@@ -43,8 +47,23 @@ W=$(mktemp -d /tmp/ss-nupd-XXXX)
 PKG="$AGENT/package.json"
 PKG_BACKUP="$(mktemp /tmp/ss-nupd-pkg-XXXX)"
 cp "$PKG" "$PKG_BACKUP"
+# Step 11 patches the publisher pubkey the way step 2 patches the version —
+# same rule: restore from a byte copy on every exit path, never `git
+# checkout`, several sessions share this checkout. Empty until step 11 runs.
+PUBKEY_TS="$ROOT/packages/subshell-protocol/src/releases.ts"
+PUBKEY_BACKUP=""
+FAKE_PID=""
+ACC_PID=""
+TAMP_PID=""
 cleanup() {
   [ -f "$PKG_BACKUP" ] && cp "$PKG_BACKUP" "$PKG" && rm -f "$PKG_BACKUP"
+  if [ -n "$PUBKEY_BACKUP" ] && [ -f "$PUBKEY_BACKUP" ]; then
+    cp "$PUBKEY_BACKUP" "$PUBKEY_TS" && rm -f "$PUBKEY_BACKUP"
+    # The rebuilt dist carries the patched constant until rebuilt again:
+    # leaving the tree holding a throwaway publisher identity would feed it
+    # to the NEXT compile of anything.
+    (cd "$ROOT/packages/subshell-protocol" && bun run build >/dev/null 2>&1) || true
+  fi
 }
 trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
@@ -207,7 +226,7 @@ console.log("fake release source listening");
 EOF
 bun "$W/fake-release.ts" "$W/next-subshell" "$FAKE_RELEASE_PORT" "$NEXT" > "$W/fake-release.log" 2>&1 &
 FAKE_PID=$!
-trap 'kill "$FAKE_PID" 2>/dev/null; cleanup' EXIT
+trap 'kill ${FAKE_PID:-} ${ACC_PID:-} ${TAMP_PID:-} 2>/dev/null; cleanup' EXIT
 for _ in $(seq 1 60); do grep -q "listening" "$W/fake-release.log" && break; sleep 0.25; done
 grep -q "listening" "$W/fake-release.log" || { cat "$W/fake-release.log"; fail "fake release source never started"; }
 SUBSHELL_RELEASE_URL="http://127.0.0.1:$FAKE_RELEASE_PORT/releases" \
@@ -220,6 +239,162 @@ grep -qi "not installable" "$W/unsigned.out" || { cat "$W/unsigned.out"; fail "t
 ls "$W/bin/"subshell.download-* >/dev/null 2>&1 && fail "the refusal left a download temp behind"
 kill "$FAKE_PID" 2>/dev/null
 ok "refused the unsigned release; nothing downloaded, nothing replaced"
+
+echo "== 11. a release signed by a THROWAWAY key installs COMPILED, on the manifest's digest"
+# Step 10 proves the compiled agent REFUSES what the publisher did not sign.
+# This is the acceptance half: the same fake-source shape, but the manifest
+# is signed for real — by a throwaway keypair generated exactly the way the
+# fixture README documents, and COMPILED INTO the exercising binary. There is
+# no production seam for this and there must never be one (an env or flag
+# pubkey override is the hole this whole feature exists to not have), so the
+# scenario does to the `RELEASE_PUBKEY` constant what step 2 does to the
+# version: patch the source from a byte copy, compile, restore, and rebuild
+# the package's dist — inline, and again from the trap on any earlier exit.
+#
+# The served release lies in exactly one way: its `.sha256` sidecar names a
+# DIFFERENT digest than the signed manifest's `assets` entry. That the install
+# SUCCEEDS is therefore the proof the digest came from the signed map — a
+# regression that trusted the sidecar would abort on a digest mismatch. Then
+# the manifest itself gets one hex character of that digest flipped AFTER
+# signing, and the same binary must refuse: the byte-level pair around §4's
+# rule, run compiled.
+ACC_PORT=31993
+TAMP_PORT=31992
+PUBKEY_BACKUP="$(mktemp /tmp/ss-nupd-pubkey-XXXX)"
+cp "$PUBKEY_TS" "$PUBKEY_BACKUP"
+bunx @tauri-apps/cli signer generate -w "$W/e2e.key" -p e2epass --ci >/dev/null \
+  || fail "could not generate the throwaway keypair"
+bun -e "
+  const fs = require('node:fs');
+  const q = String.fromCharCode(34);
+  const src = fs.readFileSync(process.argv[1], 'utf8');
+  const re = /export const RELEASE_PUBKEY =\s*\x22[^\x22]*\x22;/;
+  if (!re.test(src)) { console.error('RELEASE_PUBKEY literal not found — the patcher walked off the source'); process.exit(1); }
+  const pub = fs.readFileSync(process.argv[2], 'utf8').trim();
+  fs.writeFileSync(process.argv[1], src.replace(re, 'export const RELEASE_PUBKEY =' + '\n  ' + q + pub + q + ';'));
+" "$PUBKEY_TS" "$W/e2e.key.pub" || fail "could not patch RELEASE_PUBKEY"
+(cd "$ROOT/packages/subshell-protocol" && bun run build >/dev/null) || fail "could not rebuild the protocol dist with the patched pubkey"
+mkdir -p "$W/bin2"
+# The SAME flags `bun run compile` uses (see step 2's note on why that is
+# load-bearing). The compiled agent bundles the protocol package's DIST, so
+# the rebuild above is what puts the throwaway armor inside this binary.
+(cd "$AGENT" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
+   --outfile "$W/bin2/subshell" >/dev/null) || fail "could not build the patched-pubkey binary"
+cp "$PUBKEY_BACKUP" "$PUBKEY_TS" && rm -f "$PUBKEY_BACKUP" && PUBKEY_BACKUP=""
+(cd "$ROOT/packages/subshell-protocol" && bun run build >/dev/null) || fail "could not rebuild the protocol dist from the restored source"
+"$W/bin2/subshell" version | grep -q "subshell $CURRENT" || fail "the patched-pubkey binary does not report $CURRENT"
+cp "$W/bin2/subshell" "$W/bin2/subshell.patched"
+ok "compiled a $CURRENT agent holding a throwaway publisher pubkey (source and dist restored)"
+
+# The release the throwaway key signs: manifest bytes written FIRST, the
+# armor made OVER them, and the fake source serves exactly those bytes —
+# the canonical-bytes rule (§3) is part of what is under test, so nothing
+# here may re-serialize the manifest on the way out.
+mkdir -p "$W/rel"
+cat > "$W/write-manifest.ts" <<EOF
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
+const [binPath, version, outPath] = process.argv.slice(2);
+const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const digest = createHash("sha256").update(readFileSync(binPath!)).digest("hex");
+writeFileSync(outPath!, JSON.stringify({
+  component: "node",
+  version: version!,
+  nodeProtocol: 12,
+  minAgentVersion: "0.11.0",
+  commit: "0".repeat(40),
+  assets: { [binary]: digest },
+}));
+EOF
+bun "$W/write-manifest.ts" "$W/next-subshell" "$NEXT" "$W/rel/release-manifest.json" >/dev/null \
+  || fail "could not write the throwaway release manifest"
+bunx @tauri-apps/cli signer sign "$W/rel/release-manifest.json" -f "$W/e2e.key" -p e2epass >/dev/null \
+  || fail "could not sign the throwaway release manifest"
+bun -e "
+  const fs = require('node:fs');
+  const t = fs.readFileSync(process.argv[1], 'utf8');
+  const d = t.match(/[0-9a-f]{64}/)[0];
+  fs.writeFileSync(process.argv[2], t.replace(d, (d[0] === '0' ? '1' : '0') + d.slice(1)));
+" "$W/rel/release-manifest.json" "$W/rel/tampered-manifest.json" \
+  || fail "could not tamper the throwaway release manifest"
+
+cat > "$W/fake-release-signed.ts" <<EOF
+import { readFileSync } from "node:fs";
+import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
+const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const [binPath, portArg, version, manifestPath, sigPath] = process.argv.slice(2);
+const bytes = readFileSync(binPath!);
+const manifest = readFileSync(manifestPath!);
+const sig = readFileSync(sigPath!, "utf8");
+const port = Number(portArg!);
+const base = \`http://127.0.0.1:\${port}\`;
+// The single lie: a sidecar digest the signed manifest does NOT name. No
+// code path may treat it as verification (§4), and an install that succeeds
+// is the proof none did.
+const sidecar = "0".repeat(64) + "  " + binary + "\n";
+Bun.serve({
+  port,
+  fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === "/releases") {
+      return Response.json([
+        {
+          tag_name: \`node-v\${version}\`,
+          draft: false,
+          assets: [
+            { name: "release-manifest.json", browser_download_url: \`\${base}/manifest\` },
+            { name: "release-manifest.json.sig", browser_download_url: \`\${base}/sig\` },
+            { name: binary, browser_download_url: \`\${base}/bin\` },
+            { name: \`\${binary}.sha256\`, browser_download_url: \`\${base}/sidecar\` },
+          ],
+        },
+      ]);
+    }
+    if (path === "/manifest") return new Response(manifest);
+    if (path === "/sig") return new Response(sig);
+    if (path === "/bin") return new Response(bytes);
+    if (path === "/sidecar") return new Response(sidecar);
+    return new Response("no", { status: 404 });
+  },
+});
+console.log("fake signed release source listening");
+EOF
+
+bun "$W/fake-release-signed.ts" "$W/next-subshell" "$ACC_PORT" "$NEXT" \
+  "$W/rel/release-manifest.json" "$W/rel/release-manifest.json.sig" > "$W/signed.log" 2>&1 &
+ACC_PID=$!
+for _ in $(seq 1 60); do grep -q "listening" "$W/signed.log" && break; sleep 0.25; done
+grep -q "listening" "$W/signed.log" || { cat "$W/signed.log"; fail "signed fake release source never started"; }
+SUBSHELL_RELEASE_URL="http://127.0.0.1:$ACC_PORT/releases" \
+  "$W/bin2/subshell" update --to "$NEXT" --yes --no-restart >"$W/signed.out" 2>&1 || {
+    cat "$W/signed.out"; fail "the compiled agent refused a release its own compiled-in throwaway key signs";
+  }
+"$W/bin2/subshell" version | grep -q "subshell $NEXT" || fail "the signed release did not swap the binary"
+[ -f "$W/bin2/subshell.previous" ] || fail ".previous was not kept by the signed swap"
+grep -q "\"to\": \"$NEXT\"" "$W/data/update-pending.json" || fail "no marker names $NEXT after the signed swap"
+ls "$W/bin2/"subshell.download-* >/dev/null 2>&1 && fail "the signed swap left a download temp behind"
+kill "$ACC_PID" 2>/dev/null
+ok "installed the throwaway-signed release on the signed digest — the lying sidecar changed nothing"
+
+# Same armor, manifest flipped in one digest hex AFTER signing: the armor no
+# longer covers those bytes, and the answer must be a refusal by name.
+cp "$W/bin2/subshell.patched" "$W/bin2/subshell"
+rm -f "$W/data/update-pending.json" "$W/bin2/subshell.previous"
+bun "$W/fake-release-signed.ts" "$W/next-subshell" "$TAMP_PORT" "$NEXT" \
+  "$W/rel/tampered-manifest.json" "$W/rel/release-manifest.json.sig" > "$W/tampered.log" 2>&1 &
+TAMP_PID=$!
+for _ in $(seq 1 60); do grep -q "listening" "$W/tampered.log" && break; sleep 0.25; done
+grep -q "listening" "$W/tampered.log" || { cat "$W/tampered.log"; fail "tampered fake release source never started"; }
+SUBSHELL_RELEASE_URL="http://127.0.0.1:$TAMP_PORT/releases" \
+  "$W/bin2/subshell" update --to "$NEXT" --yes --no-restart >"$W/tampered.out" 2>&1 && \
+  fail "a manifest tampered after signing was installed"
+grep -qi "not installable" "$W/tampered.out" || { cat "$W/tampered.out"; fail "the tampered refusal did not name the release un-installable"; }
+"$W/bin2/subshell" version | grep -q "subshell $CURRENT" || fail "the tampered update replaced the binary"
+[ -f "$W/data/update-pending.json" ] && fail "the tampered refusal left a marker"
+[ -f "$W/bin2/subshell.previous" ] && fail "the tampered refusal left a .previous"
+kill "$TAMP_PID" 2>/dev/null
+ok "refused the same release with one signed byte tampered — nothing downloaded, nothing replaced"
 
 echo
 echo "ALL NODE UPDATE CHECKS PASSED"

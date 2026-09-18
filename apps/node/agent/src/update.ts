@@ -424,9 +424,11 @@ async function download(url: string, expected: string, dest: string): Promise<st
 /**
  * Publisher-verification seams. Tests replace these; the protocol package's
  * fixture trio pins what the real pair does against genuine `tauri signer`
- * output, and `verifyManifest` is the same function production uses here as
- * the CLI does in `resolveNodeRelease` — one implementation, two call sites,
- * per the spec's whole premise.
+ * output. BOTH call sites — the executor's {@link verifySignedManifest} and
+ * the CLI's {@link resolveNodeRelease} — go through this object, whose
+ * defaults are exactly what production ships: one implementation, two call
+ * sites, per the spec's whole premise, and one seam where a test can stand in
+ * for the crypto without leaving either call site unreachable.
  * @internal
  */
 export const updateSeams = {
@@ -880,7 +882,7 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
       `could not read the release manifest from ${chosen.tag}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  const checked = await verifyReleaseManifest(bytes, sig, RELEASE_PUBKEY, {
+  const checked = await updateSeams.verifyManifest(bytes, sig, updateSeams.pubkey, {
     component: "node",
     version: chosen.version,
   });

@@ -130,6 +130,36 @@ describe("verifyReleaseManifest", () => {
     if (!res.ok) expect(res.reason).toContain("legacy");
   });
 
+  it("refuses valid armor with junk appended — the shape is EXACTLY four lines", async () => {
+    // Triple-concatenated and comment-padded armors carry a perfectly valid
+    // signature in their first four lines. A verifier that reads only those
+    // four would say `{ ok: true }`, and the module's fail-closed-on-every-
+    // shape-anomaly discipline would be prose. The untouched fixture still
+    // passing (the first test) is the other half of this pin.
+    const raw = Buffer.from((await sigText()).trim(), "base64").toString("utf8");
+    for (const junked of [`${raw}appended junk line\n`, `${raw}${raw}${raw}`]) {
+      const res = await verifyReleaseManifest(await manifestBytes(), junked, await publisherPubkey(), EXPECTED);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.reason).toContain("four");
+    }
+  });
+
+  it("refuses CRLF armor — the trusted comment's global preimage is verbatim, CR included", async () => {
+    // Four lines even with Windows endings, so the exact-line-count rule must
+    // not become an excuse to trim them: the global check's preimage is the
+    // trusted-comment line minus its 17-character prefix, VERBATIM, and the
+    // stray \r is what makes stock tools and this verifier agree to refuse.
+    const raw = Buffer.from((await sigText()).trim(), "base64").toString("utf8");
+    const res = await verifyReleaseManifest(
+      await manifestBytes(),
+      raw.replace(/\n/g, "\r\n"),
+      await publisherPubkey(),
+      EXPECTED,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toContain("global");
+  });
+
   it("fails closed on the global signature (the format's cross-check)", async () => {
     // Flip the global sig's first byte; the main signature still covers the
     // bytes, so only the global check can catch a comments-vs-signature

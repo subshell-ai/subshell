@@ -164,10 +164,18 @@ function verifyInner(
   }
 
   // 1. Armor shape, both spellings (raw four-line armor; Tauri's base64 of it).
+  //    EXACTLY four lines: a reader of only the first four would accept
+  //    armor with junk — or a whole second armor — appended, and
+  //    fail-closed-on-every-shape-anomaly would be prose. (CRLF endings are
+  //    four lines and fail at the global check instead: the trusted
+  //    comment's preimage is the line VERBATIM, carriage return included —
+  //    this filter must not start trimming, or it accepts what the stock
+  //    tools reject.)
   const lines = unwrapArmor(sigText)
     .split("\n")
     .filter((line) => line.length > 0);
   if (lines.length < 4) return refuse("the signature is not minisign armor");
+  if (lines.length > 4) return refuse("the signature carries more than the four minisign armor lines");
   const blob = decodeStrict(lines[1] as string);
   if (blob === null || blob.length !== 74) return refuse("the signature's encoding is malformed");
   const trustedLine = lines[2] as string;
