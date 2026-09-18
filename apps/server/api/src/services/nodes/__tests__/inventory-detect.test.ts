@@ -418,11 +418,16 @@ describe("detectOnNode", () => {
     }
   });
 
-  it("no detect happens without a request (the §4 no-sweep property pin)", async () => {
-    // Nothing in this module arms a timer: detection runs when someone asks
-    // (page load, Re-check), and NOTHING else. The 30-min clock advance crosses
-    // INVENTORY_TTL_MS; if a future change re-adds a periodic refresh, THIS is
-    // the test that says why it may not.
+  it("this module arms nothing: a detect is always somebody's request (§4)", async () => {
+    // The driver never runs on its own. Merely existing — and merely aging
+    // past INVENTORY_TTL_MS, which the 30-min clock advance crosses — sends
+    // nothing; every answer in the column got there because a caller asked.
+    //
+    // The periodic refresh added later does NOT live here and does not weaken
+    // this: `inventory-refresh.ts` owns the timer, `index.ts` arms it, and its
+    // tick calls this same driver through the same seam — so the request path
+    // stayed one path. If a timer ever appears in THIS module, this test is
+    // what says it belongs in that one.
     const node = await mkAgent();
     const sent: Sent[] = [];
     const send = fakeSend({ results: [], env: {} }, sent);

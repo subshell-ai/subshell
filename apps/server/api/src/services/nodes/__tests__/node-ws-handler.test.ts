@@ -72,6 +72,10 @@ interface Harness {
   results: { conn: NodeConnection; event: Extract<NodeEvent, { type: "result" }> }[];
   /** when set, deps.resolveResult returns false instead of true */
   resultMiss: boolean;
+  /** node ids the connect-time detection kick was handed, in order */
+  detects: string[];
+  /** when set, deps.detect throws instead of recording */
+  detectThrows: boolean;
 }
 
 function makeHarness(): Harness {
@@ -85,6 +89,8 @@ function makeHarness(): Harness {
     statuses: [],
     results: [],
     resultMiss: false,
+    detects: [],
+    detectThrows: false,
   } as unknown as Harness;
   h.deps = {
     verifyApiKey: async (rawKey) => h.keys.get(rawKey) ?? null,
@@ -110,6 +116,13 @@ function makeHarness(): Harness {
     resolveResult: (conn, event) => {
       h.results.push({ conn, event });
       return !h.resultMiss;
+    },
+    // Seamed in every test, so no case in this file reaches the real driver
+    // (which would open the database to look a node up) merely by handling a
+    // `ready` frame.
+    detect: (nodeId) => {
+      if (h.detectThrows) throw new Error(`detect seam blew up for ${nodeId}`);
+      h.detects.push(nodeId);
     },
   };
   return h;
@@ -239,6 +252,119 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // this commit; its removal from {@link NodeWsDeps} is itself the pin that
     // `ready` cannot pull anymore, whatever a future frame handler grows.
     expect(ws.closed).toHaveLength(0);
+  });
+
+  /**
+   * Harness detection when a node comes ONLINE — the half of freshness a
+   * person cannot supply (spec 2026-09-10 §4 as extended; the periodic other
+   * half is `services/nodes/inventory-refresh.ts`).
+   *
+   * Not the §5.3 inventory PULL Task 7 retired: that asked the agent to scan
+   * ITSELF. This is the ordinary §4 request — the plane ships its detect
+   * rules, the node answers — fired because becoming reachable is an occasion
+   * to ask. A freshly enrolled agent connects the moment it is installed, so
+   * enrolment needs no special case here, and every reconnect is covered by
+   * the same line.
+   */
+  describe("ready → the connect-time detection kick", () => {
+    it("an accepted ready kicks detection exactly ONCE, for its own socket's node", async () => {
+      const h = makeHarness();
+      const ws = fakeSocket("n1");
+      await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+      expect(h.detects).toEqual(["n1"]);
+    });
+
+    it("the id kicked is the SOCKET's, never one the frame claims", async () => {
+      // Same rule the `exit` case states out loud: a frame-supplied nodeId is
+      // ignored. A node that could name another node here would aim this
+      // plane's probes at a machine it was not talking to.
+      const h = makeHarness();
+      const ws = fakeSocket("n1");
+      await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ nodeId: "n-someone-else" })));
+      expect(h.detects).toEqual(["n1"]);
+    });
+
+    it("every reconnect kicks again — one per ready, not one per node", async () => {
+      const h = makeHarness();
+      await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+      await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+      expect(h.detects).toEqual(["n1", "n1"]);
+    });
+
+    it("a ready HELD below the version floor kicks nothing", async () => {
+      // A held agent is offline for every purpose but `update`. Probing it
+      // would be sending a command whose wire shape the two ends do not share.
+      const h = makeHarness();
+      const ws = fakeSocket("n1");
+      handleNodeOpen(ws);
+      await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
+      expect(getHeld("n1")).toBeDefined();
+      expect(h.detects).toEqual([]);
+    });
+
+    it("a ready HELD on a protocol mismatch kicks nothing, and neither does its reconnect", async () => {
+      const h = makeHarness();
+      const ws = fakeSocket("n1");
+      handleNodeOpen(ws);
+      await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
+      expect(h.detects).toEqual([]);
+      // The reconnect `ready` from the SAME held socket is dropped before the
+      // switch, so it cannot reach the kick either.
+      await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
+      expect(h.detects).toEqual([]);
+    });
+
+    it("a kick that throws does not kill the handshake: maintenance still reconciles", async () => {
+      // The real `detectOnNodeBestEffort` cannot throw — it absorbs everything
+      // into a debug line. This pins the guard around a future seam that can:
+      // the maintenance reconcile below the kick is load-bearing (the row must
+      // refuse launches before this frame is done), so a probe must never be
+      // the reason it did not run.
+      const h = makeHarness();
+      h.detectThrows = true;
+      const seen: [string, unknown][] = [];
+      setNodeLifecycleHooks({
+        onExit: () => {},
+        onSubshellsReport: () => {},
+        onMaintenance: (nodeId, reported) => {
+          seen.push([nodeId, reported]);
+        },
+      });
+      try {
+        const ws = fakeSocket("n1");
+        await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+        expect(h.ready).toHaveLength(1);
+        expect(seen).toHaveLength(1);
+        expect(ws.closed).toHaveLength(0);
+      } finally {
+        resetNodeEventsForTests();
+      }
+    });
+
+    it("`local` can never reach this kick: the upgrade refuses its dial-in", async () => {
+      // The kick is handed the socket's node id, and `local` never gets a
+      // socket. The driver refuses it a second time on its own
+      // (`inventory.ts`: local's view probes live on every read) — pinned in
+      // `inventory-detect.test.ts`, "local is never sent a detect".
+      const h = makeHarness();
+      h.keys.set("local", { id: "k-local", metadata: { kind: "node", nodeId: "local" } });
+      h.bindings.set("local", "k-local");
+      h.kinds.set("local", "local");
+      await expect(authenticateNodeUpgrade(h.deps, "Bearer local")).rejects.toMatchObject({ status: 403 });
+      expect(h.detects).toEqual([]);
+    });
+
+    it("no other inbound frame kicks — heartbeat and inventory are not occasions to ask", async () => {
+      const h = makeHarness();
+      const ws = fakeSocket("n1");
+      await handleNodeMessage(h.deps, ws, JSON.stringify({ type: "heartbeat", ts: new Date().toISOString() }));
+      await handleNodeMessage(
+        h.deps,
+        ws,
+        JSON.stringify({ type: "inventory", harnesses: [], ts: new Date().toISOString() }),
+      );
+      expect(h.detects).toEqual([]);
+    });
   });
 
   /**

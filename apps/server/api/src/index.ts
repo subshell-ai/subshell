@@ -35,6 +35,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { startServer } from "@/server.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
+import { startInventoryRefresh } from "@/services/nodes/inventory-refresh.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
@@ -314,6 +315,22 @@ async function bootServer(): Promise<void> {
       .markStaleAgentsOffline(new Date(Date.now() - 45_000).toISOString(), listOnline())
       .catch((err: unknown) => getLogger().withError(err).warn("node offline sweep failed"));
   }, 60_000);
+
+  // Harness inventories on the online agent nodes, re-asked on a cadence
+  // derived from the freshness window the launch gate applies
+  // (`services/nodes/inventory-refresh.ts`, which argues the number and the
+  // absence of a stagger). It sits between the two neighbours above on
+  // purpose: slower than the 60 s sweep, which answers a liveness question
+  // that must not lag, and far faster than the hourly pane-log pass, whose
+  // subject is a retention window measured in days. What it costs is one
+  // frame per online node, and the probing it triggers runs on those machines
+  // rather than this one.
+  //
+  // The connect-time kick in `node-ws-handler` is the other half: that one
+  // answers "a machine appeared", this one answers "somebody installed a CLI
+  // on one of them since". Neither is a node-side scan — the plane asks in
+  // both (spec 2026-09-10 §4), which is the property that had to survive.
+  startInventoryRefresh();
 
   // Quiet-output idle watcher (services/notify-idle.ts): for harnesses
   // without native attention hooks (opencode/hermes/pi) a subshell log that

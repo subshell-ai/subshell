@@ -161,7 +161,9 @@ per-node flag. The enable state that exists is **instance-level**
 §6.1 added back exactly one flag, which has one meaning now. What reaches a node is
 execution data only: the launch carries the plane-built `argv` plus the
 binary-lookup `resolve` rule, and detection is the plane's `detect` command
-answering to a request (page load, Re-check, launch), never a node-side scan.
+answering to a request, never a node-side scan. The plane asks on a page load,
+a Re-check, a launch, a node COMING ONLINE, and a periodic pass over the
+online agents; who may ask has grown, that only the plane asks has not.
 
 The store seeds its built-ins once at boot, keyed on a **completion marker**,
 never on emptiness: an empty directory is an operator who uninstalled

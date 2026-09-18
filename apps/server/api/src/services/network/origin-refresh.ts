@@ -25,10 +25,10 @@ import { getLogger } from "@/utils/logger.js";
  * what the host last knew and the daemon is what is true now. **Refresh**,
  * every {@link ORIGIN_REFRESH_MS}: the same probe on a timer.
  *
- * THE TIMER IS A DELIBERATE EXCEPTION to "detection is never a timer, never a
- * sweep" (`services/nodes/inventory.ts`, `prepare.ts`'s `reportIfDown`). That
- * rule protects two things: a vendor CLI spawned forever for a page nobody has
- * open, and a background process reporting a fact the page reports better.
+ * THE TIMER IS A DELIBERATE EXCEPTION to "detection runs when someone asks"
+ * (`prepare.ts`'s `reportIfDown`). That rule protects two things: a vendor CLI
+ * spawned forever for a page nobody has open, and a background process
+ * reporting a fact the page reports better.
  * Neither holds here. The allowlist is consulted on every sign-in by people
  * who will NEVER open the admin Networking page — a phone on the tailnet, a
  * teammate on the LAN — so the page's own polling cannot be what keeps it
@@ -38,6 +38,12 @@ import { getLogger } from "@/utils/logger.js";
  * the publish record, exactly as `reportIfDown` reasons). Timer-driven
  * refreshes are observations, not acts: they log at info when the set changes
  * and write no audit row.
+ *
+ * It is no longer the codebase's only such timer: node harness detection
+ * grew one too (`services/nodes/inventory-refresh.ts`), on the same argument
+ * — the fact goes stale for people who will never open the page that would
+ * refresh it. The node rule that stayed absolute is a different one: the
+ * PLANE asks and the node answers, on a timer or not.
  */
 
 /** How often every enabled network plugin is re-asked for this host's addresses. */
