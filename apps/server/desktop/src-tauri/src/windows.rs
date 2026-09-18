@@ -18,8 +18,6 @@ use subshell_desktop_core::zoom::assistant_frame;
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::control::is_loopback;
-
 /// The narrowest the dashboard may be dragged.
 ///
 /// This was 1024x640 — the SPA's `useIsWide()` breakpoint
@@ -290,24 +288,44 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
 }
 
 /// Create (or focus) the window that shows the server's SPA at `origin`.
-pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
+///
+/// `base_origin` is the instance's configured `APP_BASE_URL` origin, as the
+/// caller's probe reported it (`Probe::base_origin`). It is the SECOND origin
+/// this app may point the window at (spec 2026-09-18 § 15), and it is passed in
+/// rather than read here because both callers already hold a fresh probe —
+/// making the address this window may load a fact about the machine right now
+/// rather than one cached at startup.
+pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Result<(), String> {
     let url: tauri::Url = origin
         .parse()
         .map_err(|e| format!("the server reported an unusable base URL '{origin}': {e}"))?;
-    // Belt and braces over `Probe::origin`, which already builds this from a
-    // validated port and a loopback host: this window carries privileged
-    // globals, so the last thing between a config value and pointing it at an
-    // arbitrary host should be a refusal, not a comment.
-    if !url.host_str().map(is_loopback).unwrap_or(false) {
-        return Err(format!("refusing to open a non-loopback origin: {origin}"));
+    // **The app points this window at exactly two origins: loopback and the
+    // instance's own configured address.** Whatever a PAGE then does, this is
+    // the last thing between a config value and a window that carries
+    // privileged globals — and it is the same predicate the commands
+    // themselves are guarded by, so "where we may point it" and "what may
+    // drive us" cannot drift apart. Navigation away from here is a page's
+    // doing, and `crate::trust` covers that case.
+    let trust = crate::trust::window_state();
+    if !trust.trusts(&url, base_origin) {
+        return Err(format!("refusing to open an untrusted origin: {origin}"));
     }
+    trust.set_base(base_origin.map(str::to_string));
 
     if let Some(w) = app.get_webview_window("main") {
         // The server may have been reconfigured to another port since this
         // window opened. Focusing a window pointed at a dead origin looks like
         // the app is broken; navigating it is the whole fix.
-        if w.url().map(|u| u.origin() != url.origin()).unwrap_or(false) {
-            let _ = w.navigate(url);
+        let current = w.url().ok();
+        if current.as_ref().map(|u| u.origin() != url.origin()).unwrap_or(false) {
+            let _ = w.navigate(url.clone());
+            // The navigation handler fires for what a PAGE asks for; this one
+            // is ours, so the flag is recomputed here rather than waited for.
+            trust.evaluate(&url);
+        } else if let Some(current) = current {
+            // Nothing to re-point — but the base may have moved under a page
+            // that stayed put, and this is the tick that learns it.
+            trust.evaluate(&current);
         }
         raise(&w);
         return Ok(());
@@ -329,13 +347,34 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
 
     let level = crate::zoom::level(app);
     let floor = clamped_floor(level, work_area(app));
-    let allowed = url.origin();
+    // **Before the window exists, not after it loads.** The first page is not a
+    // navigation `on_navigation` is guaranteed to see, so the flag is set for
+    // the address this side chose — and set HERE, because a webview that has
+    // painted can invoke, and a guard that trails the page it guards would
+    // refuse the SPA's own title-bar handshake on a fast machine. Nothing can
+    // be invoking in the meantime: this branch runs only when no `main` window
+    // exists. It cannot say "true" for an untrusted address either — the
+    // refusal above already returned.
+    trust.evaluate(&url);
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-        // The page is the SERVER's, and this window holds Tauri globals. A
-        // navigation away from the server's own origin — a redirect, an href
-        // in rendered content, an injected script — must not carry those
-        // anywhere else. Same-origin navigation is the SPA doing its job.
-        .on_navigation(move |u| u.origin() == allowed)
+        // **Navigation follows the sign-in; the PRIVILEGES do not** (operator's
+        // decision, spec 2026-09-18 § 15 — the same fix Subshell Client took in
+        // `f1c2aa68`, for the same report).
+        //
+        // This refused any URL whose origin was not the one the window opened
+        // with, which is exactly what a proxied sign-in does: an instance
+        // behind an OAuth proxy bounces the window to an identity provider on
+        // a third origin and back. Such a plane could not be shown in this app
+        // at all.
+        //
+        // What makes allowing it survivable — this window holds seven
+        // commands, one of which switches who runs the server — is that the
+        // handler RECOMPUTES what the page may do for every URL it commits to
+        // (`crate::trust`), so the privileges belong to the address rather than
+        // to the window. Scheme is checked rather than origin so the window
+        // still cannot be steered into `file:`, a custom handler, or anything
+        // else the OS would act on.
+        .on_navigation(move |u| crate::trust::window_state().allow_navigation(u))
         .on_new_window({
             // Tauri DENIES a page's request for a new window (`target="_blank"`,
             // `window.open`) unless a handler answers it, and it denies SILENTLY —
@@ -380,9 +419,14 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         None => builder,
     };
 
-    let window = builder
-        .build()
-        .map_err(|e| format!("could not open the main window: {e}"))?;
+    let window = builder.build().map_err(|e| {
+        // A window that never opened leaves nothing trusted behind it. Nothing
+        // could have invoked through it anyway — the grant is scoped to a
+        // window that does not exist — but a true flag with no page is the kind
+        // of state nobody thinks to check.
+        trust.clear();
+        format!("could not open the main window: {e}")
+    })?;
 
     // On the built window, not the builder: zoom is a webview property, and
     // the SPA has to come up at the size the user chose rather than resize

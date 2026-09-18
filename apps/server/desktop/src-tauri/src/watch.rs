@@ -77,12 +77,21 @@ pub fn spawn(app: AppHandle) {
         };
         let settings = app.state::<subshell_desktop_core::settings::SettingsState>();
         let probe = crate::control::probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
+        // **The second duty, and it costs one field of a probe already taken.**
+        // The instance's configured address is one of the two origins the
+        // dashboard window may hold its commands on (spec 2026-09-18 § 15), and
+        // an admin can move it from the Service page without moving the PORT —
+        // which is the one thing `origin_changed` watches. Without this, the
+        // trust state would keep answering for an address the machine no longer
+        // has until something happened to re-open the window.
+        crate::trust::window_state().set_base(probe.base_origin());
         let current = window.url().ok().map(|u| u.to_string());
         if let Some(next) = origin_changed(current.as_deref(), &probe) {
             // `open_main`'s existing-window branch navigates and re-raises;
-            // it also re-validates the origin as loopback, which is the gate
-            // that must not be bypassed just because this side built the URL.
-            if let Err(e) = crate::windows::open_main(&app, &next) {
+            // it also re-validates the origin against the two this app may
+            // point at, which is the gate that must not be bypassed just
+            // because this side built the URL.
+            if let Err(e) = crate::windows::open_main(&app, &next, probe.base_origin().as_deref()) {
                 eprintln!("subshell: could not follow the server to {next}: {e}");
             }
         }

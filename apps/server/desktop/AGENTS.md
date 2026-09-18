@@ -88,7 +88,10 @@ Addresses card, there since 2026-09-17; on Service before it) and a
 restart later, the dashboard is a window fetching a dead port, and nothing was
 watching for it. `origin_changed(current, probe)` is pure and tested; the
 navigate goes through `windows::open_main`'s existing existing-window branch,
-which also re-validates the origin as loopback and re-arms the origin pin.
+which also re-validates the origin against the two this app may point at and
+recomputes the window's trust flag. It refreshes the configured base URL on
+every tick as well (spec 2026-09-18 § 15): that address is the second trusted
+origin, and an admin can move it without moving the port this function watches.
 
 Three rules it keeps:
 
@@ -1324,7 +1327,7 @@ With it, the split is enforced, and the split is window KIND:
 | Window | Gets |
 | --- | --- |
 | `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grants: `core:default` and `core:window:allow-close` (spec 2026-09-17's **Later** button; `core:default` does NOT include it — verified against `gen/schemas/acl-manifests.json`, and pinned in `ipc-acl.test.ts`, which also pins that `main` holds NEITHER close nor the update verbs) |
-| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — on a TRUSTED origin only (loopback, or the instance's configured `APP_BASE_URL`; see below) |
 
 Six of `main`'s seven commands are chosen for what they cannot do: raise a
 window at a named screen, drop this app's own title bar, display one
@@ -1347,15 +1350,15 @@ eighth is loud.
 harmlessness is in the ARGUMENT: it takes a PATH — no scheme, no
 protocol-relative `//host`, no backslash, no whitespace or control characters,
 all refused by `crates/desktop-core`'s shared `browser` module — and joins it
-onto this window's own loopback origin, so the page names the route and Rust
+onto a TRUSTED origin this side chose, so the page names the route and Rust
 names the host. Its signature is pinned as well as its name, because an
 exception is only as narrow as its arguments. A webview has no address bar and
 no second tab, which is the whole reason it exists; the tray's and the View
 menu's "Open in Browser" reach the same act from Rust and need no grant at all.
 Two things a person will notice and that this does not try to fix: the browser
 carries no session cookie from the webview, so they sign in again; and the
-origin opened is LOOPBACK, where a passkey works only if `APP_BASE_URL` is
-loopback.
+origin opened is whichever trusted one the window is on — usually LOOPBACK,
+where a passkey works only if `APP_BASE_URL` is loopback.
 Nothing else that touches the CLI, the config, the service or the filesystem
 is reachable from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
 `screen` argument, and the SPA sends it from the Settings danger card
@@ -1378,6 +1381,59 @@ old word parses to `Home`, so a sender left behind raises the assistant at
 whatever the probe implies — visibly wrong on a machine whose server is
 running, rather than silently correct until someone notices the wrong screen.
 Two senders were found exactly that way while this work was in flight.
+
+### The dashboard window's two trusted origins
+
+**The capability's scope stopped being the boundary on 2026-09-18** (spec
+2026-09-18 § 15, operator's decision with the trade stated; `docs/security.md`
+§ 11.11a has the accounting). It was: `capabilities/main.json` named
+`http://localhost:*` and `http://127.0.0.1:*`, `open_main` refused anything
+else, and `on_navigation` pinned the window to the origin it opened with. Under
+that rule a control plane behind an OAuth proxy could not be shown in this app
+at all — a proxied sign-in bounces the window to an identity provider on a third
+origin and back, and the window would not follow. Subshell Client was unblocked
+the same way for the same report (`f1c2aa68`).
+
+So `remote.urls` is a wildcard now (`http://*:*`, `https://*:*` — `http://*`
+alone does not match a non-default port in Tauri 2.11.5's urlpattern, which
+would silently exclude the default `:3080` plane), and **`src-tauri/src/trust.rs`
+is the boundary**. Four facts to hold:
+
+- **Two origins, one predicate.** Trusted means this machine's loopback (either
+  spelling, http, any port — exactly what the old scope named) or the instance's
+  configured `APP_BASE_URL`. `MainTrust::trusts` answers both "where may
+  `open_main` POINT the window" and "may this page invoke anything", so where we
+  aim it and what it may do cannot drift apart.
+- **The flag is the navigation handler's, never a page's.** `allow_navigation`
+  refuses any non-http(s) scheme (the window must not be steerable into `file:`
+  or a custom handler) and recomputes trust for everything it allows, so a
+  redirect chain ending elsewhere cannot leave it true. `open_main` sets it for
+  the URL it opens with — the first page is not a navigation the handler is
+  guaranteed to see — and a destroyed window clears it.
+- **The guard sits at the INVOKE HANDLER** (`trust::guarding` wraps
+  `generate_handler!` in `lib.rs`), keyed on the calling webview's label, and is
+  uniform over all seven. Not per-command, because Tauri identifies a caller
+  through an injected `Webview` argument and three of the seven are pinned to
+  taking no argument precisely so they cannot be aimed — `desktop_permissions`
+  takes nothing at all. Plugin commands never reach the app handler, so window
+  dragging still works on an untrusted page; the assistant is not subject to it
+  at all, and must not be: it is the surface that repairs a machine whose server
+  is unreachable.
+- **The base URL is live, not captured.** It arrives as `Probe::base_origin()` —
+  passed into `open_main` by both callers, and refreshed each tick by
+  `watch.rs`, which already takes a probe — because an admin can move
+  `APP_BASE_URL` from the Service page without moving the port, and the watch's
+  own re-point trigger only watches the port.
+
+Two Rust-side conveniences follow the same line rather than the window's current
+address: `browser_origin` uses the window's origin only while it is trusted, and
+`current_path` answers `/` when it is not, so a tray click mid-sign-in cannot
+carry an identity provider's path onto this server's origin.
+
+What it costs: a page on the instance's own address now holds what a loopback
+page held, including `desktop_set_supervision`, and that address may be
+reachable from a network. That is the operator's call. What the guard buys is
+that it is not a widening to the whole web.
 
 **`dialog:allow-ask` is deliberately NOT granted.** It was the console's, for
 its update and restart confirmations. Both of those are screens now, with
@@ -1406,8 +1462,8 @@ is worse than the default, and starting a second Vite would fight the one
 when set explicitly, which is what makes a non-default port possible.
 Three things make it safe rather than a hole: it is read only under
 `debug_assertions`, so a release build ignores the variable before looking at
-it; the value must be a loopback `http://` origin, which `open_main` re-checks
-independently; and it is applied inside `Probe::origin` rather than at the
+it; the value must be a loopback `http://` origin — one of the two `open_main`
+accepts, and it re-checks independently; and it is applied inside `Probe::origin` rather than at the
 `open_main` call sites, because `watch.rs` compares the window's URL against
 that same answer and would otherwise navigate back to the server's port on the
 next tick. The substitution is printed on stderr every time.
@@ -1449,9 +1505,17 @@ module under `ui/src/assistant/` — are EXACTLY the set `wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
 holds exactly its seven commands plus window dragging — by name, by count, by
-SCOPE (loopback both spellings, `local: false`, one window id), and for every
-one that takes arguments, by Rust signature — the two reads,
-`desktop_permissions` and `desktop_app_update`, pinned to an EMPTY list.
+SCOPE, and for every one that takes arguments, by Rust signature — the two
+reads, `desktop_permissions` and `desktop_app_update`, pinned to an EMPTY list.
+
+**The SCOPE assertion changed shape on 2026-09-18** and is worth reading before
+touching it. It used to pin loopback, both spellings; `remote.urls` is a
+wildcard now and the boundary is `trust.rs` (above), so the same test pins the
+wildcard AS WRITTEN plus the guard that replaced it — the two-origin predicate,
+the recompute on navigation, the wrapper around `generate_handler!`, and
+`open_main`'s refusal. A wildcard scope with nothing behind it is exactly the
+failure that assertion exists to catch, and it is the one pin in that file § 15
+was allowed to move.
 
 **The count is a number worth a test**, because "a few harmless ones" is how a
 boundary erodes. Three more pins arrived with the console's deletion: that
@@ -1486,10 +1550,8 @@ the plugin side; the app commands are gated by their own permission entries
 here.
 
 `main`'s page is served by the subshell-server this app manages, so it is
-treated as remote content. `capabilities/main.json` carries `remote.urls`
-scoped to loopback, and `open_main` additionally refuses a non-loopback origin
-and pins `on_navigation` to the origin it was opened with — three independent
-gates, because the window holds privileged globals.
+treated as remote content. Its `remote.urls` USED to be the gate — see "The
+dashboard window's two trusted origins" below for what replaced it, and why.
 
 The bundled page has a real CSP (`script-src 'self'`), which is why its logic is a
 module rather than an inline script. The page is TypeScript built by Vite into

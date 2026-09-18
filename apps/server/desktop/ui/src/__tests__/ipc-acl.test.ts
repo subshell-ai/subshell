@@ -12,11 +12,16 @@
  *
  * - `wizard` is the assistant — a bundled `tauri://` page this repo ships — and
  *   it holds every command that drives the CLI, the destructive ones included.
- * - `main` shows the SERVER's own SPA. Unlike Subshell Client's remote window
- *   (which holds ONE path-only command, because a control plane can live
- *   anywhere and only the argument can be narrow there), this one shows the
- *   server THIS APP manages over loopback, so its origin is enumerable in
- *   `main.json`. It holds exactly SEVEN commands, and the count
+ * - `main` shows the SERVER's own SPA. It holds exactly SEVEN commands where
+ *   Subshell Client's remote window holds one, and the reason USED to be that
+ *   its origin was enumerable: loopback, named in `main.json`. That stopped
+ *   being true on 2026-09-18 (spec § 15) — the window may now navigate anywhere
+ *   http(s), because a plane behind an OAuth proxy cannot be signed into
+ *   otherwise, and the scope is a wildcard. The seven survived by moving the
+ *   boundary rather than removing it: `src-tauri/src/trust.rs` refuses every
+ *   command from this window unless the page is on loopback or the instance's
+ *   configured `APP_BASE_URL`, and the scope test below pins that guard
+ *   alongside the wildcard. The count
  *   is worth a test because "a few harmless ones" is how a boundary erodes —
  *   which is precisely what `desktop_set_supervision` proves can happen: six
  *   of them cannot reach the CLI at all, and that one can. It is an
@@ -274,28 +279,56 @@ describe("the assistant's IPC contract", () => {
     expect(main.has("desktop_check_app_update")).toBe(false);
   });
 
-  it("keeps `main`'s SCOPE pinned, not just its permission list", () => {
-    // The list above says WHICH commands. This says WHO gets them, and until
-    // now nothing held it: widening `remote.urls` to `http://*`, flipping
-    // `local` to true, or adding a window id would hand this grant — the one
-    // that includes `desktop_set_supervision` — to a page on any host, with
-    // every command-name assertion in this file still passing.
+  it("keeps `main`'s SCOPE pinned, and says where the boundary went", () => {
+    // The list above says WHICH commands. This says WHO gets them — and the
+    // answer changed on 2026-09-18 (spec § 15). The scope USED to be the whole
+    // boundary: loopback, both spellings, and Tauri refused everything else. A
+    // control plane behind an OAuth proxy could not be shown under that rule,
+    // because a proxied sign-in bounces the window to an identity provider on a
+    // third origin and back and the window would not follow. The operator's
+    // call was to allow it and keep the seven commands, so the scope is now a
+    // wildcard and the boundary is a RUNTIME GUARD in Rust.
+    //
+    // This test therefore pins two things rather than one: the wildcard as
+    // written (note that `http://*` alone does not match a non-default port in
+    // Tauri 2.11.5's urlpattern, which would silently exclude the default
+    // `:3080` plane — the client app hit exactly that), and the existence of
+    // the thing that replaced it. A wildcard scope with no guard behind it is
+    // this grant — `desktop_set_supervision` included — handed to any page on
+    // any host, with every command-name assertion in this file still green.
     const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities", "main.json"), "utf8")) as {
       local?: boolean;
       remote?: { urls?: string[] };
       windows?: string[];
     };
-    // Loopback, both spellings, any port — the server this app itself manages.
-    // A wildcard host here is the failure this pins.
-    expect(capability.remote?.urls?.slice().sort()).toEqual(["http://127.0.0.1:*", "http://localhost:*"]);
-    for (const url of capability.remote?.urls ?? []) {
-      expect(url.startsWith("http://localhost:") || url.startsWith("http://127.0.0.1:")).toBe(true);
-    }
+    expect(capability.remote?.urls?.slice().sort()).toEqual(["http://*:*", "https://*:*"]);
     // `local: false` is what makes this a REMOTE capability. True would apply
     // the same grant to bundled `tauri://` pages as well.
     expect(capability.local).toBe(false);
     // One window, by name. A second id added here inherits the whole grant.
     expect(capability.windows).toEqual(["main"]);
+
+    // The guard, and the three properties § 15 rests on. Named from here
+    // because THIS is the file that would otherwise report a wide-open scope
+    // as correct.
+    const trust = readFileSync(join(TAURI_DIR, "src/trust.rs"), "utf8");
+    // Two origins and no more: loopback, or the instance's configured base URL.
+    expect(trust).toContain("pub fn trusts(");
+    expect(trust).toContain("crate::control::is_loopback");
+    // Recomputed for every URL the window commits to.
+    expect(trust).toContain("pub fn allow_navigation(");
+    expect(trust).toContain("browsable_scheme(url.scheme())");
+    // And applied in front of every command, keyed on the calling window.
+    expect(trust).toContain("pub fn guarding<");
+    const lib = readFileSync(join(TAURI_DIR, "src/lib.rs"), "utf8");
+    expect(lib, "the invoke handler is no longer wrapped in the trust guard").toContain(
+      "trust::guarding(tauri::generate_handler![",
+    );
+    // `open_main` points the window at those same two origins and no other,
+    // which is what leaves "a page navigated there" as the only way onto a
+    // third one.
+    const windows = readFileSync(join(TAURI_DIR, "src/windows.rs"), "utf8");
+    expect(windows).toContain("trust.trusts(&url, base_origin)");
   });
 
   it("keeps the served page's one CLI-driving command to its known signature", () => {
