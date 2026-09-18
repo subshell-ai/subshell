@@ -591,8 +591,9 @@ function SetupPage() {
         // the empty-state hatch below already asks (2026-09-18): a terminal-
         // only machine — or a check still loading, failed, or answering none —
         // has nothing to continue with and says "Skip for now"; an install
-        // landing on this screen flips it when the 4 s refetch reports the row
-        // installed.
+        // landing on this screen flips it through the install mutation's
+        // onSettled invalidation — the same refetch the row's own "Detected"
+        // flip rides (the 4 s poll is for installs this screen never watched).
         primary={{
           label: primaryLabel(agents.some((h) => h.installed)),
           onClick: goNext,

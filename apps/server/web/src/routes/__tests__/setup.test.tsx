@@ -54,6 +54,8 @@ interface SetupMocks {
   harnesses?: HarnessInfo[];
   /** True = `GET /api/setup/harnesses` never settles (the agent step's UNKNOWN state). */
   harnessesPending?: boolean;
+  /** True = `GET /api/setup/harnesses` answers 500 (the agent step's failed check). */
+  harnessesError?: boolean;
   /** What GET /api/network answers (the Network step); default is no networks */
   networks?: unknown[];
   /**
@@ -62,6 +64,8 @@ interface SetupMocks {
    * (same trick as `installPending`).
    */
   networkPending?: boolean;
+  /** True = `GET /api/network` answers 500 (the Network step's failed check). */
+  networkError?: boolean;
   /** What GET /api/nodes answers (launch step) */
   nodes?: unknown[];
   /** What GET /api/plugins answers (launch step — the Agent picker) */
@@ -147,6 +151,8 @@ function routeFetch(opts: SetupMocks): void {
     }
     if (path === "/api/setup/harnesses") {
       if (opts.harnessesPending) return new Promise<Response>(() => {});
+      if (opts.harnessesError)
+        return Promise.resolve(new Response(JSON.stringify({ message: "harness read failed" }), { status: 500 }));
       const base = opts.harnesses ?? [CLAUDE_ABSENT];
       const withInstall = installedId
         ? base.map((h) => (h.id === installedId ? { ...h, installed: true, version: "1.0.0", reason: undefined } : h))
@@ -183,6 +189,8 @@ function routeFetch(opts: SetupMocks): void {
     }
     if (path === "/api/network") {
       if (opts.networkPending) return new Promise<Response>(() => {});
+      if (opts.networkError)
+        return Promise.resolve(new Response(JSON.stringify({ message: "network read failed" }), { status: 500 }));
       return Promise.resolve(new Response(JSON.stringify({ networks: opts.networks ?? [] })));
     }
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes: opts.nodes ?? [] })));
@@ -613,6 +621,17 @@ describe("setup wizard: the agent step is optional", () => {
     expect(await screen.findByRole("button", { name: "Skip for now" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
+
+  it("labels the primary 'Skip for now' when the check FAILS", async () => {
+    // The failed direction of the same ruling (review, 2026-09-18): a 500 has
+    // answered nothing to continue with, and skipping must work exactly when
+    // the check cannot speak. (A poll that fails AFTER good data is the other
+    // case, and TanStack keeps `data` — the label stays "Continue" on a
+    // machine that really has an agent, which is the right verdict.)
+    await renderSetup({ harnessesError: true }, "agent");
+    expect(await screen.findByRole("button", { name: "Skip for now" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
 });
 
 /**
@@ -926,6 +945,15 @@ describe("setup wizard: the Network step", () => {
     // speak. See `primaryLabel` in the route for why this is the OPPOSITE
     // polarity from `lib/node-enrollment.ts`.
     await renderSetup({ networkPending: true }, "network");
+    expect(await screen.findByRole("button", { name: "Skip for now" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
+  it("says 'Skip for now' when the network read FAILS", async () => {
+    // The failed direction (review, 2026-09-18): the step's own ErrorBanner
+    // and the button's word are one verdict — the check could not speak, so
+    // the bar does not claim there is something to continue with.
+    await renderSetup({ networkError: true }, "network");
     expect(await screen.findByRole("button", { name: "Skip for now" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });

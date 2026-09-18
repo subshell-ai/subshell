@@ -64,7 +64,10 @@ export function SetupAssistant({
 }: SetupAssistantProps) {
   const primaryDisabled = primary.disabled || primary.pending;
   useEffect(() => {
-    // Enter is Continue, unless the person is in a textarea, on a button, or the primary is disabled.
+    // Enter fires the primary, whatever it is named (the optional steps' one
+    // button since 2026-09-18 — its word is "Continue" or "Skip for now" and
+    // both ARE the advance), unless the person is in a textarea, on a button,
+    // or the primary is disabled.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Enter" || primaryDisabled) return;
       if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) return;
