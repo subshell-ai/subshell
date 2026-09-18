@@ -27,10 +27,14 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
  * `desktop-screen` event from the SPA or the tray, or a link on the recovery
  * screen — over whatever is showing.
  *
- * The permissions step left the journey with spec 2026-09-17 (D3) and stays
- * gone: the permission prompts it explained are deferred until the dashboard
- * notices one is missing — which is exactly when the screen is still
- * reachable, as a request.
+ * The permissions step left the journey with spec 2026-09-17 (D3) and came
+ * back on the other SIDE of it (operator's call, 2026-09-18): it is no longer
+ * a screen the first run walks THROUGH — nothing is asked before there is a
+ * running server — but the ready screen's Continue now hands off to it rather
+ * than to the dashboard, on macOS, once. See {@link permissionsAfterSetup}.
+ * It is still a requested screen and nothing else: it is never on
+ * {@link screensFor}'s list, and the dashboard's detection notices remain its
+ * other door.
  *
  * `welcome` left with the same spec (D1, "a first run announces itself by
  * DOING") and came BACK the next day by operator request — "reset / initial
@@ -124,9 +128,10 @@ export function prereqState(probe: Probe): PrereqState {
  * None of them is ever in {@link screensFor}'s list, which is what lets them
  * appear over a first run as readily as over a recovery without either family
  * having to name them. `permissions` left the macOS first run with spec
- * 2026-09-17 (D3) and stayed on THIS list on purpose: every dashboard notice
- * that says a permission is missing still sends the person to the screen that
- * explains it, and the screen has nothing a first run needed it for.
+ * 2026-09-17 (D3) and stayed on THIS list, which is what let it come back on
+ * 2026-09-18 with no routing change at all: the ready screen's Continue names
+ * it the same way a dashboard notice does (see {@link permissionsAfterSetup}),
+ * so there is still exactly one way into it.
  */
 export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "app-update", "reset", "supervision", "permissions"];
 
@@ -522,15 +527,82 @@ export function canSetup(
   return { ok: true };
 }
 
+/** A program's last word, or `undefined` when it said nothing at all. */
+function lastLine(text: string): string | undefined {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .at(-1);
+}
+
 /** The one line under a failed row: the CLI's last word on stderr, else stdout's, else a fixed sentence. */
 export function failureLine(result: ActionResult): string {
-  const last = (text: string) =>
-    text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .at(-1);
-  return last(result.stderr) ?? last(result.stdout) ?? "Setup stopped.";
+  return lastLine(result.stderr) ?? lastLine(result.stdout) ?? "Setup stopped.";
+}
+
+/** What the tmux screen says about an install that has already run here. */
+export interface TmuxInstallFailure {
+  /** The sentence that names what went wrong, in the app's own words. */
+  headline: string;
+  /** The package manager's last word — empty when it said nothing. */
+  line: string;
+  /** Both streams, for the disclosure — empty when the run produced no output. */
+  output: string;
+}
+
+/**
+ * Whether the tmux install this window ran left the machine still without
+ * tmux, and what to say about it (operator's report, 2026-09-18).
+ *
+ * The screen had exactly one way to report a failed install: `act` put
+ * `failureLine`'s single line into the shared problem paragraph and redrew
+ * the same "Install tmux" button underneath it. A package manager's LAST
+ * stderr line is usually a fragment — `brew update-reset`, a "Please report
+ * this issue" tail — so the screen read as though the press had done nothing
+ * at all. Hence a headline this app writes rather than one the manager
+ * happens to end on, with the manager's own words kept beside it rather than
+ * in place of it.
+ *
+ * **Two failures, not one**, and the second is the one nothing could see.
+ * A non-zero exit is reported by `ActionResult.ok`; an install that exits
+ * ZERO and still leaves no tmux on the login PATH — a formula that unpacked
+ * but did not link, a deadline that killed the child after the manager had
+ * already printed its summary, a manager that installed something else
+ * entirely — was indistinguishable from a button nobody had pressed. It gets
+ * its own sentence, because "it finished and it still isn't here" is a
+ * different problem with a different fix from "it stopped".
+ *
+ * `null` means there is nothing to report: no install has run in this window,
+ * or tmux is now present — in which case this screen is about to leave by
+ * itself and a failure block would be a verdict on a question already
+ * answered.
+ *
+ * @param result - the install's own result, or `null` if none has run here
+ * @param tmuxFound - whether the probe can now see a tmux
+ */
+export function tmuxInstallFailure(result: ActionResult | null, tmuxFound: boolean): TmuxInstallFailure | null {
+  if (result === null || tmuxFound) return null;
+  // stdout first: a manager narrates its progress there and complains on
+  // stderr, so reading in that order puts the complaint at the bottom, which
+  // is where a reader of a terminal looks for it.
+  const output = [result.stdout, result.stderr]
+    .map((stream) => stream.replace(/\s+$/, ""))
+    .filter((stream) => stream !== "")
+    .join("\n");
+  return {
+    headline: result.ok
+      ? "The installer finished, but tmux still isn't on this machine's PATH."
+      : "The tmux install didn't finish.",
+    // The failed case prefers stderr, where the reason is; the finished-but-
+    // absent case has no complaint to find, so it shows whatever the manager
+    // said last. Empty is a real answer for both and the screen omits the line
+    // rather than inventing one — `failureLine`'s "Setup stopped." fallback is
+    // a sentence for a checklist row, and here it would be a second headline
+    // disagreeing with the one above it.
+    line: (result.ok ? lastLine(output) : (lastLine(result.stderr) ?? lastLine(result.stdout))) ?? "",
+    output,
+  };
 }
 
 /** What the ready screen says before the dashboard takes over. */
@@ -591,4 +663,45 @@ export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; c
     title: opts.onboarded ? "Your Server Is Running" : "Setting Up Subshell…",
     subtitle: "Opening your dashboard…",
   };
+}
+
+/**
+ * Whether the ready screen's Continue hands off to the permissions screen
+ * rather than straight to the dashboard (operator's call, 2026-09-18).
+ *
+ * This REVERSES D3 of spec 2026-09-17, which took the permissions step off
+ * the first run on the grounds that the dashboard's own detection notices
+ * were a better door — "the screen appears when a permission is actually
+ * missing, rather than four screens before anything needs one". The report
+ * that reversed it is the other half of that trade, measured on a real first
+ * run: a person who has just watched a server install itself expects to be
+ * told what macOS is about to ask, and a first run that goes straight to a
+ * sign-in page has quietly spent the one moment when the explanation is
+ * cheap. macOS asks each of these exactly once.
+ *
+ * It sits AFTER the chain rather than before it, which is what keeps D1's
+ * zero-touch first run intact: nothing is asked of anyone until there is a
+ * running server to be notified about, and the press that reaches it is the
+ * Continue the ready screen already had.
+ *
+ * Three conditions, each load-bearing:
+ *
+ * - **darwin only.** The screen is three macOS permissions; there is no Linux
+ *   equivalent and the rows would all read as unavailable.
+ * - **a chain that ran in THIS window** — the same `ranSetupHere` the Continue
+ *   press itself is gated on, so a window opened over an already-running
+ *   server never routes here.
+ * - **a machine that was not onboarded when that chain STARTED.** A recovery
+ *   Set Up runs the same chain on a machine that has been through all of this
+ *   before, and re-explaining macOS to it would be the app narrating its own
+ *   state machine. It cannot be read off the probe at handoff time — the probe
+ *   marks `onboarded` on the very `ready` that reaches this screen — so the
+ *   caller captures it before the chain fires.
+ */
+export function permissionsAfterSetup(opts: {
+  platform: string;
+  ranSetupHere: boolean;
+  ranFirstRunHere: boolean;
+}): boolean {
+  return opts.platform === "darwin" && opts.ranSetupHere && opts.ranFirstRunHere;
 }

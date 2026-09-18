@@ -225,6 +225,11 @@ export function App() {
           probe={probe}
           busy={runner.busy}
           onInstall={commands.installTmux}
+          // The install's own words, so a failure says something on THIS
+          // screen: the shell's problem line carries the runner's generic
+          // "See the output below", and this screen has no output block for
+          // it to point at.
+          result={runner.output}
           // Same asymmetry as Register's: Choice for a fresh machine, the
           // status screen for a configured client that came here from
           // "Register this machine". This screen needs it most — a machine

@@ -13,6 +13,7 @@ import {
   handoffView,
   isRequestedScreen,
   MIN_AUTOSTART_SERVER_VERSION,
+  permissionsAfterSetup,
   prereqState,
   REQUESTED_SCREENS,
   RESET_LABEL,
@@ -23,6 +24,7 @@ import {
   screensFor,
   setupRows,
   supervisionLoginReason,
+  tmuxInstallFailure,
 } from "../lib/wizard-state";
 
 function virgin(over: Partial<Probe> = {}): Probe {
@@ -883,5 +885,81 @@ describe("handoffView", () => {
     const no = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
     const yes = handoffView({ onboarded: false, ranSetupHere: false, continued: false });
     expect(no.title).not.toBe(yes.title);
+  });
+});
+
+describe("tmuxInstallFailure", () => {
+  const r = (over: Partial<ActionResult> = {}): ActionResult => ({ ok: false, stdout: "", stderr: "", ...over });
+
+  it("says nothing when no install has run in this window", () => expect(tmuxInstallFailure(null, false)).toBeNull());
+
+  // The screen is about to leave by itself, so a verdict here would be a
+  // failure block on a question already answered.
+  it("says nothing once tmux is there, however the run went", () => {
+    expect(tmuxInstallFailure(r({ ok: false, stderr: "brew: bad" }), true)).toBeNull();
+    expect(tmuxInstallFailure(r({ ok: true }), true)).toBeNull();
+  });
+
+  it("names a non-zero exit and keeps the manager's last complaint", () => {
+    const failure = tmuxInstallFailure(
+      r({ stdout: "==> Fetching tmux", stderr: "Error: no bottle\nbrew update-reset" }),
+      false,
+    );
+    expect(failure?.headline).toBe("The tmux install didn't finish.");
+    expect(failure?.line).toBe("brew update-reset");
+  });
+
+  // The case nothing could see before: a manager that exits 0 and leaves no
+  // tmux was indistinguishable from a button nobody had pressed.
+  it("names a run that finished and changed nothing", () => {
+    const failure = tmuxInstallFailure(r({ ok: true, stdout: "==> Summary\n🍺  /opt/homebrew/Cellar/tmux" }), false);
+    expect(failure?.headline).toBe("The installer finished, but tmux still isn't on this machine's PATH.");
+    expect(failure?.line).toBe("🍺  /opt/homebrew/Cellar/tmux");
+  });
+
+  it("carries both streams for the disclosure, stdout first", () => {
+    const failure = tmuxInstallFailure(r({ stdout: "==> Fetching\n", stderr: "Error: no bottle\n" }), false);
+    expect(failure?.output).toBe("==> Fetching\nError: no bottle");
+  });
+
+  // `failureLine`'s "Setup stopped." is a sentence for a checklist row; here
+  // it would be a second headline disagreeing with the one above it.
+  it("leaves the line empty rather than borrowing a checklist's fallback", () => {
+    const failure = tmuxInstallFailure(r({ stdout: "  \n", stderr: "" }), false);
+    expect(failure?.line).toBe("");
+    expect(failure?.output).toBe("");
+    expect(failure?.headline).toBe("The tmux install didn't finish.");
+  });
+
+  it("falls back to stdout when a failed run said nothing on stderr", () =>
+    expect(tmuxInstallFailure(r({ stdout: "killed after 600s" }), false)?.line).toBe("killed after 600s"));
+});
+
+describe("permissionsAfterSetup", () => {
+  const chain = { platform: "darwin", ranSetupHere: true, ranFirstRunHere: true };
+
+  it("sends a Mac's first run to the permissions screen", () => expect(permissionsAfterSetup(chain)).toBe(true));
+
+  // The screen is three macOS permissions; there is no Linux equivalent and
+  // every row would read as unavailable.
+  it("is macOS only", () => expect(permissionsAfterSetup({ ...chain, platform: "linux" })).toBe(false));
+
+  // A window opened over an already-running server never had a chain to
+  // finish, so there is no press to hand off from.
+  it("needs a chain that ran in this window", () =>
+    expect(permissionsAfterSetup({ ...chain, ranSetupHere: false })).toBe(false));
+
+  // A recovery Set Up runs the same chain on a machine that has been through
+  // all of this before; re-explaining macOS to it would be the app narrating
+  // its own state machine.
+  it("needs that chain to have been a first run", () =>
+    expect(permissionsAfterSetup({ ...chain, ranFirstRunHere: false })).toBe(false));
+
+  // It reverses D3 of spec 2026-09-17 on the far SIDE of the chain, so the
+  // screen is still never on a journey's list: `render()` routes it as a
+  // request, exactly as a dashboard notice does.
+  it("routes through the requested-screen list, not a journey", () => {
+    expect(REQUESTED_SCREENS).toContain("permissions");
+    expect(screensFor(virgin(), false)).not.toContain("permissions");
   });
 });

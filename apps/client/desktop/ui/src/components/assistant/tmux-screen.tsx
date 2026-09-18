@@ -62,9 +62,15 @@ import { useEffect, useRef, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
-import { type ManualTmuxRoute, manualTmuxRoutes, TMUX_INSTALL_CMD } from "@/lib/copy";
+import {
+  type ManualTmuxRoute,
+  manualTmuxRoutes,
+  TMUX_INSTALL_CMD,
+  type TmuxInstallFailure,
+  tmuxInstallFailure,
+} from "@/lib/copy";
 import * as ipc from "@/lib/ipc";
-import { INSTALL_LINE_EVENT, type Probe } from "@/lib/ipc";
+import { type ActionResult, INSTALL_LINE_EVENT, type Probe } from "@/lib/ipc";
 
 /**
  * `m:ss` since the install began.
@@ -83,6 +89,20 @@ export function TmuxScreen(props: {
   /** Runs the platform's tmux install; the host owns the command and its output. */
   onInstall: () => void;
   /**
+   * The last action's own result, for the failure block.
+   *
+   * The runner's generic "That did not work. See the output below." pointed at
+   * an output pane this screen does not render, so a failed install said
+   * nothing here at all — see {@link tmuxInstallFailure}, which turns this
+   * into the sentence the screen shows instead.
+   *
+   * Optional because its absence MEANS something rather than being an
+   * oversight: no action has run in this window, which is the screen's
+   * ordinary opening state and the one every test that is not about a failure
+   * renders.
+   */
+  result?: ActionResult | null;
+  /**
    * Leave the walk — NOT a way past the gate.
    *
    * This is the screen a person can be parked on indefinitely: tmux is a hard
@@ -99,7 +119,14 @@ export function TmuxScreen(props: {
   onBack?: () => void;
   busy: boolean;
 }) {
-  const { shell, probe, onInstall, onBack, busy } = props;
+  const { shell, probe, onInstall, onBack, busy, result } = props;
+  /**
+   * What the last install left behind, or `null` when there is nothing to
+   * report. Recomputed every render off the live probe, so a tmux that turns
+   * up — by this button or by a terminal — clears the block on the same render
+   * that starts this screen leaving.
+   */
+  const failure = tmuxInstallFailure(result, Boolean(probe?.tmux));
   // Empty means "this app can install tmux here", which is every machine but a
   // brew-less Mac. `true` while the probe has not answered: a screen that
   // dropped its button for the half-second before the first read would flicker
@@ -182,7 +209,12 @@ export function TmuxScreen(props: {
     <Frame
       {...shell}
       icon={<SquareTerminal />}
-      problem={problem === "" ? shell.problem : problem}
+      // The site button's own refusal outranks; otherwise the shell's line,
+      // EXCEPT while the failure block is up — that block is this failure said
+      // properly, and the runner's generic sentence above it would be the same
+      // news twice in two wordings, one of them pointing at a pane that is not
+      // on this screen.
+      problem={problem !== "" ? problem : failure === null ? shell.problem : ""}
       barLeft={
         // Live during the install, where every other bottom-bar control in this
         // app is disabled by `busy`. Leaving changes nothing — the install runs
@@ -206,12 +238,20 @@ export function TmuxScreen(props: {
           {status}
         </p>
       )}
+      {!busy && failure !== null && <InstallFailure failure={failure} />}
       {routes.length === 0 ? (
         <div className="mt-6">
           {!busy && (
             <>
+              {/*
+               * "Try again", because a button lettered with the act that just
+               * failed asks the reader to believe the same press will do
+               * something different. It will — {@link NodeCommands.installTmux}
+               * re-reads the machine first — and the label is where that is
+               * said.
+               */}
               <Button className="w-full" onClick={start}>
-                Install tmux
+                {failure === null ? "Install tmux" : "Try again"}
               </Button>
               {/*
                * Centred under a full-width button: left-aligned, it reads as a
@@ -301,6 +341,46 @@ function InstallProgress(props: { startedAt: number; line: string }) {
       <p aria-live="polite" className="mt-2 break-all font-mono text-detail text-muted-foreground">
         {line || "Starting the package manager…"}
       </p>
+    </div>
+  );
+}
+
+/**
+ * What an install that did not work says for itself (operator's report,
+ * 2026-09-18: "it wasn't clear there was a problem").
+ *
+ * Three layers, narrowing: the app's own sentence about what happened, the
+ * package manager's last word under it, and everything both streams carried
+ * behind a disclosure. The last one is what neither app had — a manager's
+ * final stderr line is routinely a fragment (`brew update-reset`, a "Please
+ * report this issue" tail) and the reason is four lines above it.
+ *
+ * `<details>` rather than state, the same rule {@link DetailsDisclosure}
+ * keeps: a disclosure someone is reading must survive the re-render an
+ * action's re-probe causes, and React leaves the element's own `open` alone.
+ */
+function InstallFailure(props: { failure: TmuxInstallFailure }) {
+  const { failure } = props;
+  return (
+    <div className="mt-4 rounded-lg border border-destructive bg-destructive/8 px-4 py-3">
+      <p className="font-strong text-label text-warning">{failure.headline}</p>
+      {/*
+       * Empty is a real answer — a spawn that never ran says nothing at all —
+       * and an empty line under the headline reads as a missing explanation.
+       */}
+      {failure.line !== "" && (
+        <p className="mt-1 truncate font-mono text-detail text-muted-foreground">{failure.line}</p>
+      )}
+      {failure.output !== "" && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-detail text-muted-foreground hover:text-foreground">
+            Show output
+          </summary>
+          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-destructive bg-background px-3 py-2.5 font-mono text-detail leading-relaxed">
+            {failure.output}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }

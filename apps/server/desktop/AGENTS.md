@@ -120,17 +120,31 @@ over a running server, or a recovery Start, has no result owed to a reader.
 `ranSetupHere` is page state because the `ready` probe cannot say it — the
 probe flags `onboarded` on the very read that reaches the handoff, so the flag
 that gates the press has to be remembered by the window that ran the chain.
+**On a Mac's first run that press hands off to the permissions screen rather
+than to the dashboard** (operator's call 2026-09-18, spec § 10 — the reversal
+of D3), and that screen's own Continue does what this one used to.
+`permissionsAfterSetup` is the pure fork and takes three facts: darwin,
+`ranSetupHere`, and `ranFirstRunHere` — captured in `startSetup` BEFORE the
+chain, because by handoff time every machine looks onboarded, and without it a
+recovery Set Up would re-explain macOS to a machine that has seen all of it.
 The one ACT before it is Install tmux, shown ONLY while
 tmux is missing (the old always-shown rule existed to keep the dots honest;
 the dots are gone); the poll seeing tmux re-resolves PAST the intro to the
-chain and it fires. **Welcome leads the first run again** (operator's call
+chain and it fires. **A failed install is a state that screen renders**
+(spec § 11): `tmuxInstallFailure` forks on the result AND on whether tmux
+turned up, so an install that exits zero and changes nothing is reported as
+loudly as one that exits non-zero — that case used to be indistinguishable
+from a button nobody had pressed. The card carries the app's own headline, the
+manager's last word, and both streams behind Show output; the button relabels
+to **Try again**, which re-probes before it spawns anything, and the one line a
+person can paste appears under it. **Welcome leads the first run again** (operator's call
 2026-09-18, one day after D1 deleted it: "reset / initial state should always
 show it again" — the probe-derived list restarts on its own, and a completed
 reset re-arms the fired-this-load latch through `host.rearmFirstRun`; a
 cancelled one does not, and the pins in `wizard-state.test.ts` hold both
 halves). The intro is inert by construction: the auto-fire lives in
 `renderSetup`, which Welcome does not render, so nothing touches the machine
-until the press. Permissions stayed off the first run and request-only
+until the press. Permissions are back, AFTER the chain rather than before it
 (§ "macOS permissions"). A port conflict, a
 busy gate, or a no-bundled build lands on the pre-filled form instead of
 failing a chain nobody pressed — `autoSetupDecision` is the pure fork,
@@ -632,13 +646,21 @@ Files-and-Folders is attributed to whichever process lists the folder
 (`subshell-server` under launchd, this app under "runs with this app"), and
 Background Items is a banner, not a permission. So the `permissions` screen —
 macOS only — shows THREE rows, REQUESTS the
-two it owns, EXPLAINS the one it cannot, and never blocks Continue. It is
-REQUEST-ONLY since spec 2026-09-17 (it left the first run; the TCC prompt it
-explains belongs at the moment a permission is first wanted, not at launch):
-the dashboard raises it as the fix for every missing-permission notice, and
-`isRequestedScreen(screen)` is the whole routing — there is no first-run visit
-left to distinguish it from, and the render's old dual-role disambiguator is
-gone with the journey.
+two it owns, EXPLAINS the one it cannot, and never blocks Continue. It left the first
+run with spec 2026-09-17 (the TCC prompt it explains belongs at the moment a
+permission is first wanted, not at launch) and came back on 2026-09-18 on the
+far SIDE of the setup chain (spec § 10): the ready screen's Continue hands off
+to it, on macOS, on a first run, once — so nothing is asked of anyone until
+there is a running server to be notified about, and the dashboard's notices
+remain its other door.
+
+It is still reached ONE way. `permissions` never left `REQUESTED_SCREENS`, so
+the handoff names it exactly as a dashboard notice does and
+`isRequestedScreen(screen)` remains the whole routing — the render's old
+dual-role disambiguator stays gone. What the screen has to know is which door
+it came through: from a notice there is somewhere to go BACK to, and from the
+handoff there is not, so it carries a primary **Continue** that opens the
+dashboard in place of the ghost Back.
 
 **The fourth row — Background Items — was removed on the operator's request,
 and the reason is worth keeping** (it is the same reason the second rule below

@@ -383,3 +383,92 @@ describe("manualTmuxRoutes", () => {
     expect(manualTmuxRoutes(false).map((r) => r.target)).toEqual(["homebrew", "macports"]);
   });
 });
+
+/**
+ * A failed install, said out loud (operator's report, 2026-09-18: "the tmux
+ * install had an issue and it wasn't clear there was a problem").
+ *
+ * The three cases are the three ways the old screen went quiet: an exit code
+ * nobody rendered, an exit ZERO that changed nothing, and a button lettered
+ * with the act that had just failed.
+ */
+describe("the tmux screen after a failed install", () => {
+  const failed = { ok: false, stdout: "==> Fetching tmux\n", stderr: "Error: no bottle available\nbrew update-reset" };
+
+  it("names the failure in its own words, with the manager's beside them", () => {
+    fakeIpc();
+    renderApp(<TmuxScreen shell={shell} probe={noTmux} onInstall={() => {}} busy={false} result={failed} />);
+    expect(screen.getByText("The tmux install didn't finish.")).toBeTruthy();
+    expect(screen.getByText("brew update-reset")).toBeTruthy();
+  });
+
+  // The case nothing could see: a manager that exits 0 and leaves no tmux
+  // redrew the screen exactly as it had been.
+  it("names a run that finished and changed nothing", () => {
+    fakeIpc();
+    const ok = { ok: true, stdout: "==> Summary", stderr: "" };
+    renderApp(<TmuxScreen shell={shell} probe={noTmux} onInstall={() => {}} busy={false} result={ok} />);
+    expect(screen.getByText("The installer finished, but tmux still isn't on this machine's PATH.")).toBeTruthy();
+  });
+
+  it("offers Try again rather than the act that just failed", () => {
+    fakeIpc();
+    const pressed: string[] = [];
+    renderApp(
+      <TmuxScreen
+        shell={shell}
+        probe={noTmux}
+        onInstall={() => pressed.push("install")}
+        busy={false}
+        result={failed}
+      />,
+    );
+    expect(buttonNames()).not.toContain("Install tmux");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(pressed).toEqual(["install"]);
+  });
+
+  it("keeps the whole run behind a disclosure, both streams", () => {
+    fakeIpc();
+    renderApp(<TmuxScreen shell={shell} probe={noTmux} onInstall={() => {}} busy={false} result={failed} />);
+    const output = screen.getByText(/==> Fetching tmux/);
+    expect(output.textContent).toContain("Error: no bottle available");
+    expect(output.closest("details")).toBeTruthy();
+  });
+
+  // The runner's own line is "That did not work. See the output below." — and
+  // there is no output below on this screen. The block above IS that failure
+  // said properly, so the generic sentence would be the same news twice.
+  it("drops the shell's generic failure line while the block is up", () => {
+    fakeIpc();
+    renderApp(
+      <TmuxScreen
+        shell={{ ...shell, problem: "That did not work. See the output below." }}
+        probe={noTmux}
+        onInstall={() => {}}
+        busy={false}
+        result={failed}
+      />,
+    );
+    expect(screen.queryByText("That did not work. See the output below.")).toBeNull();
+  });
+
+  // The screen leaves by itself the moment tmux appears, so a verdict on the
+  // run that produced it would be a failure block over a solved problem.
+  it("says nothing once tmux is there", () => {
+    fakeIpc();
+    const found = makeProbe({ tmux: "/opt/homebrew/bin/tmux" });
+    renderApp(<TmuxScreen shell={shell} probe={found} onInstall={() => {}} busy={false} result={failed} />);
+    expect(screen.queryByText("The tmux install didn't finish.")).toBeNull();
+  });
+
+  // The rule this screen has kept since it shipped: nothing here is a way
+  // PAST the gate, and a failure is exactly when a "skip" would be reached for.
+  it("still offers no way past the gate", () => {
+    fakeIpc();
+    renderApp(<TmuxScreen shell={shell} probe={noTmux} onInstall={() => {}} busy={false} result={failed} />);
+    for (const name of buttonNames()) {
+      expect(name ?? "").not.toMatch(/continue|skip|later|not now/i);
+    }
+  });
+});

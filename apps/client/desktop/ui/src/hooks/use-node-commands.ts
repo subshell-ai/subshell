@@ -29,6 +29,7 @@ import {
   nodeOpenPath,
   nodeOpenPlane,
   nodeOpenPlaneUrl,
+  nodeProbe,
   nodeService,
   nodeSetPlane,
   type OpenTarget,
@@ -330,7 +331,27 @@ export function useNodeCommands(args: {
         { reprobe: false },
       ),
 
-    installTmux: () => runner.run(async () => finished(await nodeInstallTmux())),
+    /**
+     * Install tmux — and ASK THE MACHINE FIRST (operator's request,
+     * 2026-09-18: "retry would also check for the presence of the install").
+     *
+     * Someone who has gone off to a terminal, installed tmux by hand and come
+     * back is pressing this to say "look again", not to run brew a second
+     * time — and the probe poll is PAUSED while this screen's own last action
+     * was in flight, so it cannot have noticed for them. A tmux found here
+     * returns without spawning anything: the runner re-probes on the way out,
+     * the router stops routing to the tmux screen, and there is no result left
+     * behind for {@link tmuxInstallFailure} to report a failure from.
+     */
+    installTmux: () =>
+      runner.run(async () => {
+        // Swallowed rather than surfaced: a probe that could not run is not a
+        // reason to refuse the install the person actually asked for, and the
+        // install's own result is about to say something more useful.
+        const fresh = await nodeProbe().catch(() => null);
+        if (fresh?.tmux) return finished(null);
+        return finished(await nodeInstallTmux());
+      }),
 
     /**
      * Persist only. The runner still re-probes, because nothing about this

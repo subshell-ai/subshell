@@ -8,7 +8,7 @@
  * means. Kept out of the components so the prose can be edited without reading
  * the state machine.
  */
-import type { Probe, WebTarget } from "@/lib/ipc";
+import type { ActionResult, Probe, WebTarget } from "@/lib/ipc";
 
 /** One field of the enrollment form. */
 export interface EnrollField {
@@ -185,4 +185,69 @@ export function tmuxHint(probe: Probe | undefined, which: "enroll" | "service"):
         `its network call, so a missing tmux costs a message rather than the setup key. Install it (${TMUX_INSTALL_CMD}) to continue.`
     : `tmux was not found on the login PATH, so starting the service is disabled: the node would come up online ` +
         `with no harnesses and refuse every launch. Install it (${TMUX_INSTALL_CMD}), then start or restart the service.`;
+}
+
+/** What the tmux screen says about an install that has already run here. */
+export interface TmuxInstallFailure {
+  /** The sentence that names what went wrong, in the app's own words. */
+  headline: string;
+  /** The package manager's last word — empty when it said nothing. */
+  line: string;
+  /** Both streams, for the disclosure — empty when the run produced no output. */
+  output: string;
+}
+
+/**
+ * Whether the tmux install this window ran left the machine still without
+ * tmux, and what to say about it (operator's report, 2026-09-18).
+ *
+ * **MIRRORED from `apps/server/desktop/ui/src/lib/wizard-state.ts`**
+ * (`tmuxInstallFailure`, `TmuxInstallFailure`), the way `manualTmuxRoutes`
+ * above is, because it is the same act failing the same way on the same
+ * machine — a diff between the two copies is the drift signal. The reasoning
+ * lives at that copy; the short version is here.
+ *
+ * Both apps reported a failed install as ONE line beside a button that redrew
+ * exactly as it had been. That line was `runner.failure`'s "That did not work.
+ * See the output below." here — and there is no output below on this screen,
+ * which renders no `DetailsDisclosure` — so the sentence pointed at nothing.
+ *
+ * **Two failures, not one.** A non-zero exit is `ActionResult.ok`; an install
+ * that exits ZERO and still leaves no tmux on the login PATH was
+ * indistinguishable from a button nobody had pressed, and gets its own
+ * sentence because it has a different fix.
+ *
+ * `null` means there is nothing to report: no install has run in this window,
+ * or tmux is now there — in which case the screen is about to leave by itself.
+ *
+ * @param result - the install's own result, or nullish if none has run here
+ * @param tmuxFound - whether the probe can now see a tmux
+ */
+export function tmuxInstallFailure(
+  result: ActionResult | null | undefined,
+  tmuxFound: boolean,
+): TmuxInstallFailure | null {
+  // `== null`, because this is a boundary: the screen's prop is optional and
+  // an absent one means exactly what a null one does — nothing has run here.
+  if (result == null || tmuxFound) return null;
+  const lastLine = (text: string): string | undefined =>
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1);
+  // stdout first: a manager narrates its progress there and complains on
+  // stderr, so reading in that order puts the complaint at the bottom, where a
+  // reader of a terminal looks for it.
+  const output = [result.stdout, result.stderr]
+    .map((stream) => stream.replace(/\s+$/, ""))
+    .filter((stream) => stream !== "")
+    .join("\n");
+  return {
+    headline: result.ok
+      ? "The installer finished, but tmux still isn't on this machine's PATH."
+      : "The tmux install didn't finish.",
+    line: (result.ok ? lastLine(output) : (lastLine(result.stderr) ?? lastLine(result.stdout))) ?? "",
+    output,
+  };
 }

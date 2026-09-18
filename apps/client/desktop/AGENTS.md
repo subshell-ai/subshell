@@ -463,9 +463,28 @@ the `node` window alone:
   why the argv lives in the crate and not here: brew on macOS (nothing
   runnable without it), `pkexec apt-get` on Linux (never a bare `sudo`, which
   from a GUI has no tty and hangs to the timeout). The install is streamed
-  through a `LineSink`; this app passes a no-op one, because its tmux screen
-  listens for nothing and an event name with no listener is a dangling half of
-  a contract.
+  through a `LineSink`, `emit_to` the NODE window — not a broadcast, because
+  this app's other window is a control plane's own page and a package
+  manager's output is not its business. (This bullet said the sink was a no-op
+  "because its tmux screen listens for nothing"; that stopped being true when
+  the screen grew its progress pane, and the emit's own comment in
+  `control.rs` says so.)
+
+  **A failed install is a state the screen renders** (2026-09-18, spec
+  `2026-09-17-zero-touch-desktop-setup-design.md` § 11): `tmuxInstallFailure`
+  in `lib/copy.ts` — mirrored from the server app beside `manualTmuxRoutes`,
+  so a diff between the copies is the drift signal — forks on the result AND
+  on whether tmux turned up, because an install that exits ZERO and leaves
+  none was indistinguishable from a button nobody had pressed. It matters more
+  here than there: the runner's generic failure line is "That did not work.
+  See the output below", and this screen renders no `DetailsDisclosure` for it
+  to point at, so a failed install said nothing at all. The card carries the
+  app's own headline, the manager's last word and both streams behind Show
+  output; the button relabels to **Try again**, and `NodeCommands.installTmux`
+  re-probes before it spawns anything — the poll is paused while an action is
+  in flight, so someone who fixed the machine in a terminal is pressing that
+  button to say "look again". A tmux found there returns without spawning, and
+  the screen leaves by itself as it always did.
 - **`node_set_plane`** remembers a control plane WITHOUT opening its window.
   It exists because `node_open_plane` does both, and the first run's connect
   step must do only the first — a dashboard that appears mid-setup is the

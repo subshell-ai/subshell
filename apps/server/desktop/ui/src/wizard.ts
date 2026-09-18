@@ -54,6 +54,7 @@ import {
   handoffView,
   isRequestedScreen,
   MIN_AUTOSTART_SERVER_VERSION,
+  permissionsAfterSetup,
   prereqState,
   RESET_LABEL,
   type RecoveryActionKind,
@@ -66,6 +67,8 @@ import {
   screensFor,
   setupRows,
   supervisionLoginReason,
+  type TmuxInstallFailure,
+  tmuxInstallFailure,
 } from "./lib/wizard-state";
 import "./styles.css";
 
@@ -108,6 +111,26 @@ let lastResult: ActionResult | null = null;
  * percentage to invent, so the last line and a clock are what there is.
  */
 let installLine = "";
+/**
+ * The tmux install's own last answer, or `null` when none has run in this
+ * window (operator's report, 2026-09-18).
+ *
+ * Its OWN slot rather than `lastResult`, which every `act` overwrites: the
+ * failure block is a verdict on the tmux install specifically, and a result
+ * left by some other press rendering under "The tmux install didn't finish."
+ * would be this screen inventing a failure out of another screen's words.
+ * Cleared by the next press and by a tmux that appears.
+ */
+let tmuxResult: ActionResult | null = null;
+/**
+ * Whether the failed install's output disclosure is expanded.
+ *
+ * Page state for the reason {@link detailsOpen} is, and separate from it for a
+ * different one: the poll refreshes the server log tail while THAT one is
+ * open, which would be a CLI spawn every 1500 ms on a screen with no server
+ * to ask.
+ */
+let tmuxOutputOpen = false;
 let installStartedAt = 0;
 /** The last log tail, refreshed on the poll only while the disclosure is open. */
 let lastTail: LogTail | null = null;
@@ -146,8 +169,30 @@ let autoFired = false;
  * very first `ready` it sees.
  */
 let ranSetupHere = false;
+/**
+ * That chain was a FIRST RUN — the machine was not onboarded when it started.
+ *
+ * Captured at the press rather than read at the handoff, because by then the
+ * probe has already flagged `onboarded` on the very `ready` that got there.
+ * A recovery Set Up runs the same chain on a machine that has been through
+ * all of this before, and this is the only thing that can tell them apart.
+ * See {@link permissionsAfterSetup}, its one consumer.
+ */
+let ranFirstRunHere = false;
 /** They pressed Continue on that screen. */
 let continued = false;
+/**
+ * The ready screen's Continue sent them to the permissions screen, so its own
+ * press is a Continue that opens the dashboard rather than a Back that drops
+ * them where the probe implies.
+ *
+ * The screen is reached two ways now and it has to say which door it came
+ * through: from a dashboard notice there IS somewhere to go back to, and from
+ * the handoff there is not — the window's whole remaining job is to open the
+ * dashboard, and a "Back" that did it would be the button lying about where
+ * it leads.
+ */
+let permissionsAfterHandoff = false;
 /**
  * A request of ours is in flight — macOS's own sheet is up.
  *
@@ -327,7 +372,7 @@ const resetView = createResetView(host);
  * the same reason — the element is re-appended by every render, and one
  * created per render would throw away a half-finished Copy.
  */
-const tmuxWarn: TmuxWarning = buildTmuxWarning(host, () => void act(() => ipc.installTmux()));
+const tmuxWarn: TmuxWarning = buildTmuxWarning(host, () => startTmuxInstall());
 
 // Screens. Each fills #content and the bar; ordering comes from screensFor.
 //
@@ -370,6 +415,50 @@ function elapsed(sinceMs: number): string {
 }
 
 /**
+ * Install tmux — the one press, from both screens that offer it.
+ *
+ * **It asks the machine before it asks the package manager** (operator's
+ * request, 2026-09-18: "retry would also check for the presence of the
+ * install"). Someone who has gone off to a terminal, installed tmux by hand
+ * and come back is pressing this button to say "look again", not to run brew
+ * a second time — and the poll cannot have noticed for them, because it skips
+ * while an action is in flight and this screen's whole state is that nothing
+ * is. A tmux found here clears the failure and returns: `screensFor` stops
+ * listing this screen on the render that follows, which is the same exit the
+ * poll takes.
+ *
+ * The clock is stamped AFTER that check rather than at the press, so the
+ * progress pane never counts a probe as install time.
+ *
+ * A rejection — `NO_MANAGER`, on a platform with nothing to drive — is
+ * recorded as a result of its own rather than left to the problem line alone,
+ * so the screen's own failure block owns every way this can not work.
+ */
+function startTmuxInstall(): void {
+  if (busy || running) return;
+  void act(async () => {
+    await refresh();
+    if (probe?.tmux != null) {
+      tmuxResult = null;
+      return null;
+    }
+    tmuxResult = null;
+    installLine = "";
+    installStartedAt = Date.now();
+    startInstallClock();
+    render();
+    try {
+      const result = await ipc.installTmux();
+      tmuxResult = result;
+      return result;
+    } catch (err) {
+      tmuxResult = { ok: false, stdout: "", stderr: errText(err) };
+      throw err;
+    }
+  });
+}
+
+/**
  * What the install shows while it runs: a spinner, a clock, and the package
  * manager's own last line.
  *
@@ -389,12 +478,80 @@ function installProgress(): HTMLElement {
   spinner.setAttribute("aria-hidden", "true");
   // `aria-live="polite"`, so a screen reader hears the manager's own words as
   // they change rather than nothing at all for ten minutes.
-  head.append(spinner, text("span", "Installing tmux…", "label"), text("span", elapsed(installStartedAt), "detail"));
+  // The stamp lands after the presence check {@link startTmuxInstall} runs
+  // first, so the pane's first frames have none. Counting from the epoch there
+  // would print a five-figure clock for a moment, which is the sort of thing
+  // that gets screenshotted.
+  const since = installStartedAt === 0 ? Date.now() : installStartedAt;
+  head.append(spinner, text("span", "Installing tmux…", "label"), text("span", elapsed(since), "detail"));
   box.append(head);
   const line = text("p", installLine || "Starting the package manager…", "install-line");
   line.setAttribute("aria-live", "polite");
   box.append(line);
   return box;
+}
+
+/**
+ * What an install that did not work says for itself (operator's report,
+ * 2026-09-18: "it wasn't clear there was a problem").
+ *
+ * Three layers, narrowing: the app's own sentence about what happened, the
+ * package manager's last word under it, and everything both streams carried
+ * behind a disclosure. The last one is what the screen never had — a
+ * manager's final stderr line is routinely a fragment (`brew update-reset`,
+ * a "Please report this issue" tail) and the reason is four lines above it.
+ */
+function tmuxFailureBlock(failure: TmuxInstallFailure): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "install-failure";
+  box.append(text("p", failure.headline, "label"));
+  // Empty is a real answer — a spawn that never ran says nothing at all — and
+  // an empty line under the headline would be a gap the eye reads as a
+  // missing explanation.
+  if (failure.line !== "") box.append(text("p", failure.line, "install-line"));
+  if (failure.output !== "") {
+    const details = document.createElement("details");
+    // Its openness is PAGE state, like every other disclosure here: `#content`
+    // is rebuilt by a render that runs on the poll's clock, so a `<details>`
+    // holding it only in the DOM collapses under the reader twice a second.
+    details.open = tmuxOutputOpen;
+    details.addEventListener("toggle", () => {
+      tmuxOutputOpen = details.open;
+    });
+    const summary = document.createElement("summary");
+    summary.textContent = "Show output";
+    const pre = document.createElement("pre");
+    // The same treatment the recovery screen's failed action and the reset
+    // screen's half-run log get, so three surfaces never phrase one outcome
+    // three ways.
+    pre.className = "pane-pre output-bad";
+    pre.textContent = failure.output;
+    details.append(summary, pre);
+    box.append(details);
+  }
+  return box;
+}
+
+/**
+ * The one line a person can paste, with its Copy.
+ *
+ * A fixed flash key rather than the command's own text: this panel is rebuilt
+ * by every render and the key is what the flash outlives the element by, so
+ * keying on a string that can change with the platform would move the slot
+ * mid-flash.
+ */
+function manualCommand(command: string): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = "manual-steps";
+  panel.append(text("p", "Or run this in a terminal:", "hint"));
+  const line = document.createElement("div");
+  line.className = "manual-command";
+  line.append(
+    text("span", command, "code-line"),
+    copyButton(() => command, { key: "tmux-manual", label: "the install command" }),
+  );
+  panel.append(line);
+  return panel;
 }
 
 /**
@@ -447,26 +604,44 @@ function renderTmux(p: Probe): void {
   setFrame("none", "Install tmux", "Every subshell runs in a tmux pane, so the server needs it before it can start.");
   const content = el("content");
   const plan = tmuxInstallPlan(p.platform, p.hasBrew);
+  const failed = tmuxInstallFailure(tmuxResult, p.tmux !== null);
   if (prereqState(p) === "install" && plan.kind === "run") {
     if (busy) {
       content.append(installProgress());
     } else {
+      if (failed !== null) {
+        // The shared problem line said this once, in one sentence taken from
+        // whatever the manager's stderr happened to end on, above a button
+        // that looked exactly as it had before the press. It says it here
+        // now, in the app's own words, next to the manager's — so the line is
+        // cleared rather than reporting the same failure twice in two
+        // different wordings.
+        //
+        // Only when the line IS this failure, though. `refresh` puts
+        // `probe.error` there over the top of an action's message, and a card
+        // about a package manager is no reason to hide a machine that cannot
+        // be read at all.
+        if (tmuxResult !== null && problem === failureLine(tmuxResult)) el("problem").textContent = "";
+        content.append(tmuxFailureBlock(failed));
+      }
       content.append(
-        button(
-          plan.label,
-          () =>
-            void act(() => {
-              installLine = "";
-              installStartedAt = Date.now();
-              startInstallClock();
-              return ipc.installTmux();
-            }),
-          "primary big",
-        ),
+        // "Try again", because pressing a button labelled with the act that
+        // just failed asks the reader to believe the same press will do
+        // something different this time. It will — it re-reads the machine
+        // first — and the label is where that is said.
+        button(failed === null ? plan.label : "Try again", () => startTmuxInstall(), "primary big"),
       );
       // Centred under a full-width button: left-aligned, it read as a caption
       // for the screen's left edge rather than for the button it belongs to.
       content.append(text("p", "Your package manager may ask for your password.", "hint centered"));
+      // Only once the button has been shown not to work. Printing the line up
+      // front asks someone to paste an unexplained command on a window's
+      // say-so while a button that does it for them sits above it; printing
+      // it HERE answers the question the failure just raised, which is "what
+      // do I do instead". The other app's screen carries it unconditionally
+      // and that difference is deliberate — a node's tmux screen can be
+      // waited on forever, and this one is one step of a first run.
+      if (failed !== null) content.append(manualCommand(plan.command.join(" ")));
     }
   } else {
     // ABOVE the instructions, not under them. The screen is already polling
@@ -958,6 +1133,16 @@ function renderHandoff(p: Probe): void {
       "Continue",
       () => {
         continued = true;
+        // The one stop AFTER the chain (operator's call, 2026-09-18): on a
+        // Mac's first run this press hands off to the permissions screen
+        // rather than to the dashboard, and that screen's own Continue does
+        // what this one used to. `continued` is set either way — the handoff
+        // is finished with, and leaving it false would bring this screen back
+        // under the permissions one when the poll next rendered.
+        if (permissionsAfterSetup({ platform: p.platform, ranSetupHere, ranFirstRunHere })) {
+          permissionsAfterHandoff = true;
+          screen = "permissions";
+        }
         render();
       },
       "primary",
@@ -1357,6 +1542,25 @@ function renderPermissions(p: Probe): void {
     ul.append(li);
   }
   content.append(ul);
+  // Two doors, and the button says which one it came through. From a
+  // dashboard notice there is somewhere to go back TO, and Back drops the
+  // screen for whatever the probe implies. From the ready handoff there is
+  // not: this window's whole remaining job is to open the dashboard, so the
+  // press is a Continue that does it — a "Back" there would be the button
+  // lying about where it leads.
+  if (permissionsAfterHandoff) {
+    el("bar-right").append(
+      button(
+        "Continue",
+        () => {
+          permissionsAfterHandoff = false;
+          host.close();
+        },
+        "primary",
+      ),
+    );
+    return;
+  }
   el("bar-left").append(button("Back", () => host.close(), "ghost"));
 }
 
@@ -1783,6 +1987,11 @@ async function startSetup(): Promise<void> {
   // bug back. `ranSetupHere` is NOT cleared: a completed chain that ran here
   // is still one that ran here, and the flag is what gates showing the result.
   continued = false;
+  // Captured HERE because it cannot be read later: the probe flags
+  // `onboarded` on the very `ready` this chain is about to produce, so by the
+  // time the handoff asks, every machine looks like one that had been set up
+  // before. See {@link permissionsAfterSetup}, which is its one reader.
+  ranFirstRunHere = !probe.onboarded;
   render();
   let result: ActionResult | null = null;
   try {
@@ -2016,6 +2225,10 @@ function applyScreen(payload: string): void {
   // this is its other exit: the sidebar pill, an Update request or a Reset
   // request all land here while that screen may be showing.
   supervisionForm = null;
+  // A REQUESTED permissions screen is not the handoff's, whatever this window
+  // was doing a moment ago: it was asked for from somewhere the person can go
+  // back to, so it takes Back rather than the Continue that opens a dashboard.
+  permissionsAfterHandoff = false;
   screen = screenForRequest(payload);
   // A reset returns this page to a machine with nothing set up, so the
   // handoff guard has to be released or a later ready probe renders nothing.
