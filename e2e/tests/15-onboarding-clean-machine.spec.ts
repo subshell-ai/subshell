@@ -162,7 +162,10 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   // and this screen must not become a second thing standing between a new
   // install and its first subshell.
   await expect(page.getByRole("heading", { name: "Connect a Network" })).toBeVisible();
-  await page.getByRole("button", { name: "Skip for now" }).click();
+  // One primary since 2026-09-18: its word is host truth (a joined network on
+  // the developer's laptop would read "Continue"; CI has none), and both
+  // labels run the same advance — the flip is pinned in `setup.test.tsx`.
+  await page.getByRole("button", { name: /Continue|Skip for now/ }).click();
 
   // Step 3: tmux (spec 2026-09-15 §5.1, its own screen since 2026-09-17).
   // "Clean machine" means no AGENT CLI — tmux is the one thing the suite
@@ -183,7 +186,12 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   await expect(page.getByRole("listitem", { name: "Terminal", exact: true })).toHaveCount(0);
   await expect(page.getByRole("listitem", { name: "pi", exact: true }).getByText(/Detected/)).toHaveCount(0);
   await expect(page.getByRole("listitem", { name: "tmux", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Continue" }).click();
+  // The label rule (2026-09-18), pinned here because this fixture IS
+  // deterministic: the env overrides starve every detection, so nothing is
+  // installed and the one primary must read "Skip for now" — "Continue"
+  // would claim a continuation this machine does not have.
+  await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Skip for now" }).click();
 
   // Step 5: the form arrives filled in. Assert that BEFORE clicking, so a
   // regression in the defaults fails here rather than as a disabled button.

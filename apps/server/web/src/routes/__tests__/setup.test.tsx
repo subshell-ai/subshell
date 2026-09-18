@@ -52,8 +52,16 @@ const CLAUDE_ABSENT: HarnessInfo = {
 interface SetupMocks {
   /** What GET /api/setup/harnesses answers */
   harnesses?: HarnessInfo[];
+  /** True = `GET /api/setup/harnesses` never settles (the agent step's UNKNOWN state). */
+  harnessesPending?: boolean;
   /** What GET /api/network answers (the Network step); default is no networks */
   networks?: unknown[];
+  /**
+   * True = `GET /api/network` never settles. The label tests need the UNKNOWN
+   * state, and a never-resolving promise is this file's "still loading"
+   * (same trick as `installPending`).
+   */
+  networkPending?: boolean;
   /** What GET /api/nodes answers (launch step) */
   nodes?: unknown[];
   /** What GET /api/plugins answers (launch step — the Agent picker) */
@@ -76,6 +84,10 @@ interface SetupMocks {
   tmuxPath?: string | null;
   /** What GET /api/admin/status reports for `runtime.os`, which decides the command shown. */
   os?: string;
+  /** True = `GET /api/admin/status` never settles (the Tmux step's UNKNOWN state). */
+  adminStatusPending?: boolean;
+  /** True = `GET /api/admin/status` answers 500 (the Tmux step's failed check). */
+  adminStatusError?: boolean;
   /** What POST /api/setup/tmux/install answers */
   tmuxInstall?: { status: number; body: unknown };
   /** True = the tmux install POST never settles, so the mutation stays pending. */
@@ -134,6 +146,7 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify({ step: opts.progressStep ?? null })));
     }
     if (path === "/api/setup/harnesses") {
+      if (opts.harnessesPending) return new Promise<Response>(() => {});
       const base = opts.harnesses ?? [CLAUDE_ABSENT];
       const withInstall = installedId
         ? base.map((h) => (h.id === installedId ? { ...h, installed: true, version: "1.0.0", reason: undefined } : h))
@@ -145,6 +158,9 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify({ user: { id: "u1", name: "Ada" } })));
     }
     if (path === "/api/admin/status") {
+      if (opts.adminStatusPending) return new Promise<Response>(() => {});
+      if (opts.adminStatusError)
+        return Promise.resolve(new Response(JSON.stringify({ message: "status read failed" }), { status: 500 }));
       // Only the two fields the wizard reads. The real body is much wider and
       // has its own suite; mirroring it here would be a second fixture to keep
       // in step with a schema this page does not care about.
@@ -166,6 +182,7 @@ function routeFetch(opts: SetupMocks): void {
       return Promise.resolve(new Response(JSON.stringify(res.body), { status: res.status }));
     }
     if (path === "/api/network") {
+      if (opts.networkPending) return new Promise<Response>(() => {});
       return Promise.resolve(new Response(JSON.stringify({ networks: opts.networks ?? [] })));
     }
     if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes: opts.nodes ?? [] })));
@@ -340,8 +357,15 @@ async function renderSetup(opts: SetupMocks, upto: WalkStep) {
   // browser (network → tmux → agent → launch); inside Subshell Server the
   // same target arrives sooner, and a walk that cannot arrive fails on the
   // wait below rather than clicking a vanished button forever.
+  //
+  // The press is whichever label the step's ONE primary carries (2026-09-18):
+  // "Continue" where the step has something to continue with, "Skip for now"
+  // where it has not. The walk follows the button, not the word — one of the
+  // two is on screen on every optional step, and only one.
   for (let i = 0; i < 3 && !onStep(upto); i++) {
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const primary =
+      screen.queryByRole("button", { name: "Continue" }) ?? screen.getByRole("button", { name: "Skip for now" });
+    fireEvent.click(primary);
     await settle();
   }
   await waitFor(() => expect(onStep(upto)).toBe(true));
@@ -505,7 +529,10 @@ describe("setup wizard: the agent step is optional", () => {
   it("presents the agent step as optional and says what happens if you skip it", async () => {
     await renderSetup({}, "agent");
     expect(screen.getByText(/A plain terminal is always available/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    // The clean fixture has nothing installed, so the single primary IS the
+    // skip — the label names what the press is (2026-09-18).
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
   it("keeps the node escape hatch for a machine with nothing usable", async () => {
@@ -545,22 +572,46 @@ describe("setup wizard: the agent step is optional", () => {
   // nobody could see any more (operator report, 2026-09-14).
   it("refuses to continue while an install is running, and says what it is waiting for", async () => {
     await renderSetup({ harnesses: [CLAUDE_ABSENT], installPending: true }, "agent");
-    const cont = screen.getByRole("button", { name: "Continue" });
-    expect(cont.hasAttribute("disabled")).toBe(false);
+    // Nothing installed yet — the primary is labelled "Skip for now", and the
+    // install-in-flight rule holds it disabled exactly as it held "Continue".
+    const primary = screen.getByRole("button", { name: "Skip for now" });
+    expect(primary.hasAttribute("disabled")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(cont.hasAttribute("disabled")).toBe(true));
+    await waitFor(() => expect(primary.hasAttribute("disabled")).toBe(true));
     // The progress lives on the ROW, not beside the button: the bar carries
     // no status text at all (operator's call, 2026-09-14).
     const row = screen.getByRole("listitem", { name: "Claude Code" });
     expect(row.textContent).toContain("Installing…");
   });
 
-  it("installs an agent and flips the row to Detected", async () => {
+  it("installs an agent and flips the row to Detected — and the primary with it", async () => {
     await renderSetup({ harnesses: [CLAUDE_ABSENT] }, "agent");
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
     await settle();
     const row = screen.getByRole("listitem", { name: "Claude Code" });
     await waitFor(() => expect(row.textContent).toContain("Detected · v1.0.0"));
+    // The bar reads the SAME refetch the row does (2026-09-18): the machine
+    // now has something to continue with, and the button starts saying so
+    // without anyone leaving the screen.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
+  });
+
+  it("labels the primary 'Continue' on a machine where an agent was detected", async () => {
+    await renderSetup(
+      { harnesses: [{ ...CLAUDE_ABSENT, installed: true, version: "1.0.0", reason: undefined }] },
+      "agent",
+    );
+    expect(await screen.findByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
+  });
+
+  it("labels the primary 'Skip for now' while the check has not answered", async () => {
+    // Unknown ⇒ skip (2026-09-18): an unanswered read may not claim there is
+    // something to continue with — see `primaryLabel` in the route.
+    await renderSetup({ harnessesPending: true }, "agent");
+    expect(await screen.findByRole("button", { name: "Skip for now" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 });
 
@@ -594,6 +645,11 @@ describe("setup wizard: the tmux step", () => {
     expect(tmuxBlock().textContent).toContain("/usr/bin/tmux");
     // A settled fact says nothing more: no command to run, nothing to press.
     expect(within(tmuxBlock()).queryByRole("button", { name: "Install" })).toBeNull();
+    // The gate stands open on the machine the body just confirmed: the press
+    // is "Continue", enabled, and never the skip word (operator's ruling,
+    // 2026-09-18 — same read the body shows decides whether it can fire).
+    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
   });
 
   it("keeps tmux out of the agent list", async () => {
@@ -603,29 +659,66 @@ describe("setup wizard: the tmux step", () => {
     expect(screen.getByText(/A plain terminal is always available/)).toBeTruthy();
   });
 
-  it("says what a missing tmux costs and never blocks Continue", async () => {
+  it("says what a missing tmux costs and gates Continue on it", async () => {
     await renderSetup({ tmuxPath: null }, "tmux");
     expect(tmuxBlock().textContent).toContain("Subshells cannot launch on this machine");
-    // The launch step refuses honestly on its own, and a wizard that traps
-    // someone behind a package manager is worse than one that told them.
-    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false);
+    // The 2026-09-18 ruling reverses § 5.1's non-block: the press stays
+    // "Continue" and simply cannot fire until the read reports a path. No
+    // skip word appears — walking past tmux was never a save, it only moved
+    // the refusal to the launch step.
+    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
+    // Back is not gated — walking back is not walking past.
     expect(screen.getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(false);
   });
 
-  it("installs tmux on macOS and flips the step to found", async () => {
-    await renderSetup({ tmuxPath: null, os: "darwin" }, "tmux");
-    fireEvent.click(within(tmuxBlock()).getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(tmuxBlock().textContent).toContain("Found at"));
+  it("holds the gated Continue shut while the tmux check has not answered", async () => {
+    // Unknown counts as NOT-PRESENT on this step (2026-09-18), the opposite
+    // polarity from the optional steps' unknown-labels-as-skip: the gate is
+    // "cannot proceed unless installed", so an in-flight read holds the press
+    // disabled rather than renaming it.
+    await renderSetup({ adminStatusPending: true }, "tmux");
+    // The body's own unknown-state line — and no verdict group yet, because
+    // "Checking…" renders no fieldset.
+    expect(await screen.findByText("Checking this machine…")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
   });
 
-  it("holds Continue while the tmux install runs, and shows the installer's line", async () => {
+  it("gives a failed tmux check a Retry — a gate that cannot answer must not sit shut forever", async () => {
+    // The defect the gate makes NEW (2026-09-18): an errored read means
+    // `tmuxPath` never arrives, so a silent failure would be a permanently
+    // dead Continue — the trap § 5.1 was written to avoid, in inverted form.
+    // The body must answer with the same ErrorBanner + Retry the other steps
+    // use, and the gate holds until that Retry lands.
+    await renderSetup({ adminStatusError: true }, "tmux");
+    expect(await screen.findByText("Couldn't check for tmux on this machine.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
+  });
+
+  it("installs tmux on macOS, flips the step to found, and opens the gate", async () => {
+    await renderSetup({ tmuxPath: null, os: "darwin" }, "tmux");
+    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(within(tmuxBlock()).getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(tmuxBlock().textContent).toContain("Found at"));
+    // The install landing refetches the same read the bar reads, so the gate
+    // opens on its own — no leave-and-return (2026-09-18).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false));
+  });
+
+  it("holds the primary while the tmux install runs, and shows the installer's line", async () => {
     // The 2026-09-14 rule, now on the screen that owns the tmux install: a
     // `brew install` taking a minute must not be walked out of in either
     // direction, or its progress line and any failure land unseen.
     await renderSetup({ tmuxPath: null, os: "darwin", tmuxInstallPending: true }, "tmux");
-    const cont = screen.getByRole("button", { name: "Continue" });
+    const primary = screen.getByRole("button", { name: "Continue" });
     fireEvent.click(within(tmuxBlock()).getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(cont.hasAttribute("disabled")).toBe(true));
+    // Already disabled by the missing-tmux gate — what the install proves is
+    // that BOTH rules hold during the run, and Back flips as the install's
+    // own doing.
+    await waitFor(() => expect(primary.hasAttribute("disabled")).toBe(true));
     expect(tmuxBlock().textContent).toContain("Starting the installer…");
     expect(screen.getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true);
   });
@@ -784,6 +877,57 @@ describe("setup wizard: the Network step", () => {
   it("says so plainly when this build ships no networks at all", async () => {
     await renderSetup({}, "network");
     expect(await screen.findByText(/ships no network plugins/)).toBeTruthy();
+  });
+
+  // The label change this whole suite predates (operator's call, 2026-09-18):
+  // one primary button whose label states what the press IS. These pin the
+  // flip in both directions — and that no step carries two skip affordances.
+
+  it("says 'Skip for now' on the signed-out machine: installed is not joined", async () => {
+    // The exact state from the operator's screenshot — three vendors installed
+    // and waiting on a sign-in, one not installed at all. The rows LEAD the
+    // sort (`hasStarted` still decides that), but none of them has joined, so
+    // the step has nothing to continue with and the button says skip.
+    await renderSetup(
+      {
+        networks: [
+          network({ id: "headscale", name: "Headscale", state: "needs-login" }),
+          network({ id: "netbird", name: "NetBird", state: "needs-login" }),
+          network({ id: "tailscale", name: "Tailscale", state: "needs-login" }),
+          network({ id: "cloudflared", name: "Cloudflare Tunnel", state: "not-installed" }),
+        ],
+      },
+      "network",
+    );
+    const skips = await screen.findAllByRole("button", { name: "Skip for now" });
+    // One button, not a ghost-plus-primary pair — the ghost is gone.
+    expect(skips).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
+  it("says 'Continue' once a network is joined, and drops the skip label", async () => {
+    await renderSetup({ networks: [network({ id: "tailscale", name: "Tailscale", state: "joined" })] }, "network");
+    expect(await screen.findByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
+  });
+
+  it("counts a published network as something to continue with", async () => {
+    await renderSetup(
+      { networks: [network({ id: "cloudflared", name: "Cloudflared", state: "published" })] },
+      "network",
+    );
+    expect(await screen.findByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
+  });
+
+  it("says 'Skip for now' while the network read has not answered", async () => {
+    // Unknown ⇒ skip (2026-09-18): a failed or in-flight check must never
+    // print "Continue" — skipping has to work exactly when the check cannot
+    // speak. See `primaryLabel` in the route for why this is the OPPOSITE
+    // polarity from `lib/node-enrollment.ts`.
+    await renderSetup({ networkPending: true }, "network");
+    expect(await screen.findByRole("button", { name: "Skip for now" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 });
 

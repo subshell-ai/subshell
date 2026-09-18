@@ -19,9 +19,11 @@ import { tmuxInstallHint } from "@/lib/tmux-install";
  * terminal is always available with nothing to install". As a step it owns its
  * own title, and the tick replaces a status chip.
  *
- * Continue is never blocked on it. The launch step refuses honestly on its
- * own, and a wizard that traps someone behind a package manager is worse than
- * one that told them what is missing.
+ * The step GATES on it (operator's ruling, 2026-09-18, deliberately reversing
+ * spec 2026-09-15 § 5.1's non-blocking choice): the wizard's Continue is
+ * disabled until the detection reports a path — see the route's tmux branch
+ * for why skipping only moved the refusal to the launch step, and for the
+ * Retry the body grows when the check itself fails.
  */
 export function TmuxStep({
   tmuxPath,

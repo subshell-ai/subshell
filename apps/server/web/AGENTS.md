@@ -583,6 +583,28 @@ touch either.
 (`lib/subshell-compat.tsx`, and mobile's `lib/agent-default.ts`). That is the
 whole type audit, and reverting either filter fails a test.
 
+**The wizard's optional steps carry ONE primary button, and its label names
+what the press actually IS** (operator's call, 2026-09-18): "Continue" only
+when the step has something to continue with — a joined or published network
+(`isNetworkUsable`, deliberately narrower than the `hasStarted` sort key: an
+installed-but-signed-out daemon still leads the list and still says skip), or
+a detected agent — and "Skip for now" otherwise. The network step used to
+ship a ghost skip beside an unconditional Continue, two buttons for the one
+`goNext` they both ran and a label that promised a continuation on a machine
+joined to nothing. Unknown reads as the skip label, the OPPOSITE polarity
+from `lib/node-enrollment.ts`, which defaults unknown to allowed — there an
+unknown hid a control that works; here it would mislabel an action a failed
+check cannot vouch for, and skipping must work exactly when the check cannot
+speak. **The tmux step is not one of the optional steps — it GATES**
+(operator's ruling, 2026-09-18, deliberately reversing spec 2026-09-15
+§ 5.1's non-blocking choice): its button always reads "Continue" and stays
+disabled until the admin-status read reports a `tmuxPath`, because skipping
+tmux just moves the refusal from the step to the launch button without saving
+anyone a step; a failed read therefore grows the body's ErrorBanner + Retry —
+a gate with no way to answer is the trap § 5.1 was written to avoid, inverted.
+The launch step keeps a real ghost Skip because there Skip and Start are
+different acts — the one case where two buttons are honest.
+
 ## Talking to the backend
 
 All backend traffic goes through shared helpers; the only raw `fetch` calls in
