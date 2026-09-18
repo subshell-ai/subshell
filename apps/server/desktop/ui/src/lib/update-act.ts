@@ -139,7 +139,11 @@ function cliBehind(probe: Probe): boolean {
 function cliRow(probe: Probe, to: string | null): UpdateActRow {
   return {
     id: "cli",
-    label: "Server",
+    // "CLI", and the binary's own name: this screen states TWO versions and
+    // "Server" named neither of them unambiguously — it is the product's name
+    // as much as the binary's, and the row above is the app (operator's
+    // report, 2026-09-18).
+    label: "subshell-server CLI",
     from: probe.server?.version ?? "not installed",
     to,
   };
@@ -239,7 +243,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   const notes: string[] = [];
   const refused = cliHalfRefused(probe);
   if (appLatest !== null) {
-    rows.push({ id: "app", label: "App", from: appUpdate?.current ?? "", to: appLatest });
+    rows.push({ id: "app", label: "Subshell Server app", from: appUpdate?.current ?? "", to: appLatest });
     // The app half always brings a server with it, so the row is stated
     // whenever the app is behind — with no target number, since only the new
     // bundle knows which server it carries (§ 4.3).

@@ -133,9 +133,17 @@ export interface UpdateAct {
 }
 
 /** What the app half is called on screen. */
-const APP_LABEL = "Subshell Client";
-/** What the CLI half is called on screen — the machine's agent, not this app. */
-const AGENT_LABEL = "Node agent";
+const APP_LABEL = "Subshell Client app";
+/**
+ * What the CLI half is called on screen — the machine's agent, not this app.
+ *
+ * The binary's own name plus "CLI", so the version beside it is unambiguously
+ * the agent's: this screen states TWO versions, and "Node agent" named the
+ * ROLE rather than the thing whose version is on the row. Its twin in the
+ * server app reads `subshell-server CLI` for the same reason (operator's
+ * report, 2026-09-18).
+ */
+const AGENT_LABEL = "subshell CLI";
 
 /** How a machine with no agent installed reads in a version column. */
 const NOT_INSTALLED = "not installed";

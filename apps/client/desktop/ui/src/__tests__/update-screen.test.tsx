@@ -53,7 +53,7 @@ describe("the status screen's button is a door (§ 7.4)", () => {
     // Nothing was installed by walking through the door — the act asks first.
     expect(fake.callsTo("node_install_agent").length).toBe(0);
     // Both halves are named, and the half that is behind carries its numbers.
-    expect(screen.getByText("Node agent")).toBeTruthy();
+    expect(screen.getByText("subshell CLI")).toBeTruthy();
     expect(screen.getByText(/1\.9\.0 →/)).toBeTruthy();
   });
 

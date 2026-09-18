@@ -21,10 +21,18 @@ import type { ReleaseRef, ServerUpdateView } from "@/types/updates";
  * assistant — the only surface allowed to drive either install, and now the
  * only surface that needs to.
  *
- * **The version cells hold the APP's pair**, because the row is named for the
- * app and the app is what the press replaces first; the server's pair is the
- * detail line under it. Putting the server's numbers in the cells would make
- * the row's own name disagree with its columns.
+ * **Both halves sit in the SAME COLUMNS**, as two grid rows sharing one
+ * control. The first draft put the app's pair in the cells and the server's in
+ * a `col-span-full` sentence underneath, which broke the only read this table
+ * has — scan the middle two columns, spot the mismatch (operator's report,
+ * 2026-09-18: "why is the CLI version data not in the same columns as the
+ * app?"). The fold was only ever about having ONE control; it was never about
+ * having one line, and taking the CLI out of the columns cost the table its
+ * whole point.
+ *
+ * So the CLI row carries its own Running and Newest cells and, where the act
+ * would be, the words "with the app" — which is why it has no button of its
+ * own rather than a dash that says nothing.
  *
  * This component is never rendered in a browser — `UpdatesTable` branches on
  * `isServerDesktop()` — which is why it takes a non-null {@link DesktopShell}
@@ -51,36 +59,49 @@ export function FoldedServerRow({
   const behind = appBehind || serverBehind;
 
   return (
-    <div className="contents">
-      <div className="min-w-0">
-        <p className="truncate font-strong text-label">Subshell Server</p>
-        <MobilePair running={shell.version} newest={app?.version ?? DASH} />
+    <>
+      <div className="contents">
+        <div className="min-w-0">
+          {/* Sentence case, matching the sibling "Subshell Client app" row —
+              two rows in one table must not disagree about capitalisation.
+              It read "Subshell Server", which named the product rather than
+              the thing this row's versions are about (operator's report,
+              2026-09-18). */}
+          <p className="truncate font-strong text-label">Subshell Server app</p>
+          <MobilePair running={shell.version} newest={app?.version ?? DASH} />
+        </div>
+        <VersionCell value={shell.version} />
+        <VersionCell value={app?.version ?? DASH} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {behind ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void desktopInvoke("desktop_open_assistant", { screen: "update" })}
+            >
+              Open the update assistant
+            </Button>
+          ) : (
+            <span className="text-detail text-muted-foreground">{DASH}</span>
+          )}
+        </div>
       </div>
-      <VersionCell value={shell.version} />
-      <VersionCell value={app?.version ?? DASH} />
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {behind ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void desktopInvoke("desktop_open_assistant", { screen: "update" })}
-          >
-            Open the update assistant
-          </Button>
-        ) : (
-          <span className="text-detail text-muted-foreground">{DASH}</span>
-        )}
+      <div className="contents">
+        <div className="min-w-0">
+          {/* "CLI", so the version below is unambiguously the binary's and not
+              this app's — the two are different numbers and the row above
+              carries the other one. */}
+          <p className="truncate font-strong text-label">subshell-server CLI</p>
+          <MobilePair running={server.current || DASH} newest={bundled ?? DASH} />
+        </div>
+        <VersionCell value={server.current || DASH} />
+        <VersionCell value={bundled ?? DASH} />
+        {/* Not a dash: this half HAS an act, and it is the row above's. A dash
+            would say "nothing to do here", which is the opposite. */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="text-detail text-muted-foreground">{bundled === null ? DASH : "with the app"}</span>
+        </div>
       </div>
-      {/* The second pair, as a detail line rather than a second row: it is the
-          same act's other half, and a row of its own would be the two controls
-          this design just removed, wearing one name. */}
-      <p className="col-span-full text-detail text-muted-foreground">
-        {bundled === null
-          ? `subshell-server ${server.current || DASH}. This build does not report the server it ships.`
-          : serverBehind
-            ? `subshell-server ${server.current} → ${bundled}, installed with the app.`
-            : `subshell-server ${server.current} — the version this app ships.`}
-      </p>
-    </div>
+    </>
   );
 }

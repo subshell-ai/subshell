@@ -92,23 +92,44 @@ describe("the Components table inside Subshell Server", () => {
     cleanup();
   });
 
-  it("folds the app and the server into one row", () => {
+  it("names the app as an app, and the CLI as a CLI", () => {
     setUA(SERVER_UA);
     const { container } = renderTable();
     const labels = Array.from(container.querySelectorAll("p, span")).map((n) => n.textContent);
-    expect(labels).toContain("Subshell Server");
-    // The two rows this replaces are gone, by their exact labels.
-    expect(labels).not.toContain("Subshell Server app");
-    // The client app is a DIFFERENT product this window cannot install; its
-    // row stays.
+    // Sentence case, matching the sibling row rather than the product name:
+    // it read "Subshell Server", which named neither of the two things whose
+    // versions this fold states.
+    expect(labels).toContain("Subshell Server app");
+    expect(labels).toContain("subshell-server CLI");
+    // The plain "Server" row a browser gets is not here.
+    expect(labels).not.toContain("Server");
+    // The client app is a DIFFERENT product this window cannot install.
     expect(labels).toContain("Subshell Client app");
   });
 
-  it("still states the server's own pair, as the row's detail line", () => {
+  /**
+   * The CLI's versions sit in the SAME COLUMNS as the app's, which is the
+   * whole read this table has (operator's report, 2026-09-18). The first
+   * draft put them in a `col-span-full` sentence, where no column scan
+   * reaches them.
+   */
+  it("puts the CLI's versions in the version columns, not in prose", () => {
+    setUA(SERVER_UA);
+    const { container } = renderTable();
+    // `b=0.10.0` in the UA is what this app ships; the view's server is older.
+    const cells = Array.from(container.querySelectorAll("div.font-mono")).map((n) => n.textContent);
+    expect(cells).toContain("0.10.0");
+    // And no sentence carrying the same number instead.
+    expect(screen.queryByText(/installed with the app\./)).toBeNull();
+  });
+
+  // One act, so one button — the CLI half says where its act lives rather
+  // than showing a dash, which would read as "nothing to do".
+  it("gives the CLI row no button of its own", () => {
     setUA(SERVER_UA);
     renderTable();
-    // `b=0.10.0` in the UA is what this app ships; the view's server is older.
-    expect(screen.getByText(/subshell-server .* → 0\.10\.0, installed with the app\./)).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Open the update assistant" }).length).toBe(1);
+    expect(screen.getByText("with the app")).toBeTruthy();
   });
 
   it("offers the assistant and no release-source update", () => {

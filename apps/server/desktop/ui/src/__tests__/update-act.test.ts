@@ -76,13 +76,13 @@ describe("the four cases of §4.1", () => {
   it("states both halves when both are behind, and the server's target is unknown", () => {
     const view = act({ probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND });
     expect(view.phase).toBe("idle");
-    expect(row(view, "app")).toEqual({ id: "app", label: "App", from: "0.8.0", to: "0.8.1" });
+    expect(row(view, "app")).toEqual({ id: "app", label: "Subshell Server app", from: "0.8.0", to: "0.8.1" });
     // `to: null` is the honest answer rather than a missing row: a desktop
     // release manifest carries the component's version and its asset digests,
     // never the version of the CLI inside the bundle (§ 4.3). The number
     // appears after the relaunch, and the screen says "the server it ships"
     // until then.
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "Server", from: "0.9.0", to: null });
+    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "0.9.0", to: null });
     expect(view.press).toEqual({ label: "Download and Install 0.8.1", kind: "app", enabled: true });
   });
 
@@ -93,7 +93,7 @@ describe("the four cases of §4.1", () => {
     // describing half of what its own button does.
     const view = act({ appUpdate: APP_BEHIND });
     expect(row(view, "app")?.to).toBe("0.8.1");
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "Server", from: "0.10.0", to: null });
+    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "0.10.0", to: null });
   });
 
   it("names both numbers when only the SERVER is behind, and does not relaunch", () => {
@@ -102,7 +102,7 @@ describe("the four cases of §4.1", () => {
     // number this build knows.
     const view = act({ probe: machine(SERVER_BEHIND) });
     expect(row(view, "app")).toBeUndefined();
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "Server", from: "0.9.0", to: "0.10.0" });
+    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "0.9.0", to: "0.10.0" });
     expect(view.press).toEqual({ label: "Update and Restart", kind: "cli", enabled: true });
   });
 
@@ -119,7 +119,7 @@ describe("the four cases of §4.1", () => {
     // writes. It is reachable here through the boot resume on a machine whose
     // server was removed between the press and the relaunch.
     const view = act({ probe: machine({ serverChoice: "install-bundled", server: null, managed: false }) });
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "Server", from: "not installed", to: "0.10.0" });
+    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "not installed", to: "0.10.0" });
     expect(view.press?.kind).toBe("cli");
   });
 

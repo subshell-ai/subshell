@@ -44,11 +44,11 @@ describe("what the screen states (§ 4.1)", () => {
   it("names both halves when the app is behind, and cannot number the agent yet", () => {
     const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind() });
     expect(a.rows).toEqual([
-      { id: "app", label: "Subshell Client", from: "0.8.0", to: "0.8.1" },
+      { id: "app", label: "Subshell Client app", from: "0.8.0", to: "0.8.1" },
       // The number this app cannot know before it downloads: a desktop release
       // manifest carries the component version and its asset digests, never
       // the version of the CLI inside the bundle (§ 4.3).
-      { id: "agent", label: "Node agent", from: "1.9.0", to: null },
+      { id: "agent", label: "subshell CLI", from: "1.9.0", to: null },
     ]);
     expect(a.press).toBe("app");
     expect(a.pressLabel).toBe("Download and Install 0.8.1");
@@ -56,7 +56,7 @@ describe("what the screen states (§ 4.1)", () => {
 
   it("states the agent alone when only it is behind, with the number in hand", () => {
     const a = act({ probe: agentBehind() });
-    expect(a.rows).toEqual([{ id: "agent", label: "Node agent", from: "1.9.0", to: "1.10.0" }]);
+    expect(a.rows).toEqual([{ id: "agent", label: "subshell CLI", from: "1.9.0", to: "1.10.0" }]);
     expect(a.press).toBe("agent");
     expect(a.pressLabel).toBe("Install the agent (1.10.0)");
     expect(a.phase).toBe("idle");
@@ -86,7 +86,7 @@ describe("what the screen states (§ 4.1)", () => {
     const a = act({
       probe: makeProbe({ agentChoice: "install-bundled", agent: null, managed: false, bundledVersion: "1.10.0" }),
     });
-    expect(a.rows).toEqual([{ id: "agent", label: "Node agent", from: "not installed", to: "1.10.0" }]);
+    expect(a.rows).toEqual([{ id: "agent", label: "subshell CLI", from: "not installed", to: "1.10.0" }]);
   });
 
   it("is still checking until a release answer has landed", () => {
