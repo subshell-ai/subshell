@@ -106,11 +106,28 @@ version, `NODE_PROTOCOL_VERSION`, `MIN_AGENT_VERSION`, the commit sha and the
 `assets` digests — not the bundled CLI's version. So phase 1 says "and the
 server it ships" without a number, and the number appears after the relaunch.
 
-**Fix, in this spec:** each desktop `release.ts` already BUILDS that sidecar, so
-it writes `bundledCli: "<version>"` into its manifest. The screen then states
-both numbers up front for every release cut after the change, and falls back to
-the unnumbered sentence for older ones — which it must anyway, since manifests
-already published cannot gain the field.
+**Fix, and it is DEFERRED** (decision taken 2026-09-18 while the operator was
+away): each desktop `release.ts` already BUILDS that sidecar, so it could write
+`bundledCli: "<version>"` into its manifest, and the screen would state both
+numbers up front for every release cut after the change.
+
+It is not in the first cut of this work, on the balance of what it costs
+against what it buys:
+
+- `release-manifest.json` is the **trust anchor** — it is minisign-signed and
+  every product verifies it before trusting a byte. Adding a field means
+  touching the strict parser that guards that door, for a release that is about
+  to be cut.
+- What it buys is one NUMBER, one phase early. The sentence is accurate either
+  way.
+- **The fallback runs regardless.** Manifests already published cannot gain the
+  field, so the unnumbered sentence is the path every existing release takes no
+  matter when this lands — which means shipping the field does not remove a
+  code path, it adds a second one.
+
+So phase 1 says "and the server it ships" without a number, the number appears
+after the relaunch, and the manifest field is a follow-up to be taken on its
+own merits rather than inside a release cut.
 
 ## 5. D7: the marker, shared
 
@@ -360,7 +377,9 @@ without them, and this section is what they are accountable to on return.
   silence it replaces.
 - §7.4's status-screen button becoming a door rather than being deleted.
 - §5's `attempts` bound of 2, and `forced` crossing the relaunch in the marker.
-- §4.3's `bundledCli` manifest field, which is new release-pipeline data.
+- §4.3's `bundledCli` manifest field, DEFERRED — it changes the signed
+  trust anchor for one number shown one phase early, and the fallback it
+  would need runs for every already-published release anyway.
 
 ## 12. Order of work
 
@@ -374,7 +393,7 @@ Each wave is independently verifiable and leaves the product working:
    marker write and the boot resume.
 4. **Client app** — the same, plus §7.1's restart offer and §7.4's door.
 5. **The SPA** — D4's folded row behind `isServerDesktop()`.
-6. **`release.ts`** — `bundledCli` in both manifests, and the screen's fallback
-   when it is absent.
+6. ~~**`release.ts`** — `bundledCli` in both manifests~~ — DEFERRED, see §4.3.
+   The screen's unnumbered fallback is what ships.
 7. **Docs** — both apps' `AGENTS.md`, which carry the "two screens say update"
    section this spec deletes.
