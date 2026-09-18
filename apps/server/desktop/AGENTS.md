@@ -45,14 +45,17 @@ so serving the SPA ourselves would mean an auth rework, not a build change.
 `setup()` runs one `boot_probe` and THEN chooses the window, from the fresh
 probe rather than the stored flag: `boot_window(&Probe)` answers
 `WindowChoice::Main` on a `ready` probe and `WindowChoice::Wizard` on anything
-else — unless `control::boot_resume` finds an update whose second half never
-ran, which OUTRANKS it and opens the assistant at `update` (spec 2026-09-18
-§ 4.2). It has to outrank: a machine whose server is running answers `Main`,
-which would open the dashboard over an act the person started and never show
-the screen finishing it. Dismissing that screen hands off to the dashboard
-anyway, through the page's ordinary ready path. So a machine whose server is already running opens the **dashboard** —
+else. So a machine whose server is already running opens the **dashboard** —
 including one provisioned entirely from the CLI, on its first app launch,
 because the boot probe answers `ready` before the branch runs.
+
+**One thing outranks that choice**: `control::boot_resume` finding an update
+whose second half never ran, which opens the assistant at `update` instead
+(spec 2026-09-18 § 4.2). It has to outrank — a machine whose server is running
+answers `Main`, which would open the dashboard over an act the person started
+and never show the screen finishing it — and it costs that machine nothing,
+because dismissing the screen hands off to the dashboard anyway, through the
+page's ordinary ready path.
 
 **`onboarded` no longer decides the window.** It decides which FAMILY of
 assistant screens a not-ready machine sees: the first-run trio while setup has
@@ -394,12 +397,16 @@ Four things about the seam:
   whose work turns out to be done (a hand `subshell-server update` in between)
   is cleared without acting. It is therefore impossible for a marker to cause
   an install the probe would not have offered anyway.
-- **`boot_resume` counts the attempt before it offers it**, which is what makes
-  `MAX_RESUME_ATTEMPTS` (2) a bound on BOOTS rather than on presses: a machine
-  that crashes inside the install still spends an attempt, and the thing being
-  bounded is "this fires on every launch forever". At the limit the marker
-  STAYS — so the screen can still name the update and offer Try Again — and
-  nothing fires by itself.
+- **The attempt is counted at the FIRE, not at the offer** —
+  `install_server_now`, the one door every install goes through, spends one
+  before it acts, and `boot_resume` counts nothing. It counted at the offer
+  until 2026-09-18, which made `MAX_RESUME_ATTEMPTS` (2) a bound on BOOTS: two
+  launch-and-quits reached the limit having never attempted an install, and the
+  screen then said the install had failed twice (review). Counting before the
+  act still spends one on a crash INSIDE the install, which is the case the
+  bound exists for, and it is where Subshell Client counts too. At the limit
+  the marker STAYS — so the screen can still name the update and offer Try
+  Again — and nothing fires by itself.
 - **The pane-safety consent crosses in the marker's `forced`.** The confirm
   happens in phase 1 and the restart it consents to happens in phase 2, in
   another process, so re-asking would be asking again for something already
@@ -408,6 +415,26 @@ Four things about the seam:
   than passed from the page, because `desktop_install_app_update` takes no
   argument and that is the whole case for granting it. A Try Again on the
   phase-2 screen is a FRESH consent and uses today's answer instead.
+
+**Two things here differ from Subshell Client STRUCTURALLY**, and both are
+worth stating because the two apps' docblocks would otherwise read as
+contradicting each other (review, 2026-09-18). The wire names are NOT among
+them: `pendingInstall`, `halted`, `{ fromAppVersion, forced, halted }` and the
+Rust `PendingInstall` are this app's spelling and the shared one.
+
+- **Who raises the screen.** This app decides at BOOT, in Rust (`lib.rs`'s
+  `setup`, through `boot_resume`), because a ready machine would otherwise
+  open the dashboard and never show the assistant at all. The client decides
+  in the WEBVIEW, and that is sound there for a reason worth recording rather
+  than assuming: `windows::open_at_startup` always opens its node window, so
+  a page that can raise the screen is guaranteed to exist. Were that to
+  change, the client would need this app's boot branch.
+- **Who clears a marker whose work is done.** Here `resume_view` is READ-ONLY
+  — a poll that merely renders never writes — and `boot_resume` is the one
+  place a spent marker is dropped. The client's `resume_view` clears it on the
+  poll instead. Both are defensible; this one is the stricter rule, and the
+  cost is that a marker which becomes pointless while the window is open
+  survives until the next boot, where it reads as `None` anyway.
 
 The screen itself is `ui/src/lib/update-act.ts` — pure, every judgment, and
 the only thing in this app that CAN be tested, since `ui/src/__tests__/` has
@@ -1101,11 +1128,14 @@ Four things about that arrangement are load-bearing:
   attribute outlived its only reader by three months.)
 - **`lib/update-act.ts` holds every judgment the update screen makes**, for
   the same reason and with a sharper edge: the screen has six phases, two
-  presses and four refusals now, and none of it could be covered at all from
-  inside `renderUpdate`. Which rows appear, which press they get, what the act
-  will not do, and whether phase 2 fires by itself are all decisions there, and
-  `update-act.test.ts` walks § 4.1's four cases, § 4.2's two phases and each of
-  § 6's refusals.
+  presses and three sentences it refuses in — a server this app did not
+  install, a release source that would not answer, and the automatic attempts
+  being spent — never more than TWO of them at once, since a phase-2 screen
+  returns before the release answer is consulted. None of it could be covered
+  at all from inside `renderUpdate`. Which rows appear, which press they get,
+  what the act will not do, and whether phase 2 fires by itself are all
+  decisions there, and `update-act.test.ts` walks § 4.1's four cases, § 4.2's
+  two phases and each of § 6's refusals.
 - **`lib/recovery-model.ts` exists so the recovery screen's WORDS are
   testable.** Its subtitle and its facts were the console's step table and
   Details list — DOM, in a render that needs a webview, which is why neither

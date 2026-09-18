@@ -277,8 +277,10 @@ pub fn run() {
                 // build came up because the person pressed Update in the
                 // PREVIOUS one, the bundled server it ships is still not
                 // installed — `boot_resume` decides that from the marker and
-                // the machine, counts the attempt, and requests the `update`
-                // screen through the same stash every deep link uses.
+                // the machine, and requests the `update` screen through the
+                // same stash every deep link uses. It counts nothing: the
+                // attempt is spent where the install runs, so a launch that
+                // opens this screen and quits costs the bound nothing.
                 //
                 // It outranks `boot_window`, and has to: a machine whose
                 // server is running answers `Main`, which would open the

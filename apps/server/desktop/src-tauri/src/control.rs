@@ -761,12 +761,15 @@ fn resume_view(settings: &SettingsState, p: &Probe) -> Option<PendingInstall> {
 /// - **Nothing pending, or nothing left to do** — the marker is dropped
 ///   without acting and boot proceeds as usual. Dropping it is a write, and a
 ///   page that merely renders can neither make nor be trusted with it.
-/// - **There is work** — the attempt is COUNTED before it is offered, which is
-///   what makes `MAX_RESUME_ATTEMPTS` a bound on boots rather than on presses.
-///   A machine that crashes inside the install still spends an attempt, which
-///   is the point: the thing being bounded is "this fires on every launch
-///   forever".
-/// - **Spent** — the screen still opens, and says what failed, but nothing
+/// - **There is work** — the screen is requested, and NOTHING is counted here.
+///   The attempt is spent where the install actually runs
+///   ([`install_server_now`]), which is the correction made on 2026-09-18:
+///   counting at the offer meant two launch-and-quits reached the limit with
+///   zero installs attempted, so a machine could arrive at "it has failed
+///   twice" having never tried once. A crash INSIDE the install still spends
+///   one, because the count is written before the act — which is the case the
+///   bound exists for — and it is the same place Subshell Client counts.
+/// - **Spent** — the screen still opens and names the update, but nothing
 ///   fires by itself.
 ///
 /// The screen is requested through the SAME stash every other deep link uses
@@ -775,7 +778,11 @@ fn resume_view(settings: &SettingsState, p: &Probe) -> Option<PendingInstall> {
 /// opened for (`desktop_pending_screen`).
 pub(crate) fn boot_resume(app: &AppHandle, settings: &SettingsState, p: &Probe) -> bool {
     let marker = settings.get().pending_bundled_install;
-    let installed = p.server.as_ref().and_then(|s| s.version.as_deref());
+    // The MANAGED-aware version, exactly as [`resume_view`] and `decide()` ask
+    // it: a machine whose service runs a binary this app did not install has
+    // nothing for the CLI half to do, so its marker clears here instead of
+    // opening a screen over an install that was refused in phase 1.
+    let installed = p.comparable_server_version();
     let Some(decision) = resume_decision(marker.as_ref(), p.bundled_version.as_deref(), installed) else {
         return false;
     };
@@ -785,11 +792,6 @@ pub(crate) fn boot_resume(app: &AppHandle, settings: &SettingsState, p: &Probe) 
             false
         }
         Resume::Install { .. } => {
-            let _ = settings.update(|s| {
-                if let Some(marker) = s.pending_bundled_install.as_mut() {
-                    marker.attempts += 1;
-                }
-            });
             *app.state::<crate::reset::Stash>().screen.lock().unwrap() = Some(crate::reset::Screen::Update);
             true
         }
@@ -1087,19 +1089,35 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// command layer stays argument-poor routing, and the one-press path can
 /// never drift from the button that runs the act alone.
 ///
-/// It is also the ONE place the update marker is cleared on success, which is
-/// why the act itself moved into [`install_bundled_server`]: every caller —
-/// the update screen's press, the boot resume, the first-run chain — installs
-/// through here, so "the bundled CLI is installed now" has one writer rather
-/// than one per door.
+/// It is also the ONE place the update marker is settled, which is why the act
+/// itself moved into [`install_bundled_server`]: every caller — the update
+/// screen's press, the resumed act, the Try Again the screen offers once it has
+/// halted, the first-run chain — installs through here, so "the bundled CLI is
+/// installed now" has one writer rather than one per door.
+///
+/// **The attempt is counted BEFORE the install, not at the boot that offers
+/// it** (the 2026-09-18 correction; Subshell Client counts in the same place).
+/// Counting at the offer made `MAX_RESUME_ATTEMPTS` a bound on boots, so two
+/// launch-and-quits reached the limit with nothing ever attempted and the
+/// screen then said the install had failed twice. Counting here spends one on
+/// every real attempt, a crash inside the install included — which is the case
+/// the bound exists for — and spends none on a screen merely opened.
 fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> {
+    let resuming = settings.get().pending_bundled_install.is_some();
+    if resuming {
+        let _ = settings.update(|s| {
+            if let Some(marker) = s.pending_bundled_install.as_mut() {
+                marker.attempts = marker.attempts.saturating_add(1);
+            }
+        });
+    }
     let outcome = install_bundled_server(settings);
     // The marker means "the CLI this app ships is not installed yet" (spec
     // 2026-09-18 § 5), so a bundled install that SUCCEEDED ends it — whichever
     // press ran it, the boot resume's or a plain Update. Clearing is the
     // transaction completing; a failure leaves it, so the next boot can try
     // again inside the attempt bound, and the screen can offer Try Again now.
-    if matches!(&outcome, Ok(result) if result.ok) {
+    if resuming && matches!(&outcome, Ok(result) if result.ok) {
         let _ = settings.update(|s| s.pending_bundled_install = None);
     }
     outcome

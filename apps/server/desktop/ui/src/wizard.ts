@@ -44,7 +44,7 @@ import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/
 import * as ipc from "./lib/ipc";
 import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
 import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
-import { type ActState, UPDATE_TITLE, updateAct } from "./lib/update-act";
+import { type ActState, rejectedResult, UPDATE_TITLE, updateAct } from "./lib/update-act";
 import {
   applySupervisionChoice,
   autoSetupDecision,
@@ -1437,18 +1437,31 @@ async function startAppUpdate(): Promise<void> {
  *   definition has changed under it the CLI refuses, this screen shows that
  *   refusal verbatim, and the Try Again under the fresh warning is where the
  *   new consent comes from.
+ *
+ * **A REJECTION is recorded as a result too**, which is not bookkeeping: `act`
+ * turns a throw into the problem line and leaves `updateResult` null, and null
+ * reads to the screen as "nothing has been attempted in this window" — so the
+ * finishing phase showed an error line under "Installing the server it ships…"
+ * with no Try Again, and with the automatic fire already latched for the visit
+ * there was nothing left to press (review, 2026-09-18). The throw is re-raised
+ * so `act` still says what went wrong.
  */
 async function finishUpdate(p: Probe, pressed: boolean): Promise<void> {
   const forced = pressed ? paneRisk(p) : (p.pendingInstall?.forced ?? false);
   await act(async () => {
-    const installed = await ipc.installServer();
-    updateResult = installed;
-    if (!installed.ok) return installed;
-    // `--force` only where the definition would refuse over live panes; the
-    // CLI rejects the flag on every other verb.
-    const restarted = await ipc.service("restart", forced);
-    updateResult = restarted;
-    return restarted;
+    try {
+      const installed = await ipc.installServer();
+      updateResult = installed;
+      if (!installed.ok) return installed;
+      // `--force` only where the definition would refuse over live panes; the
+      // CLI rejects the flag on every other verb.
+      const restarted = await ipc.service("restart", forced);
+      updateResult = restarted;
+      return restarted;
+    } catch (err) {
+      updateResult = rejectedResult(errText(err));
+      throw err;
+    }
   }, true);
 }
 

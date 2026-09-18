@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import type { AppUpdateCheck, PendingInstall, Probe } from "../lib/ipc";
-import { UPDATE_TITLE, type UpdateActInput, updateAct } from "../lib/update-act";
+import { rejectedResult, UPDATE_TITLE, type UpdateActInput, updateAct } from "../lib/update-act";
 
 /** A machine with a managed server running, current with what this app ships. */
 function machine(over: Partial<Probe> = {}): Probe {
@@ -154,7 +154,60 @@ describe("the two phases of §4.2", () => {
     // it render would offer a download over a machine mid-install.
     const view = act({ probe: machine({ ...SERVER_BEHIND, pendingInstall: marker() }), appUpdate: APP_BEHIND });
     expect(view.phase).toBe("finishing");
-    expect(view.rows).toEqual([]);
+    expect(row(view, "app")).toBeUndefined();
+  });
+
+  it("names the number § 4.3 could not state until the relaunch", () => {
+    // Phase 1 shows `to: null` because only the new bundle knows which server
+    // it carries. THIS process is that bundle, so the target is a number here
+    // — and the halted screen, which stops and explains itself, is where a
+    // person most needs to know which install is meant (review, 2026-09-18:
+    // nothing persists a REASON across the relaunch, so the versions are what
+    // the screen can honestly state).
+    const behind = { ...SERVER_BEHIND, pendingInstall: marker() };
+    expect(row(act({ probe: machine(behind) }), "cli")).toEqual({
+      id: "cli",
+      label: "subshell-server CLI",
+      from: "0.9.0",
+      to: "0.10.0",
+    });
+    expect(row(act({ probe: machine({ ...behind, pendingInstall: marker({ halted: true }) }) }), "cli")?.to).toBe(
+      "0.10.0",
+    );
+  });
+
+  it("refuses the second half on a machine whose server this app did not install", () => {
+    // Defence in depth for a marker an OLDER build left behind: Rust now
+    // clears one here, because `resume_decision` is fed the managed-aware
+    // version. If one survives anyway, firing would write `~/.local/bin` and
+    // restart a service running someone else's binary — after a phase-1
+    // screen that promised neither. This is the only layer that can SAY that,
+    // since the install itself would report success.
+    const view = act({
+      probe: machine({
+        ...SERVER_BEHIND,
+        managed: false,
+        server: { argv: ["/usr/bin/subshell-server"], source: "path", version: "0.9.0" },
+        pendingInstall: marker(),
+      }),
+    });
+    // NOT `finishing`: that phase fires by itself when it carries no press.
+    expect(view.phase).toBe("halted");
+    expect(view.press).toBeNull();
+    expect(view.notes.join(" ")).toContain("/usr/bin/subshell-server");
+    expect(view.paneWarning).toBe(false);
+  });
+
+  it("turns a rejection into an attempt that failed, so the screen keeps a control", () => {
+    // `finishUpdate`'s calls can REJECT — a refusal that fired before anything
+    // ran, an IPC failure — and a null `finished` reads as "nothing has been
+    // attempted here": no Try Again, with the automatic fire already latched
+    // for the visit (review, 2026-09-18).
+    const view = act({
+      probe: machine({ ...SERVER_BEHIND, pendingInstall: marker() }),
+      finished: rejectedResult("the server is already being updated"),
+    });
+    expect(view.press).toEqual({ label: "Try Again", kind: "cli", enabled: true });
   });
 
   it("offers Try Again when the finishing install failed here", () => {
@@ -252,6 +305,22 @@ describe("the refusals of §6", () => {
       act({ probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES, pendingInstall: marker({ halted: true }) }) })
         .paneWarning,
     ).toBe(true);
+  });
+
+  it("does not call a machine current when the act failed here", () => {
+    // The press path: `install_server_now` cleared the marker the moment the
+    // install landed, so a restart that then failed lands on the OFFER with
+    // nothing left to install. "Both current" is true of the files and false
+    // of the machine, which is still running the process it had — and without
+    // a press there was nothing left to try (review, 2026-09-18).
+    const view = act({ finished: { ok: false } });
+    expect(view.phase).toBe("idle");
+    expect(view.subtitle).not.toContain("both current");
+    expect(view.subtitle).toContain("restart did not finish");
+    expect(view.press).toEqual({ label: "Try Again", kind: "cli", enabled: true });
+    // And that Try Again restarts the service, so it carries the warning even
+    // with no row on screen to hang it off.
+    expect(act({ probe: machine(KILLS_PANES), finished: { ok: false } }).paneWarning).toBe(true);
   });
 
   it("never warns where there is nothing to press", () => {

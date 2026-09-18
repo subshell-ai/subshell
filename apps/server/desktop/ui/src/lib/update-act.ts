@@ -21,7 +21,7 @@
  * preference but the only option: `ui/src/__tests__/` has no DOM harness, so a
  * judgment left in `wizard.ts` is a judgment with no coverage at all.
  */
-import type { AppUpdateCheck, Probe } from "./ipc";
+import type { ActionResult, AppUpdateCheck, Probe } from "./ipc";
 import { paneRisk } from "./recovery-model";
 
 /**
@@ -150,6 +150,38 @@ function cliRow(probe: Probe, to: string | null): UpdateActRow {
 }
 
 /**
+ * The § 6 sentence for a server this app did not install.
+ *
+ * One function because it is stated from TWO phases now: the offer, and the
+ * phase-2 screen a marker written by an older build can still reach. A
+ * refusal phrased differently in the two places would read as two different
+ * facts about one machine.
+ */
+function refusalNote(probe: Probe): string {
+  const path = probe.server?.argv[0] ?? "another location";
+  return (
+    `The server on this machine runs from ${path}, which this app did not install, so it is left alone. ` +
+    `Only ${INSTALL_PATH} is replaced by an update from here.`
+  );
+}
+
+/**
+ * A rejection, as the result phase 2 needs it to be.
+ *
+ * `finishUpdate`'s two calls resolve with an `ActionResult` or REJECT — a
+ * refusal that fired before anything ran, an IPC failure — and a rejection
+ * used to leave `finished` null, which the screen reads as "nothing has been
+ * attempted here". On the finishing phase that is a dead end: no Try Again,
+ * and the automatic fire is latched for the visit, so the window sits under
+ * "Installing the server it ships…" with an error line and no control
+ * (review, 2026-09-18). A rejection is an attempt that failed, so it becomes
+ * one, and the words still reach the problem line through `act`.
+ */
+export function rejectedResult(message: string): ActionResult {
+  return { ok: false, stdout: "", stderr: message };
+}
+
+/**
  * The whole screen, from the machine and what this window has been doing.
  *
  * The phase order below is a PRECEDENCE, not a list, and each step is there
@@ -185,13 +217,38 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // installed yet. `halted` means the automatic attempts are spent, so the
   // screen stops firing by itself and says what happened.
   if (probe !== null && pending !== null) {
+    // The refusal holds across the relaunch, and this is the only layer that
+    // can SAY so. Rust keeps a marker from surviving on a machine whose server
+    // this app does not manage — `resume_decision` is fed
+    // `comparable_server_version`, which answers "nothing left to do" there —
+    // but a marker written by an OLDER build predates that rule, and firing
+    // under it would write `~/.local/bin` and restart a service running
+    // someone else's binary, after a phase-1 screen that promised neither.
+    // The install would report success, so the screen is where it can be
+    // explained: the § 6 sentence, no press, and nothing fires.
+    if (cliHalfRefused(probe)) {
+      return {
+        phase: "halted",
+        subtitle: `Subshell Server was updated from ${pending.fromAppVersion}. The server on this machine is left alone.`,
+        rows: [],
+        press: null,
+        notes: [refusalNote(probe)],
+        paneWarning: false,
+      };
+    }
     const failedHere = finished?.ok === false;
     const retry: UpdateActPress = { label: "Try Again", kind: "cli", enabled: state === "idle" };
+    // Phase 2 is where the CLI's target IS a number: this process is the new
+    // bundle, so `bundledVersion` is the version § 4.3 could not state before
+    // the relaunch. The row matters most on the halted screen, which is the
+    // one that stops and has to say which install it means — the marker
+    // records no reason of its own, so the versions are what it can state.
+    const rows = [cliRow(probe, probe.bundledVersion)];
     if (pending.halted) {
       return {
         phase: "halted",
         subtitle: `Subshell Server was updated from ${pending.fromAppVersion}, but the server it ships could not be installed.`,
-        rows: [],
+        rows,
         press: retry,
         notes: [
           "This machine is running the server it had before the update, which works. Nothing will try again on " +
@@ -203,7 +260,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     return {
       phase: "finishing",
       subtitle: `Subshell Server was updated from ${pending.fromAppVersion}. Installing the server it ships…`,
-      rows: [],
+      rows,
       press: failedHere ? retry : null,
       notes: [],
       paneWarning: paneRisk(probe),
@@ -252,40 +309,46 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     rows.push(cliRow(probe, probe.bundledVersion));
   }
 
-  if (refused) {
-    const path = probe.server?.argv[0] ?? "another location";
-    notes.push(
-      `The server on this machine runs from ${path}, which this app did not install, so it is left alone. ` +
-        `Only ${INSTALL_PATH} is replaced by an update from here.`,
-    );
-  }
+  if (refused) notes.push(refusalNote(probe));
   // A reason is not an error: an air-gapped install and a source that would not
   // answer are ordinary, and the screen still has the local half to offer.
   if (appUpdate?.reason) notes.push(appUpdate.reason);
 
+  // An act that ran HERE and failed reaches this branch whenever the install
+  // half landed and the RESTART did not: the marker is already cleared, the
+  // machine reports nothing to install, and there are no rows. Without the
+  // last arm the screen would offer no control at all and — worse — call the
+  // machine current while it is still running the process it had (review,
+  // 2026-09-18). Not offered where the CLI half is refused: there is nothing
+  // for a retry to do there.
+  const failedHere = finished?.ok === false;
   const press =
     appLatest !== null
       ? { label: `Download and Install ${appLatest}`, kind: "app" as const, enabled: state === "idle" }
       : rows.length > 0
         ? { label: "Update and Restart", kind: "cli" as const, enabled: state === "idle" }
-        : null;
+        : failedHere && !refused
+          ? { label: "Try Again", kind: "cli" as const, enabled: state === "idle" }
+          : null;
 
   return {
     phase: "idle",
-    subtitle: subtitleForOffer(probe, appUpdate, appLatest, rows.length > 0),
+    subtitle: subtitleForOffer(probe, appUpdate, appLatest, rows.length > 0, failedHere),
     rows,
     press,
     notes,
     // Only where the act will actually restart the service: an app-only update
     // on a machine whose server this app does not manage restarts nothing.
-    paneWarning: press !== null && rows.some((row) => row.id === "cli") && paneRisk(probe),
+    // Read off the REFUSAL rather than the rows, because the Try Again a
+    // failed act leaves behind restarts the service with no row on screen.
+    paneWarning: press !== null && !refused && paneRisk(probe),
   };
 }
 
 /**
  * The offer's one sentence.
  *
- * Split out because there are four of them and inlining a ternary that deep is
+ * Split out because there are five of them and inlining a ternary that deep is
  * how a screen ends up saying "up to date" to a machine that has not been able
  * to check since it was installed — `latest` absent with a `reason` is "we
  * could not tell", which is a different fact from "nothing newer exists".
@@ -295,12 +358,20 @@ function subtitleForOffer(
   appUpdate: AppUpdateCheck | null,
   appLatest: string | null,
   anyRows: boolean,
+  failedHere: boolean,
 ): string {
   if (appLatest !== null) {
     return `Subshell Server ${appLatest} is available. Installing it also installs the server it ships.`;
   }
   if (anyRows) {
     return `This app ships ${probe.bundledVersion ?? "a server"}; this machine runs ${probe.server?.version ?? "an unknown version"}.`;
+  }
+  // The act ran here and failed with nothing left to install, i.e. the install
+  // landed and the restart did not. Saying "both current" there would be true
+  // of the FILES and false of the machine, which is still running the server
+  // it had — the one sentence a person would act on, phrased backwards.
+  if (failedHere) {
+    return "The server it ships is installed, but the restart did not finish — this machine is still running the server it had.";
   }
   if (appUpdate?.reason) {
     return "This app could not check for a newer version of itself.";
