@@ -80,11 +80,16 @@ service seam, and `e2e/` boots the server from source, so a bundler dropping a
 module, a prompt that hangs without a TTY, or a handoff line nobody prints are
 invisible to both.
 
-It uses temp dirs, a throwaway `HOME` and ports 31998/31999, and never touches
-`~/.config/subshell-server` or `:3080`. One thing is NOT sandboxable: `update`
-replaces the binary the SERVICE DEFINITION names, and the definition lives in
-the real launchd/systemd user domain — so `server-update.sh` **refuses to run
-on a host that has a per-user Subshell Server installed** (measured 2026-09-18:
+It isolates config and data with temp dirs and the env knobs
+(`SUBSHELL_SERVER_CONFIG_DIR`, `SUBSHELL_CONFIG_HOME`) and binds ports
+31992–31999 — never `:3080`. It does **not** uniformly use a throwaway `HOME`:
+`install-script.sh` and `published-release.sh` swap it; the update scenarios
+run under the REAL one. That is not an oversight to fix but the fact the next
+sentence guards. One thing is NOT sandboxable at all: `update` replaces the
+binary the SERVICE DEFINITION names, and the definition lives in
+the real launchd/systemd user domain (loaded or merely on disk) — so
+`server-update.sh` **refuses to run on a host that has a per-user Subshell
+Server installed** (measured 2026-09-18:
 unguarded, the scenario swapped a developer's real `~/.local/bin/subshell-server`
 for the test build while still reporting the swap). The same host fact makes
 `cli.test.ts`'s "update refuses when no binary is installed" fail locally on

@@ -10,9 +10,13 @@
 # handoff line nobody prints) live exactly here. `e2e/` is the browser suite
 # and boots the server from source, so it does not cover this either.
 #
-# Both cases use temp config/data dirs, a throwaway HOME and ports 31998/31999.
-# They never touch ~/.config/subshell-server or :3080 — the operator's live
-# instance — and each tears its own server down from a trap.
+# The scenarios isolate config/data with temp dirs (SUBSHELL_SERVER_CONFIG_DIR,
+# SUBSHELL_CONFIG_HOME) and ports 31992-31999 — never :3080, the operator's live
+# instance — and each tears its own server down from a trap. HOME is swapped
+# only by install-script.sh and published-release.sh; the update scenarios run
+# under the REAL HOME, and server-update.sh refuses a host whose per-user
+# service definition (loaded or on disk) would point `update` at the
+# operator's own binary — the env cannot redirect that decision.
 #
 #   bun run test:cli        (compiles both binaries first)
 set -euo pipefail

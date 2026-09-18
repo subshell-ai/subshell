@@ -390,7 +390,7 @@ demonstrably on is the best guess for the phone beside it). **And the picker
 now explains nothing about itself** (operator's call, 2026-09-18): the
 "every address this server accepts a sign-in from…" paragraph and the amber
 plain-http note are gone — the audience is developers, and every clause
-restated the address bar. The test its the absence.
+restated the address bar. The test pins the absence.
 
 **Loopback rows are DROPPED in `installAddresses`, not labelled here.** They
 used to be listed and captioned "this device only" — never hidden, never

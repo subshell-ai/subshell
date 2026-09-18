@@ -35,10 +35,12 @@ export interface InstallAddressSources {
  *    vanishing address is its own confusion. The server now derives its own
  *    LAN interfaces into the allowlist, so that case reads real rows instead;
  *    what survives to be labelled was only ever a row the OTHER machine
- *    cannot dial — and these pickers are FOR the other machine. A caller
- *    whose list comes back empty falls back to naming `appBaseUrl` alone: a
- *    loopback bind on a server older than the LAN derivation still has to
- *    render something, and that command is what it always was.
+ *    cannot dial — and these pickers are FOR the other machine. What an
+ *    EMPTY list means is the caller's: the Add-node dialog falls back to
+ *    naming `appBaseUrl` alone (a loopback bind on a server older than the
+ *    LAN derivation still has to render a command, and that command is what
+ *    it always was), while the mobile dialog renders its refusal state
+ *    instead — a QR of the wrong machine's localhost is a lie you can scan.
  * 2. **Insertion order**: this browser's address, then the base URL, then the
  *    rest of the allowlist (the server's LAN addresses first among those).
  *    An address this browser is already talking to is the one address proven
@@ -49,10 +51,13 @@ export interface InstallAddressSources {
  * server canonicalizes the list, but a cached PWA can be talking to an older
  * one and a hand-edited config.env never passes the validator at all.
  *
- * The list IS the trusted-origin allowlist the server answers from, so an
- * address chosen here is one `install.sh` will accept as its `server` param —
- * the dialog and the route read the same registry, one through
- * `GET /api/settings/public` and one live.
+ * The list is the trusted-origin allowlist the server answers from, so a
+ * chosen row is one `install.sh` will accept as its `server` param — the
+ * dialog and the route read the same registry, one through
+ * `GET /api/settings/public` and one live — with the one exception the route
+ * owns: a hand-edited registry entry whose spelling bash could expand is
+ * refused by its bake guard, which falls back to `APP_BASE_URL` and says so
+ * in the script's own "enrolling with" line.
  */
 export function installAddresses({ here, baseUrl, trustedOrigins }: InstallAddressSources): InstallAddress[] {
   const byUrl = new Map<string, InstallAddress>();

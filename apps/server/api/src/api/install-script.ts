@@ -31,8 +31,12 @@ exit 2
  * because the registry stores OPERATOR entries verbatim (a hand-edited
  * config.env bypasses `applyConfig`'s validator) and the baked string lands
  * inside `SERVER="…"` in a script bash executes on the new machine.
+ * The class is exactly what `URL.origin` can emit minus every character that
+ * OPENS an expansion (`$`, backtick, `!`) — including `_`, which URL.origin
+ * preserves (`http://dev_server:3080`, a LAN-probe regular) and which is
+ * inert here because the expanders stay out.
  */
-const BAKABLE_ORIGIN = /^[a-z][a-z0-9+.-]*:\/\/[A-Za-z0-9.\-:%[\]]+$/i;
+const BAKABLE_ORIGIN = /^[a-z][a-z0-9+.-]*:\/\/[A-Za-z0-9.\-:%[\]_]+$/i;
 
 /**
  * The address to bake as the node's `SERVER` — which the agent dials forever.

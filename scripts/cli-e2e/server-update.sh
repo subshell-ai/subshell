@@ -65,17 +65,32 @@ ok()   { echo "  ok: $*"; }
 # below isolate config, data and ports; they cannot isolate that one question,
 # so a host that answers it refuses to run. (CI runners install nothing,
 # which is why this never fired before a dev box with a real install hit it.)
-if [ "$(uname)" = "Darwin" ]; then
-  if launchctl print "gui/$(id -u)/dev.subshell.server" >/dev/null 2>&1; then
-    rm -rf "$W"; trap - EXIT
-    fail "this host has a per-user Subshell Server launchd job; the service definition (not this sandbox) decides which binary 'update' replaces, so the scenario refuses to run here. Use CI or a machine with no install."
+#
+# A LOADED job is not the whole question: `update` reads the definition from
+# the FILE, which a stopped service (or a macOS login-item-disabled one,
+# whose plist lives in the config home) leaves behind while launchctl says
+# nothing. The belt in section 4 is the real gate — it asks the running
+# binary the same question; this guard catches the same host one minute of
+# compilation earlier.
+#
+# `fail` runs the EXIT trap deliberately rather than disarming it: cleanup
+# here restores the package.json copy byte-for-byte and deletes its backup,
+# which is exactly the tidying an early refusal still owes.
+host_definition_present() {
+  if [ "$(uname)" = "Darwin" ]; then
+    launchctl print "gui/$(id -u)/dev.subshell.server" >/dev/null 2>&1 && return 0
+    [ -f "$HOME/Library/LaunchAgents/dev.subshell.server.plist" ] && return 0
+    [ -f "${SUBSHELL_SERVER_CONFIG_DIR:-$HOME/.config/subshell-server}/dev.subshell.server.plist" ] && return 0
+  elif command -v systemctl >/dev/null 2>&1; then
+    systemctl --user cat subshell-server.service >/dev/null 2>&1 && return 0
+    [ -f "$HOME/.config/systemd/user/subshell-server.service" ] && return 0
   fi
-elif command -v systemctl >/dev/null 2>&1 \
-  && systemctl --user cat subshell-server.service >/dev/null 2>&1; then
-  rm -rf "$W"; trap - EXIT
-  fail "this host has a per-user systemd subshell-server unit; the service definition (not this sandbox) decides which binary 'update' replaces, so the scenario refuses to run here. Use CI or a machine with no install."
+  return 1
+}
+if host_definition_present; then
+  fail "this host has a per-user Subshell Server service definition; the service definition (not this sandbox) decides which binary 'update' replaces, so the scenario refuses to run here. Use CI or a machine with no install."
 fi
-ok "no real per-user service definition on this host"
+ok "no per-user Subshell Server definition on this host"
 
 export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
@@ -143,8 +158,11 @@ echo "== 4. status knows which binary it would replace"
 # asks the same question `update` will answer.
 REPORTED=$(bun -e "console.log(JSON.parse(require('fs').readFileSync('$W/status-before.json','utf8')).paths?.binary ?? '')")
 [ -n "$REPORTED" ] || { cat "$W/status-before.json"; fail "status did not name the installed binary"; }
+# An unresolvable work dir must NOT collapse the pattern to `/*` — a
+# fail-OPEN containment check is the exact defect class of this file.
+RW=$(realpath "$W" 2>/dev/null) || fail "cannot resolve the work dir — refusing an unprovable containment check"
 case "$(realpath "$REPORTED" 2>/dev/null || echo "$REPORTED")" in
-  "$(realpath "$W")"/*) ;;
+  "$RW"/*) ;;
   *) fail "status names a binary OUTSIDE the sandbox ($REPORTED) — the swap would replace it" ;;
 esac
 grep -q '"kind": "compiled"' "$W/status-before.json" || fail "status did not call it compiled"

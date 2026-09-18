@@ -61,11 +61,20 @@ function canonicalOrigin(raw: string | undefined): string | null {
  * dialog has always rendered. When the base URL is unknown (still loading,
  * a server predating the field) nothing is compared and nothing is carried —
  * a server old enough to lack the field ignores the param anyway.
+ *
+ * A bracketed IPv6 row (a link-local or tailnet address the LAN probe
+ * derives) additionally earns `-g`: curl reads `[fe80::1]` as a glob range
+ * and dies with `(3) bad range in URL` before the server is reached, and the
+ * flag travels only with the commands that contain a glob character — every
+ * other command is the same bytes it has always been. With `-g` the param
+ * needs no percent-encoding, and the route admits the raw bracketed spelling
+ * (pinned in the downloads-route tests).
  */
 export function installCommandFor(selected: string, key: string, appBaseUrl: string | undefined): string {
   const canonical = canonicalOrigin(appBaseUrl);
   const carry = canonical !== null && selected !== canonical ? `&server=${selected}` : "";
-  return `curl -fsSL "${selected}/install.sh?setup_key=${key}${carry}" | bash`;
+  const glob = selected.includes("[") ? "g" : "";
+  return `curl -fsSL${glob} "${selected}/install.sh?setup_key=${key}${carry}" | bash`;
 }
 export function AddNodeDialog({
   open,

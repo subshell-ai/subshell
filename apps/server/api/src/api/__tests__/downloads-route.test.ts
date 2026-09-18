@@ -431,6 +431,43 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     }
   });
 
+  it("install.sh bakes an underscore hostname — URL.origin emits `_`, so the belt must admit it", async () => {
+    // `http://dev_server:3080` is a common LAN DNS spelling and the kernel
+    // probe puts it in the registry; a belt that refused it would offer the
+    // row, carry the param, then silently bake APP_BASE_URL instead — the
+    // feature no-opping on exactly the machines it exists for. `_` is inert
+    // inside bash double quotes UNLESS preceded by `$` (parameter
+    // expansion), and the class still excludes `$`, backtick, `!` and every
+    // other opener, so admitting it costs nothing.
+    const host = "http://dev_server:3080";
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", [host]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, host)).text();
+      expect(body).toContain(`SERVER="${host}"`);
+    } finally {
+      registry.clearPlugin("dl-test");
+    }
+  });
+
+  it("install.sh bakes a bracketed IPv6 origin spelled raw in the query", async () => {
+    // The Add-node dialog's `-g` variant sends `server=http://[fe80::1]:3080`
+    // UNencoded (brackets would otherwise trip curl's own globber); the
+    // route's canonicalizer and belt must both admit the IPv6 literal or the
+    // tailnet/link-local row is decoration.
+    const host = "http://[fe80::1]:3080";
+    const registry = originRegistry();
+    registry.setPluginOrigins("dl-test", [host]);
+    try {
+      const key = await mkKey();
+      const body = await (await installWithServer(key, host)).text();
+      expect(body).toContain(`SERVER="${host}"`);
+    } finally {
+      registry.clearPlugin("dl-test");
+    }
+  });
+
   it("install.sh canonicalizes the `server` param before matching it", async () => {
     // The dialog sends a canonical origin, but a hand-edited command with a
     // trailing slash or path names the SAME address and must bake the same

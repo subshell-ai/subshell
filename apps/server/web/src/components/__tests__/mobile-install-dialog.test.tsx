@@ -142,7 +142,7 @@ describe("MobileInstallDialog", () => {
     // and an amber note on secure contexts. Both went 2026-09-18: the people
     // this dialog serves know what http:// means, and every clause of the
     // two blurbs restated the address bar itself. They stay gone on purpose;
-    // this its the absence so a future "helpful" re-add trips here.
+    // this pins the absence so a future "helpful" re-add trips here.
     renderDialog({ origin: "http://192.168.1.14:3080", trustedOrigins: [], admin: true });
     expect(screen.queryByTestId("insecure-note")).toBeNull();
     expect(document.body.textContent).not.toMatch(/Every address this server accepts/);

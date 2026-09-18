@@ -239,7 +239,7 @@ describe("AddNodeDialog", () => {
 
   it("the dropdown offers every reachable address and the default one drives both commands", async () => {
     // Which address a NON-default row would produce is `installCommandFor`'s
-    // job, its'd below; this its the wiring: the list on screen is the
+    // job, pinned below; this pins the wiring: the list on screen is the
     // allowlist, and what the commands name is the row the dropdown is on.
     // (No test in this suite commits a Base UI selection — the mobile
     // dialog's precedent stops at opening the list; the popup's pointer
@@ -289,6 +289,24 @@ describe("AddNodeDialog", () => {
       // so nothing is carried for a spelling difference.
       expect(installCommandFor("http://subshell.lan:3080", "nsk_k", "http://subshell.lan:3080/")).toBe(
         'curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_k" | bash',
+      );
+    });
+
+    it("suppresses curl's globber around an IPv6 origin, and only around one", () => {
+      // `[fe80::1]` is a valid row the LAN probe can produce, and curl would
+      // read its brackets as a range and die with `(3) bad range in URL`
+      // before the server was ever asked. The fix travels only with the
+      // addresses that need it: a non-bracket command stays byte-identical,
+      // and with `-g` on the wire the param needs no percent-encoding (the
+      // route test pins the raw bracketed spelling end to end).
+      expect(installCommandFor("http://[fe80::1]:3080", "nsk_k", "http://localhost:3080")).toBe(
+        'curl -fsSLg "http://[fe80::1]:3080/install.sh?setup_key=nsk_k&server=http://[fe80::1]:3080" | bash',
+      );
+      // Underscore hosts (`http://dev_server:3080`, another LAN regular)
+      // are not glob characters and must NOT gain the flag — every stock
+      // command stays exactly the string from before this feature.
+      expect(installCommandFor("http://dev_server:3080", "nsk_k", "http://localhost:3080")).toBe(
+        'curl -fsSL "http://dev_server:3080/install.sh?setup_key=nsk_k&server=http://dev_server:3080" | bash',
       );
     });
 

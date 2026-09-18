@@ -133,7 +133,7 @@ export function MobileInstallDialog({
               how the allowlist is assembled and an amber note on what plain
               http costs a PWA; both went 2026-09-18 (operator's call) because
               the audience is developers and every clause restated the address
-              bar. `mobile-install-dialog.test.tsx` its the absence. */}
+              bar. `mobile-install-dialog.test.tsx` pins the absence. */}
           <Select value={selected?.url ?? ""} onValueChange={(url: string | null) => url && setChosen(url)}>
             <SelectTrigger id={ids.address} className="w-full min-w-0">
               <SelectValue placeholder="Choose an address" />
