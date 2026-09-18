@@ -1092,10 +1092,11 @@ instead.
 | Gate | What it does |
 | --- | --- |
 | `capabilities/main.json` | grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision` and window dragging, to one window (`local: false`, `windows: ["main"]`). Its `remote.urls` is a WILDCARD and no longer bounds anything |
-| `src/trust.rs` | refuses every command invoked from that window unless the page is on one of TWO origins: this machine's loopback (either spelling, http, any port) or the instance's configured `APP_BASE_URL`. Recomputed by the navigation handler for every URL the window commits to, so a redirect chain cannot leave it true |
+| `src/trust.rs` | refuses every command invoked from that window unless the page is on one of TWO origins: this machine's loopback (either spelling, http, any port) or the instance's configured `APP_BASE_URL`. Recomputed for every page the window COMMITS to, so a redirect chain cannot leave it true |
 | `Probe::origin` | builds the URL the window OPENS on from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
 | `open_main` | points the window at those same two origins and refuses every other — so reaching a third one is always a page's doing, never the app's |
-| `on_navigation` | refuses any scheme the OS would act on (`file:`, a custom handler), and recomputes the trust flag for what it allows |
+| `on_navigation` | refuses any scheme the OS would act on (`file:`, a custom handler) and nothing else. It arms nothing: it runs at REQUEST time and fires for subframes, so a navigation that never commits — and an embedded iframe — would otherwise move a flag that belongs to the document on screen |
+| `on_page_load` | recomputes the flag, on `PageLoadEvent::Started` — raised from `didCommitNavigation:` (macOS) and `LoadEvent::Committed` (GTK), main-frame only, after the document is really this window's |
 
 Six of the seven are chosen for what they cannot do: raise the assistant at a
 named screen, drop this app's own title bar, display one fixed-shape
@@ -1195,12 +1196,18 @@ The accounting, stated plainly:
   about what a path is. It touches no CLI, no config, no service manager and no
   file. No `node_*` verb, no plugin permission and no `core:default` is granted
   to that window, and the ACL test asserts each of those by name.
-- **Why the wildcard scope is sound.** It is not a widening of WHO may invoke.
-  `on_navigation` pins the window to the origin it was opened with — and the
-  pin follows a deliberate plane switch rather than being fixed at build time —
-  so any page loaded there is the plane the person chose. The scope has to be a
-  wildcard because that plane's address is the user's, not ours; the command
-  behind it is what makes the grant narrow.
+- **Why the wildcard scope is sound — and what the residual is.** The scope has
+  to be a wildcard because a plane's address is the user's, not ours, and since
+  2026-09-18 the window follows any http(s) URL so a plane behind an OAuth proxy
+  can complete its sign-in. So the bound is NOT "only the plane's own pages can
+  invoke this". It is the two things underneath: `PlanePin` — the origin this
+  window was OPENED with, which a deliberate plane switch moves and a redirect
+  does not — and the path validator above. The command joins a validated path
+  onto the pin, so the honest residual is that **any http(s) page this window
+  reaches can open an arbitrary PATH of the pinned plane in the person's
+  browser**. That is a page of a control plane the person chose, in a browser
+  where they are signed out, and it is the whole of it: no host, no scheme, no
+  CLI, no file, no other command.
 - **The marker now exists.** That window shipped no `SubshellDesktop/…`
   user-agent marker precisely because it was granted nothing: the marker is how
   `apps/server/web` decides it is in a shell, and every call it invited would
@@ -1832,7 +1839,11 @@ who runs the server. So:
 - **The window may NAVIGATE anywhere http(s)**, which is what makes a proxied
   sign-in work, and `on_navigation` still refuses everything else: the window
   must not be steerable into `file:`, a custom handler, or anything the OS
-  would act on.
+  would act on. What it does NOT do is decide the privileges: a request is not
+  a document, and a subframe is not the page. The flag is recomputed when a
+  main-frame load COMMITS (`on_page_load`), so an embedded iframe and a
+  navigation that never arrives both leave it exactly as the document on screen
+  earned it.
 - **The seven commands answer only while the page is on a TRUSTED origin** —
   this machine's loopback (either spelling, http, any port: exactly what the old
   scope named) or the instance's configured `APP_BASE_URL`. The check

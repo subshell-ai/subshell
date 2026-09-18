@@ -46,10 +46,26 @@ pub fn origin_changed(current: Option<&str>, probe: &Probe) -> Option<String> {
         return None;
     }
     let next = probe.origin()?;
+    let here = tauri::Url::parse(current).ok()?;
+    // **Only a window on LOOPBACK is re-pointed** (review, 2026-09-18). Since
+    // the window may leave loopback (spec § 15), it is expected to sit on the
+    // instance's own address — or, mid-sign-in, on an identity provider. This
+    // check compared against `probe.origin()`, which is always loopback, so
+    // every 5 s tick dragged such a window home: a proxied sign-in could never
+    // complete, and the window could never rest on the second trusted origin
+    // the whole guard exists for.
+    //
+    // A moved PORT on loopback is the case this function was written for and
+    // is still worth repairing — the window would otherwise sit on a dead
+    // origin — and it is the only one that can be told from a deliberate
+    // departure without asking the page where it meant to be.
+    if !here.host_str().map(crate::control::is_loopback).unwrap_or(false) {
+        return None;
+    }
     // Compared as ORIGINS, not as strings: the window reports a full URL with
     // whatever path the SPA has routed to, and `Probe::origin` reports a bare
     // scheme/host/port.
-    let same = tauri::Url::parse(current).ok().map(|u| u.origin()) == tauri::Url::parse(&next).ok().map(|u| u.origin());
+    let same = Some(here.origin()) == tauri::Url::parse(&next).ok().map(|u| u.origin());
     if same {
         None
     } else {

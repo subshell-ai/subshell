@@ -160,17 +160,43 @@ impl MainTrust {
     }
 
     /// The navigation handler's whole decision: refuse anything the OS would
-    /// act on, allow every http(s) URL, and recompute the flag for what the
-    /// window is about to show.
+    /// act on, allow every http(s) URL — and **touch the flag not at all**.
     ///
-    /// A REFUSED navigation leaves the flag alone deliberately — the page did
-    /// not move, so neither should what it is trusted with.
+    /// **This handler runs at REQUEST time, which is why it may not arm
+    /// anything** (found in review, 2026-09-18). It was calling `evaluate`
+    /// here, and that was a privilege escalation with two spellings:
+    ///
+    /// - A page on an untrusted origin runs `location.href =
+    ///   "http://127.0.0.1:1/"`. The scheme passes, the flag went TRUE, the
+    ///   connection is refused and the document never changes — so the
+    ///   attacker's page kept running with all seven commands armed, including
+    ///   `desktop_set_supervision` and the reset screen.
+    /// - wry calls this handler for SUBFRAME loads too, with no frame filter
+    ///   on either backend (`wkwebview/navigation.rs`, `webkitgtk/mod.rs`), so
+    ///   an `<iframe src="http://127.0.0.1:1/">` armed it without the top frame
+    ///   moving at all.
+    ///
+    /// So arming belongs to [`MainTrust::committed`], which is driven by
+    /// `PageLoadEvent::Started`. Verified in wry 0.55.1 that `Started` is
+    /// raised from `didCommitNavigation:` on macOS and `LoadEvent::Committed`
+    /// on GTK — both main-frame-only and both at COMMIT, which is exactly the
+    /// two properties this handler lacks.
+    ///
+    /// Clearing here was considered and rejected: it would disarm a legitimate
+    /// page every time it loaded a third-party iframe, and it buys nothing,
+    /// because a flag only ever written by a commit cannot be armed by a
+    /// navigation that fails.
     pub fn allow_navigation(&self, url: &Url) -> bool {
-        if !browsable_scheme(url.scheme()) {
-            return false;
-        }
+        browsable_scheme(url.scheme())
+    }
+
+    /// Recompute the flag for a page the window has actually COMMITTED to.
+    ///
+    /// The only writer outside [`MainTrust::set_open`] and [`MainTrust::clear`],
+    /// and the reason the guard means anything: a document that is on screen is
+    /// the one whose origin should decide what this window may do.
+    pub fn committed(&self, url: &Url) {
         self.evaluate(url);
-        true
     }
 }
 
@@ -301,22 +327,66 @@ mod tests {
 
     /// The flag follows the page, in both directions, however many times.
     #[test]
-    fn the_flag_is_recomputed_on_every_navigation() {
+    fn the_flag_follows_the_page_the_window_committed_to() {
         let trust = MainTrust::new();
         trust.set_base(Some("https://plane.example.com".into()));
         assert!(!trust.is_trusted(), "nothing is trusted before a page loads");
 
-        assert!(trust.allow_navigation(&url("https://plane.example.com/login")));
+        trust.committed(&url("https://plane.example.com/login"));
         assert!(trust.is_trusted());
 
         // The sign-in bounce: an identity provider on a third origin. The
         // window follows — that is the whole point of § 15 — and loses the
         // commands while it is there.
-        assert!(trust.allow_navigation(&url("https://idp.example.com/authorize")));
+        trust.committed(&url("https://idp.example.com/authorize"));
         assert!(!trust.is_trusted());
 
         // And back, which is what makes a proxied sign-in work at all.
-        assert!(trust.allow_navigation(&url("https://plane.example.com/api/auth/callback")));
+        trust.committed(&url("https://plane.example.com/api/auth/callback"));
+        assert!(trust.is_trusted());
+    }
+
+    /// **A navigation that is merely REQUESTED arms nothing** — the escalation
+    /// this guard shipped with for one commit (review, 2026-09-18).
+    ///
+    /// A page on an untrusted origin sets `location.href` to a loopback URL
+    /// that cannot connect. The scheme passes, so the navigation is allowed;
+    /// the load then fails and the document never changes. While the flag was
+    /// written here, that page kept running with all seven commands armed.
+    /// Only a COMMIT may arm, and a failed load produces none.
+    #[test]
+    fn an_allowed_navigation_that_never_commits_arms_nothing() {
+        let trust = MainTrust::new();
+        trust.set_base(Some("https://plane.example.com".into()));
+        trust.committed(&url("https://evil.example.com/"));
+        assert!(!trust.is_trusted());
+
+        // The attack: aim at something trusted, never arrive.
+        assert!(trust.allow_navigation(&url("http://127.0.0.1:1/")));
+        assert!(
+            !trust.is_trusted(),
+            "a navigation request must not arm the guard; only a committed load may"
+        );
+    }
+
+    /// The other spelling of the same defect: wry calls the navigation handler
+    /// for SUBFRAME loads with no frame filter on either backend, so an
+    /// `<iframe src="http://127.0.0.1:1/">` armed it without the top frame
+    /// moving. It must also not DISARM a legitimate page that embeds a
+    /// third-party frame, which is why the handler writes nothing at all.
+    #[test]
+    fn a_subframe_navigation_neither_arms_nor_disarms() {
+        let trust = MainTrust::new();
+        trust.set_base(Some("https://plane.example.com".into()));
+        trust.committed(&url("https://plane.example.com/"));
+
+        assert!(trust.allow_navigation(&url("http://127.0.0.1:1/")));
+        assert!(
+            trust.is_trusted(),
+            "an embedded frame does not disarm the page around it"
+        );
+
+        assert!(trust.allow_navigation(&url("https://ads.example.com/frame")));
         assert!(trust.is_trusted());
     }
 

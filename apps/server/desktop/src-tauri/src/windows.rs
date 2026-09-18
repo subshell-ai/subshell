@@ -375,6 +375,19 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // still cannot be steered into `file:`, a custom handler, or anything
         // else the OS would act on.
         .on_navigation(move |u| crate::trust::window_state().allow_navigation(u))
+        // **Arming happens HERE, on a committed main-frame load** (review,
+        // 2026-09-18). `on_navigation` runs at request time and fires for
+        // subframes, so a page that navigated somewhere trusted-looking and
+        // FAILED — or that merely embedded an iframe — could arm the guard
+        // while its own document stayed on screen. `PageLoadEvent::Started` is
+        // raised from `didCommitNavigation:` (macOS) and `LoadEvent::Committed`
+        // (GTK), both main-frame-only and both after the document is really
+        // this window's.
+        .on_page_load(|_webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::trust::window_state().committed(payload.url());
+            }
+        })
         .on_new_window({
             // Tauri DENIES a page's request for a new window (`target="_blank"`,
             // `window.open`) unless a handler answers it, and it denies SILENTLY —

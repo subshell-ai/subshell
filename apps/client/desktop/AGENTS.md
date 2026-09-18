@@ -55,7 +55,12 @@ manager, their extensions — is the one they are looking at.
   same attack in another spelling), no whitespace and no control characters.
   The rule and its tests are `crates/desktop-core`'s `browser` module, shared
   with the other app so the two cannot disagree about what a path is. The
-  ORIGIN comes from `PlanePin` — the same value `on_navigation` enforces — so
+  ORIGIN comes from `PlanePin` — the origin this window was OPENED with, which
+  is no longer what `on_navigation` enforces (it follows any http(s) URL since
+  2026-09-18, so a plane behind an OAuth proxy can complete its sign-in). That
+  is precisely why the command reads the pin rather than the page: a page
+  anywhere a redirect leads can still only open a path of the plane this window
+  opened with. So
   the page names the route and Rust names the host. The worst an XSS in a
   plane's SPA gains is opening a page of that same plane, which the person can
   do by typing the address.
@@ -74,7 +79,10 @@ manager, their extensions — is the one they are looking at.
   So there is still no `shell_ready` handshake and no `bridge.rs` CustomEvent
   bus here: this window's whole Tauri surface is one command.
   `withGlobalTauri` is `true` for the same reason (see below).
-- **What IS kept:** an `on_navigation` origin pin, `disable_drag_drop_handler`
+- **What IS kept:** an `on_navigation` SCHEME refusal (the origin pin went on
+  2026-09-18 — see above; the window follows http(s) so a proxied sign-in
+  works, and non-http(s) is still refused so it cannot be steered into
+  anything the OS would act on), `disable_drag_drop_handler`
   (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
   drag-a-subshell-into-a-workspace and the terminal's uploads), and a 360x240
   minimum size — a third of the SPA's 1024px tiling breakpoint, so the window
