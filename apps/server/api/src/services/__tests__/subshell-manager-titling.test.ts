@@ -227,4 +227,40 @@ describe("normalizePaneTitle", () => {
   it("still answers empty for a title with nothing displayable", () => {
     expect(norm("   \x00\x07  ")).toBe("");
   });
+
+  /**
+   * The properties that matter because this input is ATTACKER-INFLUENCED: a
+   * pane's title is program output, the result becomes a subshell NAME, and a
+   * name reaches other users' sidebars and this server's log lines
+   * (`.claude/rules/security-context.md`, "normalized so it cannot carry
+   * control characters into another user's screen or a log line").
+   */
+  it("lets no control character survive, whatever the input", () => {
+    const hostile = "\x1b_G;AAA\x1b\\ok\x00\x07\x1b[31m\x1b]0;t\x07\x7f more";
+    const out = norm(hostile);
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting none survive
+    expect(out).not.toMatch(/[\x00-\x1f\x7f]/);
+    // The TEXT between the sequences survives, which is the point — this
+    // strips structure, it does not censor. Only the sequences go.
+    expect(out).toBe("ok     more");
+  });
+
+  it("stays bounded however long the title is", () => {
+    expect(norm(`${"\x1b[31m".repeat(500)}${"n".repeat(500)}`)).toHaveLength(120);
+  });
+
+  /**
+   * Linear, not quadratic. The lazy string-kind branch has `$` as a
+   * terminator alternative, so the FIRST unterminated introducer consumes the
+   * remainder and the scan happens once rather than per introducer — measured
+   * at 1.9 ms for 1.6 MB of nothing but introducers. Pinned with a generous
+   * budget because the point is the ORDER of growth, not a millisecond count
+   * on any particular machine.
+   */
+  it("does not degrade on a title that is nothing but escape introducers", () => {
+    const evil = `${"\x1b_".repeat(20_000)}x`;
+    const started = performance.now();
+    expect(norm(evil)).toBe("");
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
 });
