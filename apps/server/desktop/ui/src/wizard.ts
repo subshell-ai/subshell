@@ -135,6 +135,17 @@ let manualRoute: ManualRoute["target"] | null = null;
  */
 let autoFired = false;
 /**
+ * The setup chain ran to completion in THIS window, so the ready screen
+ * owes the person its result rather than vanishing into the dashboard
+ * (spec 2026-09-17 § 4.2 deleted this and the operator report restored it
+ * the same day — see {@link handoffView}). Page state on purpose:
+ * `probe.onboarded` cannot answer it, since the probe sets that flag on the
+ * very first `ready` it sees.
+ */
+let ranSetupHere = false;
+/** They pressed Continue on that screen. */
+let continued = false;
+/**
  * A request of ours is in flight — macOS's own sheet is up.
  *
  * One flag per permission, never one shared flag: the two sheets are different
@@ -853,10 +864,12 @@ function renderProgress(p: Probe): void {
 }
 
 /**
- * The last screen either family sees: the server answers, so the dashboard is
- * what comes next and this window has nothing left to say. It no longer waits
- * for a press (spec 2026-09-17 § 4.2) — see {@link handoffView} for why the
- * press it waited for is gone.
+ * The last screen either family sees: the server answers, so the dashboard
+ * is what comes next. It dismisses itself ONLY when this window ran nothing
+ * — the handoff of a chain that ran here holds the completed checklist and
+ * waits for the person's Continue, because a pane that navigates away at
+ * the moment it turns into an answer is the jarring thing the operator
+ * reported (2026-09-17; {@link handoffView} carries the whole history).
  *
  * The title differs because the sentence does. A first run is finishing; an
  * onboarded machine whose server just came back was never setting anything
@@ -879,9 +892,28 @@ function renderHandoff(p: Probe): void {
     );
     return;
   }
-  const view = handoffView({ onboarded: p.onboarded });
+  const view = handoffView({ onboarded: p.onboarded, ranSetupHere, continued });
   setFrame("none", view.title, view.subtitle);
-  openWhenReady();
+  if (!view.wait) {
+    openWhenReady();
+    return;
+  }
+  // The checklist stays on screen, every row ticked. It is the answer to
+  // "what did that just do", and on a machine that already had everything
+  // it is the only chance to read it. The press is deliberately the plain
+  // one — `openWhenReady` is the SAME call the auto path makes, so the
+  // dashboard opening is identical whichever door it opens through.
+  el("content").append(checklist(p, "active"));
+  el("bar-right").append(
+    button(
+      "Continue",
+      () => {
+        continued = true;
+        render();
+      },
+      "primary",
+    ),
+  );
 }
 
 /**
@@ -1722,6 +1754,12 @@ async function startSetup(): Promise<void> {
   } catch (err) {
     problem = errText(err);
   } finally {
+    // A chain that ran here earns the ready screen a button (see
+    // `handoffView`). Recorded even when the settle loop timed out: the
+    // person still deserves to be shown where it got to, rather than the
+    // window deciding on their behalf — and a slow machine that reaches
+    // `ready` one poll later lands on the same waiting screen.
+    if (result?.ok) ranSetupHere = true;
     // CLEARED LAST, after the settle loop — not the moment `setup` returns.
     // `running` is what holds the progress screen up, and `renderSetup` falls
     // back to the CONFIG screen without it. Clearing it early left up to

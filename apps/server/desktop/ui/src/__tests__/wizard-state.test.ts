@@ -158,6 +158,43 @@ describe("auto-fire, pinned at the source", () => {
   });
 });
 
+/**
+ * The waiting handoff is render-path code importing Tauri, so its wiring is
+ * pinned at the source exactly as the auto-fire's is above. The pure
+ * decision cannot open a window or draw a checklist; these are the things
+ * only the page can get wrong.
+ */
+describe("the waiting handoff, pinned at the source", () => {
+  const wizard = readFileSync(join(import.meta.dir, "../wizard.ts"), "utf8");
+  const at = wizard.indexOf("function renderHandoff(");
+  const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
+
+  it("exists", () => {
+    expect(at, "renderHandoff must exist").toBeGreaterThan(-1);
+  });
+
+  it("opens the dashboard only when the view does not wait", () => {
+    // The whole report was an auto-navigation nobody dismissed:
+    // `openWhenReady()` must live INSIDE the not-waiting branch. The
+    // #74 shape — the call beside the frame, unconditional — is the
+    // behavior back, and no pure test would see it.
+    expect(body).toMatch(/if \(!view\.wait\) \{[^}]*openWhenReady\(\);[^}]*return;/);
+  });
+
+  it("keeps the completed checklist on screen and offers the press", () => {
+    expect(body).toContain('checklist(p, "active")');
+    expect(body).toContain('"Continue"');
+    expect(body).toContain("continued = true;");
+  });
+
+  it("records that this window ran the chain when the chain succeeded", () => {
+    // Not the probe: `onboarded` flips on the first `ready`, which is the
+    // same probe that reaches the handoff, so the page must remember the
+    // chain ran here.
+    expect(wizard).toContain("if (result?.ok) ranSetupHere = true;");
+  });
+});
+
 describe("RESET_LABEL", () => {
   it("names what is reset, not the computer, and never ends on 'Mac'", () => {
     // Both halves were reported from a screenshot on 2026-09-12, as one bug.
@@ -671,23 +708,60 @@ describe("MIN_AUTOSTART_SERVER_VERSION", () => {
 });
 
 describe("handoffView", () => {
-  // The waiting variant (2026-09-14's "a run you watched must end on a
-  // screen you dismiss") left with the press it waited for: spec 2026-09-17
-  // § 4.2 fires the chain itself, so nobody chose to watch a run, and the
-  // handoff is only the moment its title already names.
-  it("hands off by itself, in both families", () => {
-    const onboarded = handoffView({ onboarded: true });
-    expect(onboarded.title).toBe("Your Server Is Running");
-    expect(onboarded.subtitle).toBe("Opening your dashboard…");
-    const firstRun = handoffView({ onboarded: false });
-    expect(firstRun.title).toBe("Setting Up Subshell…");
-    expect(firstRun.subtitle).toBe("Opening your dashboard…");
+  // Spec 2026-09-17 § 4.2 deleted the waiting variant — the chain fires
+  // itself, so nobody owed a run nobody chose to watch a dismissal. The
+  // operator report brought it back the same day: a run that DISMISSES
+  // itself is jarring in exactly the other way — the checklist vanishes at
+  // the moment it turns into an answer. A run this window executed ends on
+  // a screen the person dismisses; everything else still hands off by
+  // itself.
+  it("waits for a press after a chain that ran in this window", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: false });
+    expect(view.wait).toBe(true);
+    expect(view.title).toBe("Subshell Server Is Ready");
+    expect(view.subtitle).toContain("set up and running");
+  });
+
+  it("opens the dashboard once they continue", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: true });
+    expect(view.wait).toBe(false);
+    expect(view.subtitle).toBe("Opening your dashboard…");
+  });
+
+  it("never sends an already-set-up machine to account creation", () => {
+    // The recovery screen's "Set Up" runs the SAME chain (`runRecovery`'s
+    // "setup" action), so `ranSetupHere` cannot prove this was a first run
+    // — and `onboarded` cannot either at this moment: the probe marks the
+    // flag on the very `ready` that reaches this screen (R16). The waiting
+    // subtitle therefore states only the shared fact. The deleted design
+    // said "Next, create your account" unconditionally, which was a lie to
+    // a machine that lost its binary and re-set itself up.
+    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: false });
+    expect(view.subtitle).not.toMatch(/account/i);
+  });
+
+  // `onboarded` cannot stand in for `ranSetupHere`: a ready probe sets it on
+  // a machine that never saw the setup chain — the assistant reopened over a
+  // running server, or a deep link dismissed back to ready.
+  it("still hands off instantly when this window ran nothing", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
+    expect(view.wait).toBe(false);
+    expect(view.title).toBe("Your Server Is Running");
+    expect(view.subtitle).toBe("Opening your dashboard…");
+  });
+
+  it("keeps the first-run wording for a machine that never onboarded", () => {
+    const view = handoffView({ onboarded: false, ranSetupHere: false, continued: false });
+    expect(view.title).toBe("Setting Up Subshell…");
+    expect(view.subtitle).toBe("Opening your dashboard…");
   });
 
   it("names the machine's family, not the window's history", () => {
     // The title split survives because the SENTENCES differ: a first run is
     // finishing; an onboarded machine whose server came back was never
     // setting anything up.
-    expect(handoffView({ onboarded: true }).title).not.toBe(handoffView({ onboarded: false }).title);
+    const no = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
+    const yes = handoffView({ onboarded: false, ranSetupHere: false, continued: false });
+    expect(no.title).not.toBe(yes.title);
   });
 });
