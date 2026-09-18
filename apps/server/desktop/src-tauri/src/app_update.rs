@@ -1,11 +1,16 @@
-//! Updating **this app** — the `.app` or the `.deb`, not the server it wraps
-//! (spec 2026-09-15 § 7.2).
+//! Updating **this app** — the `.app` or the `.deb` (spec 2026-09-15 § 7.2),
+//! which is PHASE 1 of one act since spec 2026-09-18.
 //!
-//! The other update path in this app hands a bundled CLI to that CLI's own
-//! `update --from` (`control::delegate_update`). This is the other half of
-//! requirement 1: replacing the APP with a newer one, without a person going
-//! to a downloads page. `tauri-plugin-updater` does the work; what lives here
-//! is the two decisions the plugin does not make.
+//! The other half of that act hands the bundled CLI to that CLI's own
+//! `update --from` (`control::delegate_update`), and the two are not
+//! independent: every desktop bundle SHIPS the CLI it wraps, so replacing the
+//! app is what makes a newer server available to install. They are separated
+//! only by the relaunch — which is why [`install_app_update`] ends by writing
+//! the marker the new build finishes from, rather than by leaving a second
+//! press for the person to know to make.
+//!
+//! `tauri-plugin-updater` does the download; what lives here is the two
+//! decisions the plugin does not make.
 //!
 //! **Which release.** The plugin wants a static manifest URL, and this
 //! repository publishes four components under four tag prefixes — so there is
@@ -220,6 +225,14 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
 /// answer travelled to a webview and back, and the only argument this command
 /// accepts is therefore no argument at all.
 ///
+/// **This is PHASE 1 of one act** (spec 2026-09-18 § 4.2). The new bundle
+/// ships a newer `subshell-server` than the one installed here, and installing
+/// it is the tail of the same press — so the last thing this does before the
+/// relaunch is write the marker the NEW build finishes from
+/// ([`subshell_desktop_core::settings::PendingBundledInstall`]). Written
+/// BEFORE `app.restart()` and never after: a crash between the two must leave
+/// a machine that knows what it was doing.
+///
 /// **`app.restart()` never returns.** It is `-> !` and `exit(0)`s when it
 /// cannot resolve the current executable, which is why the install is awaited
 /// first and why the caller is the bundled page rather than a background
@@ -257,14 +270,37 @@ pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
         )
         .await
         .map_err(|e| e.to_string())?;
-    // Clear the stored notice BEFORE the restart, not after — `restart()` is
-    // `-> !` (this file's own header says so), so anything sequenced behind it
-    // never runs. A stored 0.8.0 met by a relaunched 0.8.0 is the stale-notice
-    // bug exactly: the not-due launch branch and the tray seed would repaint
-    // "Update available — 0.8.0" from it for up to a day. The read side filters
-    // that shape now ([`notice_for`]); this keeps the STORED fact honest, which
-    // is what `run_check`'s comment demands of a check that found nothing newer.
-    let _ = app.state::<SettingsState>().update(|s| s.last_update_version = None);
+    // The pane-safety answer is taken HERE, at the press, for the same reason
+    // the screen renders the warning here: this is the moment the person
+    // consents. Phase 2 runs in another process, on a machine whose service
+    // definition it re-reads for nothing — the consent it needs is the one
+    // given under the sentence that was on screen, so it travels in the marker
+    // (spec § 5, "`forced` is why the consent is not asked twice"). One
+    // bounded `service status --json` before a ~100 MB download costs nothing.
+    let forced = crate::control::pane_risk_now(&app.state::<SettingsState>());
+    let marker = subshell_desktop_core::settings::PendingBundledInstall {
+        from_app_version: app.package_info().version.to_string(),
+        started_at: format_rfc3339(now_epoch_secs()),
+        attempts: 0,
+        forced,
+    };
+    // ONE write, because both edits must land before the relaunch and
+    // `SettingsState::update` takes the lock across edit and save — two calls
+    // would be two saves with a window between them in which the process is
+    // about to be replaced.
+    //
+    // Clearing the stored notice BEFORE the restart, not after — `restart()`
+    // is `-> !` (this file's own header says so), so anything sequenced behind
+    // it never runs. A stored 0.8.0 met by a relaunched 0.8.0 is the
+    // stale-notice bug exactly: the not-due launch branch and the tray seed
+    // would repaint "Update available — 0.8.0" from it for up to a day. The
+    // read side filters that shape now ([`notice_for`]); this keeps the STORED
+    // fact honest, which is what `run_check`'s comment demands of a check that
+    // found nothing newer.
+    let _ = app.state::<SettingsState>().update(|s| {
+        s.last_update_version = None;
+        s.pending_bundled_install = Some(marker);
+    });
     app.restart();
 }
 
@@ -352,7 +388,7 @@ pub fn check_on_launch(app: &AppHandle) {
 /// The item stays pressable precisely because a person may not want to wait
 /// for tomorrow's daily check. Like it, this opens nothing — the answer lands
 /// in the settings file and on the tray label, and a press that had found an
-/// update routes the NEXT press to the `app-update` screen.
+/// update routes the NEXT press to the `update` screen.
 pub fn check_now(app: &AppHandle) {
     let handle = app.clone();
     tauri::async_runtime::spawn(async move { run_check(&handle).await });

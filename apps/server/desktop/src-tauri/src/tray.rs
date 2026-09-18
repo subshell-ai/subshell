@@ -82,12 +82,16 @@ pub struct UpdateItem(MenuItem<Wry>);
 /// The tray's "Check for Updates…" id.
 const UPDATE_ID: &str = "tray:update";
 
-/// The screen the tray's OpenScreen press routes to (spec 2026-09-17 § 5.2).
+/// The screen the tray's OpenScreen press routes to (spec 2026-09-17 § 5.2;
+/// the ONE update screen since spec 2026-09-18 § 8).
 ///
 /// A named constant rather than an inline literal so the test below pins the
 /// WORD THE DISPATCH ACTUALLY PASSES — a test against a second copy of the
-/// literal would stay green through the rename it exists to catch.
-const APP_UPDATE_SCREEN: &str = "app-update";
+/// literal would stay green through the rename it exists to catch. It was
+/// `app-update` until the two update screens became one; the label above is
+/// unchanged, because it always named the APP and the act it opens now
+/// genuinely covers the app and the server that app ships.
+const UPDATE_SCREEN: &str = "update";
 
 /// The item's label: a full notice when the last check found an update, the
 /// ask otherwise.
@@ -114,8 +118,9 @@ pub enum TrayUpdateAction {
     /// like the daily one — the item exists because a person may not want to
     /// wait for tomorrow's.
     Check,
-    /// An update is known: open the assistant at the `app-update` screen,
-    /// where install and restart live, instead of re-checking.
+    /// An update is known: open the assistant at the `update` screen, where
+    /// download, install and the bundled server's install live, instead of
+    /// re-checking.
     OpenScreen,
 }
 
@@ -307,7 +312,7 @@ fn on_menu(app: &AppHandle, id: &str) {
                 // and restart live. No check is run here: re-checking what the
                 // label just announced is the wrong act for this press.
                 TrayUpdateAction::OpenScreen => {
-                    let _ = crate::reset::arm_and_raise(app, Some(APP_UPDATE_SCREEN.into()));
+                    let _ = crate::reset::arm_and_raise(app, Some(UPDATE_SCREEN.into()));
                 }
             }
         }
@@ -379,8 +384,8 @@ mod tests {
     }
 
     /// The press routes by the SAME knowledge the label reads, not by a
-    /// second reading that could drift: known ⇒ open the `app-update`
-    /// screen where install lives; unknown ⇒ run the check.
+    /// second reading that could drift: known ⇒ open the `update` screen
+    /// where install lives; unknown ⇒ run the check.
     #[test]
     fn a_known_update_opens_the_screen_and_an_unknown_one_checks() {
         assert_eq!(tray_update_action(Some("0.8.0")), TrayUpdateAction::OpenScreen);
@@ -401,7 +406,7 @@ mod tests {
         }
     }
 
-    /// The OpenScreen press names the app-update screen by WORD, and
+    /// The OpenScreen press names the update screen by WORD, and
     /// `reset::parse_screen` is what turns that word into the enum the
     /// deep-link route consumes. A rename on either side silently falls to
     /// `Home` — the assistant raised onto a screen nobody recognised, which
@@ -413,8 +418,8 @@ mod tests {
     #[test]
     fn the_tray_press_names_a_screen_the_router_recognises() {
         assert_eq!(
-            crate::reset::parse_screen(Some(APP_UPDATE_SCREEN.to_string())),
-            crate::reset::Screen::AppUpdate,
+            crate::reset::parse_screen(Some(UPDATE_SCREEN.to_string())),
+            crate::reset::Screen::Update,
             "the tray's word must survive `parse_screen`, not fall back to Home"
         );
     }

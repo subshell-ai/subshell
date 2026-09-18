@@ -22,6 +22,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
+use subshell_desktop_core::pending_install::{resume_decision, Resume};
 use subshell_desktop_core::permissions::{self, Permission};
 use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::{SettingsState, Supervision};
@@ -136,6 +137,38 @@ pub struct Probe {
     /// make. What this buys is the ABLE-to-explain half — a picker that
     /// attaches nothing says why instead of failing silently.
     pub photos_permission: Permission,
+    /// The second half of an app update, waiting to be finished here (spec
+    /// 2026-09-18 § 4.2). `None` on every ordinary boot.
+    ///
+    /// A probe field rather than a command of its own, for the reason the two
+    /// permission states are: the update screen already re-renders on the
+    /// 1500 ms poll, and this is a fact about this machine. It is the marker's
+    /// VIEW, never the marker — [`resume_view`] runs the SHARED
+    /// `resume_decision` first, so a marker whose work turns out to be done
+    /// reaches the page as `None` and can never make a screen offer an install
+    /// the machine does not need.
+    pub pending_install: Option<PendingInstall>,
+}
+
+/// An interrupted update's second half, as the screen needs to see it.
+///
+/// Deliberately not the stored marker: the page has no use for `startedAt` or
+/// the raw attempt count, and it DOES need the one thing the marker cannot
+/// say on its own — whether the automatic attempts are spent, which is
+/// `resume_decision`'s answer rather than a field.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingInstall {
+    /// The app version that was running when the person pressed. The screen
+    /// names it, and it is the one fact that says WHICH update this was on a
+    /// machine that will not finish.
+    pub from_app_version: String,
+    /// The pane-safety consent given in phase 1, carried across the relaunch
+    /// so the restart is not asked about twice.
+    pub forced: bool,
+    /// The automatic attempts are spent: the screen stops firing by itself and
+    /// offers Try Again instead (spec § 5, `MAX_RESUME_ATTEMPTS`).
+    pub halted: bool,
 }
 
 /// What the app's own supervisor is doing, for the assistant to render.
@@ -170,6 +203,7 @@ impl Default for Probe {
             supervisor: None,
             notification_permission: Permission::Unavailable,
             photos_permission: Permission::Unavailable,
+            pending_install: None,
         }
     }
 }
@@ -465,6 +499,7 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
         p.onboarded = true;
     }
     attach_supervisor(&app, &mut p);
+    p.pending_install = resume_view(&settings, &p);
     // The disk may have corrected the preference (a service installed from a
     // terminal); write that back so one probe settles it rather than every
     // probe re-deciding it. Same single-writer shape as `mark_onboarded`.
@@ -669,6 +704,80 @@ pub fn wait_for_boot(app: &AppHandle, settings: &SettingsState) -> Probe {
             return p;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+/// The stored update marker as the screen needs to see it, or `None`.
+///
+/// **`resume_decision` first, always.** The marker records that a press
+/// happened; it never decides that there is work, because the machine already
+/// answers that — the bundled version against the installed one, the same
+/// comparison `decide_server` makes. So a marker whose work turns out to be
+/// done (a hand `subshell-server update` in between, say) reads as `None`
+/// here, and the screen cannot offer an install nothing needs.
+///
+/// Read-only: the marker is CLEARED by whoever finishes or abandons it — the
+/// boot resume, or the install that succeeds — never by a poll that happens to
+/// look at it 1500 ms after the fact.
+fn resume_view(settings: &SettingsState, p: &Probe) -> Option<PendingInstall> {
+    let marker = settings.get().pending_bundled_install?;
+    let installed = p.server.as_ref().and_then(|s| s.version.as_deref());
+    let halted = match resume_decision(Some(&marker), p.bundled_version.as_deref(), installed)? {
+        Resume::Clear => return None,
+        Resume::Install { .. } => false,
+        Resume::Halt => true,
+    };
+    Some(PendingInstall {
+        from_app_version: marker.from_app_version,
+        forced: marker.forced,
+        halted,
+    })
+}
+
+/// What boot should do about an update whose second half never ran (spec
+/// 2026-09-18 § 4.2), and whether the assistant must be raised to show it.
+///
+/// The three answers, and why the bookkeeping is HERE rather than on the page:
+///
+/// - **Nothing pending, or nothing left to do** — the marker is dropped
+///   without acting and boot proceeds as usual. Dropping it is a write, and a
+///   page that merely renders can neither make nor be trusted with it.
+/// - **There is work** — the attempt is COUNTED before it is offered, which is
+///   what makes `MAX_RESUME_ATTEMPTS` a bound on boots rather than on presses.
+///   A machine that crashes inside the install still spends an attempt, which
+///   is the point: the thing being bounded is "this fires on every launch
+///   forever".
+/// - **Spent** — the screen still opens, and says what failed, but nothing
+///   fires by itself.
+///
+/// The screen is requested through the SAME stash every other deep link uses
+/// (`reset::Stash`), so the page's one routing rule applies unchanged. Nothing
+/// is emitted: no window exists yet at boot, and the page PULLS what it was
+/// opened for (`desktop_pending_screen`).
+pub(crate) fn boot_resume(app: &AppHandle, settings: &SettingsState, p: &Probe) -> bool {
+    let marker = settings.get().pending_bundled_install;
+    let installed = p.server.as_ref().and_then(|s| s.version.as_deref());
+    let Some(decision) = resume_decision(marker.as_ref(), p.bundled_version.as_deref(), installed) else {
+        return false;
+    };
+    match decision {
+        Resume::Clear => {
+            let _ = settings.update(|s| s.pending_bundled_install = None);
+            false
+        }
+        Resume::Install { .. } => {
+            let _ = settings.update(|s| {
+                if let Some(marker) = s.pending_bundled_install.as_mut() {
+                    marker.attempts += 1;
+                }
+            });
+            *app.state::<crate::reset::Stash>().screen.lock().unwrap() = Some(crate::reset::Screen::Update);
+            true
+        }
+        Resume::Halt => {
+            *app.state::<crate::reset::Stash>().screen.lock().unwrap() = Some(crate::reset::Screen::Update);
+            true
+        }
     }
 }
 
@@ -959,6 +1068,26 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// command layer stays argument-poor routing, and the one-press path can
 /// never drift from the button that runs the act alone.
 ///
+/// It is also the ONE place the update marker is cleared on success, which is
+/// why the act itself moved into [`install_bundled_server`]: every caller —
+/// the update screen's press, the boot resume, the first-run chain — installs
+/// through here, so "the bundled CLI is installed now" has one writer rather
+/// than one per door.
+fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> {
+    let outcome = install_bundled_server(settings);
+    // The marker means "the CLI this app ships is not installed yet" (spec
+    // 2026-09-18 § 5), so a bundled install that SUCCEEDED ends it — whichever
+    // press ran it, the boot resume's or a plain Update. Clearing is the
+    // transaction completing; a failure leaves it, so the next boot can try
+    // again inside the attempt bound, and the screen can offer Try Again now.
+    if matches!(&outcome, Ok(result) if result.ok) {
+        let _ = settings.update(|s| s.pending_bundled_install = None);
+    }
+    outcome
+}
+
+/// The install itself: [`install_server_now`] without the marker bookkeeping.
+///
 /// **Two paths, decided by whether there is an installed CLI to ask** (spec
 /// 2026-09-15 § 7.1):
 ///
@@ -982,7 +1111,7 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// that is deliberate rather than handled: a silent fall-back to the plain
 /// copy would skip the backup while reporting success, which is the one
 /// outcome worse than the CLI's own usage error. See this app's `AGENTS.md`.
-fn install_server_now(settings: &SettingsState) -> Result<ActionResult, String> {
+fn install_bundled_server(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref(), settings.get().supervision);
@@ -1136,9 +1265,9 @@ fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result
 /// Read-only and assistant-only. Read-only because it fetches one JSON list
 /// and asks the updater plugin to verify one manifest; assistant-only because
 /// its sibling below installs, and granting the pair separately would be a
-/// distinction the ACL cannot see — the dashboard reaches this screen by NAME
-/// (`desktop_open_assistant({ screen: "app-update" })`), which is the same
-/// deep link Update and Reset already use and costs `main` no new command.
+/// distinction the ACL cannot see — the dashboard reaches the screen by NAME
+/// (`desktop_open_assistant({ screen: "update" })`), which is the same deep
+/// link Reset already uses and costs `main` no new command.
 #[tauri::command(async)]
 pub async fn desktop_check_app_update(app: AppHandle) -> Result<crate::app_update::AppUpdateCheck, String> {
     crate::app_update::check_app_update(&app).await
@@ -1149,7 +1278,9 @@ pub async fn desktop_check_app_update(app: AppHandle) -> Result<crate::app_updat
 /// **Takes no argument.** The version to install is re-resolved here rather
 /// than carried back from the page — the same shape every other command in
 /// this file keeps, and the reason this one can be granted at all: a page can
-/// ask for "the newest", never for a URL.
+/// ask for "the newest", never for a URL. That is also why the pane-safety
+/// consent this act carries into its second half is READ here rather than
+/// passed: see `app_update::install_app_update`.
 ///
 /// It does not return on success: `app.restart()` is `-> !`.
 #[tauri::command(async)]
@@ -1169,7 +1300,7 @@ pub async fn desktop_install_app_update(app: AppHandle) -> Result<(), String> {
 /// network, so a page cannot spend the daily budget or hammer a release
 /// source. An XSS in the served SPA gains two version strings it could not
 /// act on and nothing else. The `[Update]` button beside the row opens the
-/// `app-update` screen through `desktop_open_assistant`, the command the page
+/// `update` screen through `desktop_open_assistant`, the command the page
 /// already holds; installing stays on the bundled page.
 #[tauri::command(async)]
 pub fn desktop_app_update(app: AppHandle) -> crate::app_update::AppUpdateStatus {
@@ -1976,6 +2107,42 @@ fn set_supervision_now(
     )
 }
 
+/// What this machine's service definition does to live panes when it is torn
+/// down, in the CLI's own word — `None` when no service is installed at all.
+///
+/// The word is `keeps`, `kills`, or anything else (an absent field, a manager
+/// that would not answer) for "could not be read". The two callers below want
+/// DIFFERENT things from it — a sentence and a boolean — and both must split
+/// on the same reading, so the read is here rather than spelled twice.
+fn pane_safety_now(settings: &SettingsState) -> Option<String> {
+    let server = server_bin::resolve(settings.get().binary_path.as_deref());
+    let cmd = server_cmd(&server, &["service", "status", "--json"])?;
+    let state = json_of(&run(&cmd, QUERY_TIMEOUT));
+    if !is_true(&state, "installed") {
+        return None;
+    }
+    Some(
+        field(&state, "paneSafety")
+            .and_then(|p| p.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+    )
+}
+
+/// Whether a teardown here — a restart, a replacement, an uninstall — closes
+/// live subshells, as a BOOLEAN.
+///
+/// The Rust twin of the page's `paneRisk` (`ui/src/lib/recovery-model.ts`),
+/// down to the fail-closed rule: installed and not `keeps` is risk, and an
+/// unreadable definition counts as risk because absence of evidence is not
+/// evidence of safety. It exists because the app update's phase 1 has to
+/// record the pane-safety consent for a phase 2 that runs in another process
+/// (spec 2026-09-18 § 5), and the page cannot pass it — `desktop_install_app_update`
+/// takes no argument, which is the whole case for granting it at all.
+pub(crate) fn pane_risk_now(settings: &SettingsState) -> bool {
+    matches!(pane_safety_now(settings).as_deref(), Some(word) if word != "keeps")
+}
+
 /// Whether removing this machine's service definition would take live panes
 /// with it, as a refusal sentence — `None` when it is safe or there is
 /// nothing installed.
@@ -1986,13 +2153,8 @@ fn set_supervision_now(
 /// panes will die when the truth is "nobody could read the definition" is
 /// the kind of certainty that teaches people to ignore warnings.
 fn pane_safety_refusal(settings: &SettingsState) -> Option<String> {
-    let server = server_bin::resolve(settings.get().binary_path.as_deref());
-    let cmd = server_cmd(&server, &["service", "status", "--json"])?;
-    let state = json_of(&run(&cmd, QUERY_TIMEOUT));
-    if !is_true(&state, "installed") {
-        return None;
-    }
-    match field(&state, "paneSafety").and_then(|p| p.as_str()) {
+    match pane_safety_now(settings).as_deref() {
+        None => None,
         Some("keeps") => None,
         Some("kills") => Some(
             "This machine's service definition would close every running subshell when it is removed. \
@@ -3570,6 +3732,41 @@ mod tests {
         let v: serde_json::Value = serde_json::to_value(&p).unwrap();
         assert_eq!(v["onboarded"], serde_json::json!(true));
         assert_eq!(v["hostname"], serde_json::json!("devbox"));
+    }
+
+    /// The wire shape the update screen codes against (spec 2026-09-18 § 4.2).
+    ///
+    /// `lib/update-act.ts` branches on all three of these names, and a rename
+    /// here is a silent `undefined` there — the screen would render its idle
+    /// offer over a machine mid-update, i.e. offer to download an app that has
+    /// already been installed. Same failure class `wire-names.test.ts` exists
+    /// for, pinned from this side because the page cannot see a Rust field.
+    #[test]
+    fn the_pending_install_view_serializes_its_three_camel_case_fields() {
+        let p = Probe {
+            pending_install: Some(PendingInstall {
+                from_app_version: "0.8.0".into(),
+                forced: true,
+                halted: false,
+            }),
+            ..Probe::default()
+        };
+        let v: serde_json::Value = serde_json::to_value(&p).unwrap();
+        assert_eq!(
+            v["pendingInstall"],
+            json!({ "fromAppVersion": "0.8.0", "forced": true, "halted": false })
+        );
+    }
+
+    /// An ordinary boot answers the field as null rather than omitting it: the
+    /// page reads `probe.pendingInstall === null` to decide whether to ask the
+    /// release source at all, and an absent key would be `undefined` — which is
+    /// not `null`, and would put every ordinary launch into the phase-2 branch.
+    #[test]
+    fn an_ordinary_probe_answers_no_pending_install_rather_than_omitting_it() {
+        let v: serde_json::Value = serde_json::to_value(Probe::default()).unwrap();
+        assert!(v.as_object().unwrap().contains_key("pendingInstall"));
+        assert_eq!(v["pendingInstall"], json!(null));
     }
 
     #[test]

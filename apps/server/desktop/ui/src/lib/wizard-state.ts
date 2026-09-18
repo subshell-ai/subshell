@@ -23,9 +23,16 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
  * welcome's press because it lives in `renderSetup`). `recovery` is what a
  * machine that
  * has been set up sees while its server is not answering, and `permissions`,
- * `update`, `app-update`, `reset` and `supervision` are entered by REQUEST — a
+ * `update`, `reset` and `supervision` are entered by REQUEST — a
  * `desktop-screen` event from the SPA or the tray, or a link on the recovery
  * screen — over whatever is showing.
+ *
+ * `update` is ONE screen since spec 2026-09-18 § 8: it updates the app and the
+ * server that app ships, in one act across the relaunch between them. The
+ * `app-update` id it absorbed is deleted rather than aliased — this product has
+ * no installed base to keep compatible — so a caller still sending that word
+ * falls to the probe's own answer, loudly, instead of landing somewhere that
+ * happens to be right.
  *
  * The permissions step left the journey with spec 2026-09-17 (D3) and came
  * back on the other SIDE of it (operator's call, 2026-09-18): it is no longer
@@ -44,16 +51,7 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
  * the intro (the gate is structural — the fire lives in `renderSetup`, which
  * the welcome screen does not call).
  */
-export type ScreenId =
-  | "welcome"
-  | "tmux"
-  | "setup"
-  | "recovery"
-  | "permissions"
-  | "update"
-  | "app-update"
-  | "reset"
-  | "supervision";
+export type ScreenId = "welcome" | "tmux" | "setup" | "recovery" | "permissions" | "update" | "reset" | "supervision";
 
 /**
  * The label on the way into the Reset screen, and the Reset screen's own
@@ -133,7 +131,7 @@ export function prereqState(probe: Probe): PrereqState {
  * it the same way a dashboard notice does (see {@link permissionsAfterSetup}),
  * so there is still exactly one way into it.
  */
-export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "app-update", "reset", "supervision", "permissions"];
+export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision", "permissions"];
 
 /**
  * Whether this screen was asked for rather than implied by the probe.
