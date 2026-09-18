@@ -436,3 +436,67 @@ Each wave is independently verifiable and leaves the product working:
    The screen's unnumbered fallback is what ships.
 7. **Docs** — both apps' `AGENTS.md`, which carry the "two screens say update"
    section this spec deletes.
+
+## 13. Amendment (2026-09-18): the act is a SELECTION, not always both halves
+
+Operator's report, with the app at 0.8.1 and a `subshell-server` CLI updated
+separately to 0.10.1: *"it says subshell-server is older than the currently
+running version."*
+
+**The defect.** When the app is behind, `updateAct` pushed the CLI row
+unconditionally (bar the not-managed refusal) and the subtitle promised
+"Installing it also installs the server it ships". But `serverChoice` was
+`adopt-installed` — the ladder ADOPTS a newer installed copy — so phase 2
+would answer `Resume::Clear` and install nothing. The screen named a version
+older than the running one as a target, and promised an install that could not
+happen. The act itself was never unsafe (`version_lt(installed, bundled)` is
+false, so nothing downgrades); the DISPLAY was false, which is the defect class
+§11 exists to keep out of a release.
+
+**Why this is not a reversal of D1.** D1's argument was that being asked to
+perform two updates for one thing makes our packaging the user's problem. That
+holds exactly while the two halves point the same way. When they diverge — a
+newer CLI installed by hand, an app behind — one act is not a simplification,
+it is a claim about the machine that is wrong. A selection degenerates
+correctly: with both halves behind, both are selected and one press does both,
+which is D1 unchanged.
+
+### 13.1 The table
+
+Every component the screen knows about gets a row: what it runs, what it would
+become, and a checkbox where there is something to do.
+
+```
+Component                Running   New      Update
+Subshell Server app      0.8.1     0.9.0    [x]
+subshell-server CLI      0.10.1    —        you run a newer one
+```
+
+- **A row with an available act carries a checkbox, selected by default.** The
+  default IS the old behaviour: everything actionable, one press.
+- **A row with no available act states WHY, in the cell where its checkbox
+  would be** — never a disabled checkbox, which says "not now" without saying
+  anything. The reasons are §6's, plus the new one below.
+- The press names what it will do, and is dead when nothing is selected.
+
+### 13.2 Force, and the one thing it may not do
+
+One checkbox below the table: **override the pane-safety refusal** for the
+selections above. That is the only refusal a person may overrule, and it is
+already the one `--force` means everywhere else in this product.
+
+**Force may NOT install an older bundled CLI over a newer installed one, and
+this is a hard rule rather than a scope decision.** Root `AGENTS.md`: *"Never
+downgrade the installed server. Boot runs `migrator.migrateToLatest()`, which
+is forward-only… the reverse is data loss, not a choice to present."* An older
+server cannot boot on a database a newer one has migrated, so a checkbox
+offering it would be offering an unbootable machine. The row says so instead,
+and the supported path — `subshell-server update --from <file>`, which takes
+the database backup first — stays where it is.
+
+### 13.3 Subshell Client
+
+Identical shape, identical divergence (an agent installed by hand outranks the
+bundle), with one difference that follows from §7.1: the agent half has no
+restart to force, so Force applies to the server app's rows only and is not
+rendered where nothing it governs is selectable.
