@@ -30,9 +30,11 @@ export function StartupScreen(props: {
   startAtLogin: boolean;
   onChange: (startAtLogin: boolean) => void;
   onContinue: () => void;
+  /** Back to the registration details. */
+  onBack?: () => void;
   busy: boolean;
 }) {
-  const { shell, startAtLogin, onChange, onContinue, busy } = props;
+  const { shell, startAtLogin, onChange, onContinue, onBack, busy } = props;
   // The manager's name goes in the SENTENCE, where it explains something,
   // rather than in a title as a parenthetical that explains nothing — the
   // supervision card's rule, and a genuine platform fact rather than voice.
@@ -42,6 +44,16 @@ export function StartupScreen(props: {
     <Frame
       {...shell}
       icon={<Power />}
+      barLeft={
+        // Back to the details, because this screen sits between a form and the
+        // press that spends a setup key: a person who gets here and realises
+        // they typed the wrong server must not have to quit the app to fix it.
+        onBack ? (
+          <Button variant="ghost" disabled={busy} onClick={onBack}>
+            Back
+          </Button>
+        ) : undefined
+      }
       barRight={
         /*
          * **Register**, not Continue: this is the press that acts. It installs

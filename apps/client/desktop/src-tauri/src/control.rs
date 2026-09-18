@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
@@ -407,6 +407,18 @@ pub struct Probe {
     /// BEFORE its network call precisely so an unenrollable box does not burn
     /// a one-time setup key, and a refusal is the worst place to learn about it.
     pub tmux: Option<String>,
+    /// Whether `brew` resolves on the LOGIN path.
+    ///
+    /// Beside `tmux` because it answers that screen's second question: what to
+    /// OFFER when tmux is missing. Homebrew is the only macOS installer this
+    /// app can drive (`desktop_core::tmux::install_argv` answers `None`
+    /// without it), so on a brew-less Mac the Install button can only ever
+    /// produce the `NO_MANAGER` refusal — and a button whose one outcome is a
+    /// refusal is the dead end that screen exists to close. The page reads
+    /// this to print the two manual routes instead. Linux never consults it:
+    /// `pkexec apt-get` is runnable on every machine this app ships a `.deb`
+    /// to.
+    pub has_brew: bool,
     /// The closed set of paths the window may name.
     pub paths: NodePaths,
     /// This machine's name, as `hostname(1)` reports it — memoized.
@@ -446,6 +458,7 @@ impl Default for Probe {
             step: ProbeStep::NoAgent,
             error: None,
             tmux: None,
+            has_brew: false,
             paths: NodePaths::default(),
             // Empty by default, not read: `Default` is a shape for tests and
             // for `probe_now` to fill, and `machine_hostname` spawns.
@@ -560,6 +573,7 @@ pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
         agent,
         managed,
         tmux: which("tmux"),
+        has_brew: which("brew").is_some(),
         paths: node_paths(&read_node_config()),
         hostname: machine_hostname(),
         ..Default::default()
@@ -845,6 +859,13 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
     install_agent_now(&settings)
 }
 
+/// The event each output line is emitted on while tmux installs.
+///
+/// Named here rather than inline because the page listens for this exact
+/// string and nothing else connects the two — `wire-names.test.ts` reads both
+/// files and holds them equal.
+pub const INSTALL_LINE_EVENT: &str = "node-install-line";
+
 /// Install tmux with this machine's own package manager.
 ///
 /// tmux is the one prerequisite an enrolled node cannot do without: the agent
@@ -854,27 +875,39 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
 /// `desktop_core::tmux`, shared so the two apps cannot come to disagree about
 /// what may be run with a person's own privileges.
 ///
-/// The client's [`Probe`] carries `tmux` — the path, or nothing — but neither
-/// the platform nor whether `brew` resolves, because nothing else on this page
-/// branches on either. So both are read HERE, exactly as the server's own
-/// installer reads them, rather than widening the probe for one caller.
+/// The client's [`Probe`] carries `tmux` — the path, or nothing — and, since
+/// the brew-less Mac dead end, `has_brew`; it carries no platform, which the
+/// page reads off its own user agent. Both are re-read HERE regardless, and
+/// that is not a duplicate: what the page may SHOW and what this command may
+/// RUN are two decisions taken at two moments, and a probe read seconds ago is
+/// not the machine at the instant of the spawn.
 ///
 /// `Err` — not an `ActionResult` — on a platform that offers nothing this app
 /// may drive (macOS without Homebrew; anything that is neither macOS nor
 /// Linux). That is the distinction the screen renders: "here is the command to
 /// type" rather than "the install failed".
 #[tauri::command(async)]
-pub fn node_install_tmux() -> Result<ActionResult, String> {
+pub fn node_install_tmux(app: AppHandle) -> Result<ActionResult, String> {
     let brew = which("brew").is_some();
     // `install` is STREAMED — a cold `brew install` runs for minutes and the
-    // manager's own output is the only honest progress signal — so it takes a
-    // per-line sink. This page has nowhere to put those lines yet, and an
-    // event emitted for no listener is a name with nothing on the other end
-    // (`apps/server/desktop`'s INSTALL_LINE_EVENT says as much at its own
-    // emit). Dropping them here costs only the live transcript: the `Run` that
-    // comes back carries the whole of stdout and stderr either way, and that
-    // is what the screen renders.
-    let sink: LineSink = Arc::new(|_: &str| {});
+    // manager's own output is the only honest progress signal, since no
+    // percentage can be derived from Fetching → Pouring → Summary — so it
+    // takes a per-line sink. The lines were DROPPED until the tmux screen grew
+    // a progress pane to put them in: an event emitted for no listener is a
+    // name with nothing on the other end, which the sibling app says at its
+    // own emit. There is a listener now.
+    //
+    // `emit_to` the node window, where that app broadcasts. Not caution about
+    // a listener count — this app's OTHER window is a control plane's own
+    // page, remote content this app tells nothing, and a package manager's
+    // output is this window's business.
+    let handle = app.clone();
+    let sink: LineSink = Arc::new(move |line: &str| {
+        // Best-effort by design: a failed emit means nothing is listening (the
+        // window closed mid-install), and the install carries on and still
+        // reports through its return value.
+        let _ = handle.emit_to(crate::windows::NODE_LABEL, INSTALL_LINE_EVENT, line.to_string());
+    });
     Ok(subshell_desktop_core::tmux::install(std::env::consts::OS, brew, sink)?.into())
 }
 
@@ -1620,9 +1653,30 @@ pub enum WebTarget {
     License,
     /// The copyright holder's site.
     Company,
+    /// Homebrew, offered on the tmux screen when this Mac has no package manager.
+    Homebrew,
+    /// MacPorts, the other way out of that same screen.
+    ///
+    /// Renamed explicitly: `rename_all = "kebab-case"` would put `mac-ports`
+    /// on the wire, which is not how the project spells itself and is not what
+    /// the page sends. The sibling app shipped exactly that — the page sent
+    /// `macports`, the command answered with a serde error, and no type check
+    /// could see it (measured 2026-09-14). `wire-names.test.ts` is what holds
+    /// it shut here.
+    #[serde(rename = "macports")]
+    MacPorts,
 }
 
-/// Open one of the three About links in the system browser.
+/// Where the tmux screen sends someone whose Mac has no package manager at
+/// all. Constants here rather than arguments from the page, for the same
+/// reason every other member of this set is one. The same two addresses
+/// `apps/server/desktop` carries; neither app ever shows the line that
+/// installs the manager itself.
+const HOMEBREW_URL: &str = "https://brew.sh";
+const MACPORTS_URL: &str = "https://www.macports.org/install.php";
+
+/// Open one of a fixed set of pages in the system browser: the three About
+/// links, and the two package managers the tmux screen names.
 ///
 /// The bundle's CSP makes an ordinary `<a href>` open inside the webview,
 /// which is the wrong window for a website — and this app's other window is a
@@ -1633,6 +1687,8 @@ pub fn node_open_web(app: AppHandle, target: WebTarget) -> Result<(), String> {
         WebTarget::Website => legal::PRODUCT_URL,
         WebTarget::License => legal::LICENSE_URL,
         WebTarget::Company => legal::COMPANY_URL,
+        WebTarget::Homebrew => HOMEBREW_URL,
+        WebTarget::MacPorts => MACPORTS_URL,
     };
     app.opener()
         .open_url(url, None::<&str>)
@@ -2139,6 +2195,7 @@ mod probe_tests {
             "step",
             "error",
             "tmux",
+            "hasBrew",
             "paths",
             "rewriteTearsDown",
         ] {

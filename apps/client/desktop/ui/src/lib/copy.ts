@@ -8,7 +8,7 @@
  * means. Kept out of the components so the prose can be edited without reading
  * the state machine.
  */
-import type { Probe } from "@/lib/ipc";
+import type { Probe, WebTarget } from "@/lib/ipc";
 
 /** One field of the enrollment form. */
 export interface EnrollField {
@@ -84,8 +84,19 @@ export const ENROLL_NOTES: readonly string[] = [
  * It gates only genuine platform FACTS — which tmux installer to name, and
  * that a Linux app update raises a polkit prompt — never voice. One word for
  * where you are, on both platforms (`node-assistant-state.ts`).
+ *
+ * ONE regex, asked two ways. {@link IS_MACOS} is the memo, and it is what every
+ * constant here reads; the FUNCTION exists for the one decision that has to be
+ * pinned on both platforms — {@link manualTmuxRoutes}, whose macOS branch is
+ * defined by what it does NOT offer. A const read at module evaluation can only
+ * ever be exercised on the platform the test process happens to be, which is
+ * the platform that was never the problem.
  */
-export const IS_MACOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
+export function isMacos(): boolean {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent);
+}
+
+export const IS_MACOS = isMacos();
 
 /**
  * The install command for this machine, named in the hint so the advice is
@@ -94,6 +105,66 @@ export const IS_MACOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
  * disabled buttons.
  */
 export const TMUX_INSTALL_CMD = IS_MACOS ? "brew install tmux" : "sudo apt-get install tmux";
+
+/**
+ * One way a person can get tmux themselves, when this app can drive no
+ * installer for them.
+ *
+ * COPIED from `apps/server/desktop/ui/src/lib/installers.ts` (`ManualRoute`,
+ * `manualTmuxRoutes`) rather than imported, the same way this app's design
+ * tokens and `components/ui/` primitives are — so a diff between the two
+ * copies is the drift signal. Same three fields, same two routes, same order.
+ *
+ * **The command is shown only when ASKED FOR**, and the line that installs the
+ * MANAGER is never shown at all: printing both routes' shell lines up front
+ * asks someone to paste an unexplained command on a window's say-so, and the
+ * manager's own installer is the `curl … | bash` nobody should take from here
+ * — each project carries that on its own page, in its own words (operator's
+ * calls, 2026-09-14).
+ */
+export interface ManualTmuxRoute {
+  /** The package manager's name, spelled as its own project spells it. */
+  name: string;
+  /** Which member of the app's closed URL set opens this manager's site. */
+  target: Extract<WebTarget, "homebrew" | "macports">;
+  /** The one line that installs tmux once that manager exists. */
+  command: string;
+}
+
+/**
+ * The ways out of a Mac with no package manager, both of them.
+ *
+ * Homebrew first, being the one almost everyone means: the server app offered
+ * MacPorts alone for a while, so the likelier answer went unmentioned and
+ * looked unsupported (operator's call, 2026-09-14).
+ */
+const MACOS_TMUX_ROUTES: readonly ManualTmuxRoute[] = [
+  { name: "Homebrew", target: "homebrew", command: "brew install tmux" },
+  { name: "MacPorts", target: "macports", command: "sudo port install tmux" },
+];
+
+/**
+ * What to print instead of offering the install — empty on every machine where
+ * the install button can really install something.
+ *
+ * Homebrew is the ONLY macOS installer this app may drive
+ * (`desktop_core::tmux::install_argv` answers `None` without it, and
+ * `node_install_tmux` then rejects with `NO_MANAGER`), so on a brew-less Mac
+ * the button's single possible outcome is a refusal — and `brew install tmux`,
+ * the line {@link TMUX_INSTALL_CMD} names there, is advice to run a program
+ * that is not on the machine. That was a dead end with tmux as a hard gate in
+ * front of it: no install, no register, and the one instruction on screen
+ * impossible to follow.
+ *
+ * Linux never reaches this: `pkexec apt-get` is runnable on every machine this
+ * app ships a `.deb` to, so the button stays. Nor does a probe that has not
+ * answered yet — the caller passes `true` there, which keeps the screen
+ * identical while it is still checking.
+ * @param hasBrew whether `brew` resolves on the login PATH (`Probe.hasBrew`)
+ */
+export function manualTmuxRoutes(hasBrew: boolean): readonly ManualTmuxRoute[] {
+  return isMacos() && !hasBrew ? MACOS_TMUX_ROUTES : [];
+}
 
 /**
  * The tmux sentence for the screen that is about to need it, or nothing.

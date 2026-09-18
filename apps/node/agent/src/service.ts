@@ -994,8 +994,15 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
   // the old answer and `--no-autostart` makes it a lie: every definition this
   // file writes carries both keys, so the key-read would say "starts at login"
   // about the install that deliberately does not. The keys are not decisive on
-  // their own either (measured — see `sessionPlistPath`); the login directory
-  // is the thing launchd actually scans at login, so the path is the fact.
+  // their own either (measured — see `sessionPlistPath`), and the login
+  // directory is what launchd actually scans at login — so the path is
+  // NECESSARY. It is not, strictly, SUFFICIENT: a hand-written plist sitting in
+  // `~/Library/LaunchAgents` with neither key is loaded at login and never
+  // started, and this reports it enabled. No definition either app writes looks
+  // like that, and `apps/server/api`'s `queryLaunchd` makes the same trade at
+  // its own `const enabled` — so the two agree by decision rather than by
+  // accident. Tightening it is one `&&` across both files, and belongs in a
+  // change about service state rather than one about a first run.
   const enabled = definitionPath === plistPath(deps.home);
   // `launchctl print gui/<uid>/<label>`, NOT the legacy `launchctl list`:
   // `list` resolves an IMPLICIT domain, so over SSH (where the session is

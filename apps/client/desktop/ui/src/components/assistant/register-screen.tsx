@@ -74,9 +74,15 @@ export function RegisterScreen(props: {
   form: EnrollForm;
   /** Runs the register chain — install the agent if needed, enroll, start the service. */
   onRegister: () => void;
+  /**
+   * Leave the walk. Absent only where there is nowhere to go — see `app.tsx`,
+   * which answers Choice on a fresh machine and the status screen on one that
+   * is already set up.
+   */
+  onBack?: () => void;
   busy: boolean;
 }) {
-  const { shell, probe, form, onRegister, busy } = props;
+  const { shell, probe, form, onRegister, onBack, busy } = props;
   // `probe === undefined` is "not read yet": the controls stay live then, the
   // same rule `EnrollScreen` follows, because the first probe landing is what
   // reveals whether the gate applies.
@@ -112,6 +118,17 @@ export function RegisterScreen(props: {
     <Frame
       {...shell}
       icon={<KeyRound />}
+      barLeft={
+        // A walk that cannot be left is a trap, and this screen's own Choice
+        // subtitle promises the opposite ("whichever you pick, the other is
+        // still available afterwards"). Ghost, because leaving is not the act
+        // this screen is for.
+        onBack ? (
+          <Button variant="ghost" disabled={busy} onClick={onBack}>
+            Back
+          </Button>
+        ) : undefined
+      }
       barRight={
         <Button className="min-w-[120px]" type="submit" form={FORM_ID} disabled={busy || blocked || !filled}>
           Continue

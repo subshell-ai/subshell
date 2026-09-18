@@ -464,8 +464,16 @@ export function useNodeCommands(args: {
         // Nothing ran and no key was spent. Loopback alone is ADVISORY — the
         // enrol fields already carry that sentence under the URL, so stopping
         // the press to say it a second time would be the nag this flow removed.
-        const overwrites = first.confirmations.some((c) => c.kind === "already-enrolled");
-        if (!overwrites) return afterEnroll(await nodeEnroll({ ...args, confirm: true }));
+        //
+        // Written as "every one of them is the advisory kind", NOT as "none of
+        // them is the destructive kind we know about". The two agree today,
+        // because `ConfirmKind` has exactly two members — but this is the one
+        // path that spends a setup key with no panel in front of it, so a third
+        // kind added on the Rust side must land in the PANEL by default rather
+        // than being waved through by a predicate that was only ever
+        // enumerating today's dangers. Fail closed on the unknown.
+        const advisoryOnly = first.confirmations.every((c) => c.kind === "loopback-server");
+        if (advisoryOnly) return afterEnroll(await nodeEnroll({ ...args, confirm: true }));
 
         // Destructive, and the one thing this chain will not do silently.
         //

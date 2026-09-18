@@ -219,7 +219,30 @@ export function App() {
         />
       );
     case "tmux":
-      return <TmuxScreen shell={shell} probe={probe} busy={runner.busy} onInstall={commands.installTmux} />;
+      return (
+        <TmuxScreen
+          shell={shell}
+          probe={probe}
+          busy={runner.busy}
+          onInstall={commands.installTmux}
+          // Same asymmetry as Register's: Choice for a fresh machine, the
+          // status screen for a configured client that came here from
+          // "Register this machine". This screen needs it most — a machine
+          // without tmux can wait here forever.
+          //
+          // NOT gated on `runner.busy`, alone among this page's handlers, and
+          // that is the whole point of the button: `tmux-screen.tsx` draws it
+          // live while the install runs and says why at the point it draws it
+          // — a screen whose complaint is "there is no way out of this wait"
+          // cannot take its way out away for the length of it, and a `brew
+          // install` is a minute or more. Gating here would leave a live
+          // button whose press does nothing, which says less than a disabled
+          // one does. Leaving is safe: the install is Rust's and finishes
+          // either way, the next probe sees the tmux it produced, and every
+          // control on the screen this lands on is disabled by `busy` as usual.
+          onBack={() => setStep(configured(settings, probe) ? null : "choice")}
+        />
+      );
     case "register":
       return (
         <RegisterScreen
@@ -231,6 +254,17 @@ export function App() {
           // start-up question is the last thing asked, because its answer
           // parameterizes the chain's own `service install`.
           //
+          // Where Back goes, and why it is not always the same place: a fresh
+          // machine came through Choice and returns there, while a client that
+          // was ALREADY configured reached this screen from the status screen's
+          // "Register this machine" — for that person Choice is a screen they
+          // never saw, and `setStep(null)` puts them back on the landing with
+          // their dashboard button. Without this the status-screen door was
+          // one-way for the rest of the session.
+          onBack={() => {
+            if (runner.busy) return;
+            setStep(configured(settings, probe) ? null : "choice");
+          }}
           // Validated HERE as well as inside the chain, because this is the
           // screen that OWNS the fields. The button is gated only on them
           // being non-empty, so `https//typo` and a truncated key both reach
@@ -252,6 +286,15 @@ export function App() {
           startAtLogin={startAtLogin}
           onChange={setStartAtLogin}
           onContinue={runRegister}
+          // Back to the details form. `"node"` rather than a register-specific
+          // step because the walk re-enters through the tmux gate, which
+          // answers instantly when tmux is there — so this lands on the fields
+          // in the ordinary case and on Install tmux in the one case where the
+          // machine has stopped being able to register at all.
+          onBack={() => {
+            if (runner.busy) return;
+            setStep("node");
+          }}
         />
       );
     case "progress":

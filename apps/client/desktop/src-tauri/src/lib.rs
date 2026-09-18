@@ -234,7 +234,7 @@ pub fn run() {
             // address already settled meant the dashboard led, which put a
             // window belonging to the other half of the app in front of a
             // person who had just launched it to set this machine up. The
-            // choice now lives in `windows::startup_window_choice`, where it is
+            // choice now lives in `windows::startup_leads_with_node`, where it is
             // one pure function with a test; the address is resolved here
             // because that function is the thing it is an input to.
             let plane = control::resolve_plane_url(&app.state::<SettingsState>());

@@ -298,6 +298,19 @@ reads the same answer. `ServiceDeps.configDir` exists for exactly this; a
 reader without it would report a `--no-autostart` install as "nothing
 installed" while the agent it wrote is running.
 
+**One path deliberately collapses the two locations, and it is the plane's.**
+`NODE_SERVICE_VERBS` carries `install`, and the executor
+(`src/commands/service.ts`) calls `installService(deps)` with no options — so a
+control plane pressing Install on a node that was registered with
+`--no-autostart` RE-ARMS login start and removes the session plist. That is the
+honest reading of the request (the frame has no field to say otherwise, and
+"install the service" from a plane means the ordinary one), but it is the one
+place the "the two locations are kept apart everywhere" rule above does not
+hold, so it is written down rather than discovered. Giving the plane a say
+would mean a new field on the frame and a protocol bump; there is no day-2
+toggle on this side either, unlike the server's `setAutostart` — both are
+deliberate omissions for now, not oversights.
+
 `service status` also reports `logPath` (that file on macOS, `null` on Linux —
 the unit redirects nothing and the journal holds the output), so a GUI reveals
 what the plist names instead of re-deriving a platform path. `AGENT_LOG_HINT`

@@ -847,6 +847,18 @@ describe("the first run", () => {
   const untouched = (over: Partial<ReturnType<typeof makeProbe>> = {}) =>
     makeProbe({ step: "no-agent", agent: null, status: null, service: null, ...over });
 
+  /**
+   * A CONFIGURED client that is not a node: it has an address it watches and
+   * no `config.json`. The status screen offers it "Register this machine",
+   * which is the door the one-way-door case below is about.
+   */
+  const watcher = () =>
+    makeProbe({
+      step: "not-enrolled",
+      status: { nodeId: null, serverUrl: null, online: false, agentVersion: "1.9.0" },
+      service: { installed: false, definitionPath: null, state: "not-installed", paneSafety: null },
+    });
+
   /** Walk Welcome -> Choice -> "Run subshells on this machine". */
   const chooseNode = () => {
     fireEvent.click(button("Continue"));
@@ -1207,6 +1219,141 @@ describe("the first run", () => {
     // And the resumed run finishes, so the checklist reaches its handoff
     // rather than stranding a machine that is one act from working.
     await waitFor(() => expect(buttonOrNull("Continue")?.disabled).toBe(false), { timeout: 8_000 });
+  });
+
+  // The walk had no way out at all: `barLeft` existed only on the progress
+  // screen, so tmux, the details form and the start-up question each had a
+  // single forward press and nothing that cleared `step`. That made the Choice
+  // screen's own promise false — "whichever you pick, the other is still
+  // available afterwards" (subtitles.ts) — from the moment you picked.
+  it("lets a fresh machine back out of the node path to the choice", async () => {
+    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Register This Machine" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
+    // Both answers offered again, which is what the promise said.
+    expect(buttonOrNull(/^run subshells on this machine/i)).not.toBeNull();
+    expect(buttonOrNull(/^connect to a server/i)).not.toBeNull();
+    // And leaving touched nothing: no agent, no key, no service.
+    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_enroll")).toEqual([]);
+    expect(fake.callsTo("node_service")).toEqual([]);
+    expect(fake.callsTo("node_set_plane")).toEqual([]);
+  });
+
+  // THE one-way door, and the case a person actually hits.
+  //
+  // A configured client — someone already watching a server — presses
+  // "Register this machine" on the status screen, which sets the walk's step.
+  // Back has to return them to the LANDING, not to Choice: Choice is a screen
+  // that person never saw, and before this the status screen's own button was
+  // a door out of the dashboard for the rest of the session.
+  it("returns a configured client to its landing screen, not to a choice it never saw", async () => {
+    await boot({ probe: watcher() });
+    expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
+    fireEvent.click(button("Register this machine"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+    // The button they came for is back, which is the whole of the defect.
+    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
+    // And NOT the fresh machine's answer: this person never chose anything.
+    expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
+    // The invitation is still there to accept a second time — a door that
+    // closes behind you is the thing being fixed.
+    expect(buttonOrNull("Register this machine")).not.toBeNull();
+  });
+
+  // The last screen before a single-use key is spent, so the way back to the
+  // address that key is for matters most here.
+  it("goes back from the start-up question to the details, still filled in", async () => {
+    await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    typeInto("Server URL", "https://subshell.example.com");
+    typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
+    fireEvent.click(button("Continue"));
+    await screen.findByRole("heading", { name: "How This Node Runs" });
+
+    fireEvent.click(button("Back"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    // The answers survive, because the form's values live in the page rather
+    // than in the DOM — which is the point of going back at all: correcting
+    // one character of an address, not retyping three fields.
+    expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
+    expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toBe("workstation");
+    expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe(GOOD_KEY);
+  });
+
+  // The gate needs the exit most of all: tmux is required to register, so a
+  // machine where it never appears parks a person here with nothing but
+  // quitting the app. Back is not a way THROUGH the gate — it answers "not
+  // this machine, not now", which is a different sentence from "register me
+  // without tmux" — so it leaves the walk and changes nothing.
+  it("lets a fresh machine leave the tmux gate for the choice", async () => {
+    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched({ tmux: null }) });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Install tmux" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
+    expect(fake.callsTo("node_install_tmux")).toEqual([]);
+    expect(fake.callsTo("node_enroll")).toEqual([]);
+  });
+
+  // Same asymmetry as the details screen's: a configured client reached the
+  // gate from "Register this machine" and never saw Choice, so Back owes them
+  // the landing they came from — with the dashboard button on it.
+  it("returns a configured client from the tmux gate to its landing screen", async () => {
+    await boot({ probe: makeProbe({ ...watcher(), tmux: null }) });
+    fireEvent.click(button("Register this machine"));
+    await screen.findByRole("heading", { name: "Install tmux" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
+  });
+
+  // The case the screen's Back exists FOR, and the one place the host can
+  // quietly undo it.
+  //
+  // `tmux-screen.tsx` keeps this button live while the install runs — alone
+  // among bottom-bar controls in this app — and says why at the point it draws
+  // it: leaving changes nothing (the install runs in Rust and finishes either
+  // way, and the next probe sees the tmux it produced), and a screen whose
+  // whole complaint is "there is no way out of this wait" cannot take its way
+  // out away for the length of it. A `brew install` is a minute or more.
+  //
+  // That only holds if the HOST honours the press. A live button whose handler
+  // returns silently is worse than a disabled one: a disabled button says "not
+  // now", and this would say nothing at all — which is the dead end the whole
+  // screen was rebuilt to remove.
+  it("lets a person leave while the install is still running", async () => {
+    const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched({ tmux: null }),
+      handlers: { node_install_tmux: () => gate.promise },
+    });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Install tmux" });
+
+    fireEvent.click(button("Install tmux"));
+    await waitFor(() => expect(fake.callsTo("node_install_tmux").length).toBe(1));
+    // Live, which is the component's own deliberate divergence.
+    const back = button("Back");
+    expect(back.disabled).toBe(false);
+
+    fireEvent.click(back);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
+    // The install was not cancelled by leaving — it is Rust's, and it finishes.
+    expect(fake.callsTo("node_install_tmux").length).toBe(1);
+    gate.resolve({ ok: true, stdout: "installed tmux", stderr: "" });
   });
 
   // The other answer, and the rule the whole flow exists for: the watch path

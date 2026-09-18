@@ -49,6 +49,9 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
     step: "online",
     error: null,
     tmux: "/usr/bin/tmux",
+    // A machine whose package manager this app can drive. `false` is the
+    // brew-less Mac, which is only ever interesting with `tmux: null`.
+    hasBrew: true,
     paths: {
       configDir: "/home/u/.config/subshell",
       configFile: "/home/u/.config/subshell/config.json",

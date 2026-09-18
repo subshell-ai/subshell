@@ -144,6 +144,15 @@ export interface Probe {
   error: string | null;
   /** tmux's path on the LOGIN path, or null. */
   tmux: string | null;
+  /**
+   * Whether `brew` resolves on the login PATH.
+   *
+   * Only ever asked when {@link tmux} is null, and only on macOS: it decides
+   * whether `node_install_tmux` has anything to run here, so a false makes the
+   * tmux screen print the manual routes instead of a button that can only
+   * refuse.
+   */
+  hasBrew: boolean;
   paths: NodePaths;
   /**
    * This machine's name, as `hostname(1)` reports it.
@@ -443,8 +452,30 @@ export function nodeReset(args: { typed: string }): Promise<ActionResult> {
   return invoke<ActionResult>("node_reset", args);
 }
 
-/** The three pages the About footer may open. `WebTarget`, kebab-case — a closed set in Rust. */
-export type WebTarget = "website" | "license" | "company";
+/**
+ * The pages this app may open in the system browser. `WebTarget` in
+ * `control.rs` — a closed set there, so the page names a member and Rust
+ * decides what that member IS.
+ *
+ * `macports`, not `mac-ports`: the enum derives kebab-case wire names and
+ * `MacPorts` would kebab into a spelling the project does not use, so Rust
+ * renames that one variant explicitly. `__tests__/wire-names.test.ts` holds
+ * this union equal to what serde will actually accept — the failure it exists
+ * for is a runtime `unknown variant` refusal in the window, which no type
+ * check can see.
+ */
+export type WebTarget = "website" | "license" | "company" | "homebrew" | "macports";
+
+/**
+ * The event `node_install_tmux` streams the package manager's output on, one
+ * line per frame.
+ *
+ * Emitted to the `node` window alone, which is this page. Named here because
+ * the string is the whole of the contract between the command and the tmux
+ * screen's progress pane, and `wire-names.test.ts` holds it equal to Rust's
+ * `INSTALL_LINE_EVENT`.
+ */
+export const INSTALL_LINE_EVENT = "node-install-line";
 
 /**
  * `About`. Who made this, under what terms, and where to read more.

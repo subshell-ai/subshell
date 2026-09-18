@@ -29,7 +29,13 @@ const CONTROL_CHARACTER_NAME = String.fromCharCode(14);
  * The real `useEnrollForm`, so "all three answered" is decided by the values
  * the app would actually hold rather than by a hand-written stub of them.
  */
-function Host(props: { probe: Probe | undefined; onRegister?: () => void; busy?: boolean }) {
+function Host(props: {
+  probe: Probe | undefined;
+  onRegister?: () => void;
+  /** Omitted renders NO Back, which is the prop's optionality; `app.tsx` always passes one. */
+  onBack?: () => void;
+  busy?: boolean;
+}) {
   const form = useEnrollForm();
   return (
     <RegisterScreen
@@ -37,6 +43,7 @@ function Host(props: { probe: Probe | undefined; onRegister?: () => void; busy?:
       probe={props.probe}
       form={form}
       onRegister={props.onRegister ?? (() => {})}
+      onBack={props.onBack}
       busy={props.busy ?? false}
     />
   );
@@ -174,6 +181,11 @@ describe("the Register screen", () => {
     render(
       <Host
         probe={makeProbe()}
+        // Rendered the way `app.tsx` renders it — with a Back — so the button
+        // set below is the one a person actually sees. Asserting the set of a
+        // configuration the app never uses is how a pin goes stale without
+        // going red.
+        onBack={() => {}}
         onRegister={() => {
           presses += 1;
         }}
@@ -184,8 +196,54 @@ describe("the Register screen", () => {
     fill();
     fireEvent.click(button());
     expect(presses).toBe(1);
-    // One button on the screen, and it is the one that was just pressed.
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Continue"]);
+    // Nothing else on the screen but the way out, and no confirmation: the
+    // press says what it costs beforehand rather than asking afterwards.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Back", "Continue"]);
     expect(screen.queryByText(/Confirm/)).toBeNull();
+  });
+
+  /**
+   * The way OUT of the walk, which this screen had none of.
+   *
+   * `subtitles.ts` promises on the Choice screen that "whichever you pick, the
+   * other is still available afterwards", and until Back existed that sentence
+   * was false from the moment you picked: `barLeft` lived only on the progress
+   * screen, so nothing here could clear the walk's step.
+   */
+  it("offers a way back that spends nothing", () => {
+    let backs = 0;
+    render(<Host probe={makeProbe()} onBack={() => (backs += 1)} />);
+    fill();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(backs).toBe(1);
+  });
+
+  it("goes back without asking anything, even from an empty form", () => {
+    // Leaving is not an act on this machine, so it is not gated on the fields
+    // the way the primary is — a person who opened this screen by mistake must
+    // not have to fill it in to leave.
+    let backs = 0;
+    render(<Host probe={makeProbe()} onBack={() => (backs += 1)} />);
+    expect(button().disabled).toBe(true);
+    const back = screen.getByRole("button", { name: "Back" }) as HTMLButtonElement;
+    expect(back.disabled).toBe(false);
+    fireEvent.click(back);
+    expect(backs).toBe(1);
+  });
+
+  it("draws no Back where none was given", () => {
+    // The prop is optional, and its absence is a real rendering rather than a
+    // default: a caller that has nowhere to send a person shows no door.
+    render(<Host probe={makeProbe()} />);
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
+  it("cannot be left while an action is in flight", () => {
+    let backs = 0;
+    render(<Host probe={makeProbe()} onBack={() => (backs += 1)} busy />);
+    const back = screen.getByRole("button", { name: "Back" }) as HTMLButtonElement;
+    expect(back.disabled).toBe(true);
+    fireEvent.click(back);
+    expect(backs).toBe(0);
   });
 });

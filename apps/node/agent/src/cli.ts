@@ -827,6 +827,16 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           const installed = await resolveAgentBinaryPath({
             platform: sd.platform,
             home: sd.home,
+            // `configDir` and `fileExists` are injected for the SAME reason as
+            // the four above, and they became load-bearing when the darwin
+            // resolution learned about `--no-autostart`: without them this
+            // falls back to `clientHome()` and a real `access()`, so a suite
+            // that injected `home` would still stat the developer's own
+            // `~/.config/subshell/dev.subshell.client.plist`. Production is
+            // unaffected — `DEFAULT_DEPS` supplies exactly those fallbacks —
+            // which is precisely why the hole would have stayed invisible.
+            configDir: sd.configDir,
+            fileExists: sd.fileExists,
             readFile: sd.readFile,
             runCmd: sd.runCmd,
           }).catch(() => null);
