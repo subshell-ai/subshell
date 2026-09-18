@@ -389,6 +389,18 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
     // under them once it has painted.
     let _ = window.set_zoom(level);
 
+    // The native About panel lives on a menu on both platforms (spec
+    // 2026-09-17 § 6): macOS hangs it on the app menu (`menu.rs`); there is
+    // no app menu here, so the dashboard carries a one-item menu bar. This
+    // window and not the assistant, deliberately — a GTK bar would eat into
+    // the assistant's fixed frame, whose layout is drawn to its arithmetic,
+    // and on a machine whose server is down the details disclosure still
+    // names the app and its version.
+    #[cfg(not(target_os = "macos"))]
+    if let Ok(menu) = crate::about::window_menu(app) {
+        let _ = window.set_menu(menu);
+    }
+
     // Whatever the compositor or a previous session left behind, a dashboard
     // that opens maximized is not what was asked for. Cleared on CREATION
     // only: a user who maximizes it during a session keeps that, because the

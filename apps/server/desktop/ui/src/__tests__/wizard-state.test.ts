@@ -4,10 +4,10 @@ import { join } from "node:path";
 import type { ActionResult, Probe } from "../lib/ipc";
 import {
   applySupervisionChoice,
+  autoSetupDecision,
   autostartSupported,
   canSetup,
   DEFAULT_SUPERVISION,
-  dots,
   failureLine,
   handoffView,
   isRequestedScreen,
@@ -47,34 +47,41 @@ const WITH_TMUX = { tmux: "/opt/homebrew/bin/tmux" };
 
 const LINUX = { platform: "linux" };
 
+/**
+ * The zero-touch first run (spec 2026-09-17 § 4.1). These cases replaced the
+ * four-screen journey: Welcome left because the chain now says what it does
+ * by doing it, permissions left because the dashboard notices are the better
+ * door (it stays on REQUESTED_SCREENS), and the dot arithmetic left with the
+ * row it existed for — which is also what retired the 2026-09-12 rule that
+ * showed the tmux screen on EVERY first run. A machine that already has tmux
+ * no longer presses through a screen about it; the tmux screen is the one
+ * unasked-to-third-party stop, and it appears exactly when tmux is missing.
+ */
 describe("screensFor", () => {
-  it("shows the tmux screen on every first run, installed or not", () => {
-    // It used to be filtered out when tmux was present, and the skip was
-    // invisible in the worst way: `dots` positions by `FIRST_RUN.indexOf`, so
-    // the flow jumped from dot 1 to dot 3 and a prerequisite the product
-    // depends on was satisfied without ever being named.
-    expect(screensFor(virgin(), false)).toContain("tmux");
-    expect(screensFor(virgin(WITH_TMUX), false)).toContain("tmux");
+  it("stops a first run at tmux only while tmux is missing", () => {
+    expect(screensFor(virgin(), false)).toEqual(["tmux"]);
+    expect(screensFor(virgin({ ...LINUX, hasBrew: false }), false)).toEqual(["tmux"]);
+    expect(screensFor(virgin(WITH_TMUX), false)).toEqual(["setup"]);
+    expect(screensFor(virgin({ ...WITH_TMUX, ...LINUX }), false)).toEqual(["setup"]);
   });
 
-  it("puts the permissions screen between tmux and Set Up, on macOS only", () => {
-    // Prerequisites, then what macOS is about to ask, then the server. Linux
-    // raises none of those prompts — no notification authorization, no TCC
-    // folder sheets, no Photos library — so its first run is unchanged.
-    expect(screensFor(virgin(), false)).toEqual(["welcome", "tmux", "permissions", "setup"]);
-    expect(screensFor(virgin(LINUX), false)).toEqual(["welcome", "tmux", "setup"]);
+  it("lists one screen, never a journey", () => {
+    // The list's LENGTH is the pin: a second entry would mean the journey
+    // crept back, and there is no longer anything downstream to advance
+    // through it (`next()` is gone with the dots).
+    for (const probe of [virgin(), virgin(WITH_TMUX), virgin({ ...WITH_TMUX, ...LINUX })]) {
+      expect(screensFor(probe, false).length).toBe(1);
+    }
   });
 
-  it("keeps the dots continuous on a machine that already has tmux", () => {
-    // The property the skip broke: every screen of the run has the dot its
-    // position implies, with no gap for the reader to explain to themselves.
-    // It is the property the permissions screen has to keep too, which is why
-    // one function filters the list both `screensFor` and `dots` read.
-    const withTmux = virgin(WITH_TMUX);
-    const list = screensFor(withTmux, false);
-    expect(list.map((s) => dots(withTmux, s).current)).toEqual([0, 1, 2, 3]);
-    const linux = virgin({ ...WITH_TMUX, ...LINUX });
-    expect(screensFor(linux, false).map((s) => dots(linux, s).current)).toEqual([0, 1, 2]);
+  it("holds neither Welcome nor permissions", () => {
+    // Widened to `string[]` deliberately: `welcome` is no longer a member of
+    // `ScreenId` at all — no render path can draw it, and no stale request
+    // can name one — but the ABSENCE is only pinned while the word still
+    // appears somewhere, and a plain `ScreenId[]` would not type it.
+    const firstRun: string[] = screensFor(virgin(WITH_TMUX), false);
+    expect(firstRun).not.toContain("permissions");
+    expect(firstRun).not.toContain("welcome");
   });
 });
 
@@ -100,6 +107,54 @@ describe("screensFor with onboarded", () => {
         expect(screens).not.toContain("reset");
       }
     }
+  });
+});
+
+/**
+ * The auto-fire itself is render-path code importing Tauri, which the test
+ * runner cannot load — so its shape is pinned at the source, the way
+ * `config-form.test.ts` pins the wiring it cannot execute. The DECISION's
+ * branches are covered by `autoSetupDecision` above; these pins are about
+ * the three things only the page can get wrong: fire-once, failure-first,
+ * and consulting the decision at all.
+ */
+describe("auto-fire, pinned at the source", () => {
+  const wizard = readFileSync(join(import.meta.dir, "../wizard.ts"), "utf8");
+  const at = wizard.indexOf("function renderSetup(");
+  const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
+
+  it("exists, gated by the module flag and the pure decision", () => {
+    expect(at, "renderSetup must exist").toBeGreaterThan(-1);
+    expect(wizard).toContain("let autoFired = false;");
+    expect(body).toContain("if (!autoFired &&");
+    expect(body).toContain('autoSetupDecision(p, conflict, busy || running).mode === "fire"');
+    // The flag is set BEFORE the chain, or a re-entrant render would see it
+    // still clear and start a second chain.
+    expect(body.indexOf("autoFired = true;")).toBeLessThan(body.indexOf("void startSetup();"));
+  });
+
+  it("holds fire until the port is MEASURED, so a conflicted machine gets the form, not a failed chain", () => {
+    // `canSetup` treats an outstanding port check as free (a Set Up button
+    // must not die for a beat per keystroke) — which is right for the button
+    // and wrong for a chain nobody pressed. The page adds the knowledge the
+    // pure decision is not allowed to have.
+    expect(body).toContain("portKnown");
+    expect(body.indexOf("const portKnown =")).toBeLessThan(body.indexOf("if (!autoFired &&"));
+  });
+
+  it("renders the failure before any re-fire — a chain that failed does not re-run itself", () => {
+    // Try Again is a press; the auto path is spent. Order inside renderSetup
+    // is the whole guarantee: `running` first, `failure` second, fire third.
+    expect(body.indexOf("if (running)")).toBeLessThan(body.indexOf("if (failure)"));
+    expect(body.indexOf("if (failure)")).toBeLessThan(body.indexOf("if (!autoFired &&"));
+  });
+
+  it("leaves Welcome unrendered and the requested-screen routing intact", () => {
+    expect(wizard).not.toContain("function renderWelcome");
+    // A requested screen still outranks the probe's family; `permissions`
+    // lost its dual-role and the routing lost the disambiguator with it.
+    expect(wizard).toContain("if (isRequestedScreen(screen)) {");
+    expect(wizard).not.toContain("isRequestedScreen(screen) && !list.includes(screen)");
   });
 });
 
@@ -178,40 +233,10 @@ describe("recoveryTitle / recoveryAction", () => {
   });
 });
 
-describe("dots", () => {
-  it("has a fixed total per platform, so the row does not grow when the SPA takes over", () => {
-    // Three SPA screens always follow the native ones, so the total is the
-    // native count plus three: four plus three on macOS, three plus three
-    // everywhere else. The row's WIDTH never changes at the handoff, only
-    // which dots are filled.
-    expect(dots(virgin(), "welcome").total).toBe(7);
-    expect(dots(virgin(LINUX), "welcome").total).toBe(6);
-  });
-  it("counts the screens before the current one as done", () => {
-    expect(dots(virgin(WITH_TMUX), "setup")).toEqual({ total: 7, done: 3, current: 3 });
-    expect(dots(virgin(WITH_TMUX), "welcome")).toEqual({ total: 7, done: 0, current: 0 });
-  });
-  it("walks the four on macOS and the three on Linux", () => {
-    expect(dots(virgin(), "tmux")).toEqual({ total: 7, done: 1, current: 1 });
-    expect(dots(virgin(), "permissions")).toEqual({ total: 7, done: 2, current: 2 });
-    expect(dots(virgin(), "setup")).toEqual({ total: 7, done: 3, current: 3 });
-    expect(dots(virgin(LINUX), "setup")).toEqual({ total: 6, done: 2, current: 2 });
-  });
-  it("gives the permissions screen no position on a machine that never shows it", () => {
-    // The screen is requestable everywhere, but on Linux it is not a step —
-    // and a dot row drawn for a screen the journey does not contain is a
-    // number the reader cannot reconcile with anything.
-    expect(dots(virgin(LINUX), "permissions")).toEqual({ total: 6, done: -1, current: -1 });
-  });
-  it("has no position at all for the screens outside the first run", () => {
-    // Recovery, Update and Reset are not steps on a journey, so the row is
-    // hidden rather than shown with nothing filled. A negative `current` is
-    // what the renderer hides on.
-    for (const screen of ["recovery", "update", "reset"] as const) {
-      expect(dots(virgin(), screen)).toEqual({ total: 7, done: -1, current: -1 });
-    }
-  });
-});
+// The `dots` tests left with the function (spec 2026-09-17 § 4.1): the row
+// counted a journey, the journey is now one automatic screen, and a test for
+// positions nothing renders would be a test for arithmetic that answers a
+// question nobody asks.
 
 describe("setupRows", () => {
   it("is five rows, tmux first, all pending on a virgin machine", () => {
@@ -272,6 +297,64 @@ describe("canSetup", () => {
   });
 });
 
+/**
+ * Whether the first run fires itself (spec 2026-09-17 § 4.2/§ 4.3). The
+ * ordinary machine is the fire case — everything else is a machine that
+ * earned the form, and this table is the whole of § 4.3.
+ *
+ * The tmux-missing row is defensive rather than lived: `screensFor` shows the
+ * tmux screen while tmux is absent, so `renderSetup` never runs to ask. The
+ * answer is still "form" because the ONE rule that decides — `canSetup` —
+ * refuses without tmux, and a decision function that fired a chain the CLI
+ * would refuse is wrong whatever the page happens to show.
+ */
+describe("autoSetupDecision", () => {
+  const fire = { mode: "fire" as const };
+  const form = { mode: "form" as const };
+
+  it("fires on the ordinary first run: tmux present, port free, bundled server ready to install", () => {
+    expect(autoSetupDecision(virgin(WITH_TMUX), null, false)).toEqual(fire);
+    // "Unknown port" must NOT hold the fire — that state belongs to the
+    // page, which waits for the measurement before consulting this; by the
+    // time the decision is asked, absent conflict means measured free.
+    expect(autoSetupDecision(virgin(WITH_TMUX), undefined, false)).toEqual(fire);
+  });
+
+  it("shows the form when something answers on the port", () => {
+    // The machine that CANNOT take the default port is the machine that
+    // needs the questions; auto-choosing a different one silently is the
+    // "config written the user never saw" refusal.
+    expect(autoSetupDecision(virgin(WITH_TMUX), { port: "3080" }, false)).toEqual(form);
+  });
+
+  it("shows the form when there is no bundled server to install", () => {
+    // Dev builds with a stub sidecar, and any future asset gap: the chain has
+    // nothing to install, and "Choose an existing server…" is the only way
+    // forward — a button cannot press a link.
+    expect(autoSetupDecision(virgin({ ...WITH_TMUX, serverChoice: "no-bundled" }), null, false)).toEqual(form);
+  });
+
+  it("shows the form while tmux is missing", () => {
+    expect(autoSetupDecision(virgin(), null, false)).toEqual(form);
+  });
+
+  it("never fires while an act is in flight, or before the first probe", () => {
+    // The page folds its own `running` into `busy` here; `startSetup` guards
+    // the pair again because a decision is not a lock.
+    expect(autoSetupDecision(virgin(WITH_TMUX), null, true)).toEqual(form);
+    expect(autoSetupDecision(null, null, false)).toEqual(form);
+  });
+
+  it("fires for every other serverChoice — the exception is `no-bundled` alone", () => {
+    // A machine that already has an up-to-date or adopted server still wants
+    // the chain (its config, service and start are what is missing); only
+    // "nothing is bundled to install" sends a first run to the form.
+    expect(autoSetupDecision(virgin({ ...WITH_TMUX, serverChoice: "up-to-date" }), null, false)).toEqual(fire);
+    expect(autoSetupDecision(virgin({ ...WITH_TMUX, serverChoice: "adopt-installed" }), null, false)).toEqual(fire);
+    expect(autoSetupDecision(virgin({ ...WITH_TMUX, serverChoice: "upgrade-available" }), null, false)).toEqual(fire);
+  });
+});
+
 describe("failureLine", () => {
   const r = (stdout: string, stderr: string): ActionResult => ({ ok: false, stdout, stderr });
   it("takes the last non-empty stderr line", () =>
@@ -324,19 +407,19 @@ describe("screens entered by request", () => {
     }
   });
 
-  it("puts permissions on the macOS first run as well, and nothing else", () => {
-    // The one member that is BOTH. `update`, `reset` and `supervision` are
-    // never on a journey; `permissions` is a macOS step AND the screen every
-    // detection notice sends people back to. The render tells them apart by
-    // whether `screensFor` already holds the screen, so this is the pin on
-    // the fact that makes that check correct.
-    const firstRun = screensFor(virgin(), false);
-    expect(firstRun).toContain("permissions");
-    for (const requested of REQUESTED_SCREENS) {
-      if (requested === "permissions") continue;
-      expect(firstRun).not.toContain(requested);
+  it("keeps permissions request-only, and no requested screen rides a journey", () => {
+    // Spec 2026-09-17 D3 took `permissions` off the macOS first run and left
+    // it HERE on purpose: the dashboard's detection notices still send people
+    // to the screen that explains a missing grant, and now that is its only
+    // door. With no screen on both lists, the render's routing is the simple
+    // `isRequestedScreen(screen)` — this is the pin that keeps it entitled to
+    // be, because a screen added to BOTH lists would make "was this asked
+    // for?" unreadable off the id again.
+    for (const firstRun of [screensFor(virgin(), false), screensFor(virgin(WITH_TMUX), false)]) {
+      for (const requested of REQUESTED_SCREENS) {
+        expect(firstRun).not.toContain(requested);
+      }
     }
-    expect(screensFor(virgin(LINUX), false)).not.toContain("permissions");
   });
 
   it("outranks the ready handoff, which is the whole point", () => {
@@ -351,7 +434,7 @@ describe("screens entered by request", () => {
   });
 
   it("lets every probe-implied screen through", () => {
-    for (const implied of ["welcome", "tmux", "setup", "recovery"] as const) {
+    for (const implied of ["tmux", "setup", "recovery"] as const) {
       expect(isRequestedScreen(implied)).toBe(false);
     }
     expect(isRequestedScreen(null)).toBe(false);
@@ -531,8 +614,13 @@ describe("screenForRequest", () => {
     // null means here.
     expect(screenForRequest("home")).toBe(null);
     // A screen the probe owns is not something a page may request.
-    expect(screenForRequest("welcome")).toBe(null);
+    expect(screenForRequest("tmux")).toBe(null);
+    expect(screenForRequest("setup")).toBe(null);
     expect(screenForRequest("recovery")).toBe(null);
+    // And the word Welcome no longer routes anything at all — the screen
+    // left (spec 2026-09-17 D1), and a stale sender's payload must fall
+    // through to "whatever the probe implies" rather than error.
+    expect(screenForRequest("welcome")).toBe(null);
     // And an unknown word is ignored rather than an error, so a menu item and
     // a page can ship independently.
     expect(screenForRequest("")).toBe(null);
@@ -567,30 +655,23 @@ describe("MIN_AUTOSTART_SERVER_VERSION", () => {
 });
 
 describe("handoffView", () => {
-  // The report (2026-09-14): on a machine that already had everything, step 3
-  // finished so fast that the checklist flashed past and the account form was
-  // simply there. A run you watched must end on a screen you dismiss.
-  it("waits for a press after a chain that ran in this window", () => {
-    const view = handoffView({ onboarded: true, ranSetupHere: true, continued: false });
-    expect(view.wait).toBe(true);
-    expect(view.title).toBe("Subshell Server Is Ready");
-    expect(view.subtitle).toMatch(/create your account/i);
+  // The waiting variant (2026-09-14's "a run you watched must end on a
+  // screen you dismiss") left with the press it waited for: spec 2026-09-17
+  // § 4.2 fires the chain itself, so nobody chose to watch a run, and the
+  // handoff is only the moment its title already names.
+  it("hands off by itself, in both families", () => {
+    const onboarded = handoffView({ onboarded: true });
+    expect(onboarded.title).toBe("Your Server Is Running");
+    expect(onboarded.subtitle).toBe("Opening your dashboard…");
+    const firstRun = handoffView({ onboarded: false });
+    expect(firstRun.title).toBe("Setting Up Subshell…");
+    expect(firstRun.subtitle).toBe("Opening your dashboard…");
   });
 
-  it("opens the dashboard once they continue", () => {
-    expect(handoffView({ onboarded: true, ranSetupHere: true, continued: true }).wait).toBe(false);
-  });
-
-  // `onboarded` cannot stand in for `ranSetupHere`: the probe sets it on the
-  // first `ready` it sees, which is the same probe that reaches this screen.
-  it("still hands off instantly when this window ran nothing", () => {
-    const view = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
-    expect(view.wait).toBe(false);
-    expect(view.title).toBe("Your Server Is Running");
-    expect(view.subtitle).toBe("Opening your dashboard…");
-  });
-
-  it("keeps the first-run wording for a machine that never onboarded", () => {
-    expect(handoffView({ onboarded: false, ranSetupHere: false, continued: false }).title).toBe("Setting Up Subshell…");
+  it("names the machine's family, not the window's history", () => {
+    // The title split survives because the SENTENCES differ: a first run is
+    // finishing; an onboarded machine whose server came back was never
+    // setting anything up.
+    expect(handoffView({ onboarded: true }).title).not.toBe(handoffView({ onboarded: false }).title);
   });
 });

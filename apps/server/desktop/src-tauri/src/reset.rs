@@ -65,10 +65,11 @@ pub enum Screen {
     /// dialog and calls `desktop_set_supervision` directly.
     Supervision,
     /// What macOS will ask, and what it has already been asked (spec
-    /// 2026-09-14 § 3.2). The ONE member of this enum that is also a first-run
-    /// step: it is on the macOS journey between tmux and Set Up, and it is
-    /// requestable afterwards, because every detection notice in the dashboard
-    /// sends people here to fix a permission they declined.
+    /// 2026-09-14 § 3.2). Request-only since spec 2026-09-17 § 4: it left the
+    /// first-run journey with the rest of the pre-provision screens — the TCC
+    /// prompt it explains belongs at the moment a permission is first wanted,
+    /// not at launch — and it stays requestable because every
+    /// missing-permission notice in the dashboard sends people here.
     Permissions,
 }
 

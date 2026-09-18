@@ -857,19 +857,21 @@ describe("setup wizard: the dot row continues the native assistant", () => {
     expect(screen.getByText("Step 2 of 5")).toBeTruthy();
   });
 
-  it("reads Step 6 of 7 on Linux, continuing the assistant's three native screens", async () => {
-    // UNCHANGED when the browser gained a screen: this shell cuts the Tmux
-    // step because its assistant showed its own tmux screen under this same
-    // dot row minutes earlier — the dot was already being spent.
+  it("counts only its own four steps inside Subshell Server on Linux", async () => {
+    // Spec 2026-09-17 deleted the native dot row the row used to continue
+    // from: the assistant auto-fires, so there are no native screens to
+    // count. This shell still cuts the Tmux step — the native screen owns
+    // that act — but its row now says four, not seven.
     await underUA(SERVER_UA_LINUX, () => renderSetup({}, "agent"));
-    expect(screen.getByText("Step 6 of 7")).toBeTruthy();
+    expect(screen.getByText("Step 3 of 4")).toBeTruthy();
   });
 
-  it("reads Step 7 of 8 on macOS — the assistant shows a fourth screen there", async () => {
-    // "What macOS Will Ask" sits between Install tmux and Set Up, and exists
-    // only on the platform that asks (spec 2026-09-14 §3, §6).
+  it("counts the same four on macOS — the permissions screen left the journey", async () => {
+    // Used to read 7 of 8: macOS counted the assistant's "What macOS Will
+    // Ask" step, which is request-only now (spec 2026-09-17 § 4). One of
+    // this test's jobs is pinning that the two platforms no longer differ.
     await underUA(SERVER_UA_MACOS, () => renderSetup({}, "agent"));
-    expect(screen.getByText("Step 7 of 8")).toBeTruthy();
+    expect(screen.getByText("Step 3 of 4")).toBeTruthy();
   });
 });
 

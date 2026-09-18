@@ -68,26 +68,60 @@ use subshell_desktop_core::tray::tray_support;
 /// whether it could be pressed needed the probe that now happens when it is.
 pub struct KeepItem(CheckMenuItem<Wry>);
 
-/// The "Check for Updates…" item, held so the launch check can relabel it.
+/// The update item — "Check for Updates…", or "Update available — Subshell
+/// Server {version}" once a check knows — held so the checks can relabel it.
 ///
 /// A tray item is the whole of the launch check's OUTPUT (spec 2026-09-15
 /// § 7.2): no window opens on its own, no badge appears, nothing is
 /// downloaded. The item exists either way and is always pressable — a check
 /// someone asks for must work whether or not the background one has run, or
-/// the only way to look would be to wait a day.
+/// the only way to look would be to wait a day. Its two labels are its two
+/// acts (`tray_update_action`).
 pub struct UpdateItem(MenuItem<Wry>);
 
 /// The tray's "Check for Updates…" id.
 const UPDATE_ID: &str = "tray:update";
 
-/// The item's label, with the version when the last check found one.
+/// The item's label: a full notice when the last check found an update, the
+/// ask otherwise.
+///
+/// The old form was a suffix — "Check for Updates… (0.8.0 available)" — which
+/// made the notice a decoration on the request (spec 2026-09-17 § 5.2). Now
+/// the two states are two different items: an update that is KNOWN says so as
+/// a sentence, and the label matches what pressing the item does (below).
 ///
 /// Pure, so the one thing a person reads about updates is testable without a
 /// tray, a menu or a display server.
 pub fn update_label(available: Option<&str>) -> String {
     match available {
-        Some(version) if !version.is_empty() => format!("Check for Updates… ({version} available)"),
+        Some(version) if !version.is_empty() => format!("Update available — Subshell Server {version}"),
         _ => "Check for Updates…".to_string(),
+    }
+}
+
+/// What pressing the update item does, decided by what is known (spec
+/// 2026-09-17 § 5.2).
+#[derive(Debug, PartialEq, Eq)]
+pub enum TrayUpdateAction {
+    /// Nothing is known newer: run the check now, in the background, exactly
+    /// like the daily one — the item exists because a person may not want to
+    /// wait for tomorrow's.
+    Check,
+    /// An update is known: open the assistant at the `app-update` screen,
+    /// where install and restart live, instead of re-checking.
+    OpenScreen,
+}
+
+/// The pure half of the press: known update ⇒ open, unknown ⇒ check.
+///
+/// Keyed on the same non-empty rule as [`update_label`], because the two must
+/// agree — a label that says "Update available" while the press runs a check
+/// would re-check something it just announced, and the reverse would open a
+/// screen off a label that promised only a check.
+pub fn tray_update_action(available: Option<&str>) -> TrayUpdateAction {
+    match available {
+        Some(version) if !version.is_empty() => TrayUpdateAction::OpenScreen,
+        _ => TrayUpdateAction::Check,
     }
 }
 
@@ -242,13 +276,24 @@ fn on_menu(app: &AppHandle, id: &str) {
         // program, and it works whether or not a window exists. `control`
         // reads the dashboard's own url for the path when there is one.
         BROWSER_ID => crate::control::open_current_in_browser(app),
-        // Raises the assistant AT the screen through the SAME route the
-        // dashboard's deep link takes, and performs no check itself: the
-        // screen's own first render asks, so there is one place that decides
-        // what "checking" looks like and one place that can fail.
-        UPDATE_ID => {
-            let _ = crate::reset::arm_and_raise(app, Some("app-update".into()));
-        }
+        // Two states, two acts (spec 2026-09-17 § 5.2), and the SAME
+        // non-empty rule the label was drawn from — read from the settings
+        // file, which is what both the launch check and `set_update_available`
+        // write, so label and press cannot disagree.
+        UPDATE_ID => match tray_update_action(app.state::<SettingsState>().get().last_update_version.as_deref()) {
+            // Nothing known: force today's check now rather than re-raising
+            // a screen to ask a question that has no answer yet. Opens
+            // nothing — the answer lands on this label, and a SECOND press
+            // goes to the screen.
+            TrayUpdateAction::Check => crate::app_update::check_now(app),
+            // An update is known: raise the assistant AT the screen through
+            // the SAME route the dashboard's deep link takes, where install
+            // and restart live. No check is run here: re-checking what the
+            // label just announced is the wrong act for this press.
+            TrayUpdateAction::OpenScreen => {
+                let _ = crate::reset::arm_and_raise(app, Some("app-update".into()));
+            }
+        },
         "tray:keep" => set_close_to_tray(app),
         // The TEXT SIZE items are deliberately absent. A menu event in Tauri
         // is global — the app-level handler in `lib.rs` sees this menu's items
@@ -302,5 +347,40 @@ mod tests {
         assert!(BROWSER_ID.starts_with("tray:"));
         assert_ne!(BROWSER_ID, crate::control::MENU_BROWSER_ID);
         assert_ne!(BROWSER_ID, crate::zoom::IN_ID);
+    }
+
+    /// The label is the notice (spec 2026-09-17 § 5.2): a known update says
+    /// so as a full sentence, and "no answer yet" and "checked, nothing
+    /// newer" render identically — both mean there is nothing to announce,
+    /// and the item's job reverts to being the early door.
+    #[test]
+    fn the_update_item_announces_or_asks() {
+        assert_eq!(update_label(Some("0.8.0")), "Update available — Subshell Server 0.8.0");
+        assert_eq!(update_label(None), "Check for Updates…");
+        // An empty stored version is the "nothing known" case, not a version.
+        assert_eq!(update_label(Some("")), "Check for Updates…");
+    }
+
+    /// The press routes by the SAME knowledge the label reads, not by a
+    /// second reading that could drift: known ⇒ open the `app-update`
+    /// screen where install lives; unknown ⇒ run the check.
+    #[test]
+    fn a_known_update_opens_the_screen_and_an_unknown_one_checks() {
+        assert_eq!(tray_update_action(Some("0.8.0")), TrayUpdateAction::OpenScreen);
+        assert_eq!(tray_update_action(None), TrayUpdateAction::Check);
+        assert_eq!(tray_update_action(Some("")), TrayUpdateAction::Check);
+    }
+
+    /// Label and press must split on the same boundary — the one predicate
+    /// both call. If the two ever disagree, a label that promises an update
+    /// would re-check on press, or a label that promises a check would open
+    /// a screen.
+    #[test]
+    fn the_label_and_the_press_announce_the_same_state() {
+        for available in [Some("0.8.0"), Some(""), None] {
+            let announced = update_label(available) != "Check for Updates…";
+            let opens = tray_update_action(available) == TrayUpdateAction::OpenScreen;
+            assert_eq!(announced, opens, "label and press disagree for {available:?}");
+        }
     }
 }

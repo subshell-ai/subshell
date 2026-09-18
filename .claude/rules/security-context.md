@@ -722,18 +722,25 @@ grant equal to what the page actually invokes. The `csp` in each
 `tauri.conf.json` governs the bundled pages only — the remote window carries
 whatever CSP the plane sends.
 
-- **The server app's remote window is PINNED TO LOOPBACK and holds six
-  commands — five harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
+- **The server app's remote window is PINNED TO LOOPBACK and holds seven
+  commands — six harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
   the server this app itself manages — so `capabilities/main.json` scopes it
   with `remote.urls` to loopback and grants only commands that cannot touch the
   CLI, the config, the service or the filesystem (drop this app's own title
   bar, display one fixed-shape notification, raise the assistant at a named
-  screen, open a page of THIS server in the system browser, and read this
+  screen, open a page of THIS server in the system browser, read this
   app's own macOS permission states — `desktop_permissions`, the sixth,
   2026-09-14: no argument, two facts from the OS, argued in spec 2026-09-14
   §7 because two of the three moments a missing permission must be explained
   are in this very page; requesting one and opening System Settings stay on
-  the bundled page) — plus
+  the bundled page — and read the app's own two update version facts —
+  `desktop_app_update`, the seventh, 2026-09-17: no argument, no fetch, just
+  `currentVersion` from the build's own package info and `availableVersion`
+  from the one settings field the daily launch check writes; it NEVER checks
+  the release source, and the row's `[Update]` rides `desktop_open_assistant`
+  while every install verb stays bundled-page-only; argued like the sixth in
+  spec 2026-09-17 §5.3, because only the app knows the version of its own
+  binary and the sidebar row cannot say "an update is waiting" without it) — plus
   `desktop_set_supervision`, the ONE
   CLI-touching command granted there (2026-09-12): switching who runs the
   server is a restart with a different respawner, and an admin page already

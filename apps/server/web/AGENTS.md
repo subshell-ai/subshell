@@ -433,6 +433,20 @@ at sign-out and after sign-in.
   `components/subshell-actions-menu.tsx` (`sidebar: true`, so the rail's
   right-click menu carries it too).
 
+**The footer's app-update row is a server-desktop surface, and it is mounted
+where that is structural** (spec 2026-09-17 §5.3):
+`components/desktop/desktop-app-update-row.tsx`, read via
+`hooks/use-desktop-app-update.ts`, rides `desktop-sidebar.tsx`'s `footerEnd`
+above `UserMenu` — the rail `__root.tsx` only renders on `isServerDesktop()`, so
+neither Subshell Client nor a browser can reach it. `desktop_app_update` reports
+THAT app's version and is granted to that window alone. It shows and never
+applies: [Update] raises the assistant at `app-update`. A shell predating the
+command answers nothing and the row is simply absent — as is every claim of
+being "up to date", since `availableVersion: null` means "no known update", not
+"checked and current". The × is `sessionStorage` keyed to the dismissed VERSION
+(`lib/desktop-app-update.ts`), so the next release re-shows the row with no
+expiry logic to drift.
+
 **"Open in browser" sends a PATH and never a URL.** `desktopInvoke(
 "desktop_open_in_browser", { path })` — the forgiving variant, so an older
 shell that knows no such command simply does nothing. Rust joins the path onto

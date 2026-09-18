@@ -1015,22 +1015,24 @@ update and reset. What differs between the apps is how much the remote window
 gets, and the difference follows from whether its origin can be known ahead of
 time.
 
-**Subshell Server — loopback, six commands.** Its `main` window loads
+**Subshell Server — loopback, seven commands.** Its `main` window loads
 `http://127.0.0.1:<port>`: the SPA served by the very server this app manages,
 so the origin is knowable and is pinned four ways.
 
 | Gate | What it does |
 | --- | --- |
-| `capabilities/main.json` | scopes the window to loopback URLs (`local: false`, `windows: ["main"]`) and grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_set_supervision` and window dragging |
+| `capabilities/main.json` | scopes the window to loopback URLs (`local: false`, `windows: ["main"]`) and grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision` and window dragging |
 | `Probe::origin` | builds the URL from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
 | `open_main` | refuses a non-loopback origin outright |
 | `on_navigation` | pins the window to the origin it was opened with |
 
-Five of the six are chosen for what they cannot do: raise the assistant at a
+Six of the seven are chosen for what they cannot do: raise the assistant at a
 named screen, drop this app's own title bar, display one fixed-shape
 notification, open a page of THIS server in the system browser (a path only —
-see below), and read this app's own macOS permission states (no argument at
-all — see the paragraph after the table). The sixth, `desktop_set_supervision`,
+see below), read this app's own macOS permission states (no argument at
+all — see the paragraph after the table), and read this app's own two update
+version facts (no argument, no fetch — see the paragraph after that). The
+seventh, `desktop_set_supervision`,
 **does** drive the CLI and is the one deliberate exception; its accounting, including the three
 caveats that make it honest, is §11.11 below. The count and the SCOPE are both
 pinned — by `ui/src/__tests__/ipc-acl.test.ts` and again in Rust by
@@ -1070,6 +1072,25 @@ capability: an XSS in the served SPA still cannot make macOS ask anything.
 `desktop_notify` also widened its
 answer from nothing to `{ shown, permission }`: same call, same capability, now
 reporting instead of guessing.
+
+**The update read, and the argument for it (2026-09-17, spec 2026-09-17
+§ 5.3).** `desktop_app_update` is the seventh. It takes no argument, makes no
+network call, and touches nothing on the machine beyond this app's own
+settings file: it answers `currentVersion` from this build's `PackageInfo` and
+`availableVersion` from the one `settings.json` field the daily launch check
+already writes — two version strings, the second `null` for "has not checked,
+checked and found nothing, or could not reach", all present and none of them
+actionable. **It never checks**: `desktop_check_app_update` stays
+`wizard`-only, `desktop_install_app_update` stays `wizard`-only, so a page
+cannot spend the daily budget or hammer a release source, and the row's
+`[Update]` rides `desktop_open_assistant` — a command this page already holds
+— to the bundled screen where installing lives. What an XSS in the served SPA
+gains is two strings. Why it is here rather than behind a raised assistant is
+the same argument the sixth made — say the fact at the moment it is needed,
+in the surface where it is needed — with a smaller payload: the sidebar row
+must know whether an update is waiting before anyone presses anything, and
+only the app knows the version of its own binary. The server can tell a page
+what SERVER build is running; it cannot see the `.app` wrapped around it.
 
 **Subshell Client — any origin, and therefore ONE command.** Its `main` window
 loads a control plane's own UI, and a control plane can live on any host: a LAN
@@ -1168,7 +1189,7 @@ statement.
 Two limits worth stating rather than implying. Each `csp` in `tauri.conf.json`
 applies to that app's bundled page **only** — a remote window's page carries
 whatever CSP its origin sends, so an XSS in the server app's SPA reaches those
-six commands, and in the client app exactly one. And each app's ACL manifest is
+seven commands, and in the client app exactly one. And each app's ACL manifest is
 what makes any of this apply at all: Tauri leaves app commands ungated for local
 windows when no manifest exists.
 
@@ -1838,8 +1859,9 @@ command in either app: the four new updater commands
 (`desktop_check_app_update` / `desktop_install_app_update`,
 `node_check_app_update` / `node_install_app_update`) are granted to the BUNDLED
 window only, in `wizard.json` and `node.json`, and each app's `ipc-acl.test.ts`
-pins that. The server app's remote window still holds its six commands and the
-client app's still holds its one.
+pins that. The server app's remote window still holds its commands unchanged
+by this — it went from six to seven on 2026-09-17 by the read argued above,
+never by any of these verbs — and the client app's still holds its one.
 
 ## 11.13 Network plugins publish this server on a network
 

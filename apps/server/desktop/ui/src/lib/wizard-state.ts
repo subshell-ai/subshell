@@ -1,68 +1,42 @@
 /**
  * The assistant's decisions, pure (spec 2026-09-11 § 5, § 8.1; spec
- * 2026-09-12 § 5.3).
+ * 2026-09-12 § 5.3; spec 2026-09-17 § 4).
  *
- * Which screens exist for THIS machine, where the dots stand, which
- * checklist rows are ticked, whether Set Up may be pressed and why not, which
- * of the CLI's words go under a failed row, and — since the console window
- * went — what the one recovery screen is called and what its single action
- * does. Page state (the current screen, running, the last result) stays in
- * wizard.ts; only facts a probe licenses live here, so a reopen after a quit
- * or a CLI-driven half-setup renders honestly.
+ * Which screens exist for THIS machine, whether the first run may auto-fire or
+ * must show the form, which checklist rows are ticked, whether Set Up may be
+ * pressed and why not, which of the CLI's words go under a failed row, and —
+ * since the console window went — what the one recovery screen is called and
+ * what its single action does. Page state (the current screen, running, the
+ * last result) stays in wizard.ts; only facts a probe licenses live here, so a
+ * reopen after a quit or a CLI-driven half-setup renders honestly.
  */
 import type { ActionResult, Probe, ProbeStep } from "./ipc";
 
 /**
  * Every screen this window can show.
  *
- * The first four are the first run, in order (`permissions` exists only on
- * macOS). `recovery` is what a machine that has been set up sees while its
- * server is not answering, and `update`, `reset` and `supervision` are entered
- * by REQUEST — a `desktop-screen` event from the SPA, or the recovery footer —
- * over whatever is showing.
+ * `tmux` and `setup` are the first run — at most ONE of them is ever on the
+ * list (spec 2026-09-17 § 4.1), and `setup` auto-fires rather than being
+ * walked to (see {@link autoSetupDecision}). `recovery` is what a machine that
+ * has been set up sees while its server is not answering, and `permissions`,
+ * `update`, `app-update`, `reset` and `supervision` are entered by REQUEST — a
+ * `desktop-screen` event from the SPA or the tray, or a link on the recovery
+ * screen — over whatever is showing.
  *
- * `permissions` is BOTH, and it is the only screen that is: a macOS first-run
- * step, and a screen the dashboard asks for afterwards, because every notice
- * that says a permission is missing (spec 2026-09-14 § 5) sends the person
- * here to change it. Which of the two a render is doing is not a flag — it is
- * whether {@link screensFor} already holds the screen, which is false exactly
- * when the request came from outside.
+ * `welcome` and the permissions step left the journey with spec 2026-09-17
+ * (D1/D3): a first run announces itself by DOING, and the permission prompts
+ * it explained are deferred until the dashboard notices one is missing —
+ * which is exactly when the screen is still reachable, as a request.
  */
 export type ScreenId =
-  | "welcome"
   | "tmux"
-  | "permissions"
   | "setup"
   | "recovery"
+  | "permissions"
   | "update"
   | "app-update"
   | "reset"
   | "supervision";
-
-/**
- * The first run, in order — and every position a dot can take.
- *
- * `permissions` is filtered out off this list rather than absent from it
- * (see {@link firstRunFor}), so there is ONE list that both the journey and
- * the dot arithmetic read. Two lists is how the dots came to skip a position
- * the last time a screen was conditional.
- */
-const FIRST_RUN: readonly ScreenId[] = ["welcome", "tmux", "permissions", "setup"];
-
-/**
- * The first-run screens THIS machine has, which is the list `dots` counts.
- *
- * Only macOS has any of the prompts the permissions screen explains — no
- * notification authorization, no TCC folder sheets, no Photos library, and a
- * systemd user unit announces nothing — so Linux keeps its trio and its six
- * dots. Deriving both the journey and the dot positions from one function is
- * what keeps a filtered screen from leaving a gap in the row: that gap was a
- * real defect the last time a first-run screen was conditional, and it was
- * invisible except as a number that jumped.
- */
-function firstRunFor(probe: Probe): ScreenId[] {
-  return FIRST_RUN.filter((id) => id !== "permissions" || probe.platform === "darwin");
-}
 
 /**
  * The label on the way into the Reset screen, and the Reset screen's own
@@ -132,25 +106,14 @@ export function prereqState(probe: Probe): PrereqState {
 }
 
 /**
- * The screens this machine will see (spec 2026-09-12 § 5.3).
+ * The screens a page (or the tray) may name rather than earn from a probe.
  *
- * Before setup has ever completed: the first run for THIS platform — four
- * screens on macOS, three elsewhere, since the permissions screen explains
- * prompts only macOS raises. After: the ONE recovery screen while the server
- * is not ready, and nothing at all when it is — the page opens the dashboard
- * and this window steps back.
- *
- * A `ready` probe empties the list whichever family the machine is in,
- * because that is the same moment in both: the dashboard is what comes next,
- * and a screen list with anything in it would render behind it.
- *
- * `update`, `reset` and `supervision` are never in the list. They are entered
- * by request, which is what lets them appear over a first run as readily as
- * over a recovery without either family having to name them. `permissions` is
- * the exception in {@link REQUESTED_SCREENS} and is deliberately both: a
- * macOS first-run step here, AND requestable afterwards from the dashboard's
- * detection notices. The two never collide — a machine that can request it is
- * onboarded, and an onboarded machine's list is `recovery` or nothing.
+ * None of them is ever in {@link screensFor}'s list, which is what lets them
+ * appear over a first run as readily as over a recovery without either family
+ * having to name them. `permissions` left the macOS first run with spec
+ * 2026-09-17 (D3) and stayed on THIS list on purpose: every dashboard notice
+ * that says a permission is missing still sends the person to the screen that
+ * explains it, and the screen has nothing a first run needed it for.
  */
 export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "app-update", "reset", "supervision", "permissions"];
 
@@ -165,11 +128,9 @@ export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "app-update", "
  * from that server's own dashboard — so without this the window closes itself
  * the moment the probe answers.
  *
- * It answers true for `permissions` during a macOS first run too, where the
- * screen is NOT a request. That is why the render also checks whether
- * `screensFor` already holds the screen: being on this list makes a screen
- * requestABLE, and the probe's own family is what says whether this particular
- * visit was one.
+ * Since spec 2026-09-17 no screen is on BOTH this list and a journey's, so
+ * the question "was this visit a request?" has the simple answer it never had
+ * while `permissions` was both.
  *
  * Measured on 2026-09-12: pressing the dashboard's reset button opened the assistant,
  * which said "Opening your dashboard…" and vanished. The page had this rule
@@ -199,18 +160,59 @@ export function isRequestedScreen(screen: ScreenId | null): screen is ScreenId {
   return screen !== null && REQUESTED_SCREENS.includes(screen);
 }
 
+/**
+ * The screens this machine will see (spec 2026-09-17 § 4.1).
+ *
+ * A `ready` probe empties the list whichever family the machine is in — the
+ * dashboard is what comes next, and a screen list with anything in it would
+ * render behind it. A machine that has never finished setup sees at most ONE
+ * screen: the named tmux stop while tmux is missing, the auto-firing setup
+ * screen once it is not. An onboarded machine that is not ready sees the one
+ * recovery screen.
+ *
+ * The tmux rule CHANGED here, deliberately. It was shown on EVERY first run
+ * (2026-09-12) because `dots` positioned by `FIRST_RUN.indexOf` and a
+ * filtered screen left a gap in the row that read as a bug — the always-shown
+ * screen existed to keep the dots honest. Spec 2026-09-17 removed the dots
+ * with the journey: a first run is one automatic screen now, there is no
+ * row to keep honest, and D2 says the only unasked-to-third-party stop is
+ * tmux. The server binary ships inside the app, so proceeding past it
+ * installs nothing foreign; stopping HERE is the one pause a person sees
+ * coming, and a machine that already has tmux is never asked to press
+ * through a screen about it.
+ */
 export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
   if (probe.next === "ready") return [];
-  // The tmux screen is shown on EVERY first run, including machines that
-  // already have it. It used to be filtered out when `probe.tmux` was set,
-  // and the skip was invisible in the worst way: `dots` positions by
-  // `FIRST_RUN.indexOf`, so the flow went from dot 1 to dot 3 with nothing
-  // saying why, and a prerequisite the product depends on was satisfied
-  // without ever being named. It costs a machine that has tmux one press of
-  // Continue, and buys a flow that is the same length everywhere and a
-  // dependency the person has actually been told about.
-  if (!onboarded) return firstRunFor(probe);
+  if (!onboarded) return probe.tmux === null ? ["tmux"] : ["setup"];
   return ["recovery"];
+}
+
+/**
+ * Whether the first-run setup screen may FIRE ITSELF, or must show the form
+ * (spec 2026-09-17 § 4.2/§ 4.3).
+ *
+ * Fire is the ordinary path — window open, defaults fine, the chain starts.
+ * Form means "this machine earned the questions": something already answers
+ * on the port (auto-picking a different one silently is refused on the
+ * "config written the user never saw" rule), or there is no bundled server to
+ * install and "Choose an existing server…" is the only way forward, or tmux
+ * is missing and the setup chain would refuse anyway.
+ *
+ * @param conflict - exactly as {@link canSetup} takes it: present only when
+ *   the port is MEASURED busy. Unknown — the round trip still outstanding on
+ *   the very first render — must arrive as absent, and the caller holds fire
+ *   until the answer lands rather than guessing at a port it has not checked.
+ * @param busy - an act in flight; the page folds its own `running` in here,
+ *   and {@link startSetup} guards again because a decision is not a lock.
+ */
+export function autoSetupDecision(
+  probe: Probe | null,
+  conflict: { port: string } | null | undefined,
+  busy: boolean,
+): { mode: "fire" } | { mode: "form" } {
+  if (!canSetup(probe, busy, conflict).ok) return { mode: "form" };
+  if (probe?.serverChoice === "no-bundled") return { mode: "form" };
+  return { mode: "fire" };
 }
 
 /**
@@ -281,38 +283,13 @@ export function recoveryAction(step: ProbeStep): { label: string; kind: Recovery
   }
 }
 
-/**
- * Dot semantics: six positions always, not three. The SPA's three /setup
- * screens (Account, Agent, Launch) always follow the native ones on a
- * desktop first run — the wizard only ever opens before setup completes, and
- * a fresh instance always lands on `/setup` — so a three-dot row would grow
- * to six the moment the SPA takes over, which is exactly the handoff this
- * one shared frame exists to hide. Rendering six from the start means the
- * row's WIDTH never changes at the swap, only which dots are filled. A
- * machine that skips the tmux screen sees its dot already filled rather than
- * a shorter row.
- *
- * The total is SEVEN on macOS and six elsewhere, because the native half is
- * four screens there and three here — the permissions screen exists only where
- * the prompts do (spec 2026-09-14 § 6). That is what the `probe` parameter is
- * for; it carried a leading underscore while the total was fixed, and its own
- * comment said this was the change that would want it back.
- *
- * Recovery, Update and Reset are not on this journey, so they have no
- * position: `indexOf` answers -1 for them and the renderer hides the row on a
- * negative `current`. That falls out of the lookup rather than being a branch
- * — there is one list of dot positions, and a screen is either on it or it is
- * not. `permissions` is on it during a macOS first run and NOT during a
- * requested visit; the renderer decides that, because the row belongs to the
- * journey rather than to the screen.
- */
-export function dots(probe: Probe, current: ScreenId): { total: 6 | 7; done: number; current: number } {
-  const list = firstRunFor(probe);
-  const index = list.indexOf(current);
-  // Three SPA screens (Account, Agent, Launch) always follow the native ones.
-  const total = list.length === 4 ? 7 : 6;
-  return { total, done: index, current: index };
-}
+// The dot row is GONE (spec 2026-09-17 § 4.1). It counted a journey, and the
+// first run is no longer a journey — it is one automatic screen, and a dot
+// row over a screen that fires itself has nothing to count. The function that
+// computed positions lived here precisely so the row's arithmetic was testable
+// without a webview; with the row gone there is no arithmetic to test, and
+// keeping the function would keep the fiction that the positions mean
+// something.
 
 export type SetupRowId = "tmux" | "server" | "config" | "service" | "running";
 
@@ -517,50 +494,31 @@ export function failureLine(result: ActionResult): string {
   return last(result.stderr) ?? last(result.stdout) ?? "Setup stopped.";
 }
 
-/** What the ready screen shows, and whether it waits for a press. */
+/** What the ready screen says before the dashboard takes over. */
 export interface HandoffView {
-  /** true = hold this screen until the person continues; false = open the dashboard now */
-  wait: boolean;
   title: string;
   subtitle: string;
 }
 
 /**
- * Whether the last screen hands off by itself, or waits to be dismissed.
+ * Whether the last screen hands off by itself: it always does.
  *
- * It always opened the dashboard the moment the probe said `ready`, and on a
- * machine that already had everything the setup chain finishes in well under a
- * second — so the checklist the person pressed Set Up to watch appeared and
- * vanished, and the next thing on screen was an account form. Nothing had gone
- * wrong, which is the problem: a flow that skips its own result teaches you
- * that the result was not worth reading (operator report, 2026-09-14).
+ * It used to WAIT for a press when the setup chain had run in this window
+ * (2026-09-14: a chain that finishes in under a second flashed its checklist
+ * past and taught the reader the result was not worth reading). Spec
+ * 2026-09-17 § 4.2 removed the press with the press it was waiting for — the
+ * chain now fires itself, so nobody "watched a chain run" in the sense that
+ * owed them a dismissal, and the handoff screen survives only as the "Opening
+ * your dashboard…" moment its title already names. The progress checklist is
+ * still the screen that ran; it simply hands off when it finishes.
  *
- * So a run STARTED HERE ends on a screen with a button. `ranSetupHere` is page
- * state rather than a probe fact — `onboarded` cannot answer this, because the
- * probe sets it the first time it sees `ready`, which is the same probe that
- * lands on this screen.
- *
- * Everything else still hands off instantly, and that is the point of the
- * split: an assistant that opens onto an already-running server, or one whose
- * recovery brought it back, has nothing to report and should get out of the
- * way. Only the person who just watched a chain run is owed its result.
+ * The title still differs by family: a first run is finishing, and an
+ * onboarded machine whose server just came back was never setting anything up
+ * — telling it so would be the app narrating its own state machine.
  * @param opts.onboarded - Whether this machine had completed setup before
- * @param opts.ranSetupHere - The setup chain completed in THIS window
- * @param opts.continued - They pressed Continue on the waiting screen
  */
-export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; continued: boolean }): HandoffView {
-  if (opts.ranSetupHere && !opts.continued) {
-    return {
-      wait: true,
-      title: "Subshell Server Is Ready",
-      subtitle: "Everything below is set up and running. Next, create your account.",
-    };
-  }
+export function handoffView(opts: { onboarded: boolean }): HandoffView {
   return {
-    wait: false,
-    // A first run is finishing; an onboarded machine whose server just came
-    // back was never setting anything up, and saying so would be the app
-    // narrating its own state machine.
     title: opts.onboarded ? "Your Server Is Running" : "Setting Up Subshell…",
     subtitle: "Opening your dashboard…",
   };

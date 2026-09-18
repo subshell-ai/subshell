@@ -103,16 +103,24 @@ Three rules it keeps:
 ## The assistant
 
 One fixed frame, one screen at a time. `screensFor(probe, onboarded)` decides
-the family and `dots(probe, screen)` where the six dots stand, both in
-`ui/src/lib/wizard-state.ts`, pure and tested without a webview.
+the family — pure and tested without a webview in `ui/src/lib/wizard-state.ts`.
+The dot row is gone (spec 2026-09-17): with one automatic screen there is no
+journey to count, and the row that counted screens the person never saw was
+the defect the removal closed.
 
-**First run** is unchanged (spec 2026-09-11): Welcome, Install tmux (shown only
-while tmux is missing, and it advances itself the moment the poll sees one),
-and Set Up Your Server, whose press replaces the screen with a progress
-checklist and then opens the dashboard by itself. `setupRows`/`canSetup`/
-`failureLine` hold the checklist, the gate and the failure line. Agents are not
-asked about here; the SPA's `/setup` owns that question, because detection
-lives in the server.
+**First run is zero-touch** (spec 2026-09-17 § 4): the page FIRES the setup
+chain itself — the progress checklist is the first screen, and it opens the
+dashboard by itself when done. The one stop is Install tmux, shown ONLY while
+tmux is missing (the old always-shown rule existed to keep the dots honest;
+the dots are gone); the poll seeing tmux re-resolves to the chain and it
+fires. Welcome left the journey and `ScreenId`; permissions left the first run
+and stays request-only (§ "macOS permissions"). A port conflict, a
+busy gate, or a no-bundled build lands on the pre-filled form instead of
+failing a chain nobody pressed — `autoSetupDecision` is the pure fork,
+`canSetup` the one refusal predicate, and the page holds fire until the port
+is MEASURED. `setupRows`/`failureLine` hold the checklist and the failure
+line. Agents are not asked about here; the SPA's `/setup` owns that question,
+because detection lives in the server.
 
 **Recovery** is ONE screen, where the console was five sections. The title IS
 the diagnosis — *No Server Found*, *Your Server Isn't Responding*, *Your Server
@@ -141,18 +149,13 @@ and relaunches. Both can be waiting at once, they cost different amounts, and
 the enum keeps them apart (`Screen::Update` vs `Screen::AppUpdate`,
 `"update"` vs `"app-update"`) — see "Updating the app itself" below.
 
-**Update Server**, **Update Subshell Server**, **Reset** and **How Your Server Runs** are never in `screensFor`'s list. They are
+**Update Server**, **Update Subshell Server**, **Reset**, **How Your Server Runs** and **What macOS Will Ask** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window) or the `desktop_pending_screen` pull (a window still coming up) carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update` | `supervision`) — which is what lets either
+`reset::Screen` enum (`home` | `reset` | `update` | `app-update` | `supervision` | `permissions`; `home` parses to "whatever the probe implies") — which is what lets one
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
 dashboard it was asked to leave.
-
-**`dots` has no position for the requested screens.** `indexOf` answers -1 for
-recovery, update, reset and supervision, and the renderer hides the row on a negative
-`current`. That falls out of one list rather than a branch: a screen is either
-on the journey or it is not.
 
 **Show Details keeps its openness in PAGE state**, not the element's.
 `#content` is rebuilt on every render and the poll renders every 1500 ms, so a
@@ -161,8 +164,9 @@ a second. The failure screen had exactly that defect from the day it shipped.
 
 The window is **1024x720, fixed and not resizable**, and `open_main` takes its
 position and size when the dashboard is created, so the swap reads as one
-window changing screen; the SPA continues the dot row (six dots, three filled)
-when it sees the desktop UA marker.
+window changing screen. The SPA's `/setup` no longer continues a native dot
+row when it sees the desktop UA marker — there is no native row to continue
+(spec 2026-09-17); its row counts its own steps on every shell.
 
 
 ## Who runs the server
@@ -325,9 +329,25 @@ screen (spec 2026-09-15 § 7.2). Four things carry the weight:
   CLI path, where the digest and the bytes come from the same source.
 - **The launch check is once a day and opens nothing.** `settings.json`'s
   `lastUpdateCheckAt` / `lastUpdateVersion` are the whole mechanism
-  (`release_feed::due_for_check`); the only output is the tray item's suffix.
+  (`release_feed::due_for_check`); the only output is the tray item's label.
   A window that appeared on its own because a release was cut is the automatic
   update this design explicitly does not have (spec § 14).
+- **The tray item is two states, and its label says which** (spec
+  2026-09-17 § 5.2). `update_label()` and `tray_update_action()` are pure and
+  split on the SAME non-empty rule, because a label that promises an update
+  whose press only re-checks, or a label that promises a check whose press
+  opens a screen, is the item disagreeing with itself. "Check for Updates…"
+  forces today's background check now — `check_now`, same body as the daily
+  one (`run_check`), same silence, no window — because a person may not want
+  to wait for tomorrow's. "Update available — Subshell Server {version}"
+  opens the assistant at `app-update` through the same deep-link route the
+  dashboard uses, instead of re-checking what it just announced.
+- **The dashboard can now SEE the stored answer** through `desktop_app_update`
+  — the read-only seventh `main` command: no argument, no fetch,
+  `{ currentVersion, availableVersion }` from `PackageInfo` and the one
+  settings field the check writes. It never checks; both update VERBS stay
+  `wizard`-only (spec 2026-09-17 § 5.3; `docs/security.md` carries the
+  accounting).
 - **The check does NOT ride the 1500 ms poll.** Every other fact on the
   assistant is a probe of this machine; this one is a third party. The screen
   asks on its first render and on Check Again, and nothing else.
@@ -593,11 +613,14 @@ the app's own to raise: Notifications, and — since 2026-09-17 — Photos.
 Files-and-Folders is attributed to whichever process lists the folder
 (`subshell-server` under launchd, this app under "runs with this app"), and
 Background Items is a banner, not a permission. So the `permissions` screen —
-macOS only, between Install tmux and Set Up — shows THREE rows, REQUESTS the
-two it owns, EXPLAINS the one it cannot, and never blocks Continue. It is also a
-REQUESTED screen (the one in both lists): the dashboard raises it as the fix for
-every missing-permission notice, and it tells a requested visit from a
-first-run one by whether `screensFor` already holds it.
+macOS only — shows THREE rows, REQUESTS the
+two it owns, EXPLAINS the one it cannot, and never blocks Continue. It is
+REQUEST-ONLY since spec 2026-09-17 (it left the first run; the TCC prompt it
+explains belongs at the moment a permission is first wanted, not at launch):
+the dashboard raises it as the fix for every missing-permission notice, and
+`isRequestedScreen(screen)` is the whole routing — there is no first-run visit
+left to distinguish it from, and the render's old dual-role disambiguator is
+gone with the journey.
 
 **The fourth row — Background Items — was removed on the operator's request,
 and the reason is worth keeping** (it is the same reason the second rule below
@@ -883,6 +906,7 @@ src-tauri/src/
 ├── server_bin.rs  # the ladder, ExecStart parsing, bundled-vs-installed policy, SERVER_SIDECAR
 ├── bridge.rs      # the DesktopAction enum and the eval dispatch
 ├── menu.rs        # the macOS menu bar
+├── about.rs       # the native About panel: pure metadata assembly + the Linux one-item window menu
 └── tray.rs        # the tray icon and its menu, including the close-to-tray check item
 ```
 
@@ -914,7 +938,7 @@ ui/
 │   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
 │   │   ├── config-form.ts    # the pure form contract (see below)
 │   │   ├── installers.ts     # the pure install plans
-│   │   ├── wizard-state.ts   # screensFor, dots, recoveryTitle/Action, RESET_LABEL, the checklist
+│   │   ├── wizard-state.ts   # screensFor, autoSetupDecision, recoveryTitle/Action, RESET_LABEL, the checklist
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
 │   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
@@ -966,20 +990,30 @@ Four things about that arrangement are load-bearing:
   a port answering while the service is not running, a teardown that kills
   live panes, a manager that would not answer.
 
-**About is inside Show Details, and it owns no strings.** `desktop_about`
-supplies this app's name, its version, the licence summary and the copyright
-line from `crates/desktop-core/src/legal.rs`, which `scripts/license-fields.ts`
-holds equal to the TypeScript copy and to the root `LICENSE`; the three links
-go out through `desktop_open_web`, a CLOSED enum, so the addresses travel to
-the page for display and never travel back. A third copy in `ui/src` would be
-the one copy that detector cannot see, and a drifted copyright line is
-invisible — nobody re-reads an About box.
+**About is native now, and it owns no strings of its own** (spec 2026-09-17
+§ 6). The predefined About item rides the macOS app menu; Linux, which has no
+app menu, gives the DASHBOARD window a one-item menu bar carrying the same
+item — muda's GTK backend renders a real `AboutDialog` from the metadata, so
+the panel is not macOS-only chrome. Both read one `about::metadata()`
+assembly: a pure function under test, fed the version from `PackageInfo`
+(NOT `env!("CARGO_PKG_VERSION")`, which is the crate's 0.1.0 — the real
+version reaches it through `tauri.conf.json` reading `../package.json`), and
+the copyright, licence summary and URLs from the same
+`crates/desktop-core/src/legal.rs` constants `scripts/license-fields.ts`
+holds equal to the TypeScript copy and the root `LICENSE`. A third copy in
+`ui/src` would still be the one the detector cannot see. Show Details keeps
+exactly ONE fact from the old block — `This app — Subshell Server {version}`
+— because the version belongs beside the log text a person is about to paste
+into a bug report, and `desktop_about` keeps that line as its last caller.
+Distinct from the SPA's own `AboutDialog` (user menu → About), which is about
+the product and the SERVER build: this panel is about the app binary, and it
+is the only surface that knows the app's version.
 
-**That is also why those two commands still have callers.** The SPA grew an
-About dialog for everyone (spec 2026-09-12), so the obvious move was to delete
-this one — but on a machine whose server is DOWN the SPA is unreachable, and
-the assistant is then the only surface that can say what this app is. Which is
-precisely the machine this page exists for.
+**That is also why the native panel needs no command at all.** It is built in
+Rust from the same constants — no `desktop_about` round trip, no URL crossing
+the IPC boundary in either direction. And on a machine whose server is DOWN,
+where the SPA's About dialog is unreachable, the panel is still there — which
+is precisely the machine this page exists for.
 
 ## The log, and the last action's words
 
@@ -1039,16 +1073,25 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open` and `opener:allow-reveal-item-in-dir` |
-| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
+| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grants: `core:default` and `core:window:allow-close` (spec 2026-09-17's **Later** button; `core:default` does NOT include it — verified against `gen/schemas/acl-manifests.json`, and pinned in `ipc-acl.test.ts`, which also pins that `main` holds NEITHER close nor the update verbs) |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
 
-`main`'s first five are chosen for what they cannot do: raise a window, drop
-this app's own title bar, display one notification with a fixed shape, and
-open a page of THIS server in the system browser.
-`desktop_set_supervision`, the sixth, is granted by operator decision
-(2026-09-12) so the dashboard's supervision card can confirm in its own dialog
-rather than raising the assistant; `docs/security.md` carries the accounting,
-and `ipc-acl.test.ts` pins `main` at exactly these six so a seventh is loud (the sixth, `desktop_permissions`, is the read-only one argued in the macOS permissions section below).
+Six of `main`'s seven commands are chosen for what they cannot do: raise a
+window at a named screen, drop this app's own title bar, display one
+notification with a fixed shape, open a page of THIS server in the system
+browser, and — no argument at all, two facts each — read this app's macOS
+permission states (2026-09-14, argued in the macOS permissions section
+below) and its own two update version facts (2026-09-17, spec § 5.3):
+`{ currentVersion, availableVersion }` from `PackageInfo` and the one
+settings field the daily check writes. The read NEVER checks —
+`desktop_check_app_update`, `desktop_install_app_update` and every other
+verb stay `wizard`-only, and the row's `[Update]` rides `desktop_open_assistant`,
+a command `main` already held.
+`desktop_set_supervision` — the one deliberate exception, added by operator
+decision on 2026-09-12 — lets the dashboard's supervision card confirm in its
+own dialog rather than raising the assistant; `docs/security.md` carries the
+accounting, and `ipc-acl.test.ts` pins `main` at exactly these seven so an
+eighth is loud.
 
 `desktop_open_in_browser` (2026-09-14) is of the harmless kind and its
 harmlessness is in the ARGUMENT: it takes a PATH — no scheme, no
@@ -1143,9 +1186,10 @@ the commands invoked by the assistant page — `ui/src/wizard.ts` plus every
 module under `ui/src/assistant/` — are EXACTLY the set `wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
-holds exactly its six commands plus window dragging — by name, by count, by
-SCOPE (loopback both spellings, `local: false`, one window id), and for the two
-that take arguments, by Rust signature.
+holds exactly its seven commands plus window dragging — by name, by count, by
+SCOPE (loopback both spellings, `local: false`, one window id), and for every
+one that takes arguments, by Rust signature — the two reads,
+`desktop_permissions` and `desktop_app_update`, pinned to an EMPTY list.
 
 **The count is a number worth a test**, because "a few harmless ones" is how a
 boundary erodes. Three more pins arrived with the console's deletion: that
@@ -1351,8 +1395,11 @@ states — `status --json` carries no user state by design, `ShellReady` fires
 from the SPA root on purpose, and there is no HTTP client here to ask
 `/api/setup/status`. The tray is a shortcut and never the only route, so the
 item is gone rather than gated. That leaves `menu.rs` as the only consumer of
-`bridge.rs`, and since the menu bar is macOS-only, `bridge` is gated at the
-MODULE — on Linux it is otherwise entirely dead code.
+`bridge.rs`, and since the menu bar that carries ACTIONS is macOS-only — the
+Linux window bar added 2026-09-17 carries one PREDEFINED About item, which
+muda's GTK backend answers in its own click handler and never routes an id —
+`bridge` is gated at the MODULE — on Linux it is otherwise entirely dead
+code.
 
 ## Text size is Rust's, not the page's
 
@@ -1402,7 +1449,7 @@ bundled assistant page, which is the surface that can already invoke commands.
 
 | Surface | macOS | Linux |
 | --- | --- | --- |
-| Menu bar | full `NSMenu` | none — a GTK menu bar is per-window chrome, not a system bar |
+| Menu bar | full `NSMenu` | one item: the predefined **About** on the dashboard window (spec 2026-09-17 § 6) — a GTK menu bar is per-window chrome, not a system bar, so it carries nothing else |
 | Tray | icon + menu, click opens | icon + menu only; **click events are never emitted** |
 | Title bar | Overlay, negotiated (below) | ordinary |
 | Close to tray | offered, **default on** | offered where a tray is **detected**, default on; clamped off where none answers |

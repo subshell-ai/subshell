@@ -16,13 +16,13 @@
  *   (which holds ONE path-only command, because a control plane can live
  *   anywhere and only the argument can be narrow there), this one shows the
  *   server THIS APP manages over loopback, so its origin is enumerable in
- *   `main.json`. It holds exactly SIX commands, and the count
+ *   `main.json`. It holds exactly SEVEN commands, and the count
  *   is worth a test because "a few harmless ones" is how a boundary erodes —
- *   which is precisely what `desktop_set_supervision` proves can happen: five
+ *   which is precisely what `desktop_set_supervision` proves can happen: six
  *   of them cannot reach the CLI at all, and that one can. It is an
  *   argued exception (operator's call 2026-09-12, accounted in
- *   `docs/security.md`), not a precedent. A seventh needs the same argument
- *   made again, in writing, before this number moves.
+ *   `docs/security.md`), not a precedent. Every addition needs the same
+ *   argument made again, in writing, before this number moves.
  *
  *   The fifth, `desktop_open_in_browser`, is of the harmless kind and joined
  *   the list on 2026-09-14: it takes a PATH, the Rust side refuses anything
@@ -41,6 +41,15 @@
  *   a state and can raise neither a system prompt nor a System Settings pane.
  *   The number of ACTING commands grew that day; the number on this window did
  *   not, which is the only part this file counts.
+ *
+ *   The seventh, `desktop_app_update`, joined with spec 2026-09-17 § 5.3 for
+ *   the same shape of reason as the sixth, and its signature is pinned the
+ *   same way: no argument, two facts the daily launch check already wrote to
+ *   this app's own settings file, no CLI, no filesystem beyond that. It makes
+ *   the SPA's sidebar row possible; the assistant page never invokes it (its
+ *   own app-update screen asks the release list live, through
+ *   `desktop_check_app_update`, which stays `wizard`-only along with the
+ *   installer — reading a remembered answer is not the half that acts).
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -201,30 +210,33 @@ describe("the assistant's IPC contract", () => {
     for (const id of manifestPermissions().keys()) expect(granted.has(id)).toBe(true);
   });
 
-  it("keeps `main` to exactly its six commands — five harmless, one deliberate exception", () => {
+  it("keeps `main` to exactly its seven commands — six harmless, one deliberate exception", () => {
     // Raise a window, drop this app's own title bar, display one fixed-shape
     // notification, open a page of this same server in the system browser,
-    // read this app's own macOS permission states — and switch who runs the
-    // server. That last one is the
-    // ONE command here that touches the service, and it is here on purpose
-    // (operator's call, 2026-09-12): the assistant window that carried it read
-    // as a bug, and a page that already holds the admin restart route can do
-    // worse than move the server between two supervisors. The accounting is
-    // in docs/security.md. Adding a SEVENTH is the change this line exists to
-    // make loud; so is quietly widening any of these.
+    // read this app's own macOS permission states, read the app's own
+    // known-update state — and switch who runs the server. That
+    // last one is the ONE command here that touches the service, and it is
+    // here on purpose (operator's call, 2026-09-12): the assistant window that
+    // carried it read as a bug, and a page that already holds the admin
+    // restart route can do worse than move the server between two supervisors.
+    // The accounting is in docs/security.md. Adding an EIGHTH is the change
+    // this line exists to make loud; so is quietly widening any of these.
     //
     // `desktop_open_assistant` is the deep link the SPA sends — the Settings
     // danger card (`{ screen: "reset" }`), the Service page's Update card
     // (`{ screen: "update" }`), the permission notices
-    // (`{ screen: "permissions" }`) and the sidebar pill (no argument). It
-    // names a SCREEN, never a command: raising `update` performs one read-only
-    // probe, raising `permissions` performs none at all, and every verb behind
-    // any of those screens needs a press inside the bundled page.
+    // (`{ screen: "permissions" }`), the sidebar update row
+    // (`{ screen: "app-update" }`, spec 2026-09-17 § 5.3) and the sidebar
+    // pill (no argument). It names a SCREEN, never a command: raising
+    // `update` performs one read-only probe, raising `permissions` performs
+    // none at all, and every verb behind any of those screens needs a press
+    // inside the bundled page.
     const manifest = manifestPermissions();
     const appCommands = capabilityPermissions("main.json")
       .filter((id) => !id.includes(":"))
       .flatMap((id) => manifest.get(id) ?? []);
     expect(appCommands.sort()).toEqual([
+      "desktop_app_update",
       "desktop_notify",
       "desktop_open_assistant",
       "desktop_open_in_browser",
@@ -236,6 +248,31 @@ describe("the assistant's IPC contract", () => {
     // free, opener-free, fs-free handling by construction.
     const pluginPermissions = capabilityPermissions("main.json").filter((id) => id.includes(":"));
     expect(pluginPermissions.sort()).toEqual(["core:window:allow-start-dragging"]);
+  });
+
+  it("keeps `main`'s app-update read to NO arguments", () => {
+    // The seventh command (spec 2026-09-17 § 5.3), pinned the way
+    // `desktop_permissions` is: its whole case for being on a served page is
+    // that it takes nothing, reads only the two fields the daily launch check
+    // already wrote, and can change nothing. A parameter added later — a
+    // version to check, a URL, a channel — would make it a different command
+    // with the same name, and no other assertion in this file would see it.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const marker = "pub fn desktop_app_update(";
+    expect(rust, "desktop_app_update is gone from control.rs").toContain(marker);
+    const signature = rust.slice(rust.indexOf(marker));
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    const names = params
+      .split(",")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(":")[0]?.trim());
+    expect(names, "desktop_app_update takes more than an AppHandle").toEqual(["app"]);
+    // And the half that ACTS stayed on the bundled page: reading a
+    // remembered answer on `main` does not come with installing it.
+    const main = grantedCommands("main.json");
+    expect(main.has("desktop_install_app_update")).toBe(false);
+    expect(main.has("desktop_check_app_update")).toBe(false);
   });
 
   it("keeps `main`'s SCOPE pinned, not just its permission list", () => {
@@ -389,6 +426,21 @@ describe("the assistant's IPC contract", () => {
     // of inside a system sheet.
     const dialog = capabilityPermissions("wizard.json").filter((id) => id.startsWith("dialog:"));
     expect(dialog.sort()).toEqual(["dialog:allow-open"]);
+  });
+
+  it("keeps the assistant's core:window grants to `default` plus closing itself", () => {
+    // `core:default` is read-only window facts; `close` is not in it (checked
+    // against `gen/schemas/acl-manifests.json` on 2026-09-17), so the update
+    // screen's **Later** button (spec 2026-09-17 § 5.4) had to be granted by
+    // name. It is the narrowest window verb there is from the page's side —
+    // `getCurrentWindow().close()` closes THIS window, and the bundled page
+    // is this window — but it is still a window verb, and a grant list that
+    // grows by "it's only core" is how the assistant would end up able to
+    // hide, minimize or resize frames it does not own. `setSize`/`hide`/
+    // `show` are what a later erosion would look like; this line is where
+    // that stops being quiet.
+    const core = capabilityPermissions("wizard.json").filter((id) => id.startsWith("core:"));
+    expect(core.sort()).toEqual(["core:default", "core:window:allow-close"]);
   });
 
   it("mentions no command the console took with it", () => {

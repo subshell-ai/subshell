@@ -1158,6 +1158,27 @@ pub async fn desktop_install_app_update(app: AppHandle) -> Result<(), String> {
     crate::app_update::install_app_update(&app).await
 }
 
+/// The app's version and the update the daily check found, for the SPA's
+/// sidebar row (spec 2026-09-17 § 5.3).
+///
+/// The SEVENTH command the served SPA may invoke, argued like the sixth
+/// (`desktop_permissions`): no argument, no fetch, no CLI, no filesystem
+/// beyond this app's own `settings.json` — it reads `currentVersion` from the
+/// build's own `PackageInfo` and `availableVersion` from the one field the
+/// daily check already writes. It NEVER checks: nothing here reaches the
+/// network, so a page cannot spend the daily budget or hammer a release
+/// source. An XSS in the served SPA gains two version strings it could not
+/// act on and nothing else. The `[Update]` button beside the row opens the
+/// `app-update` screen through `desktop_open_assistant`, the command the page
+/// already holds; installing stays on the bundled page.
+#[tauri::command(async)]
+pub fn desktop_app_update(app: AppHandle) -> crate::app_update::AppUpdateStatus {
+    crate::app_update::status_view(
+        &app.package_info().version.to_string(),
+        app.state::<SettingsState>().get().last_update_version.as_deref(),
+    )
+}
+
 /// The whole first-run chain, behind one consented press.
 ///
 /// Install, configure, register as a service, start. Every one of these has a
@@ -3428,12 +3449,12 @@ mod tests {
     /// to catch is a command added to it by habit — a test that only forbade
     /// today's names would not see tomorrow's.
     ///
-    /// Six of the seven cannot touch the CLI. The odd one,
+    /// Seven of the eight cannot touch the CLI. The odd one,
     /// `desktop_set_supervision`, can — it is the ONE deliberate exception
     /// (operator's call, 2026-09-12): the dashboard confirms in its own dialog
     /// rather than raising the assistant, on the argument that a page already
     /// holding the admin restart route can do worse than choose the server's
-    /// respawner. `docs/security.md` carries the accounting. An EIGHTH entry,
+    /// respawner. `docs/security.md` carries the accounting. A NINTH entry,
     /// or a wider one of these, is what this pin exists to make loud.
     ///
     /// `allow-desktop-open-in-browser` (2026-09-14) is of the harmless kind,
@@ -3442,16 +3463,26 @@ mod tests {
     /// joined onto this window's own loopback origin. Its signature is pinned
     /// separately, by `ui/src/__tests__/ipc-acl.test.ts`.
     ///
-    /// `allow-desktop-permissions` (2026-09-14) is the newest, and the only one
-    /// whose safety needs no argument about arguments: it has none. It answers
-    /// whether macOS lets this app notify and read Photos, changes nothing, and
-    /// is here because two of the three places a missing permission has to be
-    /// explained are in this very page (spec 2026-09-14 § 7). Note what did NOT
+    /// `allow-desktop-permissions` (2026-09-14) was the first addition to the
+    /// written count, and one of the two whose safety needs no argument about
+    /// arguments: it has none. It answers whether macOS lets this app notify
+    /// and read Photos, changes nothing, and is here because two of the three
+    /// places a missing permission has to be explained are in this very page
+    /// (spec 2026-09-14 § 7). Note what did NOT
     /// come with it: `desktop_request_notifications` and
     /// `desktop_open_system_settings` are `wizard`-only, so this page can read
     /// the state and never raise a prompt or a system pane.
+    ///
+    /// `allow-desktop-app-update` (2026-09-17) is the other argument-less one,
+    /// and the smaller still: two version strings read from THIS BUILD (its
+    /// package info) and from one field the daily launch check already wrote
+    /// into this app's own settings. It never asks the release source —
+    /// `desktop_check_app_update` is `wizard`-only, as is every install verb,
+    /// so a page can learn an update exists and open the screen that says so
+    /// (`desktop_open_assistant`, held already), and nothing else (spec
+    /// 2026-09-17 § 5.3).
     #[test]
-    fn the_remote_window_is_granted_six_harmless_commands_and_one_deliberate_exception() {
+    fn the_remote_window_is_granted_seven_harmless_commands_and_one_deliberate_exception() {
         assert_eq!(
             grants("main"),
             vec![
@@ -3462,6 +3493,7 @@ mod tests {
                 "allow-desktop-open-in-browser",
                 "allow-desktop-set-supervision",
                 "allow-desktop-permissions",
+                "allow-desktop-app-update",
             ]
         );
     }

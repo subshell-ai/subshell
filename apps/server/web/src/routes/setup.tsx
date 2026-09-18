@@ -30,7 +30,7 @@ import { apiFetch, errMessage } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
+import { isServerDesktop } from "@/lib/desktop";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
 import type { SetupStep } from "@/types/setup";
 
@@ -60,14 +60,16 @@ type WizardStep = "account" | SetupStep;
  * tmux, under a subtitle promising "A plain terminal is always available with
  * nothing to install".
  *
- * The step is ABSENT inside Subshell Server: the native assistant shows its
- * own tmux screen on every first run (`wizard-state.ts screensFor`), and it
- * can ACT on a missing tmux through brew and pkexec, where the SPA's
- * `POST /api/setup/tmux/install` is Homebrew-only and 409s on every Linux
- * entry. A browser (and Subshell Client, whose plane is somebody else's
- * machine) gets the step, and the dot row gains one — inside the server app
- * the assistant's screens already carry that dot, which is what keeps
- * {@link dotsFor} totals identical to before for that shell.
+ * The step is ABSENT inside Subshell Server because that shell's native
+ * assistant can ACT on a missing tmux through brew and pkexec, where the
+ * SPA's `POST /api/setup/tmux/install` is Homebrew-only and 409s on every
+ * Linux entry — and since spec 2026-09-17 that screen is the assistant's one
+ * conditional stop, shown exactly when tmux is missing. Nothing about the
+ * handoff makes the dot totals match across shells any more (see
+ * {@link dotsFor} for why the row stopped counting the native screens);
+ * inside the shell the row counts this program's four steps, and tmux is
+ * simply not one of them here. A browser (and Subshell Client, whose plane
+ * is somebody else's machine) gets the step, and its row gains the dot.
  */
 const STEP_ORDER: readonly WizardStep[] = ["account", "network", "tmux", "agent", "launch"];
 
@@ -370,17 +372,19 @@ function SetupPage() {
     }
   }
 
-  // In the desktop shell the native assistant already showed its screens; the
-  // dot row continues from there so the two programs read as one (spec § 4).
-  // macOS gets a fourth — "What macOS Will Ask" sits between Install tmux and
-  // Set Up, and exists only on the platform that asks (spec 2026-09-14 §6).
-  // The assistant's set INCLUDES its tmux screen, which is what lets this
-  // shell cut the SPA's step without moving any dot: the person has already
-  // been shown that screen, under this same dot row, minutes earlier.
-  const NATIVE_STEPS = isServerDesktop() ? (desktopPlatform() === "macos" ? 4 : 3) : 0;
+  // The dot row counts THIS program's steps only. It used to continue from
+  // the native assistant's screens inside the desktop shell — three (four on
+  // macOS, counting "What macOS Will Ask") — so the two halves read as one
+  // journey. Spec 2026-09-17 removed that journey: the assistant auto-fires,
+  // shows a progress checklist rather than stepped screens, and its one
+  // conditional stop (tmux) precedes this page rather than paralleling it.
+  // Continuing from zero-counted screens the person never saw would be the
+  // old contract's defect inverted, so the desktop totals are simply its own
+  // steps now — fewer than the browser's by exactly the tmux step this shell
+  // omits because the native screen owns that act (see STEP_ORDER above).
   const dotsFor = (s: WizardStep) => {
     const here = steps.indexOf(s);
-    return { total: steps.length + NATIVE_STEPS, done: NATIVE_STEPS + here, current: NATIVE_STEPS + here };
+    return { total: steps.length, done: here, current: here };
   };
   // One string on both platforms (operator's call, 2026-09-12): the native
   // assistant that hands off to these screens dropped its own "this Mac"
