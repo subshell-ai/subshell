@@ -135,13 +135,16 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("step 2 shows the key exactly once — inside the command, its only copy target", async () => {
+  it("step 2 carries the plaintext only inside a command — never as a bare box (common shape)", async () => {
     // The standalone key box and its subtitle are gone (operator's call,
     // 2026-09-18): the command carries the key, and a second box was a
     // second thing to copy for one paste. The load-bearing regression is
     // that removal did not drop the key from the command — hence the
-    // count: the key-bearing element IS the command, and there is exactly
-    // one of it.
+    // count: in this (common) shape the key-bearing element IS the command,
+    // and there is exactly one of it. The air-gapped shape has TWO key-
+    // bearing rows — curl and the enroll fallback, alternatives each
+    // carrying it — pinned by the fallback test below; the invariant across
+    // both is that no element carries the key OUTSIDE a command.
     const { restore } = mockFetch();
     try {
       await renderDialog();
@@ -364,6 +367,12 @@ describe("AddNodeDialog", () => {
       // is true here (review, 2026-09-18) — the sentence describes a download
       // that will never happen; the amber refusal owns this screen.
       expect(screen.queryByText(/downloaded from the project/i)).toBeNull();
+      // The branch's shape, stated (review, 2026-09-18): this screen shows
+      // the plaintext key TWICE — once per command — because the two rows
+      // are alternatives (you run one). The count-1 test above covers the
+      // common single-command shape; together they pin the real invariant:
+      // the key lives in commands and never outside one, one row or two.
+      expect(screen.getAllByText(/nsk_secret/)).toHaveLength(2);
     } finally {
       restore();
     }

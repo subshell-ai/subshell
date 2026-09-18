@@ -376,7 +376,11 @@ second thing to copy for one paste, and tmux is the script's own refusal at
 the moment it matters, not dialog prose. The two explanatory sentences
 (~/.local/bin + the per-platform first-run download) merged into the one
 paragraph they always described; the "Single-use, expires in 24 h…" line
-stays, now beside the command that is the key's only reveal.
+stays, and the key now lives inside commands and NEVER outside one — one
+row in the common shape, TWO (curl + the enroll fallback, alternatives
+that each carry it) on the air-gapped branch, which is why the invariant
+is stated that way rather than as "shown once on screen"; the kept line
+speaks of the only TIME, which is true in both shapes.
 
 ## Subshell for Mobile (the PWA install dialog)
 

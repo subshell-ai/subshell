@@ -22,12 +22,15 @@ import type { CreatedSetupKey } from "@/types/node";
 
 /**
  * Two-step "Add node" flow (spec 2026-08-31 §5.1/§9): a label → a single-use
- * setup key whose plaintext is shown EXACTLY ONCE here — inside the
- * copy-ready install command and nowhere else (operator's call, 2026-09-18:
- * the standalone key box, its subtitle, and the tmux paragraph went, as
- * copy targets and prose the command and the script's own output already
- * carry). While the dialog is open the page polls the node list every 3 s,
- * and the waiting hint flips to "enrolled" when the machine shows up.
+ * setup key whose plaintext is shown ONLY here and ONLY inside a command —
+ * never as a bare copyable element (operator's call, 2026-09-18: the
+ * standalone key box, its subtitle, and the tmux paragraph went, as copy
+ * targets and prose the command and the script's own output already carry).
+ * "A command," not "the command": the air-gapped branch renders TWO rows —
+ * the one-liner and the `subshell enroll` fallback — and each carries the
+ * key, because they are alternatives (you run one), not additions. While the
+ * dialog is open the page polls the node list every 3 s, and the waiting
+ * hint flips to "enrolled" when the machine shows up.
  *
  * Step 2 names the address the node will DIAL FOREVER, not merely the host
  * of the curl: the download address and the dial address are separate facts
@@ -203,6 +206,8 @@ export function AddNodeDialog({
   // it is true there too, because that server's louder amber refusal
   // (`missingNote`) already owns the screen and telling someone to wait for
   // a download that will never come would be worse than saying nothing.
+  // In the step-2 fold the leading space belongs INSIDE the fragment, so
+  // the hidden state renders no trailing space after "at login."
   const showFirstRunNote = autoFetch && targets !== undefined && targets.length < NODE_TARGETS.length;
   const firstRunNote = showFirstRunNote && (
     <p className="text-detail text-muted-foreground">
@@ -225,16 +230,20 @@ export function AddNodeDialog({
             <DialogHeader>
               <DialogTitle>Run this on the new machine</DialogTitle>
             </DialogHeader>
-            {/* One copy target since 2026-09-18 (operator's call): the key box
-                and the "the setup key below is shown once" subtitle are gone,
-                because the command below already carries the key — a second
-                box was a second thing to copy for one paste. The key still
-                appears EXACTLY ONCE on this screen, inside the command; the
-                destructive line below says as much. The tmux paragraph went
-                with them: `subshell setup` preflights tmux and refuses before
-                spending the key, and the script's own output names the fix at
-                the moment it matters — the dialog's job is the command. The
-                two explanatory sentences merged into the one block below. */}
+            {/* Commands are the ONLY carrier of the key since 2026-09-18
+                (operator's call): the key box and the "the setup key below is
+                shown once" subtitle are gone, because the command already
+                carries the key — a second box was a second thing to copy for
+                one paste. The key appears inside a command and NEVER outside
+                one; on the enroll-fallback branch that means two rows, each
+                carrying it, because they are alternatives (you run one). The
+                destructive line below is about the MOMENT ("the only time"),
+                not the row count — it is true in both shapes. The tmux
+                paragraph went with the box: `subshell setup` preflights tmux
+                and refuses before spending the key, and the script's own
+                output names the fix at the moment it matters — the dialog's
+                job is the command. The two explanatory sentences merged into
+                the one block below. */}
             {/* What the one-liner will do, said BEFORE it is pasted into a
                 terminal on a machine the operator is standing at. Every
                 clause is a clause of the rendered script (api/install-script
