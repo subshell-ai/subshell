@@ -206,6 +206,12 @@ live panes exist. (Reuse the restart route's pane-safety framing, wording new.)
 - `wizard-state.test.ts`: new `screensFor` matrix (tmux-conditional stop, no
   welcome/permissions/dots), plus a pure `autoSetupDecision(probe, conflict)`
   → `fire | form | stop-tmux` extracted so the § 4.3 branches are table-driven.
+  **Amended at build-out:** the shipped `autoSetupDecision` returns
+  `fire | form` only, and takes `busy` beside `conflict`. There is no
+  `stop-tmux` arm — a missing tmux is `canSetup`'s refusal (folded into
+  `form`), and the tmux SCREEN's very presence is `screensFor`'s
+  (`tmux === null ? ["tmux"] : ["setup"]`), so a third arm here would have
+  answered a question the screen list upstream already answered.
 - Assistant: auto-fire fires exactly once per load (module flag) — pinned with
   a reload-after-failure case; no-fire when `autoSetupDecision` says form.
 - `ipc-acl.test.ts`: `desktop_app_update` granted, zero-argument, scope pins

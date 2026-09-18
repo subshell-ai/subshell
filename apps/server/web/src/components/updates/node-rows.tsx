@@ -34,7 +34,8 @@ export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minAgentV
  * above, and listing it twice would offer two buttons for one act.
  *
  * **Update all is sequential and stops at the first failure**, naming the node
- * it stopped on. Firing them in parallel would have every machine downloading
+ * it stopped on — in that row's own failure line, since the hook keeps the
+ * failure and the row renders it. Firing them in parallel would have every machine downloading
  * from the release source at once and would leave a partial fleet with no
  * statement about which half moved; stopping is what makes the next press
  * resumable by simply pressing it again.
@@ -45,19 +46,22 @@ export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minAgentV
  */
 export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   const nodeUpdate = useNodeUpdate();
-  const [runError, setRunError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
 
   async function updateAll(): Promise<void> {
-    setRunError(null);
     setRunning(true);
     try {
       for (const row of updatable) {
         try {
           await nodeUpdate.update(row.id);
-        } catch (error) {
-          setRunError(`${row.name}: ${error instanceof Error ? error.message : String(error)}`);
+        } catch {
+          // Stop the sequence, and say it ONCE. The hook keeps the failure and
+          // the row it is on renders its own destructive line — the same
+          // mechanism a single-row press uses, whose comment below names it —
+          // so a section-bottom copy here printed the identical message twice
+          // (review 2026-09-17). The row IS the "stopped here" statement: its
+          // name cell labels the machine the line sits under.
           return;
         }
       }
@@ -114,7 +118,6 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                 disabled={!row.canUpdate.ok || running || nodeUpdate.pendingNodeId !== null}
                 title={row.canUpdate.reason ?? undefined}
                 onClick={() => {
-                  setRunError(null);
                   nodeUpdate.reset();
                   void nodeUpdate.update(row.id).catch(() => {
                     // The hook keeps the failure and the row renders it; a
@@ -135,8 +138,6 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
           </div>
         );
       })}
-
-      {runError !== null && <p className="col-span-full text-destructive text-detail">{runError}</p>}
     </>
   );
 }

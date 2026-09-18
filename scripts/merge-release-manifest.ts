@@ -41,13 +41,14 @@
  * is a release no plane will offer.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { NODE_TARGETS, SERVER_TARGETS } from "../packages/subshell-protocol/src/paths.js";
 import { signPublishedReleaseManifest } from "../packages/subshell-protocol/src/release-signature.js";
 import {
   parseReleaseManifest,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
   type ReleaseManifest,
   releaseAssetNames,
 } from "../packages/subshell-protocol/src/releases.js";
@@ -81,6 +82,12 @@ export function findShardManifests(dir: string, out: string): string[] {
       return;
     }
     for (const name of entries.sort()) {
+      // HIDDEN entries are never shards. No upload lands a shard under a
+      // dot-name, and this run's own staging directory is hidden precisely
+      // so a SIGKILLed earlier run cannot leave a stale
+      // `.merge-staging-<pid>/release-manifest.json` for the next run to
+      // ingest as a fourth "shard" with a disagreeing digest.
+      if (name.startsWith(".")) continue;
       const path = join(at, name);
       if (statSync(path).isDirectory()) {
         if (depth > 0) scan(path, depth - 1);
@@ -184,16 +191,40 @@ async function main(argv: readonly string[]): Promise<void> {
 
   mkdirSync(destDir, { recursive: true });
   const dest = join(destDir, RELEASE_MANIFEST_NAME);
-  // Write the merged bytes FIRST, then sign them by RE-READING the file —
-  // `signPublishedReleaseManifest` signs the exact published bytes, which is
-  // the rule the whole design rests on (§3).
-  writeFileSync(dest, `${JSON.stringify(merged, null, 2)}\n`);
-  const signed = await signPublishedReleaseManifest(destDir, merged);
-  if (signed !== "signed") {
-    rmSync(dest, { force: true });
-    throw new Error(
-      "TAURI_SIGNING_PRIVATE_KEY is not set — this script runs only in the publish job, whose shards already refused that absence; publishing an unsigned merged manifest would name a release no plane will offer for update",
-    );
+  // STAGE inside `destDir`, sign the staged pair, and `rename()` BOTH into
+  // place only once the signature exists — the repo's atomic-publish idiom
+  // (temp file + rename, the same one `publishArtifacts` uses per file),
+  // lifted from one file to the pair because a manifest without its sig, or
+  // the reverse, is the same half-state. The order this replaces wrote the
+  // DESTINATION first and rm-synced it on refusal, so a re-run without
+  // `TAURI_SIGNING_PRIVATE_KEY` in a reused directory deleted the previous
+  // run's valid merged pair (review 2026-09-17): the refusal removed the
+  // thing it refused to replace, not its own bytes. The staging directory is
+  // inside `destDir` on purpose — rename is only atomic within one
+  // filesystem — and its name cannot collide with a scan hit, because the
+  // scan looks for `release-manifest.json` at the top level or one directory
+  // deep and has ALREADY run by this point.
+  const staging = join(destDir, `.merge-staging-${process.pid}`);
+  mkdirSync(staging, { recursive: true });
+  try {
+    const staged = join(staging, RELEASE_MANIFEST_NAME);
+    // Write the merged bytes FIRST, then sign them by RE-READING the file —
+    // `signPublishedReleaseManifest` signs the exact published bytes, which
+    // is the rule the whole design rests on (§3). The bytes rename() moves
+    // are the bytes that were read, so the armor covers exactly what ships.
+    writeFileSync(staged, `${JSON.stringify(merged, null, 2)}\n`);
+    const signed = await signPublishedReleaseManifest(staging, merged);
+    if (signed !== "signed") {
+      throw new Error(
+        "TAURI_SIGNING_PRIVATE_KEY is not set — this script runs only in the publish job, whose shards already refused that absence; publishing an unsigned merged manifest would name a release no plane will offer for update",
+      );
+    }
+    renameSync(staged, dest);
+    renameSync(join(staging, RELEASE_MANIFEST_SIG_NAME), join(destDir, RELEASE_MANIFEST_SIG_NAME));
+  } finally {
+    // The temps only — the destination is touched by nothing until both
+    // renames above have run.
+    rmSync(staging, { recursive: true, force: true });
   }
   console.log(`merged ${paths.length} shard manifest(s) → ${dest} (+ ${RELEASE_MANIFEST_NAME}.sig), signed`);
   for (const name of Object.keys(merged.assets).sort()) console.log(`  ${name}`);

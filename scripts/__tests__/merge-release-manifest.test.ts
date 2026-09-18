@@ -10,13 +10,14 @@
  * asset, shards that disagree on what release they are in.
  */
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NODE_TARGETS, SERVER_TARGETS } from "../../packages/subshell-protocol/src/paths.js";
 import {
   parseReleaseManifest,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
   releaseAssetNames,
 } from "../../packages/subshell-protocol/src/releases.js";
 import {
@@ -169,7 +170,7 @@ describe("findShardManifests / loadShardManifests", () => {
 });
 
 describe("merge-release-manifest CLI", () => {
-  it("refuses to produce an unsigned merged manifest — the publish job always has the key", async () => {
+  it("refuses to produce an unsigned merged manifest — and leaves a previous run's pair INTACT", async () => {
     const root = mkdtempSync(join(tmpdir(), "merge-manifest-cli-"));
     try {
       // A COMPLETE triple set, so the merge itself succeeds and the refusal
@@ -184,7 +185,18 @@ describe("merge-release-manifest CLI", () => {
           JSON.stringify(shard("node", { [releaseAssetNames("node", t).binary]: digestFor(i + 1) }).manifest),
         );
       });
-      const proc = Bun.spawn(["bun", "scripts/merge-release-manifest.ts", root, "--out", join(root, "manifest")], {
+      // A previous run's valid merged pair already AT the destination (the
+      // reused-directory retry a publish job actually does). The old order —
+      // write the destination, then rm it on refusal — destroyed this pair on
+      // a key-less re-run; staging + rename means the refusal may remove only
+      // its own temps (review 2026-09-17).
+      const out = join(root, "manifest");
+      mkdirSync(out, { recursive: true });
+      const priorManifest = `${JSON.stringify(shard("node", {}).manifest, null, 2)}\n`;
+      const priorSig = "PRIOR ARMOR — must survive\n";
+      writeFileSync(join(out, RELEASE_MANIFEST_NAME), priorManifest);
+      writeFileSync(join(out, RELEASE_MANIFEST_SIG_NAME), priorSig);
+      const proc = Bun.spawn(["bun", "scripts/merge-release-manifest.ts", root, "--out", out], {
         cwd: new URL("../../", import.meta.url).pathname,
         env: { PATH: process.env.PATH ?? "" },
         stdout: "pipe",
@@ -193,6 +205,13 @@ describe("merge-release-manifest CLI", () => {
       const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
       expect(code).toBe(1);
       expect(err).toContain("TAURI_SIGNING_PRIVATE_KEY");
+      // The pair survives, byte for byte…
+      expect(readFileSync(join(out, RELEASE_MANIFEST_NAME), "utf8")).toBe(priorManifest);
+      expect(readFileSync(join(out, RELEASE_MANIFEST_SIG_NAME), "utf8")).toBe(priorSig);
+      // …and the failed run leaves no staging temps of its own behind.
+      // `readdirSync` lists dotfiles, so this pins the absence of any
+      // `.merge-staging-<pid>` directory as surely as of a stray file.
+      expect(readdirSync(out).sort()).toEqual([RELEASE_MANIFEST_NAME, RELEASE_MANIFEST_SIG_NAME].sort());
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

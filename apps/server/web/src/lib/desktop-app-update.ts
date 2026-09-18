@@ -53,13 +53,24 @@ export function rememberAppUpdateDismissal(version: string): void {
 /**
  * Whether the footer row renders.
  *
- * Three ways it does not: the shell has not answered (a browser, an older
+ * Four ways it does not: the shell has not answered (a browser, an older
  * binary with no such command, or the read still in flight), the answer carries
- * no known update, or this exact version was dismissed. A dismissal is bound to
- * the version, so a newer release re-shows the row without any expiry logic —
- * that is the whole "snooze until it changes" mechanism, in one comparison.
+ * no known update, the answer names the version that is ALREADY running, or
+ * this exact version was dismissed. A dismissal is bound to the version, so a
+ * newer release re-shows the row without any expiry logic — that is the whole
+ * "snooze until it changes" mechanism, in one comparison.
+ *
+ * The equal-versions guard is a BACKSTOP, not a restatement of the shell's
+ * filter (review 2026-09-17): the app read now answers `availableVersion: null`
+ * when the stored notice names what is running, but a NEW page can meet an OLD
+ * binary whose stored value outlived the install it announced — in-app (the
+ * notice was never cleared before restart) or by hand (the `.app` was replaced
+ * from a downloads page, and nothing cleared `settings.json`). "v0.8.0
+ * available" beside a v0.8.0 app is the lie either half alone lets through;
+ * the payload carries both versions precisely so this line can refuse it.
  */
 export function appUpdateRowVisible(update: DesktopAppUpdate | null | undefined, dismissed: string | null): boolean {
-  const available = update?.availableVersion ?? null;
-  return available !== null && dismissed !== available;
+  if (update === null || update === undefined) return false;
+  const available = update.availableVersion ?? null;
+  return available !== null && available !== update.currentVersion && dismissed !== available;
 }

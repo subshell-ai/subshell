@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { nodeRow, nodeUpdates } from "@/components/__tests__/helpers/updates-view";
 import { NodeRows, rowState } from "@/components/updates/node-rows";
 import type { NodeUpdates } from "@/types/updates";
@@ -110,5 +110,39 @@ describe("NodeRows", () => {
   it("names the platform nothing is published for instead of leaving the row blank", () => {
     renderRows(nodeUpdates({ rows: [nodeRow({ target: null })] }));
     expect(screen.getByText(/no published platform/)).toBeTruthy();
+  });
+
+  it("says a failed 'Update all' ONCE, on the row it stopped at", async () => {
+    // The double-render fix (review 2026-09-17): the hook keeps the failure
+    // and the failed row renders its own destructive line, so the old
+    // section-bottom `runError` copy printed the same refusal a second time —
+    // one failing row showed the message twice. This pins the count at ONE,
+    // and that the sequence stopped at the machine that refused.
+    const original = globalThis.fetch;
+    const posts: string[] = [];
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        posts.push(url);
+        return new Response("NODE_NOT_SUPERVISED: nothing respawns this agent", { status: 409 });
+      }
+      return original(input as RequestInfo, init);
+    }) as typeof globalThis.fetch;
+    try {
+      renderRows(
+        nodeUpdates({
+          rows: [
+            nodeRow({ id: "a", name: "alpha", canUpdate: { ok: true, reason: null } }),
+            nodeRow({ id: "b", name: "beta", canUpdate: { ok: true, reason: null } }),
+          ],
+        }),
+      );
+      fireEvent.click(updateAll());
+      await waitFor(() => expect(screen.getAllByText(/NODE_NOT_SUPERVISED/).length).toBe(1));
+      // Stop at the first failure: beta was never asked.
+      expect(posts).toEqual(["/api/nodes/a/update"]);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

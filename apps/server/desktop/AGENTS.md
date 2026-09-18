@@ -1310,21 +1310,25 @@ configure a server on this machine and not run it. The `install-service` step
 remains for the case that means something, a config that already exists with
 no service.
 
-**A FRESH machine gets one press, not a form (2026-09-10).** Where no server
-exists and one is bundled, `ProbeStep::Setup` shows a single "Set up and
-start", and `desktop_setup` runs install → init → service install → start,
-each step calling the same extracted body (`install_server_now`, `init_now`,
-`service_now`) its own command uses, stopping at the first failure so the
-ordinary probe names the remainder. This reverses the rule above it, and the
-distinction is what makes both true: the two-click floor protected the PREFILL,
-which comes from asking the installed server for its settings — a machine with
-no server has nothing to prefill, so the form was four clicks executing a plan
-`decide()` had already made. Disclosure moved from the form to the step's hint,
-which names every path the press writes to. The press also waits for the
-re-probe to say READY before opening the dashboard: `service start` returns
-when the manager has spawned the process, not when the port is bound, and
-every existing opener of the window (the `ready` button, the tray) opens only
-against a server that answers.
+**A FRESH machine gets no press and no form (2026-09-10; zero-touch per spec
+2026-09-17 § 4).** Where no server exists and one is bundled, the page FIRES
+the setup chain itself — the progress checklist is the first screen and it
+opens the dashboard by itself when done — and the press survives only where
+the fire is refused: the pre-filled form fallback and recovery's **Set Up**,
+both of which run the same chain. The chain is `desktop_setup`, unchanged from
+2026-09-10: install → init → service install → start, each step calling the
+same extracted body (`install_server_now`, `init_now`, `service_now`) its own
+command uses, stopping at the first failure so the ordinary probe names the
+remainder. This reverses the rule above it, and the distinction is what makes
+both true: the two-click floor protected the PREFILL, which comes from asking
+the installed server for its settings — a machine with no server has nothing to
+prefill, so the form was four clicks executing a plan `decide()` had already
+made. Disclosure moved from the form to the checklist's hint, which names every
+path the chain writes to. The chain also waits for the re-probe to say READY
+before opening the dashboard: `service start` returns when the manager has
+spawned the process, not when the port is bound, and every existing opener of
+the window (the `ready` button, the tray) opens only against a server that
+answers.
 
 **The install offer mirrors a Rust list; the page never sends a command.**
 Missing tmux gets `desktop_install_tmux` (brew where it exists, pkexec apt-get

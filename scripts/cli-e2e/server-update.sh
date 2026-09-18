@@ -59,7 +59,17 @@ ok()   { echo "  ok: $*"; }
 export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
 export SUBSHELL_RELEASE_URL=""   # `--from` only: this test reaches no network
-mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR" "$W/bin"
+# A throwaway HOME, exactly as `install-script.sh` does and as this script's
+# own header promises. It is NOT cosmetic: the binary-resolution ladder
+# consults `homedir()` for the MANAGED copy (`~/.local/bin/subshell-server`,
+# `services/installed-binary.ts`), and on a machine that has one — every
+# machine that ever ran the desktop app — an un-exported HOME makes `update`
+# swap THE OPERATOR'S OWN BINARY and report success. Measured 2026-09-17:
+# step 5 died with the old version still at `$INSTALLED` while
+# `~/.local/bin/subshell-server` had become this test's 99.0.0 build, and
+# step 4's SUFFIX match could not tell the two paths apart.
+export HOME="$W/home"
+mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR" "$W/bin" "$HOME"
 
 CURRENT=$(node -p "require('$API/package.json').version" 2>/dev/null || \
           bun -e "console.log(require('$API/package.json').version)")
