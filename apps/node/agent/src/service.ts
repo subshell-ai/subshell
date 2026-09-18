@@ -1,4 +1,4 @@
-import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
+import { access, chmod, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DESKTOP_CLIENT_BUNDLE_ID, lingerFromProbe, lingerProbeArgv, lingerVerdict } from "@internal/subshell-protocol";
@@ -7,6 +7,7 @@ import {
   assertServiceWriteUnderTest,
 } from "@internal/subshell-protocol/service-test-safety";
 import type { CliResult } from "./cli.js";
+import { clientHome } from "./config.js";
 import { selfInvocation } from "./self-invoke.js";
 
 /**
@@ -22,6 +23,18 @@ export interface ServiceDeps {
   platform: NodeJS.Platform;
   /** User home the unit/plist paths hang off (NOT `SUBSHELL_CONFIG_HOME`). */
   home: string;
+  /**
+   * The agent's config home (`clientHome()` — `~/.config/subshell` or
+   * `SUBSHELL_CONFIG_HOME`).
+   *
+   * REQUIRED, and that is the point: on darwin it is where a NOT-at-login
+   * definition lives (see {@link sessionPlistPath}), so a caller that omitted
+   * it would report an installed-but-disarmed service as absent — a wrong
+   * answer that reads as "your service vanished" and that no type check would
+   * have caught. It is only ever a path here; this module still imports
+   * nothing that READS the config (the `hasConfig()` ruling above).
+   */
+  configDir: string;
   /** Numeric uid — builds the launchd `gui/<uid>` domain target. */
   uid: number;
   /** The running executable (`bun` in dev, the compiled binary otherwise). */
@@ -57,6 +70,16 @@ export interface ServiceDeps {
    * `Bun.sleep`). Injected so the retry costs a test nothing.
    */
   sleep?: (ms: number) => Promise<void> | void;
+  /**
+   * Set a file's mode. Used by {@link tightenServiceLogMode} alone, to repair
+   * the 0644 launchd creates the daemon's log file with.
+   *
+   * OPTIONAL, and that is a safety property rather than convenience: a deps
+   * object assembled by hand in a test carries no seam, so the repair reports
+   * `no-seam` and touches nothing. The production implementation carries the
+   * same under-test refusal as `writeFile`.
+   */
+  chmodFile?(path: string, mode: number): Promise<void>;
 }
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
@@ -80,7 +103,70 @@ export const LAUNCHD_LABEL = DESKTOP_CLIENT_BUNDLE_ID;
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", SYSTEMD_UNIT_NAME);
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
-const launchLogPath = (home: string) => join(home, "Library", "Logs", "subshell.log");
+/**
+ * The plist for an agent that must NOT start at login — the same document,
+ * kept where launchd does not look. Ported from the server CLI's twin (spec
+ * 2026-09-12 server-supervision §3.2), which measured the alternatives.
+ *
+ * **On macOS "starts at login" is the file's LOCATION, not a key inside it**,
+ * and the two flag-shaped alternatives are both wrong for this job:
+ *
+ * - `RunAtLoad=false` does not stop it. The plist also carries
+ *   `KeepAlive=true`, which starts a job when it is loaded regardless.
+ *   MEASURED on macOS 26.6.2 (2026-09-12) for the server's own agent, same
+ *   launchd: a throwaway agent with `RunAtLoad=false` + `KeepAlive=true`
+ *   reported `state = running, runs = 1` two seconds after `bootstrap`, while
+ *   the same agent without `KeepAlive` reported `runs = 0`. Dropping
+ *   `KeepAlive` here is not on the table either — it is what brings the daemon
+ *   back when it dies, and `controlService`'s restart relies on it.
+ * - `launchctl disable gui/<uid>/<label>` does not work either: a disabled
+ *   service refuses `bootstrap`, so "running now but not at login" cannot be
+ *   expressed at all — and the disabled mark lives in launchd's per-uid
+ *   override database, survives `service uninstall`, and makes the next fresh
+ *   install fail with the generic EIO {@link bootstrapWithRetry} already has
+ *   to apologise for.
+ *
+ * What launchd does document is that it auto-loads exactly the plists in
+ * `~/Library/LaunchAgents` at login. So a definition kept anywhere else runs
+ * only when something bootstraps it explicitly, which is precisely the
+ * behaviour wanted — and it is one write/remove pair to move between the two
+ * states, with a running job entirely unaffected (launchd holds the loaded
+ * job, not the file).
+ */
+const sessionPlistPath = (configDir: string) => join(configDir, `${LAUNCHD_LABEL}.plist`);
+
+/**
+ * Where launchd redirects the daemon's stdout and stderr (the plist's
+ * `StandardOutPath`).
+ *
+ * Exported because `log-hygiene.ts` repairs that file's mode at daemon start
+ * and must name the same file this module tells launchd to write — a second
+ * spelling of it elsewhere is how the repair comes to chmod nothing.
+ */
+export const launchLogPath = (home: string) => join(home, "Library", "Logs", "subshell.log");
+
+/**
+ * The darwin plist path that EXISTS, and what its location means.
+ *
+ * Exactly one of the two should ever be present; when both are (a hand-copy,
+ * or a crash between the write and the remove), the login path wins and the
+ * caller is expected to tidy — which is what {@link installService} and
+ * {@link uninstallService} do.
+ */
+async function darwinDefinition(deps: Pick<ServiceDeps, "home" | "configDir" | "fileExists">): Promise<{
+  path: string;
+  installed: boolean;
+  /** `true` = in `~/LaunchAgents` (starts at login); `false` = the session path; `null` = neither exists. */
+  enabled: boolean | null;
+}> {
+  const login = plistPath(deps.home);
+  if (await deps.fileExists(login)) return { path: login, installed: true, enabled: true };
+  const session = sessionPlistPath(deps.configDir);
+  if (await deps.fileExists(session)) return { path: session, installed: true, enabled: false };
+  // Nothing installed: name where it WOULD live, which is the login path,
+  // because that is where a plain `service install` puts it.
+  return { path: login, installed: false, enabled: null };
+}
 
 /**
  * The argv the service manager should run: `<self> run`.
@@ -259,8 +345,15 @@ async function bootstrapWithRetry(
  * systemctl stderr quoted; the unit file is deliberately left on disk.
  * macOS: write the plist, `bootout` the previous load when reinstalling
  * (failure tolerated — it usually means "not loaded"), then `bootstrap`.
+ *
+ * `opts.autostart` (default TRUE — what every caller before it got) decides
+ * only what happens at the NEXT login: the service is started now either way.
+ * Ported from the server CLI, which solved the same question first; the two
+ * platforms express it differently, and the darwin half is why
+ * {@link sessionPlistPath} exists.
  */
-export async function installService(deps: ServiceDeps): Promise<CliResult> {
+export async function installService(deps: ServiceDeps, opts: { autostart?: boolean } = {}): Promise<CliResult> {
+  const autostart = opts.autostart !== false;
   if (!(await deps.hasConfig())) return errLine(NO_CONFIG);
 
   if (deps.platform === "linux") {
@@ -274,10 +367,24 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
           "this usually means no systemd user subshell is running (container/SSH without loginctl)",
       );
     }
-    const enable = await deps.runCmd(["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME]);
+    // `enable --now` when it starts at login; plain `start` when it does not.
+    //
+    // The `disable` first is NOT redundant on a REINSTALL: `enable` writes a
+    // symlink into `default.target.wants`, and re-installing over an
+    // already-enabled unit leaves that symlink in place — so `UnitFileState`
+    // stays `enabled`, the agent DOES come back at login, and the success line
+    // below claims the opposite. Darwin has the symmetric rule (it removes the
+    // other plist); this is Linux's. Tolerated on failure: an already-disabled
+    // unit exits 0 anyway, and a unit that cannot be disabled is one the
+    // `start` below will report on.
+    if (!autostart) await deps.runCmd(["systemctl", "--user", "disable", SYSTEMD_UNIT_NAME]);
+    const argv = autostart
+      ? ["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME]
+      : ["systemctl", "--user", "start", SYSTEMD_UNIT_NAME];
+    const enable = await deps.runCmd(argv);
     if (enable.code !== 0) {
       return errLine(
-        `systemctl --user enable --now ${SYSTEMD_UNIT_NAME} failed (exit ${enable.code}): ` + `${cmdDetail(enable)}`,
+        `${argv.slice(0, -1).join(" ")} ${SYSTEMD_UNIT_NAME} failed (exit ${enable.code}): ` + `${cmdDetail(enable)}`,
       );
     }
     // The unit is enabled, so it comes back at LOGIN — which on a machine
@@ -289,15 +396,25 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
     return {
       code: 0,
       out:
-        `Installed ${path}; subshell is enabled and running.\n` +
-        (linger === true ? "" : "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n"),
+        `Installed ${path}; subshell is ${autostart ? "enabled and running" : "running (not enabled at login)"}.\n` +
+        // The linger hint qualifies LOGIN start, so it is pointless beside a
+        // unit that was deliberately not armed for it.
+        (linger === true || !autostart
+          ? ""
+          : "To keep it alive across logout, enable lingering: loginctl enable-linger $USER\n"),
       err: "",
     };
   }
 
   if (deps.platform === "darwin") {
-    const path = plistPath(deps.home);
+    // The plist's LOCATION is what decides login behaviour (see
+    // `sessionPlistPath`). Write the one this install asked for, and remove
+    // the other so exactly one definition exists — a leftover in the login
+    // directory would quietly re-arm autostart on the next reboot.
+    const path = autostart ? plistPath(deps.home) : sessionPlistPath(deps.configDir);
+    const other = autostart ? sessionPlistPath(deps.configDir) : plistPath(deps.home);
     await deps.writeFile(path, launchdPlist(execLine(deps), launchLogPath(deps.home), deps.servicePath));
+    if (await deps.fileExists(other)) await deps.removeFile(other);
     // ALWAYS, not only when the plist was already there. The authority on
     // "is this label loaded" is launchd, and the file is only a proxy for it —
     // a proxy that lies after a reset, which deletes the plist while the job
@@ -310,7 +427,13 @@ export async function installService(deps: ServiceDeps): Promise<CliResult> {
         `launchctl bootstrap failed (exit ${boot.code}): ${cmdDetail(boot)}; ` + `the plist was left at ${path}`,
       );
     }
-    return { code: 0, out: `Installed ${path}; subshell is registered with launchd and running.\n`, err: "" };
+    return {
+      code: 0,
+      out:
+        `Installed ${path}; subshell is registered with launchd and running` +
+        `${autostart ? "" : " (not at login)"}.\n`,
+      err: "",
+    };
   }
 
   return errLine(unsupported("install", deps.platform));
@@ -356,12 +479,20 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
   }
 
   if (deps.platform === "darwin") {
-    const path = plistPath(deps.home);
-    if (!(await deps.fileExists(path))) {
-      return { code: 0, out: `nothing installed: no launchd plist at ${path}\n${noConfigNote}`, err: "" };
+    const found = await darwinDefinition(deps);
+    if (!found.installed) {
+      return { code: 0, out: `nothing installed: no launchd plist at ${found.path}\n${noConfigNote}`, err: "" };
     }
+    const path = found.path;
     const unload = await deps.runCmd(["launchctl", "bootout", `gui/${deps.uid}/${LAUNCHD_LABEL}`]);
     await deps.removeFile(path);
+    // BOTH, always. `darwinDefinition` reports only the winner, and a machine
+    // carrying two definitions (a hand-copy, or a crash between the install's
+    // write and remove) must not come out of uninstall with the loser still
+    // sitting in the login directory, ready to start an agent the operator
+    // believes they removed.
+    const loser = path === plistPath(deps.home) ? sessionPlistPath(deps.configDir) : plistPath(deps.home);
+    if (await deps.fileExists(loser)) await deps.removeFile(loser);
     if (unload.code !== 0) {
       return errLine(
         `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)}; the plist was removed anyway`,
@@ -389,6 +520,10 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
   return {
     platform: process.platform,
     home: homedir(),
+    // A PATH from `config.ts`, never a read of the config itself — the
+    // hasConfig() ruling above is about loading, and this module still loads
+    // nothing.
+    configDir: clientHome(),
     uid: process.getuid?.() ?? 0,
     execPath: process.execPath,
     argv1: process.argv[1] ?? "",
@@ -423,6 +558,13 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
     async removeFile(path) {
       assertServiceWriteUnderTest(path);
       await rm(path, { force: true });
+    },
+    // Same guard as the two above: a chmod of a real `~/Library/Logs` file
+    // while a suite runs is the same class of incident as writing a real
+    // plist, and the daemon's own start path reaches this seam.
+    async chmodFile(path, mode) {
+      assertServiceWriteUnderTest(path);
+      await chmod(path, mode);
     },
     async fileExists(path) {
       try {
@@ -544,11 +686,18 @@ export interface ServiceState {
 /**
  * Where THIS platform's per-user service definition lives (or would live).
  * `null` on platforms without a service manager.
+ *
+ * Asks the disk on darwin, because there are two legal locations there and
+ * only one of them is "starts at login" ({@link sessionPlistPath}) — a reader
+ * that named the login path by convention would report a `--no-autostart`
+ * install as "nothing installed" while the agent it wrote is running.
  */
-function serviceArtifactPath(platform: NodeJS.Platform, home: string): string | null {
-  if (platform === "linux") return unitPath(home);
-  if (platform === "darwin") return plistPath(home);
-  return null;
+async function serviceArtifactPath(
+  deps: Pick<ServiceDeps, "platform" | "home" | "configDir" | "fileExists">,
+): Promise<string | null> {
+  if (deps.platform === "linux") return unitPath(deps.home);
+  if (deps.platform !== "darwin") return null;
+  return (await darwinDefinition(deps)).path;
 }
 
 /**
@@ -607,8 +756,15 @@ export function parseSystemdExec(line: string): string[] {
   return out;
 }
 
-/** What {@link serviceExecArgv} needs — the read-only corner of {@link ServiceDeps}. */
-export type ServiceExecDeps = Pick<ServiceDeps, "platform" | "home" | "readFile" | "runCmd">;
+/**
+ * What {@link serviceExecArgv} needs — the read-only corner of
+ * {@link ServiceDeps}. `configDir` + `fileExists` ride along because on darwin
+ * WHICH file is the definition is a question about the disk, not a constant.
+ */
+export type ServiceExecDeps = Pick<
+  ServiceDeps,
+  "platform" | "home" | "configDir" | "fileExists" | "readFile" | "runCmd"
+>;
 
 /**
  * The argv this machine's INSTALLED service definition names, or `null` when
@@ -624,7 +780,7 @@ export type ServiceExecDeps = Pick<ServiceDeps, "platform" | "home" | "readFile"
  * {@link abandonProcessGroup} uses.
  */
 export async function serviceExecArgv(deps: ServiceExecDeps): Promise<string[] | null> {
-  const path = serviceArtifactPath(deps.platform, deps.home);
+  const path = await serviceArtifactPath(deps);
   if (path === null) return null;
 
   if (deps.platform === "linux") {
@@ -738,7 +894,7 @@ export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
   // "is there a log file to reveal" needs the answer even when nothing is
   // running, and the platform branch belongs to the CLI, not to the desktop.
   const logPath = deps.platform === "darwin" ? launchLogPath(deps.home) : null;
-  const definitionPath = serviceArtifactPath(deps.platform, deps.home);
+  const definitionPath = await serviceArtifactPath(deps);
   if (definitionPath === null) {
     return {
       installed: false,
@@ -857,35 +1013,23 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
   };
 }
 
-/** `<key>NAME</key><true/>`, tolerating either spelling of the empty element. */
-function plistTrue(text: string, key: string): boolean {
-  return new RegExp(`<key>\\s*${key}\\s*</key>\\s*(<true\\s*/>|<true>\\s*</true>)`).test(text);
-}
-
-/**
- * Whether a loaded agent will come up at login — `RunAtLoad` OR `KeepAlive`.
- *
- * **Not `RunAtLoad` alone, which is what this read before.** `KeepAlive=true`
- * starts the job whether or not `RunAtLoad` is set: measured on macOS 26.6.2
- * for the server's own agent, where a `KeepAlive=true` + `RunAtLoad=false`
- * plist reported `runs = 1` two seconds after `bootstrap` while a control
- * without `KeepAlive` reported `runs = 0`. Our template ships BOTH keys true,
- * so the old read happened to be right for a plist we wrote — and said "no"
- * for a hand-edited one that would still start. Reporting "does not start at
- * login" about a job that does is the failure worth avoiding here; there is
- * no verb on this side that turns it off, so this is a reporting fix.
- *
- * The server-side control for the same question is the plist's DIRECTORY, not
- * a key (`apps/server/api/src/service.ts`), for exactly this reason.
- */
-function startsAtLogin(text: string): boolean {
-  return plistTrue(text, "RunAtLoad") || plistTrue(text, "KeepAlive");
-}
-
 async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<ServiceState> {
   const text = await deps.readFile(definitionPath);
   const paneSafety = await abandonProcessGroup(deps, definitionPath, text);
-  const enabled = text === null ? null : startsAtLogin(text);
+  // WHERE the plist is, not what is in it. Reading `RunAtLoad`/`KeepAlive` was
+  // the old answer and `--no-autostart` makes it a lie: every definition this
+  // file writes carries both keys, so the key-read would say "starts at login"
+  // about the install that deliberately does not. The keys are not decisive on
+  // their own either (measured — see `sessionPlistPath`), and the login
+  // directory is what launchd actually scans at login — so the path is
+  // NECESSARY. It is not, strictly, SUFFICIENT: a hand-written plist sitting in
+  // `~/Library/LaunchAgents` with neither key is loaded at login and never
+  // started, and this reports it enabled. No definition either app writes looks
+  // like that, and `apps/server/api`'s `queryLaunchd` makes the same trade at
+  // its own `const enabled` — so the two agree by decision rather than by
+  // accident. Tightening it is one `&&` across both files, and belongs in a
+  // change about service state rather than one about a first run.
+  const enabled = definitionPath === plistPath(deps.home);
   // `launchctl print gui/<uid>/<label>`, NOT the legacy `launchctl list`:
   // `list` resolves an IMPLICIT domain, so over SSH (where the session is
   // "Background", not "Aqua") it reports a running gui/<uid> job as absent —
@@ -1057,14 +1201,15 @@ export async function controlService(
   if (verb === "restart") {
     // `kickstart -k` is the documented restart; it needs the job LOADED, so a
     // stopped service is bootstrapped instead.
-    if (state.state === "stopped") return bootstrapDarwin(deps, target, DONE.restart, warning);
+    if (state.state === "stopped")
+      return bootstrapDarwin(deps, target, DONE.restart, warning, state.definitionPath ?? plistPath(deps.home));
     const res = await deps.runCmd(["launchctl", "kickstart", "-k", target]);
     if (res.code !== 0) return errLine(`launchctl kickstart -k failed (exit ${res.code}): ${cmdDetail(res)}`);
     return done(DONE.restart);
   }
   // start
   if (state.state === "running") return { code: 0, out: "subshell is already running.\n", err: "" };
-  return bootstrapDarwin(deps, target, DONE.start, warning);
+  return bootstrapDarwin(deps, target, DONE.start, warning, state.definitionPath ?? plistPath(deps.home));
 }
 
 /**
@@ -1074,8 +1219,13 @@ export async function controlService(
  * before and after), so a restart would report success having restarted
  * nothing. On a loaded-but-idle job `-k` simply starts it.
  */
-async function bootstrapDarwin(deps: ServiceDeps, target: string, done: string, warning: string): Promise<CliResult> {
-  const path = plistPath(deps.home);
+async function bootstrapDarwin(
+  deps: ServiceDeps,
+  target: string,
+  done: string,
+  warning: string,
+  path: string,
+): Promise<CliResult> {
   const boot = await deps.runCmd(["launchctl", "bootstrap", `gui/${deps.uid}`, path]);
   if (boot.code === 0) return { code: 0, out: `${done}\n`, err: warning };
   const kick = await deps.runCmd(["launchctl", "kickstart", "-k", target]);

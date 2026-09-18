@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { BUILD_ID } from "@/lib/build-id";
 import { deviceName } from "@/lib/device-name";
 import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
+import { dropBrokenMouseReports } from "@/lib/terminal-input";
 
 export interface TermWsHandlers {
   onOpen?: () => void;
@@ -263,7 +264,14 @@ export function useSubshellWs(
     // lifetime — the retry loop must not re-subscribe per connection).
     inputDisposableRef.current = term.onData((data) => {
       if (readOnly) return;
-      sendInput(wsRef.current, data);
+      // Not everything xterm emits is usable: a flick's MOMENTUM frames become
+      // mouse reports with NaN coordinates (see lib/terminal-input.ts), which
+      // the harness prints at its prompt. Filtering here, at the one place
+      // xterm's own output becomes pane input, leaves the key bar and the
+      // upload injection — which cannot produce these — untouched.
+      const clean = dropBrokenMouseReports(data);
+      if (!clean) return;
+      sendInput(wsRef.current, clean);
     });
 
     // Keep the tmux window in sync with the client across resizes (window

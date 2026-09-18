@@ -177,10 +177,23 @@ fn from_systemd_unit() -> Option<Vec<String>> {
 /// but a binary1 plist is equally valid and would defeat any text predicate.
 fn from_launchd_plist() -> Option<Vec<String>> {
     let home = home_dir()?;
-    let path = format!("{home}/Library/LaunchAgents/{LAUNCHD_LABEL}.plist");
-    if !Path::new(&path).exists() {
-        return None;
-    }
+    // BOTH locations, because "starts at login" is now which directory the
+    // plist is in (`apps/node/agent/src/service.ts`, `sessionPlistPath`). An
+    // agent installed with `--no-autostart` — which the first run's start-up
+    // screen offers — lives in the node's own config home, and checking only
+    // `~/Library/LaunchAgents` would make this rung silently vanish for such a
+    // machine: the rung documented below as the AUTHORITY on what is
+    // installed, falling through to whatever `LocalBin` finds. Usually the
+    // same file; when it is not, the app reports and version-compares a binary
+    // the service does not run, which is the exact confusion this rung exists
+    // to prevent. `apps/server/desktop`'s `server_bin.rs` reads its own pair
+    // the same way, for the same reason.
+    let path = [
+        format!("{home}/Library/LaunchAgents/{LAUNCHD_LABEL}.plist"),
+        format!("{home}/.config/subshell/{LAUNCHD_LABEL}.plist"),
+    ]
+    .into_iter()
+    .find(|p| Path::new(p).exists())?;
     let out = run(
         &[
             "/usr/bin/plutil".into(),

@@ -13,6 +13,7 @@ import type { NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.r
 import type { NodeStatus } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
+import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
 import { logger } from "@/utils/logger.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
 import {
@@ -124,6 +125,13 @@ export interface NodeWsDeps {
    * socket's own record, never another node's.
    */
   resolveResult(conn: NodeConnection, event: Extract<NodeEvent, { type: "result" }>): boolean;
+  /**
+   * Kick this node's harness detection after it comes online, fire-and-forget
+   * (default {@link detectOnNodeBestEffort} — the `??` at the call site IS the
+   * production wiring, the same shape `RemoteLauncher` gives its own kick).
+   * Present as a seam so a test can count the kick without a live socket.
+   */
+  detect?(nodeId: string): void;
 }
 
 let prodDeps: NodeWsDeps | undefined;
@@ -429,14 +437,37 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         );
         return;
       }
-      // Spec §5.3 used to fire an immediate inventory PULL here. Task 7
-      // retired it: the post-inversion agent answers `{type:"inventory"}`
-      // with an EMPTY harness claim (its own comment in the `inventory`
-      // case below explains why applying `[]` is poison — it would wipe the
-      // plane's detect cache on every connect), so the pull round-tripped to
-      // nothing. Harness freshness now comes on request only (spec §4):
-      // node-page load, Re-check, and the launch-driven kicks in
-      // `remote-launcher.#kickDetect`.
+      // Harness detection, now that this node is reachable. NOT the §5.3
+      // inventory PULL Task 7 retired — that asked the agent to scan ITSELF
+      // and answer with a harness claim, which a post-inversion agent fills
+      // with an EMPTY array (the `inventory` case below explains why applying
+      // `[]` is poison), so the round trip stored nothing. This is the
+      // ordinary §4 request: the plane ships its own detect rules, the node
+      // answers raw, and the driver merges. The plane asks and the node
+      // answers, exactly as on a page load — what is new is only that
+      // BECOMING REACHABLE counts as an occasion to ask.
+      //
+      // It is the half of the freshness story a person cannot supply: a
+      // freshly enrolled agent connects the moment it is installed, so
+      // enrolment needs no special case, and every reconnect and agent
+      // restart is covered by the same line. Fire-and-forget — the answer
+      // arrives as a later `result` frame behind this one in the socket's own
+      // queue, so awaiting it here would deadlock, and a detect that fails
+      // must never be why a handshake did.
+      //
+      // The periodic other half lives in `services/nodes/inventory-refresh.ts`,
+      // armed at boot: this line answers "a machine appeared", that timer
+      // answers "somebody installed a CLI on one an hour ago".
+      try {
+        (deps.detect ?? detectOnNodeBestEffort)(nodeId);
+      } catch (err: unknown) {
+        // Only a throwing seam can land here; the default absorbs everything
+        // into a debug line by construction. Guarded anyway because the
+        // maintenance reconcile below is load-bearing — the row must refuse
+        // launches before this frame is done — and a probe is not allowed to
+        // be the reason it did not run.
+        logger.withError(err).debug(`node ws: connect-time detection kick for ${nodeId} failed`);
+      }
       // The node re-learns its directory allowlist (spec 2026-09-05) on
       // every `ready` — that reconciliation is live data and STAYS.
       // This is the reconciliation: an owner may have changed the rules while

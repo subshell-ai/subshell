@@ -204,48 +204,91 @@ export function attachWheelScroll(term: Terminal, root: HTMLElement, isTouch: ()
 const SWIPE_SLOP_PX = 10;
 
 /**
- * Tap-vs-swipe keyboard gate (2026-09-04 iPhone report: "if I touch ANY part
- * of the terminal, including the scroll bars, it goes into input mode").
+ * The scrollbar surfaces: a touch that lands here is reading, never typing.
  *
- * xterm focuses its helper textarea from the very first POINTERDOWN of a
- * touch — inside the user-gesture window, which is exactly when iOS shows the
- * soft keyboard. That is right for a tap (the user means to type) and wrong
- * for the scroll gestures this phone lives on: a swipe across the grid or a
- * drag of the viewport scrollbar popped the keyboard every time and left it
- * covering half the pane.
+ * TWO selectors because xterm 6 moved the scrollbar without removing the old
+ * element. Measured in 6.1.0-beta.304: `.xterm-viewport` is still in the DOM
+ * and still covers the WHOLE terminal box, but it paints under
+ * `.xterm-scrollable-element` (its sibling, which holds the grid), so nothing
+ * hits it any more — the visible strip is a `.xterm-slider` inside
+ * `div.xterm-visible.xterm-scrollbar.xterm-vertical`, 14px wide at the right
+ * edge. Matching both keeps this gate right either side of that change; on the
+ * 6.1 DOM only the second one ever fires.
+ */
+const SCROLLBAR_SELECTOR = ".xterm-viewport, .xterm-scrollbar";
+
+/**
+ * Tap-vs-swipe keyboard gate: a tap opens the soft keyboard, a scroll gesture
+ * never does. It owns BOTH halves, because on a touch device xterm decides
+ * neither of them.
  *
- * The gate cannot cancel xterm's focus (its handler runs first on
- * `pointerdown`), so it UN-FOCUSES before iOS commits: a microtask blur for
- * touches that land on the scrollbar/viewport at all, and a first-move blur
- * once a grid touch turns out to be a swipe. A gesture that ends without
- * moving keeps xterm's focus — tapping still opens the keyboard to type.
- * Touch only; mouse/pen keep xterm's own behavior.
+ * The blur half is the 2026-09-04 iPhone report ("if I touch ANY part of the
+ * terminal, including the scroll bars, it goes into input mode"): a swipe
+ * across the grid or a drag of the viewport scrollbar popped the keyboard
+ * every time and left it covering half the pane. Those touches are un-focused
+ * before iOS commits — a microtask blur for anything landing on the
+ * scrollbar/viewport at all, and a first-move blur once a grid touch passes
+ * the slop.
+ *
+ * The focus half is the 2026-09-18 report ("I can't get the input keyboard to
+ * show up when I press on the input area"), and it is here because **xterm
+ * focuses its helper textarea only from `mousedown`** — measured in
+ * 6.1.0-beta.304: `MouseService.bindMouse` binds `_handleMouseDown`, which
+ * calls `focus()`, to the compatibility `mousedown` event. That event never
+ * arrives on the grid, because xterm's own touch layer cancels the touch that
+ * would produce it: `Gesture` (VS Code-derived, new in xterm 6) registers
+ * `.xterm-screen` as a target and `preventDefault()`s every `touchstart` it
+ * dispatched a gesture for — and a cancelled `touchstart` suppresses the
+ * compatibility mouse events in both WebKit and Blink. So on ANY touch device
+ * a tap on the grid leaves `document.activeElement` at `body`, and iOS shows
+ * no keyboard because nothing was ever focused. (Measured under Chromium
+ * coarse-pointer emulation: `touchstart`/`touchend` on `.xterm-screen` arrive
+ * `defaultPrevented`, no `mousedown` or `click` follows, and focus never
+ * moves; the same tap outside the terminal does produce both.)
+ *
+ * So the gate focuses the terminal itself, from `touchend` — inside the
+ * user-gesture turn, which is what lets iOS raise the keyboard — and only for
+ * a gesture that stayed a one-finger tap on the grid. A swipe, a scrollbar
+ * drag, a two-finger gesture and a cancelled touch all end without focusing.
+ * Touch only; mouse and pen keep xterm's own behavior, which works there
+ * because `mousedown` is real.
  */
 export function gateTouchKeyboard(term: Terminal, root: HTMLElement, isTouch: () => boolean = isTouchUi): () => void {
   if (!isTouch()) return () => {};
   const blur = () => term.textarea?.blur();
-  let kind: "tap" | "swipe" | "viewport" | null = null;
+  let kind: "tap" | "swipe" | "scrollbar" | null = null;
+  /** A second finger came down during this gesture: never a tap, however it
+   * ends. iOS can report both lifts in ONE touchend, so "no fingers left" is
+   * not on its own enough to tell a tap from the end of a two-finger pan. */
+  let multi = false;
   let x0 = 0;
   let y0 = 0;
 
   // Capture phase on the container: iOS dispatches `pointerdown` BEFORE the
   // compatibility `touchstart`, so this classifies the gesture while the
-  // finger is still down and before any move. xterm's own focus runs on the
-  // same event's bubble phase — the microtask below lands right after it,
-  // still inside the gesture turn, so the keyboard for a scrollbar grab
-  // never gets to show.
+  // finger is still down and before any move — and before anything else on
+  // the page could have focused something. The microtask blur is kept rather
+  // than made conditional: it costs nothing when nothing is focused, and it
+  // still answers the case the 2026-09-04 report was about, a scrollbar grab
+  // that starts while the keyboard is already up from an earlier tap.
   const onPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch") {
       kind = null;
       return;
     }
-    const onViewport = e.target instanceof Element && !!e.target.closest(".xterm-viewport");
-    kind = onViewport ? "viewport" : "tap";
+    const onScrollbar = e.target instanceof Element && !!e.target.closest(SCROLLBAR_SELECTOR);
+    kind = onScrollbar ? "scrollbar" : "tap";
     x0 = e.clientX;
     y0 = e.clientY;
-    if (onViewport) queueMicrotask(blur);
+    if (onScrollbar) queueMicrotask(blur);
   };
-  // `touchstart` here (not another pointer listener): it fires once per
+  // The only thing touchstart is read for: how many fingers are on the glass.
+  // `pointerdown` fires once per finger and cannot answer that on its own —
+  // the second finger's would re-classify the gesture as a fresh tap.
+  const onTouchStart = (e: TouchEvent) => {
+    if ((e.touches?.length ?? 0) > 1) multi = true;
+  };
+  // `touchmove` here (not another pointer listener): it fires once per
   // gesture with the stable origin coordinates, after pointerdown classified.
   const onTouchMove = (e: TouchEvent) => {
     if (kind !== "tap" || e.touches.length !== 1) return;
@@ -256,18 +299,27 @@ export function gateTouchKeyboard(term: Terminal, root: HTMLElement, isTouch: ()
       blur();
     }
   };
-  const onEnd = () => {
+  const onEnd = (e: Event) => {
+    const lastFingerUp = ((e as TouchEvent).touches?.length ?? 0) === 0;
+    // Read the classification before clearing it: this is the only moment the
+    // whole gesture is known, and the focus has to happen in THIS turn or iOS
+    // will not treat it as user-initiated.
+    const wasTap = e.type === "touchend" && kind === "tap" && !multi && lastFingerUp;
     kind = null;
+    if (lastFingerUp) multi = false;
+    if (wasTap) term.focus();
   };
 
   root.addEventListener("pointerdown", onPointerDown, true);
+  root.addEventListener("touchstart", onTouchStart, { passive: true });
   root.addEventListener("touchmove", onTouchMove, { passive: true });
   root.addEventListener("touchend", onEnd, { passive: true });
   root.addEventListener("touchcancel", onEnd, { passive: true });
   return () => {
     // Removal matches on (type, handler, capture) only — `passive` is an
-    // ADD-side option and a non-capture remove covers all three touch types.
+    // ADD-side option and a non-capture remove covers all four touch types.
     root.removeEventListener("pointerdown", onPointerDown, true);
+    root.removeEventListener("touchstart", onTouchStart);
     root.removeEventListener("touchmove", onTouchMove);
     root.removeEventListener("touchend", onEnd);
     root.removeEventListener("touchcancel", onEnd);

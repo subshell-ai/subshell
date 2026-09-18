@@ -3,10 +3,10 @@
  *
  * Stubbed at `window.__TAURI_INTERNALS__.invoke` rather than by mocking the
  * `@tauri-apps/api` module: that global IS the boundary — `invoke()` is a
- * one-line delegation to it, and `@tauri-apps/plugin-dialog`'s `open()` goes
- * through the same `invoke` as `plugin:dialog|open`. So the real client code
- * runs, the file picker is stubbable by the same mechanism, and a change to how
- * `lib/ipc.ts` reaches Tauri is caught here instead of being mocked away.
+ * one-line delegation to it, and a Tauri plugin's own calls would arrive
+ * through it too, as `plugin:<name>|<command>`. So the real client code runs,
+ * and a change to how `lib/ipc.ts` reaches Tauri is caught here instead of
+ * being mocked away.
  *
  * Not a test file (no `.test.` in the name), so `bun test` does not collect it.
  */
@@ -49,6 +49,9 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
     step: "online",
     error: null,
     tmux: "/usr/bin/tmux",
+    // A machine whose package manager this app can drive. `false` is the
+    // brew-less Mac, which is only ever interesting with `tmux: null`.
+    hasBrew: true,
     paths: {
       configDir: "/home/u/.config/subshell",
       configFile: "/home/u/.config/subshell/config.json",

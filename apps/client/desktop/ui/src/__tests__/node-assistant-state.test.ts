@@ -1,63 +1,71 @@
 import { describe, expect, it } from "bun:test";
-import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
-import { screenFor, screenTitle, serviceAction } from "@/lib/node-assistant-state";
+import { NODE_SCREEN_IDS, screenTitle, serviceAction } from "@/lib/node-assistant-state";
 
-const settings = (planeUrl: string | null): NodeSettings => ({ planeUrl, agentBinPath: null }) as NodeSettings;
-
-const probe = (step: ProbeStep): Probe => ({ step }) as Probe;
-
-describe("screenFor", () => {
-  it("asks for a server first, whatever the machine's state", () => {
-    expect(screenFor(probe("online"), settings(null), null)).toBe("connect");
-    expect(screenFor(probe("no-agent"), settings(null), null)).toBe("connect");
-  });
-
-  it("maps every probe step to one screen once a plane is known", () => {
-    expect(screenFor(probe("no-agent"), settings("https://p"), null)).toBe("install-agent");
-    expect(screenFor(probe("not-enrolled"), settings("https://p"), null)).toBe("enroll");
-    for (const step of ["no-service", "stopped", "offline"] as const) {
-      expect(screenFor(probe(step), settings("https://p"), null)).toBe("service");
-    }
-    expect(screenFor(probe("online"), settings("https://p"), null)).toBe("connected");
-  });
-
-  it("honours a user-chosen screen over the machine's", () => {
-    expect(screenFor(probe("online"), settings("https://p"), "enroll")).toBe("enroll");
-    expect(screenFor(probe("online"), settings("https://p"), "reset")).toBe("reset");
-  });
-
-  it("is null while nothing has been read yet", () => {
-    expect(screenFor(undefined, undefined, null)).toBeNull();
-    expect(screenFor(undefined, settings("https://p"), null)).toBeNull();
-  });
-
-  it("routes a step this build predates to the service screen, which shows the facts", () => {
-    expect(screenFor(probe("what-even" as ProbeStep), settings("https://p"), null)).toBe("service");
-  });
-});
+/*
+ * `screenFor` is GONE, and so is its block of cases here.
+ *
+ * It answered "which screen does this machine imply", which the first run
+ * (spec 2026-09-18) replaced with a question that has to come first: what did
+ * this person come to do. `clientScreen` in `lib/client-flow.ts` answers both,
+ * and `client-flow.test.ts` carries the routing cases — including the three
+ * `screenFor` owned that still hold (nothing read yet ⇒ null, an override
+ * outranks the machine, and a step this build predates still lands somewhere
+ * that shows the facts). The three the first run reversed on purpose are
+ * asserted there in their new form: a plane address no longer comes first, a
+ * configured client lands on `status` rather than on a probe-derived screen,
+ * and an untouched machine opens on Welcome rather than on Connect.
+ */
 
 describe("screenTitle", () => {
-  it("speaks the assistant's voice, and says which service failure it is", () => {
-    expect(screenTitle("connect", undefined)).toBe("Connect to a Server");
-    expect(screenTitle("install-agent", undefined)).toBe("Install the Agent");
-    expect(screenTitle("enroll", undefined)).toBe("Enroll This Machine");
-    expect(screenTitle("service", probe("offline"))).toBe("The Node Service Isn't Responding");
-    expect(screenTitle("service", probe("stopped"))).toBe("The Node Service Is Stopped");
-    expect(screenTitle("service", probe("no-service"))).toBe("Start the Node Service");
-    expect(screenTitle("connected", undefined)).toBe("This Machine Is a Node");
-    expect(screenTitle("about", undefined)).toBe("About Subshell Client");
-    expect(screenTitle("app-update", undefined)).toBe("Update Subshell Client");
+  it("names every screen, including the ones the first run added", () => {
+    // The switch is exhaustive, so a missing id is a type error rather than a
+    // test failure — what this pins is that none of them answers an empty
+    // string, which the compiler would accept and the frame would render as a
+    // screen with no heading.
+    for (const screen of NODE_SCREEN_IDS) {
+      expect(screenTitle(screen).trim().length, screen).toBeGreaterThan(0);
+    }
+  });
+
+  it("walks the first run in the assistant's voice", () => {
+    expect(screenTitle("welcome")).toBe("Welcome to Subshell Client");
+    expect(screenTitle("choice")).toBe("What Would You Like to Do?");
+    expect(screenTitle("tmux")).toBe("Install tmux");
+    expect(screenTitle("register")).toBe("Register This Machine");
+    expect(screenTitle("startup")).toBe("How This Node Runs");
+    expect(screenTitle("progress")).toBe("Setting Up…");
+    expect(screenTitle("status")).toBe("Subshell Client");
+  });
+
+  it("keeps the two registration words apart", () => {
+    // "Register" is the first run's one press; "Enroll" is what the CLI calls
+    // the same act and what this window still calls the DIFFERENT one — the
+    // re-enrolment that mints a second node row and discards the node key. A
+    // shared word on those two screens is how a person confirms the wrong one.
+    expect(screenTitle("register")).not.toContain("Enroll");
+    expect(screenTitle("enroll")).not.toContain("Register");
+  });
+
+  // The three service-state titles this used to pin went with the service
+  // screen: a configured machine lands on `status`, whose heading is the
+  // app's name and whose badge and problem line are what say which failure
+  // it is looking at (`status-screen.test.tsx`).
+  it("speaks the assistant's voice on the screens a person asks for", () => {
+    expect(screenTitle("connect")).toBe("Connect to a Server");
+    expect(screenTitle("enroll")).toBe("Enroll This Machine");
+    expect(screenTitle("about")).toBe("About Subshell Client");
+    expect(screenTitle("app-update")).toBe("Update Subshell Client");
   });
 
   it("never lets the APP's update and the AGENT's share a word", () => {
     // Two things on this machine can be out of date at once, and they are
     // replaced by different acts that cost different amounts: this screen
-    // replaces the APPLICATION and relaunches it, while the Connected screen's
+    // replaces the APPLICATION and relaunches it, while the status screen's
     // "Update the agent to X" replaces `~/.local/bin/subshell` through that
     // binary's own `update --from` and leaves the app alone. A title that said
     // only "Update" would be the one place a person could not tell which.
-    expect(screenTitle("app-update", undefined)).toContain("Subshell Client");
-    expect(screenTitle("app-update", undefined)).not.toContain("agent");
+    expect(screenTitle("app-update")).toContain("Subshell Client");
+    expect(screenTitle("app-update")).not.toContain("agent");
   });
 
   it("names the product rather than the computer, identically on both platforms", () => {
@@ -66,7 +74,7 @@ describe("screenTitle", () => {
     // not remotely what this does; and a label ending on "Mac" reads as a
     // truncated "Machine", against a sibling string that really is "This
     // Machine". This is the one title that names no machine on any platform.
-    expect(screenTitle("reset", undefined)).toBe("Reset this client");
+    expect(screenTitle("reset")).toBe("Reset this client");
     // And the rule it became: NO title names a Mac, because there is one word
     // for where you are and it is "This Machine" (operator's call,
     // 2026-09-12). A title is a label; a label that might have been cut off is
@@ -76,9 +84,8 @@ describe("screenTitle", () => {
     // rather than `contains`, because "This Machine" contains "Mac" — that
     // prefix relationship IS the misreading, so the check has to be about
     // where the string stops.
-    const every = ["connect", "install-agent", "enroll", "service", "connected", "reset"] as const;
-    for (const screen of every) {
-      expect(screenTitle(screen, undefined).endsWith("Mac"), screen).toBe(false);
+    for (const screen of NODE_SCREEN_IDS) {
+      expect(screenTitle(screen).endsWith("Mac"), screen).toBe(false);
     }
   });
 });

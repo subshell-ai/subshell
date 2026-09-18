@@ -1,20 +1,28 @@
 /**
- * Connect to a Server — the first screen a fresh install shows.
+ * Connect to a Server — the watch path's one screen.
  *
  * Subshell Client is two things in one window set: a control plane's own UI,
- * and this machine's node settings. The plane's UI is a separate window
- * loading a remote origin, so it cannot be reached from inside this document;
- * this screen is the door, and it comes FIRST because without an address the
- * app has nothing to show in its other window — and "register this machine" is
- * a question about a server the person has not named yet.
+ * and this machine's node settings. This screen is the whole of the first
+ * question for someone who came only to watch: name the server, and nothing on
+ * this machine is touched — no agent installed, no setup key spent, no service.
+ *
+ * **It remembers the address; it does not open the dashboard** (spec
+ * 2026-09-18). It used to call `node_open_plane`, which persists AND opens, so
+ * pressing the one button on a fresh install threw the server's dashboard on
+ * screen while the setup behind it carried on — the defect this whole flow
+ * exists to remove. `connectOnly` is the persisting half alone, and the
+ * dashboard opens from the status screen's own button afterwards, which is the
+ * screen this one hands off to.
+ *
+ * The old "Open in browser instead" affordance is gone from the first run by
+ * the same rule (it is still on the status screen's More…, where a person who
+ * has a working client can ask for it deliberately).
  *
  * The field is deliberately NOT the enrolment form's server field. That one
- * spends a setup key; this one opens a window. Sharing them would make "show
- * me the plane" and "register this machine" one gesture, which is exactly the
- * conflation the app's two windows exist to undo.
+ * spends a setup key; this one remembers an address.
  */
-import { ExternalLink, Server } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Server } from "lucide-react";
+import { useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,54 +32,20 @@ import type { NodeCommands } from "@/hooks/use-node-commands";
 export function ConnectScreen(props: { shell: FrameShell; commands: NodeCommands; busy: boolean }) {
   const { shell, commands, busy } = props;
   const [typed, setTyped] = useState("");
-  /**
-   * Whether the pending open should finish in the SYSTEM browser.
-   *
-   * `node_open_plane_url` re-reads the settled address rather than taking one
-   * from this page, so an address that has never been saved cannot be opened
-   * in a browser at all — the URL has to be persisted first. The runner
-   * serializes actions and drops a second submission while one is in flight,
-   * so the two cannot be fired together: this flag hands off to the effect
-   * below, which runs the second once the first has landed.
-   */
-  const [wantBrowser, setWantBrowser] = useState(false);
-
-  useEffect(() => {
-    if (!wantBrowser || busy) return;
-    setWantBrowser(false);
-    commands.openPlaneUrl();
-  }, [wantBrowser, busy, commands]);
 
   const empty = typed.trim() === "";
   const submit = () => {
     if (busy || empty) return;
-    commands.openPlane(typed);
+    commands.connectOnly(typed);
   };
 
   return (
     <Frame
       {...shell}
       icon={<Server />}
-      barLeft={
-        <Button
-          variant="ghost"
-          disabled={busy || empty}
-          onClick={() => {
-            if (busy || empty) return;
-            // Persists AND opens the app window — `node_open_plane` is the
-            // only command that remembers the address, and there is no
-            // save-without-opening. The browser follows once it lands.
-            setWantBrowser(true);
-            commands.openPlane(typed);
-          }}
-        >
-          Open in browser instead
-        </Button>
-      }
       barRight={
         <Button className="min-w-[120px]" disabled={busy || empty} onClick={submit}>
-          <ExternalLink aria-hidden />
-          Open
+          Connect
         </Button>
       }
     >
@@ -96,8 +70,8 @@ export function ConnectScreen(props: { shell: FrameShell; commands: NodeCommands
           disabled={busy}
         />
         <p className="text-muted-foreground text-detail leading-relaxed">
-          Opening a server does not register this machine. Enrolling comes after, and only if you want subshells to run
-          here.
+          Connecting does not register this machine. Nothing is installed here, and no subshells run here until you
+          choose to register it.
         </p>
       </form>
     </Frame>

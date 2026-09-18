@@ -36,6 +36,11 @@ description = "Install the bundled subshell agent to ~/.local/bin, stopping the 
 commands.allow = ["node_install_agent"]
 
 [[permission]]
+identifier = "allow-node-install-tmux"
+description = "Install tmux with this machine's own package manager, so a node registered here can open a pane at all. Runs what the user would have run in a terminal, with their own privileges, from a table in crates/desktop-core that Subshell Server drives too: Homebrew on macOS, pkexec apt-get on Linux — never a bare sudo, which a GUI has no terminal to answer. Nothing from the page reaches the argv; where no manager can be driven it refuses and the screen names the command to type."
+commands.allow = ["node_install_tmux"]
+
+[[permission]]
 identifier = "allow-node-enroll"
 description = "Register this machine as a node via `subshell enroll`. Destructive: it overwrites an existing config.json, mints a SECOND node row on the control plane, and discards the old node key — whose only home was that file."
 commands.allow = ["node_enroll"]
@@ -49,11 +54,6 @@ commands.allow = ["node_configure"]
 identifier = "allow-node-service"
 description = "Drive one `subshell service` verb. Includes stop and restart, which end every subshell running on this machine unless the installed unit keeps them."
 commands.allow = ["node_service"]
-
-[[permission]]
-identifier = "allow-node-set-agent-bin"
-description = "Remember an explicitly chosen agent binary. The path is executed on every launch."
-commands.allow = ["node_set_agent_bin"]
 
 [[permission]]
 identifier = "allow-node-open-path"
@@ -79,6 +79,11 @@ commands.allow = ["node_settings"]
 identifier = "allow-node-open-plane"
 description = "Open the window showing a control plane's own UI, and remember its address. Validated http/https only. That window holds exactly ONE command of its own, allow-desktop-open-in-browser, which takes a path and can name no host; nothing that drives the CLI is reachable from it."
 commands.allow = ["node_open_plane"]
+
+[[permission]]
+identifier = "allow-node-set-plane"
+description = "Remember a control plane's address without opening anything. The persisting half of allow-node-open-plane, validated http/https by the same rule, so a setup flow can record the plane it is enrolling against without a dashboard appearing over the question it is still asking. Opens no window and grants that window nothing: it writes one field of this app's own settings file."
+commands.allow = ["node_set_plane"]
 
 [[permission]]
 identifier = "allow-node-open-plane-url"

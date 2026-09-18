@@ -13,6 +13,24 @@
  * Uninstall left the app entirely (spec 2026-09-12 § 6.4): restarting a node is
  * now also a control-plane action (§ 6.3), and removing the service is what
  * Reset does.
+ *
+ * **What the FIRST RUN changed** (spec 2026-09-18), because it is why so many
+ * cases below reach their subject by a different route than they used to. The
+ * probe no longer picks a landing: `clientScreen` asks what a person came to
+ * do, and every CONFIGURED client lands on one screen, `status`. So the
+ * `connected`, `service` and `install-agent` screens are gone, and what each
+ * of them offered is a card or a bar button there. Three properties moved
+ * rather than merely relocating:
+ *
+ * - **An address no longer comes first.** An enrolled machine with no stored
+ *   `planeUrl` is configured, because the walk ends at Register and Register
+ *   on a node mints a second node row.
+ * - **Two-phase enrolment is the RE-enrolment's property.** The first run's
+ *   Register press IS the consent (§ 6.2), so it sends `confirm: true`; the
+ *   confirmation survives on the act that overwrites a live `config.json`.
+ * - **The connect screen persists without opening.** Its button used to open
+ *   the server's dashboard over the setup still running behind it, which is
+ *   the defect the whole flow exists to remove.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -20,6 +38,15 @@ import { App } from "@/app";
 import { SETTLE_ATTEMPTS, SETTLE_DELAY_MS } from "@/hooks/use-action-runner";
 import { PROBE_POLL_MS } from "@/hooks/use-node-state";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe, makeSettings, renderApp } from "./harness";
+
+// Unmount after each test. Testing Library appends every `render` to
+// `document.body`, and there is ONE document per bun test process — so a file
+// that renders without unmounting leaves its DOM for whatever file bun shards
+// into that process next, and a test asking a GLOBAL question
+// (`getAllByRole("button")`) reads the leftovers as its own. That is exactly
+// how the Welcome screen's "Continue is the only control" case passed on a Mac
+// and failed on CI, counting four About-screen buttons as its own (2026-09-18).
+afterEach(cleanup);
 
 const GOOD_KEY = "nsk_0123456789012345678901234567890a";
 
@@ -64,8 +91,14 @@ async function boot(init: Parameters<typeof installFakeIpc>[0] = {}) {
   return ipc;
 }
 
-const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
-const buttonOrNull = (name: string) => screen.queryByRole("button", { name }) as HTMLButtonElement | null;
+/**
+ * A button by its accessible name. A RegExp is accepted for the two-line
+ * choices on the first-run Choice screen, whose accessible name is the label
+ * AND its detail sentence — matching the whole of that is asserting the copy
+ * twice, in the place least likely to be updated with it.
+ */
+const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
+const buttonOrNull = (name: string | RegExp) => screen.queryByRole("button", { name }) as HTMLButtonElement | null;
 
 /**
  * The confirmation panel, which is a labelled region.
@@ -82,36 +115,89 @@ const typeInto = (label: string, value: string) => {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 };
 
+/**
+ * Open the enrol form the way a person now reaches it: **Re-enroll…**, from
+ * the status screen of a machine that already IS a node.
+ *
+ * The probe-derived `enroll` landing is gone (spec 2026-09-18 § 5.4). An
+ * unconfigured machine walks to **Register**, whose press is the consent and
+ * which therefore does not confirm; the two-phase flow every case in that
+ * block is about belongs to re-enrolment — the act that overwrites a working
+ * `config.json`, mints a SECOND node row and discards the only copy of a live
+ * node key. Same screen, same form, same commands; a different door.
+ */
+async function openReenroll(init: Parameters<typeof installFakeIpc>[0] = {}) {
+  const fake = await boot(init);
+  fireEvent.click(button("Re-enroll…"));
+  await screen.findByRole("heading", { name: "Enroll This Machine" });
+  return fake;
+}
+
 // ---------------------------------------------------------------------------
 // 0. The frame: one screen at a time, each asking one question
 // ---------------------------------------------------------------------------
 
 describe("the assistant frame", () => {
-  it("asks for a server first, ahead of anything the probe says", async () => {
-    // Without an address this app has nothing to show in its other window, and
-    // "enroll this machine" is a question about a server nobody has named.
+  // Was "asks for a server first, ahead of anything the probe says", and the
+  // rule is deliberately reversed (spec 2026-09-18 §§ 1-2). Asking for an
+  // address first meant the front door of a fresh install was a field whose
+  // button opened somebody else's dashboard. The address is still asked for —
+  // on the watch path, as one of two answers to a question that is now put
+  // first.
+  it("asks what you came to do before it asks for anything else", async () => {
+    await boot({ settings: makeSettings({ planeUrl: null }), probe: FRESH });
+    expect(screen.getByRole("heading", { name: "Welcome to Subshell Client" })).toBeTruthy();
+    // Nothing on it but a step forward: no field, and no command.
+    expect(ipc?.callsTo("node_set_plane").length).toBe(0);
+
+    fireEvent.click(button("Continue"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
+
+    fireEvent.click(button(/^connect to a server/i));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Connect to a Server" })).toBeTruthy());
+    expect(screen.getByLabelText("Server URL")).toBeTruthy();
+    expect(buttonOrNull("Connect")).not.toBeNull();
+  });
+
+  // The other half of that reversal, and the reason `configured` counts a node
+  // rather than only a stored address: this machine has no `planeUrl`, so the
+  // old router showed it Connect — but it IS a node, and the walk that screen
+  // starts ends at Register, which mints a SECOND node row on the control
+  // plane and discards the node key whose only copy is `config.json`.
+  it("never walks an enrolled machine through a first run, address or no address", async () => {
     await boot({ settings: makeSettings({ planeUrl: null }) });
-    expect(screen.getByRole("heading", { name: "Connect to a Server" })).toBeTruthy();
-    expect(buttonOrNull("Open")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Welcome to Subshell Client" })).toBeNull();
+    expect(buttonOrNull("Register")).toBeNull();
   });
 
   it("shows a working machine one decision, and the rest under More…", async () => {
     await boot();
-    expect(screen.getByRole("heading", { name: "This Machine Is a Node" })).toBeTruthy();
-    expect(buttonOrNull("Open Subshell Client")).not.toBeNull();
+    // The heading and the primary's label are the two things that changed.
+    // `connected` became `status`, the landing every configured client returns
+    // to; and the button that opens the server's page now says so, where
+    // "Open Subshell Client" named THIS app while opening a different one.
+    expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
+    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
     expect(screen.getByText("More…")).toBeTruthy();
     expect(buttonOrNull("Re-enroll…")).not.toBeNull();
   });
 
+  // Each used to be its own screen with its own heading. They land on `status`
+  // now, so what names the failure is the badge and the sentence beside the
+  // verb rather than a title that changed under the person reading it — and
+  // the verb is still the step's own.
   it("names which service failure it is looking at", async () => {
     await boot({ probe: STOPPED });
-    expect(screen.getByRole("heading", { name: "The Node Service Is Stopped" })).toBeTruthy();
+    expect(screen.getByText("Service stopped")).toBeTruthy();
+    expect(screen.getByText(/the agent is not running/)).toBeTruthy();
     expect(buttonOrNull("Start")).not.toBeNull();
     cleanup();
     ipc?.restore();
 
     await boot({ probe: makeProbe({ step: "offline", status: { ...STOPPED.status, online: false } }) });
-    expect(screen.getByRole("heading", { name: "The Node Service Isn't Responding" })).toBeTruthy();
+    expect(screen.getByText("Offline")).toBeTruthy();
+    expect(screen.getByText(/no local daemon is heartbeating/)).toBeTruthy();
     expect(buttonOrNull("Restart")).not.toBeNull();
   });
 });
@@ -192,7 +278,11 @@ describe("the CLI's own words", () => {
     const stderr = "warning: this unit does not spare live panes — mint a new key if enroll fails";
     await boot({ probe: FRESH, handlers: { node_install_agent: () => ({ ok: true, stdout, stderr }) } });
 
-    fireEvent.click(button("Install"));
+    // The install screen's one button is the status screen's no-agent card
+    // now. Same command, same unconfirmed offer, same reason it is safe: on a
+    // machine where nothing answered there is nothing to stop, overwrite or
+    // downgrade.
+    fireEvent.click(button("Install the agent"));
 
     await waitFor(() => expect(screen.getByText(/Installed subshell 1\.9\.0\./)).toBeTruthy());
     const block = screen.getByText(/Installed subshell 1\.9\.0\./);
@@ -213,18 +303,17 @@ describe("actions serialize", () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
     const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
 
-    fireEvent.click(button("Install"));
-    await waitFor(() => expect(button("Install").disabled).toBe(true));
+    fireEvent.click(button("Install the agent"));
+    await waitFor(() => expect(button("Install the agent").disabled).toBe(true));
 
     // Both the guard and the disabled attribute; a click dispatched anyway
     // (a stale reference, a synthetic event) must still not reach the CLI.
-    fireEvent.click(button("Install"));
-    fireEvent.click(button("Choose an existing agent…"));
+    fireEvent.click(button("Install the agent"));
     expect(fake.callsTo("node_install_agent").length).toBe(1);
-    expect(button("Choose an existing agent…").disabled).toBe(true);
+    expect(button("Install the agent").disabled).toBe(true);
 
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
-    await waitFor(() => expect(button("Install").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the agent").disabled).toBe(false));
   });
 
   it("keeps the UI disabled until the re-probe has landed", async () => {
@@ -232,12 +321,12 @@ describe("actions serialize", () => {
     const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
     const probesBefore = fake.callsTo("node_probe").length;
 
-    fireEvent.click(button("Install"));
+    fireEvent.click(button("Install the agent"));
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
 
     // A button that came back alive before the re-probe would be a button
     // acting on a machine that has moved on.
-    await waitFor(() => expect(button("Install").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the agent").disabled).toBe(false));
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(probesBefore);
   });
 });
@@ -267,21 +356,21 @@ describe("after every action, re-probe", () => {
 // 5 + 6. Enrolment
 // ---------------------------------------------------------------------------
 
+/**
+ * Two-phase enrolment, which is now RE-enrolment's property.
+ *
+ * Every case here is unchanged in what it asserts; what changed is the door.
+ * `openReenroll` reaches the same screen, the same form and the same
+ * `node_enroll` two-call flow from a machine that already is a node — which
+ * is the act the confirmation was always FOR (it overwrites `config.json`,
+ * mints a second node row and discards the only copy of a live node key). The
+ * first run's Register press is the consent for the OTHER case and skips the
+ * panel by design (§ 6.2); that path has its own block below, which pins that
+ * it sends `confirm: true` and raises nothing.
+ */
 describe("enrolment is two-phase", () => {
-  const notEnrolled = makeProbe({
-    step: "not-enrolled",
-    status: {
-      nodeId: null,
-      serverUrl: null,
-      online: false,
-      reason: "no config at /home/u/.config/subshell/config.json",
-    },
-    service: { installed: false, definitionPath: null, state: "not-installed", paneSafety: null },
-  });
-
   it("asks first, spawns nothing, and only re-sends on an explicit accept", async () => {
-    const fake = await boot({
-      probe: notEnrolled,
+    const fake = await openReenroll({
       handlers: {
         node_enroll: (args) =>
           args.confirm === true
@@ -338,8 +427,7 @@ describe("enrolment is two-phase", () => {
     // rule, applied once, so a name cannot be clean here and collapsed later — is only
     // pinned by a name that NEEDS normalizing: this asserts the argv Rust receives, and
     // therefore the POST body and the row on the Nodes page, is the normalized value.
-    const fake = await boot({
-      probe: notEnrolled,
+    const fake = await openReenroll({
       handlers: {
         node_enroll: () => ({
           ok: true,
@@ -371,8 +459,7 @@ describe("enrolment is two-phase", () => {
   });
 
   it("never auto-retries a failed enrolment", async () => {
-    const fake = await boot({
-      probe: notEnrolled,
+    const fake = await openReenroll({
       handlers: {
         node_enroll: () => ({
           ok: false,
@@ -396,8 +483,7 @@ describe("enrolment is two-phase", () => {
   });
 
   it("clears the spent key from the form after a success", async () => {
-    await boot({
-      probe: notEnrolled,
+    const fake = await openReenroll({
       handlers: {
         node_enroll: () => ({
           ok: true,
@@ -415,7 +501,16 @@ describe("enrolment is two-phase", () => {
     typeInto("Node name", "workstation");
     fireEvent.click(button("Enroll"));
 
-    await waitFor(() => expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe(""));
+    // A successful enrolment closes the screen it was asked for, so the form
+    // is re-opened to read it. That is not a workaround: the values live in
+    // the page rather than in the DOM, which is the whole reason they survive
+    // a screen change at all.
+    await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
+    await waitFor(() => expect(buttonOrNull("Re-enroll…")).not.toBeNull());
+    fireEvent.click(button("Re-enroll…"));
+    await screen.findByRole("heading", { name: "Enroll This Machine" });
+
+    expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe("");
     // The server URL survives: the common re-enroll is the same server.
     expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
     // And so does the NAME, which the operator typed rather than pasted. It is
@@ -425,7 +520,7 @@ describe("enrolment is two-phase", () => {
   });
 
   it("refuses an invalid form before any spawn", async () => {
-    const fake = await boot({ probe: notEnrolled });
+    const fake = await openReenroll();
 
     typeInto("Server URL", "subshell.example.com");
     typeInto("Setup key", "nsk_short");
@@ -440,7 +535,7 @@ describe("enrolment is two-phase", () => {
   });
 
   it("explains what a setup key is, and what a taken name costs", async () => {
-    await boot({ probe: notEnrolled });
+    await openReenroll();
     expect(screen.getByText(/Mint a setup key in the browser first/)).toBeTruthy();
     expect(screen.getByText(/single-use and expires after 24 hours/)).toBeTruthy();
     expect(screen.getByText(/already taken on that server/)).toBeTruthy();
@@ -451,8 +546,7 @@ describe("enrolment is two-phase", () => {
 
   // A warning, never a block.
   it("warns about a loopback URL without disabling anything", async () => {
-    const fake = await boot({
-      probe: notEnrolled,
+    const fake = await openReenroll({
       handlers: {
         node_enroll: () => ({
           ok: true,
@@ -485,7 +579,7 @@ describe("enrolment is two-phase", () => {
     // Asked for, so it can be taken back — and the machine's own screen is
     // what it goes back to.
     fireEvent.click(button("Cancel"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "This Machine Is a Node" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
   });
 });
 
@@ -698,7 +792,6 @@ describe("what the page never asks for", () => {
       "node_service",
       "node_install_agent",
       "node_enroll",
-      "node_set_agent_bin",
       "node_open_path",
       // The tray's screen request, ASKED for on mount — a window the tray just
       // created has no listener yet, so the event alone would be lost.
@@ -738,14 +831,556 @@ describe("pacing", () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
     const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
 
-    fireEvent.click(button("Install"));
-    await waitFor(() => expect(button("Install").disabled).toBe(true));
+    fireEvent.click(button("Install the agent"));
+    await waitFor(() => expect(button("Install the agent").disabled).toBe(true));
     const during = fake.callsTo("node_probe").length;
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(fake.callsTo("node_probe").length).toBe(during);
 
     gate.resolve({ ok: true, stdout: "", stderr: "" });
-    await waitFor(() => expect(button("Install").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the agent").disabled).toBe(false));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The first run (spec 2026-09-18 § 9)
+// ---------------------------------------------------------------------------
+
+describe("the first run", () => {
+  /** Untouched: nothing stored, no agent, no node config. */
+  const untouched = (over: Partial<ReturnType<typeof makeProbe>> = {}) =>
+    makeProbe({ step: "no-agent", agent: null, status: null, service: null, ...over });
+
+  /**
+   * A CONFIGURED client that is not a node: it has an address it watches and
+   * no `config.json`. The status screen offers it "Register this machine",
+   * which is the door the one-way-door case below is about.
+   */
+  const watcher = () =>
+    makeProbe({
+      step: "not-enrolled",
+      status: { nodeId: null, serverUrl: null, online: false, agentVersion: "1.9.0" },
+      service: { installed: false, definitionPath: null, state: "not-installed", paneSafety: null },
+    });
+
+  /** Walk Welcome -> Choice -> "Run subshells on this machine". */
+  const chooseNode = () => {
+    fireEvent.click(button("Continue"));
+    fireEvent.click(button(/^run subshells on this machine/i));
+  };
+
+  // tmux is a hard gate rather than a caption: every subshell runs in a tmux
+  // pane, `subshell enroll` preflights it BEFORE its network call precisely so
+  // an unenrollable box does not burn a one-time setup key, and the screen has
+  // no way past it — it leaves on its own when the probe finds one.
+  it("routes the node path to tmux, with no way past it, until tmux exists", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched({ tmux: null }),
+      handlers: { node_install_tmux: () => ({ ok: true, stdout: "installed tmux", stderr: "" }) },
+    });
+    chooseNode();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Install tmux" })).toBeTruthy());
+    // Neither press exists here — not the one that leaves the details screen,
+    // not the one that spends the key, and no skip either.
+    expect(buttonOrNull("Register")).toBeNull();
+    expect(buttonOrNull("Continue")).toBeNull();
+    // The command a person can paste instead, because a package manager may
+    // ask for a password this app has no terminal to answer.
+    expect(screen.getByText(/brew install tmux|sudo apt-get install tmux/)).toBeTruthy();
+
+    fake.setProbe(untouched());
+    fireEvent.click(button("Install tmux"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Register This Machine" })).toBeTruthy());
+  });
+
+  /** The node the control plane hands back, matching the probe's own id. */
+  const ENROLLED_NODE = { nodeId: "11111111-2222-3333-4444-555555555555", name: "workstation" };
+  const enrolledOk = {
+    ok: true,
+    stdout: "enrolled",
+    stderr: "",
+    node: ENROLLED_NODE,
+    requiresConfirmation: false,
+    confirmations: [],
+  };
+
+  /**
+   * Walk to Register, fill it, and press through the start-up question.
+   *
+   * The two labels are the way round they are on purpose (2026-09-18): the
+   * details screen COLLECTS and spends nothing, so it says **Continue**; the
+   * start-up screen is where the press ACTS — install, enrol, service — so it
+   * says **Register**. A button is named for what pressing it does.
+   */
+  const registerAs = async (server: string) => {
+    chooseNode();
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    typeInto("Server URL", server);
+    typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
+    fireEvent.click(button("Continue"));
+    await screen.findByRole("heading", { name: "How This Node Runs" });
+    fireEvent.click(button("Register"));
+    await screen.findByRole("heading", { name: "Setting Up…" });
+  };
+
+  const CHAIN = ["node_install_agent", "node_enroll", "node_service"];
+  const chainOrder = (fake: FakeIpc) => fake.calls.filter((c) => CHAIN.includes(c.cmd)).map((c) => c.cmd);
+
+  // Spec § 6: one press, three acts, in order — and § 6.2: the press IS the
+  // consent, so no confirmation panel stands between it and the spent key.
+  //
+  // Modelled as the Rust side really behaves on an untouched machine:
+  // `confirmations_for` raises NOTHING without a `config.json`, so the
+  // unconfirmed call enrols on the spot. That is what makes one press honest
+  // here — not a `confirm: true` that would also skip the guard below.
+  it("registers in one press: install, enrol, then the service", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: () => enrolledOk,
+        node_service: () => ({ ok: true, stdout: "installed the service", stderr: "" }),
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1), { timeout: 5_000 });
+    // The daemon takes its lock a beat after the manager returns; the chain
+    // settles for it, which is why the checklist can end on "done".
+    fake.setProbe(makeProbe());
+
+    expect(chainOrder(fake)).toEqual(CHAIN);
+    // ONE call, and it is the unconfirmed one: nothing asked, so nothing to
+    // ask the person about, and the key was spent on that same call.
+    expect(fake.callsTo("node_enroll")).toEqual([
+      { server: "https://subshell.example.com", key: GOOD_KEY, name: "workstation", confirm: false },
+    ]);
+    expect(confirmPanelOrNull()).toBeNull();
+    // And the answer the previous screen collected rode the act it belongs to.
+    expect(fake.callsTo("node_service")[0]).toEqual({ verb: "install", force: false, autostart: true });
+
+    // The completed checklist HOLDS, unlike the sibling app's zero-touch
+    // auto-open: a chain a person just started is owed the beat that answers
+    // "what did that just do".
+    await waitFor(
+      () => {
+        expect(buttonOrNull("Continue")?.disabled).toBe(false);
+      },
+      { timeout: 8_000 },
+    );
+    expect(screen.getByRole("heading", { name: "Setting Up…" })).toBeTruthy();
+    fireEvent.click(button("Continue"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+  });
+
+  // THE safety property of this chain, and what it costs to lose.
+  //
+  // A machine reaches Register with a live `config.json` more easily than it
+  // looks: `no-agent` is the probe's answer for a missing binary AND for one
+  // that cannot answer `status --json`, so a machine whose agent was deleted
+  // still has its node id, its `serverUrl` and the ONLY copy of its node key
+  // in that file. Enrolling over it mints a SECOND node row on the control
+  // plane and discards that key — the old row stays behind, permanently
+  // offline, to be deleted by hand.
+  //
+  // Rust raises `already-enrolled` for exactly that machine (it reads
+  // `config.json` directly, not the agent), and a blanket `confirm: true`
+  // would skip the guard. So the chain STOPS here and asks.
+  it("stops the chain rather than enrol over a machine that is already registered", async () => {
+    const ALREADY = "This machine is already enrolled as node node-abc on https://old.example.";
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: (args) =>
+          args.confirm === true
+            ? enrolledOk
+            : {
+                ok: false,
+                stdout: "",
+                stderr: "",
+                node: null,
+                requiresConfirmation: true,
+                confirmations: [{ kind: "already-enrolled", message: ALREADY }],
+              },
+        node_service: () => ({ ok: true, stdout: "installed the service", stderr: "" }),
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+
+    // Phase one: the reason on screen, and the chain halted BEFORE the act
+    // that cannot be undone. Nothing was spawned and no key was spent — the
+    // one call that went out is the unconfirmed one.
+    await waitFor(() => expect(confirmPanelOrNull()).not.toBeNull());
+    expect(confirmPanel().getByText(ALREADY)).toBeTruthy();
+    expect(fake.callsTo("node_enroll")).toEqual([
+      { server: "https://subshell.example.com", key: GOOD_KEY, name: "workstation", confirm: false },
+    ]);
+    expect(fake.callsTo("node_service")).toEqual([]);
+    // The checklist says WHERE it stopped, rather than looking like a hang.
+    expect(screen.getByRole("heading", { name: "Setting Up…" })).toBeTruthy();
+
+    // Phase two: an explicit acceptance, and only then the identical
+    // arguments plus `confirm: true` — the chain picks up where it stopped.
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Register anyway" }));
+    await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(2), { timeout: 5_000 });
+    const [first, second] = fake.callsTo("node_enroll");
+    expect(second).toEqual({ ...first, confirm: true });
+    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1), { timeout: 5_000 });
+    fake.setProbe(makeProbe());
+    expect(fake.callsTo("node_service")[0]).toEqual({ verb: "install", force: false, autostart: true });
+  });
+
+  // The deliberate asymmetry beside it. A loopback server is ADVISORY — the
+  // node will look for a control plane on its own machine, which is right
+  // whenever the plane runs here — and `EnrollFields` already prints that
+  // sentence live under the URL as it is typed. Stopping the press to say it
+  // a second time is the nag this flow set out to remove, so the chain
+  // proceeds. It is `already-enrolled` that is destructive, not every
+  // confirmation.
+  it("does not stop for a loopback address, which the field already warned about", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: (args) =>
+          args.confirm === true
+            ? enrolledOk
+            : {
+                ok: false,
+                stdout: "",
+                stderr: "",
+                node: null,
+                requiresConfirmation: true,
+                confirmations: [
+                  { kind: "loopback-server", message: "http://localhost:3080 is a loopback address, so this node…" },
+                ],
+              },
+        node_service: () => ({ ok: true, stdout: "installed the service", stderr: "" }),
+      },
+    });
+
+    await registerAs("http://localhost:3080");
+    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1), { timeout: 5_000 });
+    fake.setProbe(makeProbe());
+
+    expect(confirmPanelOrNull()).toBeNull();
+    // The same three acts in the same order, with enrol taking TWO calls —
+    // the unconfirmed one that surfaces the advisory, then the confirmed one
+    // the chain proceeds with on its own. That second call is the difference
+    // from the `already-enrolled` case above, where it waits for a press.
+    expect(chainOrder(fake)).toEqual(["node_install_agent", "node_enroll", "node_enroll", "node_service"]);
+    expect(fake.callsTo("node_enroll").map((a) => a.confirm)).toEqual([false, true]);
+  });
+
+  // 1. The press that goes nowhere, and why it was worse than a refusal.
+  //
+  // The Register button is gated only on the three fields being NON-EMPTY, so
+  // `https//typo` and a truncated key both reach the press — but
+  // `validateEnroll` wants a parseable http(s) URL with a host and `nsk_` plus
+  // 32 characters. The chain used to be the only validator, which meant the
+  // page had already stepped to start-up and then to the checklist by the time
+  // the refusals were written to the form: the per-field errors rendered on a
+  // screen nobody was looking at, and what the person saw was a checklist with
+  // no row moving and NO button at all, since `barRight` appears only on
+  // `failed` or `done`. The screen that owns the fields validates them.
+  it("refuses a malformed URL or key on the screen that owns the fields", async () => {
+    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    typeInto("Server URL", "https//typo");
+    typeInto("Setup key", "nsk_short");
+    typeInto("Node name", "workstation");
+    fireEvent.click(button("Continue"));
+
+    // Still here, with the refusals beside the fields they are about.
+    expect(screen.getByRole("heading", { name: "Register This Machine" })).toBeTruthy();
+    expect(screen.getByText(/Include the scheme/)).toBeTruthy();
+    expect(screen.getByText(/partial paste/)).toBeTruthy();
+    // Not one screen further on, which is where those sentences used to land.
+    expect(screen.queryByRole("heading", { name: "How This Node Runs" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Setting Up…" })).toBeNull();
+    // And nothing ran: no agent installed, no key spent, no service written.
+    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_enroll")).toEqual([]);
+    expect(fake.callsTo("node_service")).toEqual([]);
+  });
+
+  // 2. The way back, and the reason Retry alone could never be it.
+  //
+  // An enrolment that reached the control plane spends the setup key WHATEVER
+  // it answered, so `clearSpentKey` empties that field — and a Retry with an
+  // empty key is refused by `validateEnroll` before it spawns anything. Retry
+  // was therefore a button that could not converge: press it forever and the
+  // checklist never moves. Editing the details is the only remedy, which is
+  // what the operator asked for.
+  it("offers a way back to the details after a failed enrolment, key cleared", async () => {
+    const TAKEN = "subshell: that node name is already taken on this server — mint a new key and try again";
+    await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: () => ({
+          ok: false,
+          stdout: "",
+          stderr: TAKEN,
+          node: null,
+          requiresConfirmation: false,
+          confirmations: [],
+        }),
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(buttonOrNull("Edit details")).not.toBeNull());
+    // Beside Retry, not instead of it: a fresh key in the same fields is the
+    // other half of the answer, and the CLI's own words say which it is.
+    expect(buttonOrNull("Retry")).not.toBeNull();
+    expect(screen.getByText(TAKEN)).toBeTruthy();
+
+    fireEvent.click(button("Edit details"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    // What the operator typed survives; only the credential that was spent is
+    // gone, because that is the one field a retry has to change.
+    expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
+    expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toBe("workstation");
+    expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe("");
+  });
+
+  // 3. …and the way back is WITHHELD once the machine is a node.
+  //
+  // Only the service act can fail after enrolment landed, and the details are
+  // spent by then: going back to them would invite a second enrolment, which
+  // mints another node row and discards the key this run just stored. Retry is
+  // the whole remedy here, and it is enough — the service act is repeatable.
+  it("offers no way back to the details once the enrolment has landed", async () => {
+    await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: () => enrolledOk,
+        node_service: () => ({ ok: false, stdout: "", stderr: "Failed to start subshell.service" }),
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(buttonOrNull("Retry")).not.toBeNull());
+    expect(screen.getByText(/Failed to start subshell.service/)).toBeTruthy();
+    expect(buttonOrNull("Edit details")).toBeNull();
+  });
+
+  // 4. The Retry that must not re-enrol.
+  //
+  // A Retry after the SERVICE act failed arrives with the machine ALREADY
+  // registered — enrol succeeded, the row exists, the node key is on disk. The
+  // chain used to start from the top, so that second press enrolled again:
+  // another node row on the control plane, the first left behind permanently
+  // offline, and the only copy of the node key this run had just stored
+  // discarded. `register()` returns straight to the service act when the probe
+  // reports a `nodeId`, which is what makes the chain resumable rather than
+  // destructive on its second press.
+  it("resumes at the service act on retry, rather than enrolling a second time", async () => {
+    let fake!: FakeIpc;
+    let starts = 0;
+    fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: () => {
+          // The machine really is a node from here on, so the probe says so —
+          // which is the fact the resume reads, and the reason this is not a
+          // contrivance: the run's own re-probe is what delivers it.
+          fake.setProbe(makeProbe());
+          return enrolledOk;
+        },
+        node_service: () => {
+          starts += 1;
+          return starts === 1
+            ? { ok: false, stdout: "", stderr: "Failed to start subshell.service" }
+            : { ok: true, stdout: "installed the service", stderr: "" };
+        },
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(buttonOrNull("Retry")?.disabled).toBe(false), { timeout: 5_000 });
+    expect(fake.callsTo("node_enroll").length).toBe(1);
+
+    fireEvent.click(button("Retry"));
+    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(2), { timeout: 5_000 });
+    // The act that spends a key and rewrites `config.json` ran ONCE across
+    // both presses. Not "once more with confirm" — not at all.
+    expect(fake.callsTo("node_enroll").length).toBe(1);
+    // And the resumed run finishes, so the checklist reaches its handoff
+    // rather than stranding a machine that is one act from working.
+    await waitFor(() => expect(buttonOrNull("Continue")?.disabled).toBe(false), { timeout: 8_000 });
+  });
+
+  // The walk had no way out at all: `barLeft` existed only on the progress
+  // screen, so tmux, the details form and the start-up question each had a
+  // single forward press and nothing that cleared `step`. That made the Choice
+  // screen's own promise false — "whichever you pick, the other is still
+  // available afterwards" (subtitles.ts) — from the moment you picked.
+  it("lets a fresh machine back out of the node path to the choice", async () => {
+    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Register This Machine" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
+    // Both answers offered again, which is what the promise said.
+    expect(buttonOrNull(/^run subshells on this machine/i)).not.toBeNull();
+    expect(buttonOrNull(/^connect to a server/i)).not.toBeNull();
+    // And leaving touched nothing: no agent, no key, no service.
+    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_enroll")).toEqual([]);
+    expect(fake.callsTo("node_service")).toEqual([]);
+    expect(fake.callsTo("node_set_plane")).toEqual([]);
+  });
+
+  // THE one-way door, and the case a person actually hits.
+  //
+  // A configured client — someone already watching a server — presses
+  // "Register this machine" on the status screen, which sets the walk's step.
+  // Back has to return them to the LANDING, not to Choice: Choice is a screen
+  // that person never saw, and before this the status screen's own button was
+  // a door out of the dashboard for the rest of the session.
+  it("returns a configured client to its landing screen, not to a choice it never saw", async () => {
+    await boot({ probe: watcher() });
+    expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
+    fireEvent.click(button("Register this machine"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+    // The button they came for is back, which is the whole of the defect.
+    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
+    // And NOT the fresh machine's answer: this person never chose anything.
+    expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
+    // The invitation is still there to accept a second time — a door that
+    // closes behind you is the thing being fixed.
+    expect(buttonOrNull("Register this machine")).not.toBeNull();
+  });
+
+  // The last screen before a single-use key is spent, so the way back to the
+  // address that key is for matters most here.
+  it("goes back from the start-up question to the details, still filled in", async () => {
+    await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    typeInto("Server URL", "https://subshell.example.com");
+    typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
+    fireEvent.click(button("Continue"));
+    await screen.findByRole("heading", { name: "How This Node Runs" });
+
+    fireEvent.click(button("Back"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    // The answers survive, because the form's values live in the page rather
+    // than in the DOM — which is the point of going back at all: correcting
+    // one character of an address, not retyping three fields.
+    expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
+    expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toBe("workstation");
+    expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe(GOOD_KEY);
+  });
+
+  // The gate needs the exit most of all: tmux is required to register, so a
+  // machine where it never appears parks a person here with nothing but
+  // quitting the app. Back is not a way THROUGH the gate — it answers "not
+  // this machine, not now", which is a different sentence from "register me
+  // without tmux" — so it leaves the walk and changes nothing.
+  it("lets a fresh machine leave the tmux gate for the choice", async () => {
+    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched({ tmux: null }) });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Install tmux" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
+    expect(fake.callsTo("node_install_tmux")).toEqual([]);
+    expect(fake.callsTo("node_enroll")).toEqual([]);
+  });
+
+  // Same asymmetry as the details screen's: a configured client reached the
+  // gate from "Register this machine" and never saw Choice, so Back owes them
+  // the landing they came from — with the dashboard button on it.
+  it("returns a configured client from the tmux gate to its landing screen", async () => {
+    await boot({ probe: makeProbe({ ...watcher(), tmux: null }) });
+    fireEvent.click(button("Register this machine"));
+    await screen.findByRole("heading", { name: "Install tmux" });
+
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
+  });
+
+  // The case the screen's Back exists FOR, and the one place the host can
+  // quietly undo it.
+  //
+  // `tmux-screen.tsx` keeps this button live while the install runs — alone
+  // among bottom-bar controls in this app — and says why at the point it draws
+  // it: leaving changes nothing (the install runs in Rust and finishes either
+  // way, and the next probe sees the tmux it produced), and a screen whose
+  // whole complaint is "there is no way out of this wait" cannot take its way
+  // out away for the length of it. A `brew install` is a minute or more.
+  //
+  // That only holds if the HOST honours the press. A live button whose handler
+  // returns silently is worse than a disabled one: a disabled button says "not
+  // now", and this would say nothing at all — which is the dead end the whole
+  // screen was rebuilt to remove.
+  it("lets a person leave while the install is still running", async () => {
+    const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched({ tmux: null }),
+      handlers: { node_install_tmux: () => gate.promise },
+    });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Install tmux" });
+
+    fireEvent.click(button("Install tmux"));
+    await waitFor(() => expect(fake.callsTo("node_install_tmux").length).toBe(1));
+    // Live, which is the component's own deliberate divergence.
+    const back = button("Back");
+    expect(back.disabled).toBe(false);
+
+    fireEvent.click(back);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
+    // The install was not cancelled by leaving — it is Rust's, and it finishes.
+    expect(fake.callsTo("node_install_tmux").length).toBe(1);
+    gate.resolve({ ok: true, stdout: "installed tmux", stderr: "" });
+  });
+
+  // The other answer, and the rule the whole flow exists for: the watch path
+  // touches nothing on this machine and opens no dashboard.
+  it("takes the watch path without installing, enrolling or opening anything", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: { node_set_plane: (args) => String(args.url) },
+    });
+    fireEvent.click(button("Continue"));
+    fireEvent.click(button(/^connect to a server/i));
+    await screen.findByRole("heading", { name: "Connect to a Server" });
+    typeInto("Server URL", "https://watch.example");
+    fireEvent.click(button("Connect"));
+
+    await waitFor(() => expect(fake.callsTo("node_set_plane")).toEqual([{ url: "https://watch.example" }]));
+    // Nothing else was asked for. Every one of these is unstubbed, so a call
+    // would have rejected loudly; the assertions say which absences matter.
+    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_enroll")).toEqual([]);
+    expect(fake.callsTo("node_service")).toEqual([]);
+    expect(fake.callsTo("node_open_plane")).toEqual([]);
   });
 });
 
@@ -754,21 +1389,33 @@ describe("pacing", () => {
 // ---------------------------------------------------------------------------
 
 describe("the screens", () => {
+  // The install screen's whole reason for existing, carried onto the status
+  // screen as two cards: `no-agent` covers two very different machines and the
+  // split between them decides what may be offered at all. What the screen
+  // looks like changed; the split did not.
   it("offers the install only when nothing answered at all", async () => {
     await boot({ probe: makeProbe({ step: "no-agent", agent: null, status: null, service: null }) });
-    expect(screen.getByRole("heading", { name: "Install the Agent" })).toBeTruthy();
-    expect(buttonOrNull("Install")).not.toBeNull();
-    expect(screen.getByText(/No subshell agent was found/)).toBeTruthy();
+    expect(buttonOrNull("Install the agent")).not.toBeNull();
+    expect(screen.getByText(/Installing it copies the copy that ships inside this app/)).toBeTruthy();
+    // And registering is NOT offered beside it. A machine with no agent cannot
+    // say whether it is already a node, and Register's chain enrols with
+    // `confirm: true` — so the install comes first and the probe that follows
+    // is what decides whether Register appears at all.
+    expect(buttonOrNull("Register this machine")).toBeNull();
     cleanup();
     ipc?.restore();
 
     // An agent that answered `version` but not `status --json`: enrolling here
     // would overwrite a live config and discard its node key.
     await boot({ probe: makeProbe({ step: "no-agent", status: null }) });
-    expect(buttonOrNull("Install")).toBeNull();
+    expect(buttonOrNull("Install the agent")).toBeNull();
+    expect(buttonOrNull("Register this machine")).toBeNull();
     expect(buttonOrNull("Enroll")).toBeNull();
-    expect(buttonOrNull("Retry")).not.toBeNull();
-    expect(screen.getByText(/could not report its status/)).toBeTruthy();
+    // The one thing that can change this state is still live. It is labelled
+    // Refresh rather than Retry now — one word for re-reading the machine, on
+    // the one screen that does it.
+    expect(buttonOrNull("Refresh")).not.toBeNull();
+    expect(screen.getByText(/cannot say whether it is already a node/)).toBeTruthy();
   });
 
   it("settles after a start rather than reporting the service still stopped", async () => {
@@ -781,19 +1428,30 @@ describe("the screens", () => {
     fake.setProbe(makeProbe());
     fireEvent.click(button("Start"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "This Machine Is a Node" })).toBeTruthy(), {
+    // The heading is the same before and after now (one landing for every
+    // state), so what says the settle worked is the state itself: the badge
+    // flips to Online and the verb that was offered is gone. Reporting the
+    // machine as still stopped is what this guards against, and that is
+    // exactly what a lingering Start would be.
+    await waitFor(() => expect(screen.getByText("Online")).toBeTruthy(), {
       timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 1),
     });
+    expect(buttonOrNull("Start")).toBeNull();
     expect(fake.callsTo("node_service")).toEqual([{ verb: "start", force: false }]);
   });
 
   // A step this build predates lands on the screen that shows the facts and
-  // the last output, which are what make an unrecognised state diagnosable.
+  // the last output, which are what make an unrecognised state diagnosable —
+  // `status` now, where the sentence is the screen's own card rather than the
+  // service screen's subtitle, and where nothing that spends anything is
+  // offered over a state the app cannot read.
   it("says it does not recognise a step this build predates", async () => {
     await boot({ probe: makeProbe({ step: "quantum-superposition" as never }) });
     expect(screen.getByText(/does not recognise the state "quantum-superposition"/)).toBeTruthy();
     expect(screen.getByText(/older than the agent it is managing/)).toBeTruthy();
-    expect(buttonOrNull("Retry")).not.toBeNull();
+    expect(screen.getByText("Unknown")).toBeTruthy();
+    expect(buttonOrNull("Refresh")).not.toBeNull();
+    expect(screen.getByText("Show Details")).toBeTruthy();
   });
 
   it("does not strand the window when the probe itself cannot be read", async () => {
@@ -806,7 +1464,14 @@ describe("the screens", () => {
     });
     renderApp(<App />);
     await waitFor(() => expect(screen.getByText(/Could not read this machine's state/)).toBeTruthy());
-    expect(buttonOrNull("Retry")).not.toBeNull();
+    // A configured client lands on `status` whatever the probe did, so the way
+    // out is that screen's own re-read rather than a checking screen of its
+    // own. And nothing that could spend a key is drawn over a machine this app
+    // failed to read at all.
+    const refresh = buttonOrNull("Refresh");
+    expect(refresh).not.toBeNull();
+    expect(refresh?.disabled).toBe(false);
+    expect(buttonOrNull("Register this machine")).toBeNull();
   });
 });
 
@@ -827,8 +1492,12 @@ describe("the facts", () => {
   });
 
   it("shows the node name only when this session chose it", async () => {
-    await boot({
-      probe: makeProbe({ step: "not-enrolled", status: { nodeId: null, online: false, reason: "no config" } }),
+    // Reached through Re-enroll… rather than through the probe's own enroll
+    // landing, which is gone. The property is untouched: the name is a fact
+    // only when THIS session's `enroll --json` returned it for the node the
+    // probe is reporting, because `status --json` names no node and
+    // `config.json`'s name is not among the facts Rust hands out.
+    const fake = await openReenroll({
       handlers: {
         node_enroll: () => ({
           ok: true,
@@ -847,10 +1516,10 @@ describe("the facts", () => {
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
     typeInto("Node name", "workstation");
-    ipc?.setProbe(makeProbe());
     fireEvent.click(button("Enroll"));
+    await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
 
-    // Twice over, and both are the same fact: the connected screen greets the
+    // Twice over, and both are the same fact: the status screen greets the
     // machine by name, and the facts list carries it beside the node id.
     await waitFor(() => expect(screen.getAllByText(/workstation/).length).toBeGreaterThan(0));
     expect(screen.getByText(/Enrolled as/)).toBeTruthy();
@@ -880,14 +1549,32 @@ describe("tmux is a hard stop, not a hint", () => {
     await waitFor(() => expect(button("Start").disabled).toBe(false));
   });
 
+  // There are two doors to the act that spends a key now, so the gate is
+  // asserted on both. The Register screen is where a half-built machine
+  // resumes (spec § 5.5) and the re-enrol screen is what a working node asks
+  // for; neither may offer a live button, because `subshell enroll` refuses
+  // before its network call and a button that only ever produces that refusal
+  // teaches people to click through warnings. (The first-run walk never even
+  // reaches Register without tmux — it routes to the tmux screen, which the
+  // first-run block below pins.)
   it("gates enrolment too — enroll preflights tmux before spending the key", async () => {
     await boot({
+      settings: makeSettings({ planeUrl: null }),
       probe: makeProbe({
         step: "not-enrolled",
         tmux: null,
         status: { nodeId: null, online: false, reason: "no config" },
       }),
     });
+    expect(screen.getByRole("heading", { name: "Register This Machine" })).toBeTruthy();
+    expect(button("Continue").disabled).toBe(true);
+    expect(screen.getByText(/so enrolling is disabled/)).toBeTruthy();
+    cleanup();
+    ipc?.restore();
+
+    await boot({ probe: makeProbe({ tmux: null }) });
+    fireEvent.click(button("Re-enroll…"));
+    await screen.findByRole("heading", { name: "Enroll This Machine" });
     expect(button("Enroll").disabled).toBe(true);
     expect(screen.getByText(/so enrolling is disabled/)).toBeTruthy();
   });
@@ -923,31 +1610,59 @@ describe("the plane's two doors", () => {
     );
   });
 
-  it("opens the app window at the address the connect screen was given", async () => {
+  // Was "opens the app window at the address the connect screen was given",
+  // and the connect screen deliberately no longer does that (spec § 1): its
+  // one button called `node_open_plane`, which persists AND opens, so pressing
+  // it on a fresh install threw the server's dashboard in front of the setup
+  // still running behind it. `connectOnly` is the persisting half alone.
+  it("remembers the address the connect screen was given, and opens nothing", async () => {
     const fake = await boot({
       settings: makeSettings({ planeUrl: null }),
-      handlers: { node_open_plane: (args) => String(args.url) },
+      probe: FRESH,
+      handlers: { node_set_plane: (args) => String(args.url) },
     });
+    fireEvent.click(button("Continue"));
+    fireEvent.click(button(/^connect to a server/i));
+    await screen.findByRole("heading", { name: "Connect to a Server" });
+    typeInto("Server URL", "https://plane.example");
+    fireEvent.click(button("Connect"));
+
+    await waitFor(() => expect(fake.callsTo("node_set_plane")).toEqual([{ url: "https://plane.example" }]));
+    // And no window opened. `node_open_plane` is deliberately unstubbed here,
+    // so a call would have rejected loudly rather than passing unnoticed.
+    expect(fake.callsTo("node_open_plane")).toEqual([]);
+  });
+
+  // The `openPlane` door itself survives, on the screen of a client that is
+  // already set up: there, pressing it IS the request to see that dashboard.
+  it("opens the app window at an address changed from the status screen", async () => {
+    const fake = await boot({ handlers: { node_open_plane: (args) => String(args.url) } });
+    fireEvent.click(button("Change server…"));
     typeInto("Server URL", "https://plane.example");
     fireEvent.click(button("Open"));
     await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: "https://plane.example" }]));
   });
 
-  // `node_open_plane_url` re-reads the settled address rather than taking one
-  // from the page, so an address that has never been saved has to be persisted
-  // before the browser can be sent to it — and the runner serializes, so the
-  // two cannot be fired together.
-  it("persists the typed address before opening a browser on it", async () => {
-    const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
-      handlers: { node_open_plane: (args) => String(args.url), node_open_plane_url: () => null },
-    });
-    typeInto("Server URL", "https://plane.example");
+  // Was "persists the typed address before opening a browser on it". That
+  // ORDER existed because the connect screen offered both doors and
+  // `node_open_plane_url` re-reads the SETTLED address, so an unsaved one had
+  // to be persisted first. The first run drops the browser door entirely
+  // (§ 5.3, operator: "we should NOT have an 'open in browser' link"), so the
+  // ordering has no path left to get wrong — what is pinned instead is that
+  // the door is absent there and present where the address is already saved.
+  it("keeps the browser door off the first run, and on the screen where the address is settled", async () => {
+    await boot({ settings: makeSettings({ planeUrl: null }), probe: FRESH });
+    fireEvent.click(button("Continue"));
+    fireEvent.click(button(/^connect to a server/i));
+    await screen.findByRole("heading", { name: "Connect to a Server" });
+    expect(buttonOrNull("Open in browser instead")).toBeNull();
+    cleanup();
+    ipc?.restore();
+
+    const fake = await boot({ handlers: { node_open_plane_url: () => null } });
+    expect(buttonOrNull("Open in browser instead")).not.toBeNull();
     fireEvent.click(button("Open in browser instead"));
-    await waitFor(() => expect(fake.callsTo("node_open_plane_url").length).toBe(1));
-    expect(fake.callsTo("node_open_plane")).toEqual([{ url: "https://plane.example" }]);
-    // Order matters: saving comes first, or the browser opens on nothing.
-    const order = fake.calls.filter((c) => c.cmd.startsWith("node_open_plane")).map((c) => c.cmd);
-    expect(order).toEqual(["node_open_plane", "node_open_plane_url"]);
+    // Still no URL across the boundary: the command re-reads the ladder.
+    await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
   });
 });

@@ -144,6 +144,15 @@ export interface Probe {
   error: string | null;
   /** tmux's path on the LOGIN path, or null. */
   tmux: string | null;
+  /**
+   * Whether `brew` resolves on the login PATH.
+   *
+   * Only ever asked when {@link tmux} is null, and only on macOS: it decides
+   * whether `node_install_tmux` has anything to run here, so a false makes the
+   * tmux screen print the manual routes instead of a button that can only
+   * refuse.
+   */
+  hasBrew: boolean;
   paths: NodePaths;
   /**
    * This machine's name, as `hostname(1)` reports it.
@@ -217,6 +226,13 @@ export interface EnrollOutcome {
  * the fields left with the switch rather than moving to another screen.
  */
 export interface NodeSettings {
+  /**
+   * An explicitly chosen agent binary, if the settings file names one.
+   *
+   * READ-ONLY from this app as of the picker's removal: `agent_bin::resolve`
+   * still honours it and `probe-facts.ts` still shows it, so a hand-edited
+   * `settings.json` is supported exactly as before — nothing here writes it.
+   */
   agentBinPath: string | null;
   /**
    * The control plane this client shows, once one is known — the stored
@@ -271,12 +287,42 @@ export function nodeInstallAgent(): Promise<ActionResult> {
 }
 
 /**
+ * Install tmux with this machine's own package manager.
+ *
+ * tmux is a hard stop: without it the agent cannot open a pane at all, so an
+ * enrolled machine with no tmux is a node that can never run a subshell. Same
+ * rule as Subshell Server's own installer — it runs only what a user would
+ * have run in a terminal, with their own privileges, and reports the manager's
+ * output verbatim.
+ *
+ * Rejects with a plain string on a platform this app can drive nothing on
+ * (macOS without Homebrew, anything that is neither macOS nor Linux); the
+ * screen then shows the command to run by hand instead of an error.
+ */
+export function nodeInstallTmux(): Promise<ActionResult> {
+  return invoke<ActionResult>("node_install_tmux");
+}
+
+/**
  * Drive one `service` verb.
  *
  * `force` reaches only `restart` — the CLI refuses it elsewhere — and only
  * behind the verbatim refusal it answers, never as a silent retry.
  */
-export function nodeService(args: { verb: ServiceVerb; force: boolean }): Promise<ActionResult> {
+export function nodeService(args: {
+  verb: ServiceVerb;
+  force: boolean;
+  /**
+   * `install` only, and omitting it means ARMED.
+   *
+   * `false` spells `--no-autostart`: install the service and run it now, but
+   * do not arm it for login. It is asked once, on the first run's start-up
+   * screen; every other caller omits it and keeps the behaviour the agent has
+   * always had. The Rust side refuses to pass the flag on any other verb,
+   * because the CLI accepts it on `install` alone.
+   */
+  autostart?: boolean;
+}): Promise<ActionResult> {
   return invoke<ActionResult>("node_service", args);
 }
 
@@ -317,16 +363,6 @@ export function nodeEnroll(args: {
 }
 
 /**
- * Remember (or forget, with `path: null`) an explicitly chosen agent binary.
- *
- * Rejects with a string for anything that is not an agent — the path is
- * executed on every launch, so the Rust side runs `version` on it first.
- */
-export function nodeSetAgentBin(args: { path: string | null }): Promise<void> {
-  return invoke<void>("node_set_agent_bin", args);
-}
-
-/**
  * Reveal one of a fixed set of the app's own directories or files.
  *
  * Rejects with a string when the platform has no such file — on Linux the
@@ -353,6 +389,23 @@ export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {
  */
 export function nodeOpenPlane(args: { url: string | null }): Promise<string> {
   return invoke<string>("node_open_plane", args);
+}
+
+/**
+ * Remember a control plane WITHOUT opening its window.
+ *
+ * The counterpart to {@link nodeOpenPlane}, and the difference is the whole
+ * reason it exists: that one persists AND opens, so a first run that used it
+ * to record the address the user just typed would throw the dashboard on
+ * screen in the middle of setup. This one only persists, and the flow decides
+ * when the plane's window is what the person asked for.
+ *
+ * Returns the canonicalized address — the same normalization `nodeOpenPlane`
+ * applies, so the two cannot store two spellings of one plane. Rejects with a
+ * string for anything that is not an http(s) URL.
+ */
+export function nodeSetPlane(args: { url: string }): Promise<string> {
+  return invoke<string>("node_set_plane", args);
 }
 
 /**
@@ -396,8 +449,30 @@ export function nodeReset(args: { typed: string }): Promise<ActionResult> {
   return invoke<ActionResult>("node_reset", args);
 }
 
-/** The three pages the About footer may open. `WebTarget`, kebab-case — a closed set in Rust. */
-export type WebTarget = "website" | "license" | "company";
+/**
+ * The pages this app may open in the system browser. `WebTarget` in
+ * `control.rs` — a closed set there, so the page names a member and Rust
+ * decides what that member IS.
+ *
+ * `macports`, not `mac-ports`: the enum derives kebab-case wire names and
+ * `MacPorts` would kebab into a spelling the project does not use, so Rust
+ * renames that one variant explicitly. `__tests__/wire-names.test.ts` holds
+ * this union equal to what serde will actually accept — the failure it exists
+ * for is a runtime `unknown variant` refusal in the window, which no type
+ * check can see.
+ */
+export type WebTarget = "website" | "license" | "company" | "homebrew" | "macports";
+
+/**
+ * The event `node_install_tmux` streams the package manager's output on, one
+ * line per frame.
+ *
+ * Emitted to the `node` window alone, which is this page. Named here because
+ * the string is the whole of the contract between the command and the tmux
+ * screen's progress pane, and `wire-names.test.ts` holds it equal to Rust's
+ * `INSTALL_LINE_EVENT`.
+ */
+export const INSTALL_LINE_EVENT = "node-install-line";
 
 /**
  * `About`. Who made this, under what terms, and where to read more.

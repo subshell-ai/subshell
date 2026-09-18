@@ -107,8 +107,8 @@ describe("the IPC contract", () => {
 
   it("names no permission the manifest does not define", () => {
     const manifest = manifestPermissions();
-    // `core:*`, `dialog:*` and `opener:*` come from Tauri and its plugins; only
-    // this app's own `allow-node-*` identifiers have to exist in desktop.toml.
+    // `core:*` and `opener:*` come from Tauri and its plugins; only this
+    // app's own `allow-node-*` identifiers have to exist in desktop.toml.
     const own = capabilityPermissions().filter((id) => !id.includes(":"));
     for (const id of own) expect(manifest.has(id)).toBe(true);
   });
@@ -122,12 +122,16 @@ describe("the IPC contract", () => {
     for (const id of manifestPermissions().keys()) expect(granted.has(id), `${id} is granted nowhere`).toBe(true);
   });
 
-  it("keeps the dialog surface to open + message, with no `ask`", () => {
-    // The confirmations are several sentences of consequence and are rendered
-    // in the page (components/confirm-panel.tsx). A native `ask` would have to
-    // be dismissed to re-read the form behind it.
+  it("grants no dialog surface at all", () => {
+    // There was one — `dialog:allow-open` for the agent-binary file chooser,
+    // `dialog:allow-message` beside it, and deliberately no `ask`, because
+    // this app's confirmations are several sentences of consequence and are
+    // rendered in the page (components/confirm-panel.tsx). The picker is gone,
+    // so nothing crosses that boundary any more, and a granted permission with
+    // no caller is exactly the erosion these pins exist to catch. Zero, not
+    // two: `ask` is still refused, and now so is everything beside it.
     const dialog = capabilityPermissions().filter((id) => id.startsWith("dialog:"));
-    expect(dialog.sort()).toEqual(["dialog:allow-message", "dialog:allow-open"]);
+    expect(dialog).toEqual([]);
   });
 });
 

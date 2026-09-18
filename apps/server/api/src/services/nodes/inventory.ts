@@ -45,7 +45,15 @@ import { logger } from "@/utils/logger.js";
  * only a fresh (≤ {@link INVENTORY_TTL_MS}) answer that says installed counts.
  */
 
-/** Inventory age beyond which the cache is no longer trusted for gating (spec §6.2). */
+/**
+ * Inventory age beyond which the cache is no longer trusted for gating (spec
+ * §6.2).
+ *
+ * `NODE_INVENTORY_REFRESH_MS` (`inventory-refresh.ts`) is DERIVED from this,
+ * so moving it moves the refresh cadence with it. That relationship is the
+ * point: a refresh slower than this window leaves an online node reading as
+ * unusable for part of every cycle.
+ */
 export const INVENTORY_TTL_MS = 10 * 60 * 1000;
 
 /** One harness row of a node's effective state (the `NodeView.harnesses` entry shape). */
@@ -384,11 +392,20 @@ function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessInventor
  * connection's facts, where `RemoteLauncher.canResume` composes resume paths
  * from them.
  *
- * **Called from exactly three places: the node page load (best-effort),
- * Re-check, and the launch-driven kick in `RemoteLauncher.#kickDetect` (a
- * failed launch's `binary missing` refresh). Never a timer, never a sweep** —
- * §4: detection runs when someone asks. `local` is a no-op (its view probes
- * live on every read); an unknown id is one, too.
+ * **The plane asks; the node only ever answers.** That is §4's load-bearing
+ * half and nothing here may weaken it — a node must never scan on its own
+ * initiative. What counts as an occasion to ask is the part that has grown:
+ * the node page load (best-effort), Re-check, the launch-driven kick in
+ * `RemoteLauncher.#kickDetect` (a failed launch's `binary missing` refresh),
+ * a node COMING ONLINE (`node-ws-handler`'s `ready` case), and a periodic
+ * pass over the online agents (`inventory-refresh.ts`, which argues the
+ * cadence). The last two are not in §4's original list: it assumed a person
+ * was always the one asking, which left a freshly enrolled machine and a
+ * machine somebody installed a CLI on both reading wrong until their owner
+ * happened to open a page. Every one of those triggers runs THIS function, so
+ * there is one request path and one merge, not a second mechanism.
+ * `local` is a no-op (its view probes live on every read); an unknown id is
+ * one, too.
  * @throws whatever `sendCommand` throws (offline/timeout/failed — callers
  * decide), and a plain Error when the agent answered with a malformed payload
  */
@@ -426,11 +443,17 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
 /**
  * {@link detectOnNode}, fire-and-forget with the failure debug-logged.
  *
- * This is the node PAGE LOAD arm. The response renders the cached last-known
- * inventory either way (that is what §4's cache is for), so a node that is
- * offline for the page open — the routine case the moment a machine sleeps —
- * must not surface anything; a debug line is for the operator who then watches
- * a page that never refreshes.
+ * The arm for every caller that has nothing to report a failure TO: the node
+ * page load, the launch kick, the connect-time kick, and the periodic pass.
+ * The page renders the cached last-known inventory either way (that is what
+ * §4's cache is for), so a node that is offline for the page open — the
+ * routine case the moment a machine sleeps — must not surface anything; a
+ * debug line is for the operator who then watches a page that never refreshes.
+ * The same reasoning covers the two unattended callers a fortiori: nobody is
+ * watching a timer, and a handshake must not fail over a probe.
+ *
+ * Re-check is the one caller that does NOT use this — it is a person pressing
+ * a button and waiting, so it awaits {@link detectOnNode} and reports.
  */
 export function detectOnNodeBestEffort(nodeId: string): void {
   void detectOnNode(nodeId).catch((err: unknown) => {

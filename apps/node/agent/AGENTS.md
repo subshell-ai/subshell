@@ -142,7 +142,11 @@ subshell run                       # foreground daemon (what the service unit ru
                                      # binary detection is the plane's `detect` command.
                                      # A leftover <dataDir>/plugins/ directory is inert
                                      # residue — NOT seeded, NOT refreshed, NOT deleted.
-subshell service install|uninstall # systemd user unit / launchd agent
+subshell service install [--no-autostart]
+                                   # systemd user unit / launchd agent. The service
+                                     # is STARTED either way; --no-autostart decides
+                                     # only the next login (see below)
+subshell service uninstall         # remove it, from either location
 subshell service status [--json]   # what the service MANAGER reports; always exits 0
 subshell service start|stop         # drive an installed service; never installs one
 subshell service restart [--force]  # --force overrides the refusal to restart a
@@ -185,15 +189,27 @@ subshell version                   # also `--version` / `-v` — aliased in the
 ```
 
 `status --json` also carries a `paths` block — `{ configFile, lockFile,
-dataDir }`, all absolute — beside the fields above, present whether the node
-is online or offline (it names the loaded config, not liveness). It exists so
-the client desktop app's reset deletes exactly what THIS CLI names, never a
-path the app derived itself — the same rule `subshell-server status --json`
+dataDir, binary, agentLog }`, all absolute — beside the fields above, present
+whether the node is online or offline (it names the loaded config, not
+liveness). It exists so the client desktop app's reset deletes exactly what
+THIS CLI names, never a path the app derived itself — the same rule
+`subshell-server status --json`
 follows for its own reset (design: `docs/superpowers/specs/2026-09-11-native-reset-both-desktop-apps-design.md`
 §5.1). The block is absent when no config loaded (the not-enrolled branch):
 there is no `dataDir` to name, and a reset with nothing enrolled has nothing to
 delete. As with every other field here, the node key is never included,
 `--json` or not.
+
+**Two of those five are NOT deletion targets, and the block is read key by key
+so that can be true.** `binary` is the installed CLI (spec 2026-09-15 §5.2),
+and `agentLog` (2026-09-18) is the agent's own capped log — reported so the
+desktop can REVEAL the same file the plane's log view serves, deliberately not
+deleted: it is the record of the reset itself, holds no credential, and is
+bounded at 200 KB whatever happens to it. `parse_delete_plan` in
+`apps/client/desktop/src-tauri/src/reset.rs` names `configFile`, `lockFile`
+and `dataDir` individually rather than sweeping the block, and a test on each
+side pins that — so a key added here later is inert on the reset by default,
+which is the only way this field could be added at all.
 
 ## Logging
 
@@ -237,6 +253,47 @@ owns redoing that accounting for whatever it carries.
 The console transport is never touched by any of this: what journald or launchd
 collects stays at `info`.
 
+**The manager's copy of that stream is 0600 too, and only because the daemon
+makes it so** (`src/log-hygiene.ts`, 2026-09-18). On macOS launchd creates the
+plist's `StandardOutPath` file itself, with the job's umask — 022, so
+`~/Library/Logs/subshell.log` lands **0644** and nothing the agent writes
+afterwards changes it. It holds the same lines the agent's own 0600 file holds,
+so `subshell run` chmods it to 0600 at start, before the daemon loop: a
+best-effort, idempotent repair in the shape of the server's
+`services/pane-log-hygiene.ts`, total by construction (every outcome is a
+value; a refusal is one `warn` line and the daemon starts anyway).
+
+Three measured facts hold that up, all 2026-09-18 on this repo's own two
+launchd jobs:
+
+- **A mode set once sticks.** `~/Library/Logs/subshell-server.log` was 0600
+  while `~/Library/Logs/subshell.log` was 0644 under identical plists, because
+  the server's copy had first been CREATED at 0600 by Subshell Server's
+  supervisor (`apps/server/desktop`'s `open_console_log`) — launchd opens the
+  redirect `O_APPEND|O_CREAT` and leaves an existing file's mode alone. So the
+  chmod is not a thing to redo on every line, only on every start, because
+  launchd re-creates a file that was deleted.
+- **There is no plist lever to reach for instead.** launchd's `Umask` key was
+  not adopted: whether it applies to the redirect files launchd opens BEFORE
+  exec is undocumented, and measuring it means installing a real launchd job,
+  which is precisely what the suite may not do. The chmod is verifiable without
+  one.
+- **It is a repair, not a creation.** The pass never creates the file — an
+  absent log is launchd's to make on the next line, and pre-creating one would
+  be this agent writing into `~/Library/Logs` on machines with no service at
+  all. The window that leaves (launchd creating the file 0644, the agent
+  chmodding it microseconds later) is accepted and is the reason the repair
+  runs on every start.
+
+The seam is `ServiceDeps.chmodFile`, **optional on purpose**: a deps object
+built by hand in a suite carries none, so the pass reports `no-seam` and
+touches nothing, and the production implementation carries the same under-test
+refusal as `writeFile` (`assertServiceWriteUnderTest`). It is called from
+`cli.ts`'s `case "run"` rather than inside `runDaemon`, because `daemon.test.ts`
+calls that function directly and a repair reachable from there would aim at the
+developer's real `~/Library/Logs`. Linux needs none of this: the systemd user
+unit redirects nothing, so the pass answers `no-file`.
+
 Three more things about it are deliberate:
 
 - **The line format is unchanged** from the hand-rolled `console.log` it
@@ -267,6 +324,46 @@ instead of the signing organization — the label and the association are the
 ONE protocol constant `DESKTOP_CLIENT_BUNDLE_ID`, which is also Subshell
 Client's own bundle id (the app's tests pin it; `LAUNCHD_LABEL` is that same
 constant).
+
+**`--no-autostart` runs it now but does not arm login start**, and each
+platform expresses that differently — the mechanism is a port of the server
+CLI's (spec 2026-09-12 server-supervision §3.2), not a second design. Linux:
+`disable` then plain `start` instead of `enable --now`; the `disable` is not
+redundant on a REINSTALL, because `enable` wrote a symlink into
+`default.target.wants` that would otherwise survive and make the success line
+claim the opposite of what systemd does at login. macOS: **the plist's
+LOCATION is the setting.** launchd auto-loads exactly
+`~/Library/LaunchAgents`, so a not-at-login definition is the SAME document
+written to `<configHome>/dev.subshell.client.plist` instead, and each install
+REMOVES the other copy — a leftover in the login directory silently re-arms
+autostart at the next reboot. The flag-shaped alternatives were measured and
+both fail: `RunAtLoad=false` does not stop a job that also carries
+`KeepAlive=true` (which this template needs, and `restart` relies on), and
+`launchctl disable` puts a mark in launchd's per-uid override database that
+survives `uninstall` and breaks the next fresh install.
+
+Everything that READS a definition therefore asks the disk which of the two
+exists (`darwinDefinition`): `service status` reports `enabled` from the
+plist's directory rather than its keys, `start`/`restart` bootstrap the path
+that is actually there, `uninstall` finds either and clears both, and
+`update`'s `serviceExecArgv` — which must name the file the MANAGER runs —
+reads the same answer. `ServiceDeps.configDir` exists for exactly this; a
+reader without it would report a `--no-autostart` install as "nothing
+installed" while the agent it wrote is running.
+
+**One path deliberately collapses the two locations, and it is the plane's.**
+`NODE_SERVICE_VERBS` carries `install`, and the executor
+(`src/commands/service.ts`) calls `installService(deps)` with no options — so a
+control plane pressing Install on a node that was registered with
+`--no-autostart` RE-ARMS login start and removes the session plist. That is the
+honest reading of the request (the frame has no field to say otherwise, and
+"install the service" from a plane means the ordinary one), but it is the one
+place the "the two locations are kept apart everywhere" rule above does not
+hold, so it is written down rather than discovered. Giving the plane a say
+would mean a new field on the frame and a protocol bump; there is no day-2
+toggle on this side either, unlike the server's `setAutostart` — both are
+deliberate omissions for now, not oversights.
+
 `service status` also reports `logPath` (that file on macOS, `null` on Linux —
 the unit redirects nothing and the journal holds the output), so a GUI reveals
 what the plist names instead of re-deriving a platform path. `AGENT_LOG_HINT`

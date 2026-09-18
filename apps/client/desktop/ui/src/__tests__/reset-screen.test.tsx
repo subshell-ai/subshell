@@ -11,6 +11,15 @@ import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { App } from "@/app";
 import { type FakeIpc, installFakeIpc, makeProbe, renderApp } from "./harness";
 
+// Unmount after each test. Testing Library appends every `render` to
+// `document.body`, and there is ONE document per bun test process — so a file
+// that renders without unmounting leaves its DOM for whatever file bun shards
+// into that process next, and a test asking a GLOBAL question
+// (`getAllByRole("button")`) reads the leftovers as its own. That is exactly
+// how the Welcome screen's "Continue is the only control" case passed on a Mac
+// and failed on CI, counting four About-screen buttons as its own (2026-09-18).
+afterEach(cleanup);
+
 let ipc: FakeIpc | undefined;
 
 afterEach(() => {
@@ -19,12 +28,20 @@ afterEach(() => {
   ipc = undefined;
 });
 
-/** Boot the app and walk to the reset screen from the connected screen's More…. */
+/**
+ * Boot the app and walk to the reset screen from the status screen.
+ *
+ * The route changed with the first run (spec 2026-09-18): the connected and
+ * service screens are gone, every configured client lands on `status`, and the
+ * link there is named for what it does to the MACHINE rather than for the flow
+ * behind it — "Unregister this machine…", since reset is what unregisters. The
+ * screen it opens, and every property below, are unchanged.
+ */
 async function openReset(init: Parameters<typeof installFakeIpc>[0] = {}) {
   ipc = installFakeIpc(init);
   renderApp(<App />);
   await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
-  fireEvent.click(screen.getByRole("button", { name: "Reset this client…" }));
+  fireEvent.click(screen.getByRole("button", { name: "Unregister this machine…" }));
   await screen.findByRole("heading", { name: "Reset this client" });
   return ipc as FakeIpc;
 }
@@ -111,17 +128,25 @@ describe("the reset screen", () => {
   it("goes back to the machine's own screen on Cancel", async () => {
     await openReset({ handlers: { node_arm_reset: () => true } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "This Machine Is a Node" })).toBeTruthy());
+    // The landing a configured client returns to, whatever its agent is doing.
+    // It used to be the connected screen's "This Machine Is a Node"; that
+    // screen is gone, and `status` is the one this app comes back to.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
   });
 
-  it("is reachable from the service screen too, where a broken node needs it most", async () => {
+  // Was "reachable from the service screen too". That screen is gone — a
+  // stopped node lands on `status` like every other configured client — so
+  // what this pins now is that the SAME landing carries the link whether or
+  // not the agent is running. The property is the one that mattered: a broken
+  // node, which is where a reset is needed most, is never a dead end.
+  it("is reachable on a node whose agent is not running, where it is needed most", async () => {
     ipc = installFakeIpc({
       probe: makeProbe({ step: "stopped" }),
       handlers: { node_arm_reset: () => true },
     });
     renderApp(<App />);
     await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole("button", { name: "Reset this client…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unregister this machine…" }));
     await screen.findByRole("heading", { name: "Reset this client" });
   });
 });

@@ -29,44 +29,62 @@ export function hereLower(): string {
   return "this machine";
 }
 
-/** The screen's subtitle. */
+/** The same word, starting a sentence. */
+function hereCap(): string {
+  return "This machine";
+}
+
+/**
+ * The screen's subtitle, or `undefined` where the screen owns its own sentence.
+ *
+ * Welcome is the one that does: it is a glyph, one line and Continue, and that
+ * line IS its content — rendering it here too would print it twice, eight
+ * pixels apart (`welcome-screen.tsx` says so at the point it draws it).
+ */
 export function subtitleFor(
   screen: NodeScreenId,
   probe: Probe | undefined,
   settings: NodeSettings | undefined,
-): string {
+): string | undefined {
   const here = hereLower();
   switch (screen) {
+    case "welcome":
+      return undefined;
+    case "choice":
+      // The title asks the question; this says what the answer does NOT cost,
+      // because the screen offers two paths and a person who cannot tell
+      // whether the pick is final will read both options twice.
+      return "Whichever you pick, the other is still available afterwards.";
+    case "tmux":
+      // The sibling app's own tmux sentence, with the subject changed: there,
+      // the server needs tmux before it can start; here, this machine needs it
+      // before it can run a subshell at all.
+      return `Every subshell runs in a tmux pane, so ${here} needs it before it can run one.`;
+    case "register":
+      return `The server's address, a name for ${here}, and a setup key.`;
+    case "startup":
+      return `Choose how the node runs on ${here}.`;
+    case "progress":
+      // Says how long, not what is happening — the checklist under it is the
+      // thing that answers that, row by row, as the effects land.
+      return "This takes a moment.";
+    case "status": {
+      const where = settings?.planeUrl ?? probe?.status?.serverUrl ?? null;
+      if (probe?.status?.nodeId) {
+        // Deliberately silent about whether the agent is UP. Every state a
+        // configured node can be in lands here now, so a sentence claiming
+        // one would be wrong in three of them; the screen's own badge and
+        // problem line are what answer it.
+        return where ? `${hereCap()} is a node of ${where}.` : `${hereCap()} is a node.`;
+      }
+      return where ? `Connected to ${where}.` : "Connected to a Subshell server.";
+    }
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
-    case "install-agent":
-      // Two very different situations share this step, and the difference
-      // decides whether an install is offered at all: a binary that answered
-      // `version` but not `status --json` must NOT route to enroll, because a
-      // transient read failure would then overwrite a live config.
-      return probe?.agent
-        ? "An agent was found on this machine, but it could not report its status."
-        : `No subshell agent was found on ${here}.`;
     case "enroll":
       return probe?.status?.nodeId
         ? `Register ${here} again, with a different control plane or as a new node.`
         : `${probe?.agent ? "This machine has an agent but is" : "This machine is"} not registered with a control plane yet.`;
-    case "service":
-      if (probe?.step === "offline") {
-        return "The service manager reports the agent as running, but no local daemon is heartbeating.";
-      }
-      if (probe?.step === "stopped") return "The background service is installed, but the agent is not running.";
-      if (probe?.step === "no-service")
-        return `${probe.status?.nodeId ? "This machine is registered, but nothing keeps its agent running." : "Nothing keeps the agent running."}`;
-      // A step this build predates: say so plainly rather than asserting
-      // something about the machine.
-      return `This app does not recognise the state "${probe?.step ?? "unknown"}", which usually means it is older than the agent it is managing.`;
-    case "connected": {
-      const where = probe?.status?.serverUrl ?? settings?.planeUrl;
-      return where
-        ? `Enrolled and reporting to ${where}. Subshells can be launched here from the browser.`
-        : "Enrolled, and the agent is online. Subshells can be launched here from the browser.";
-    }
     case "reset":
       // Says what is deleted rather than where it lives, which is the same
       // reason the title names no machine (node-assistant-state.ts explains).

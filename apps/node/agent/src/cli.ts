@@ -5,6 +5,9 @@ import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, lockPath, readLock } from "./lock.js";
+import { logger } from "./log.js";
+import { agentLogPath } from "./log-file.js";
+import { tightenServiceLogMode } from "./log-hygiene.js";
 import {
   defaultMaintenanceDeps,
   isMaintenanceSub,
@@ -76,7 +79,9 @@ usage:
                           key; restart the agent to apply. Does NOT rename: the
                           plane owns a node's name (the Nodes page).
   subshell run
-  subshell service install|uninstall   (systemd user unit / launchd agent)
+  subshell service install [--no-autostart]   (systemd user unit / launchd agent)
+                          --no-autostart runs it now but not at login
+  subshell service uninstall
   subshell service status [--json]     (what the service manager reports)
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
   subshell maintenance on [--yes] [--json]
@@ -166,7 +171,10 @@ const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[]>> = {
  * as meaningful.
  */
 const SUBCOMMAND_FLAGS: Record<string, Record<string, string[]>> = {
-  service: { status: ["--json"], restart: ["--force"] },
+  // `--no-autostart` is install's alone: it decides what the NEXT login does,
+  // and the manager verbs drive a definition whose login behaviour is already
+  // written down.
+  service: { install: ["--no-autostart"], status: ["--json"], restart: ["--force"] },
   // `--yes` overrides ONE refusal, the live-pane one `on` raises; `off` and
   // `status` have nothing to confirm, so accepting it there would read as
   // meaningful.
@@ -183,6 +191,7 @@ const FLAGS: Record<string, boolean> = {
   "--force": false,
   "--yes": false,
   "--no-service": false,
+  "--no-autostart": false,
   "--check": false,
   "--to": true,
   "--from": true,
@@ -424,6 +433,17 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // only through runDaemon's injected exit hook. loadConfig() still
         // throws the enroll-pointing message through this path.
         const cfg = await loadConfig();
+        // AFTER loadConfig and before the daemon: launchd creates its redirect
+        // 0644 and this is the process that can repair it (see
+        // `log-hygiene.ts`). Here rather than inside `runDaemon` because the
+        // daemon's own tests call that function directly with hand-built deps,
+        // and a repair reachable from them would chmod the developer's real
+        // `~/Library/Logs/subshell.log` — which the `DEFAULT_DEPS` guard would
+        // then refuse, silently, in the one place nobody reads.
+        const hygiene = await tightenServiceLogMode(deps.service ?? DEFAULT_DEPS(configExists));
+        if (hygiene.reason === "failed") {
+          logger.withError(hygiene.error).warn(`could not tighten ${hygiene.path} to 0600`);
+        }
         await runDaemon(cfg);
         return { code: 0, out: "", err: "" }; // unreachable: runDaemon never resolves (test seam only)
       }
@@ -433,7 +453,11 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // a SUBCOMMANDS.service member; the real deps wire the config check to
         // loadConfig() so service.ts stays config-import-free.
         const sdeps = deps.service ?? DEFAULT_DEPS(configExists);
-        if (parsed.sub === "install") return await installService(sdeps);
+        // Default ON: start-at-login is what every install did before the
+        // flag existed, and the service is started NOW either way.
+        if (parsed.sub === "install") {
+          return await installService(sdeps, { autostart: parsed.flags.noAutostart !== "1" });
+        }
         if (parsed.sub === "uninstall") return await uninstallService(sdeps);
         if (parsed.sub === "status") {
           // A VIEW, not a command: it always exits 0 (the `subshell-server
@@ -817,6 +841,16 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           const installed = await resolveAgentBinaryPath({
             platform: sd.platform,
             home: sd.home,
+            // `configDir` and `fileExists` are injected for the SAME reason as
+            // the four above, and they became load-bearing when the darwin
+            // resolution learned about `--no-autostart`: without them this
+            // falls back to `clientHome()` and a real `access()`, so a suite
+            // that injected `home` would still stat the developer's own
+            // `~/.config/subshell/dev.subshell.client.plist`. Production is
+            // unaffected — `DEFAULT_DEPS` supplies exactly those fallbacks —
+            // which is precisely why the hole would have stayed invisible.
+            configDir: sd.configDir,
+            fileExists: sd.fileExists,
             readFile: sd.readFile,
             runCmd: sd.runCmd,
           }).catch(() => null);
@@ -840,6 +874,24 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
               dataDir: cfg.dataDir,
               /** The file `update` replaces — see `installed` above. */
               binary: installed?.binary ?? null,
+              /**
+               * The agent's OWN capped log (`log-file.ts`) — the file the
+               * plane's log view shows, so a desktop that reveals a log and a
+               * browser that reads one cannot be looking at two different
+               * ones. It is NOT the service manager's redirect, which
+               * `service status --json` reports as `logPath` and which a
+               * person debugging a service definition wants instead.
+               *
+               * NOT a deletion target, like `binary` beside it: the desktop
+               * reset names `configFile`, `lockFile` and `dataDir`
+               * individually (`apps/client/desktop/src-tauri/src/reset.rs`),
+               * and the log is deliberately left behind — it is the record of
+               * the reset itself, holds no credential, and is bounded at
+               * 200 KB whatever happens to it. That the block is read key by
+               * key rather than swept is what makes this safe to add, and a
+               * test on each side pins it.
+               */
+              agentLog: agentLogPath(),
             },
             update: { pending, lastFailure },
           };

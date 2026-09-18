@@ -604,6 +604,48 @@ only when the node is online, the viewer can configure it, and the row is an
 agent. These are facts about a running process: offline, they are stale by
 definition, and their absence is the honest answer.
 
+### Node harness inventories refresh themselves
+
+A node's harness inventory — which agent CLIs are actually present on that
+machine — is the plane's cached answer to a `detect` command
+(`services/nodes/inventory.ts`). Spec 2026-09-10 §4 made that a REQUEST: the
+plane ships the lookup rules, the node probes and answers, and no node ever
+scans on its own initiative. **That half is absolute and unchanged.** What
+grew is the set of occasions that count as asking, because the original list
+was people-only — page load, Re-check, a launch — which left a machine that
+had just enrolled, and a machine somebody installed a CLI on an hour ago, both
+reading wrong until their owner happened to open a page.
+
+Two triggers were added, and they answer different questions:
+
+- **A node coming online** (`node-ws-handler`'s `ready` case, after both
+  refusal gates, beside the allowed-dirs push). This covers enrolment with no
+  special case — a freshly installed agent connects immediately — plus every
+  reconnect and agent restart. Fire-and-forget: the answer arrives as a later
+  `result` frame behind this one in the socket's own serialized queue, so
+  awaiting it would deadlock, and a failed probe must never fail a handshake.
+  A HELD agent is never kicked; it returns at the gate.
+- **A periodic pass over the online agents**
+  (`services/nodes/inventory-refresh.ts`, armed by `index.ts` beside the other
+  timers). The online set comes from the REGISTRY, like the offline sweep's,
+  never a DB scan; `local` is skipped by name (its view probes live on every
+  read).
+
+**`NODE_INVENTORY_REFRESH_MS` is DERIVED as `INVENTORY_TTL_MS / 2`, not chosen
+beside it.** The launch gate counts an agent's cached answer only while it is
+fresh (10 min), so a period longer than the TTL would leave an online, healthy
+node reading as unusable for the remainder of every cycle — the refresh would
+fail at the thing that matters most about it. Half the window means one
+skipped or failed pass still leaves the cache fresh, and moving the TTL moves
+the cadence with it. There is deliberately **no stagger**: a pass is one small
+frame per online node, and the PATH walks it triggers run on those machines
+concurrently, so the plane pays for frames, not probes.
+
+Both triggers call the one `detectOnNodeBestEffort`, so there is a single
+request path and a single merge rather than a second mechanism. Re-check is
+the only caller that awaits `detectOnNode` and reports — a person is pressing
+a button and waiting.
+
 ## Standalone binary & CLI
 
 `src/index.ts` is BOTH the boot entry and the `subshell-server` CLI entry:
@@ -842,9 +884,10 @@ refused) — and a refused entry is dropped with a warn, never thrown: a bad
 address costs that plugin one entry, not the allowlist. Boot is three moments
 (`services/network/origin-refresh.ts`): seed from the records BEFORE the
 listener, one probe per enabled plugin once the processes are armed, then the
-same probe every five minutes. That timer is the codebase's ONE deliberate
-exception to "detection is never a timer" (`services/nodes/inventory.ts`,
-`prepare.ts`'s `reportIfDown`), argued at the module: the allowlist is
+same probe every five minutes. That timer is a deliberate exception to
+"detection runs when someone asks" (`prepare.ts`'s `reportIfDown`), argued at
+the module — node harness detection has since grown one on the same argument
+(see "Node harness inventories refresh themselves"): the allowlist is
 consulted on every sign-in by people who will NEVER open the Networking page,
 and the cost is bounded to one memoised `status()` per enabled plugin, skipping
 a supervised plugin whose child is armed. Refreshes are observations, not acts:

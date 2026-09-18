@@ -29,14 +29,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
-use subshell_desktop_core::proc::{run, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
+use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::reset_guards::machine_hostname;
 use subshell_desktop_core::settings::{Settings, SettingsState};
 use subshell_desktop_core::shell_env::{home_dir, which};
@@ -105,8 +105,21 @@ pub enum AgentCommand {
     Status,
     /// `service status --json` — what the service manager reports.
     ServiceStatus,
-    /// One `service` verb, `--force` only where the CLI accepts it.
-    Service { verb: ServiceCommand, force: bool },
+    /// One `service` verb, with the two flags the CLI accepts and where.
+    ///
+    /// `force` is `restart` only; `autostart` is `install` only, and `false`
+    /// spells `--no-autostart` — install it and run it NOW, but do not arm it
+    /// for login. Both are fields rather than variants because that is how
+    /// `force` was already modelled, and one invocation shape with two
+    /// qualifiers reads better than three variants of "install".
+    ///
+    /// `autostart: true` is the default everywhere except the first-run
+    /// register chain, which asks the person on its start-up screen.
+    Service {
+        verb: ServiceCommand,
+        force: bool,
+        autostart: bool,
+    },
     /// `enroll --json`. Destructive; guarded in [`node_enroll`].
     ///
     /// `name` is a `String` and always reaches the CLI as `--name`, because the
@@ -137,8 +150,15 @@ impl AgentCommand {
             AgentCommand::ServiceStatus => vec!["service".into(), "status".into(), "--json".into()],
             // The CLI refuses `--force` anywhere but `restart`, so passing it
             // elsewhere would turn a stop into a usage error.
-            AgentCommand::Service { verb, force } if *force && *verb == ServiceCommand::Restart => {
+            AgentCommand::Service { verb, force, .. } if *force && *verb == ServiceCommand::Restart => {
                 vec!["service".into(), verb.as_str().into(), "--force".into()]
+            }
+            // The CLI accepts `--no-autostart` on `install` alone (it is in
+            // that subcommand's flag allowlist and nowhere else), so passing
+            // it on a stop or a restart would turn the verb into a usage
+            // error — the same rule `--force` follows one arm above.
+            AgentCommand::Service { verb, autostart, .. } if *verb == ServiceCommand::Install && !*autostart => {
+                vec!["service".into(), "install".into(), "--no-autostart".into()]
             }
             AgentCommand::Service { verb, .. } => vec!["service".into(), verb.as_str().into()],
             AgentCommand::Enroll { server, key, name } => {
@@ -273,34 +293,71 @@ fn existing_node() -> ExistingNode {
     }
 }
 
-/// Where this machine's agent writes its own log, per platform.
+/// Where this machine's agent writes its own log.
 ///
-/// macOS gets a file, because the launchd plist names one
-/// (`~/Library/Logs/subshell.log`, `StandardOutPath`). The systemd user unit
-/// redirects nothing, so on Linux the daemon's output is in the journal and
-/// there is no file to reveal — hence a hint instead of a path. Exactly one of
-/// the two is ever `Some`.
+/// **The agent's OWN file comes first, on every platform**, which is the same
+/// order `apps/server/desktop`'s `desktop_logs` reads the server's in and for
+/// the same reason: since 2026-09-12 the agent writes one capped JSON-lines
+/// file (`<config dir>/logs/agent.log`, 0600, 200 KB, replaced when full) and
+/// that is the file the plane's node log view serves. A person revealing the
+/// log here and a person reading it in a browser must not be looking at two
+/// different documents.
+///
+/// **The service manager's redirect is the fallback**, and it is a genuinely
+/// different artifact rather than a copy: launchd's `StandardOutPath`
+/// (`~/Library/Logs/subshell.log`) holds the raw stdout of an agent that died
+/// before it opened its own file, which is exactly the machine someone is
+/// trying to repair. Linux has no such file at all — the systemd user unit
+/// redirects nothing — so there the fallback is the journal, which is a
+/// sentence rather than a path.
+///
+/// Exactly one of the two returns is ever `Some`.
 fn agent_log() -> (Option<String>, Option<String>) {
-    // One `match`, so "exactly one is Some" holds by construction rather than
-    // by every branch remembering to. `filter` rather than an inner `if`
-    // keeps both halves compiled on both platforms, which is what makes a
-    // clippy run on either of them mean something.
-    match home_dir().filter(|_| cfg!(target_os = "macos")) {
-        Some(home) => (Some(format!("{home}/Library/Logs/subshell.log")), None),
-        None => (None, Some(NO_LOG_FILE.to_string())),
+    agent_log_from(config_dir(), home_dir().map(PathBuf::from), |p| {
+        std::fs::metadata(p)
+            .map(|m| m.is_file() && m.len() > 0)
+            .unwrap_or(false)
+    })
+}
+
+/// [`agent_log`]'s body over injected facts, so the ORDER is testable without
+/// a machine in a particular state.
+///
+/// `has_content` rather than a bare existence check, for the reason the server
+/// app's `server_log_tail` returns `None` on an empty file: the capped writer
+/// truncates to zero and starts over, and a zero-byte own-log is an agent that
+/// has said nothing — while the manager's copy may still hold the boot output
+/// that explains why.
+fn agent_log_from(
+    config: Option<PathBuf>,
+    home: Option<PathBuf>,
+    has_content: impl Fn(&Path) -> bool,
+) -> (Option<String>, Option<String>) {
+    let own = config.map(|c| c.join("logs").join("agent.log"));
+    // `filter` rather than an inner `if` on both rungs, so every branch stays
+    // compiled on both platforms — which is what makes a clippy run on either
+    // of them mean something.
+    let managed = home
+        .filter(|_| cfg!(target_os = "macos"))
+        .map(|h| h.join("Library").join("Logs").join("subshell.log"));
+    for candidate in [own, managed].into_iter().flatten() {
+        if has_content(&candidate) {
+            return (Some(candidate.to_string_lossy().into_owned()), None);
+        }
     }
+    (None, Some(NO_LOG_FILE.to_string()))
 }
 
 /// What to say when there is no log FILE to reveal.
 ///
-/// Platform-specific because the reason is: on Linux the systemd user unit
-/// redirects nothing, so the daemon's output is in the journal and no file
-/// will ever appear; on macOS the plist names one and it simply has not been
-/// written yet.
+/// Both platforms name the agent's own file first, because that is the one
+/// that appears as soon as the agent logs anything anywhere. What differs is
+/// the fallback each has: macOS keeps a second file the plist names, Linux has
+/// the journal and will never grow a file at all.
 const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
-    "the agent has not written a log yet — it appears at ~/Library/Logs/subshell.log once the service runs"
+    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
 } else {
-    "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`"
+    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
 };
 
 /// The paths the window may name, and the ones it may ask to reveal.
@@ -314,9 +371,10 @@ pub struct NodePaths {
     /// The identity/state directory, as the config records it; the CLI's
     /// default (`<config dir>/data`) when nothing is enrolled yet.
     pub data_dir: Option<String>,
-    /// The agent's log FILE, where the platform has one.
+    /// The agent's log FILE: its own capped one when it has written anything,
+    /// else the service manager's redirect where the platform keeps one.
     pub agent_log: Option<String>,
-    /// What to do instead, where it does not.
+    /// What to do instead, when neither has content yet.
     pub agent_log_hint: Option<String>,
 }
 
@@ -387,6 +445,18 @@ pub struct Probe {
     /// BEFORE its network call precisely so an unenrollable box does not burn
     /// a one-time setup key, and a refusal is the worst place to learn about it.
     pub tmux: Option<String>,
+    /// Whether `brew` resolves on the LOGIN path.
+    ///
+    /// Beside `tmux` because it answers that screen's second question: what to
+    /// OFFER when tmux is missing. Homebrew is the only macOS installer this
+    /// app can drive (`desktop_core::tmux::install_argv` answers `None`
+    /// without it), so on a brew-less Mac the Install button can only ever
+    /// produce the `NO_MANAGER` refusal — and a button whose one outcome is a
+    /// refusal is the dead end that screen exists to close. The page reads
+    /// this to print the two manual routes instead. Linux never consults it:
+    /// `pkexec apt-get` is runnable on every machine this app ships a `.deb`
+    /// to.
+    pub has_brew: bool,
     /// The closed set of paths the window may name.
     pub paths: NodePaths,
     /// This machine's name, as `hostname(1)` reports it — memoized.
@@ -426,6 +496,7 @@ impl Default for Probe {
             step: ProbeStep::NoAgent,
             error: None,
             tmux: None,
+            has_brew: false,
             paths: NodePaths::default(),
             // Empty by default, not read: `Default` is a shape for tests and
             // for `probe_now` to fill, and `machine_hostname` spawns.
@@ -540,6 +611,7 @@ pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
         agent,
         managed,
         tmux: which("tmux"),
+        has_brew: which("brew").is_some(),
         paths: node_paths(&read_node_config()),
         hostname: machine_hostname(),
         ..Default::default()
@@ -825,12 +897,72 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
     install_agent_now(&settings)
 }
 
+/// The event each output line is emitted on while tmux installs.
+///
+/// Named here rather than inline because the page listens for this exact
+/// string and nothing else connects the two — `wire-names.test.ts` reads both
+/// files and holds them equal.
+pub const INSTALL_LINE_EVENT: &str = "node-install-line";
+
+/// Install tmux with this machine's own package manager.
+///
+/// tmux is the one prerequisite an enrolled node cannot do without: the agent
+/// opens every pane through it, so a machine missing it comes up online and
+/// 409s every launch. Subshell Server has offered this since its own setup
+/// assistant existed; the table it drives is
+/// `desktop_core::tmux`, shared so the two apps cannot come to disagree about
+/// what may be run with a person's own privileges.
+///
+/// The client's [`Probe`] carries `tmux` — the path, or nothing — and, since
+/// the brew-less Mac dead end, `has_brew`; it carries no platform, which the
+/// page reads off its own user agent. Both are re-read HERE regardless, and
+/// that is not a duplicate: what the page may SHOW and what this command may
+/// RUN are two decisions taken at two moments, and a probe read seconds ago is
+/// not the machine at the instant of the spawn.
+///
+/// `Err` — not an `ActionResult` — on a platform that offers nothing this app
+/// may drive (macOS without Homebrew; anything that is neither macOS nor
+/// Linux). That is the distinction the screen renders: "here is the command to
+/// type" rather than "the install failed".
+#[tauri::command(async)]
+pub fn node_install_tmux(app: AppHandle) -> Result<ActionResult, String> {
+    let brew = which("brew").is_some();
+    // `install` is STREAMED — a cold `brew install` runs for minutes and the
+    // manager's own output is the only honest progress signal, since no
+    // percentage can be derived from Fetching → Pouring → Summary — so it
+    // takes a per-line sink. The lines were DROPPED until the tmux screen grew
+    // a progress pane to put them in: an event emitted for no listener is a
+    // name with nothing on the other end, which the sibling app says at its
+    // own emit. There is a listener now.
+    //
+    // `emit_to` the node window, where that app broadcasts. Not caution about
+    // a listener count — this app's OTHER window is a control plane's own
+    // page, remote content this app tells nothing, and a package manager's
+    // output is this window's business.
+    let handle = app.clone();
+    let sink: LineSink = Arc::new(move |line: &str| {
+        // Best-effort by design: a failed emit means nothing is listening (the
+        // window closed mid-install), and the install carries on and still
+        // reports through its return value.
+        let _ = handle.emit_to(crate::windows::NODE_LABEL, INSTALL_LINE_EVENT, line.to_string());
+    });
+    Ok(subshell_desktop_core::tmux::install(std::env::consts::OS, brew, sink)?.into())
+}
+
 /// One `service` verb, straight through. The agent decides whether to refuse —
 /// including the pane guard, which refuses a `restart` whose installed
 /// definition would SIGKILL every live subshell on this machine.
 #[tauri::command(async)]
-pub fn node_service(settings: State<'_, SettingsState>, verb: ServiceCommand, force: bool) -> ActionResult {
-    service_now(&settings, verb, force)
+pub fn node_service(
+    settings: State<'_, SettingsState>,
+    verb: ServiceCommand,
+    force: bool,
+    autostart: Option<bool>,
+) -> ActionResult {
+    // Absent means armed: every caller that predates the start-up screen —
+    // and every verb but `install`, for which the flag is meaningless — must
+    // keep installing a service that comes back at login.
+    service_now(&settings, verb, force, autostart.unwrap_or(true))
 }
 
 /// The body of [`node_service`], callable from inside another chain.
@@ -839,9 +971,14 @@ pub fn node_service(settings: State<'_, SettingsState>, verb: ServiceCommand, fo
 /// buttons run, rather than a second spelling of them — a reset whose teardown
 /// diverged from the one the user can press by hand is a reset that leaves a
 /// different machine behind.
-pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force: bool) -> ActionResult {
+pub(crate) fn service_now(
+    settings: &SettingsState,
+    verb: ServiceCommand,
+    force: bool,
+    autostart: bool,
+) -> ActionResult {
     let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
-    match run_agent(agent.as_ref(), &AgentCommand::Service { verb, force }) {
+    match run_agent(agent.as_ref(), &AgentCommand::Service { verb, force, autostart }) {
         Some(out) => out.into(),
         None => ActionResult::refused(NO_AGENT),
     }
@@ -1203,32 +1340,6 @@ pub fn close_to_tray_now(settings: &SettingsState) -> bool {
     effective_close_to_tray(settings.get().close_to_tray, tray_support())
 }
 
-/// Remember an explicitly chosen agent binary.
-///
-/// Validated before it is persisted: this path is EXECUTED on every launch, so
-/// accepting whatever a file dialog returned would let one mis-click wedge the
-/// app on a file that is not an agent — including
-/// `apps/server/desktop`'s `subshell-server`, which answers `version` with a
-/// line this app's prefix deliberately refuses.
-#[tauri::command(async)]
-pub fn node_set_agent_bin(settings: State<'_, SettingsState>, path: Option<String>) -> Result<(), String> {
-    let cleaned = match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
-        None => None,
-        Some(p) => {
-            if !Path::new(&p).is_absolute() {
-                return Err(format!("{p} is not an absolute path"));
-            }
-            if agent_bin::probe_version(std::slice::from_ref(&p)).is_none() {
-                return Err(format!(
-                    "{p} does not look like a subshell agent — it could not report a version"
-                ));
-            }
-            Some(p)
-        }
-    };
-    settings.update(|s| s.binary_path = cleaned)
-}
-
 /// The app's own preferences, for the window to render.
 ///
 /// TWO fields, since spec 2026-09-12 § 6.4. The tray preference used to be
@@ -1291,6 +1402,26 @@ pub fn plane_url_from(stored: Option<String>) -> Option<String> {
 /// The same ladder, against the live settings. What `lib.rs` asks at startup.
 pub fn resolve_plane_url(settings: &SettingsState) -> Option<String> {
     plane_url_from(settings.get().plane_url)
+}
+
+/// Remember a control plane WITHOUT opening its window.
+///
+/// [`node_open_plane`] persists AND opens, which is right for the button that
+/// says "open the dashboard" and wrong for every other moment an address
+/// becomes known. First run is the one that matters: the step where a person
+/// names their control plane has more to do afterwards — enrol this machine,
+/// install the agent, start the service — and persisting through the opener
+/// threw the dashboard on screen in the middle of it, over the assistant that
+/// was still asking. This is the half of that command the flow actually wants
+/// there; the window is opened when the person asks for it.
+///
+/// Returns the canonicalized address, from the same [`validate_server_url`]
+/// the opener uses, so the two cannot store two spellings of one plane.
+#[tauri::command(async)]
+pub fn node_set_plane(settings: State<'_, SettingsState>, url: String) -> Result<String, String> {
+    let resolved = validate_server_url(&url)?;
+    settings.update(|s| s.plane_url = Some(resolved.clone()))?;
+    Ok(resolved)
 }
 
 /// Show a control plane's own UI, and remember the address.
@@ -1534,9 +1665,30 @@ pub enum WebTarget {
     License,
     /// The copyright holder's site.
     Company,
+    /// Homebrew, offered on the tmux screen when this Mac has no package manager.
+    Homebrew,
+    /// MacPorts, the other way out of that same screen.
+    ///
+    /// Renamed explicitly: `rename_all = "kebab-case"` would put `mac-ports`
+    /// on the wire, which is not how the project spells itself and is not what
+    /// the page sends. The sibling app shipped exactly that — the page sent
+    /// `macports`, the command answered with a serde error, and no type check
+    /// could see it (measured 2026-09-14). `wire-names.test.ts` is what holds
+    /// it shut here.
+    #[serde(rename = "macports")]
+    MacPorts,
 }
 
-/// Open one of the three About links in the system browser.
+/// Where the tmux screen sends someone whose Mac has no package manager at
+/// all. Constants here rather than arguments from the page, for the same
+/// reason every other member of this set is one. The same two addresses
+/// `apps/server/desktop` carries; neither app ever shows the line that
+/// installs the manager itself.
+const HOMEBREW_URL: &str = "https://brew.sh";
+const MACPORTS_URL: &str = "https://www.macports.org/install.php";
+
+/// Open one of a fixed set of pages in the system browser: the three About
+/// links, and the two package managers the tmux screen names.
 ///
 /// The bundle's CSP makes an ordinary `<a href>` open inside the webview,
 /// which is the wrong window for a website — and this app's other window is a
@@ -1547,6 +1699,8 @@ pub fn node_open_web(app: AppHandle, target: WebTarget) -> Result<(), String> {
         WebTarget::Website => legal::PRODUCT_URL,
         WebTarget::License => legal::LICENSE_URL,
         WebTarget::Company => legal::COMPANY_URL,
+        WebTarget::Homebrew => HOMEBREW_URL,
+        WebTarget::MacPorts => MACPORTS_URL,
     };
     app.opener()
         .open_url(url, None::<&str>)
@@ -1620,7 +1774,11 @@ mod command_set_tests {
             ServiceCommand::Restart,
         ] {
             for force in [false, true] {
-                out.push(AgentCommand::Service { verb, force });
+                out.push(AgentCommand::Service {
+                    verb,
+                    force,
+                    autostart: true,
+                });
             }
         }
         out.push(AgentCommand::Enroll {
@@ -1676,13 +1834,19 @@ mod command_set_tests {
             ServiceCommand::Start,
             ServiceCommand::Stop,
         ] {
-            let args = AgentCommand::Service { verb, force: true }.args();
+            let args = AgentCommand::Service {
+                verb,
+                force: true,
+                autostart: true,
+            }
+            .args();
             assert!(!args.iter().any(|a| a == "--force"), "{verb:?} kept --force: {args:?}");
         }
         assert_eq!(
             AgentCommand::Service {
                 verb: ServiceCommand::Restart,
-                force: true
+                force: true,
+                autostart: true
             }
             .args(),
             ["service", "restart", "--force"]
@@ -1690,10 +1854,57 @@ mod command_set_tests {
         assert_eq!(
             AgentCommand::Service {
                 verb: ServiceCommand::Restart,
-                force: false
+                force: false,
+                autostart: true
             }
             .args(),
             ["service", "restart"]
+        );
+    }
+
+    // `--no-autostart` is in the CLI's flag allowlist for `install` and nothing
+    // else, so any other verb carrying it would die as a usage error — the
+    // same failure `--force` has on the arm above, and the reason both are
+    // qualifiers on one variant rather than free-floating flags.
+    #[test]
+    fn no_autostart_only_reaches_install() {
+        for verb in [
+            ServiceCommand::Uninstall,
+            ServiceCommand::Start,
+            ServiceCommand::Stop,
+            ServiceCommand::Restart,
+        ] {
+            let args = AgentCommand::Service {
+                verb,
+                force: false,
+                autostart: false,
+            }
+            .args();
+            assert!(
+                !args.iter().any(|a| a == "--no-autostart"),
+                "{verb:?} kept --no-autostart: {args:?}"
+            );
+        }
+        assert_eq!(
+            AgentCommand::Service {
+                verb: ServiceCommand::Install,
+                force: false,
+                autostart: false
+            }
+            .args(),
+            ["service", "install", "--no-autostart"]
+        );
+        // The default is armed: an install that says nothing about login start
+        // must keep coming back at login, which is what every caller before
+        // the start-up screen expected.
+        assert_eq!(
+            AgentCommand::Service {
+                verb: ServiceCommand::Install,
+                force: false,
+                autostart: true
+            }
+            .args(),
+            ["service", "install"]
         );
     }
 
@@ -1996,6 +2207,7 @@ mod probe_tests {
             "step",
             "error",
             "tmux",
+            "hasBrew",
             "paths",
             "rewriteTearsDown",
         ] {
@@ -2542,26 +2754,82 @@ mod path_tests {
         assert_eq!(paths.data_dir.as_deref(), Some("/srv/subshell-data"));
     }
 
-    // Exactly one of the two is ever set: macOS has a plist that names a log
-    // file, and the systemd unit redirects nothing, so Linux has a journal and
-    // no file to reveal.
+    // Exactly one of the two is ever set, whatever this machine happens to
+    // have on disk: a path to reveal, or a sentence saying what to do instead.
     #[test]
     fn the_agent_log_is_a_path_or_a_hint_never_both_and_never_neither() {
         let (path, hint) = agent_log();
         assert_ne!(path.is_some(), hint.is_some());
         match (path, hint) {
-            (Some(p), None) => assert!(p.ends_with("/Library/Logs/subshell.log"), "{p}"),
+            (Some(p), None) => assert!(
+                p.ends_with("/logs/agent.log") || p.ends_with("/Library/Logs/subshell.log"),
+                "{p}"
+            ),
             (None, Some(h)) => assert!(!h.is_empty()),
             other => panic!("neither or both: {other:?}"),
         }
     }
 
-    // The remedy differs because the reason does: a Linux node's daemon output
-    // is in the journal and no file will ever appear, where a macOS one simply
-    // has not been written yet. Telling a Mac user to run `journalctl` — or a
-    // Linux user to wait for a file — is worse than saying nothing.
+    // The agent's OWN capped file wins on every platform: it is the file the
+    // plane's log view serves, so revealing anything else here would put the
+    // desktop and the browser on two different documents.
+    #[test]
+    fn the_agents_own_capped_log_wins_over_the_managers_copy() {
+        let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
+        let (path, hint) = agent_log_from(
+            Some(PathBuf::from("/home/u/.config/subshell")),
+            Some(PathBuf::from("/home/u")),
+            |_| true, // both have content
+        );
+        assert_eq!(path.as_deref(), Some(own.to_str().unwrap()));
+        assert!(hint.is_none());
+    }
+
+    // The manager's redirect is the fallback rather than a duplicate: it holds
+    // the stdout of an agent that died before opening its own file.
+    #[test]
+    fn the_managers_log_is_the_fallback_where_the_platform_keeps_one() {
+        let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
+        let (path, hint) = agent_log_from(
+            Some(PathBuf::from("/home/u/.config/subshell")),
+            Some(PathBuf::from("/home/u")),
+            |p| p != own, // the agent has written nothing of its own
+        );
+        if cfg!(target_os = "macos") {
+            assert_eq!(path.as_deref(), Some("/home/u/Library/Logs/subshell.log"));
+            assert!(hint.is_none());
+        } else {
+            // systemd redirects nothing, so there is no second file to fall to.
+            assert!(path.is_none());
+            assert_eq!(hint.as_deref(), Some(NO_LOG_FILE));
+        }
+    }
+
+    // An empty file is not a log: the capped writer truncates to zero and
+    // starts over, and the manager's copy may still hold what explains the
+    // silence. Same rule as the server app's `server_log_tail`.
+    #[test]
+    fn nothing_with_content_anywhere_is_the_hint() {
+        let (path, hint) = agent_log_from(
+            Some(PathBuf::from("/home/u/.config/subshell")),
+            Some(PathBuf::from("/home/u")),
+            |_| false,
+        );
+        assert!(path.is_none());
+        assert_eq!(hint.as_deref(), Some(NO_LOG_FILE));
+    }
+
+    // Both platforms name the agent's own file, because that is the one that
+    // appears wherever it runs. What differs is the fallback each HAS: a
+    // second file on macOS, the journal on Linux. Telling a Mac user to run
+    // `journalctl` — or a Linux user to look for a file launchd would have
+    // written — is worse than saying nothing.
     #[test]
     fn each_platform_is_told_the_right_reason_for_having_no_log_file() {
+        assert!(
+            NO_LOG_FILE.contains("~/.config/subshell/logs/agent.log"),
+            "{NO_LOG_FILE}"
+        );
         if cfg!(target_os = "macos") {
             assert!(NO_LOG_FILE.contains("~/Library/Logs/subshell.log"), "{NO_LOG_FILE}");
             assert!(!NO_LOG_FILE.contains("journalctl"), "{NO_LOG_FILE}");
@@ -2570,6 +2838,7 @@ mod path_tests {
                 NO_LOG_FILE.contains("journalctl --user -u subshell.service"),
                 "{NO_LOG_FILE}"
             );
+            assert!(!NO_LOG_FILE.contains("Library/Logs"), "{NO_LOG_FILE}");
         }
     }
 
