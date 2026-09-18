@@ -23,9 +23,8 @@
  * webview.
  */
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AboutScreen } from "@/components/assistant/about-screen";
-import { AppUpdateScreen } from "@/components/assistant/app-update-screen";
 import { ChoiceScreen } from "@/components/assistant/choice-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
 import { EnrollScreen } from "@/components/assistant/enroll-screen";
@@ -37,6 +36,7 @@ import { StartupScreen } from "@/components/assistant/startup-screen";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
 import { TmuxScreen } from "@/components/assistant/tmux-screen";
+import { UpdateScreen } from "@/components/assistant/update-screen";
 import { WelcomeScreen } from "@/components/assistant/welcome-screen";
 import { ConfirmPanel } from "@/components/confirm-panel";
 import { Button } from "@/components/ui/button";
@@ -90,14 +90,14 @@ export function App() {
     void ipc
       .nodePendingScreen()
       .then((pending) => {
-        if (pending === "about" || pending === "app-update") setOverride(pending);
+        if (pending === "about" || pending === "update") setOverride(pending);
       })
       .catch(() => {
         // An older Rust half knows no such command; nothing was requested that
         // this page can honour.
       });
     const unlisten = listen<string>("desktop-screen", (event) => {
-      if (event.payload === "about" || event.payload === "app-update") setOverride(event.payload);
+      if (event.payload === "about" || event.payload === "update") setOverride(event.payload);
     });
     return () => {
       // Both halves swallow: a subscription that never came up has nothing to
@@ -119,6 +119,32 @@ export function App() {
   useEffect(() => {
     if (step === "watch" && configured(settings, probe)) setStep(null);
   }, [step, settings, probe]);
+
+  /**
+   * Finish an app update that this build was relaunched INTO (spec 2026-09-18
+   * § 4.2).
+   *
+   * The one screen the machine may raise that a person nonetheless asked for:
+   * `node_install_app_update` writes a marker before `app.restart()`, and this
+   * process — which did not exist when the press happened — is the one that
+   * installs the agent that bundle ships. `node_probe` reports the marker only
+   * after weighing it against this machine, so a marker whose work is already
+   * done never reaches here.
+   *
+   * Raised as an OVERRIDE rather than as a router branch, and once per launch
+   * rather than per probe: an override is a screen a Back can leave, where a
+   * router that read the marker would route straight back to it on the next
+   * poll and make Back do nothing. `commands.installAgent` clears the marker
+   * on success, so the raise cannot repeat either way; the ref is what keeps a
+   * FAILED one from re-raising the screen every five seconds over whatever the
+   * person navigated to instead.
+   */
+  const raisedUpdate = useRef(false);
+  useEffect(() => {
+    if (raisedUpdate.current || probe?.pendingUpdate == null) return;
+    raisedUpdate.current = true;
+    setOverride("update");
+  }, [probe]);
 
   /**
    * The `enroll --json` body from a successful enrollment in THIS session —
@@ -358,7 +384,7 @@ export function App() {
             setOverride("enroll");
           }}
           onReset={() => setOverride("reset")}
-          onCheckAppUpdate={() => setOverride("app-update")}
+          onUpdate={() => setOverride("update")}
         />
       );
     case "enroll":
@@ -382,8 +408,16 @@ export function App() {
       );
     case "about":
       return <AboutScreen shell={shell} probe={probe} onClose={() => setOverride(null)} />;
-    case "app-update":
-      return <AppUpdateScreen shell={shell} onClose={() => setOverride(null)} />;
+    case "update":
+      return (
+        <UpdateScreen
+          shell={shell}
+          probe={probe}
+          commands={commands}
+          runner={runner}
+          onClose={() => setOverride(null)}
+        />
+      );
     case "reset":
       return (
         <ResetScreen shell={shell} {...facts} runner={runner} busy={runner.busy} onCancel={() => setOverride(null)} />

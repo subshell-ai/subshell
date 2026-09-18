@@ -102,7 +102,7 @@ function mount(
       onRegister={() => pressed.push("register")}
       onReenroll={() => pressed.push("reenroll")}
       onReset={() => pressed.push("reset")}
-      onCheckAppUpdate={() => pressed.push("app-update")}
+      onUpdate={() => pressed.push("update")}
     />,
   );
   return { calls, pressed };
@@ -275,13 +275,13 @@ describe("the two control-plane addresses", () => {
 });
 
 describe("what the connected screen offered is still offered", () => {
-  it("keeps Change server…, Open in browser instead and Check for app updates…", () => {
+  it("keeps Change server…, Open in browser instead and the update door", () => {
     const { calls, pressed } = mount();
     expect(button(/change server/i)).toBeTruthy();
     fireEvent.click(button(/open in browser instead/i));
     expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
-    fireEvent.click(button(/check for app updates/i));
-    expect(pressed).toEqual(["app-update"]);
+    fireEvent.click(button(/check for updates/i));
+    expect(pressed).toEqual(["update"]);
   });
 
   it("keeps Re-enroll… for a machine that is one", () => {
@@ -290,10 +290,21 @@ describe("what the connected screen offered is still offered", () => {
     expect(pressed).toEqual(["reenroll"]);
   });
 
-  it("offers the bundled agent when it is newer", () => {
-    const { calls } = mount({ probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "2.0.0" }) });
+  /**
+   * Still ANNOUNCED here, and no longer INSTALLED from here (spec 2026-09-18
+   * § 7.4). This app ships the agent, so a machine whose bundled agent is
+   * newer usually has a newer app waiting too, and installing one half on the
+   * spot is what produced the loop where the next launch asked again. The
+   * button is a door to the one update screen, which then does whichever
+   * halves are actually behind.
+   */
+  it("announces a newer bundled agent and opens the one update screen", () => {
+    const { calls, pressed } = mount({
+      probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "2.0.0" }),
+    });
     fireEvent.click(button(/update the agent to 2\.0\.0/i));
-    expect(calls).toEqual([{ name: "updateAgent", args: [] }]);
+    expect(pressed).toEqual(["update"]);
+    expect(calls).toEqual([]);
   });
 
   /** The remedy the restart refusal names BY LABEL, so the label is pinned. */

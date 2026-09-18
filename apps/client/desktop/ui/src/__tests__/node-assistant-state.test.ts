@@ -54,7 +54,7 @@ describe("screenTitle", () => {
     expect(screenTitle("connect")).toBe("Connect to a Server");
     expect(screenTitle("enroll")).toBe("Enroll This Machine");
     expect(screenTitle("about")).toBe("About Subshell Client");
-    expect(screenTitle("app-update")).toBe("Update Subshell Client");
+    expect(screenTitle("update")).toBe("Update Subshell Client");
   });
 
   it("never lets the APP's update and the AGENT's share a word", () => {
@@ -64,8 +64,8 @@ describe("screenTitle", () => {
     // "Update the agent to X" replaces `~/.local/bin/subshell` through that
     // binary's own `update --from` and leaves the app alone. A title that said
     // only "Update" would be the one place a person could not tell which.
-    expect(screenTitle("app-update")).toContain("Subshell Client");
-    expect(screenTitle("app-update")).not.toContain("agent");
+    expect(screenTitle("update")).toContain("Subshell Client");
+    expect(screenTitle("update")).not.toContain("agent");
   });
 
   it("names the product rather than the computer, identically on both platforms", () => {

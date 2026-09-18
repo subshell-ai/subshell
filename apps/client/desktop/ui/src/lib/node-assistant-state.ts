@@ -46,7 +46,7 @@ export type NodeScreenId =
   | "enroll"
   | "reset"
   | "about"
-  | "app-update";
+  | "update";
 
 /**
  * The runtime list beside the type, for whatever has to iterate the set —
@@ -65,7 +65,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
   "enroll",
   "reset",
   "about",
-  "app-update",
+  "update",
 ];
 
 /**
@@ -77,12 +77,15 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * 2026-09-12): what this app is and under what terms is something a person
  * ASKS for, not something that sits under the question being asked.
  *
- * `app-update` joined them on 2026-09-15 for the same reason and one more: it
- * is the only screen here whose facts come from the NETWORK rather than from
- * this machine, so no probe could imply it even in principle. Reached from the
- * tray's "Check for Updates…" and from the status screen's More….
+ * `update` joined them on 2026-09-15 for the same reason and one more: half
+ * its facts come from the NETWORK rather than from this machine, so no probe
+ * could imply it even in principle. Reached from the tray's "Check for
+ * Updates…" and from the status screen's More…. It is the one user screen that
+ * the machine can nevertheless RAISE: a marker left by an app update is a
+ * consented act with a half still outstanding, and `app.tsx` opens this screen
+ * once per launch when the probe reports one (spec 2026-09-18 § 4.2).
  */
-export type NodeUserScreen = "enroll" | "reset" | "about" | "app-update";
+export type NodeUserScreen = "enroll" | "reset" | "about" | "update";
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
@@ -173,11 +176,13 @@ export function screenTitle(screen: NodeScreenId): string {
       return "Reset this client";
     case "about":
       return "About Subshell Client";
-    case "app-update":
-      // The APP, not the node agent it wraps. Both can be out of date at once
-      // and they are updated by different acts — one replaces this
-      // application, the other replaces `~/.local/bin/subshell` through that
-      // binary's own `update --from` — so the two never share a title.
+    case "update":
+      // The app AND the node agent it ships, which is why the name can be
+      // this plain (spec 2026-09-18 D6). It used to read the same while
+      // meaning only the application, beside a separate "Update the agent
+      // to X" button that did the other half — two controls whose names
+      // differed by a possessive, for one thing a person experiences once.
+      // The name became TRUE rather than being disambiguated.
       return "Update Subshell Client";
   }
 }

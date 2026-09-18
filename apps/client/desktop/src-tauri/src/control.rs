@@ -36,9 +36,10 @@ use tauri_plugin_opener::OpenerExt;
 
 use subshell_desktop_core::cli_update;
 use subshell_desktop_core::legal;
+use subshell_desktop_core::pending_install::{resume_decision, Resume};
 use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::reset_guards::machine_hostname;
-use subshell_desktop_core::settings::{Settings, SettingsState};
+use subshell_desktop_core::settings::{PendingBundledInstall, Settings, SettingsState};
 use subshell_desktop_core::shell_env::{home_dir, which};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
@@ -482,6 +483,31 @@ pub struct Probe {
     /// and the platform where it costs exactly what it is repairing are
     /// opposite, and the page cannot know which it is on.
     pub rewrite_tears_down: bool,
+    /// The second half of an app update that has not been finished yet.
+    ///
+    /// Filled by [`node_probe`] alone — [`probe_now`] is also what
+    /// [`install_agent_now`] reads the machine with, and a marker on that
+    /// answer would be a fact nobody asked for. See [`resume_view`] for why
+    /// this rides the probe rather than `node_settings`.
+    pub pending_update: Option<PendingUpdateView>,
+}
+
+/// What a page is told about an unfinished update (spec 2026-09-18 § 5).
+///
+/// The ANSWER, never the inputs: `desktop_core::pending_install::resume_decision`
+/// has already weighed the marker against this machine by the time this is
+/// built, so a marker whose work turned out to be done never reaches the page
+/// at all. `forced` is deliberately absent — it carries a pane-safety consent
+/// for a service RESTART, and this app's phase 2 restarts nothing (spec § 7.1).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingUpdateView {
+    /// The app version that was running when the person pressed.
+    pub from_app_version: String,
+    /// How many attempts have already been made and failed.
+    pub attempts: u32,
+    /// Whether it has failed often enough to stop firing on its own.
+    pub exhausted: bool,
 }
 
 impl Default for Probe {
@@ -502,6 +528,7 @@ impl Default for Probe {
             // for `probe_now` to fill, and `machine_hostname` spawns.
             hostname: String::new(),
             rewrite_tears_down: cfg!(target_os = "macos"),
+            pending_update: None,
         }
     }
 }
@@ -597,7 +624,69 @@ fn bundled_version() -> Option<String> {
 /// Look at the machine and report what it would take to get this node running.
 #[tauri::command(async)]
 pub fn node_probe(settings: State<'_, SettingsState>) -> Probe {
-    probe_now(settings.get().binary_path.as_deref())
+    let mut probe = probe_now(settings.get().binary_path.as_deref());
+    probe.pending_update = resume_view(&settings, &probe);
+    probe
+}
+
+/// Weigh an update marker against this machine, and say what is left of it.
+///
+/// **The decision is `desktop-core`'s and is shared with Subshell Server**
+/// (spec 2026-09-18 § 5): both apps ask the same question — is there still
+/// something to install, and has it failed too often to keep trying — and
+/// differ only in what they DO with the answer. The server app installs its
+/// bundled server and restarts the service; this one installs the bundled
+/// agent and deliberately does not restart the daemon (§ 7.1).
+///
+/// It rides the PROBE rather than `node_settings` for two reasons, and both
+/// are about not inventing anything: the probe is the command that already
+/// computes the bundled version against the installed one, which is exactly
+/// the pair `resume_decision` weighs; and putting the answer on a read the
+/// page already makes every few seconds is what let the whole two-phase act
+/// ship without a new Tauri command — the window that finishes an update is a
+/// process that did not exist when the person pressed, and it must not need a
+/// wider IPC surface to find that out.
+///
+/// A marker whose work is DONE is cleared here, on the read that noticed. That
+/// is the one write this function makes, and it is idempotent: the next probe
+/// finds no marker and decides nothing.
+fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingUpdateView> {
+    let current = settings.get();
+    let marker = current.pending_bundled_install.as_ref()?;
+    let decision = resume_decision(
+        Some(marker),
+        probe.bundled_version.as_deref(),
+        probe.agent.as_ref().and_then(|a| a.version.as_deref()),
+    )?;
+    let view = view_of(marker, &decision);
+    if view.is_none() {
+        // Nothing left to install — someone ran `subshell update` by hand in
+        // between, say. Drop the marker rather than keep an opinion the
+        // machine disagrees with.
+        let _ = settings.update(|s| s.pending_bundled_install = None);
+    }
+    view
+}
+
+/// What a decided marker looks like to the page, or `None` where it is spent.
+///
+/// Split from [`resume_view`] so the mapping is testable without a settings
+/// file: everything above it is I/O, and everything below it is already
+/// covered by `desktop-core`'s own tests.
+fn view_of(marker: &PendingBundledInstall, decision: &Resume) -> Option<PendingUpdateView> {
+    let exhausted = match decision {
+        Resume::Clear => return None,
+        // `forced` is ignored on purpose: it consents to a service RESTART,
+        // and this app's phase 2 offers that rather than performing it
+        // (spec 2026-09-18 § 7.1).
+        Resume::Install { .. } => false,
+        Resume::Halt => true,
+    };
+    Some(PendingUpdateView {
+        from_app_version: marker.from_app_version.clone(),
+        attempts: marker.attempts,
+        exhausted,
+    })
 }
 
 pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
@@ -892,9 +981,36 @@ fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result
     }
 }
 
+/// Install the bundled agent, and settle any update marker the install belongs
+/// to.
+///
+/// **The attempt is counted BEFORE the install and the marker is dropped after
+/// a successful one**, which is what bounds the second phase (spec
+/// 2026-09-18 § 5). Counting here rather than at boot is deliberate: an
+/// attempt is an attempt whoever asked for it, and this is the one place every
+/// route into the agent half passes through — the resumed act, the Retry the
+/// screen offers once it has halted, and the status screen's own door.
+///
+/// A successful install by ANY of those routes finishes the act, because what
+/// the marker records is that the bundled agent had not been installed yet.
 #[tauri::command(async)]
 pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
-    install_agent_now(&settings)
+    let resuming = settings.get().pending_bundled_install.is_some();
+    if resuming {
+        let _ = settings.update(|s| {
+            if let Some(marker) = s.pending_bundled_install.as_mut() {
+                marker.attempts = marker.attempts.saturating_add(1);
+            }
+        });
+    }
+    let outcome = install_agent_now(&settings);
+    // Only a run that actually replaced the file clears it. A rejection or a
+    // refusal leaves the marker for the Retry the screen offers, which is the
+    // whole reason the marker outlives a failure.
+    if resuming && matches!(&outcome, Ok(result) if result.ok) {
+        let _ = settings.update(|s| s.pending_bundled_install = None);
+    }
+    outcome
 }
 
 /// The event each output line is emitted on while tmux installs.
@@ -1994,6 +2110,61 @@ mod command_set_tests {
             ["/bin/bun", "/repo/main.ts", "status", "--json"]
         );
         assert!(agent_cmd(None, &AgentCommand::Status).is_none());
+    }
+}
+
+/// The marker's own half of the probe (spec 2026-09-18 § 5).
+///
+/// `desktop_core::pending_install` owns and tests the DECISION; what belongs
+/// here is the mapping onto what the page is told, because the two halves
+/// this app leaves out of it are decisions in their own right: `forced` never
+/// crosses, since phase 2 restarts nothing here, and a spent marker is
+/// reported as `exhausted` rather than withheld, so the screen can still
+/// offer Retry.
+#[cfg(test)]
+mod resume_tests {
+    use super::*;
+
+    fn marker(attempts: u32) -> PendingBundledInstall {
+        PendingBundledInstall {
+            from_app_version: "0.6.0".into(),
+            started_at: "2026-09-18T12:00:00Z".into(),
+            attempts,
+            forced: true,
+        }
+    }
+
+    #[test]
+    fn an_install_reaches_the_page_as_work_still_to_do() {
+        let m = marker(0);
+        let view = view_of(&m, &Resume::Install { forced: true }).expect("a view");
+        assert_eq!(view.from_app_version, "0.6.0");
+        assert_eq!(view.attempts, 0);
+        assert!(!view.exhausted);
+    }
+
+    /// Halting must still REPORT: the marker stays so the screen can name the
+    /// update and offer Retry, and only the automatic firing stops.
+    #[test]
+    fn halting_is_reported_rather_than_hidden() {
+        let m = marker(2);
+        let view = view_of(&m, &Resume::Halt).expect("a view");
+        assert_eq!(view.attempts, 2);
+        assert!(view.exhausted);
+    }
+
+    #[test]
+    fn a_spent_marker_tells_the_page_nothing() {
+        assert_eq!(view_of(&marker(0), &Resume::Clear), None);
+    }
+
+    /// The pane-safety consent is the server app's field, and carrying it
+    /// here would be consent to a restart this app never performs.
+    #[test]
+    fn the_phase_one_force_does_not_cross_into_this_app() {
+        let m = marker(0);
+        let json = serde_json::to_string(&view_of(&m, &Resume::Install { forced: true }).unwrap()).unwrap();
+        assert!(!json.contains("forced"), "{json}");
     }
 }
 

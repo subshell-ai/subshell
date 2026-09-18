@@ -369,8 +369,16 @@ Two things went away with the stop, and neither was a loss:
   are gone. They existed because `install_bundled` writes the file the daemon
   is executing; the CLI's swap is a `rename(2)` a running daemon does not
   notice, so there is nothing left for them to warn about. The deliberate
-  no-restart is unchanged — `--no-restart` says it, and the screen still tells
-  the person to start it.
+  no-restart is unchanged — `--no-restart` says it — and since spec 2026-09-18
+  § 7.1 the screen OFFERS the restart rather than telling the person to start
+  something that was never stopped. `rename(2)` leaves the running process on
+  its original inode, so after a successful install the file is the new agent
+  and the daemon is the old one, and nothing on screen used to say so.
+- **`node_install_agent` also settles the update marker.** It counts an
+  attempt before the install and drops the marker after one that succeeded, so
+  every route into the agent half — the resumed act, the Retry the screen
+  offers once it has halted, and the status screen's own door — is bounded and
+  finishing by the same code. An attempt is an attempt whoever asked for it.
 - **The flags are a CONTRACT, held in one place.**
   `desktop-core`'s `cli_update::update_args` spells them for both apps, and its
   tests pin the exact list; `update_argv` here is pinned against it, so this
@@ -404,7 +412,7 @@ leave no `.previous` while reporting success.
 
 ## Updating the app itself
 
-`src-tauri/src/app_update.rs` and the `app-update` screen — a near-twin of
+`src-tauri/src/app_update.rs` and the `update` screen — a near-twin of
 `apps/server/desktop`'s, which documents the design once; read it there. What
 differs here is only what is `tauri`-typed: the tag prefix
 (`desktop-client-v`), the progress event (`node-app-update-progress`), the two
@@ -416,11 +424,11 @@ parse, the semver pick, the manifest URL, the 24-hour schedule — is
 
 Two facts specific to this app:
 
-- **The node agent is NOT touched by an app update.** Replacing this app
-  replaces the agent it BUNDLES, which is a source to install FROM and is on
-  no rung of the resolution ladder — so a running `subshell` daemon keeps
-  running `~/.local/bin/subshell` until someone presses Update on the
-  Connected screen. The screen says so.
+- **The node agent is NOT touched by the app install itself**, which is why
+  the act has a second half. Replacing this app replaces the agent it BUNDLES,
+  which is a source to install FROM and is on no rung of the resolution ladder
+  — so a running `subshell` daemon keeps running `~/.local/bin/subshell`
+  whatever lands. See "Updating is one act" below for what finishes it.
 - **The signing key is the SAME one `apps/server/desktop` pins**, because the
   two apps are one publisher and a public key is the publisher's identity
   rather than the app's. One `bunx @tauri-apps/cli signer generate -w
@@ -437,6 +445,77 @@ Local cost, same as the other app: because the pubkey is configured and
 `bundle.createUpdaterArtifacts` is on, **`bun run compile` needs
 `TAURI_SIGNING_PRIVATE_KEY` set**. `tauri dev` bundles nothing and is
 unaffected.
+
+## Updating is ONE act, in two phases
+
+Spec `docs/superpowers/specs/2026-09-18-one-update-act-design.md`. **This app
+SHIPS the agent it drives** — every desktop bundle carries the CLI it wraps
+(root `AGENTS.md`) — so "update Subshell Client" and "update the node agent"
+were never independent: the second is the tail of the first. Until 2026-09-18
+they were two screens with two buttons whose names differed by a possessive,
+and the pair produced a loop that reads as a bug: update the app, and the next
+launch's probe sees a bundled agent newer than the installed one and asks
+again.
+
+There is one screen now, id **`update`** (`components/assistant/update-screen.tsx`,
+replacing `app-update-screen.tsx`). `app-update` is DELETED from `NodeScreenId`
+rather than aliased — this product has no installed base to keep compatible —
+so the tray emits `"update"` and an id this build does not know is ignored, as
+it always was. The status screen's **"Update the agent to X"** stays where it
+is, because that is the natural place to notice the agent is behind, but it is
+a DOOR to this screen rather than a standalone install (§ 7.4).
+
+**The two phases are separated by the relaunch, and the marker is what crosses
+it.** `node_install_app_update` writes `pending_bundled_install` into this
+app's `settings.json` AFTER the install and BEFORE `app.restart()` — never
+after, because a crash between the two must leave a machine that knows what it
+was doing. The new build reads it back, and four things about how are worth
+holding:
+
+- **The decision is shared, the acting is not.** `desktop-core`'s
+  `resume_decision(marker, bundled, installed)` answers install / clear / halt
+  for both apps; Subshell Server then installs and restarts its service, this
+  app installs and OFFERS the restart. The marker converts an offer into a
+  continuation and nothing more — whether work EXISTS is still the machine's
+  answer, so a marker whose work was done by a hand `subshell update` in
+  between is cleared without acting.
+- **It rides the PROBE** (`Probe.pendingUpdate`, built by `control::resume_view`),
+  which is what let the whole thing ship with **no new Tauri command and no
+  capability change**. `node_probe` already computes the bundled version
+  against the installed one, which is exactly the pair the decision weighs, and
+  the page already reads it every few seconds.
+- **`node_install_agent` counts and clears.** An attempt is counted before the
+  install, the marker dropped after one that succeeded, so the resumed act, the
+  Retry, and the status screen's door are all bounded and finishing by one
+  piece of code. `MAX_RESUME_ATTEMPTS` is 2: at the limit the marker STAYS —
+  the screen still names the update and offers Retry — and only the automatic
+  firing stops. That is the one place this design refuses to keep trying on
+  someone's behalf.
+- **`forced` never crosses into this app.** It is the marker's pane-safety
+  consent for a service RESTART, and phase 2 here restarts nothing. A test
+  pins that it is absent from what the page is told.
+
+**Phase 2 ends by OFFERING the restart** (§ 7.1), through the existing
+`commands.restart()` — which already surfaces the CLI's verbatim refusal,
+offers `--force` behind it and points at *Rewrite the service definition*. The
+pane-safety sentence lives THERE and not on the install: the swap is a
+`rename(2)` a running daemon never notices, so nothing about installing an
+agent can close a subshell, while the restart can. Whether to offer it is page
+state (`installedAgentHere`), the `ranSetupHere` pattern, because the running
+daemon's version is not something any probe here can read.
+
+One shape in `update-screen.tsx` is a fix for a measured defect rather than a
+style: the press records the `runner.output` it saw, and a verdict is read only
+once a DIFFERENT one arrives. `runner.run`'s `isPending` does not land in the
+same commit as the press, so an effect guarded on `busy` alone ran once with
+the previous action's output still in place — and read the agent install's
+success as the restart's, retiring the offer nobody had taken.
+
+Everything with a contract rather than a rendering is `lib/update-act.ts`:
+which rows the screen states, which phase it is in, which halves are refused
+and whether the press is live. It is mirrored, not shared, with the server
+app's — one is React and one is vanilla DOM, exactly as the tmux screens are,
+and a diff between them is the drift signal.
 
 ## The IPC boundary
 
@@ -529,7 +608,10 @@ An address no longer comes first, either, and that reversal is load-bearing:
 because the walk ends at Register and Register on a node mints a second node
 row and discards its node key. Two screens are still things a person ASKS for
 rather than states a machine implies (re-enrol, reset, plus about and
-app-update); those arrive as the `override`.
+update); those arrive as the `override` — and `update` is the one of the four
+the MACHINE may also raise: an app update left a marker, and the process that
+boots into it opens the screen once per launch to finish the act (see
+"Updating is one act", below).
 
 **`no-agent` reads two ways, and status must keep them apart.** The Rust side
 folds "nothing on the ladder answered" and "a binary answered `version` but not

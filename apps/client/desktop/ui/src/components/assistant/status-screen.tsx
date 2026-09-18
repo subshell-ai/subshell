@@ -135,10 +135,17 @@ export function StatusScreen(props: {
   onReenroll: () => void;
   /** Unregister this machine: the reset flow, which is what deletes the node. */
   onReset: () => void;
-  onCheckAppUpdate: () => void;
+  /**
+   * Open the one update screen — the app AND the agent it ships.
+   *
+   * It was `onCheckAppUpdate`, and the rename is the change: this screen used
+   * to offer TWO updates, one of which quietly did half the job (spec
+   * 2026-09-18 § 7.4).
+   */
+  onUpdate: () => void;
 }) {
   const { shell, probe, settings, enrolledNode, output, commands, busy } = props;
-  const { onRegister, onReenroll, onReset, onCheckAppUpdate } = props;
+  const { onRegister, onReenroll, onReset, onUpdate } = props;
   const planeUrl = settings?.planeUrl ?? null;
   const nodeServerUrl = probe?.status?.serverUrl ?? null;
   const divergence = planeCoherence(planeUrl, nodeServerUrl);
@@ -648,25 +655,29 @@ export function StatusScreen(props: {
 
           <div className="flex flex-wrap gap-2">
             {/*
-             * A newer bundled agent is OFFERED, never applied unasked:
-             * installing it stops the service that runs the old one. The
-             * reverse — a newer agent already installed — is adopted silently
-             * and is not a choice.
+             * A newer bundled agent is still announced HERE — this is the
+             * natural place to notice the agent is behind — but the button is
+             * a DOOR now (spec 2026-09-18 § 7.4). It used to install the agent
+             * on the spot, which was half an act: this app SHIPS that agent,
+             * so a machine whose bundled agent is newer usually has a newer app
+             * waiting too, and installing one of the two in isolation is what
+             * produced the loop where the next launch asked again.
              */}
             {probe?.agentChoice === "upgrade-available" && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={commands.updateAgent}>
+              <Button variant="outline" size="sm" disabled={busy} onClick={onUpdate}>
                 Update the agent to {probe.bundledVersion}
               </Button>
             )}
             {/*
-             * The APP's own update, beside the AGENT's. Always offered rather
-             * than gated on a known update: whether one exists is a network
-             * read, and a row that appeared only after an answer would mean
-             * asking on the probe's clock — which is the background update
-             * check this design explicitly does not have.
+             * The same screen, for the case where nothing on this machine says
+             * anything is behind. Always offered rather than gated on a known
+             * update: whether one exists is a network read, and a row that
+             * appeared only after an answer would mean asking on the probe's
+             * clock — which is the background update check this design
+             * explicitly does not have.
              */}
-            <Button variant="outline" size="sm" disabled={busy} onClick={onCheckAppUpdate}>
-              Check for app updates…
+            <Button variant="outline" size="sm" disabled={busy} onClick={onUpdate}>
+              Check for updates…
             </Button>
             {/*
              * Re-enrolling is a thing you do to a machine that IS enrolled —

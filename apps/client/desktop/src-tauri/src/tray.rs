@@ -228,7 +228,15 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             // About takes, and performs no check itself: the screen's own
             // first render asks, so there is one place that decides what
             // "checking" looks like and one place that can fail.
-            UPDATE_ID => crate::windows::show_node_screen(app, "app-update"),
+            //
+            // `update`, not `app-update`: there is one update screen now, and
+            // it updates this app AND the agent that app ships, because each
+            // bundle carries the CLI it wraps and the two were never
+            // independent acts (spec 2026-09-18 § 4). The old id is deleted
+            // rather than aliased — this product has no installed base to keep
+            // compatible — so a page that still asked for it would simply be
+            // ignored, which is the same thing an unknown id has always been.
+            UPDATE_ID => crate::windows::show_node_screen(app, "update"),
             KEEP_ID => set_close_to_tray(app),
             _ => {}
         })
