@@ -57,6 +57,23 @@ export function FoldedServerRow({
   // null — including for a shell that does not report what it bundles.
   const bundledNewer = bundledServerUpdate(shell, server.current || undefined);
   const behind = appBehind || bundledNewer !== null;
+  /**
+   * The release source has published a server NEWER than the one this app
+   * ships (review N1).
+   *
+   * The assistant installs the BUNDLE, so no button here can reach that
+   * version — and this app renders no standalone Server row, so nothing else
+   * offers it either. Without a sentence the row reads `1.0.0 → 1.2.0` with an
+   * empty act cell: the exact mismatch this table exists to surface, with
+   * nothing saying why it cannot be closed from here.
+   *
+   * It is not a defect introduced by showing `server.latest` — that display is
+   * what made an already-existing consequence of D4 visible. The honest answer
+   * is to say what the app can install and what has been published, and let
+   * the reader draw the conclusion the numbers support.
+   */
+  const publishedAhead =
+    server.latest !== null && shell.bundledServer ? semverLt(shell.bundledServer, server.latest.version) : false;
 
   return (
     <>
@@ -119,9 +136,11 @@ export function FoldedServerRow({
           <span className="text-detail text-muted-foreground">
             {/* `bundledServer` is OPTIONAL on the parsed shell, not nullable —
                 a `=== null` check here silently never fired. */}
-            {shell.bundledServer
-              ? `ships ${shell.bundledServer}, with the app`
-              : "this build does not report the server it ships"}
+            {!shell.bundledServer
+              ? "this build does not report the server it ships"
+              : publishedAhead
+                ? `this app installs the ${shell.bundledServer} it ships`
+                : `ships ${shell.bundledServer}, with the app`}
           </span>
         </div>
       </div>

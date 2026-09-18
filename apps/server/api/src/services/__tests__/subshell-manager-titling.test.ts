@@ -245,6 +245,18 @@ describe("normalizePaneTitle", () => {
     expect(out).toBe("ok     more");
   });
 
+  /**
+   * 8-bit C1 introducers (review N3). Valid UTF-8 can carry U+0080–U+009F, and
+   * U+009B is CSI — the sequence sweep only knows the 7-bit `ESC x` forms, so
+   * without the widened class one would ride through with its payload.
+   */
+  it("drops 8-bit C1 controls, which the escape sweep cannot see", () => {
+    expect(norm("\u009b31mhello")).toBe("31mhello");
+    expect(norm("\u009dtitle\u009c")).toBe("title");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting none survive
+    expect(norm("a\u0080\u009fb")).not.toMatch(/[\u0080-\u009f]/);
+  });
+
   it("stays bounded however long the title is", () => {
     expect(norm(`${"\x1b[31m".repeat(500)}${"n".repeat(500)}`)).toHaveLength(120);
   });

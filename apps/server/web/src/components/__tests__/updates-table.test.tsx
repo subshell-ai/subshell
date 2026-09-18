@@ -150,6 +150,24 @@ describe("the Components table inside Subshell Server", () => {
     expect(screen.getByText(/with the app/)).toBeTruthy();
   });
 
+  /**
+   * The release source ahead of the bundle (review N1). The assistant installs
+   * the BUNDLE, so no button here can reach the published version, and this
+   * app renders no standalone Server row — without a sentence the row is a
+   * bare mismatch with an empty act cell.
+   */
+  it("says what it can install when the source has published something newer", () => {
+    // The fixture runs 0.6.0 and the source published 0.7.0. This app bundles
+    // 0.6.5 — newer than what is installed, so there IS an act, but older than
+    // what the Newest column now shows.
+    setUA("Mozilla/5.0 SubshellDesktop/0.8.0 (macos; p=1; b=0.6.5)");
+    renderTable();
+    expect(screen.getByText(/this app installs the 0\.6\.5 it ships/)).toBeTruthy();
+    // And it does NOT say the bundle ships "with the app" unqualified, which
+    // beside a Newest of 0.7.0 would read as an offer to install 0.7.0.
+    expect(screen.queryByText(/ships 0\.6\.5, with the app/)).toBeNull();
+  });
+
   // M13: a shell that does not report what it bundles is a real state (a
   // cached bundle, a build predating the `b=` marker) and the row said so
   // before the restructure dropped it to a bare dash.

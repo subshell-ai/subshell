@@ -1671,8 +1671,15 @@ function normalizePaneTitle(raw: string): string {
   const withoutSequences = raw.replace(ESCAPE_SEQUENCE, " ");
   // Intentional: whatever control characters survive a sequence sweep are
   // stray bytes, not structure.
+  //
+  // The range covers C1 (U+0080–U+009F) as well as C0, because valid UTF-8 can
+  // carry an 8-bit introducer — U+009B is CSI — and one would otherwise pass
+  // both this pass and the sequence sweep above, which only knows the 7-bit
+  // `ESC x` forms (review N3). Not a laundering path of the kind this function
+  // exists to close, since a name renders as text, but it is the one thing the
+  // sweep does not cover and a title has no business carrying one.
   // biome-ignore lint/suspicious/noControlCharactersInRegex: sanitizing terminal output
-  const cleaned = withoutSequences.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
+  const cleaned = withoutSequences.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").trim();
   return cleaned
     .replace(/^[^\p{L}\p{N}]+/u, "")
     .trim()
