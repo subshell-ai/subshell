@@ -179,13 +179,16 @@ mod tests {
         assert_eq!(origin_changed(Some("https://idp.example.com/authorize"), &p), None);
         // Nor is a plane on the instance's own public address.
         assert_eq!(origin_changed(Some("https://plane.example.com/"), &p), None);
-        // Both loopback spellings still are, which is what the poll is FOR.
+        // Both loopback spellings still are, which is what the poll is FOR —
+        // including with a path on them, so the guard cannot be "fixed" into
+        // swallowing the case the function exists for (a moved port under an
+        // SPA that has routed somewhere).
         assert_eq!(
             origin_changed(Some("http://127.0.0.1:3080"), &p),
             Some("http://localhost:3090".to_string())
         );
         assert_eq!(
-            origin_changed(Some("http://localhost:3080"), &p),
+            origin_changed(Some("http://localhost:3080/settings/networking"), &p),
             Some("http://localhost:3090".to_string())
         );
     }

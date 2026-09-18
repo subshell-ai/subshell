@@ -1534,11 +1534,19 @@ async function startAppUpdate(forced: boolean, bundled: boolean): Promise<void> 
  * so `act` still says what went wrong.
  */
 async function finishUpdate(_p: Probe, forced: boolean): Promise<void> {
-  // The CLI half can take minutes — `update --from` is budgeted at 300 s — and
-  // it emits nothing on the way (review, 2026-09-18). One line, so the screen
-  // is not silent while the button is dead beside it.
-  updateProgress = "Installing the server it ships…";
   await act(async () => {
+    // **Set INSIDE the callback, so the `finally` below always answers it**
+    // (review, 2026-09-18). `act` early-returns when something else is already
+    // in flight, and this line lived outside it — so a declined run left
+    // "Installing the server it ships…" on screen for the rest of the visit
+    // with nothing running behind it. The reachable case is the automatic
+    // resume, which burns its once-per-visit latch before deferring here, so
+    // there was then no press and no Try Again either.
+    //
+    // The line exists because the CLI half can take minutes — `update --from`
+    // is budgeted at 300 s — and emits nothing on the way, so the screen would
+    // otherwise be silent beside a dead button.
+    updateProgress = "Installing the server it ships…";
     try {
       const installed = await ipc.installServer();
       updateProgress = "Restarting the server…";
