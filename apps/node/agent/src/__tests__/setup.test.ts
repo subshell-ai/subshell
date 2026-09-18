@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { type CliResult, parseArgs, run } from "../cli.js";
 import { configPath, loadConfig } from "../config.js";
+import { resetPromptFramingForTests } from "../setup.js";
 import { newHome } from "../test-preload.js";
 import { serviceStub, UNIT } from "./helpers/service-stub.js";
 
@@ -28,6 +30,10 @@ let dataDir: string;
 let server: ReturnType<typeof Bun.serve> | undefined;
 
 beforeEach(() => {
+  // The clack framing is process-level state (`intro` draws its bar once), so a
+  // suite that ever drives the PRODUCTION prompts — rather than the injected seams
+  // every case here uses — would otherwise see the second run arrive headerless.
+  resetPromptFramingForTests();
   home = newHome();
   dataDir = join(home, "data");
   server?.stop(true);
@@ -46,7 +52,18 @@ function plane(): string {
 }
 
 function setupArgv(serverUrl: string, ...extra: string[]): string[] {
-  return ["setup", "--server", serverUrl, "--key", "nsk_test_0123456789", "--data-dir", dataDir, ...extra];
+  return [
+    "setup",
+    "--server",
+    serverUrl,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    "named box",
+    "--data-dir",
+    dataDir,
+    ...extra,
+  ];
 }
 
 /**
@@ -63,6 +80,21 @@ function recordingPrompt(answer: boolean | null) {
   return {
     asked,
     prompt: (question: string, def: boolean) => {
+      asked.push({ question, def });
+      return answer;
+    },
+  };
+}
+
+/**
+ * Records the name question the same way {@link recordingPrompt} records the
+ * service one, answering with a scripted reply (`null` = cancelled/EOF).
+ */
+function recordingNamePrompt(answer: string | null) {
+  const asked: Array<{ question: string; def: string }> = [];
+  return {
+    asked,
+    promptName: (question: string, def: string) => {
       asked.push({ question, def });
       return answer;
     },
@@ -172,6 +204,164 @@ test("interactive: a cancelled prompt declines rather than guessing yes", async 
   expect(res.code).toBe(0);
   expect(s.calls).toEqual([]); // enrollment stands; the machine is untouched
   expect(res.out).toInclude("subshell service install");
+});
+
+// ── the name ──────────────────────────────────────────────────────────────
+
+test("interactive without --name ASKS for it, prefilled with this machine's hostname", async () => {
+  // The whole point of the 2026-09-17 revamp: the name is decided here, at the
+  // box, and not guessed on the control plane by whoever minted the key. The
+  // hostname is the DEFAULT it offers, never the answer it assumes.
+  let seen: Record<string, unknown> | undefined;
+  server = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      seen = (await req.json()) as Record<string, unknown>;
+      return Response.json(CANNED, { status: 201 });
+    },
+  });
+  const url = `http://localhost:${server.port}`;
+  const s = serviceStub();
+  const name = recordingNamePrompt("mac mini 42");
+  const svc = recordingPrompt(false);
+  const argv = ["setup", "--server", url, "--key", "nsk_test_0123456789", "--data-dir", dataDir];
+  const res = await run(argv, {
+    service: s.deps,
+    promptName: name.promptName,
+    prompt: svc.prompt,
+    interactive: true,
+  });
+
+  expect(res.code).toBe(0);
+  expect(name.asked).toHaveLength(1);
+  expect(name.asked[0].question).toInclude("Name this node");
+  expect(name.asked[0].def).toBe(hostname()); // press enter = keep the machine's own name
+  expect(seen?.name).toBe("mac mini 42");
+  // Asked FIRST: the service question only makes sense once there is a node to make.
+  expect(svc.asked).toHaveLength(1);
+  expect((await loadConfig()).name).toBe("mac mini 42");
+});
+
+test("a cancelled name prompt enrolls nothing and spends no key", async () => {
+  let hits = 0;
+  const url = fakeControlPlane(() => {
+    hits++;
+    return Response.json(CANNED, { status: 201 });
+  });
+  const s = serviceStub();
+  const name = recordingNamePrompt(null); // Ctrl-C at the question
+  const res = await run(["setup", "--server", url, "--key", "nsk_test_0123456789", "--data-dir", dataDir], {
+    service: s.deps,
+    promptName: name.promptName,
+    prompt: recordingPrompt(true).prompt,
+    interactive: true,
+  });
+
+  expect(res.code).toBe(1);
+  expect(res.err).toInclude("nothing was enrolled");
+  expect(hits).toBe(0); // the single-use key is still mint and usable
+  expect(existsSync(configPath())).toBe(false);
+  expect(s.calls).toEqual([]);
+});
+
+test("an answer with nothing printable in it is refused before the network", async () => {
+  // clack re-asks on a bad `validate`, so the CLI seam only ever sees an
+  // accepted answer; this pins the enroll-side guard behind it for whatever
+  // reaches runEnroll by another door (`--name "   "`).
+  let hits = 0;
+  const url = fakeControlPlane(() => {
+    hits++;
+    return Response.json(CANNED, { status: 201 });
+  });
+  const name = recordingNamePrompt("   \t  ");
+  const res = await run(["setup", "--server", url, "--key", "nsk_test_0123456789", "--data-dir", dataDir], {
+    service: serviceStub().deps,
+    promptName: name.promptName,
+    prompt: recordingPrompt(true).prompt,
+    interactive: true,
+  });
+
+  expect(res.code).toBe(1);
+  expect(res.err).toInclude("printable character");
+  expect(hits).toBe(0);
+});
+
+test("--name wins over the question, and whitespace-only --name counts as absent", async () => {
+  const url = plane();
+  const name = recordingNamePrompt("should never be used");
+  const svc = recordingPrompt(true);
+  const res = await run(setupArgv(url), {
+    service: serviceStub().deps,
+    promptName: name.promptName,
+    prompt: svc.prompt,
+    interactive: true,
+  });
+  expect(res.code).toBe(0);
+  expect(name.asked).toEqual([]); // --name answered it already
+
+  // Blank is not a name, so the argv check treats it as the absence — which for
+  // an interactive run means ASKING rather than enrolling a blank row.
+  const blank = await run(setupArgv(url, "--name", "   "), {
+    service: serviceStub().deps,
+    promptName: recordingNamePrompt("asked after all").promptName,
+    prompt: recordingPrompt(true).prompt,
+    interactive: true,
+  });
+  expect(blank.code).toBe(0);
+});
+
+test("anything that cannot be asked must bring a name: --yes, --json, no terminal", async () => {
+  const cases: Array<{ label: string; argv: string[]; interactive: boolean }> = [
+    { label: "--yes", argv: ["--yes"], interactive: true },
+    { label: "--json", argv: ["--json"], interactive: true },
+    { label: "no terminal", argv: [], interactive: false },
+  ];
+  for (const c of cases) {
+    let hits = 0;
+    const url = fakeControlPlane(() => {
+      hits++;
+      return Response.json(CANNED, { status: 201 });
+    });
+    const name = recordingNamePrompt("not asked — nothing can answer");
+    const res = await run(
+      ["setup", "--server", url, "--key", "nsk_test_0123456789", "--data-dir", dataDir, ...c.argv],
+      {
+        service: serviceStub().deps,
+        promptName: name.promptName,
+        prompt: recordingPrompt(true).prompt,
+        interactive: c.interactive,
+      },
+    );
+    expect(res.code).toBe(2); // a usage error, like a missing --server
+    expect(res.err).toInclude("--name <n>");
+    expect(res.err).toInclude("SUBSHELL_NODE_NAME"); // the one-liner's own spelling
+    expect(name.asked).toEqual([]);
+    expect(hits).toBe(0);
+  }
+});
+
+test("an --name that expanded to nothing is the absence of one, so it ASKS", async () => {
+  // The shell-variable case: --name "$NODE_NAME" with an empty variable must not
+  // read as a deliberate blank name. One rule with the omitted flag — ask when a
+  // terminal can answer, refuse when nothing can (the case the test above pins).
+  const url = plane();
+  const name = recordingNamePrompt("asked after all");
+  const svc = recordingPrompt(true);
+  const res = await run(setupArgv(url, "--name", ""), {
+    service: serviceStub().deps,
+    promptName: name.promptName,
+    prompt: svc.prompt,
+    interactive: true,
+  });
+  expect(res.code).toBe(0);
+  expect(name.asked).toHaveLength(1);
+});
+
+test("--json with --name reports the name it was given", async () => {
+  const url = plane();
+  const res = await run(setupArgv(url, "--json"), { service: serviceStub().deps });
+  expect(res.code).toBe(0);
+  expect((JSON.parse(res.out) as { name: string }).name).toBe("named box");
 });
 
 // ── refusals and failures ─────────────────────────────────────────────────

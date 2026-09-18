@@ -1,4 +1,6 @@
-import { confirm, intro, isCancel, outro } from "@clack/prompts";
+import { hostname } from "node:os";
+import { confirm, intro, isCancel, outro, text } from "@clack/prompts";
+import { NODE_NAME_MAX, normalizeNodeName } from "@internal/subshell-protocol";
 import type { CliResult } from "./cli.js";
 import { configPath } from "./config.js";
 import { assertTmux, runEnroll } from "./enroll.js";
@@ -6,8 +8,8 @@ import { installService, type ServiceDeps } from "./service.js";
 
 /**
  * `subshell setup` — the whole enrollment in ONE verb (spec 2026-09-15 §4.5):
- * tmux preflight, enroll, ask about the background service, install it, and
- * say where to look.
+ * tmux preflight, the node's name, enroll, ask about the background service,
+ * install it, and say where to look.
  *
  * The defect it closes is a sequencing one rather than a missing capability.
  * Every step already existed and nothing pointed at the next: `install.sh`
@@ -38,7 +40,44 @@ import { installService, type ServiceDeps } from "./service.js";
  */
 export type ConfirmFn = (question: string, def: boolean) => boolean | null | Promise<boolean | null>;
 
-/** The one question `setup` asks. Default yes — backgrounded is what an operator came for. */
+/**
+ * The interactive TEXT seam (the name question). Same rules as {@link ConfirmFn}:
+ * it answers with the text or `null` for "nothing answered" — EOF, a closed
+ * stdin, a cancel — and null is never a default, because a name nobody entered
+ * must not become a node row.
+ */
+export type PromptTextFn = (question: string, def: string) => string | null | Promise<string | null>;
+
+/**
+ * Why a candidate node name is unusable, or `undefined` when it is fine.
+ *
+ * The rule is the control plane's — `normalizeNodeName` from
+ * `@internal/subshell-protocol`, the same function enroll runs the answer
+ * through and the same one the rename route applies afterwards — so the prompt
+ * cannot accept something the server will refuse. The length is checked on the
+ * RAW text rather than the normalized one because the normalizer TRUNCATES: a
+ * 70-character answer would otherwise be silently chopped at 64 instead of
+ * bounced back to the person typing it.
+ *
+ * @param raw - What has been typed so far
+ * @returns A one-line reason, or undefined
+ */
+export function nodeNameProblem(raw: string): string | undefined {
+  if (normalizeNodeName(raw) === "") return "A node name needs at least one printable character";
+  if (raw.trim().length > NODE_NAME_MAX) {
+    return `At most ${NODE_NAME_MAX} characters — this is ${raw.trim().length}`;
+  }
+  return undefined;
+}
+
+/**
+ * The first QUESTION `setup` asks (the tmux preflight runs before it, so a box
+ * that could host no pane never costs anyone an answer): what to call this
+ * machine on the plane.
+ */
+export const NAME_QUESTION = "Name this node";
+
+/** The second question. Default yes — backgrounded is what an operator came for. */
 export const SERVICE_QUESTION = "Run the agent in the background and start it at login?";
 
 /** The command that does later what the question offers now — named on every path that skips it. */
@@ -53,7 +92,11 @@ export interface SetupOptions {
   server: string;
   /** One-time `nsk_…` setup key (`--key`). */
   setupKey: string;
-  /** Display name for this node; defaults to the hostname. */
+  /**
+   * Display name. Absent means ASK on this machine — which is what a piped,
+   * `--yes` or `--json` run cannot do, so `subshell setup` refuses those without
+   * it (the check lives with the other argv checks in `cli.ts`).
+   */
   name?: string;
   /** Data dir for the identity keypair; defaults to `<SUBSHELL_CONFIG_HOME>/data`. */
   dataDir?: string;
@@ -69,6 +112,8 @@ export interface SetupOptions {
 export interface SetupDeps {
   /** Service-manager + filesystem seams handed to {@link installService}. */
   service: ServiceDeps;
+  /** How the name question is asked (production: {@link promptName}). */
+  promptName: PromptTextFn;
   /** How the service question is asked (production: {@link promptConfirm}). */
   prompt: ConfirmFn;
   /** Can anything answer a question? False ⇒ take the default in silence. */
@@ -76,18 +121,32 @@ export interface SetupDeps {
 }
 
 /**
- * Production prompt: a clack confirm, framed by `intro`/`outro` so the
- * rendered bar opens and closes around the one question this CLI asks.
- *
- * It refuses to render on a non-TTY even though {@link runSetup} already gates
- * on that — defence in depth, because the alternative failure is a piped
- * install hanging forever on a read that can never complete. A cancel
- * (Ctrl-C, or clack's own `isCancel`) returns null, which the caller reads as
- * a decline.
+ * `intro` draws its bar once per process, however many questions this verb
+ * asks. It used to be drawn by {@link promptConfirm} alone, which was right
+ * when there was exactly one question and reads as two separate wizards now
+ * that the name is asked first.
  */
+let introDrawn = false;
+
+/**
+ * Forgets that the bar was drawn. A process runs `setup` once, so production never
+ * needs this; a test that exercises the production prompts (or any future caller
+ * that runs the verb twice) would otherwise get a second run with no header and no
+ * explanation.
+ *
+ * @internal
+ */
+export function resetPromptFramingForTests(): void {
+  introDrawn = false;
+}
+
+/** Production prompt: a clack confirm (see {@link promptName} for the text twin). */
 export async function promptConfirm(question: string, def: boolean): Promise<boolean | null> {
   if (!process.stdin.isTTY) return null;
-  intro("subshell setup");
+  if (!introDrawn) {
+    introDrawn = true;
+    intro("subshell setup");
+  }
   const answer = await confirm({ message: question, initialValue: def });
   if (isCancel(answer)) {
     outro("cancelled");
@@ -98,21 +157,69 @@ export async function promptConfirm(question: string, def: boolean): Promise<boo
 }
 
 /**
+ * Production name prompt: a clack text input prefilled with the machine's
+ * hostname, so Enter accepts "what the box calls itself" and typing replaces it.
+ *
+ * This is where the name comes from now. It used to be typed into the Add-node
+ * dialog on the control plane — a machine nobody was standing at, named by a
+ * guess, and the label never reached the node anyway because the one-liner ran
+ * `setup` with no name. The hostname is the DEFAULT here, not the answer: the
+ * operator sees it, and one edit makes it theirs.
+ *
+ * Refuses to render on a non-TTY for the same reason {@link promptConfirm}
+ * does, and a cancel (Ctrl-C, clack's `isCancel`) is null = nothing named.
+ */
+export async function promptName(question: string, def: string): Promise<string | null> {
+  if (!process.stdin.isTTY) return null;
+  if (!introDrawn) {
+    introDrawn = true;
+    intro("subshell setup");
+  }
+  const answer = await text({ message: question, initialValue: def, validate: (v) => nodeNameProblem(v ?? "") });
+  if (isCancel(answer)) {
+    outro("cancelled");
+    return null;
+  }
+  return answer;
+}
+
+/**
  * Runs the sequence and returns what to print plus the exit code. The exit
  * code is the SERVICE step's, so a script can tell "fully set up" from "half
  * set up" — and the human output says which half, because a bare non-zero
  * after a spent single-use setup key would read as "nothing happened".
  */
 export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<CliResult> {
-  // FIRST, and before any network call: the same preflight `runEnroll` runs,
-  // hoisted here so the sequence's first step is the one an unenrollable box
-  // fails on — and so it fails before the single-use setup key is spent.
+  // FIRST, and before anything else — a question, a network call, or the key:
+  // the same preflight `runEnroll` runs, hoisted here so the sequence's first
+  // step is the one an unenrollable box fails on. Asking what to call a machine
+  // that then cannot host a pane would be a question with no answer at the end
+  // of it, and the box is unenrollable whatever the answer was.
   assertTmux();
+
+  // The name, asked BEFORE the key can be spent on it. `--name` wins when given
+  // (a script, the desktop app, `SUBSHELL_NODE_NAME` from the one-liner);
+  // otherwise the machine is ASKED, because this is the one place that knows what
+  // it is and the one moment a person is standing at it. A cancel is a full stop:
+  // enrolling under a name nobody chose, or answering a question nobody answered
+  // with a default, are both worse than stopping.
+  let name = opts.name?.trim() ?? "";
+  if (name === "") {
+    const answer = await deps.promptName(NAME_QUESTION, hostname());
+    if (answer === null) {
+      return {
+        code: 1,
+        out: "",
+        err: "subshell: cancelled — nothing was enrolled. Name this machine with --name <n> to run unattended.\n",
+      };
+    }
+    name = answer.trim();
+  }
 
   const enrolled = await runEnroll({
     server: opts.server,
     setupKey: opts.setupKey,
-    name: opts.name,
+    name,
     dataDir: opts.dataDir,
   });
 

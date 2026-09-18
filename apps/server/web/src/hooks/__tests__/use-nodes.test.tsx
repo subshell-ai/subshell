@@ -100,17 +100,21 @@ describe("node reads", () => {
     }
   });
 
-  it("useSetupKeys lists the caller's keys (never a secret)", async () => {
+  // The list carries the KEY since the 2026-09-17 revamp — the Setup keys card
+  // is the durable place an operator reads a minted-but-unused key from, which is
+  // why the row is titled by it. Server-side scoping (own keys only) is the
+  // route's, and `setup-keys-route.test.ts` pins that.
+  it("useSetupKeys lists the caller's keys, each with its key text", async () => {
     const { restore } = mockFetch({
       "GET /api/nodes/setup-keys": () =>
         json({
-          keys: [{ id: "k1", label: "mac mini", createdAt: "x", expiresAt: "y", usedAt: null, consumedNodeId: null }],
+          keys: [{ id: "k1", key: "nsk_listed", createdAt: "x", expiresAt: "y", usedAt: null, consumedNodeId: null }],
         }),
     });
     try {
       const { result } = renderHook(() => useSetupKeys(), { wrapper });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(result.current.data?.keys[0]?.label).toBe("mac mini");
+      expect(result.current.data?.keys[0]?.key).toBe("nsk_listed");
     } finally {
       restore();
     }
@@ -157,16 +161,17 @@ describe("node mutations", () => {
     }
   });
 
-  it("useCreateSetupKey POSTs the label and returns the plaintext once", async () => {
+  it("useCreateSetupKey POSTs nothing and returns the key", async () => {
     const { calls, restore } = mockFetch({
       "POST /api/nodes/setup-keys": () => json({ id: "k1", key: "nsk_abc", expiresAt: "y" }, 201),
     });
     try {
       const { result } = renderHook(() => useCreateSetupKey(), { wrapper });
-      const created = await result.current.mutateAsync("mac mini");
+      const created = await result.current.mutateAsync();
       expect(created.key).toBe("nsk_abc");
+      // No body: the key names nothing, because the machine names itself.
       const post = calls.find((c) => c.method === "POST" && c.url === "/api/nodes/setup-keys");
-      expect(JSON.parse(post?.body ?? "{}")).toEqual({ label: "mac mini" });
+      expect(post?.body ?? "").toBe("");
     } finally {
       restore();
     }

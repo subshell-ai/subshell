@@ -308,6 +308,7 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "http://localhost:3080");
     typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
     fireEvent.click(button("Enroll"));
 
     // Phase one: every message rendered, and exactly ONE call so far — nothing
@@ -322,6 +323,10 @@ describe("enrolment is two-phase", () => {
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(2));
     const [first, second] = fake.callsTo("node_enroll");
     expect(second).toEqual({ ...first, confirm: true });
+    // Named, in the payload — not defaulted by the CLI behind the form's back.
+    // (The line above already pins that phase two carries the SAME name: the form
+    // is not re-read between the confirm and the spawn.)
+    expect(first).toMatchObject({ server: "http://localhost:3080", key: GOOD_KEY, name: "workstation" });
     // And never a third: an accepted key cannot be redeemed twice.
     expect(fake.callsTo("node_enroll").length).toBe(2);
   });
@@ -343,6 +348,7 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
     fireEvent.click(button("Enroll"));
 
     // The CLI's own sentence, verbatim, and exactly one attempt.
@@ -367,11 +373,16 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
     fireEvent.click(button("Enroll"));
 
     await waitFor(() => expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe(""));
     // The server URL survives: the common re-enroll is the same server.
     expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
+    // And so does the NAME, which the operator typed rather than pasted. It is
+    // required now, and a retry costs a fresh key rather than a retyped machine
+    // name — the field that failed is the one that clears.
+    expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toBe("workstation");
   });
 
   it("refuses an invalid form before any spawn", async () => {
@@ -383,6 +394,9 @@ describe("enrolment is two-phase", () => {
 
     await waitFor(() => expect(screen.getByText(/Include the scheme/)).toBeTruthy());
     expect(screen.getByText(/partial paste/)).toBeTruthy();
+    // The third refusal is the field that became required: nothing is spawned
+    // with a nameless `enroll`, because the CLI would refuse the argv anyway.
+    expect(screen.getByText(/the Nodes page lists it by this name/)).toBeTruthy();
     expect(fake.callsTo("node_enroll").length).toBe(0);
   });
 
@@ -391,7 +405,9 @@ describe("enrolment is two-phase", () => {
     expect(screen.getByText(/Mint a setup key in the browser first/)).toBeTruthy();
     expect(screen.getByText(/single-use and expires after 24 hours/)).toBeTruthy();
     expect(screen.getByText(/already taken on that server/)).toBeTruthy();
-    expect(screen.getByText(/Leave the name blank/)).toBeTruthy();
+    // The third note is the naming one, and it says WHY the field is here rather
+    // than being an optional courtesy: the control plane's guess went away.
+    expect(screen.getByText(/the row on the Nodes page/)).toBeTruthy();
   });
 
   // A warning, never a block.
@@ -412,6 +428,7 @@ describe("enrolment is two-phase", () => {
 
     typeInto("Server URL", "http://127.0.0.1:3080");
     typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
 
     await waitFor(() => expect(screen.getByText(/This is a loopback address/)).toBeTruthy());
     expect(button("Enroll").disabled).toBe(false);
@@ -790,6 +807,7 @@ describe("the facts", () => {
 
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
     ipc?.setProbe(makeProbe());
     fireEvent.click(button("Enroll"));
 

@@ -6,7 +6,7 @@ import { apiModels } from "@/schema/index.js";
 
 const SetupKeyRowSchema = t.Object({
   id: t.String({ description: "Setup key id" }),
-  label: t.String({ description: "Human label given at creation" }),
+  key: t.String({ description: "The setup key — usable until used or expired, inert after" }),
   createdAt: t.String({ description: "ISO 8601 creation timestamp" }),
   expiresAt: t.String({ description: "ISO 8601 expiry timestamp" }),
   usedAt: t.Nullable(t.String({ description: "ISO 8601 redemption time, null while unused" })),
@@ -14,13 +14,25 @@ const SetupKeyRowSchema = t.Object({
 });
 
 const ListResponseSchema = t.Object({
-  keys: t.Array(SetupKeyRowSchema, { description: "The caller's setup keys, newest first (never the secret)" }),
+  keys: t.Array(SetupKeyRowSchema, {
+    description: "The caller's setup keys, newest first, each with its own key text",
+  }),
 });
 
-/** Maps a stored row to the listing shape — keyHash never leaves the DB. */
+/**
+ * Maps a stored row to the listing shape.
+ *
+ * It is a projection, not a redaction: what it drops is `ownerUserId`, which the
+ * caller already is, and it deliberately carries `key`. That is the whole point
+ * of this route since the node-setup revamp (2026-09-17) — a minted key the
+ * dialog closed without using was an open enrollment door the operator could
+ * only close, not read, so the remedy was to revoke and re-mint. Scoping is
+ * unchanged: `listByUser(user.id)` answers for the caller's own keys and nobody
+ * else's, and a used or expired row's key is inert on sight.
+ */
 function toKeyRow(row: {
   id: string;
-  label: string;
+  key: string;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
@@ -28,7 +40,7 @@ function toKeyRow(row: {
 }) {
   return {
     id: row.id,
-    label: row.label,
+    key: row.key,
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
     usedAt: row.usedAt,
@@ -38,9 +50,11 @@ function toKeyRow(row: {
 
 /**
  * `GET /api/nodes/setup-keys` — the caller's own setup keys, newest first
- * (spec 2026-08-31 §9). Carries usage state (usedAt/consumedNodeId) for the
- * management UI; the key material is not in the database in recoverable form.
- * Cookie-only, mirroring the create route.
+ * (spec 2026-08-31 §9). Carries usage state (usedAt/consumedNodeId) and the key
+ * text, because the Setup keys card is now the durable place a key is read
+ * from. Cookie-only, mirroring the create route: a bearer credential has no
+ * business enumerating enrollment doors, and this is a human reviewing what
+ * they handed out.
  */
 export const listSetupKeyRoute = new Elysia()
   .use(authGuard)
@@ -61,7 +75,7 @@ export const listSetupKeyRoute = new Elysia()
       detail: {
         operationId: "listNodeSetupKeys",
         tags: ["nodes"],
-        description: "Lists the caller's node setup keys (never the secret)",
+        description: "Lists the caller's node setup keys, each with its key text",
       },
     },
   );

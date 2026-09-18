@@ -70,11 +70,12 @@ describe("/api/nodes/enroll", () => {
     await deleteUserByEmailOrId(aliceEmail);
   });
 
-  /** Mint a real setup key owned by alice, tracked for cleanup. */
-  async function makeKey(label: string): Promise<string> {
-    const { row, plaintext } = await repo.create(label, aliceId);
+  /** Mint a real setup key owned by alice, tracked for cleanup. No label — a
+   * setup key names nothing since the 2026-09-17 revamp. */
+  async function makeKey(): Promise<string> {
+    const row = await repo.create(aliceId);
     createdSetupKeyIds.push(row.id);
-    return plaintext;
+    return row.key;
   }
 
   async function enroll(body: Record<string, unknown>): Promise<Response> {
@@ -101,7 +102,7 @@ describe("/api/nodes/enroll", () => {
   }
 
   it("happy path: 201 + node row + identity + node key; the setup key is spent", async () => {
-    const setupKey = await makeKey("happy");
+    const setupKey = await makeKey();
     const res = await enroll(bodyFor(setupKey, { name: "mini-one" }));
     expect(res.status).toBe(201);
     const body = (await res.json()) as { nodeId: string; nodeKey: string; controlPublicKey: string; wsUrl: string };
@@ -148,7 +149,7 @@ describe("/api/nodes/enroll", () => {
     // the snapshot is restored in finally so the rest of the suite is unaffected.
     mock.module("@/constants.js", () => ({ ...constantsSnapshot, APP_BASE_URL: "https://subshell.example/cloud" }));
     try {
-      const setupKey = await makeKey("subpath");
+      const setupKey = await makeKey();
       const res = await enroll(bodyFor(setupKey, { name: "subpath-node" }));
       expect(res.status).toBe(201);
       const body = (await res.json()) as { nodeId: string; wsUrl: string };
@@ -169,7 +170,7 @@ describe("/api/nodes/enroll", () => {
   });
 
   it("second redemption of the same key → 401 SETUP_KEY_CONSUMED (ledger 17a)", async () => {
-    const setupKey = await makeKey("reuse");
+    const setupKey = await makeKey();
     const first = await enroll(bodyFor(setupKey));
     expect(first.status).toBe(201);
     createdNodeIds.push(((await first.json()) as { nodeId: string }).nodeId);
@@ -191,11 +192,11 @@ describe("/api/nodes/enroll", () => {
   });
 
   it("expired key → 401 SETUP_KEY_EXPIRED (no row churn, ledger 17a)", async () => {
-    const { row, plaintext } = await repo.create("old", aliceId, -1000); // already expired
-    createdSetupKeyIds.push(row.id);
+    const expiredRow = await repo.create(aliceId, -1000); // already expired
+    createdSetupKeyIds.push(expiredRow.id);
     const expiredName = `expired-${crypto.randomUUID().slice(0, 8)}`;
     const ownedBefore = await nodes.listByOwner(aliceId);
-    const res = await enroll(bodyFor(plaintext, { name: expiredName }));
+    const res = await enroll(bodyFor(expiredRow.key, { name: expiredName }));
     expect(res.status).toBe(401);
     const err = (await res.json()) as { code: string; message: string };
     expect(err.code).toBe("SETUP_KEY_EXPIRED");
@@ -218,7 +219,7 @@ describe("/api/nodes/enroll", () => {
   });
 
   it("bad publicKey fails BEFORE consume — key stays redeemable", async () => {
-    const setupKey = await makeKey("validate-first");
+    const setupKey = await makeKey();
     // Both fixtures stay ABOVE the body schema's `minLength: 16` so they pass schema
     // validation and genuinely reach the route's own JSON.parse-catch /
     // assertImportablePublicJwk branches (shorter strings die at the schema instead).
@@ -241,27 +242,57 @@ describe("/api/nodes/enroll", () => {
   });
 
   it("private JWK (carries `d`) → 400 + key unconsumed", async () => {
-    const setupKey = await makeKey("private-jwk");
+    const setupKey = await makeKey();
     const res = await enroll(bodyFor(setupKey, { publicKey: await jwkString(true) }));
     expect(res.status).toBe(400);
     expect(await repo.peekValid(setupKey)).toBe(true);
   });
 
   it("os outside linux|darwin|unknown → 400 + key unconsumed", async () => {
-    const setupKey = await makeKey("bad-os");
+    const setupKey = await makeKey();
     const res = await enroll(bodyFor(setupKey, { os: "windows" }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
     expect(await repo.peekValid(setupKey)).toBe(true);
   });
 
+  it("a name with nothing printable in it → 400 + key unconsumed", async () => {
+    // The machine supplies the name now (the mint dialog stopped asking), so this
+    // body is the one door through which every spelling arrives: a prompt answer,
+    // --name, the desktop field, or a script's JSON. Whitespace and control
+    // characters are what a paste or a terminal can hand over, and an empty row
+    // in the Nodes page is worse than a refusal — refused BEFORE consume, because
+    // a single-use key must not be spent by a body that cannot be stored.
+    for (const name of ["   ", "\t\n", "\u0000\u0007"]) {
+      const setupKey = await makeKey();
+      const res = await enroll(bodyFor(setupKey, { name }));
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { message: string }).message).toBe(
+        "A node name needs at least one printable character",
+      );
+      expect(await repo.peekValid(setupKey)).toBe(true);
+    }
+  });
+
+  it("the name is normalized on the way in, exactly as rename normalizes it", async () => {
+    // One rule for both doors (enroll and rename), from one function in
+    // @internal/subshell-protocol: control characters become spaces, runs of
+    // whitespace collapse, the ends trim, and the cap is NODE_NAME_MAX.
+    const setupKey = await makeKey();
+    const res = await enroll(bodyFor(setupKey, { name: "  mac\n\tmini  two  " }));
+    expect(res.status).toBe(201);
+    const { nodeId } = (await res.json()) as { nodeId: string };
+    createdNodeIds.push(nodeId);
+    expect((await nodes.findById(nodeId))?.name).toBe("mac mini two");
+  });
+
   it("duplicate name for the same owner → 409 NODE_NAME_TAKEN", async () => {
     const name = `dup-${crypto.randomUUID().slice(0, 8)}`;
-    const first = await enroll(bodyFor(await makeKey("dup-a"), { name }));
+    const first = await enroll(bodyFor(await makeKey(), { name }));
     expect(first.status).toBe(201);
     createdNodeIds.push(((await first.json()) as { nodeId: string }).nodeId);
 
-    const second = await enroll(bodyFor(await makeKey("dup-b"), { name }));
+    const second = await enroll(bodyFor(await makeKey(), { name }));
     expect(second.status).toBe(409);
     expect(((await second.json()) as { code: string }).code).toBe("NODE_NAME_TAKEN");
   });

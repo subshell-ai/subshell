@@ -309,8 +309,8 @@ export function nodeConfigure(args: { server: string }): Promise<ActionResult> {
 export function nodeEnroll(args: {
   server: string;
   key: string;
-  /** Null means "let the agent default to this machine's hostname". */
-  name: string | null;
+  /** REQUIRED: what this machine is called on the plane. `enroll` takes no default. */
+  name: string;
   confirm: boolean;
 }): Promise<EnrollOutcome> {
   return invoke<EnrollOutcome>("node_enroll", args);

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
-import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
@@ -8,15 +7,15 @@ import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repos
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
-/** One key row as the list route renders it (no secret, no hash). */
+/** One key row as the list route renders it. */
 type KeyRow = {
   id: string;
-  label: string;
+  /** The key text itself — the card's row title since the 2026-09-17 revamp */
+  key: string;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
@@ -25,9 +24,12 @@ type KeyRow = {
 
 /**
  * `/api/nodes/setup-keys` — single-use enrollment key management (spec
- * 2026-08-31 §5.1/§9). Plaintext shown exactly once at create; the list never
- * carries the secret; owner-scoped list/delete; cookie-only (machine tokens
- * 403).
+ * 2026-08-31 §5.1/§9, as the 2026-09-17 node-setup revamp changed it). Minting
+ * takes NO body — a key names nothing, because the machine names itself when it
+ * enrolls — and the list carries the key text, because the Setup keys card is
+ * where an operator goes back to read a key they minted and have not used. What
+ * is unchanged: owner-scoped list/delete, cookie-only (machine tokens 403), and
+ * the key never entering the audit log.
  */
 describe("/api/nodes/setup-keys", () => {
   const pw = "setup-keys-1";
@@ -100,40 +102,47 @@ describe("/api/nodes/setup-keys", () => {
     return ((await res.json()) as { keys: KeyRow[] }).keys;
   }
 
-  it("create → 201 with nsk_-prefixed plaintext; list shows the row but NOT the secret", async () => {
-    const res = await req("POST", "/setup-keys", { cookie: aliceCookie, body: { label: "mac mini" } });
+  it("create → 201 with an nsk_ key; the list carries the SAME text", async () => {
+    const res = await req("POST", "/setup-keys", { cookie: aliceCookie });
     expect(res.status).toBe(201);
     const created = (await res.json()) as { id: string; key: string; expiresAt: string };
     expect(created.key.startsWith("nsk_")).toBe(true);
     expect(created.id).toBeTruthy();
     expect(Date.parse(created.expiresAt)).toBeGreaterThan(Date.now());
 
-    const body = JSON.stringify(await listKeys(aliceCookie));
-    expect(body).toContain(created.id);
-    expect(body).toContain("mac mini");
-    expect(body).not.toContain(created.key); // plaintext never comes back
-    expect(body).not.toContain("keyHash");
+    const listed = await listKeys(aliceCookie);
+    const row = listed.find((k) => k.id === created.id);
+    // The card is the durable place a key is read from: closing the dialog used
+    // to mean the operator could only REVOKE an unused key, never re-read it.
+    expect(row?.key).toBe(created.key);
 
     await req("DELETE", `/setup-keys/${created.id}`, { cookie: aliceCookie });
   });
 
-  it("create with an empty label → 400 INPUT_VALIDATION_ERROR", async () => {
-    // Mounted with the global error handler (as in the real server), Elysia's
-    // native 422 becomes the shared 400 structured body (system-keys rhythm).
-    const app = new Elysia().use(errorHandlerPlugin).use(nodesRoutes);
-    const res = await app.fetch(
-      new Request("http://localhost:3080/api/nodes/setup-keys", {
-        method: "POST",
-        headers: { cookie: `better-auth.session_token=${aliceCookie}`, "content-type": "application/json" },
-        body: JSON.stringify({ label: "" }),
-      }),
-    );
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
+  it("a stale body is ignored — the mint names nothing, and neither does the audit row", async () => {
+    // The label was the mint's only body field; a client still posting one
+    // (an older bundle, a hand-written script) must not 400 and must not have
+    // its string recorded anywhere. And the KEY must never reach the audit log
+    // now that the row itself holds it in the clear.
+    const res = await req("POST", "/setup-keys", { cookie: aliceCookie, body: { label: "mac mini" } });
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: string; key: string };
+    const rows = await db
+      .selectFrom("auditEvents")
+      .select(["metadataJson"])
+      .where("targetId", "=", created.id)
+      .where("action", "=", "setup_key.create")
+      .execute();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.metadataJson ?? "").not.toContain("mac mini");
+    expect(rows[0]?.metadataJson ?? "").not.toContain(created.key);
+    expect(JSON.stringify(await listKeys(aliceCookie))).not.toContain("mac mini");
+
+    await req("DELETE", `/setup-keys/${created.id}`, { cookie: aliceCookie });
   });
 
   it("list is owner-scoped — user B sees none of user A's keys", async () => {
-    const { row } = await repo.create("alice-only", aliceId);
+    const row = await repo.create(aliceId);
     const bobKeys = await listKeys(bobCookie);
     expect(bobKeys.some((k) => k.id === row.id)).toBe(false);
     const aliceKeys = await listKeys(aliceCookie);
@@ -142,29 +151,29 @@ describe("/api/nodes/setup-keys", () => {
   });
 
   it("delete own key → ok, gone from the list; unknown/other's id → 404", async () => {
-    const { row } = await repo.create("to-delete", aliceId);
+    const row = await repo.create(aliceId);
     const del = await req("DELETE", `/setup-keys/${row.id}`, { cookie: aliceCookie });
     expect(del.status).toBe(200);
     expect(((await del.json()) as { ok: boolean }).ok).toBe(true);
     expect((await listKeys(aliceCookie)).some((k) => k.id === row.id)).toBe(false);
 
     // Another user's row reads as not found (no existence leak, same as deleteById count 0).
-    const other = await repo.create("bob-owned", aliceId);
-    expect((await req("DELETE", `/setup-keys/${other.row.id}`, { cookie: bobCookie })).status).toBe(404);
+    const other = await repo.create(aliceId);
+    expect((await req("DELETE", `/setup-keys/${other.id}`, { cookie: bobCookie })).status).toBe(404);
     expect((await req("DELETE", "/setup-keys/does-not-exist", { cookie: aliceCookie })).status).toBe(404);
-    await repo.deleteById(other.row.id, aliceId);
+    await repo.deleteById(other.id, aliceId);
   });
 
   it("delete of a consumed key is allowed (housekeeping)", async () => {
-    const { row, plaintext } = await repo.create("spent", aliceId);
-    await repo.consume(plaintext, "node-x");
+    const row = await repo.create(aliceId);
+    await repo.consume(row.key, "node-x");
     const res = await req("DELETE", `/setup-keys/${row.id}`, { cookie: aliceCookie });
     expect(res.status).toBe(200);
     expect((await listKeys(aliceCookie)).some((k) => k.id === row.id)).toBe(false);
   });
 
   it("a subshell bearer key is refused (cookie-only) → 403 on POST, GET and DELETE", async () => {
-    expect((await req("POST", "/setup-keys", { bearer: subshellKey, body: { label: "nope" } })).status).toBe(403);
+    expect((await req("POST", "/setup-keys", { bearer: subshellKey })).status).toBe(403);
     expect((await req("GET", "/setup-keys", { bearer: subshellKey })).status).toBe(403);
     // 403 before the 404 lookup — requireCookieActor gates the route first.
     expect((await req("DELETE", "/setup-keys/whatever", { bearer: subshellKey })).status).toBe(403);
@@ -183,14 +192,14 @@ describe("/api/nodes/setup-keys", () => {
 
     it("is ON when the row is absent, so an instance that never set it is unchanged", async () => {
       await setAllowed(null);
-      const res = await req("POST", "/setup-keys", { cookie: bobCookie, body: { label: "default-on" } });
+      const res = await req("POST", "/setup-keys", { cookie: bobCookie });
       expect(res.status).toBe(201);
     });
 
     it("refuses a non-admin when it is off, with a reason naming who can", async () => {
       await setAllowed(false);
       try {
-        const res = await req("POST", "/setup-keys", { cookie: bobCookie, body: { label: "nope" } });
+        const res = await req("POST", "/setup-keys", { cookie: bobCookie });
         expect(res.status).toBe(403);
         // Actionable rather than "Forbidden": the person cannot fix this
         // themselves, and the sentence says who can.
@@ -205,7 +214,7 @@ describe("/api/nodes/setup-keys", () => {
       try {
         // The same shape as an admin creating a user through POST /api/users
         // while sign-up is closed: the switch governs everyone else.
-        const res = await req("POST", "/setup-keys", { cookie: adminCookie, body: { label: "admin-ok" } });
+        const res = await req("POST", "/setup-keys", { cookie: adminCookie });
         expect(res.status).toBe(201);
       } finally {
         await setAllowed(null);
@@ -214,7 +223,7 @@ describe("/api/nodes/setup-keys", () => {
 
     it("does NOT invalidate a key already minted (operator's call)", async () => {
       await setAllowed(null);
-      const minted = await req("POST", "/setup-keys", { cookie: bobCookie, body: { label: "before" } });
+      const minted = await req("POST", "/setup-keys", { cookie: bobCookie });
       expect(minted.status).toBe(201);
       const { id } = (await minted.json()) as { id: string };
       await setAllowed(false);

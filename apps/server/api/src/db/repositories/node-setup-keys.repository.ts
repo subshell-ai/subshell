@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { NodeSetupKeyTable } from "@/db/types/node-setup-keys.db-types.js";
 
@@ -6,42 +6,35 @@ import type { NodeSetupKeyTable } from "@/db/types/node-setup-keys.db-types.js";
 export const SETUP_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * SHA-256 hex of a plaintext key — the only form ever stored or compared.
- * Exported so callers can hash before a {@link NodeSetupKeysRepository.peekByHash}
- * lookup (the enroll route's state pre-check) without re-spelling the digest.
- */
-export function hashKey(plaintext: string): string {
-  return createHash("sha256").update(plaintext).digest("hex");
-}
-
-/**
  * Single-use node enrollment keys (spec §5.1/§5.2): one-time `nsk_…` codes a
- * new agent redeems exactly once to create its node row. The plaintext exists
- * only in {@link NodeSetupKeysRepository.create}'s result — at rest only the
- * SHA-256 hex lives in the database.
+ * new agent redeems exactly once to create its node row.
+ *
+ * Every lookup is BY THE KEY ITSELF (`peekValid`, `peekByKey`, `consume` all
+ * match `key` = the presented text). Until 2026-09-17 each of those hashed
+ * first and matched `key_hash`; the digest went when the Setup keys page began
+ * listing its keys, because a page cannot render what it cannot un-hash. The
+ * guess-one-full-key property is unchanged — 192 random bits either way — and
+ * what widens is only what a database read reveals about a key that is
+ * deliberately being shared. Accounting: `docs/security.md`.
  */
 export class NodeSetupKeysRepository extends BaseRepository {
   /**
    * Mints a fresh key for a user.
-   * @param label - Human label ("mac mini")
+   *
+   * The row IS the reveal: `key` holds the minted plaintext and there is no
+   * second, never-persisted copy to keep straight.
+   *
    * @param ownerUserId - Creator (also the future node owner)
    * @param ttlMs - Lifetime from now (default {@link SETUP_KEY_TTL_MS})
-   * @returns the stored row and the never-persisted plaintext
    */
-  async create(
-    label: string,
-    ownerUserId: string,
-    ttlMs: number = SETUP_KEY_TTL_MS,
-  ): Promise<{ row: NodeSetupKeyTable; plaintext: string }> {
-    const plaintext = `nsk_${randomBytes(24).toString("base64url")}`;
+  async create(ownerUserId: string, ttlMs: number = SETUP_KEY_TTL_MS): Promise<NodeSetupKeyTable> {
     const now = new Date();
-    const row = await this.db
+    return await this.db
       .insertInto("nodeSetupKeys")
       .values({
         id: crypto.randomUUID(),
         ownerUserId,
-        label,
-        keyHash: hashKey(plaintext),
+        key: `nsk_${randomBytes(24).toString("base64url")}`,
         createdAt: now.toISOString(),
         expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
         usedAt: null,
@@ -49,7 +42,6 @@ export class NodeSetupKeysRepository extends BaseRepository {
       })
       .returningAll()
       .executeTakeFirstOrThrow();
-    return { row, plaintext };
   }
 
   /** One key row by id. */
@@ -57,7 +49,7 @@ export class NodeSetupKeysRepository extends BaseRepository {
     return await this.db.selectFrom("nodeSetupKeys").selectAll().where("id", "=", id).executeTakeFirst();
   }
 
-  /** A user's keys, newest first (the settings list). */
+  /** A user's keys, newest first (the Setup keys card). */
   async listByUser(ownerUserId: string): Promise<NodeSetupKeyTable[]> {
     return await this.db
       .selectFrom("nodeSetupKeys")
@@ -86,17 +78,16 @@ export class NodeSetupKeysRepository extends BaseRepository {
 
   /**
    * Consumption-free validity probe — download/install gate, spec §5.1/§8.
-   * Answers "would this plaintext redeem right now?" without flipping
-   * `usedAt`, so the agent's download step can gate on it before enrolling.
-   * @param plaintext - The `nsk_…` code as presented (hashed before the lookup)
-   * @returns true when a key with this hash exists, is unused, and unexpired
+   * Answers "would this key redeem right now?" without flipping `usedAt`, so
+   * the agent's download step can gate on it before enrolling.
+   * @param key - The `nsk_…` code as presented
+   * @returns true when such a key exists, is unused, and unexpired
    */
-  async peekValid(plaintext: string): Promise<boolean> {
-    const keyHash = hashKey(plaintext);
+  async peekValid(key: string): Promise<boolean> {
     const row = await this.db
       .selectFrom("nodeSetupKeys")
       .select("id")
-      .where("keyHash", "=", keyHash)
+      .where("key", "=", key)
       .where("usedAt", "is", null)
       .where("expiresAt", ">", new Date().toISOString())
       .executeTakeFirst();
@@ -104,39 +95,38 @@ export class NodeSetupKeysRepository extends BaseRepository {
   }
 
   /**
-   * Read-only STATE probe by pre-computed hash (ledger 17a): lets the enroll
-   * route distinguish INVALID / CONSUMED / EXPIRED BEFORE the key is spent.
+   * Read-only STATE probe by key text (ledger 17a): lets the enroll route
+   * distinguish INVALID / CONSUMED / EXPIRED BEFORE the key is spent.
    * Deliberately narrow — one SELECT, no transaction, flips nothing; `consume`
    * stays the single-winner redemption step.
-   * @param sha256Hex - the SHA-256 hex of the presented plaintext (see {@link hashKey})
-   * @returns the key's state rows, or undefined when no key has this hash
+   * @param key - The `nsk_…` code as presented
+   * @returns the key's state, or undefined when no such key exists
    */
-  async peekByHash(sha256Hex: string): Promise<{ usedAt: string | null; expiresAt: string } | undefined> {
+  async peekByKey(key: string): Promise<{ usedAt: string | null; expiresAt: string } | undefined> {
     return await this.db
       .selectFrom("nodeSetupKeys")
       .select(["usedAt", "expiresAt"])
-      .where("keyHash", "=", sha256Hex)
+      .where("key", "=", key)
       .executeTakeFirst();
   }
 
   /**
-   * Transactionally redeems a presented plaintext for a new node (spec §5.2).
+   * Transactionally redeems a presented key for a new node (spec §5.2).
    * Returns the key row on success (unused and unexpired), null otherwise —
-   * wrong hash, already used, or expired all read as null. The flip
+   * no such key, already used, or expired all read as null. The flip
    * (`usedAt`) re-checks `usedAt is null` inside the same transaction and the
    * rows-affected count decides the winner, so two concurrent consumers of
-   * one plaintext can never both redeem.
-   * @param plaintext - The `nsk_…` code as presented (hashed before the lookup)
+   * one key can never both redeem.
+   * @param key - The `nsk_…` code as presented
    * @param nodeId - Node being created by this redemption
    */
-  async consume(plaintext: string, nodeId: string): Promise<NodeSetupKeyTable | null> {
-    const keyHash = hashKey(plaintext);
+  async consume(key: string, nodeId: string): Promise<NodeSetupKeyTable | null> {
     const nowIso = new Date().toISOString();
     return this.db.transaction().execute(async (tx) => {
       const row = await tx
         .selectFrom("nodeSetupKeys")
         .selectAll()
-        .where("keyHash", "=", keyHash)
+        .where("key", "=", key)
         .where("usedAt", "is", null)
         .where("expiresAt", ">", nowIso)
         .executeTakeFirst();

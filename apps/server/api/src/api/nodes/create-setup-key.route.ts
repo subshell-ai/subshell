@@ -10,21 +10,25 @@ import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
 
-const CreateBodySchema = t.Object({
-  label: t.String({ minLength: 1, maxLength: 64, description: "Human label for the key (e.g. 'mac mini')" }),
-});
-
 const CreateResponseSchema = t.Object({
   id: t.String({ description: "Setup key id (for later revocation)" }),
-  key: t.String({ description: "The plaintext setup key; shown exactly once, store it now" }),
+  key: t.String({ description: "The setup key itself — the same text the Setup keys page lists" }),
   expiresAt: t.String({ description: "ISO 8601 expiry (24 h from creation)" }),
 });
 
 /**
  * `POST /api/nodes/setup-keys` — mints a single-use node enrollment key
- * (spec 2026-08-31 §5.1/§9). Only the SHA-256 hash is stored; the plaintext
- * is returned exactly once here. Cookie-only: managing enrollment credentials
- * is a human act, so machine actors are refused with 403.
+ * (spec 2026-08-31 §5.1/§9). **No body**: the key names nothing, because a
+ * node is named by the machine that becomes it (`subshell setup` asks there,
+ * `--name` answers for a script) rather than by whoever minted the credential.
+ * Cookie-only: managing enrollment credentials is a human act, so machine
+ * actors are refused with 403.
+ *
+ * The key is the row's own `key` column, so this response is a convenience
+ * copy — the Setup keys page can render the same text afterwards. Minting and
+ * listing are the same disclosure, and neither one is the secret anymore in
+ * the sense it used to be; see `docs/security.md`, "Setup keys are stored in
+ * plaintext".
  *
  * **This is the only chokepoint on adding a machine to the instance**, which
  * is why the `allow_node_enrollment` setting is enforced HERE and nowhere
@@ -44,7 +48,7 @@ export const createSetupKeyRoute = new Elysia()
   .use(apiModels)
   .post(
     "/setup-keys",
-    async ({ body, user, actor, set, status }) => {
+    async ({ user, actor, set, status }) => {
       requireCookieActor(actor, "Node setup keys are managed from the browser");
       // Absent row = allowed, so an instance that never set this is unchanged.
       const allowed = await new SettingsRepository(db).get(ALLOW_NODE_ENROLLMENT_KEY, true);
@@ -57,29 +61,31 @@ export const createSetupKeyRoute = new Elysia()
           }),
         );
       }
-      const { row, plaintext } = await new NodeSetupKeysRepository(db).create(body.label, user.id);
+      // No metadata: there is no label left to record, and the key itself must
+      // never reach the audit log — the row is the record of what was minted.
+      // (The same rule `GET /api/admin/status` holds to: an audit trail is the
+      // thing that gets screenshotted into an issue.)
+      const row = await new NodeSetupKeysRepository(db).create(user.id);
       await audit({
         actorUserId: user.id,
         action: "setup_key.create",
         targetType: "node-setup-key",
         targetId: row.id,
-        metadataJson: JSON.stringify({ label: body.label }),
+        metadataJson: null,
       });
       set.status = 201;
-      return { id: row.id, key: plaintext, expiresAt: row.expiresAt };
+      return { id: row.id, key: row.key, expiresAt: row.expiresAt };
     },
     {
-      body: CreateBodySchema,
       response: {
         201: CreateResponseSchema,
-        400: "ApiErrorResponse",
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
       detail: {
         operationId: "createNodeSetupKey",
         tags: ["nodes"],
-        description: "Mints a single-use node setup key; the plaintext is returned only here",
+        description: "Mints a single-use node setup key (no body — the key names nothing)",
       },
     },
   );

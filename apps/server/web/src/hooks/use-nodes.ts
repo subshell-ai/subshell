@@ -197,7 +197,7 @@ export function useSetNodeMaintenance(id: string) {
   });
 }
 
-/** The caller's setup keys, newest first — usage state only, never the secret. */
+/** The caller's setup keys, newest first — each with its key text, which is what the card lists. */
 export function useSetupKeys(enabled = true) {
   return useQuery({
     queryKey: SETUP_KEYS_QUERY_KEY,
@@ -206,12 +206,14 @@ export function useSetupKeys(enabled = true) {
   });
 }
 
-/** Mints a single-use enrollment key; the plaintext is delivered once here. */
+/**
+ * Mints a single-use enrollment key. No argument and no body: the key names
+ * nothing, because a node is named by the machine that becomes it.
+ */
 export function useCreateSetupKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (label: string) =>
-      apiFetch<CreatedSetupKey>("/api/nodes/setup-keys", { method: "POST", body: JSON.stringify({ label }) }),
+    mutationFn: () => apiFetch<CreatedSetupKey>("/api/nodes/setup-keys", { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: SETUP_KEYS_QUERY_KEY });
     },

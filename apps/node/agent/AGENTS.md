@@ -39,6 +39,37 @@ bun run verify-types     # tsc --noEmit
   `compile:release` preflights and refuses otherwise. The client imports
   packages, never `apps/server/api` code, and never opens the app database.
 
+## The node's name is decided HERE (revamp 2026-09-17)
+
+The Add-node dialog used to open with a "Node name" field. Its text became only the
+SETUP KEY's `label` — `install.sh` runs `subshell setup` with no `--name`, so the node
+was named by its own hostname whatever had been typed, and the label was a name nobody
+could connect to a machine. The field, the `label` column and the guess are all gone;
+the question now sits where the answer is.
+
+- **`setup` asks.** `NAME_QUESTION` ("Name this node"), prefilled with `os.hostname()`
+  so Enter keeps the machine's own name, validated by `nodeNameProblem` — which is
+  `normalizeNodeName` from `@internal/subshell-protocol`, the control plane's own rule,
+  so the prompt cannot accept what enroll would refuse. A cancel stops the whole verb
+  (exit 1, nothing enrolled, the single-use key is unspent) because a name nobody chose
+  is worse than no node.
+- **`enroll` requires `--name`.** It is the primitive that asks nothing of anyone, so a
+  nameless `enroll` is a usage error (exit 2) naming the flag — before tmux, before the
+  identity, before the network. Both verbs share one rule, and the name that leaves
+  this binary is the normalized one, so the plane stores what the operator meant
+  whatever typed it.
+- **A prompt needs a terminal.** `--yes`, `--json` and a piped install cannot answer, so
+  `setup` requires `--name` under any of them; the install one-liner's spelling is
+  `curl … | SUBSHELL_NODE_NAME="mac mini" bash` (argv cannot cross a pipe — the same
+  reason `SUBSHELL_DATA_DIR` and `SUBSHELL_NO_SERVICE` exist). Without that knob and
+  without `--name`, the script's `exec </dev/tty` reattach is what lets the question be
+  asked at all — which is why it sits BEFORE the final `setup` line and why a CI pipe,
+  which has no `/dev/tty`, must name the machine explicitly.
+- **`config.json`'s `name` is a local echo of what enroll sent.** The plane owns the
+  row afterwards (`PATCH /api/nodes/:id`), which is why `configure` still takes no
+  `--name` (next section) — that rule is unchanged and now reads more clearly: the
+  NAME is chosen at enroll, the RENAME is the plane's.
+
 ## Repointing vs re-enrolling
 
 `enroll` is not the way to change a node's address. It overwrites
@@ -81,14 +112,15 @@ an `enroll`, not a `configure`.
 subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
                [--no-service] [--yes] [--json]
                                    # THE HEADLESS ENTRY POINT (spec 2026-09-15): tmux
-                                   # preflight, then `enroll`, then ONE question — run in
-                                   # the background and start at login? — defaulting to
-                                   # yes, then the same installService the service verb
-                                   # calls, then a line naming the node's page. What the
-                                   # rendered install.sh invokes. `enroll` stays a
-                                   # primitive beneath it for anyone composing their own
-                                   # flow; this is the one a person runs.
-subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
+                                   # preflight, then the node's NAME, then `enroll`, then
+                                   # the service question — run in the background and start
+                                   # at login? — defaulting to yes, then the same
+                                   # installService the service verb calls, then a line
+                                   # naming the node's page. What the rendered install.sh
+                                   # invokes. `enroll` stays a primitive beneath it for
+                                   # anyone composing their own flow; this is the one a
+                                   # person runs.
+subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
                                    # --json prints {nodeId,serverUrl,name,dataDir,configPath}
                                    # (never the nodeKey) so a GUI need not scrape the human line
 subshell configure --server <url> [--json]

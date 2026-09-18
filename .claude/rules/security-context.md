@@ -388,10 +388,25 @@ shares and subshell shares are two independent axes:
   as a UX nicety only); gating it made the second rule unaddable, since the
   owner browses to pick what to permit.
 
-- **Setup keys**: single-use, 24 h expiry, shown once, hashed at rest,
-  revocable, audited. The install command embeds one in a URL, so it lands in
-  shell history and server/access logs — same posture as enrollment links
-  everywhere; revoke = delete the key.
+- **Setup keys**: single-use, 24 h expiry, **stored and listed in plaintext**,
+  revocable, audited. The plaintext is the 2026-09-17 node-setup revamp: the Setup
+  keys card on the Nodes page renders each caller's own key text, because a
+  minted-but-unused key was previously an open enrollment door that could be closed
+  but not read. The window is bounded — one machine, one redemption, dead at 24 h,
+  owner-scoped list, cookie-only (a bearer token cannot enumerate them), and the
+  mint's audit row carries NO metadata so the key never enters the trail. Full
+  accounting: `docs/security.md`, "Setup keys are stored in plaintext". The install
+  command embeds one in a URL, so it lands in shell history and server/access logs —
+  same posture as enrollment links everywhere; revoke = delete the key.
+- **A node names itself, on the machine.** The mint takes no body and has no label
+  column: the dialog's old "Node name" became only the key's label, while the node
+  was named by its hostname whatever was typed. `subshell setup` asks for the name
+  (hostname prefilled, Enter accepts), `--name` answers for a script,
+  `SUBSHELL_NODE_NAME` answers through the pipe, and Subshell Client's Enroll step
+  requires the field; `subshell enroll` — the primitive that asks nothing — requires
+  `--name` outright, and `setup` requires it under `--yes`/`--json`/no terminal.
+  Enroll and rename both store `normalizeNodeName(body.name)`, the protocol
+  package's one label rule shared with the agent and the desktop app.
 - **Who may MINT one is an instance setting** (`allow_node_enrollment`, admin
   toggle under Settings → General, audited `settings.update`). An absent row
   means TRUE, so an instance that never touched it keeps the behaviour it had:

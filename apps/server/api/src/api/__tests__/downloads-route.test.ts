@@ -86,9 +86,9 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   }
 
   async function mkKey(ttlMs?: number): Promise<string> {
-    const { row, plaintext } = await repo.create("dl-test", userId, ttlMs);
+    const row = await repo.create(userId, ttlMs);
     createdKeyIds.push(row.id);
-    return plaintext;
+    return row.key;
   }
 
   beforeAll(async () => {
@@ -527,6 +527,23 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain('${SETUP_SERVICE_ARGS[@]+"${SETUP_SERVICE_ARGS[@]}"}');
   });
 
+  it("install.sh forwards SUBSHELL_NODE_NAME as --name, and passes nothing when it is unset", async () => {
+    const body = await (await install(await mkKey())).text();
+    // Unlike the service knob this is "-n", not `= "1"`: it carries a VALUE, and
+    // any non-empty one is a name the operator typed. Unset means setup ASKS on
+    // the machine, which is the node-setup revamp's whole point.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
+    expect(body).toContain('if [ -n "${SUBSHELL_NODE_NAME:-}" ]; then');
+    expect(body).toContain('SETUP_NAME_ARGS=(--name "$SUBSHELL_NODE_NAME")');
+    expect(body).toContain("SETUP_NAME_ARGS=()");
+    // Guarded expansion, same `set -u` / bash 3.2 reason as the other two arrays.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
+    expect(body).toContain('${SETUP_NAME_ARGS[@]+"${SETUP_NAME_ARGS[@]}"}');
+    // The value is only ever read at runtime — the rendered script never
+    // interpolates an environment value into itself.
+    expect(body).not.toContain('--name "mac mini"');
+  });
+
   it("install.sh installs to ~/.local/bin and warns when that is off PATH", async () => {
     const body = await (await install(await mkKey())).text();
     // The CWD of a one-off curl is not a stable home for a binary a service
@@ -653,7 +670,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   const HASH_TOOL = Bun.which("sha256sum") ?? Bun.which("shasum");
 
   it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC)(
-    "install.sh EXECUTED end-to-end with stub curl/uname: default → ~/.local/bin/subshell and setup WITHOUT --data-dir; SUBSHELL_DATA_DIR → relocated dest + --data-dir; SUBSHELL_NO_SERVICE → --no-service",
+    "install.sh EXECUTED end-to-end with stub curl/uname: default → ~/.local/bin/subshell and setup WITHOUT --data-dir or --name; SUBSHELL_DATA_DIR → relocated dest + --data-dir; SUBSHELL_NO_SERVICE → --no-service; SUBSHELL_NODE_NAME → --name",
     async () => {
       const key = await mkKey();
       const body = await (await install(key)).text();
@@ -708,6 +725,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           };
           if (extraEnv.SUBSHELL_DATA_DIR === undefined) delete env.SUBSHELL_DATA_DIR;
           if (extraEnv.SUBSHELL_NO_SERVICE === undefined) delete env.SUBSHELL_NO_SERVICE;
+          if (extraEnv.SUBSHELL_NODE_NAME === undefined) delete env.SUBSHELL_NODE_NAME;
           // `bash -c <body>` — exactly what `curl … | bash` hands the shell.
           const proc = Bun.spawnSync(["bash", "-c", body], { cwd, env });
           return {
@@ -727,6 +745,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(def.args).toContain(key);
         expect(def.args).not.toContain("--data-dir"); // the whole point: the agent keeps its own default data dir
         expect(def.args).not.toContain("--no-service"); // unset knob forwards nothing
+        expect(def.args).not.toContain("--name"); // unset NAME knob forwards nothing either — setup asks
         expect(existsSync(join(def.home, ".local", "bin", "subshell"))).toBe(true); // a stable path, not the curl's CWD
         expect(existsSync(join(cwd1, "subshell"))).toBe(false);
         expect(existsSync(join(def.home, ".local", "bin", "subshell.sha256"))).toBe(false); // sidecar cleaned up
@@ -755,6 +774,16 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         const zero = runBranch(join(work, "cwd-no-service-0"), { SUBSHELL_NO_SERVICE: "0" });
         expect(zero.exitCode).toBe(0);
         expect(zero.args).not.toContain("--no-service");
+
+        // ── SUBSHELL_NODE_NAME: the scripted name reaches the verb, spaces and all ──
+        // The pipe has no argv, so this env knob is the ONLY way a one-liner names
+        // the node; a name that arrived as two argv elements would have been read
+        // as a name plus a stray flag, so the logged argv is the assertion.
+        const named = runBranch(join(work, "cwd-named"), { SUBSHELL_NODE_NAME: "mac mini 42" });
+        expect(named.exitCode).toBe(0);
+        expect(named.args[0]).toBe("setup");
+        expect(named.args).toContain("--name");
+        expect(named.args[named.args.indexOf("--name") + 1]).toBe("mac mini 42");
       } finally {
         rmSync(work, { recursive: true, force: true });
       }

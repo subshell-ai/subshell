@@ -83,6 +83,19 @@ describe("normalizeLabel", () => {
     expect(normalizeLabel("\r\n\t", 64)).toBe("");
   });
 
+  it("caps by code point, so a boundary never splits a character in half", () => {
+    // `slice(0, max)` counted UTF-16 units. Every other cap on these labels — the
+    // agent's --name pre-flight, the desktop form, the plane's chars().count() —
+    // counts code points, and an astral label reaching the cap by units would come
+    // out ending in a lone surrogate: unrenderable, and unequal to any string a
+    // later read of the same row produces.
+    const emoji = "\u{1F5A5}"; // 🖥 — two UTF-16 units
+    expect(normalizeLabel(emoji.repeat(30), 40)).toBe(emoji.repeat(30));
+    expect([...normalizeLabel(emoji.repeat(50), 40)].length).toBe(40);
+    // The 40-code-point result is 80 units long and still every character intact.
+    expect(normalizeLabel(emoji.repeat(50), 40)).toBe(emoji.repeat(40));
+  });
+
   it("leaves normalizeDeviceLabel bound to its own cap", () => {
     expect(normalizeDeviceLabel("y".repeat(80))).toBe("y".repeat(DEVICE_LABEL_MAX));
     expect(normalizeDeviceLabel("dev\r\nice")).toBe("dev ice");

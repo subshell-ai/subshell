@@ -1,5 +1,9 @@
 /**
- * The enrollment form: a URL, a one-time key, and an optional name.
+ * The enrollment form: a URL, a one-time key, and a name — all three required.
+ *
+ * The name stopped being optional with the 2026-09-17 node-setup revamp. It is
+ * the field that answers "which machine is this?" on the Nodes page, and the one
+ * place that can answer it is the machine itself, so this form asks.
  *
  * Stacked rather than gridded because a URL and a setup key are both long
  * enough that two columns truncate the one value a user most needs to eyeball

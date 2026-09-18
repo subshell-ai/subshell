@@ -544,10 +544,13 @@ subshell may only be launched in one of them or beneath it.
   plane still enforces its own copy.
 - Changes are audited (`node.allowed_dirs.update`).
 
-- **Setup keys** are single-use, 24 h, shown once, hashed at rest, revocable, and
-  audited. The install command embeds one in a URL, so it lands in shell history
-  and server access logs — the same posture as enrollment links everywhere.
-  Revoking is deleting the key.
+- **Setup keys** are single-use, expire in 24 h, are listed in full to the person
+  who minted them, are revocable, and are audited. The install command embeds one
+  in a URL, so it lands in shell history and server access logs — the same posture
+  as enrollment links everywhere. Revoking is deleting the key, and the row it
+  leaves behind is the record of what was minted: the mint's audit event carries NO
+  metadata, so the key text never enters the audit trail (`create-setup-key.route.ts`).
+  Storage and disclosure: the next subsection.
 - **Who may MINT one is an instance setting** (`allow_node_enrollment`; admin
   toggle under Settings → General, audited `settings.update`). An absent row
   means TRUE, so an instance that never touched it keeps the behaviour it had:
@@ -585,6 +588,60 @@ subshell may only be launched in one of them or beneath it.
   instance already trusts and already discloses to every signed-in caller
   (§3) — it can name no new master for a node, and whoever runs the command
   chose every byte of its URL.
+
+### Setup keys are stored in plaintext (2026-09-17)
+
+Until the node-setup revamp a setup key existed as a SHA-256 digest at rest and as a
+plaintext string exactly once, in the response that minted it. Now the row holds the
+`nsk_…` text and the Nodes page lists it, because a page cannot render a digest. What
+the digest bought, and what was traded against it:
+
+- **What it cost to lose.** A database read — a stolen backup, a local OS user, a
+  `subshell-server backup` file — now yields every key minted in the last 24 hours
+  that is still unused, instead of nothing. Anyone with that read can already mint a
+  key of their own, and can already read the node keys, the session tokens and the
+  password hashes in the same file, so the CLASS of secret is unchanged; what changed
+  is that a minted-but-unused key is disclosed by the same read rather than being
+  recoverable only from a shell history file or an access log.
+- **What it bought, and why it was worth it.** An unused key the dialog was closed on
+  used to be an open enrollment door that could be CLOSED but not READ, so the only
+  remedy was revoke and re-mint — and the operator standing mid-`curl` with a
+  half-copied command had no way back. The card that lists keys exists so those doors
+  stay visible; listing the text is what makes it useful.
+- **Why the exposure is bounded rather than open-ended.** A key enrolls ONE machine,
+  redeems ONCE (`used_at` flips in the redemption transaction, which is the
+  single-winner gate), and stops working entirely at `expires_at` (24 h). A used or
+  expired row's key is inert on sight, and the card says which state each row is in.
+  The list is owner-scoped and cookie-only: a bearer credential cannot enumerate
+  enrollment doors (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
+  one caller sees its own rows and nobody else's.
+- **The `label` went with it.** The mint dialog's "Node name" became only this column,
+  because the one-liner ran `subshell setup` with no `--name` and the node was named
+  by its own hostname whatever had been typed. Naming moved to the machine that knows
+  its own hostname: `setup` asks (the hostname prefilled, Enter accepts), `--name`
+  answers for a script, `SUBSHELL_NODE_NAME` answers through the pipe, and the Subshell
+  Client Enroll step requires the field. `POST /api/nodes/setup-keys` therefore takes
+  no body at all, and `POST /api/nodes/enroll` normalizes the name with the control
+  plane's one label rule (`normalizeNodeName`) before it is stored — the same function
+  rename applies, so the two doors cannot disagree about what a name is.
+- **The migration drops every outstanding key** (`0033-setup-key-plaintext.ts`
+  rebuilds the table): a digest cannot become plaintext, so there was nothing to carry
+  across. Keys are ≤24 h credentials and the acts on them are already in the audit log;
+  an instance mid-install when it boots simply runs the dialog again.
+
+Redemption is unchanged: lookup, validity probe and the transactional consume all
+match on the key text, so guessing one is the same 192-bit problem it always was. What
+the two key-bearing routes SAY is unchanged too, and is worth stating beside a
+credential that is now readable:
+
+- `GET /install.sh` answers the SAME usage script for an absent, unknown, spent or
+  expired key — it is no oracle about which of those is true, and that is why it can
+  stay unauthenticated.
+- `POST /api/nodes/enroll` deliberately answers three distinct 401s (invalid, already
+  used, expired) — a decision from the original spec's ledger 17a, so the person
+  standing at a new machine learns whether to mint a fresh key or to hurry. It is not
+  a widening: it describes only a key the caller already presented, and under the new
+  storage a caller who could obtain one would hold it in the clear regardless.
 
 **Agent binaries are fetched lazily from the project's own release
 (2026-09-12).** A control plane installed from a release tarball has an empty

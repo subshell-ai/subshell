@@ -19,7 +19,7 @@ function usageScript(): string {
 set -euo pipefail
 
 echo "usage: curl -fsSL \\"${APP_BASE_URL}/install.sh?setup_key=SETUP_KEY\\" | bash" >&2
-echo "       mint a key first: Settings → Node setup keys in the subshell web UI." >&2
+echo "       mint a key first: the Nodes page → Add node, in the subshell web UI." >&2
 exit 2
 `;
 }
@@ -95,8 +95,13 @@ function resolveBakedServer(raw: string | undefined): string {
  * `$SUBSHELL_DATA_DIR/subshell`, installer-created dirs at 0700, and
  * `--data-dir "$SUBSHELL_DATA_DIR"` so binary and state stay together —
  * `curl … | SUBSHELL_DATA_DIR=/opt/subshell bash` (`curl | bash` has no argv).
- * `SUBSHELL_NO_SERVICE` is the other knob: set, it forwards `--no-service` so
- * a scripted install enrolls and installs no background service.
+ * The other two knobs are the same shape: `SUBSHELL_NO_SERVICE` forwards
+ * `--no-service` so a scripted install enrolls and installs no background
+ * service, and `SUBSHELL_NODE_NAME` forwards `--name` so a script can name the
+ * node. Unset, the name is not guessed here — `setup` ASKS on the machine
+ * (the node-setup revamp moved naming off the mint dialog and onto the box
+ * that knows its own hostname), which is why the script reattaches `/dev/tty`
+ * before the last line and why `--name` is what a nameless pipe must pass.
  *
  * The script ends at ONE CLI verb, `setup` (spec 2026-09-15 §4.5), which is
  * where every question lives. It used to end at `enroll` plus a printed
@@ -298,8 +303,19 @@ if [ "\${SUBSHELL_NO_SERVICE:-}" = "1" ]; then
   SETUP_SERVICE_ARGS=(--no-service)
 fi
 
+# The scripted name. Unset, the array stays empty and setup asks for one on the
+# controlling terminal — reattached just above this block; set, nothing is asked. Same
+# empty-array guard as the data-dir args, and the VALUE is never expanded into
+# this script — it is read at runtime and quoted, so a name with spaces in the
+# operator's own environment cannot rewrite the command. (No backticks in this
+# comment: it lives inside a JS template literal.)
+SETUP_NAME_ARGS=()
+if [ -n "\${SUBSHELL_NODE_NAME:-}" ]; then
+  SETUP_NAME_ARGS=(--name "$SUBSHELL_NODE_NAME")
+fi
+
 echo "==> enrolling with $SERVER"
-"$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"}
+"$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"} \${SETUP_NAME_ARGS[@]+"\${SETUP_NAME_ARGS[@]}"}
 
 echo "==> done."
 echo "    the agent runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default agent data dir})."

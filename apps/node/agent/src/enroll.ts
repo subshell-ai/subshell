@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { NODE_NAME_MAX, normalizeNodeName } from "@internal/subshell-protocol";
 import { clientHome, saveConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { AGENT_VERSION } from "./version.js";
@@ -26,8 +27,13 @@ export interface EnrollOptions {
   server: string;
   /** One-time `nsk_…` setup key (`--key`). */
   setupKey: string;
-  /** Display name; defaults to the hostname. */
-  name?: string;
+  /**
+   * Display name for the node, and REQUIRED. Nothing here guesses it: the old
+   * hostname default is gone with the 2026-09-17 node-setup revamp, because the
+   * machine is where the name is known — `setup` ASKS, `--name` answers for a
+   * script, and a nameless pipe is a refusal rather than a hostname nobody chose.
+   */
+  name: string;
   /** Data dir for the identity keypair; defaults to `<SUBSHELL_CONFIG_HOME>/data`. */
   dataDir?: string;
 }
@@ -44,16 +50,13 @@ export interface EnrollResult {
   nodeId: string;
   /** Control-plane base URL as normalized and persisted. */
   serverUrl: string;
-  /** Node display name actually used (the trimmed `--name`, else the hostname). */
+  /** Node display name actually stored (the normalized `--name`). */
   name: string;
   /** Data dir the identity keypair and runtime state live in. */
   dataDir: string;
 }
 
 const ENROLL_TIMEOUT_MS = 30_000;
-
-/** Mirrors the `name` maxLength of EnrollBodySchema (apps/server/api/src/api/nodes/enroll.route.ts). */
-const MAX_NAME_LEN = 64;
 
 /**
  * Redeems a setup key into an enrolled node: tmux preflight → identity keypair
@@ -64,17 +67,23 @@ const MAX_NAME_LEN = 64;
 export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   assertTmux(); // BEFORE any network call — an unenrollable box shouldn't burn a setup key
   const serverUrl = normalizeServer(opts.server);
-  const name = opts.name?.trim() || hostname();
-  // Pre-flight the name cap BEFORE touching the identity/network: a hostname
-  // like `some-box.internal.example.org` plus suffix can exceed it, and burning
-  // a one-time setup key to learn that is a bad day. (Only the name is
-  // pre-checked here; everything else stays the server's call.)
-  if (name.length > MAX_NAME_LEN) {
+  // Pre-flight the NAME before touching the identity/network, for the reason the
+  // cap check always had: burning a one-time setup key to learn the body was
+  // unusable is a bad day. It now carries a second job — this is the last place
+  // that can still say "you never named this machine" before the plane does.
+  // Both rules are the control plane's own, imported rather than mirrored: the
+  // cap is NODE_NAME_MAX and the shape is normalizeNodeName, so a name cannot be
+  // stored differently depending on whether it came from --name, setup's prompt
+  // or the desktop field. (Everything else stays the server's call.)
+  const raw = opts.name.trim();
+  if (raw.length > NODE_NAME_MAX) {
     throw new Error(
-      opts.name?.trim()
-        ? `--name is ${name.length} characters; the control plane accepts at most ${MAX_NAME_LEN}, so pass a shorter --name`
-        : `the default node name (hostname '${name}') is ${name.length} characters; at most ${MAX_NAME_LEN} are accepted, so pass --name <short-name>`,
+      `--name is ${raw.length} characters; the control plane accepts at most ${NODE_NAME_MAX}, so pass a shorter --name`,
     );
+  }
+  const name = normalizeNodeName(raw);
+  if (name === "") {
+    throw new Error("a node name needs at least one printable character — pass --name <name>");
   }
   const dataDir = opts.dataDir ?? join(clientHome(), "data");
   const identity = await loadOrCreateIdentity(dataDir);

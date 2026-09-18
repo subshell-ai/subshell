@@ -722,6 +722,19 @@ would take it), and a Subshell Server on the same machine is untouched.
 - **A setup key is single-use and lasts 24 hours.** Everything checkable is
   checked before the server consumes it, but a 409 (name already taken) or a 500
   arrives AFTER — and spends it. Those say "mint a new key", never "retry".
+  What is NOT spent is a retry's name: `clearSpentKey` clears the credential and
+  LEAVES the name, because the next attempt is usually the same machine with a
+  fresh key, and wiping a field the operator typed to make them retype it is a
+  tax on the wrong thing.
+- **The Enroll step's name is REQUIRED, in all three of its spellings.** The
+  dialog's field label, `validateEnroll` (TS) and `validate_node_name` (Rust,
+  which spawns `--name` unconditionally now that `subshell enroll` refuses
+  without it). It is the same question `subshell setup` asks on a terminal, asked
+  here instead because this app hands the CLI arguments rather than a keyboard:
+  `AgentCommand::Enroll` carries `name: String`, so a nameless enroll is not
+  representable. What the control plane stores is `normalizeNodeName`'s output —
+  imported from `@internal/subshell-protocol` rather than re-implemented here —
+  so a pasted name cannot be clean in this app and collapsed only at the server.
 - **A GUI process's PATH is `/usr/bin:/bin:/usr/sbin:/sbin`.** `service install`
   bakes `Environment=PATH=` from the environment it runs in, so without the
   login PATH the node comes up ONLINE with an empty harness inventory and 409s

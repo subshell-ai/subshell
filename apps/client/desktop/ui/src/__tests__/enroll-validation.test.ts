@@ -3,15 +3,24 @@
  * setup key. Everything checkable is checked BEFORE the CLI is reached.
  */
 import { describe, expect, it } from "bun:test";
-import { MAX_NODE_NAME_LEN } from "@/lib/copy";
+import { NODE_NAME_MAX } from "@internal/subshell-protocol";
 import { validateEnroll } from "@/lib/enroll-validation";
 
 const GOOD_KEY = "nsk_0123456789012345678901234567890a";
 
+/**
+ * A VALID form by default, with one field per test allowed to break.
+ *
+ * `name` is filled because it is required now: the node names itself on the
+ * machine that becomes it, and this form is one of the two doors that ask. A
+ * default of `""` would make every server-URL and key case below fail on the
+ * name instead of on the field it is about — the same trap the required field
+ * sets for any caller of this function.
+ */
 const values = (overrides: Partial<Record<"server" | "key" | "name", string>> = {}) => ({
   server: "https://subshell.example.com",
   key: GOOD_KEY,
-  name: "",
+  name: "devbox",
   ...overrides,
 });
 
@@ -86,26 +95,48 @@ describe("the setup key", () => {
 });
 
 describe("the node name", () => {
-  it("is optional, and blank means the agent's hostname default", () => {
-    const result = validateEnroll(values({ name: "   " }));
-    expect(result.invalid).toBe(false);
-    expect(result.args.name).toBeNull();
+  // Required since the 2026-09-17 node-setup revamp. This field used to be
+  // optional because `enroll` defaulted to the hostname; the dialog's name field
+  // went the same week, so the question now lives where the answer is — and the
+  // CLI refuses an unattended `enroll` with no name at all.
+  it("is required, and blank is a refusal rather than a hostname", () => {
+    for (const name of ["", "   ", "\t\n"]) {
+      // (each is the ONLY broken field — `values()` supplies a good name)
+      const result = validateEnroll(values({ name }));
+      expect(result.invalid).toBe(true);
+      expect(result.errors.name).toContain("Name this machine");
+    }
+  });
+
+  it("sends what the control plane will store, not what was pasted", () => {
+    // `normalizeNodeName` is the server's own rule, shared: control characters
+    // out, runs of whitespace collapsed, ends trimmed.
+    expect(validateEnroll(values({ name: "  mac\n\tmini  two  " })).args.name).toBe("mac mini two");
   });
 
   it("accepts a name at the limit and refuses one past it", () => {
-    expect(validateEnroll(values({ name: "a".repeat(MAX_NODE_NAME_LEN) })).invalid).toBe(false);
-    const over = validateEnroll(values({ name: "a".repeat(MAX_NODE_NAME_LEN + 1) }));
+    expect(validateEnroll(values({ name: "a".repeat(NODE_NAME_MAX) })).invalid).toBe(false);
+    const over = validateEnroll(values({ name: "a".repeat(NODE_NAME_MAX + 1) }));
     expect(over.invalid).toBe(true);
-    expect(over.errors.name).toContain(`${MAX_NODE_NAME_LEN + 1} characters`);
+    expect(over.errors.name).toContain(`${NODE_NAME_MAX + 1} characters`);
   });
 
   // The control plane counts characters, so a length in UTF-16 code units
   // would refuse a name the server accepts (and vice versa for astral chars).
   it("counts code points, not UTF-16 units", () => {
-    expect(validateEnroll(values({ name: "🖥".repeat(MAX_NODE_NAME_LEN) })).invalid).toBe(false);
+    expect(validateEnroll(values({ name: "🖥".repeat(NODE_NAME_MAX) })).invalid).toBe(false);
   });
 
   it("trims before sending", () => {
     expect(validateEnroll(values({ name: "  workstation  " })).args.name).toBe("workstation");
+  });
+
+  it("counts code points past the limit on what was TYPED, not on the truncated result", () => {
+    // normalizeNodeName would silently slice a 65-character name to 64; the
+    // refusal is the difference between "fix your name" and "the server renamed
+    // your machine and told nobody".
+    const over = validateEnroll(values({ name: "🖥".repeat(NODE_NAME_MAX + 1) }));
+    expect(over.invalid).toBe(true);
+    expect(over.errors.name).toContain(`${NODE_NAME_MAX + 1} characters`);
   });
 });

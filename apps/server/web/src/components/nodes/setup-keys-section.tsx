@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CopyableValue } from "@/components/ui/copyable-value";
 import { useDeleteSetupKey, useSetupKeys } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
@@ -13,19 +14,25 @@ function keyState(usedAt: string | null, expiresAt: string): "used" | "expired" 
 }
 
 /**
- * The caller's node setup keys (never the secret — it exists only in the
- * one-time reveal of the Add-node dialog). Exists so unused keys stay
- * REVOCABLE after the dialog closes: a minted-but-never-run command is an
- * open enrollment door for its 24 h.
+ * The caller's node setup keys, each with its OWN KEY TEXT, and revocable.
+ *
+ * Two things changed here on 2026-09-17. The row used to be titled by the label
+ * the Add-node dialog asked for; that question is gone (a node names itself on the
+ * machine that becomes it), and the label had one job left — naming a row whose key
+ * you could not read — so the key is the title now. And reading it here is the POINT:
+ * a minted key the dialog was closed on used to be an open enrollment door that could
+ * only be CLOSED, never re-read, so the remedy was revoke and re-mint. That is why the
+ * card also still carries what it always carried — `usedAt` and `expiresAt` decide
+ * `keyState`, and a used or expired row's key is inert on sight.
  */
 export function SetupKeysSection() {
   const { data, error, isLoading } = useSetupKeys();
   const remove = useDeleteSetupKey();
   const [rowError, setRowError] = useState<Record<string, string>>({});
 
-  async function revoke(id: string, label: string) {
+  async function revoke(id: string, key: string) {
     setRowError((prev) => ({ ...prev, [id]: "" }));
-    const ok = await confirmAction({ title: `Revoke setup key "${label}"?`, confirmLabel: "Revoke", danger: true });
+    const ok = await confirmAction({ title: `Revoke setup key "${key}"?`, confirmLabel: "Revoke", danger: true });
     if (!ok) return;
     try {
       await remove.mutateAsync(id);
@@ -38,7 +45,10 @@ export function SetupKeysSection() {
     <Card>
       <CardHeader>
         <CardTitle>Setup keys</CardTitle>
-        <CardDescription>Single-use enrollment credentials, valid 24 h. Revoke any you no longer need.</CardDescription>
+        <CardDescription>
+          Single-use enrollment credentials, valid 24 h. Each key stays listed here until it is used, expires, or is
+          revoked — so the Add-node dialog is not the only place one can be read.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p className="text-destructive text-sm">Couldn't load setup keys.</p>}
@@ -50,7 +60,11 @@ export function SetupKeysSection() {
             <div key={k.id} className="space-y-2 rounded-lg border p-3">
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-strong">{k.label}</p>
+                  {/* The key is the row's identity now, so it gets the affordance a
+                      person needs with it: shown in full, and one press to take it. */}
+                  <p className="font-mono font-strong">
+                    <CopyableValue value={k.key} label="Setup key" />
+                  </p>
                   <p className="text-detail text-muted-foreground">
                     created {new Date(k.createdAt).toLocaleString()}
                     {k.consumedNodeId
@@ -61,12 +75,7 @@ export function SetupKeysSection() {
                 <Badge variant={state === "unused" ? "success" : state === "expired" ? "warning" : "muted"}>
                   {state}
                 </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void revoke(k.id, k.label)}
-                  disabled={remove.isPending}
-                >
+                <Button variant="ghost" size="sm" onClick={() => void revoke(k.id, k.key)} disabled={remove.isPending}>
                   Revoke
                 </Button>
               </div>

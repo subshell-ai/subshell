@@ -1,4 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { NODE_NAME_MAX, normalizeNodeName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { HttpError } from "@/api/auth-guard.js";
 import { assertImportablePublicJwk } from "@/api/public-jwk.js";
@@ -7,7 +8,7 @@ import { getAuth } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
-import { hashKey, NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { isUniqueNameViolation } from "@/lib/node-errors.js";
@@ -20,9 +21,14 @@ const EnrollBodySchema = t.Object({
   setupKey: t.String({
     minLength: 8,
     maxLength: 128,
-    description: "One-time `nsk_…` setup key minted under Settings → Node setup keys",
+    description: "One-time `nsk_…` setup key, minted on the Nodes page (Add node) and listed there until used",
   }),
-  name: t.String({ minLength: 1, maxLength: 64, description: "Display name for the new node (unique per owner)" }),
+  name: t.String({
+    minLength: 1,
+    maxLength: NODE_NAME_MAX,
+    description:
+      "Display name for the new node (unique per owner), chosen ON THE MACHINE becoming the node — `subshell setup` asks for it there, `--name` answers for a script. Control characters are stripped and whitespace collapsed",
+  }),
   os: t.Union([t.Literal("linux"), t.Literal("darwin"), t.Literal("unknown")], {
     description: "Operating system reported by the node (mirrors the `ready` frame validator)",
   }),
@@ -87,11 +93,11 @@ export const enrollRoute = new Elysia().use(apiModels).post(
   "/enroll",
   async ({ body, status }) => {
     // ── Key state first (ledger 17a, the P1-T6 simplification undone): a read-only
-    // `peekByHash` BEFORE body validation maps the three 401 codes the spec lists —
+    // `peekByKey` BEFORE body validation maps the three 401 codes the spec lists —
     // absent → SETUP_KEY_INVALID, spent → SETUP_KEY_CONSUMED, past expiry →
     // SETUP_KEY_EXPIRED. The peek flips nothing (consume below stays the single-
     // winner step), so ordering it ahead of the JWK checks cannot burn a key.
-    const peek = await new NodeSetupKeysRepository(db).peekByHash(hashKey(body.setupKey));
+    const peek = await new NodeSetupKeysRepository(db).peekByKey(body.setupKey);
     if (!peek) {
       return status(
         401,
@@ -125,6 +131,25 @@ export const enrollRoute = new Elysia().use(apiModels).post(
     }
 
     // ── Validate BEFORE consuming (pinned by tests: a bad body must leave the key redeemable).
+    //
+    // The name first, and normalized: this is the one door through which a node acquires
+    // its name now that the mint dialog stopped asking (the machine supplies it, so it
+    // arrives from a prompt, from `--name`, from the desktop field, or from a body a
+    // script wrote). Same rule as rename — the shared `normalizeLabel` binding, and an
+    // empty result is a refusal rather than a blank row. Before `consume`, because a
+    // single-use key must not be spent by a body that cannot be stored (the same
+    // argument the publicKey checks below make).
+    const name = normalizeNodeName(body.name);
+    if (!name) {
+      return status(
+        400,
+        apiErrorBody({
+          code: BackendErrorCodes.BAD_REQUEST,
+          message: "A node name needs at least one printable character",
+        }),
+      );
+    }
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(body.publicKey);
@@ -172,7 +197,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       await nodes.create({
         id: nodeId,
         ownerUserId: keyRow.ownerUserId,
-        name: body.name,
+        name,
         kind: "agent",
         status: "offline",
         os: body.os,
@@ -185,7 +210,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       await new IdentitiesRepository(db).register({
         principalId: `node:${nodeId}`,
         publicKey: body.publicKey,
-        displayName: body.name,
+        displayName: name,
       });
       // Node key: long-lived (no expiresIn — revocation is delete-node,
       // spec §5.4), least-privilege, and kind-tagged so REST refuses it
@@ -205,7 +230,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
         action: "node.enroll",
         targetType: "node",
         targetId: nodeId,
-        metadataJson: JSON.stringify({ name: body.name, setupKeyId: keyRow.id }),
+        metadataJson: JSON.stringify({ name, setupKeyId: keyRow.id }),
       });
       return status(201, {
         nodeId,
@@ -219,8 +244,8 @@ export const enrollRoute = new Elysia().use(apiModels).post(
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_NAME_TAKEN,
-            message: `You already have a node named "${body.name}"`,
-            metadataSafe: { name: body.name },
+            message: `You already have a node named "${name}"`,
+            metadataSafe: { name },
           }),
         );
       }

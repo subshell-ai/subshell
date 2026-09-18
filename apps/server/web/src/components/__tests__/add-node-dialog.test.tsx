@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { AddNodeDialog, installCommandFor } from "@/components/nodes/add-node-dialog";
+import { AddNodeDialog, installCommandFor, setupCommandFor } from "@/components/nodes/add-node-dialog";
 import { NODES_QUERY_KEY } from "@/lib/query-keys";
 
 interface Call {
@@ -119,42 +119,43 @@ async function renderDialog(nodeCount = 1) {
 afterEach(cleanup);
 
 describe("AddNodeDialog", () => {
-  it("step 1 → create POSTs the label", async () => {
+  it("the mint is ONE press and sends no body", async () => {
+    // There is no field any more: the node is named by the machine that becomes
+    // it, so what this dialog's first step does is spend a key. A body would be
+    // a name the server no longer has a column for.
     const { calls, restore } = mockFetch();
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
+      expect(screen.queryByLabelText("Node name")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await waitFor(() => {
         const post = calls.find((c) => c.method === "POST" && c.url === "/api/nodes/setup-keys");
         expect(post).toBeDefined();
-        expect(JSON.parse(post?.body ?? "{}")).toEqual({ label: "mac mini" });
+        expect(post?.body ?? "").toBe("");
       });
     } finally {
       restore();
     }
   });
 
-  it("step 2 carries the plaintext only inside a command — never as a bare box (common shape)", async () => {
-    // The standalone key box and its subtitle are gone (operator's call,
-    // 2026-09-18): the command carries the key, and a second box was a
-    // second thing to copy for one paste. The load-bearing regression is
-    // that removal did not drop the key from the command — hence the
-    // count: in this (common) shape the key-bearing element IS the command,
-    // and there is exactly one of it. The air-gapped shape has TWO key-
-    // bearing rows — curl and the enroll fallback, alternatives each
-    // carrying it — pinned by the fallback test below; the invariant across
-    // both is that no element carries the key OUTSIDE a command.
+  it("the terminal path shows the key once — inside the command — and says where else it can be read", async () => {
+    // The command is still the terminal path's only carrier of the key (a second
+    // box was a second thing to copy for one paste, operator's call 2026-09-18),
+    // and the load-bearing regression is that removing the box never dropped the
+    // key from the command — hence the count of exactly one. What DID change with
+    // the 2026-09-17 revamp is "shown once": the Setup keys card on the same page
+    // lists the key until it is spent, so the dialog says THAT instead of the
+    // old "only time the full key is shown" warning.
     const { restore } = mockFetch();
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(
         await screen.findByText('curl -fsSL "http://localhost/install.sh?setup_key=nsk_secret" | bash'),
       ).toBeDefined();
       expect(screen.getAllByText(/nsk_secret/)).toHaveLength(1);
-      expect(screen.getByText(/only time the full key is shown/i)).toBeDefined();
+      expect(screen.getByText(/stays readable on the Setup keys list/i)).toBeDefined();
+      expect(screen.queryByText(/only time the full key is shown/i)).toBeNull();
       expect(screen.getByText(/Waiting for enrollment/i)).toBeDefined();
     } finally {
       restore();
@@ -165,7 +166,6 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch({ appBaseUrl: "http://100.71.37.94:3080" });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(
         await screen.findByText('curl -fsSL "http://100.71.37.94:3080/install.sh?setup_key=nsk_secret" | bash'),
@@ -192,7 +192,6 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(
         await screen.findByText(
@@ -214,7 +213,6 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(
         await screen.findByText('curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_secret" | bash'),
@@ -236,7 +234,6 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(
         await screen.findByText('curl -fsSL "http://localhost:3080/install.sh?setup_key=nsk_secret" | bash'),
@@ -262,7 +259,6 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
 
@@ -280,7 +276,7 @@ describe("AddNodeDialog", () => {
       expect(
         screen.getByText('curl -fsSL "https://subshell.example/install.sh?setup_key=nsk_secret" | bash'),
       ).toBeDefined();
-      expect(screen.getByText('subshell enroll --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
+      expect(screen.getByText('subshell setup --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
     } finally {
       restore();
     }
@@ -336,7 +332,6 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch({ appBaseUrl: "not a url" });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(await screen.findByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
       expect(screen.queryByText(/points at loopback/i)).toBeNull();
@@ -345,10 +340,14 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("warns and offers the enroll fallback when the server has no binaries AND will not fetch", async () => {
+  it("warns and offers the setup fallback when the server has no binaries AND will not fetch", async () => {
     // The air-gapped case, which is the only one where "missing" means the
     // install cannot work: install.sh would 404 the download, so the dialog
-    // must say so and hand over the manual enroll command.
+    // must say so and hand over the verb to run by hand. `setup`, not `enroll`:
+    // the primitive requires --name, which is the very question a person
+    // standing at the machine should be ASKED rather than told to invent here.
+    // The amber note also names the third door — the desktop app, which ships
+    // its own agent and needs nothing from this server.
     const { restore } = mockFetch({
       appBaseUrl: "https://subshell.example",
       nodeArtifactTargets: [],
@@ -356,10 +355,9 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
-      expect(screen.getByText('subshell enroll --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
+      expect(screen.getByText('subshell setup --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
       // The one-liner stays visible — it still works once artifacts exist.
       expect(screen.getByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
       // And the first-run sentence appears in NEITHER home: `autoFetch` is
@@ -386,7 +384,6 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       const hint = await screen.findByText(/has no agent binary for:/i);
       expect(hint.textContent).toContain("darwin-arm64");
@@ -396,8 +393,8 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("stays silent when every target is published (step 2 shape)", async () => {
-    // Reaching step 2 and minting, as named — the predicate is shared, but
+  it("stays silent when every target is published (the terminal reveal)", async () => {
+    // Reaching the reveal and minting, as named — the predicate is shared, but
     // this fixture does not walk there; the step 1 shape is the other test's
     // "says the first run is slower, once and quietly" assertion.
     // Two shapes, TWO its: a loop here would keep iteration 1's dialog
@@ -409,7 +406,6 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
@@ -429,7 +425,7 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      await screen.findByLabelText("Node name");
+      await screen.findByRole("button", { name: "Create setup key" });
       expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
       // It says the first run is slower, once and quietly.
       expect(screen.getByText(/downloaded from the project's release the first time/i)).toBeDefined();
@@ -442,7 +438,6 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch({});
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
@@ -481,7 +476,6 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch();
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       const what = await screen.findByText(/installs the agent to/i);
       expect(what.textContent).toContain("~/.local/bin");
@@ -493,7 +487,7 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("folds the first-run sentence INTO the what-it-does paragraph on step 2", async () => {
+  it("folds the first-run sentence INTO the what-it-does paragraph on the terminal panel", async () => {
     // The two sentences that described one command now share one paragraph
     // (2026-09-18), gated on the one shared predicate (`autoFetch` + partial
     // published targets — the only combination where the sentence is TRUE-
@@ -508,7 +502,6 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       const what = await screen.findByText(/installs the agent to/i);
       expect(what.textContent).toMatch(/downloaded from the project's release the first time/i);
@@ -522,7 +515,6 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch(undefined, nodes);
     try {
       const { arrive } = await renderDialog(1);
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       nodes.rows = [
@@ -546,7 +538,6 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch(undefined, nodes);
     try {
       const { arrive } = await renderDialog(1);
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       nodes.rows = [
@@ -569,7 +560,6 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch();
     try {
       const { arrive } = await renderDialog(1);
-      fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
       await arrive(2);
@@ -578,5 +568,117 @@ describe("AddNodeDialog", () => {
     } finally {
       restore();
     }
+  });
+
+  // ── the two paths ───────────────────────────────────────────────────────
+
+  describe("Terminal | Desktop App", () => {
+    it("defaults to the terminal and switches to the app's two values", async () => {
+      // The app cannot be handed a command line: its Enroll step takes a server
+      // URL and a setup key as fields. So the second path exists, and what it
+      // shows is those two things — each with its own copy button that says
+      // which one it copies.
+      const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
+      try {
+        await renderDialog();
+        fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+        const terminal = await screen.findByRole("button", { name: "Terminal" });
+        expect(screen.getByRole("button", { name: "Desktop App" })).toBeDefined();
+        expect(terminal.getAttribute("aria-pressed")).toBe("true");
+        expect(
+          screen.getByText('curl -fsSL "https://plane.example/install.sh?setup_key=nsk_secret" | bash'),
+        ).toBeDefined();
+
+        fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
+        expect(screen.queryByText(/install\.sh\?setup_key=/)).toBeNull();
+        expect(screen.getByText(/Window → This machine/i)).toBeDefined();
+        // The address shows TWICE by design: the picker states the choice and the
+        // row below is what gets pasted into the app. The key shows ONCE.
+        expect(screen.getAllByText("https://plane.example")).toHaveLength(2);
+        expect(screen.getAllByText(/nsk_secret/)).toHaveLength(1);
+        expect(screen.getByRole("button", { name: "Copy setup key" })).toBeDefined();
+        expect(screen.getByRole("button", { name: "Copy server address" })).toBeDefined();
+
+        // And back: the switch hides a panel, it does not destroy the command.
+        fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+        expect(
+          screen.getByText('curl -fsSL "https://plane.example/install.sh?setup_key=nsk_secret" | bash'),
+        ).toBeDefined();
+        expect(screen.queryByRole("button", { name: "Copy setup key" })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("keeps the address picker above the switch, because both paths dial it", async () => {
+      const { restore } = mockFetch({
+        appBaseUrl: "https://plane.example",
+        trustedOrigins: ["https://plane.example", "http://192.0.2.10:3080"],
+      });
+      try {
+        await renderDialog();
+        fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+        const label = await screen.findByText("Address the node dials");
+        // Above the switch, not inside either panel — the pick decides the baked
+        // SERVER on the terminal path AND the value the app's Connect step gets.
+        const trigger = document.querySelector('[data-slot="select-trigger"]') as HTMLElement;
+        const switchButton = screen.getByRole("button", { name: "Desktop App" }) as HTMLElement;
+        expect(label.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(trigger.compareDocumentPosition(switchButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
+        expect(screen.getAllByText("https://plane.example")).toHaveLength(2);
+      } finally {
+        restore();
+      }
+    });
+
+    it("says nothing about unpublished agent binaries on the app path — the app ships its own", async () => {
+      // The amber refusal is a statement about the DOWNLOAD, which is a
+      // terminal-path fact. On the air-gapped branch it must not follow the
+      // operator across the switch.
+      const { restore } = mockFetch({
+        appBaseUrl: "https://plane.example",
+        nodeArtifactTargets: [],
+        nodeArtifactsAutoFetch: false,
+      });
+      try {
+        await renderDialog();
+        fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+        expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
+        expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
+        expect(screen.getByText(/nsk_secret/)).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("names the desktop path in the amber refusal, since it needs no published binary", async () => {
+      const { restore } = mockFetch({
+        appBaseUrl: "https://plane.example",
+        nodeArtifactTargets: [],
+        nodeArtifactsAutoFetch: false,
+      });
+      try {
+        await renderDialog();
+        // Said BEFORE the key is minted: this is the screen where the operator
+        // still has a choice to make, and the app is one of the choices.
+        expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
+        expect(screen.getByText(/Subshell Client app/i)).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe("setupCommandFor", () => {
+    it("is the verb run by hand, with the address quoted and the name left to the machine", () => {
+      // No --name: `setup` asks. `enroll` would demand one, which is a fact the
+      // browser cannot know and the person at the machine can.
+      expect(setupCommandFor("http://100.64.1.2:3080", "nsk_k")).toBe(
+        'subshell setup --server "http://100.64.1.2:3080" --key "nsk_k"',
+      );
+    });
   });
 });
