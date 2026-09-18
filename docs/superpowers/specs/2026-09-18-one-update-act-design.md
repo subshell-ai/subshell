@@ -175,8 +175,12 @@ is needed.
 **`attempts` is bounded at 2.** A bundled install that fails on every boot would
 otherwise re-run forever, taking the window to a failure screen each time the
 person opens the app. At the limit the marker stays but stops firing
-automatically: the screen offers **Retry** and says what failed. This is the one
-place the design refuses to keep trying on the user's behalf.
+automatically: the screen offers **Retry** and says which versions were
+involved and that the install did not finish — NOT why, since the failure text
+is page state in a process that no longer exists and nothing persists it across
+the relaunch (corrected in review, 2026-09-18; a `last_error` on the marker is
+the follow-up that would make it literal). This is the one place the design
+refuses to keep trying on the user's behalf.
 
 What is shared in `desktop-core`, and what is not:
 

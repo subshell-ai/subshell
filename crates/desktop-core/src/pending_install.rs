@@ -20,6 +20,17 @@ use crate::version::version_lt;
 /// still offer Retry and still name the update — but nothing fires
 /// automatically. This is the one place the design stops acting on someone's
 /// behalf rather than trying again.
+///
+/// **What a halted screen can say, exactly.** Which versions, and that the
+/// install did not finish. It cannot say WHY: the failure text is page state
+/// in a process that no longer exists, and nothing here persists it across the
+/// relaunch. The spec's "says what failed" was written before that was
+/// noticed (review, 2026-09-18) and both it and this sentence now claim only
+/// what ships. Making it literally true needs a `last_error` on
+/// [`crate::settings::PendingBundledInstall`], written where the install
+/// fails and read by both apps — a deliberate follow-up rather than a field
+/// added to the marker in the same change that fixed the marker's own
+/// correctness.
 pub const MAX_RESUME_ATTEMPTS: u32 = 2;
 
 /// What a boot should do about the marker it found.
