@@ -212,9 +212,11 @@ screen at all.
 only one the dashboard never names — because the machine it exists for is one
 whose dashboard cannot be signed into. Saving an `https://` base URL signs THIS
 APP's window out for good: better-auth marks the session cookie `Secure` for an
-https `APP_BASE_URL` (measured, 1.7.1) and the `main` window is pinned to
-`http://127.0.0.1:<port>`, the pin that earns it its privileged commands, so it
-can never store a session again. Browsers on the https address are fine. The
+https `APP_BASE_URL` (measured, 1.7.1) and this app OPENS its `main` window on
+`http://127.0.0.1:<port>`, so it can never store a session again. (The loopback
+PIN is gone as of the same day — the window may navigate anywhere http(s) and
+`trust.rs` is what gates its seven commands — but where the window is opened is
+unchanged, which is what keeps this consequence true.) Browsers on the https address are fine. The
 value that caused it could only be changed from the dashboard, which needs the
 session just lost — so the app had **no way back from inside itself**. The
 assistant is the way out structurally rather than conveniently: it is the

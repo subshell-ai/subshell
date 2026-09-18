@@ -43,7 +43,7 @@ or the same field on Settings → Service, where a change needs **no restart** �
 `init` still warns at write time when a LAN bind will refuse NAMES, printing the exact command; the addresses the machine holds itself are no longer part of what you must say.
 
 > [!important] Changing the base URL moves your passkeys
-> `APP_BASE_URL` is also the passkey rpID — passkeys are bound to the host they were minted for. Change it and existing passkeys stop working on the old address, the Subshell Server desktop window (pinned to loopback) included. Adding a name to `TRUSTED_ORIGINS` has no such effect, and is the correct lever when the goal is *also*.
+> `APP_BASE_URL` is also the passkey rpID — passkeys are bound to the host they were minted for. Change it and existing passkeys stop working on the old address, the Subshell Server desktop window (which opens on loopback) included. Adding a name to `TRUSTED_ORIGINS` has no such effect, and is the correct lever when the goal is *also*.
 
 ## What the list will not accept
 

@@ -2040,9 +2040,9 @@ const HTTPS_NOTE_ID = "settings-https-note";
  * session to save them.
  *
  * It exists because of a lockout this app could not undo from inside itself:
- * an `https://` base URL marks the session cookie `Secure`, the `main` window
- * is pinned to loopback http, and the only place that value could be changed
- * was the dashboard that had just stopped accepting a sign-in. So the warning
+ * an `https://` base URL marks the session cookie `Secure`, this app opens its
+ * `main` window on loopback http, and the only place that value could be
+ * changed was the dashboard that had just stopped accepting a sign-in. So the warning
  * under the base URL field is the dashboard's own sentence, verbatim
  * (`HTTPS_LOCKOUT_WARNING`, pinned against `addresses-card.tsx` by test): the
  * person who lands here has already met the consequence, and two surfaces

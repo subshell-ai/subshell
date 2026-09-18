@@ -62,16 +62,17 @@ describe("what the screen states (§ 4.1)", () => {
       }),
       // The number this app cannot know before it downloads: a desktop release
       // manifest carries the component version and its asset digests, never
-      // the version of the CLI inside the bundle (§ 4.3). And no checkbox:
-      // the agent half is the app act's TAIL across the relaunch, which is
-      // what its cell says instead (§ 13.1).
+      // the version of the CLI inside the bundle (§ 4.3). The row IS a
+      // checkbox — clearing it writes no marker, so phase 2 never runs
+      // (review, 2026-09-18; it used to be a statement reading "installs with
+      // the app", on the belief that nothing could cross the relaunch).
       row({
         id: "agent",
         label: "subshell CLI",
         from: "1.9.0",
         to: { kind: "with-app" },
         selected: true,
-        reason: "installs with the app",
+        selectable: true,
       }),
     ]);
     expect(a.pressInstallsAgent).toBe(true);
@@ -359,7 +360,8 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
   it("hands the agent half its own checkbox once the app half is unticked", () => {
     const behind = agentBehind();
     const both = act({ check: check({ latest: "0.8.1" }), probe: behind });
-    expect(both.rows.map((r) => r.selectable)).toEqual([true, false]);
+    // Both halves are choices, on either footing (review, 2026-09-18).
+    expect(both.rows.map((r) => r.selectable)).toEqual([true, true]);
 
     const appOff = act({ check: check({ latest: "0.8.1" }), probe: behind, selection: { app: false } });
     // With nothing crossing a relaunch, the agent half is an act of its own —
@@ -377,6 +379,35 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     expect(appOff.press).toBe("agent");
     expect(appOff.pressLabel).toBe("Install the agent (1.10.0)");
     expect(appOff.pressInstallsAgent).toBe(false);
+  });
+
+  /**
+   * **Clearing the agent under an app press leaves the app press alone**
+   * (review, 2026-09-18, mirroring Subshell Server's § 13.1).
+   *
+   * It was not offerable at all: the row rendered ticked and disabled, on the
+   * reasoning that the marker carries no selection. It carries one now, as its
+   * own PRESENCE — `node_install_app_update(install_agent: false)` writes none,
+   * so phase 2 never runs and a deliberately older `~/.local/bin/subshell`
+   * survives the app update.
+   */
+  it("lets the agent half be declined while the app half runs", () => {
+    const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind(), selection: { agent: false } });
+    expect(a.rows[1]).toEqual(
+      row({
+        id: "agent",
+        label: "subshell CLI",
+        from: "1.9.0",
+        // Still says what ticking it would do, rather than going blank.
+        to: { kind: "with-app" },
+        selected: false,
+        selectable: true,
+      }),
+    );
+    // The app press is unchanged, and stops promising the half it will not do.
+    expect(a.press).toBe("app");
+    expect(a.pressLabel).toBe("Download and Install 0.8.1");
+    expect(a.pressInstallsAgent).toBe(false);
   });
 
   it("is dead, and says why, when everything is unticked", () => {

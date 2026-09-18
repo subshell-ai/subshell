@@ -501,6 +501,14 @@ bundle), with one difference that follows from §7.1: the agent half has no
 restart to force, so Force applies to the server app's rows only and is not
 rendered where nothing it governs is selectable.
 
+**Amended in review, 2026-09-18.** A second difference had shipped and was not
+declared here: the client's agent row was ticked-and-disabled under an app
+press, on the recorded reasoning that the marker crossing the relaunch carries
+no selection. It does carry one — as its own PRESENCE — which is how Subshell
+Server implements the same rule, so the difference was one missing boolean on
+`node_install_app_update`. It takes `install_agent` now and the row is a real
+checkbox, which makes "identical shape, one difference" true as written.
+
 ### 13.4 Two decisions taken on the operator's "do what you think is best"
 
 **Force stays scoped to the pane-safety refusal.** The request was that it

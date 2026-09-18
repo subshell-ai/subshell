@@ -1644,7 +1644,7 @@ export const normalizePaneTitleForTests = normalizePaneTitle;
  * escape sequences.
  */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: recognising terminal escape sequences
-const ESCAPE_SEQUENCE = /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]/g;
+const ESCAPE_SEQUENCE = /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[ -/]+[0-~]|\x1b[@-Z\\-_]/g;
 
 /**
  * Cleans a raw tmux `pane_title` for use as a subshell name: escape sequences
@@ -1666,6 +1666,14 @@ const ESCAPE_SEQUENCE = /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]
  *
  * So a title that is nothing but a sequence now normalizes to "", and the
  * caller falls back to the name it already had.
+ *
+ * **The `nF` forms are part of that**, and they were missed at first (review,
+ * 2026-09-18): `ESC` followed by intermediate bytes (0x20–0x2F) and one final
+ * byte — `ESC ( B`, `ESC # 8`, `ESC SP F`. A charset reset is ordinary in
+ * terminal output, and without this branch the sweep left it alone, the
+ * control pass below deleted the bare `ESC`, and a pane running `npm run dev`
+ * was named `Bnpm run dev` in every sidebar it appeared in. Exactly the same
+ * laundering as the Kitty query, by a shorter route.
  */
 function normalizePaneTitle(raw: string): string {
   const withoutSequences = raw.replace(ESCAPE_SEQUENCE, " ");

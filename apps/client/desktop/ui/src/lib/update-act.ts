@@ -309,23 +309,34 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   /**
    * The ticks, resolved.
    *
-   * The agent half is selectable only while the app half is NOT running, and
-   * that is a fact about the machine rather than a simplification: when the
-   * app is installed the act crosses a relaunch, and the only thing that
-   * crosses it is the marker — which carries no selection, and which the NEW
-   * build re-decides against the agent IT bundles. A checkbox offering to
-   * leave the agent behind there would be a control this process cannot
-   * honour in the process that acts on it. So when the app half runs, the
-   * agent half is its TAIL, and the row says so.
+   * **The agent half is tickable under an app press too** (review,
+   * 2026-09-18). It was not, on the reasoning that the act crosses a relaunch
+   * and the only thing crossing it is a marker carrying no selection — so a
+   * checkbox here would be a control this process could not honour in the
+   * process that acts on it. That was true of `node_install_app_update` as
+   * written and NOT structural: Subshell Server makes the marker's PRESENCE
+   * the selection, and this app's command now takes the same boolean. A
+   * cleared row writes no marker, so phase 2 simply does not run and someone
+   * who deliberately keeps an older `~/.local/bin/subshell` keeps it.
+   *
+   * What stays true is the SHAPE of the row under an app press: the agent that
+   * lands is the NEW bundle's, whose version this build cannot know, so the
+   * target reads "ships with the new app" rather than a number. Spec § 13.3
+   * says Force is the one difference between the two apps' screens; this is
+   * what makes that sentence true again.
    */
   const ticked = (id: UpdateRowId): boolean => selection[id] ?? true;
   const appSelected = appAvailable && ticked("app");
-  // An act of its OWN, rather than the app act's tail — which is what makes it
-  // a checkbox the person may untick.
+  // An act of its OWN, rather than the app act's tail — which is what decides
+  // whether the row names a version or says it ships with the new app.
   const agentStandalone = agentAvailable && !appSelected;
   const agentSelected = agentStandalone && ticked("agent");
+  /** Whether the agent half is the app press's TAIL, if the row stays ticked. */
+  const agentRidesIfTicked = appSelected && agentHalfRuns && !agentNewerInstalled;
   /** Whether the app press ends by installing the agent that lands with it. */
-  const agentRidesAlong = appSelected && agentHalfRuns && !agentNewerInstalled;
+  const agentRidesAlong = agentRidesIfTicked && ticked("agent");
+  /** Whether the agent row is a checkbox at all, on either footing. */
+  const agentTickable = agentStandalone || agentRidesIfTicked;
 
   const refusals: string[] = [];
   if (unmanaged) {
@@ -395,18 +406,19 @@ export function updateAct(input: UpdateActInput): UpdateAct {
       id: "agent",
       label: AGENT_LABEL,
       from: installedAgent ?? NOT_INSTALLED,
-      to: agentRidesAlong
+      // The target the row would take, ticked or not — an unticked row still
+      // has to say what ticking it would do.
+      to: agentRidesIfTicked
         ? { kind: "with-app" }
         : agentStandalone
           ? { kind: "version", version: bundled }
           : { kind: "none" },
       selected: agentSelected || agentRidesAlong,
-      selectable: agentStandalone && !inFlight,
+      selectable: agentTickable && !inFlight,
       reason: agentRowReason({
         unmanaged,
         agentNewerInstalled,
-        agentRidesAlong,
-        agentStandalone,
+        agentTickable,
         inFlight,
         unknownBundle: bundled === null,
       }),
@@ -474,8 +486,8 @@ export function updateAct(input: UpdateActInput): UpdateAct {
 function agentRowReason(at: {
   unmanaged: boolean;
   agentNewerInstalled: boolean;
-  agentRidesAlong: boolean;
-  agentStandalone: boolean;
+  /** A checkbox renders here, so nothing else may. */
+  agentTickable: boolean;
   inFlight: boolean;
   /** This build does not say which agent it ships, so nothing can be offered. */
   unknownBundle: boolean;
@@ -490,8 +502,11 @@ function agentRowReason(at: {
   // it ships cannot be up to date or behind — it is unanswerable.
   if (at.unknownBundle) return "this build does not say which agent it ships";
   if (at.agentNewerInstalled) return "you run a newer one";
-  if (at.agentRidesAlong) return "installs with the app";
-  if (at.agentStandalone || at.inFlight) return null;
+  // A checkbox and a reason are alternatives, never both: a reason beside a
+  // live control says "not now" about something that is plainly on offer.
+  // "installs with the app" used to sit here, when the row under an app press
+  // was a statement rather than a choice; the `to` cell says that now.
+  if (at.agentTickable || at.inFlight) return null;
   return "up to date";
 }
 

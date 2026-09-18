@@ -275,13 +275,15 @@ describe("the act is a selection (§ 13)", () => {
   it("hands the agent half its own checkbox once the app half is unticked", async () => {
     await openUpdate({ probe: BEHIND, handlers: { node_check_app_update: () => APP_BEHIND } });
 
-    // Both behind: both are part of the act, and the agent half rides along
-    // across the relaunch rather than carrying a control this process could
-    // not honour in the process that acts on it.
-    expect(screen.getByText("installs with the app")).toBeTruthy();
+    // Both behind: both are part of the act, and both are choices. The agent
+    // row rides along across the relaunch — its cell says so — but it is a
+    // checkbox, because clearing it writes no marker and phase 2 then never
+    // runs (review, 2026-09-18).
+    expect(screen.getByText("ships with the new app")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Update Subshell Client app" }) as HTMLInputElement).checked).toBe(
       true,
     );
+    expect((screen.getByRole("checkbox", { name: "Update subshell CLI" }) as HTMLInputElement).checked).toBe(true);
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Client app" }));
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Update subshell CLI" })).not.toBeNull());

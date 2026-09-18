@@ -210,6 +210,21 @@ describe("normalizePaneTitle", () => {
     expect(norm("\x1b[31mnpm run dev\x1b[0m")).toBe("npm run dev");
   });
 
+  /**
+   * The `nF` forms — `ESC` + intermediate bytes + one final byte (review,
+   * 2026-09-18). A charset reset is ordinary in terminal output, and the sweep
+   * used to leave it alone: the control pass then deleted the bare `ESC` and
+   * kept the rest, so a pane running `npm run dev` was named `Bnpm run dev`.
+   * The same laundering the Kitty case above closed, by a shorter route.
+   */
+  it("removes an ESC-with-intermediate sequence without gluing its final byte to the text", () => {
+    expect(norm("\x1b(Bnpm run dev")).toBe("npm run dev");
+    expect(norm("\x1b#8title")).toBe("title");
+    expect(norm("\x1b)0abc")).toBe("abc");
+    // And one that is nothing else has nothing displayable left.
+    expect(norm("\x1b(B")).toBe("");
+  });
+
   it("drops an OSC string whole", () => {
     expect(norm("\x1b]0;hello\x07")).toBe("");
   });

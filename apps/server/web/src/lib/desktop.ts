@@ -26,9 +26,9 @@ export type DesktopPlatform = "macos" | "linux";
  * WHICH shell this is, and the distinction the rest of the app turns on.
  *
  * - `server` — `apps/server/desktop` (Subshell Server). It MANAGES the server
- *   serving this page: its window is pinned to loopback, it drops its title
- *   bar for the SPA's overlay chrome, and it holds the commands behind the
- *   update, reset, supervision and notification surfaces.
+ *   serving this page: it opens its window on this machine's loopback address,
+ *   it drops its title bar for the SPA's overlay chrome, and it holds the
+ *   commands behind the update, reset, supervision and notification surfaces.
  * - `client` — `apps/client/desktop` (Subshell Client). It is a window onto a
  *   plane that can live anywhere. It keeps a normal title bar and is granted
  *   exactly ONE command, so every server-only surface above must stay absent

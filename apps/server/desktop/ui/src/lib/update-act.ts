@@ -324,9 +324,16 @@ export function updateAct(input: UpdateActInput): UpdateAct {
 
   // 1. Finished here. Page state, because the success CLEARS the marker.
   if (finished?.ok === true) {
+    // **It may only speak for what it installed** (review, 2026-09-18). The
+    // sentence was unconditional, so a CLI-only press — the app row unticked —
+    // ended on "both up to date" over an app a release behind. § 13 made this
+    // a selection; the sentence that closes it has to read the selection too.
+    const appStillBehind = appUpdate?.latest != null && appUpdate.latest !== appUpdate.current;
     return {
       phase: "done",
-      subtitle: "Subshell Server and the server it ships are both up to date.",
+      subtitle: appStillBehind
+        ? `The server on this machine is up to date. Subshell Server ${appUpdate.latest} is still available.`
+        : "Subshell Server and the server it ships are both up to date.",
       rows: [],
       press: null,
       notes: [],

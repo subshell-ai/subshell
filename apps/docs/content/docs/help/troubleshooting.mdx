@@ -29,7 +29,7 @@ It prints what the server *would* boot with, without booting anything: the versi
 
 **Cause.** A passkey is bound at creation to a *relying-party ID*, and Subshell's is the host of the configured `APP_BASE_URL` — never the request's host. That is what makes the credential non-phishable, and it is also why the same key refuses to authenticate under a second spelling of the same server.
 
-**Fix.** Use passkeys on the canonical address and put other devices on it too (add the name to `TRUSTED_ORIGINS`, then browse there). Be deliberate about changing `APP_BASE_URL` itself: it **moves** the relying-party ID, and existing passkeys stop working on the old address — including the Subshell Server desktop app's own window, which is pinned to loopback. Adding extra origins to the allowlist does not have that effect and is the safe lever for "also reachable at".
+**Fix.** Use passkeys on the canonical address and put other devices on it too (add the name to `TRUSTED_ORIGINS`, then browse there). Be deliberate about changing `APP_BASE_URL` itself: it **moves** the relying-party ID, and existing passkeys stop working on the old address — including the Subshell Server desktop app's own window, which opens on loopback. Adding extra origins to the allowlist does not have that effect and is the safe lever for "also reachable at".
 
 ## A launch refuses: offline, unreachable, or in maintenance
 

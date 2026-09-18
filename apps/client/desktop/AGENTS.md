@@ -563,17 +563,25 @@ defects above:
 - **A row with an available act carries a checkbox, ticked by default**, so
   both halves behind is still ONE press. That default is D1 unchanged.
 - **A row with no available act states WHY where its checkbox would be** —
-  *runs another binary*, *you run a newer one*, *installs with the app*, *up to
-  date*, *cannot be checked* — and **never a disabled checkbox**, which says
-  "not now" without saying anything.
-- **The agent half is selectable only while the app half is not running.** When
-  the app is installed the act crosses a relaunch, and the only thing that
-  crosses it is the marker, which carries no selection and which the NEW build
-  re-decides against the agent IT bundles. A checkbox offering to leave the
-  agent behind there would be a control this process cannot honour in the
-  process that acts on it — so the agent half is the app act's TAIL, and the
-  row says so. Untick the app and the agent row becomes an act of its own, with
-  the number in hand.
+  *runs another binary*, *you run a newer one*, *this build does not say which
+  agent it ships*, *up to date*, *cannot be checked* — and **never a disabled
+  checkbox**, which says "not now" without saying anything. (*installs with the
+  app* was one of these until 2026-09-18; that row is a checkbox now, and its
+  target cell is what says so.)
+- **Both halves are checkboxes, on either footing.** Under an app press the
+  agent half is that act's TAIL — the agent that lands is the NEW bundle's,
+  whose version this build cannot know, so the cell reads "ships with the new
+  app" rather than a number — but it is still a choice: clearing it makes
+  `node_install_app_update(install_agent: false)` write NO marker, so phase 2
+  never runs and a deliberately older `~/.local/bin/subshell` survives the app
+  update. Untick the app instead and the agent row becomes an act of its own,
+  with the number in hand.
+
+  It was not a choice until review on 2026-09-18, and the reason recorded for
+  that is worth keeping as a warning: "the marker carries no selection" was
+  true of the command as written and was filed as a structural fact. Subshell
+  Server had already disproved it — it makes the marker's PRESENCE the
+  selection — so what the sentence actually described was one missing boolean.
 - **Every sentence promising the agent half reads off `pressInstallsAgent`**,
   including the air-gapped refusal's "can still be installed". A promise that
   outlives the half it describes is the defect, not the act.

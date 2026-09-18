@@ -607,9 +607,9 @@ export function AppSidebar({
             at Subshell Server on their laptop is the likeliest person in the
             product to want Subshell on their phone. The gate hid it from them.
 
-            It degrades correctly there rather than by luck: the server app's
-            window is pinned to loopback, so `window.location.origin` is not
-            offerable — and the picker's other two sources still answer, or the
+            It degrades correctly there rather than by luck: the server app
+            OPENS its window on loopback, so `window.location.origin` is
+            usually not offerable — and the picker's other two sources still answer, or the
             dialog says it knows no address a phone can reach, which on a
             loopback-only instance is the true answer.
 

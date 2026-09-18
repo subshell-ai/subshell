@@ -308,6 +308,18 @@ describe("the two phases of §4.2", () => {
     expect(view.phase).toBe("done");
     expect(view.press).toBeNull();
     expect(view.rows).toEqual([]);
+    expect(view.subtitle).toBe("Subshell Server and the server it ships are both up to date.");
+  });
+
+  /**
+   * A closing sentence may only speak for what was installed (review,
+   * 2026-09-18). § 13 made the act a selection, so a CLI-only press — the app
+   * row unticked — used to end on "both up to date" over an app a release
+   * behind, which is the same overclaim the table was rebuilt to remove.
+   */
+  it("does not call the app current after a press that only touched the server", () => {
+    const view = act({ finished: { ok: true }, appUpdate: APP_BEHIND });
+    expect(view.subtitle).toBe("The server on this machine is up to date. Subshell Server 0.8.1 is still available.");
   });
 
   it("says the app restarts while the download runs", () => {

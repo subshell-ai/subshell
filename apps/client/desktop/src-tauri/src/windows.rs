@@ -80,10 +80,11 @@ impl PlanePin {
     ///
     /// Read by `control::desktop_open_in_browser`, which is the whole reason
     /// this is not private: the plane's page may name a PATH, and the host it
-    /// is joined onto has to be the one the navigation guard already enforces —
-    /// not a second copy of the ladder that could answer differently after a
-    /// switch. `None` while nothing has been opened, which the command reports
-    /// rather than guessing.
+    /// is joined onto has to be the plane this window was OPENED with — not the
+    /// page's own origin (which a proxied sign-in legitimately moves since
+    /// 2026-09-18), and not a second copy of the ladder that could answer
+    /// differently after a switch. `None` while nothing has been opened, which
+    /// the command reports rather than guessing.
     pub fn get(&self) -> Option<String> {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -293,10 +294,10 @@ pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String
         // like the switch did nothing; navigating it is the whole fix.
         if w.url().map(|u| u.origin() != url.origin()).unwrap_or(false) {
             // BEFORE the navigate, never after: the pin gates this very
-            // navigation. `navigate()` reaches the platform webview's own load,
-            // which consults the navigation delegate exactly as a link click
-            // does — so a pin still naming the OLD plane refuses the switch,
-            // silently, while the command that asked for it returns Ok.
+            // navigation — not because the pin gates it (it has not since
+            // 2026-09-18; the handler checks the scheme alone), but because
+            // `desktop_open_in_browser` reads the pin and must never name the
+            // plane this window is leaving once the switch has been asked for.
             pin.set(&url);
             let _ = w.navigate(url);
         }
@@ -593,10 +594,12 @@ mod tests {
         assert_ne!(PLANE_LABEL, NODE_LABEL);
     }
 
-    // The pin is the plane window's whole navigation guard, so the two
-    // properties that make it a guard are worth stating: it starts CLOSED (a
-    // window whose pin was never set allows nothing), and it matches by exact
-    // origin rather than by prefix or suffix.
+    // The pin is what `desktop_open_in_browser` joins a path onto — the plane
+    // this window was OPENED with, rather than whatever page it is showing — so
+    // the two properties that bound that command are worth stating: it starts
+    // CLOSED (a window whose pin was never set names nothing, and the command
+    // reports that rather than guessing), and it is an exact origin rather than
+    // a prefix or a suffix.
     #[test]
     fn an_unset_pin_allows_nothing() {
         let pin = PlanePin::new();

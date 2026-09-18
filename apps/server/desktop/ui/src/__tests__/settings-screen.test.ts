@@ -1,9 +1,9 @@
 /**
  * **Server Addresses** (spec 2026-09-18 § 14), which is the way back from a
  * lockout this app could not otherwise undo: an `https://` base URL marks the
- * session cookie `Secure`, the `main` window is pinned to loopback http, and
- * the value that caused it lived only on the dashboard that had just stopped
- * accepting a sign-in.
+ * session cookie `Secure`, this app opens its `main` window on loopback http,
+ * and the value that caused it lived only on the dashboard that had just
+ * stopped accepting a sign-in.
  *
  * `ui/src/__tests__/` has no DOM harness — nothing here can mount `wizard.ts` —
  * so every judgment the screen makes lives in `lib/settings-screen.ts` and is

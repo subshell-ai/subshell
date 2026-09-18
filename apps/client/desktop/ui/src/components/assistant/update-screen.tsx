@@ -95,7 +95,9 @@ export function UpdateScreen(props: {
   }, []);
 
   const installApp = useMutation({
-    mutationFn: nodeInstallAppUpdate,
+    // Takes the agent row's checkbox, which is the whole of what crosses the
+    // relaunch (§ 13.1): false writes no marker, so phase 2 never runs.
+    mutationFn: (installAgent: boolean) => nodeInstallAppUpdate(installAgent),
     onMutate: () => setProgress("Starting the download…"),
     // No `onSuccess`: this call does not resolve on success, because the app
     // restarts out from under this page.
@@ -213,7 +215,7 @@ export function UpdateScreen(props: {
   const press = () => {
     if (!act.canPress) return;
     if (act.press === "app") {
-      installApp.mutate();
+      installApp.mutate(act.pressInstallsAgent);
       return;
     }
     watchFor("agent");

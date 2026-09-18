@@ -1664,18 +1664,24 @@ pub const MENU_BROWSER_ID: &str = "menu:browser";
 /// is safe for a window whose origin this app cannot enumerate because it names
 /// no origin: the page supplies a PATH,
 /// `subshell_desktop_core::browser::browser_url` refuses anything that could be
-/// a host, and the origin comes from [`crate::windows::PlanePin`] — the same
-/// value the window's own navigation guard enforces. So a compromised plane
-/// page can open a page of ITSELF in the person's browser, which they can do by
-/// typing the address.
+/// a host, and the origin comes from [`crate::windows::PlanePin`] — the origin
+/// this window was OPENED with.
 ///
-/// The pin rather than `resolve_plane_url`, because the pin is what the
-/// navigation guard enforces and a second ladder could answer differently. But
-/// it names the plane this window is being pointed AT, which during a switch is
-/// the NEW one: `open_plane` sets the pin BEFORE calling `navigate` (it has to
-/// — the pin gates that very navigation), so between those two lines the
-/// still-rendered page of plane A can have a path of its choosing joined onto
-/// plane B's origin.
+/// **The pin is no longer what the navigation handler enforces** (2026-09-18):
+/// the window follows any http(s) URL, so a plane behind an OAuth proxy can
+/// complete its sign-in. That is precisely why this command reads the pin
+/// rather than the page. A redirect chain does not move the pin; only a
+/// deliberate plane switch does. So the honest bound is **any http(s) page this
+/// window reaches can open an arbitrary PATH of the PINNED plane** in the
+/// person's browser — a page of a control plane the person chose, in a browser
+/// where they are signed out. `docs/security.md` § 11.11 words the same
+/// residual.
+///
+/// The pin rather than `resolve_plane_url`, because a second ladder could
+/// answer differently. But it names the plane this window is being pointed AT,
+/// which during a switch is the NEW one: `open_plane` sets the pin before
+/// calling `navigate`, so between those two lines the still-rendered page of
+/// plane A can have a path of its choosing joined onto plane B's origin.
 ///
 /// Accepted, and worth stating rather than implying. The window is one
 /// `navigate` call wide, the person just chose plane B themselves, and the
@@ -1900,14 +1906,23 @@ pub async fn node_check_app_update(app: AppHandle) -> Result<crate::app_update::
 
 /// Download, verify, install and relaunch into the newest app.
 ///
-/// **Takes no argument.** The version to install is re-resolved here rather
-/// than carried back from the page — the same shape every other command in
-/// this file keeps: the page names an intent, never a path, a URL or a host.
+/// **Takes ONE bool and names no location.** The version to install is
+/// re-resolved here rather than carried back from the page — the same shape
+/// every other command in this file keeps: the page names an intent, never a
+/// path, a URL or a host. `install_agent` is the § 13 selection, and it is a
+/// bool for exactly the reason the whole argument list is pinned by test: a
+/// `String` here would be the parameter that pin exists to catch.
+///
+/// It carries the agent row's checkbox across the relaunch by deciding whether
+/// a marker is written AT ALL — the same mechanism Subshell Server uses, added
+/// here in review (2026-09-18) because this app's screen had no way to decline
+/// the agent half while the app half ran, and recorded that as a structural
+/// fact rather than as this command taking no argument.
 ///
 /// It does not return on success: `app.restart()` is `-> !`.
 #[tauri::command(async)]
-pub async fn node_install_app_update(app: AppHandle) -> Result<(), String> {
-    crate::app_update::install_app_update(&app).await
+pub async fn node_install_app_update(app: AppHandle, install_agent: bool) -> Result<(), String> {
+    crate::app_update::install_app_update(&app, install_agent).await
 }
 
 /// Reveal one of a fixed set of the app's own directories or files.

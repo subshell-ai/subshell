@@ -152,7 +152,7 @@ pub fn set_update_available(app: &AppHandle, version: Option<&str>) {
 ///
 /// The item exists for a machine whose dashboard cannot be signed into (spec
 /// 2026-09-18 § 14): an `https://` base URL marks the session cookie `Secure`,
-/// and this app's `main` window is pinned to loopback http, so it can never
+/// and this app opens its `main` window on loopback http, so it can never
 /// store a session again — and the value that caused it lived only on a page
 /// that needs one. So this press must work when the server is DOWN, or not
 /// running, or running and refusing every sign-in, which is exactly what
