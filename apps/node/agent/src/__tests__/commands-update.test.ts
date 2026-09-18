@@ -15,6 +15,24 @@ import {
 import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
+
+/**
+ * A machine with NO service definition, whatever the host has.
+ *
+ * `update` resolves the binary it replaces by asking the service definition
+ * first, and that read reaches the real launchd/systemd user domain —
+ * `homedir()` answers from the password database, not `$HOME`, so no temp
+ * directory hides it. Without this the tests below resolved the DEVELOPER's
+ * own installed agent, and this file passed only on machines that do not run
+ * Subshell (measured 2026-09-18). All three stubs are needed: the darwin
+ * branch also shells out to `plutil`.
+ */
+const NO_SERVICE_DEFINITION = {
+  fileExists: async () => false,
+  readFile: async () => null,
+  runCmd: async () => ({ code: 1, out: "", err: "" }),
+} as const;
+
 import { updateSeams } from "../update.js";
 
 /** The same fake verifier `update.test.ts` uses: accepts the TEST-ARMOR pair only. */
@@ -84,6 +102,7 @@ async function ctxWith(runtime: NodeRuntimeReport | null, onRestart: () => void)
     tmux: {} as CommandContext["tmux"],
     meta: {} as CommandContext["meta"],
     nowMs: () => 0,
+    binaryDeps: NO_SERVICE_DEFINITION,
     ws: { send: () => {} },
     watchers: new Map(),
     tails: new Map(),

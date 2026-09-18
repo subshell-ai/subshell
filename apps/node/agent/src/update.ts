@@ -113,6 +113,18 @@ export interface ApplyUpdateInput {
   restartService?: (force: boolean) => Promise<{ code: number; out: string; err: string }>;
   /** Spawn seam for the `<temp> version` probe (injected by tests). */
   probeVersion?: (binary: string) => Promise<string | null>;
+  /**
+   * How the binary to replace is resolved (default: the real ladder).
+   *
+   * A seam for the same reason {@link AgentBinaryDeps} exists at all: the
+   * ladder asks the SERVICE DEFINITION first, and that read reaches the real
+   * launchd/systemd user domain — which no temp directory can hide, because
+   * `homedir()` answers from the password database rather than `$HOME`. So on
+   * any machine that actually runs Subshell, tests of this function resolved
+   * the developer's own installed agent instead of their fixture, and failed
+   * for being right about the host (measured 2026-09-18).
+   */
+  binaryDeps?: AgentBinaryDeps;
 }
 
 /** What the marker file holds, on either side of the swap. */
@@ -567,7 +579,7 @@ export interface AppliedUpdate {
  * @throws {@link UpdateRefused} for every refusal the plane maps to a 409
  */
 export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdate> {
-  const { binary, dir } = await resolveAgentBinary();
+  const { binary, dir } = await resolveAgentBinary(input.binaryDeps);
   const temp = join(dir, `${basename(binary)}.download-${process.pid}`);
   const previous = `${binary}.previous`;
 
@@ -729,8 +741,12 @@ export async function completeUpdate(dataDir: string): Promise<UpdateMarker | nu
  * with, and works from whichever marker is on disk (or from neither, when the
  * `.previous` is simply there).
  */
-export async function rollbackUpdate(dataDir: string): Promise<{ binary: string; to: string }> {
-  const { binary } = await resolveAgentBinary();
+export async function rollbackUpdate(
+  dataDir: string,
+  /** See {@link ApplyUpdateInput.binaryDeps} — the same host-independence seam. */
+  binaryDeps: AgentBinaryDeps = {},
+): Promise<{ binary: string; to: string }> {
+  const { binary } = await resolveAgentBinary(binaryDeps);
   const previous = `${binary}.previous`;
   try {
     const info = await stat(previous);

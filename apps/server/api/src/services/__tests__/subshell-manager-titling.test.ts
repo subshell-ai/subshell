@@ -22,7 +22,11 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
-import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
+import {
+  normalizePaneTitleForTests,
+  SubshellManagerService,
+  type SubshellTokenProvider,
+} from "@/services/subshell-manager.service.js";
 
 /**
  * Titling contract (spec 2026-09-03): a name only reaches the pane command
@@ -170,5 +174,57 @@ describe("pane titling — who gets --name", () => {
     await subshells.update(created.id, { nameLocked: 1 });
     await manager.restartSubshell("u1", created.id);
     expect(tmux.newSubshellCmds[1]).toContain("'--name' 'Pinned'");
+  });
+});
+
+/**
+ * What a pane may name a subshell (operator's screenshot, 2026-09-18).
+ *
+ * A pane's title is program output, and programs write escape sequences into
+ * the same byte stream. The cleaner used to blank control characters ONE AT A
+ * TIME, which deleted the `ESC` that identified a sequence and kept its
+ * payload as if it were text — and the leading-punctuation trim then removed
+ * the introducer too. A Kitty graphics capability QUERY, which an agent emits
+ * to ask whether the terminal can show images, therefore arrived in the
+ * sidebar as a subshell named `Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA`.
+ *
+ * The rule now: a sequence is removed WHOLE, so a title that is nothing but a
+ * sequence normalizes to "" and the caller keeps the name it already had.
+ */
+describe("normalizePaneTitle", () => {
+  const norm = normalizePaneTitleForTests;
+
+  it("drops a Kitty graphics query instead of laundering it into a name", () => {
+    expect(norm("\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")).toBe("");
+  });
+
+  // A title captured mid-sequence has no displayable remainder, and keeping
+  // the tail is exactly how the payload got through before.
+  it("drops an UNTERMINATED sequence rather than keeping its tail", () => {
+    expect(norm("\x1b_Gi=31,s=1,v=1,a=q")).toBe("");
+  });
+
+  // The same defect in its commonest clothing: a colour code used to become
+  // "31m…" glued to the front of the real title.
+  it("removes CSI colour codes without gluing their parameters to the text", () => {
+    expect(norm("\x1b[31mnpm run dev\x1b[0m")).toBe("npm run dev");
+  });
+
+  it("drops an OSC string whole", () => {
+    expect(norm("\x1b]0;hello\x07")).toBe("");
+  });
+
+  // The behaviour that already existed and must survive the reordering.
+  it("still strips the harness's cycling status glyph", () => {
+    expect(norm("✳ Building the thing")).toBe("Building the thing");
+  });
+
+  it("still passes an ordinary title through, and still bounds it", () => {
+    expect(norm("my-macbook")).toBe("my-macbook");
+    expect(norm("x".repeat(200))).toHaveLength(120);
+  });
+
+  it("still answers empty for a title with nothing displayable", () => {
+    expect(norm("   \x00\x07  ")).toBe("");
   });
 });
