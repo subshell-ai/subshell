@@ -1,5 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { normalizeLabel } from "@internal/subshell-protocol";
+import { NODE_NAME_MAX_UNITS, normalizeNodeName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
@@ -11,15 +11,20 @@ import { isUniqueNameViolation } from "@/lib/node-errors.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 
-/** Longest node display name. One spelling, shared by the schema and the
- * normalizer below so the cap cannot drift between them. */
-const NODE_NAME_MAX = 64;
-
-/** Rename body — same name shape enroll enforces (keeps picker labels sane). */
+/**
+ * Rename body — the same name shape enroll enforces (keeps picker labels sane),
+ * including the cap: `NODE_NAME_MAX` and `normalizeNodeName` come from
+ * `@internal/subshell-protocol` since 2026-09-17, so the route that names a node at
+ * enroll and the route that renames it afterwards cannot disagree about what a name is,
+ * and neither can the agent's `--name` preflight or the desktop Enroll field. The
+ * `maxLength` is the unit-sized transport guard, not that cap: JSON Schema counts
+ * UTF-16 code units, so `NODE_NAME_MAX` here would refuse a name `normalizeNodeName`
+ * counts as legal.
+ */
 const RenameBodySchema = t.Object({
   name: t.String({
     minLength: 1,
-    maxLength: NODE_NAME_MAX,
+    maxLength: NODE_NAME_MAX_UNITS,
     description: "New display name (unique per owner); control characters are stripped and whitespace collapsed",
   }),
 });
@@ -52,7 +57,7 @@ export const renameNodeRoute = new Elysia()
       }
       if (!gate.canManage) throw new ForbiddenError();
 
-      const name = normalizeLabel(body.name, NODE_NAME_MAX);
+      const name = normalizeNodeName(body.name);
       if (!name) {
         return status(
           400,

@@ -13,12 +13,15 @@ subshell: node agent daemon
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
                  [--no-service] [--yes] [--json]
-                          the whole enrollment: checks tmux, enrolls, then offers
-                          to run the agent in the background and start it at
-                          login. --no-service skips that; --yes / a non-TTY take
-                          every default (the service one defaults to yes).
-  subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
-                          enrollment ONLY — the primitive that setup composes
+                          the whole enrollment: checks tmux, asks this machine's
+                          name, enrolls, then offers to run it in the background
+                          and start it at login. Without --name it ASKS (default:
+                          the hostname); --yes, --json or no terminal make the
+                          name required instead. --no-service skips the service
+                          question; --yes / a non-TTY take its default (yes).
+  subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
+                          enrollment ONLY — the primitive that setup composes; it
+                          asks nothing, so --name is required
   subshell configure --server <url> [--json]
                           repoint an ALREADY-enrolled node at a different control
                           plane. Keeps this node's identity and spends no setup
@@ -55,13 +58,15 @@ usage:
 
 ## setup — the enrollment you actually run
 
-`setup` composes the whole first-run sequence: the tmux preflight, `enroll`, one question ("run in the background and start at login?", default yes), the service install, and a line pointing at the node's page. `--no-service` enrolls and installs nothing in the background; `--yes` or a non-TTY (a `curl | bash` install, a CI runner) takes every default in silence. A piped install never sees a prompt.
+`setup` composes the whole first-run sequence: the tmux preflight, the name question, `enroll`, the service question ("run in the background and start at login?", default yes), the service install, and a line pointing at the node's page. tmux is checked before ANYTHING ELSE, so a machine that could host no pane costs neither a question nor the single-use key. Then it asks **"Name this node"**, prefilled with the machine's hostname — Enter accepts it, typing replaces it. `--name <n>` answers without asking, and it is **required** whenever nothing can be asked: with `--yes`, with `--json`, or with no terminal. The hostname is a default, never an assumed answer — a cancelled name prompt exits 1 and enrols nothing, leaving the setup key unspent. `--no-service` enrolls and installs nothing in the background; `--yes` or a non-TTY takes the service default in silence.
+
+The rendered `install.sh` reattaches your terminal before running this verb, so a human at a `curl | bash` install still sees both questions; a CI pipe has no terminal, which is what `--name` — and the script's `SUBSHELL_NODE_NAME` knob — are for.
 
 This is what the Nodes page's copy-paste one-liner ends up running. `enroll` stays underneath it as the primitive for anyone composing their own flow.
 
 ## enroll and configure — two commands that look alike and are not
 
-`enroll` spends a single-use setup key and is **destructive**: it overwrites `config.json`, mints a second node row on the plane, and discards the node key whose only home was the old file. Run it to join a plane, not to fix one.
+`enroll` spends a single-use setup key and is **destructive**: it overwrites `config.json`, mints a second node row on the plane, and discards the node key whose only home was the old file. Run it to join a plane, not to fix one. It takes `--name <n>` and requires it — the primitive asks nothing of anyone, and the old hostname default is gone, so a nameless `enroll` is a usage error before the tmux check, the identity, or the network.
 
 `configure --server <url>` is the answer to "the control plane moved". It rewrites the address in `config.json` and keeps the identity — same node id, same node key, same pinned control key — spends no setup key, and mints no second row. Restart the agent to apply it. Two limits worth knowing:
 

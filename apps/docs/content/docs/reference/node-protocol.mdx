@@ -18,7 +18,7 @@ Both directions cap frames at 1 MiB (1,048,576 bytes). Each handler enforces the
 
 ## 2. Enrollment
 
-A node is enrolled once, with a **single-use setup key** — `nsk_…`, valid 24 hours, shown once, stored only as a hash, revocable, audited. Mint one on the Nodes page ([Add a node](/nodes/add-node)).
+A node is enrolled once, with a **single-use setup key** — `nsk_…`, valid 24 hours, stored in plaintext and listed in full on the Setup keys page until it is used, expires, or is revoked; revocable, audited. Mint one on the Nodes page ([Add a node](/nodes/add-node)).
 
 1. The agent checks for tmux first — an unenrollable box should not burn a setup key — then generates its own **identity keypair** (P-256, for sealed channel delivery; a present-but-corrupt key file is quarantined, never silently rotated).
 2. It posts `POST /api/nodes/enroll` with the setup key, a name (≤ 64 characters), `os`/`arch`/`hostname`/`agentVersion`, and its public JWK. This is the one node route with **no auth guard** — the setup key *is* the credential.

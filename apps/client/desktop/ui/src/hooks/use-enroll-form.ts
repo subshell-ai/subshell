@@ -33,12 +33,17 @@ export interface EnrollForm {
    * `node_enroll`, or null when something is wrong — in which case NO spawn
    * happens and no key can be spent.
    */
-  validate: () => { server: string; key: string; name: string | null } | null;
+  validate: () => { server: string; key: string; name: string } | null;
   /**
-   * Clear the spent credential (and the name it was redeemed under).
+   * Clear the spent credential, and ONLY that.
    *
    * The key is spent whatever happened, but a consumed credential has no
-   * business sitting in a field where the next click could re-send it.
+   * business sitting in a field where the next click could re-send it. The NAME
+   * survives: since it became a required field rather than an optional one, a
+   * retry with a freshly minted key means typing the whole form again, and the
+   * name is neither a secret nor the thing that failed. (A taken name is the
+   * common retry, and the fix there is a different name, which is what the
+   * operator is about to type into this field anyway.)
    */
   clearSpentKey: () => void;
 }
@@ -64,7 +69,7 @@ export function useEnrollForm(): EnrollForm {
       return result.invalid ? null : result.args;
     },
     clearSpentKey: () => {
-      setValues((current) => ({ ...current, key: "", name: "" }));
+      setValues((current) => ({ ...current, key: "" }));
       setErrors(NO_ENROLL_ERRORS);
     },
   };

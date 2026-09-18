@@ -24,7 +24,7 @@ import {
   serviceStateLines,
   uninstallService,
 } from "./service.js";
-import { type ConfirmFn, promptConfirm, runSetup } from "./setup.js";
+import { type ConfirmFn, type PromptTextFn, promptConfirm, promptName, runSetup } from "./setup.js";
 import {
   applyUpdate,
   failedMarkerPath,
@@ -61,12 +61,15 @@ const USAGE = `subshell: node agent daemon
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
                  [--no-service] [--yes] [--json]
-                          the whole enrollment: checks tmux, enrolls, then offers
-                          to run the agent in the background and start it at
-                          login. --no-service skips that; --yes / a non-TTY take
-                          every default (the service one defaults to yes).
-  subshell enroll --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>] [--json]
-                          enrollment ONLY — the primitive that setup composes
+                          the whole enrollment: checks tmux, asks what to call
+                          this machine, enrolls, then offers to run it in the
+                          background and start it at login. Without --name it ASKS (default:
+                          the hostname); --yes, --json or no terminal make the
+                          name required instead. --no-service skips the service
+                          question; --yes / a non-TTY take its default (yes).
+  subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
+                          enrollment ONLY — the primitive that setup composes; it
+                          asks nothing, so --name is required
   subshell configure --server <url> [--json]
                           repoint an ALREADY-enrolled node at a different control
                           plane. Keeps this node's identity and spends no setup
@@ -347,6 +350,11 @@ export interface RunDeps {
    */
   maintenance?: MaintenanceDeps;
   /**
+   * How `setup` asks for the node's name (default: {@link promptName}, a clack
+   * text input prefilled with this machine's hostname).
+   */
+  promptName?: PromptTextFn;
+  /**
    * How `setup` asks its one question (default: {@link promptConfirm}, a clack
    * confirm). Tests inject a plain function, which is the whole point of the
    * seam — nothing has to parse a rendered prompt to know what was asked.
@@ -473,11 +481,31 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         if (!server) missing.push("--server <url>");
         if (!key) missing.push("--key <nsk_…>");
         if (missing.length > 0) throw new UsageError(`setup requires ${missing.join(" and ")}`);
+        const interactive = deps.interactive ?? Boolean(process.stdin.isTTY);
+        // `--name` is required of anything that cannot answer for it. The name is
+        // asked ON THIS MACHINE now (the Add-node dialog stopped guessing it), and
+        // a prompt needs a terminal — so `--yes`, `--json` and a piped install all
+        // have to bring the name with them. Checked here, with the other argv
+        // checks, so it reads as the usage error it is rather than as a runtime
+        // refusal, and it stays ahead of the tmux preflight: an unusable command
+        // line is nobody's machine's fault. `SUBSHELL_NODE_NAME` is how the
+        // rendered one-liner supplies it, since `curl | bash` has no argv.
+        // A blank `--name` IS no name — `--name ""` from a shell variable that
+        // expanded to nothing must not become a usage error while the same script
+        // with the flag omitted would have been asked. One rule for both, and
+        // `runSetup` then asks exactly as it does for the absent case.
+        const name = parsed.flags.name?.trim() ?? "";
+        if (name === "" && (parsed.flags.json === "1" || parsed.flags.yes === "1" || !interactive)) {
+          throw new UsageError(
+            "setup requires --name <n> when nothing can be asked (--yes, --json, or no terminal); " +
+              "the install one-liner takes it as SUBSHELL_NODE_NAME",
+          );
+        }
         return await runSetup(
           {
             server,
             setupKey: key,
-            name: parsed.flags.name,
+            name,
             dataDir: parsed.flags.dataDir,
             noService: parsed.flags.noService === "1",
             assumeYes: parsed.flags.yes === "1",
@@ -485,17 +513,22 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           },
           {
             service: deps.service ?? DEFAULT_DEPS(configExists),
+            promptName: deps.promptName ?? promptName,
             prompt: deps.prompt ?? promptConfirm,
-            interactive: deps.interactive ?? Boolean(process.stdin.isTTY),
+            interactive,
           },
         );
       }
       case "enroll": {
         const server = parsed.flags.server;
         const key = parsed.flags.key;
+        // The primitive asks nothing of anyone, so every fact arrives as an
+        // argument — including the name. It used to default to the hostname here,
+        // which is how a node ended up named after a machine nobody had asked.
         const missing: string[] = [];
         if (!server) missing.push("--server <url>");
         if (!key) missing.push("--key <nsk_…>");
+        if (!parsed.flags.name?.trim()) missing.push("--name <n>");
         if (missing.length > 0) throw new UsageError(`enroll requires ${missing.join(" and ")}`);
         const enrolled = await runEnroll({
           server,

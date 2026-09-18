@@ -105,14 +105,15 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   await expect(body.getByText("this machine", { exact: false })).not.toBeVisible();
   await expect(body.getByText("online", { exact: true })).toBeVisible();
 
-  // Add node → name it → one-time reveal.
+  // Add node → one press → the reveal. There is no field any more: the node is
+  // named by the machine that becomes it, so the first step IS the mint.
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Add a node" })).toBeVisible();
-  await dialog.locator("#node-name").fill("e2e-box");
+  await expect(dialog.locator("#node-name")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Create setup key" }).click();
 
-  await expect(dialog.getByRole("heading", { name: "Run this on the new machine" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Set up the new machine" })).toBeVisible();
 
   // The rendered install command: curl … /install.sh?setup_key=<the key> |
   // bash. Since 2026-09-18 the key's only carrier is a COMMAND (the
@@ -125,17 +126,48 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   // lives in the unit suite.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
   await expect(command).toBeVisible();
-  const key = ((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "";
-  expect(key, "plaintext key rides the command").toMatch(/^nsk_/);
+  // `mintedKey`, not `key`: Playwright's `page.keyboard` is in scope under the
+  // fixture name too, and a shadowed input there is the kind of bug that only
+  // shows up when someone later reaches for `keyboard` in this test.
+  const mintedKey = ((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "";
+  expect(mintedKey, "plaintext key rides the command").toMatch(/^nsk_/);
   await expect(dialog.getByText(/^nsk_/)).toHaveCount(0);
-  await expect(command).toContainText(`?setup_key=${key}`);
+  await expect(command).toContainText(`?setup_key=${mintedKey}`);
+
+  // The second path: the Subshell Client app takes two VALUES rather than a
+  // command, so the key must be readable as a row of its own — which is the same
+  // disclosure the card below makes, and the reason `^nsk_` counts differently here.
+  await dialog.getByRole("button", { name: "Desktop App" }).click();
+  await expect(dialog.getByRole("button", { name: "Copy server address" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Copy setup key" })).toBeVisible();
+  await expect(dialog.getByText("Setup key", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Terminal" }).click();
+  await expect(dialog.getByText(/^nsk_/)).toHaveCount(0); // back to one carrier: the command
 
   await dialog.getByRole("button", { name: "Done" }).click();
 
-  // The minted key is listed for revocation after the dialog closes.
+  // The minted key is LISTED, in full, after the dialog closes — the point of
+  // storing it in the clear. Revocable as before, and now re-readable too, so a
+  // closed dialog is no longer a re-mint.
   await expect(page.getByText("Setup keys", { exact: true })).toBeVisible();
-  await expect(page.getByText("e2e-box", { exact: true })).toBeVisible();
+  await expect(page.getByText(mintedKey, { exact: true })).toBeVisible();
   await expect(page.getByText("unused", { exact: true })).toBeVisible();
+
+  // And the card rebuilds the COMMAND, not merely the key text. This is the half that
+  // used to cost a second single-use key: read the key back, but the one-liner was
+  // only ever in the dialog that had closed. The regex is safe unescaped — the mint
+  // shape is `nsk_` plus base64url.
+  // `exact`, or the name matches the card's own "Copy setup key" and the dialog's
+  // "Create setup key" as well — three elements, strict mode, no click.
+  await page.getByRole("button", { name: "Setup", exact: true }).click();
+  const steps = page.getByRole("dialog");
+  await expect(steps.getByText("Set up a machine with this key")).toBeVisible();
+  await expect(steps.getByText(new RegExp(`setup_key=${mintedKey}`)).first()).toBeVisible();
+  // The other path, from the same key: the two VALUES Subshell Client takes.
+  await steps.getByRole("button", { name: "Desktop App" }).click();
+  await expect(steps.getByText(mintedKey, { exact: true })).toBeVisible();
+  await steps.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
 /**
@@ -171,7 +203,8 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
 
   const nonce = test.info().retry;
   const nodeName = `e2e-node-${nonce}`;
-  const keyLabel = `e2e-key-${nonce}`; // the dialog's LABEL — distinct from the node name so the /nodes row filter stays unambiguous
+  // No key label to clean up by: the list route answers with the key TEXT now,
+  // which is exactly what this test minted and what the teardown below matches.
   const subshellName = `e2e-remote-${nonce}`;
 
   // ── 1. API truth: the server's own address is loopback under the e2e stack,
@@ -187,9 +220,8 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await page.goto("/nodes");
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.locator("#node-name").fill(keyLabel);
   await dialog.getByRole("button", { name: "Create setup key" }).click();
-  await expect(dialog.getByRole("heading", { name: "Run this on the new machine" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Set up the new machine" })).toBeVisible();
   // The key's only carrier is a command now (the standalone box is gone,
   // 2026-09-18) — read it off the one-liner, not from a separate element.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
@@ -212,6 +244,12 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   expect(sh.ok(), await sh.text()).toBe(true);
   const script = await sh.text();
   expect(script).toContain("SUBSHELL_DATA_DIR");
+  // The name knob the revamp added: `curl … | SUBSHELL_NODE_NAME=… bash` is how a
+  // scripted one-liner names the node, because argv cannot cross the pipe and
+  // `setup` no longer guesses a hostname.
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
+  expect(script).toContain('if [ -n "${SUBSHELL_NODE_NAME:-}" ]; then');
+  expect(script).toContain('SETUP_NAME_ARGS=(--name "$SUBSHELL_NODE_NAME")');
   expect(script).toMatch(/\*:\/\/localhost\*/); // the loopback warning's case branch
   expect(script).toContain(`SERVER="${BASE_URL}"`);
   // The `server` param the address dropdown carries, asserted on the LIVE
@@ -481,9 +519,9 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     }
     try {
       const keys = (await (await request.get("/api/nodes/setup-keys")).json()) as {
-        keys: { id: string; label: string }[];
+        keys: { id: string; key: string }[];
       };
-      for (const k of keys.keys.filter((k) => k.label === keyLabel)) {
+      for (const k of keys.keys.filter((k) => k.key === setupKey)) {
         const rev = await request.delete(`/api/nodes/setup-keys/${k.id}`);
         if (!rev.ok() && rev.status() !== 404) leaks.push(`setup-key revoke: HTTP ${rev.status()}`);
       }

@@ -24,7 +24,11 @@ export type EnrollFieldName = "server" | "key" | "name";
 export const ENROLL_FIELDS: readonly EnrollField[] = [
   { name: "server", label: "Server URL", placeholder: "https://subshell.example.com" },
   { name: "key", label: "Setup key", placeholder: "nsk_…" },
-  { name: "name", label: "Node name (optional)", placeholder: "this machine's hostname" },
+  // Not "optional", and it is no longer blank-by-default: `enroll` requires a
+  // name since the 2026-09-17 node-setup revamp, because the Add-node dialog's
+  // guess was never what named the machine. This app asks the person standing at
+  // it, which is the one place that knows.
+  { name: "name", label: "Node name", placeholder: "e.g. mac mini" },
 ];
 
 /**
@@ -38,8 +42,12 @@ export const ENROLL_FIELDS: readonly EnrollField[] = [
  */
 export const SETUP_KEY_RE = /^nsk_[A-Za-z0-9_-]{32}$/;
 
-/** `EnrollBodySchema`'s `name` maxLength, which the CLI also pre-checks. */
-export const MAX_NODE_NAME_LEN = 64;
+/**
+ * The node-name cap, imported rather than restated. It was the third spelling of
+ * 64 in this repo (the route's schema, the CLI's pre-flight, this const);
+ * `NODE_NAME_MAX` in `@internal/subshell-protocol` is now the one, and
+ * `normalizeNodeName` beside it is what the control plane stores.
+ */
 
 /**
  * Shown live under the Server URL field, and never as a refusal.
@@ -54,12 +62,14 @@ export const LOOPBACK_NOTE =
 
 /** What every enrollment screen says about the key, in plain language. */
 export const ENROLL_NOTES: readonly string[] = [
-  "Mint a setup key in the browser first: Settings → Nodes → Add node. It is shown once, so copy it before closing " +
-    "that dialog.",
+  "Mint a setup key in the browser first: Nodes → Add node. It stays listed on the Nodes page until it is used, so " +
+    "closing that dialog is not losing the key.",
   "A setup key is single-use and expires after 24 hours. Anything that fails AFTER the control plane has accepted " +
     "it (a node name already taken on that server, or a server-side error) spends it permanently. The answer to " +
     "those is a NEW key, never a retry.",
-  "Leave the name blank to use this machine's hostname.",
+  "Whatever you call it here is the row on the Nodes page. The control plane stopped guessing this name — it used to " +
+    "label the KEY with whatever was typed there and name the machine after its hostname — so the choice is asked " +
+    "where the answer is.",
 ];
 
 /**

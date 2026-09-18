@@ -34,13 +34,43 @@ beforeEach(() => {
 
 afterAll(() => server?.stop(true));
 
+/** The body of the last POST any fake plane received, for assertions below. */
+let lastSeen: unknown;
+function seenBody(): Record<string, unknown> {
+  return (lastSeen ?? {}) as Record<string, unknown>;
+}
+
 function fakeControlPlane(onRequest: (req: Request) => Response | Promise<Response>): string {
-  server = Bun.serve({ port: 0, fetch: onRequest });
+  server = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      // Cloned, so the handler under test still gets the body itself.
+      if (req.method === "POST") {
+        try {
+          lastSeen = await req.clone().json();
+        } catch {
+          /* a non-JSON probe is not what this records */
+        }
+      }
+      return onRequest(req);
+    },
+  });
   return `http://localhost:${server.port}`;
 }
 
+/** `--name` is REQUIRED of `enroll` since the 2026-09-17 node-setup revamp. */
 function enrollArgv(serverUrl: string): string[] {
-  return ["enroll", "--server", serverUrl, "--key", "nsk_test_0123456789", "--data-dir", dataDir];
+  return [
+    "enroll",
+    "--server",
+    serverUrl,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    "test node",
+    "--data-dir",
+    dataDir,
+  ];
 }
 
 test("enroll posts the route-shaped body, persists config at 0600, exits 0", async () => {
@@ -63,7 +93,7 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
   );
   expect((["linux", "darwin", "unknown"] as unknown[]).includes(seen?.os)).toBe(true);
   expect(seen?.os).toBe(mapOs(process.platform));
-  expect(seen?.name).toBe(hostname()); // --name omitted → hostname default
+  expect(seen?.name).toBe("test node"); // required now; the hostname default is gone
   expect(seen?.hostname).toBe(hostname());
   expect(seen?.setupKey).toBe("nsk_test_0123456789");
   expect(seen?.agentVersion).toBe(AGENT_VERSION);
@@ -78,7 +108,7 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
     nodeKey: CANNED.nodeKey,
     controlPublicKey: CANNED.controlPublicKey,
     dataDir,
-    name: hostname(),
+    name: "test node",
     // Ledger 17c: the SERVER-REPORTED dial URL is persisted alongside the rest.
     nodeWsUrl: CANNED.wsUrl,
   });
@@ -101,7 +131,7 @@ test("enroll --json emits the config facts a GUI needs — and never the node ke
   expect(body).toEqual({
     nodeId: CANNED.nodeId,
     serverUrl: url,
-    name: hostname(),
+    name: "test node",
     dataDir,
     configPath: configPath(),
   });
@@ -353,7 +383,7 @@ test("server 400 with validationError details surfaces the field message", async
       { status: 400 },
     ),
   );
-  const res = await run(["enroll", "--server", url, "--key", "short", "--data-dir", dataDir]);
+  const res = await run(["enroll", "--server", url, "--key", "short", "--name", "box", "--data-dir", dataDir]);
   expect(res.code).toBe(1);
   expect(res.err).toInclude("setupKey: Expected string length greater or equal to 8");
   expect(existsSync(configPath())).toBe(false);
@@ -496,4 +526,110 @@ test("status without a config → code 1 pointing at enroll", async () => {
   const res = await run(["status"]);
   expect(res.code).toBe(1);
   expect(res.err.toLowerCase()).toInclude("enroll");
+});
+
+test("enroll without --name is a usage error naming it, and spends nothing", async () => {
+  // The hostname default is gone: a machine is named by the person standing at
+  // it (or by the script that says so), never by a guess this binary made.
+  let hits = 0;
+  const url = fakeControlPlane(() => {
+    hits++;
+    return Response.json(CANNED, { status: 201 });
+  });
+  const argv = ["enroll", "--server", url, "--key", "nsk_test_0123456789", "--data-dir", dataDir];
+  const res = await run(argv);
+  expect(res.code).toBe(2);
+  expect(res.err).toInclude("--name <n>");
+  expect(hits).toBe(0);
+  expect(existsSync(configPath())).toBe(false);
+
+  // `--name "   "` is the same absence: nothing printable to store.
+  const blank = await run([...argv, "--name", "   "]);
+  expect(blank.code).toBe(2);
+  expect(hits).toBe(0);
+});
+
+test("the name is normalized before it leaves this machine", async () => {
+  // One rule with the control plane: `normalizeNodeName` is what the enroll
+  // route and the rename route apply, so a pasted name with a newline in it
+  // cannot become two words in someone's log line.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const res = await run([
+    "enroll",
+    "--server",
+    url,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    "  mac\nmini\u0007two  ",
+    "--data-dir",
+    dataDir,
+  ]);
+  expect(res.code).toBe(0);
+  expect(seenBody().name).toBe("mac mini two");
+  expect((await loadConfig()).name).toBe("mac mini two");
+});
+
+test("an over-long --name refuses before the network rather than being truncated", async () => {
+  // The normalizer caps at NODE_NAME_MAX by SLICING, which would silently chop
+  // a 70-character name. The pre-flight existed for the hostname default and it
+  // earns its keep more now that a human typed the value.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const res = await run([
+    "enroll",
+    "--server",
+    url,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    "x".repeat(65),
+    "--data-dir",
+    dataDir,
+  ]);
+  expect(res.code).toBe(1);
+  expect(res.err).toInclude("65 characters");
+  expect(res.err).toInclude("64");
+});
+
+test("an astral --name is measured in characters, as every other door measures it", async () => {
+  // \u{1F5A5} is two UTF-16 units, so 40 of them are 80 units and 40 CHARACTERS.
+  // Measuring this pre-flight with `String.length` refused a name the desktop field
+  // accepted, Rust's `chars().count()` accepted, and `normalizeNodeName` capped at
+  // nothing — four doors that had just agreed on `NODE_NAME_MAX` while disagreeing on
+  // how to count it. The one that disagreed was the one that spends the setup key.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const name = "\u{1F5A5}".repeat(40);
+  const res = await run([
+    "enroll",
+    "--server",
+    url,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    name,
+    "--data-dir",
+    dataDir,
+  ]);
+  expect(res.code).toBe(0);
+  expect(seenBody().name).toBe(name);
+});
+
+test("an over-long astral --name says its length in characters, not in units", async () => {
+  // The message is what an operator acts on. Saying "130 characters" about a name
+  // they pasted as 65 emoji reads as a broken tool.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  const res = await run([
+    "enroll",
+    "--server",
+    url,
+    "--key",
+    "nsk_test_0123456789",
+    "--name",
+    "\u{1F5A5}".repeat(65),
+    "--data-dir",
+    dataDir,
+  ]);
+  expect(res.code).toBe(1);
+  expect(res.err).toInclude("65 characters");
+  expect(res.err).not.toInclude("130");
 });

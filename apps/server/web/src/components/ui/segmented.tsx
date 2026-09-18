@@ -30,7 +30,8 @@ export interface SegmentedProps<T extends string> {
 /**
  * A row of mutually exclusive choices — a bordered pill group where the
  * active option gets the `secondary` fill and every option carries
- * `aria-pressed`.
+ * `aria-pressed`. Options share the width EQUALLY, so the control reads as a
+ * switch between named states rather than as buttons followed by empty pill.
  *
  * The tiled/list toggle, the add-subshell dialog's mode switch, and the
  * split-placement picker were three hand-rolled copies of this. Buttons stay
@@ -45,6 +46,13 @@ export function Segmented<T extends string>({ ariaLabel, options, value, onChang
           key={option.value}
           type="button"
           size="sm"
+          // Every option takes an EQUAL share of the group. The container already
+          // fills its row, so without this a two-option switch is two buttons parked
+          // at the left edge of a pill with the rest of it empty — which reads as one
+          // control and dead space rather than as a choice between two (operator's
+          // call, 2026-09-18). `min-w-0` so a long label shrinks within its share
+          // instead of pushing the group past its container.
+          className="min-w-0 flex-1"
           variant={value === option.value ? "secondary" : "ghost"}
           aria-pressed={value === option.value}
           aria-label={option.ariaLabel}

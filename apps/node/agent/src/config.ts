@@ -19,7 +19,12 @@ export interface AgentConfig {
   controlPublicKey: string;
   /** Directory holding the identity keypair and runtime state. */
   dataDir: string;
-  /** Node display name (defaults to the hostname). */
+  /**
+   * Node display name — a LOCAL ECHO of the name this machine gave at enroll
+   * (asked by `setup`, required from `enroll`, normalized by `normalizeNodeName`),
+   * not a value this file decides. The control plane owns the row afterwards
+   * (`PATCH /api/nodes/:id`), which is why `configure` takes no `--name`.
+   */
   name: string;
   /**
    * The WS endpoint the SERVER reported at enroll (ledger 17c). Persisted so

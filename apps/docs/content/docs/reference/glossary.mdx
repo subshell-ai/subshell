@@ -41,7 +41,7 @@ Three of these words are load-bearing, and one style rule governs all of them: *
 
 **Server** — See [control plane](/about/index). This word names the control plane in these docs, in product names, and in `subshell-server`; the desktop app is "Subshell Server", the machine a node is not a "server".
 
-**Setup key** — The single-use, 24-hour, shown-once key (`nsk_…`) that enrolls a node. It is the enrollment credential: minting is gated by an admin toggle, and flipping that toggle off bounds the future without invalidating keys already handed out — deleting them revokes. → [Add a node](/nodes/add-node), [Registration and enrollment](/server/registration-enrollment)
+**Setup key** — The single-use, 24-hour key (`nsk_…`) that enrolls a node. It stays listed in full on the Setup keys list until it is used, expires, or is revoked — the server keeps it in plaintext to make that possible, bounded by the credential being one machine, one use, one day. It is the enrollment credential: minting is gated by an admin toggle, and flipping that toggle off bounds the future without invalidating keys already handed out — deleting them revokes. → [Add a node](/nodes/add-node), [Registration and enrollment](/server/registration-enrollment)
 
 **Share (view / edit)** — The two levels a subshell or node owner grants: **view** is read-only — list, detail, live terminal you cannot type into; **edit** adds interacting and managing — typing, rename, restart. Deleting and re-sharing stay with the owner, admins included; on a node, any share — even view — lets the grantee launch *their own* work there. → [Sharing](/use/sharing), [Sharing a node](/nodes/sharing)
 

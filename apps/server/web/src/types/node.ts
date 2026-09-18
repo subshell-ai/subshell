@@ -313,12 +313,20 @@ export interface NodeDetail extends Node {
   runningSubshells?: number;
 }
 
-/** One setup key in the management list — the secret is never here. */
+/**
+ * One setup key in the management list.
+ *
+ * It carries the KEY. That is the 2026-09-17 node-setup revamp: the mint stopped
+ * naming anything (the machine names itself at enroll), so the label that used to
+ * title this row named nothing but the row, and an unused key the dialog was
+ * closed on could be revoked but not re-read. Single use, 24 h, owner-scoped —
+ * `docs/security.md` accounts for the disclosure.
+ */
 export interface SetupKeyRow {
   /** Setup key id (used for revocation) */
   id: string;
-  /** Human label given at creation */
-  label: string;
+  /** The `nsk_…` key itself — inert once used or expired */
+  key: string;
   /** ISO 8601 creation timestamp */
   createdAt: string;
   /** ISO 8601 expiry timestamp (24 h after creation) */
@@ -329,11 +337,11 @@ export interface SetupKeyRow {
   consumedNodeId: string | null;
 }
 
-/** The create-setup-key response — the plaintext `nsk_` key is delivered exactly once, here. */
+/** The create-setup-key response — a convenience copy of what the Setup keys list also carries. */
 export interface CreatedSetupKey {
   /** Setup key id (for later revocation) */
   id: string;
-  /** The plaintext setup key — shown once, then never again */
+  /** The setup key — the same text the list below renders */
   key: string;
   /** ISO 8601 expiry (24 h from creation) */
   expiresAt: string;

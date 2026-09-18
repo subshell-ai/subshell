@@ -203,7 +203,13 @@ export function normalizeLabel(raw: string, max: number): string {
     const code = ch.codePointAt(0) ?? 0;
     out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : ch;
   }
-  return out.replace(/\s+/g, " ").trim().slice(0, max);
+  // Capped over CODE POINTS, which is what the loop above already iterates and
+  // what every other cap on these labels counts — the agent's `--name` preflight,
+  // the desktop form, the control plane's `chars().count()`. `String.prototype.slice`
+  // counts UTF-16 units, so it would both chop an emoji name in half and, at
+  // exactly the boundary, leave a lone surrogate: a string nothing downstream can
+  // render, hash consistently, or compare to itself.
+  return [...out.replace(/\s+/g, " ").trim()].slice(0, max).join("");
 }
 
 /**
@@ -219,4 +225,45 @@ export function normalizeLabel(raw: string, max: number): string {
  */
 export function normalizeDeviceLabel(raw: string): string {
   return normalizeLabel(raw, DEVICE_LABEL_MAX);
+}
+
+/**
+ * Longest node display name, and the ONE spelling of it.
+ *
+ * It was three: the rename route's private const, the agent's `MAX_NAME_LEN`, and the
+ * desktop app's `MAX_NODE_NAME_LEN`, each a comment away from the enroll route's
+ * `maxLength`. A node name now arrives from four places — `subshell setup`'s prompt,
+ * `--name`, the desktop Enroll field and enroll's body — so the cap lives here and each
+ * site imports it.
+ */
+export const NODE_NAME_MAX = 64;
+
+/**
+ * The UTF-16 ceiling that admits every legal {@link NODE_NAME_MAX}-character name.
+ *
+ * A cap written in CHARACTERS cannot be handed to a reader that counts CODE UNITS,
+ * and two do: JSON Schema's `maxLength` — the enroll and rename bodies, where a
+ * `64` would 400 a name of 40 emoji that the normalizer counts as 40 characters —
+ * and an HTML `maxlength` attribute. A code point occupies at most two units, so twice
+ * the cap admits every name the shared rule accepts and nothing it would not cap
+ * anyway. The semantic limit stays {@link normalizeNodeName}'s; this is the
+ * transport guard sized so it never fires before that one does.
+ */
+export const NODE_NAME_MAX_UNITS = NODE_NAME_MAX * 2;
+
+/**
+ * The node-name binding of {@link normalizeLabel}.
+ *
+ * A node name is the row a person reads on the Nodes page, the pickers and the clone
+ * dialog, and it reaches log lines and the terminal's menu — so it is sanitized by the
+ * same rule as every other human-chosen label rather than by a length check alone.
+ * Enroll, rename, the agent and the desktop app all call THIS, so a name cannot be
+ * stored differently depending on which door it came through: an empty result means
+ * "nothing printable was entered", and a caller refuses rather than storing the empty.
+ *
+ * @param raw - A candidate node name
+ * @returns The cleaned name, empty when nothing usable remains
+ */
+export function normalizeNodeName(raw: string): string {
+  return normalizeLabel(raw, NODE_NAME_MAX);
 }

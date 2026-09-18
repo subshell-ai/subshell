@@ -41,8 +41,10 @@ curl -sf -c "$JAR" -X POST "$BASE/api/auth/sign-up/email" -H 'content-type: appl
   -d '{"email":"a@b.test","password":"correct-horse-battery","name":"Admin"}' >/dev/null || fail "sign-up"
 curl -s -c "$JAR" -X POST "$BASE/api/auth/sign-in/email" -H 'content-type: application/json' \
   -d '{"email":"a@b.test","password":"correct-horse-battery"}' >/dev/null
-KEY=$(curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" -H 'content-type: application/json' \
-  -d '{"label":"e2e"}' | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')
+# No body: the mint names nothing since the node-setup revamp — a node is named
+# by the machine that becomes it. `-d '{}'` would work too, and would hide the fact
+# that the endpoint takes nothing.
+KEY=$(curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')
 [ -n "$KEY" ] || fail "no setup key"
 ok "admin + setup key ready"
 
@@ -51,8 +53,31 @@ export HOME="$W/fakehome"
 export SUBSHELL_CONFIG_HOME="$W/fakehome/.config/subshell"
 export SUBSHELL_NO_SERVICE=1
 mkdir -p "$HOME"
+
+# FIRST the nameless pipe, which is the case this revamp made impossible: there is
+# no terminal to ask and no name in the command, so `setup` refuses. It must refuse
+# as a usage error (2), say what to do about it, and — the part only a compiled run
+# can prove — leave the single-use key UNSPENT, because the refusal happens before
+# any network call. Everything below then runs with the name supplied and redeems
+# the very same key.
 set +e
-curl -fsSL "$BASE/install.sh?setup_key=$KEY" | bash > "$W/install.out" 2>&1
+curl -fsSL "$BASE/install.sh?setup_key=$KEY" | bash > "$W/nameless.out" 2>&1
+RC=$?
+set -e
+cat "$W/nameless.out"
+[ "$RC" -eq 2 ] || fail "a nameless piped install exited $RC, expected the usage error 2"
+grep -q -- '--name <n>' "$W/nameless.out" || fail "the refusal does not name --name"
+grep -q "SUBSHELL_NODE_NAME" "$W/nameless.out" || fail "the refusal does not name the pipe's own knob"
+ok "a nameless one-liner refuses with the usage error, naming both fixes"
+
+# The key is still redeemable: the control plane has never seen this attempt.
+curl -s -b "$JAR" "$BASE/api/nodes/setup-keys" | grep -q '"usedAt":null' || fail "the nameless attempt spent the key"
+ok "the spent-by-nobody key is still unused"
+
+set +e
+# The assignment sits on the BASH side on purpose: `VAR=… curl … | bash` would
+# export it to curl, which has no use for it, and the installer would run nameless.
+curl -fsSL "$BASE/install.sh?setup_key=$KEY" | SUBSHELL_NODE_NAME="e2e one-liner" bash > "$W/install.out" 2>&1
 RC=$?
 set -e
 cat "$W/install.out"
@@ -68,6 +93,13 @@ grep -q "/nodes" "$W/install.out" || fail "never named the nodes page"
 ok "named the nodes page as the next step"
 curl -s -b "$JAR" "$BASE/api/nodes" | grep -q '"kind":"agent"' || fail "node row never created"
 ok "the node is enrolled on the control plane"
+
+# The name crossed the pipe as ONE value: had the script expanded
+# $SUBSHELL_NODE_NAME unquoted, the plane would hold "e2e" and the agent would have
+# treated "one-liner" as a stray argument.
+curl -s -b "$JAR" "$BASE/api/nodes" | grep -q '"name":"e2e one-liner"' \
+  || fail "SUBSHELL_NODE_NAME did not reach the node row intact"
+ok "SUBSHELL_NODE_NAME named the node, spaces intact"
 
 echo
 echo "INSTALL.SH E2E PASSED"

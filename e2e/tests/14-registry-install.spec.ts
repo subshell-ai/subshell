@@ -91,7 +91,6 @@ test("a registry plugin installed on the control plane launches on a node that h
 
   const nonce = test.info().retry;
   const nodeName = `e2e-reg-${nonce}`;
-  const keyLabel = `e2e-reg-key-${nonce}`;
   const subshellName = `e2e-reg-pane-${nonce}`;
 
   const home = mkdtempSync(path.join(tmpdir(), "subshell-e2e-reg-"));
@@ -126,7 +125,10 @@ test("a registry plugin installed on the control plane launches on a node that h
     // exactly spec 12's idiom; the env carries PI_PATH (stub/pi) which is
     // the ONLY harness binary this node has — and the only one the fixture's
     // detect block can find.
-    const keyRes = await request.post("/api/nodes/setup-keys", { data: { label: keyLabel } });
+    // No body: the mint takes nothing since the node names itself. Posting the old
+    // `label` would still pass — a route ignores what it does not read — which is
+    // exactly why it should not be here.
+    const keyRes = await request.post("/api/nodes/setup-keys");
     expect(keyRes.ok(), await keyRes.text()).toBe(true);
     const { id: mintedId, key } = (await keyRes.json()) as { id: string; key: string };
     setupKeyId = mintedId;

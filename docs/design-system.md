@@ -98,6 +98,15 @@ admitted here.
   dependent setting sits BELOW the group after a rule, never indented under one
   option; its dependency is a disabled control that says why and names what
   would answer. *("needs the box above" named a widget.)*
+- **Copy affordance** — the copy ICON, at `icon-sm`, never the word "Copy" as a button
+  label, and never a caption of its own: what is copied is named by `aria-label`
+  (`Copy server address`), and the icon is a `Check` in `text-success` for the 1.5 s the
+  confirmation is up (`server address copied`). On a screen holding two of them the name
+  is not optional — the buttons are otherwise identical pixels, so the label is the only
+  thing that tells an address from a key. *(One act, five affordances: a bordered "Copy"
+  on the command rows, "Copied" in the API-key dialog, a named icon in a preset row, an
+  unnamed icon in a fact list. The word also repeated the thing the monospace value
+  beside it had already said, in the densest rows in the app.)*
 - **Long action** — spinner + the process's OWN last line, verbatim + an `m:ss`
   clock. No invented percentage. The footer does not repeat the pane.
   *(Installs sat blind under ten-minute deadlines.)*
@@ -129,6 +138,8 @@ admitted here.
   `accessibilityState`), not only drawn.
 - `focus-visible` ring from `--ring` on every interactive element.
 - Decorative means `aria-hidden`.
+- An icon-only control is NAMED (`aria-label`, or `accessibilityLabel` on the native
+  surfaces). An icon with no label is not a quiet control, it is an unnamed one.
 - Contrast: `muted-foreground` on `card` and `background` clears WCAG AA 4.5:1 —
   computed by the check, not trusted.
 - Colour never carries meaning alone.

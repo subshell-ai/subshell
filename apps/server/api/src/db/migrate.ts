@@ -32,6 +32,7 @@ import * as workspaceDraftsMigration from "@/db/migrations/0029-workspace-drafts
 import * as userDisabledMigration from "@/db/migrations/0030-user-disabled.js";
 import * as nodeMaintenanceMigration from "@/db/migrations/0031-node-maintenance.js";
 import * as setupStepMigration from "@/db/migrations/0032-setup-step.js";
+import * as setupKeyPlaintextMigration from "@/db/migrations/0033-setup-key-plaintext.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -87,6 +88,10 @@ export async function runMigrations(): Promise<void> {
           // The first-run wizard's resume bookmark: `user_meta.setup_step`,
           // NULL = no wizard in progress (spec 2026-09-16).
           "0032-setup-step": setupStepMigration,
+          // Setup keys carry their own text and no label: the key is shown on
+          // the Setup keys page, and a node names itself at the machine
+          // (node-setup revamp, 2026-09-17). Drops every outstanding key.
+          "0033-setup-key-plaintext": setupKeyPlaintextMigration,
         };
       },
     },

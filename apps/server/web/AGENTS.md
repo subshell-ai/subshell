@@ -340,9 +340,11 @@ someone a machine is quiet while panes are still alive on it. The wording is
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
-Add-node dialog's step 2 has an **address dropdown, and it names what the
+Add-node dialog's reveal has an **address dropdown, and it names what the
 node dials forever** (operator's call, 2026-09-18), not merely the curl's
-host. Rows come
+host — and it sits ABOVE the Terminal / Desktop App switch rather than inside
+the terminal panel, because both paths need the same address: the script bakes
+it, and the app's Connect step is typed this same URL. Rows come
 from the same `lib/install-addresses.ts` the mobile picker builds — the
 trusted-origin allowlist, loopback dropped when anything else is known,
 falling back to `appBaseUrl` alone when nothing is (`window.location.origin`
@@ -352,7 +354,7 @@ registry** (`api/install-script.ts`) — because the process cannot observe its
 own external address (a TLS proxy shows it loopback, the `Host` header is
 client-written, and several names are simultaneously true), so the operator's
 choice has to arrive written down, like NetBird's `--management-url` and the
-dialog's own `subshell enroll --server`. `&server=` is carried ONLY when the
+dialog's own `subshell setup --server`. `&server=` is carried ONLY when the
 pick deviates from `APP_BASE_URL`, so the stock command is byte-identical to
 the one this predates. The amber "APP_BASE_URL points at loopback… replace
 the host" paragraph is GONE (operator's call, 2026-09-18): its advice could
@@ -361,28 +363,70 @@ the baked `SERVER` came from config — and the dropdown replaced the whole
 sentence with the control it was telling you to build by hand. The script's
 runtime loopback guard stays: it fires on the new machine, where "is this
 address wrong *from here*" is finally knowable. The dialog also reads `nodeArtifactTargets` — the
-triples the server actually serves — and names the missing ones (in step 1,
-BEFORE a single-use key is minted, and in step 2 with a copyable
-`subshell enroll` fallback): a binary-only server install publishes no agent
+triples the server actually serves — and names the missing ones (on the mint
+screen, BEFORE a single-use key is minted, and on the terminal panel with a
+copyable `subshell setup` fallback — `setup`, not `enroll`, because `enroll`
+requires `--name` and a person reading a command off a browser should be ASKED
+for the name instead): a binary-only server install publishes no agent
 binaries until `release:node` runs, and the one-liner 404s on every machine
 until then. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-
-published artifact set is visible at once.
-Step 2 is ONE copy target (operator's call, 2026-09-18): the standalone setup-
-key box, its "the setup key below is shown once" subtitle, and the tmux
-paragraph are GONE — the command already carries the key, so the box was a
-second thing to copy for one paste, and tmux is the script's own WARNING
-then `subshell setup`'s refusal — the script deliberately does not exit
-(`install-script.ts`: "a warning rather than a refusal"), `assertTmux` is
-the one that refuses, and neither needs a paragraph in the dialog. The two explanatory sentences
-(~/.local/bin + the per-platform first-run download) merged into the one
-paragraph they always described; the "Single-use, expires in 24 h…" line
-stays, and the key now lives inside commands and NEVER outside one — one
-row in the common shape, TWO (curl + the enroll fallback, alternatives
-that each carry it) on the air-gapped branch, which is why the invariant
-is stated that way rather than as "shown once on screen"; the kept line
-speaks of the only TIME, which is true in both shapes.
+published artifact set is visible at once. Neither note follows the operator onto
+the **Desktop App** panel, and that is the point of that path: the app ships its
+own agent binary, so what this server has or has not published is nobody's
+problem on that machine. The amber refusal DOES name the app as the third door
+while the operator is still choosing.
+**The dialog asks no name, and the invariant about the key moved.** Its first
+screen used to be a "Node name" field whose text became only the setup key's
+`label` — the one-liner never passed it on, so the node was named by its own
+hostname whatever was typed. With the 2026-09-17 revamp the field is gone, the mint
+takes no body, and the name is asked on the machine (`subshell setup`'s first
+question, `--name` for a script, Subshell Client's required Enroll field). So step 1
+is ONE press.
+
+What each panel shows is now the SHORTEST true version of itself, because the
+explanatory prose was cut on 2026-09-18 (operator's call): the terminal panel had a
+paragraph walking through what the script does ("installs the agent to
+`~/.local/bin`, asks what to call this machine, enrolls it, and then asks about the
+background service…") and the app panel had one walking through opening the app
+("In Subshell Client, open Window → This machine…"). **Both are gone** — the command
+and the two labelled value rows ARE the instruction, and the script narrates itself on
+the machine it runs on. `add-node-dialog.test.tsx` asserts each absence, so neither
+regrows as a well-meant restoration. So: **on the terminal panel the key lives inside
+a command and never outside one** (one row in the common shape, two — curl and the
+`setup` fallback, alternatives that each carry it — on the air-gapped branch), while
+the app panel shows the two VALUES its Enroll step takes, address and key, each with
+its own copy button that `label`s what it copies. The standalone key box, its "shown
+once" subtitle and the tmux paragraph stay gone too. Two sentences of guidance
+survive, and both sit where they can still change what the operator does: the amber
+no-binary note and the first-run-per-platform sentence, beside the MINT and before the
+key exists — after the press the key is minted and the command gets copied either way.
+
+**The reveal is its own component**, `components/nodes/node-key-setup.tsx`
+(`NodeKeySetup`, plus `installCommandFor` / `setupCommandFor` / `useSetupKeyVerdict`),
+because a second surface needs it: the address picker, the `Terminal | Desktop App`
+switch and both panels are a function of a key and of public settings, not of a key
+that was minted thirty seconds ago. `AddNodeDialog` keeps only what belongs to a
+just-minted key — the create press and the enrollment watcher — and `SetupKeysSection`
+renders the same fields for a key minted earlier.
+
+`components/nodes/setup-keys-section.tsx` is that card, and it is the reason the
+server can show a key after the mint: `GET /api/nodes/setup-keys` returns each of the
+caller's own rows WITH its key text (owner-scoped, cookie-only — a bearer credential
+cannot enumerate enrollment doors). The row's title is the key, with
+`CopyableValue`'s copy affordance, because the label that used to title it named
+nothing a person could match to a machine. `keyState` still decides
+unused / used / expired from `usedAt` and `expiresAt`, which is what keeps the
+disclosure honest: a spent or stale row's key is inert, and the badge says so.
+
+The row also carries **`Setup`, on the `unused` rows only** — the card hands back the
+COMMAND as well as the key. That was the remaining half of the defect: closing the
+dialog mid-copy lost the one-liner, and the only way to re-read instructions that had
+never actually been lost was to mint a SECOND single-use key. The button opens
+`KeySetupDialog`, which is `NodeKeySetup` in a dialog with a Done button and nothing
+else. A used or expired row gets no such button by design: its key is inert, and
+walking someone to a 401 they cannot act on is not an instruction.
 
 ## Subshell for Mobile (the PWA install dialog)
 

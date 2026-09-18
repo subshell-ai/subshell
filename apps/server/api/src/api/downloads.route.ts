@@ -33,7 +33,7 @@ const DownloadQuerySchema = t.Object({
   setup_key: t.Optional(
     t.String({
       description:
-        "One-time `nsk_…` setup key (Settings → Node setup keys); the machine-path alternative to a session cookie; checked without being consumed",
+        "One-time `nsk_…` setup key, minted on the Nodes page; the machine-path alternative to a session cookie; checked without being consumed",
     }),
   ),
   update_token: t.Optional(

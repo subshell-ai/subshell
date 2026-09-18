@@ -108,11 +108,14 @@ pub enum AgentCommand {
     /// One `service` verb, `--force` only where the CLI accepts it.
     Service { verb: ServiceCommand, force: bool },
     /// `enroll --json`. Destructive; guarded in [`node_enroll`].
-    Enroll {
-        server: String,
-        key: String,
-        name: Option<String>,
-    },
+    ///
+    /// `name` is a `String` and always reaches the CLI as `--name`, because the
+    /// CLI made it required (2026-09-17): `enroll` is the primitive that takes
+    /// every fact as an argument and asks nothing of anyone, and the hostname
+    /// default it used to fall back to is how a machine ended up named something
+    /// nobody had chosen. The app asks, so this variant cannot represent a
+    /// nameless enroll at all.
+    Enroll { server: String, key: String, name: String },
     /// `configure --json` — repoint an ALREADY-enrolled node.
     ///
     /// The non-destructive counterpart to [`AgentCommand::Enroll`], and the
@@ -145,11 +148,9 @@ impl AgentCommand {
                     server.clone(),
                     "--key".into(),
                     key.clone(),
+                    "--name".into(),
+                    name.clone(),
                 ];
-                if let Some(n) = name {
-                    args.push("--name".into());
-                    args.push(n.clone());
-                }
                 // `--json` so nothing here screen-scrapes the human line for
                 // the node id; the body deliberately omits the node key.
                 args.push("--json".into());
@@ -1042,19 +1043,26 @@ pub fn validate_setup_key(raw: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-/// Validate an optional node name. Absent (or blank) means "let the agent
-/// default to this machine's hostname", which is what the CLI does.
-pub fn validate_node_name(raw: Option<&str>) -> Result<Option<String>, String> {
-    let Some(name) = raw.map(str::trim).filter(|n| !n.is_empty()) else {
-        return Ok(None);
-    };
+/// The node's display name, REQUIRED, trimmed.
+///
+/// The three rules of this form are shared with the bundled page
+/// (`ui/src/lib/enroll-validation.ts`) and with the CLI, which refuses a
+/// nameless `enroll` outright. Trimming happens HERE so a stray space is not
+/// visible in the argv the CLI then re-normalizes; the cap is checked on the
+/// trimmed value because the control plane counts characters and a 400 from it
+/// costs the single-use setup key.
+pub fn validate_node_name(raw: &str) -> Result<String, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("name this machine — the Nodes page lists it by this name".into());
+    }
     let len = name.chars().count();
     if len > MAX_NODE_NAME_LEN {
         return Err(format!(
             "that name is {len} characters — the control plane accepts at most {MAX_NODE_NAME_LEN}"
         ));
     }
-    Ok(Some(name.to_string()))
+    Ok(name.to_string())
 }
 
 /// What this machine already is, as far as `config.json` can say.
@@ -1129,7 +1137,7 @@ pub fn node_enroll(
     settings: State<'_, SettingsState>,
     server: String,
     key: String,
-    name: Option<String>,
+    name: String,
     confirm: bool,
 ) -> EnrollOutcome {
     let server = match validate_server_url(&server) {
@@ -1140,7 +1148,7 @@ pub fn node_enroll(
         Ok(k) => k,
         Err(e) => return EnrollOutcome::refused(e),
     };
-    let name = match validate_node_name(name.as_deref()) {
+    let name = match validate_node_name(&name) {
         Ok(n) => n,
         Err(e) => return EnrollOutcome::refused(e),
     };
@@ -1618,12 +1626,7 @@ mod command_set_tests {
         out.push(AgentCommand::Enroll {
             server: "https://subshell.example.com".into(),
             key: "nsk_0123456789012345678901234567890a".into(),
-            name: Some("workstation".into()),
-        });
-        out.push(AgentCommand::Enroll {
-            server: "https://subshell.example.com".into(),
-            key: "nsk_0123456789012345678901234567890a".into(),
-            name: None,
+            name: "workstation".into(),
         });
         out
     }
@@ -1695,14 +1698,18 @@ mod command_set_tests {
     }
 
     #[test]
-    fn enroll_passes_the_name_only_when_there_is_one() {
-        let with = AgentCommand::Enroll {
+    fn enroll_always_carries_the_name() {
+        // There is no nameless spelling to test: the variant cannot hold one, and
+        // the CLI would refuse it as a usage error. This pins the argv a nameless
+        // spawn used to produce — `enroll` without `--name` — is impossible.
+        let args = AgentCommand::Enroll {
             server: "https://x.example".into(),
             key: "nsk_k".into(),
-            name: Some("box".into()),
-        };
+            name: "box".into(),
+        }
+        .args();
         assert_eq!(
-            with.args(),
+            args,
             [
                 "enroll",
                 "--server",
@@ -1714,12 +1721,6 @@ mod command_set_tests {
                 "--json"
             ]
         );
-        let without = AgentCommand::Enroll {
-            server: "https://x.example".into(),
-            key: "nsk_k".into(),
-            name: None,
-        };
-        assert!(!without.args().iter().any(|a| a == "--name"));
     }
 
     /// `configure` is the NON-destructive repoint, and its argv is what proves
@@ -1762,7 +1763,7 @@ mod command_set_tests {
             AgentCommand::Enroll {
                 server: "https://x.example".into(),
                 key: "nsk_k".into(),
-                name: None,
+                name: "box".into(),
             }
             .timeout(),
             ACTION_TIMEOUT
@@ -2343,21 +2344,22 @@ mod validation_tests {
     }
 
     #[test]
-    fn a_blank_name_means_let_the_agent_default_to_the_hostname() {
-        assert_eq!(validate_node_name(None).unwrap(), None);
-        assert_eq!(validate_node_name(Some("   ")).unwrap(), None);
-        assert_eq!(
-            validate_node_name(Some("  workstation  ")).unwrap(),
-            Some("workstation".into())
-        );
+    fn a_blank_name_is_refused_rather_than_defaulted() {
+        // It used to answer `None`, which meant "spawn enroll with no --name and
+        // let the CLI use the hostname". Both halves of that are gone: the CLI
+        // requires the flag, and the app asks the person at the machine.
+        assert!(validate_node_name("").is_err());
+        assert!(validate_node_name("   ").is_err());
+        assert!(validate_node_name("\t\n").is_err());
+        assert_eq!(validate_node_name("  workstation  ").unwrap(), "workstation");
     }
 
     // The control plane's cap, pre-checked here because learning it from a 400
     // costs the setup key.
     #[test]
     fn a_name_longer_than_the_control_plane_accepts_is_refused() {
-        assert!(validate_node_name(Some(&"x".repeat(MAX_NODE_NAME_LEN))).is_ok());
-        assert!(validate_node_name(Some(&"x".repeat(MAX_NODE_NAME_LEN + 1))).is_err());
+        assert!(validate_node_name(&"x".repeat(MAX_NODE_NAME_LEN)).is_ok());
+        assert!(validate_node_name(&"x".repeat(MAX_NODE_NAME_LEN + 1)).is_err());
     }
 
     #[test]

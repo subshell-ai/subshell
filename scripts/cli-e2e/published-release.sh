@@ -81,8 +81,7 @@ curl -s -c "$JAR" -X POST "$BASE/api/auth/sign-in/email" -H 'content-type: appli
   -d '{"email":"a@b.test","password":"correct-horse-battery"}' >/dev/null
 "$SRV" status 2>&1 | grep -q "admin account exists" || fail "status did not see the admin"
 ok "admin created; status agrees"
-KEY=$(curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" -H 'content-type: application/json' \
-  -d '{"label":"release-e2e"}' | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')
+KEY=$(curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')
 [ -n "$KEY" ] || fail "no setup key"
 ok "setup key minted"
 
