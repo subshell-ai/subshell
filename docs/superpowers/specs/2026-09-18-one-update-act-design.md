@@ -43,7 +43,7 @@ screen's *Update the agent to X*.
 | D3 | The two assistant screens **collapse to one** — `Screen::Update` and `Screen::AppUpdate` become `update`; the old id is deleted, not aliased | the closed enum's two members |
 | D4 | In the SPA, a desktop shell folds the app row and the Server row into **one row** whose only control opens the assistant | two rows offering two different updates of one product |
 | D5 | A **browser or headless instance is untouched** and keeps the release-source server update — it has no assistant to open | — |
-| D6 | The name becomes true rather than being disambiguated: one act that updates both is honestly called *Update Subshell Server* | the "App" wording fix this spec supersedes |
+| D6 | The name becomes true rather than being disambiguated: one act that updates both is honestly called *Update Subshell Server* | the "App" wording fix this spec supersedes — note §7.2's confirm fix is a different string and still lands |
 | D7 | Both apps, one spec, with the marker and the resume decision **shared in `crates/desktop-core`** | two implementations of one transaction |
 
 ## 3. Non-goals
@@ -202,19 +202,81 @@ what it refused.
 
 ## 7. Subshell Client
 
-The same act, the same marker, the same screen shape, with two differences that
-are the app's own and predate this spec:
+The same act, the same marker, the same screen shape. Three things differ, and
+only the first is inherited unchanged.
 
-- **Phase 2 installs the bundled agent and does NOT restart the daemon.**
-  `node_install_agent` passes `--no-restart` deliberately; the screen tells the
-  person to start it. Keeping that rule is why `Resume::Install` is not shared.
-- **The agent is not otherwise touched by an app update**: replacing the app
-  replaces the binary it bundles, which is a source to install FROM and is on
-  no rung of the resolution ladder. The running daemon keeps running the
-  installed copy until phase 2 lands. The screen says so.
+### 7.1 Phase 2 does not restart the daemon — it OFFERS to
+
+`node_install_agent` passes `--no-restart`, and that stays: restarting a node
+agent kills every subshell on the machine when the service definition does not
+spare panes, which is why the CLI itself refuses without `--force`. Doing it
+unasked would be performing the destructive act on someone's behalf.
+
+**But not restarting is not the same as not saying so, and today the app does
+not say so.** The only mention lives in the *pre*-install confirm, and after
+the install succeeds nothing on screen mentions it at all. The machine is left
+running the PREVIOUS agent — `rename(2)` leaves the running process on its
+original inode — with nothing reporting the one state the person needs to know.
+
+So phase 2 ends by offering it:
+
+> The agent was replaced. The daemon is still running the previous version.
+> **[ Restart the agent ]**
+
+routed through the existing `commands.restart()`, which already surfaces the
+CLI's verbatim refusal, offers `--force` behind it, and points at *Rewrite the
+service definition* as the better fix. Nothing new decides any of that.
+
+It needs no detection of the running daemon's version: *this window installed
+an agent and did not restart it* is page state, exactly as `ranSetupHere` is on
+the server side. A restart from any other surface, or a later launch, clears
+it — the offer is about what just happened here, not a standing verdict.
+
+### 7.2 Two stale sentences in the confirm, fixed
+
+The pre-install confirm currently reads:
+
+> "The service is stopped first so the file can be replaced, and is NOT started
+> again. Start it from here afterwards."
+
+Both halves are false:
+
+- **"stopped first"** — `install_agent_now` passes a no-op closure where the
+  stop callback used to be, and the managed path goes through the CLI's
+  `update --from`, whose swap is a `rename(2)` a running daemon never notices.
+  `apps/client/desktop/AGENTS.md` records the removal; this copy was not
+  updated with it.
+- **"Start it"** — it was never stopped. It is running, on the old binary. The
+  verb is *restart*.
+
+It becomes: "The agent that ships inside this app is installed over
+`~/.local/bin/subshell`. Nothing is downloaded, and the running daemon is not
+interrupted — it keeps running the previous version until you restart it."
+The pane-safety line stays, attached to the RESTART where it belongs rather
+than to an install that no longer stops anything.
+
+**This fix stands alone.** It is a correction to a sentence that is wrong today
+and should land whether or not the rest of this spec is built.
+
+### 7.3 The agent is not otherwise touched by an app update
+
+Replacing the app replaces the binary it bundles, which is a source to install
+FROM and is on no rung of the resolution ladder. The running daemon keeps
+running the installed copy until phase 2 lands, and the screen says so.
+
+### 7.4 The status screen's own button
 
 `NodeScreenId`'s `app-update` collapses into `update` exactly as the server
-app's does.
+app's does — and the status screen's **"Update the agent to {version}"**
+(`status-screen.tsx`) becomes a DOOR to that one screen rather than a
+standalone agent-only install.
+
+Without this, D1 is only half applied: Subshell Client would still have two
+ways to update, one of which quietly does half the job. The button stays where
+it is — the status screen is the natural place to notice the agent is behind —
+but pressing it opens the one act, which then does whichever halves are
+actually behind (§4.1's "CLI only behind" case covers an app that is already
+current).
 
 ## 8. D3/D4: the surfaces
 
@@ -265,3 +327,54 @@ says exactly that, offers Retry, and after two automatic attempts stops trying
 on its own. This is the whole reason the marker records `from_app_version` — a
 person reading `settings.json` on a machine that will not finish can see which
 update it was.
+
+## 11. How this ships
+
+Recorded here because the operator asked for it explicitly and will not be
+available while it is built (2026-09-18): the decisions below were taken
+without them, and this section is what they are accountable to on return.
+
+1. **Implement to this spec**, in the order §12 gives.
+2. **Full verification after every wave** — `bun run verify-types`,
+   `bun run lint:check`, `bun run test`, and `bun run rust:check` for the Rust
+   halves, plus `bun run lint:design` for anything that renders. A wave is not
+   done while any of them is red.
+3. **A full code review**, dispatched to a reviewer that did not write the
+   code, over the whole range rather than per commit.
+4. **Fix every Critical, Important AND Minor finding**, or record in the commit
+   why a finding is declined. "No minor and major issues" is the bar, not
+   "nothing critical" — a Minor that is genuinely wrong is still wrong.
+5. **Re-review after the fixes**, because a fix wave is new code that nobody
+   has read.
+6. **Open a PR**, merge it once CI is green — plainly, after watching the
+   checks; this repo has no auto-merge.
+7. **Cut a release**: `bunx changeset` on the two desktop apps, merge the
+   version PR, then `gh workflow run release.yml` for `desktop-server` and
+   `desktop-client` **sequentially** — a second dispatch evicts the first while
+   it is still queued. Verify each release carries `release-manifest.json` and
+   its `.sig`, or an installed product will refuse it by name.
+
+**Decisions taken without the operator**, listed so they are easy to reverse:
+
+- §7.1's restart OFFER rather than an automatic restart, and rather than the
+  silence it replaces.
+- §7.4's status-screen button becoming a door rather than being deleted.
+- §5's `attempts` bound of 2, and `forced` crossing the relaunch in the marker.
+- §4.3's `bundledCli` manifest field, which is new release-pipeline data.
+
+## 12. Order of work
+
+Each wave is independently verifiable and leaves the product working:
+
+1. **§7.2 alone** — the stale confirm copy. It is wrong today, fixes nothing
+   else, and depends on nothing here.
+2. **`desktop-core`** — `PendingBundledInstall`, the `Settings` field, and the
+   pure `resume_decision`, with its tests. Nothing reads it yet.
+3. **Server app** — collapse the two screens to one, the two-phase act, the
+   marker write and the boot resume.
+4. **Client app** — the same, plus §7.1's restart offer and §7.4's door.
+5. **The SPA** — D4's folded row behind `isServerDesktop()`.
+6. **`release.ts`** — `bundledCli` in both manifests, and the screen's fallback
+   when it is absent.
+7. **Docs** — both apps' `AGENTS.md`, which carry the "two screens say update"
+   section this spec deletes.
