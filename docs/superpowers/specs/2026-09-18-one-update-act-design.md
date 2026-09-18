@@ -524,3 +524,60 @@ affordance for pointing this app at a different binary, on the screen a person
 reaches when their server will not run. The path exists and is reachable from
 the state that motivates it, which is the test that matters; it does not also
 need to be on the screen where it would be a temptation.
+
+## 14. Amendment (2026-09-18): Server Settings without a dashboard
+
+Operator's request, after the base-URL lockout below: **a tray item that opens
+a native window for editing the address values, with a Restart button.**
+
+### 14.1 Why this is the fix, and not just a convenience
+
+Setting an `https://` base URL signs Subshell Server's own window out
+permanently: better-auth marks the session cookie `Secure` for an https
+`APP_BASE_URL`, and that window is pinned to `http://127.0.0.1:<port>`, so it
+can never store one again. The value that caused it can only be changed from
+the dashboard — which needs a session — so the app had **no way back from
+inside itself**. `apps/server/web`'s sign-in page now explains the state
+(`lib/sign-in-diagnosis.ts`), but explaining a trap is not the same as
+offering the way out.
+
+The assistant is the way out, and for a structural reason rather than a
+convenient one: it is the BUNDLED page, it drives the CLI rather than the API,
+and it therefore needs no session at all. Everything it changes, it changes
+the way a person at a terminal would.
+
+This is the same rule the whole app already follows — *if the act leaves the
+server unreachable, it cannot be driven from a page the server serves* — read
+in the other direction: **if the act is what makes the server unreachable TO
+YOU, the page the server serves cannot be where you undo it.**
+
+### 14.2 The screen
+
+A new requested screen, `settings`, beside `update`, `reset`, `supervision`
+and `permissions` — reached from a tray item and from the recovery screen,
+never on a journey.
+
+It renders the four address fields the assistant already models
+(`CONFIG_FIELDS`: port, bind address, public base URL, other trusted
+addresses), prefilled from the running configuration, with:
+
+- **Save** — the existing config write.
+- **Restart** — the existing `service restart`, with the pane-safety refusal
+  and its `--force` override exactly as everywhere else.
+
+**No new Tauri command, and that is a requirement rather than an outcome.**
+The write goes through `desktop_setup` (idempotent: install no-ops, init
+rewrites config.env, service install no-ops) and the restart through
+`desktop_service` — both already granted to the `wizard` window. A settings
+screen that needed a new grant would be widening the surface in the name of
+fixing a lockout, which is the wrong trade to make twice.
+
+### 14.3 What it does NOT do
+
+- **It is not a second Networking page.** The dashboard keeps network
+  plugins, the trusted-origin registry and everything else; this is the four
+  values that decide whether the server is reachable at all, which is the set
+  that can strand someone.
+- **It states the https cost at the base URL field**, exactly as the
+  dashboard's Addresses card does — the same sentence, since two surfaces
+  disagreeing about a consequence is worse than either wording alone.
