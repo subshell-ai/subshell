@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { DevicesStrip } from "@/components/devices-strip";
 import { KeyBar } from "@/components/key-bar";
@@ -8,6 +8,7 @@ import { useForeground } from "@/hooks/use-foreground";
 import type { SubshellClient } from "@/lib/api";
 import { wrapPaste } from "@/lib/key-bar";
 import { type SocketStatus, useSubshellSocket } from "@/lib/subshell-socket";
+import { dropBrokenMouseReports } from "@/lib/terminal-input";
 import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { requireBiometric } from "@/native/biometric";
 
@@ -97,7 +98,12 @@ export function LiveHost({
         return;
       }
       if (!m) return;
-      if (m.type === "keys" && m.data && !readOnly) sendInput(m.data);
+      if (m.type === "keys" && m.data && !readOnly) {
+        // The renderer can emit a mouse report built from coordinates it
+        // never had. Typed into a pane, that is garbage on someone's prompt.
+        const bytes = dropBrokenMouseReports(m.data);
+        if (bytes) sendInput(bytes);
+      }
       if (m.type === "size" && m.cols && m.rows) sendResize(m.cols, m.rows);
       if (m.type === "ready") {
         ready.current = true;
@@ -119,6 +125,29 @@ export function LiveHost({
     }
   }, [active]);
 
+  // The page decides on its own whether a tap raises the keyboard, so it has
+  // to know. Queued before `ready` like any other injection, which is also
+  // how it survives a page that has not booted yet.
+  useEffect(() => {
+    inject(`window.N.setReadOnly(${readOnly})`);
+  }, [readOnly, inject]);
+
+  // Whether the soft keyboard is up is a fact about the DEVICE, not about
+  // the WebView: it is raised from inside the page, so nothing on this side
+  // would otherwise know. RN's notifications cover both origins.
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  useEffect(() => {
+    const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardUp(true));
+    const hidden = Keyboard.addListener("keyboardDidHide", () => setKeyboardUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  const toggleKeyboard = useCallback(() => {
+    inject(keyboardUp ? "window.N.blur()" : "window.N.focus()");
+  }, [inject, keyboardUp]);
+
   const onPaste = useCallback(async () => {
     if (readOnly) return;
     const text = await Clipboard.getStringAsync();
@@ -127,7 +156,14 @@ export function LiveHost({
   }, [sendInput, readOnly]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.termCanvas }}>
+    // Android shrinks the window itself (`windowSoftInputMode="adjustResize"`
+    // in the manifest), so only iOS needs padding — without it the keyboard
+    // covers the key bar and the bottom rows of the pane it was raised to
+    // type into.
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: colors.termCanvas }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <RejectedBanner status={status} />
       {!unlocked ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 }}>
@@ -159,17 +195,31 @@ export function LiveHost({
             // The renderer owns no network: refuse every request beyond the bundle.
             onShouldStartLoadWithRequest={(r) => r.url.startsWith("file://") || r.url === "about:blank"}
             originWhitelist={["file://*"]}
+            // WKWebView shows the keyboard only for a focus it attributes to
+            // the user, and xterm's gesture service eats the touch events
+            // that attribution is made from — so the default `true` means a
+            // tap on the terminal can never raise a keyboard (iOS only;
+            // Android needs nothing). RNCWebViewImpl swizzles
+            // `_elementDidFocus:userIsInteracting:` for this, and only when
+            // the prop is false at mount, which it is here.
+            keyboardDisplayRequiresUserAction={false}
           />
           {/* Above the key bar: the pane's size is the thing being explained,
               and a strip under the terminal reads as part of it. Renders
               itself away below two devices, which is the usual case. */}
           <DevicesStrip state={viewers} onSizing={setSizing} />
           {!readOnly && (
-            <KeyBar disabled={status.state !== "open"} onBytes={sendInput} onPaste={() => void onPaste()} />
+            <KeyBar
+              disabled={status.state !== "open"}
+              onBytes={sendInput}
+              onPaste={() => void onPaste()}
+              keyboardUp={keyboardUp}
+              onToggleKeyboard={toggleKeyboard}
+            />
           )}
         </>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

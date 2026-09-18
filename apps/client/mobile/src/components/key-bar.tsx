@@ -16,6 +16,8 @@ export function KeyBar({
   disabled,
   onBytes,
   onPaste,
+  keyboardUp = false,
+  onToggleKeyboard,
 }: {
   /** Grayed until the subshell WS is attached */
   disabled: boolean;
@@ -23,6 +25,14 @@ export function KeyBar({
   onBytes: (bytes: string) => void;
   /** Send the clipboard contents (bracketed by the caller's choice) */
   onPaste: () => void;
+  /** Whether the device's soft keyboard is currently showing */
+  keyboardUp?: boolean;
+  /**
+   * Raise or dismiss the soft keyboard. The only DETERMINISTIC way to do
+   * either: the keyboard belongs to the WebView, so a tap on the terminal is
+   * the only other thing that reaches it and a tap cannot dismiss.
+   */
+  onToggleKeyboard?: () => void;
 }) {
   const [extended, setExtended] = useState(false);
   const timers = useRef<{ start: ReturnType<typeof setTimeout> | null; loop: ReturnType<typeof setInterval> | null }>({
@@ -83,6 +93,17 @@ export function KeyBar({
         >
           <Text style={{ ...font("body"), color: colors.mutedFg }}>📋</Text>
         </Pressable>
+        {onToggleKeyboard && (
+          // Not disabled with the rest: dismissing a keyboard that is covering
+          // half the pane has to work even while the socket is down.
+          <Pressable
+            onPress={onToggleKeyboard}
+            accessibilityLabel={keyboardUp ? "Hide the keyboard" : "Show the keyboard"}
+            style={{ minWidth: touchTarget, height: touchTarget, alignItems: "center", justifyContent: "center" }}
+          >
+            <Text style={{ ...font("body"), color: keyboardUp ? colors.primary : colors.mutedFg }}>⌨</Text>
+          </Pressable>
+        )}
       </ScrollView>
     </View>
   );
