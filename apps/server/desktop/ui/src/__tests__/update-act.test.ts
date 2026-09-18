@@ -454,6 +454,31 @@ describe("§13: the act is a selection", () => {
     expect(cleared.press?.label).toBe("Update and Restart");
   });
 
+  /**
+   * **An explicit answer outlives the row within a visit** (review,
+   * 2026-09-18). The selection's own docblock implied a stale tick could never
+   * outlive its row; that is true of an ABSENT entry and not of a deliberate
+   * one, and the difference had no test. It is the right behaviour — the
+   * machine changing under someone is not them changing their mind — so it is
+   * pinned rather than removed.
+   */
+  it("remembers a cleared row across a machine that changes under it", () => {
+    const cleared: UpdateActSelection = { rows: { cli: false }, force: null };
+    // The CLI half is behind on its own, and deliberately declined.
+    const behind = act({ probe: machine(SERVER_BEHIND), selection: cleared });
+    expect(row(behind, "cli")?.selected).toBe(false);
+    expect(behind.press?.enabled).toBe(false);
+
+    // The machine catches up by itself — the row has no act, so no tick, and
+    // the cleared answer is not what made it so.
+    const caughtUp = act({ probe: machine(), selection: cleared });
+    expect(row(caughtUp, "cli")).toMatchObject({ selected: null, reason: "up to date" });
+
+    // And falls behind again: still declined, not silently re-ticked.
+    const again = act({ probe: machine(SERVER_BEHIND), selection: cleared });
+    expect(row(again, "cli")?.selected).toBe(false);
+  });
+
   it("offers Force only where a definition would actually refuse", () => {
     // § 13.2: the ONE refusal a person may overrule, and only where there is
     // one. `paneRisk` fails closed, so an unreadable definition counts.
@@ -565,13 +590,21 @@ describe("the refusals of §6", () => {
     expect(act({ probe: machine(KILLS_PANES) }).force).toBeNull();
   });
 
-  it("disables the press while an act is in flight", () => {
+  it("disables the press while an act is in flight, on EITHER half's flag", () => {
     // The refusal that matters is Rust's `ActionGuard`; this is the screen not
     // inviting a second press at something already running.
+    //
+    // Two flags, because the two halves run through different machinery
+    // (review, 2026-09-18): `state` is the APP install's phases, and the CLI
+    // half runs through the page's action runner, which only sets `busy`. This
+    // varied `state` alone, so the property was pinned exactly on the path
+    // that already had it.
+    const halted = { probe: machine({ ...SERVER_BEHIND, pendingInstall: marker({ halted: true }) }) };
     for (const state of ["checking", "downloading", "installing"] as const) {
-      const view = act({ probe: machine({ ...SERVER_BEHIND, pendingInstall: marker({ halted: true }) }), state });
-      expect(view.press?.enabled, state).toBe(false);
+      expect(act({ ...halted, state }).press?.enabled, state).toBe(false);
     }
+    expect(act({ ...halted, busy: true }).press?.enabled, "busy").toBe(false);
+    expect(act(halted).press?.enabled, "idle and not busy").toBe(true);
   });
 });
 

@@ -157,8 +157,17 @@ export interface UpdateAct {
  *
  * Page state rather than model state, because the model is pure: it is handed
  * the answer and decides the screen from it. Both fields are UNDER-specified on
- * purpose — an absent entry means "untouched", so the default can change with
- * the machine underneath without a stale tick outliving the row it belonged to.
+ * purpose — an absent entry means "untouched", so a row whose default moves
+ * with the machine underneath keeps moving until somebody touches it, and a
+ * row that stops existing takes nothing with it.
+ *
+ * **An explicit answer, though, OUTLIVES the row within a visit** (review,
+ * 2026-09-18 — the earlier wording implied otherwise). Untick a row, watch it
+ * become unactionable, watch it come back, and it is still unticked. That is
+ * the right behaviour and not merely the cheap one: the person said no to that
+ * component, the machine changing under them is not them changing their mind,
+ * and a tick silently restored by a poll would be the screen overruling them.
+ * It is bounded by the visit — leaving the screen clears the selection.
  */
 export interface UpdateActSelection {
   /** Rows the person toggled. An absent id takes the default, which is ticked. */
