@@ -1,4 +1,4 @@
-import { NODE_TARGETS } from "@internal/subshell-protocol";
+import { NODE_TARGETS, SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
 import { useId, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Label } from "@/components/ui/label";
@@ -33,6 +33,14 @@ import { installAddresses } from "@/lib/install-addresses";
  * its half shows the two values its Enroll step asks for, each copyable alone.
  * Nothing on that half warns about unpublished agent binaries, because the app
  * carries its own agent.
+ *
+ * The one line on that half that is not a value names where to GET the app. It earns
+ * the exception to "the rows ARE the instruction" the way the dialog's two surviving
+ * sentences do — by changing what the operator can do: the terminal path is
+ * self-sufficient (curl exists everywhere), but Subshell Client is served by nobody
+ * but the project's GitHub Releases, so a reader without it is otherwise stuck.
+ * `?q=desktop-client` and never `/releases/latest`: four components share this repo
+ * and GitHub's "latest" is whichever was tagged last, which can be a server release.
  */
 
 /** The two ways to put a machine on the plane. */
@@ -254,6 +262,19 @@ export function NodeKeySetup({ keyText }: { keyText: string }) {
             <p className="font-strong text-label">Setup key</p>
             <CopyCommandRow text={keyText} label="setup key" />
           </div>
+          {/* The one line that is not a value: where to GET the app. See the module
+              header for why this path alone needs it and why the link is filtered. */}
+          <p className="text-detail text-muted-foreground">
+            Don't have the app?{" "}
+            <a
+              href={`https://github.com/${SUBSHELL_REPO_SLUG}/releases?q=desktop-client`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              Download Subshell Client
+            </a>
+          </p>
         </div>
       )}
     </>

@@ -615,6 +615,30 @@ describe("AddNodeDialog", () => {
       }
     });
 
+    it("links where to download the app, on the app path only", async () => {
+      // The terminal path is self-sufficient — curl exists everywhere. This path
+      // has a precondition the page cannot otherwise resolve: Subshell Client is
+      // served by NOBODY but the project's releases (the server ships no desktop
+      // bundles), so a reader without the app needs the one true address. The
+      // GitHub link is `?q=`-filtered, never `/releases/latest`: four components
+      // share this repo and "latest" is whichever was tagged last, which can be
+      // a server release.
+      const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
+      try {
+        await renderDialog();
+        fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
+        await screen.findByRole("button", { name: "Terminal" });
+        expect(screen.queryByRole("link", { name: /download subshell client/i })).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
+        const link = screen.getByRole("link", { name: /download subshell client/i });
+        expect(link.getAttribute("href")).toBe("https://github.com/subshell-ai/subshell/releases?q=desktop-client");
+        expect(link.getAttribute("target")).toBe("_blank");
+      } finally {
+        restore();
+      }
+    });
+
     it("keeps the address picker above the switch, because both paths dial it", async () => {
       const { restore } = mockFetch({
         appBaseUrl: "https://plane.example",
