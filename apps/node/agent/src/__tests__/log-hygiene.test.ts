@@ -86,7 +86,11 @@ describe("tightenServiceLogMode", () => {
     writeFileSync(path, "[subshell] started\n");
     chmodSync(path, 0o644);
 
-    const res = await tightenServiceLogMode({ ...DEFAULT_DEPS(async () => true), home });
+    // `platform` explicitly, never the host's: `tightenServiceLogMode` answers
+    // `null` for the path off darwin (`log-hygiene.ts` — systemd redirects to
+    // no file), so inheriting DEFAULT_DEPS' platform made this pass on a Mac
+    // and fail on the Linux runner. The sibling case below already spells it.
+    const res = await tightenServiceLogMode({ ...DEFAULT_DEPS(async () => true), platform: "darwin", home });
     expect(res).toMatchObject({ tightened: true, reason: "tightened" });
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });

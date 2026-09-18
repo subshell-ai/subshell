@@ -39,6 +39,15 @@ import { SETTLE_ATTEMPTS, SETTLE_DELAY_MS } from "@/hooks/use-action-runner";
 import { PROBE_POLL_MS } from "@/hooks/use-node-state";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe, makeSettings, renderApp } from "./harness";
 
+// Unmount after each test. Testing Library appends every `render` to
+// `document.body`, and there is ONE document per bun test process — so a file
+// that renders without unmounting leaves its DOM for whatever file bun shards
+// into that process next, and a test asking a GLOBAL question
+// (`getAllByRole("button")`) reads the leftovers as its own. That is exactly
+// how the Welcome screen's "Continue is the only control" case passed on a Mac
+// and failed on CI, counting four About-screen buttons as its own (2026-09-18).
+afterEach(cleanup);
+
 const GOOD_KEY = "nsk_0123456789012345678901234567890a";
 
 const JOURNALCTL = "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`";
