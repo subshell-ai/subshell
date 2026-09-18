@@ -629,18 +629,34 @@ describe("screenForRequest", () => {
 });
 
 /**
- * The desktop constant tracks the CLI that grew the verbs it needs.
+ * `MIN_AUTOSTART_SERVER_VERSION` is history, not a projection.
  *
- * `MIN_AUTOSTART_SERVER_VERSION` is the version `service enable|disable`
- * shipped in, and nothing else ties it to the server package. The hazard is
- * ORDERING rather than typos: if another `@internal/server` minor changeset
- * merges first, the server releases without those verbs at the version this
- * constant names, and the login checkbox goes live against a server that will
- * refuse it. This turns that from silent into a red test at the moment it
- * becomes wrong.
+ * The two autostart verbs shipped in **server-v0.9.0** — that tag carries
+ * `api/admin-server/autostart.route.ts` (verified against the tag,
+ * 2026-09-18) — so the constant stays `0.9.0` for as long as the app
+ * supports that release, and no future bump changes the fact.
+ *
+ * This test used to compare the constant AGAINST the server package and
+ * require it to be no older — sound only while the verbs were UNRELEASED,
+ * because then the constant named the next cut and a rival changeset
+ * jumping that cut ahead of the verbs was the hazard worth catching. The
+ * moment server-v0.9.0 was published, every later package bump made that
+ * comparison fire a FALSE alarm: the only way to satisfy it was to raise
+ * the constant, which would have the assistant refuse autostart on working
+ * 0.9.0 installs — trading a red test for a real bug.
+ *
+ * What stays checkable from the checkout: the constant must never name a
+ * version the server package has not reached. A MIN ahead of the shipping
+ * code is the one direction that is always wrong.
  */
 describe("MIN_AUTOSTART_SERVER_VERSION", () => {
-  it("is not older than the server package it refers to", () => {
+  it("names the release the verbs actually shipped in", () => {
+    // Frozen fact, not a moving target: server-v0.9.0 shipped the verbs.
+    // Changing this line is a claim about release history — check the tag.
+    expect(MIN_AUTOSTART_SERVER_VERSION).toBe("0.9.0");
+  });
+
+  it("never names a version the server package has not reached", () => {
     const pkg = JSON.parse(readFileSync(join(import.meta.dir, "../../../../api/package.json"), "utf8")) as {
       version: string;
     };
@@ -650,7 +666,7 @@ describe("MIN_AUTOSTART_SERVER_VERSION", () => {
     for (let i = 0; i < Math.max(min.length, server.length) && verdict === 0; i += 1) {
       verdict = (min[i] ?? 0) - (server[i] ?? 0);
     }
-    expect(verdict).toBeGreaterThanOrEqual(0);
+    expect(verdict).toBeLessThanOrEqual(0);
   });
 });
 
