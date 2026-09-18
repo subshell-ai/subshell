@@ -80,6 +80,16 @@ export function installCommandFor(selected: string, key: string, appBaseUrl: str
   const glob = selected.includes("[") ? "g" : "";
   return `curl -fsSL${glob} "${selected}/install.sh?setup_key=${key}${carry}" | bash`;
 }
+
+/**
+ * One sentence, two homes, ONE string (review, 2026-09-18): step 1's
+ * standalone note and step 2's folded clause render this, and a shared const
+ * means the homes cannot drift — "one sentence, two homes, one predicate"
+ * is true in the source now, not just on screen.
+ */
+const FIRST_RUN_SENTENCE =
+  "The agent binary for a platform is downloaded from the project's release the first time a machine of that " +
+  "platform installs, so the first run on each takes a little longer.";
 export function AddNodeDialog({
   open,
   onOpenChange,
@@ -209,12 +219,7 @@ export function AddNodeDialog({
   // In the step-2 fold the leading space belongs INSIDE the fragment, so
   // the hidden state renders no trailing space after "at login."
   const showFirstRunNote = autoFetch && targets !== undefined && targets.length < NODE_TARGETS.length;
-  const firstRunNote = showFirstRunNote && (
-    <p className="text-detail text-muted-foreground">
-      The agent binary for a platform is downloaded from the project's release the first time a machine of that platform
-      installs, so the first run on each takes a little longer.
-    </p>
-  );
+  const firstRunNote = showFirstRunNote && <p className="text-detail text-muted-foreground">{FIRST_RUN_SENTENCE}</p>;
   // Settings neither loaded nor errored ⇒ no verdict exists; say so instead
   // of silently showing the 404-bound command (undefined field on a LOADED
   // older server is a different case, and stays silent by design).
@@ -257,13 +262,7 @@ export function AddNodeDialog({
             <p className="text-detail text-muted-foreground">
               It installs the agent to <code className="font-mono">~/.local/bin</code>, enrolls this machine, and then
               asks whether to install a background service that starts it at login.
-              {showFirstRunNote && (
-                <>
-                  {" "}
-                  The agent binary for a platform is downloaded from the project's release the first time a machine of
-                  that platform installs, so the first run on each takes a little longer.
-                </>
-              )}
+              {showFirstRunNote && <> {FIRST_RUN_SENTENCE}</>}
             </p>
             {/* The dropdown, not a paragraph. Every row is an address this
                 instance trusts a sign-in from — and the one chosen is what

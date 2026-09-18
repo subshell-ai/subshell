@@ -372,8 +372,10 @@ published artifact set is visible at once.
 Step 2 is ONE copy target (operator's call, 2026-09-18): the standalone setup-
 key box, its "the setup key below is shown once" subtitle, and the tmux
 paragraph are GONE — the command already carries the key, so the box was a
-second thing to copy for one paste, and tmux is the script's own refusal at
-the moment it matters, not dialog prose. The two explanatory sentences
+second thing to copy for one paste, and tmux is the script's own WARNING
+then `subshell setup`'s refusal — the script deliberately does not exit
+(`install-script.ts`: "a warning rather than a refusal"), `assertTmux` is
+the one that refuses, and neither needs a paragraph in the dialog. The two explanatory sentences
 (~/.local/bin + the per-platform first-run download) merged into the one
 paragraph they always described; the "Single-use, expires in 24 h…" line
 stays, and the key now lives inside commands and NEVER outside one — one
