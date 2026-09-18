@@ -29,11 +29,11 @@ import { backupDatabase, restoreDatabase } from "@/services/db-backup.js";
 import { binaryIsReplaceable, type InstalledBinary, resolveInstalledBinary } from "@/services/installed-binary.js";
 import {
   downloadVerified,
+  installableCliRelease,
   type ResolvedRelease,
-  readDigest,
   refreshReleases,
   releaseSourceUrl,
-  resolveReleases,
+  signedAssetDigest,
 } from "@/services/releases.js";
 import {
   beginUpdate,
@@ -140,17 +140,22 @@ async function pickRelease(opts: UpdateOpts): Promise<{ release: ResolvedRelease
   if (releaseSourceUrl() === null) {
     return { refusal: "this host does not fetch releases (SUBSHELL_RELEASE_URL is empty); use --from <file>" };
   }
-  let index: Awaited<ReturnType<typeof resolveReleases>>;
   try {
     // `--check` and an explicit `--to` both want the CURRENT list rather than
     // a 15-minute-old memo: one is the person asking, and the other names a
     // tag they may have just seen published.
-    index = opts.check || opts.to ? await refreshReleases() : await resolveReleases();
+    if (opts.check || opts.to) await refreshReleases();
   } catch (error) {
     return { refusal: error instanceof Error ? error.message : String(error) };
   }
-  const newest = index.byComponent.server;
-  if (newest === null) return { refusal: "the release source publishes no server-v* release" };
+  // The SIGNED-MANIFEST gate, one implementation with the dashboard's Server
+  // row and the update POST (spec 2026-09-17 §5 path 4): no manifest, an
+  // unsigned manifest and a failed signature each refuse with their own
+  // sentence — the release that fails verification is not merely older, it
+  // does not exist to this host.
+  const gate = await installableCliRelease("server");
+  if (!gate.ok) return { refusal: gate.reason };
+  const newest = gate.release;
   if (opts.to !== undefined && opts.to !== newest.version) {
     // Only the NEWEST release of a component is indexed, so a `--to` naming an
     // older one has nothing to resolve. Say which one is available rather than
@@ -231,7 +236,11 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
     target = {
       version: release.version,
       install: async () => {
-        const expectedDigest = await readDigest(release, names.sidecar);
+        // The digest from the VERIFIED signed manifest (spec 2026-09-17 §5
+        // path 2) — pickRelease only returned this release because its
+        // signature checked out, and `signedAssetDigest` re-reads the memoized
+        // outcome rather than a `.sha256` the same host also served.
+        const expectedDigest = await signedAssetDigest(release, names.binary);
         log(`Downloading ${release.version}…`);
         return downloadVerified({
           url,

@@ -93,8 +93,34 @@ import type { JsonValue } from "./json.js";
  * FROZEN-SHAPE note on the command itself: `update` is the ONE command the
  * plane sends across a protocol boundary, so its field names and meanings may
  * never be changed by a later bump.
+ *
+ * **10 → 12 is the signed `update` (spec 2026-09-17 §6).** The command gains
+ * the release's manifest bytes and their publisher signature, and an agent
+ * refuses an update whose manifest it cannot verify. Additive in shape, and
+ * breaking for the ONE field it does not add: an agent that ignores
+ * `manifest`/`manifestSig` silently reopens the hole this closes — a
+ * compromised plane could order a payload-only update again — so the plane
+ * treats any protocol below 12 as update-incapable
+ * ({@link NODE_SIGNED_UPDATES_PROTOCOL_VERSION}) rather than sending a command
+ * whose new fields would go unread. The number skips 11 deliberately: the
+ * concurrent zero-touch work bumps 10→11 for its `ready` fields, and taking
+ * 12 here keeps this bump valid in either merge order — while no build ever
+ * spoke 11 on main, so nothing deployed is skipped over.
  */
-export const NODE_PROTOCOL_VERSION = 10;
+export const NODE_PROTOCOL_VERSION = 12;
+
+/**
+ * The FIRST protocol whose agents verify the publisher signature on an
+ * `update` command (spec 2026-09-17 §6). Below this, an agent accepts
+ * payload-only updates — which is exactly the silent-downgrade the bump
+ * exists to make impossible — so the plane refuses to send `update` at all
+ * and says so with `reason: "agent predates signed updates"` in the held/
+ * below-floor grammar the Updates page already renders.
+ *
+ * A frozen fact about history, not a moving target: bump
+ * {@link NODE_PROTOCOL_VERSION} freely; this stays 12.
+ */
+export const NODE_SIGNED_UPDATES_PROTOCOL_VERSION = 12;
 
 /**
  * Frame ceiling both directions (spec §3.1). Bun's `maxPayloadLength` is
@@ -199,6 +225,19 @@ export const NODE_RESULT_DIGEST_MISMATCH = "digest mismatch";
  * it is does not get installed.
  */
 export const NODE_RESULT_VERSION_MISMATCH = "installed binary reports a different version";
+
+/**
+ * `result.error` from an `update` whose release manifest the agent could not
+ * tie to the publisher: the command carried no `manifest`/`manifestSig` (a
+ * plane that predates protocol 12 must not be sending updates at all, but a
+ * replayed old-shape command is exactly what this catches), or the signature
+ * failed to verify against the compiled-in pubkey (spec 2026-09-17 §4: the
+ * node checks the PUBLISHER even though the plane ordered the update).
+ *
+ * Bare, like every constant here — the plane matches `NodeRpcError.detail` by
+ * equality; the sentence lives in the agent's own log.
+ */
+export const NODE_RESULT_MANIFEST_UNVERIFIED = "release manifest signature failed verification";
 
 /**
  * The verbs a `service` command may carry, as a runtime list.
@@ -768,6 +807,21 @@ export type NodeCommandBody =
       sha256: string;
       /** Act even though the service definition's `paneSafety` is not `keeps`. */
       force?: boolean;
+      /**
+       * Base64 of the release's EXACT `release-manifest.json` bytes (spec
+       * 2026-09-17 §6). Protocol 12 agents verify this against the
+       * compiled-in publisher pubkey and require the downloaded bytes to hash
+       * to the digest the SIGNED map names for this platform's artifact; a
+       * plane below 12 is refused the update command entirely, so an
+       * agent-built-from-HEAD never sees this absent. It is OPTIONAL in the
+       * parser because the shape is frozen: the parser must stay the one an
+       * old agent would have written, and old agents ignore the field —
+       * enforcement lives in the executor and in the plane's refusal to send
+       * unsigned commands, not in the grammar.
+       */
+      manifest?: string;
+      /** The manifest's minisign armor (`release-manifest.json.sig` text). */
+      manifestSig?: string;
     };
 
 /**
@@ -1215,8 +1269,30 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if (!isStr(value.url) || value.url.length === 0) return null;
       if (!isStr(value.sha256) || value.sha256.length === 0) return null;
       const base = { type: "update", version: value.version, url: value.url, sha256: value.sha256 } as const;
-      if (!("force" in value)) return base;
-      return isBool(value.force) ? { ...base, force: value.force } : null;
+      // Protocol 12 additions (spec 2026-09-17 §6): optional, and OPTIONAL AT
+      // THE PARSER BY DECREE — the frozen-shape rule says an old agent parses
+      // this command forever, so these fields may only ever be ignored here
+      // and enforced in the executor. A present-but-empty or non-string one
+      // is malformed rather than absent: a plane that meant to sign and
+      // didn't gets a refused frame, not an unsigned-looking command.
+      const withManifest = { ...base } as {
+        type: "update";
+        version: string;
+        url: string;
+        sha256: string;
+        manifest?: string;
+        manifestSig?: string;
+      };
+      if ("manifest" in value) {
+        if (!isStr(value.manifest) || value.manifest.length === 0 || !BASE64_RE.test(value.manifest)) return null;
+        withManifest.manifest = value.manifest;
+      }
+      if ("manifestSig" in value) {
+        if (!isStr(value.manifestSig) || value.manifestSig.length === 0) return null;
+        withManifest.manifestSig = value.manifestSig;
+      }
+      if (!("force" in value)) return withManifest;
+      return isBool(value.force) ? { ...withManifest, force: value.force } : null;
     }
     default:
       return null;

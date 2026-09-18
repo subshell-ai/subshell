@@ -43,8 +43,13 @@
 #                 a temp DB with the on-disk frontend dist hidden — / and
 #                 /docs must answer from the EMBEDDED bytes), linux-arm64 gets
 #                 a `file` magic check only
-#                 (degrading to the magic check). Uploads binary + .sha256.
-#   publish     — per tagged app: draft release with every artifact, then a
+#                 (degrading to the magic check). Uploads binary + .sha256 +
+#                 the shard's own release-manifest.json (+ its publisher sig
+#                 on the CLI shards, spec 2026-09-17 — the publish job merges
+#                 and re-signs those into the ONE release manifest below).
+#   publish     — per tagged app: merge what only the whole set can produce
+#                 (desktop: latest.json; every app: the release manifest +
+#                 signature), then draft release with every artifact, then a
 #                 second softprops invocation flips the draft live. Any build
 #                 failure ⇒ no release. softprops/action-gh-release for the
 #                 draft-then-publish pair; it predates the hosted move (the
@@ -533,9 +538,29 @@ jobs:
           NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          # The PUBLISHER key (spec 2026-09-17 §4): since this build the SAME
+          # minisign keypair the desktop shards use for `latest.json` also
+          # signs each CLI release's `release-manifest.json`, so an installed
+          # component can verify what it is about to run without trusting the
+          # host it downloaded from. The release script shells out to
+          # `tauri signer sign`, which reads the key from this env var and
+          # (measured, tauri-cli 2.11.5) ignores its `_PATH` sibling; the
+          # password must be SET, and set-to-empty is what the CLI accepts for
+          # an unencrypted key — a desktop shard's note verbatim.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           mkdir -p "$DEST"
+          # Missing signing secrets fail the shard LOUDLY, exactly like the
+          # mac ones and for the same reason: a release whose manifest is
+          # unsigned is a release no plane will offer for update
+          # (`compatibleNodeRelease` refuses it by name), so publishing it
+          # would ship a dud and blame the reader's TLS. An operator's local
+          # `bun run release:node` stays legal unsigned — this refusal is
+          # CI's, where a keyless cut is a secret misconfiguration.
+          [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] \
+            || { echo "missing TAURI_SIGNING_PRIVATE_KEY secret (the updater signing key's CONTENTS)"; exit 1; }
           # Darwin artifacts ship signed + notarized (no more Gatekeeper
           # "damaged" dialog on browser downloads): the hook runs between the
           # build and the digest, so the .sha256 sidecars cover the signed
@@ -936,7 +961,6 @@ jobs:
       # would publish a manifest every installed app quietly rejects, which
       # reads as "there are no updates" and is discovered by nobody.
       - name: Use bun
-        if: startsWith(matrix.app, 'desktop-')
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
@@ -944,6 +968,25 @@ jobs:
       - name: Merge the updater manifests
         if: startsWith(matrix.app, 'desktop-')
         run: bun repo/scripts/merge-updater-manifests.ts dist --out updater
+
+      # One `release-manifest.json` per RELEASE, not per shard. Each shard
+      # wrote its own beside its artifact and — since spec 2026-09-17 — its
+      # `assets` map names ONLY that shard's files, so uploading the three
+      # per-shard copies would collide on basename in softprops and the last
+      # one would silently win: a signed release offering one platform and
+      # refusing every machine on the others. This merges them (refusing any
+      # disagreement), signs the merged bytes with the same publisher key the
+      # shards used, and the step then DELETES the per-shard copies + sigs so
+      # the asset glob below cannot collide with the merged pair.
+      - name: Merge + sign the release manifest
+        env:
+          APP: ${{ matrix.app }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bun repo/scripts/merge-release-manifest.ts dist --out manifest
+          rm -f "dist/$APP-"*/release-manifest.json "dist/$APP-"*/release-manifest.json.sig
 
       # The asset list, computed rather than written, because `latest.json`
       # belongs to the two desktop components only — and
@@ -959,6 +1002,13 @@ jobs:
             echo "files<<ASSETS_EOF"
             echo "dist/$APP-*/*"
             echo "legal/*"
+            # The merged manifest + its signature, produced above and listed
+            # explicitly because the per-shard copies were deleted and the
+            # merged pair lives ABOVE the per-shard directories — same reason
+            # `latest.json` is listed, same shape. `fail_on_unmatched_files`
+            # then catches a merge that silently produced nothing.
+            echo "manifest/release-manifest.json"
+            echo "manifest/release-manifest.json.sig"
             case "$APP" in desktop-*) echo "updater/latest.json" ;; esac
             echo "ASSETS_EOF"
           } >> "$GITHUB_OUTPUT"

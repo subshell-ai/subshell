@@ -4,9 +4,11 @@ import {
   NODE_RESULT_DIGEST_MISMATCH,
   NODE_RESULT_DOWNLOAD_FAILED,
   NODE_RESULT_KILLS_PANES,
+  NODE_RESULT_MANIFEST_UNVERIFIED,
   NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_NOT_SUPERVISED,
   NODE_RESULT_VERSION_MISMATCH,
+  NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
   type NodeTarget,
 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
@@ -117,6 +119,18 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
         "The binary that node downloaded reports a different version from the one this server offered, so it was not installed. Its binary is untouched",
     };
   }
+  if (err.detail === NODE_RESULT_MANIFEST_UNVERIFIED) {
+    // The node refused on the PUBLISHER's signature. The plane verified the
+    // same manifest before sending, so this detail arriving here means the
+    // two ends disagree about the release — which names the agent's build
+    // (an old pubkey baked in) or the release source (two assets for one
+    // tag), not this command.
+    return {
+      code: BackendErrorCodes.NODE_UPDATE_FAILED,
+      message:
+        "That node refused the release because the publisher signature on its manifest did not verify against the key compiled into the agent, so nothing was installed there. Its binary is untouched",
+    };
+  }
   if (err.code === "failed") {
     return { code: BackendErrorCodes.NODE_UPDATE_FAILED, message: err.message };
   }
@@ -189,15 +203,38 @@ export const updateNodeRoute = new Elysia()
         );
       }
 
+      // Protocol before anything else (spec 2026-09-17 §6): an agent below 12
+      // parses the `update` command but IGNORES `manifest`/`manifestSig`, so
+      // sending it the signed release would silently install on the old
+      // trust rule — the exact downgrade this whole change closes. Held rows
+      // carry the protocol the refused socket reported; a never-ready row has
+      // null, and "we do not know it checks signatures" is answered the same
+      // way as "we know it does not".
+      const protocol = held?.protocolVersion ?? gate.row.protocolVersion ?? null;
+      if (protocol === null || protocol < NODE_SIGNED_UPDATES_PROTOCOL_VERSION) {
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
+            message: `That agent predates signed updates${protocol === null ? "" : ` (it speaks protocol ${protocol}, signed updates need ${NODE_SIGNED_UPDATES_PROTOCOL_VERSION})`}, so this server will not order it to install an unchecked binary; update it by hand with \`subshell update\` on that machine, which verifies the publisher signature itself`,
+          }),
+        );
+      }
+
       // WHICH version to offer is `compatibleNodeRelease`, never "the newest":
       // installing an agent this plane cannot talk to would enrol, reconnect
       // and be held forever — which is the exact state this route exists to
       // get a machine OUT of, so producing it here would be a loop.
-      const { release, reason } = await compatibleNodeRelease().catch((err: unknown) => ({
+      const { release, reason, manifest } = await compatibleNodeRelease().catch((err: unknown) => ({
         release: null,
         reason: err instanceof Error ? err.message : String(err),
+        manifest: null,
       }));
-      if (!release) {
+      // `manifest` is present exactly when `release` is — a release only
+      // clears `compatibleNodeRelease` once its signature verified — but the
+      // null-narrowing is spelled here rather than trusted, because what
+      // follows puts those bytes on the wire.
+      if (!release || manifest === null) {
         return status(
           409,
           apiErrorBody({
@@ -270,6 +307,15 @@ export const updateNodeRoute = new Elysia()
             version: release.version,
             url: `${publicUrl}?update_token=${token}`,
             sha256,
+            // The verified manifest travels WITH the order (spec 2026-09-17
+            // §6): the envelope's signature still says WHO ordered it, and
+            // these two fields are what let the node check WHAT will run —
+            // bytes the release source published and the publisher signed,
+            // not bytes this server happens to hold. `manifest` is base64 of
+            // the exact bytes the plane verified; the node verifies the
+            // signature over them itself, against its own compiled-in pubkey.
+            manifest: Buffer.from(manifest.bytes, "utf8").toString("base64"),
+            manifestSig: manifest.sig,
             ...(body.force === true ? { force: true } : {}),
           },
           // A download, not a tmux round trip: the default 10 s deadline would

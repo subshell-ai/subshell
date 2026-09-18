@@ -31,9 +31,14 @@
 
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RELEASE_MANIFEST_NAME, SERVER_TARGETS, serverArtifactFileName } from "@internal/subshell-protocol";
+import {
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+  SERVER_TARGETS,
+  serverArtifactFileName,
+} from "@internal/subshell-protocol";
 import {
   assertBunFloor,
   type BuiltArtifact,
@@ -44,6 +49,7 @@ import {
   runSignHook,
   writeReleaseManifest,
 } from "@internal/subshell-protocol/release-artifacts";
+import { signPublishedReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import pkg from "../../package.json" with { type: "json" };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -375,12 +381,21 @@ async function main(): Promise<void> {
 
   // The fifth asset (spec 2026-09-15 §3.2), written only after a COMPLETE
   // build publishes: a manifest beside a half set would describe a release
-  // that does not exist.
+  // that does not exist. Its `assets` map carries the digests this pipeline
+  // already computed for the sidecars (spec 2026-09-17 D2).
+  const assets: Record<string, string> = {};
+  for (const [, { path, digest }] of result.artifacts) assets[basename(path)] = digest;
   const manifest = await writeReleaseManifest(destDir, {
     component: "server",
     version: pkg.version,
     commit: releaseCommit(),
+    assets,
   });
+  // The sixth: the publisher signature over the manifest's exact bytes
+  // (spec 2026-09-17). The CI shards refuse a missing key before reaching
+  // here; an unsigned LOCAL publish stays legal for digest-served installs,
+  // and this line is where its operator learns it is not OFFERABLE.
+  const signed = await signPublishedReleaseManifest(destDir, manifest);
 
   process.stdout.write(`\npublished ${result.artifacts.size} subshell-server builds → ${destDir}\n\n`);
   for (const [triple, { path, digest }] of result.artifacts) {
@@ -391,6 +406,11 @@ async function main(): Promise<void> {
   }
   process.stdout.write(
     `  ${RELEASE_MANIFEST_NAME.padEnd(32)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minAgentVersion}\n`,
+  );
+  process.stdout.write(
+    signed === "signed"
+      ? `  ${RELEASE_MANIFEST_SIG_NAME.padEnd(32)} signed by the publisher key\n`
+      : `  ${RELEASE_MANIFEST_SIG_NAME.padEnd(32)} UNSIGNED — TAURI_SIGNING_PRIVATE_KEY not set; no plane will offer this release for update\n`,
   );
 }
 

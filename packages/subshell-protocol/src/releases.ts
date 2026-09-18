@@ -141,6 +141,38 @@ export function parseSidecarDigest(text: string): string | null {
  */
 export const RELEASE_MANIFEST_NAME = "release-manifest.json";
 
+/**
+ * The sixth asset: a detached minisign signature over the manifest's EXACT
+ * published bytes (spec 2026-09-17 §3).
+ *
+ * One signature per release covers the manifest's identity claims AND every
+ * artifact digest, because the digests live INSIDE the manifest (its `assets`
+ * map) — per-asset `.sig` files would add nothing (§5 D2). The `.sha256`
+ * sidecars stay published for `install.sh` and pre-change consumers, but no
+ * code path treats them as verification any more: bytes are installable iff
+ * they hash to the digest the SIGNED manifest names (§4).
+ */
+export const RELEASE_MANIFEST_SIG_NAME = `${RELEASE_MANIFEST_NAME}.sig`;
+
+/**
+ * The publisher's minisign public key — the SAME keypair the desktop apps'
+ * `tauri-plugin-updater` pins (`plugins.updater.pubkey` in both
+ * `tauri.conf.json`s). One key guards all four components (spec 2026-09-17
+ * D1): it is the publisher's identity, not an app's.
+ *
+ * The tauri configs keep their copies because Tauri reads its own config at
+ * bundle time; a test (`release-pubkey.test.ts`) asserts all three spellings
+ * are byte-identical, so a rotation edits all three knowingly or fails CI.
+ *
+ * Empty or a `REPLACE_ME` placeholder ⇒ every verification fails closed with
+ * "this build ships no publisher pubkey" — the desktop pipeline's placeholder
+ * refusal, same spirit. The CLI verifier lives in the
+ * `release-signature` SUBPATH export (it needs `node:crypto`); the constant
+ * itself is pure data and stays on the barrel.
+ */
+export const RELEASE_PUBKEY =
+  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFBQjhFMDA3N0VEMzZDNTEKUldSUmJOTitCK0M0cWtMa1RLRmpFTlduZklscG1DbnM4anRScDU0citmL2lRZGxyYnNlYlJxN1UK";
+
 /** What {@link RELEASE_MANIFEST_NAME} carries. */
 export interface ReleaseManifest {
   /** Which of the four components this release is. */
@@ -153,6 +185,31 @@ export interface ReleaseManifest {
   minAgentVersion: string;
   /** The commit the release was cut from (`GITHUB_SHA`, else `git rev-parse HEAD`). */
   commit: string;
+  /**
+   * Every published artifact's digest: exact published filename → lowercase
+   * 64-hex sha256 (spec 2026-09-17 D2). This is the TRUST ANCHOR — a consumer
+   * compares the bytes it fetched against `assets[<the exact file it fetched>]`,
+   * never against a `.sha256` sidecar. It is also the payload-binding that
+   * makes a cross-component replay impossible: the signed bytes say which
+   * component and version they are, and every verifier asserts both.
+   */
+  assets: Record<string, string>;
+}
+
+/** A `assets` map, or null when it is not one (spec 2026-09-17 D2). */
+function parseAssets(value: unknown): Record<string, string> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  // An EMPTY map is a signer that forgot to pass the digests, and "no
+  // artifacts" is not a release — refuse it rather than let a manifest with no
+  // trust anchor through the strict-parse door.
+  if (entries.length === 0) return null;
+  const assets: Record<string, string> = {};
+  for (const [name, digest] of entries) {
+    if (name === "" || typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) return null;
+    assets[name] = digest;
+  }
+  return assets;
 }
 
 /**
@@ -163,6 +220,11 @@ export interface ReleaseManifest {
  * one — do not offer this release — and a release published by some future
  * pipeline is not a reason to fail a page that is only asking what is
  * available.
+ *
+ * A manifest WITHOUT a valid `assets` map parses to null (spec 2026-09-17
+ * D2): pre-change releases (every cut before this landed) fall into the
+ * existing "unknown, not offered" rule rather than trusting either half of a
+ * half-trust.
  */
 export function parseReleaseManifest(text: string): ReleaseManifest | null {
   let parsed: unknown;
@@ -172,13 +234,22 @@ export function parseReleaseManifest(text: string): ReleaseManifest | null {
     return null;
   }
   if (parsed === null || typeof parsed !== "object") return null;
-  const { component, version, nodeProtocol, minAgentVersion, commit } = parsed as Record<string, unknown>;
+  const { component, version, nodeProtocol, minAgentVersion, commit, assets } = parsed as Record<string, unknown>;
   if (typeof component !== "string" || !(RELEASE_COMPONENTS as readonly string[]).includes(component)) return null;
   if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) return null;
   if (typeof nodeProtocol !== "number" || !Number.isInteger(nodeProtocol)) return null;
   if (typeof minAgentVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(minAgentVersion)) return null;
   if (typeof commit !== "string" || commit === "") return null;
-  return { component: component as ReleaseComponent, version, nodeProtocol, minAgentVersion, commit };
+  const parsedAssets = parseAssets(assets);
+  if (parsedAssets === null) return null;
+  return {
+    component: component as ReleaseComponent,
+    version,
+    nodeProtocol,
+    minAgentVersion,
+    commit,
+    assets: parsedAssets,
+  };
 }
 
 /**

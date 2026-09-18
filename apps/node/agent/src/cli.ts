@@ -607,7 +607,11 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           const release = await resolveNodeRelease(parsed.flags.to);
           offer = {
             version: release.version,
-            source: { kind: "url", url: release.url, sha256: release.sha256 },
+            // The signed manifest `resolveNodeRelease` just verified travels
+            // into the transaction, where `applyUpdate` verifies it AGAIN
+            // beside the bytes it hashed — one rule, one implementation
+            // (spec 2026-09-17 §5 path 1).
+            source: { kind: "url", url: release.url, sha256: release.sha256, manifest: release.manifest },
             where: release.tag,
           };
         }

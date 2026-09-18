@@ -1,6 +1,6 @@
 import { NODE_RESULT_KILLS_PANES, NODE_RESULT_NOT_SUPERVISED } from "@internal/subshell-protocol";
 import { log } from "../log.js";
-import { applyUpdate, UpdateRefused } from "../update.js";
+import { applyUpdate, type UpdateManifestSource, UpdateRefused } from "../update.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
@@ -45,9 +45,19 @@ export async function execUpdate(ctx: CommandContext, cmd: Cmd<"update">): Promi
     return { ok: false, error: NODE_RESULT_KILLS_PANES };
   }
 
+  // The signed manifest rides with the order (spec 2026-09-17 §6). BOTH parts
+  // or neither: a command that carried a manifest without its signature (or
+  // the reverse) cannot be verified, and "half a signature arrived" is the
+  // same refusal as none — `applyUpdate` answers it before a byte of trust
+  // lands anywhere. (Protocol <12 agents are never sent this command; the
+  // plane refuses them with "agent predates signed updates".)
+  const manifest: UpdateManifestSource | null =
+    cmd.manifest !== undefined && cmd.manifestSig !== undefined
+      ? { bytes: Buffer.from(cmd.manifest, "base64"), sig: cmd.manifestSig }
+      : null;
   try {
     await applyUpdate({
-      source: { kind: "url", url: cmd.url, sha256: cmd.sha256 },
+      source: { kind: "url", url: cmd.url, sha256: cmd.sha256, manifest },
       version: cmd.version,
       force: cmd.force === true,
       // The daemon restarts; see the header. Passing `true` here would have

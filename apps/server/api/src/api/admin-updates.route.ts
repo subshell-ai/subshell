@@ -1,4 +1,10 @@
-import { hostReleaseTarget, MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshell-protocol";
+import {
+  hostReleaseTarget,
+  MIN_AGENT_VERSION,
+  NODE_PROTOCOL_VERSION,
+  NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
+  semverLt,
+} from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { ReleaseRefSchema, ServerUpdateViewSchema } from "@/api/admin-server/schemas.js";
 import { requireAdmin } from "@/api/auth-guard.js";
@@ -161,7 +167,13 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
         online,
         held: heldRow === null ? null : { reason: heldRow.reason },
         updateAvailable: rels.node !== null && agentVersion !== null && semverLt(agentVersion, rels.node.version),
-        canUpdate: canUpdate(rels, target, online, heldRow !== null),
+        canUpdate: canUpdate(
+          rels,
+          target,
+          online,
+          heldRow !== null,
+          node.protocolVersion ?? heldRow?.protocolVersion ?? null,
+        ),
       };
     });
 
@@ -197,15 +209,26 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
  * told "offline" and then, a minute later, "no artifact for this machine" is
  * two trips to learn one fact. A HELD node counts as reachable — being held
  * is precisely being reachable for this one verb.
+ *
+ * The protocol check sits AFTER the release/platform facts and BEFORE
+ * offline, in spec 2026-09-17 §6's words: an agent below
+ * {@link NODE_SIGNED_UPDATES_PROTOCOL_VERSION} would ignore the
+ * `manifest`/`manifestSig` the command now carries, so it cannot be updated
+ * from here no matter what else is true — and unlike "offline" that answer
+ * does not fix itself when the machine next dials in.
  */
 function canUpdate(
   rels: { node: ReleaseRef | null; nodeReason: string | null },
   target: string | null,
   online: boolean,
   isHeld: boolean,
+  protocolVersion: number | null,
 ): { ok: true; reason: null } | { ok: false; reason: string } {
   if (rels.node === null) return { ok: false, reason: rels.nodeReason ?? "no node release can be offered" };
   if (target === null) return { ok: false, reason: "no agent binary is published for this machine's platform" };
+  if (protocolVersion === null || protocolVersion < NODE_SIGNED_UPDATES_PROTOCOL_VERSION) {
+    return { ok: false, reason: "agent predates signed updates" };
+  }
   if (!online && !isHeld) return { ok: false, reason: "this node is offline" };
   return { ok: true, reason: null };
 }

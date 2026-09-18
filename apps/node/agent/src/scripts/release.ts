@@ -18,12 +18,13 @@
 
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   NODE_TARGETS,
   nodeArtifactFileName,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
   resolveNodeArtifactsDir,
 } from "@internal/subshell-protocol";
 import {
@@ -36,6 +37,7 @@ import {
   runSignHook,
   writeReleaseManifest,
 } from "@internal/subshell-protocol/release-artifacts";
+import { signPublishedReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import pkg from "../../package.json" with { type: "json" };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -234,12 +236,27 @@ async function main(): Promise<void> {
   await publishArtifacts(result.artifacts, destDir);
   // The fifth asset (spec 2026-09-15 §3.2). A control plane reads THIS to
   // decide whether it can talk to the agent in a release, so it is written
-  // only after a complete build has published.
+  // only after a complete build has published. Its `assets` map carries the
+  // digests this pipeline already computed for the sidecars (spec 2026-09-17
+  // D2) — the signed manifest, not the sidecar file, is what every consumer
+  // verifies the bytes against from here on.
+  const assets: Record<string, string> = {};
+  for (const [, { path, digest }] of result.artifacts) assets[basename(path)] = digest;
   const manifest = await writeReleaseManifest(destDir, {
     component: "node",
     version: pkg.version,
     commit: releaseCommit(),
+    assets,
   });
+  // The sixth: the publisher signature over the manifest's exact bytes
+  // (spec 2026-09-17). With `TAURI_SIGNING_PRIVATE_KEY` set (CI sets it for
+  // every shard; the workflow refuses the shard before this step when it is
+  // missing), the release is signed and every plane can verify it offline.
+  // Without it the artifacts still publish — a local `release:node` into
+  // one's own instance is a legitimate digest-served install — but the
+  // operator hears, from this pipeline's own output, that no plane will
+  // OFFER it for update until a shard with the key cuts the release.
+  const signed = await signPublishedReleaseManifest(destDir, manifest);
 
   process.stdout.write(`\npublished ${result.artifacts.size} subshell builds → ${destDir}\n\n`);
   for (const [triple, { path, digest }] of result.artifacts) {
@@ -250,6 +267,11 @@ async function main(): Promise<void> {
   }
   process.stdout.write(
     `  ${RELEASE_MANIFEST_NAME.padEnd(28)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minAgentVersion}\n`,
+  );
+  process.stdout.write(
+    signed === "signed"
+      ? `  ${RELEASE_MANIFEST_SIG_NAME.padEnd(28)} signed by the publisher key\n`
+      : `  ${RELEASE_MANIFEST_SIG_NAME.padEnd(28)} UNSIGNED — TAURI_SIGNING_PRIVATE_KEY not set; no plane will offer this release for update\n`,
   );
   process.stdout.write(
     "\nrestart `subshell-server.service` to serve them: systemctl --user restart subshell-server.service\n",

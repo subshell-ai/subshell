@@ -622,16 +622,23 @@ Spec `docs/superpowers/specs/2026-09-15-updates-design.md` (read §15
 and the code, not §§1–14, is what shipped). Four facts worth holding before
 you touch any of it:
 
-- **Every component reads the SAME release list with the same pure code.**
-  `packages/subshell-protocol/src/releases.ts` picks the newest release of a
-  component off the tag list by semver — never by date, because four
-  components share one repository and "latest" is whichever was cut last —
-  and `apps/server/api/src/services/releases.ts` is the I/O half, one fetch
-  behind a 15-minute TTL. The URL is the only seam: `SUBSHELL_RELEASE_URL`
-  (which replaced `SUBSHELL_NODE_RELEASE_URL`; there is deliberately no
-  alias), **empty = air-gapped and every network path refuses by name**. If
-  `downloads.subshell.sh` ever exists it serves this JSON shape at that URL
-  and nothing else changes.
+- **Every component reads the SAME release list with the same pure code, and
+  the same publisher signature.** `packages/subshell-protocol/src/releases.ts`
+  picks the newest release of a component off the tag list by semver — never
+  by date, because four components share one repository and "latest" is
+  whichever was cut last — and `apps/server/api/src/services/releases.ts` is
+  the I/O half, one fetch behind a 15-minute TTL. The URL is the only seam:
+  `SUBSHELL_RELEASE_URL` (which replaced `SUBSHELL_NODE_RELEASE_URL`; there is
+  deliberately no alias), **empty = air-gapped and every network path refuses
+  by name**. If `downloads.subshell.sh` ever exists it serves this JSON shape
+  at that URL and nothing else changes. Since spec 2026-09-17 each release's
+  `release-manifest.json` is verified against `release-manifest.json.sig`
+  (detached minisign, the desktop updater's keypair) by code in
+  `@internal/subshell-protocol/release-signature` before ANY of it is trusted,
+  at every update path and on the node itself — and the install digest comes
+  from the manifest's signed `assets` map, never from the `.sha256` sidecar.
+  The release source chooses WHICH signed release you get (including an old
+  one); it cannot choose WHAT you run.
 - **Every install of a binary is a transaction the NEW binary completes at
   boot.** Whoever swaps writes a marker and keeps the old file as
   `.previous`; whoever boots either finishes it (migrations pass → audit,
@@ -808,24 +815,41 @@ which is why they share their own smoke, parameterized by app id.
   `desktop-client-vX.Y.Z` carries `Subshell-Client-Desktop-<version>-darwin-arm64.dmg`
   and `subshell-client-desktop_<version>_amd64.deb`. Each with a
   `.sha256` — and no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
-  **Every release also carries `release-manifest.json`** (spec 2026-09-15 §3.2):
-  the component id, the version, `NODE_PROTOCOL_VERSION`, `MIN_AGENT_VERSION`
-  and the commit sha, written by each `release.ts` and shipped by the existing
-  `files:` glob. It exists so a control plane can answer "is this node release
-  compatible with me" WITHOUT downloading a binary — a release without one is
-  treated as unknown and is not offered to nodes, which is true of every cut
-  before 2026-09-15.
+  **Every release also carries `release-manifest.json` + `release-manifest.json.sig`**
+  (spec 2026-09-15 §3.2, signed by 2026-09-17 §7): the component id, the
+  version, `NODE_PROTOCOL_VERSION`, `MIN_AGENT_VERSION`, the commit sha and an
+  `assets` map (published filename → sha256), written by each `release.ts` and
+  shipped by the existing `files:` glob — plus the detached minisign signature
+  over the manifest's EXACT bytes (shells out to `tauri signer sign` with
+  `TAURI_SIGNING_PRIVATE_KEY`, the same keypair as the desktop updater — one
+  publisher key for all four components). It exists so a control plane can
+  answer "is this node release compatible with me" WITHOUT downloading a
+  binary, and — since the signature — so every product can answer "were these
+  bytes the publisher's" without trusting the release host: install digests
+  come from the signed `assets` map, never from the sidecar. In CI the
+  manifest is written PER SHARD (each names only its own triple, so the
+  publish job merges them and signs once via
+  `scripts/merge-release-manifest.ts`; the per-shard copies are deleted before
+  upload — softprops collides by basename, and since `assets` diverged the
+  collision would have silently published a one-platform release). A release
+  without a manifest is treated as unknown and is not offered to nodes, true
+  of every cut before 2026-09-15; an UNSIGNED one (no `.sig`, or one that does
+  not verify against `RELEASE_PUBKEY`) is refused BY NAME too, true of every
+  cut before 2026-09-17 — which makes local unsigned publishes fine for
+  one's own instance (digest-served) while a plane will never OFFER them.
   **Each desktop release carries more**, for the apps' self-update
   (§7.2): the updater package (`…​.app.tar.gz` on macOS, the `.deb` itself on
   Linux), `latest.json` — the updater plugin's static manifest, merged from
   the shards' `latest.<triple>.json` by a step in the publish job — and those
   per-triple `latest.<triple>.json` files themselves, which the shard glob
   (`dist/$APP-*/*`) sweeps up alongside everything else a shard produced.
-  **The minisign `.sig` is NOT published, and that is deliberate**: the
-  signature travels INLINE in `latest.json`, which is the only document
-  `tauri-plugin-updater` ever reads, so a `.sig` beside the artifact would be
-  an asset nothing consumes. `release.ts` says so at the point it reads the
-  file. macOS bundles **`app,dmg`, not `dmg`**: the `.app` is
+  **The minisign `.sig` BESIDE A DESKTOP BUNDLE is NOT published, and that is
+  deliberate** (this is about the updater signature over the bundle — the
+  release-wide `release-manifest.json.sig` above is a different asset and IS
+  published): the bundle's signature travels INLINE in `latest.json`, which is
+  the only document `tauri-plugin-updater` ever reads, so a `.sig` beside the
+  artifact would be an asset nothing consumes. `release.ts` says so at the
+  point it reads the file. macOS bundles **`app,dmg`, not `dmg`**: the `.app` is
   the updater-enabled target, and asking for `dmg` alone makes tauri refuse
   with "requested to create updater artifacts but no updater-enabled targets
   were built". The `.app` and `share/` directories a DMG build also fills stay
@@ -901,27 +925,37 @@ which is why they share their own smoke, parameterized by app id.
   had no backup. The `.p12` in your password manager IS the backup.) Missing
   secrets or a chain-less identity fail the shard loudly. Entitlements: Bun's
   JIT keys from `scripts/macos-entitlements.plist`.
-- **Updater signing (both desktop shards)** — a SECOND keypair, unrelated to
-  the Apple one, and the thing an installed app checks before it replaces
+- **Updater signing (ALL FOUR components since spec 2026-09-17; both desktop
+  shards before it)** — a SECOND keypair, unrelated to
+  the Apple one, and the thing an installed component checks before it replaces
   itself. Operator, once:
   `bunx @tauri-apps/cli signer generate -w ~/.tauri/subshell-desktop.key`. **ONE keypair
-  for both apps** — they are one publisher, and the pubkey is the publisher's
-  identity rather than the app's. Commit the `.pub` contents as
-  `plugins.updater.pubkey` in BOTH `tauri.conf.json`s, and set two repo
+  for the whole product line** — the four components are one publisher, and the
+  pubkey is the publisher's identity rather than the app's. Commit the `.pub`
+  contents as `plugins.updater.pubkey` in BOTH `tauri.conf.json`s AND as
+  `RELEASE_PUBKEY` in `packages/subshell-protocol/src/releases.ts` — a test
+  (`release-pubkey.test.ts`) pins all THREE spellings to one string, because a
+  CLI build whose compiled-in key differs from what CI signs would refuse every
+  release, which is exactly as dead as a lost key and less obvious. Set two repo
   secrets: `TAURI_SIGNING_PRIVATE_KEY`, which holds **the key file's
   CONTENTS, not a path** (measured 2026-09-15: tauri 2.11 does not read
   `TAURI_SIGNING_PRIVATE_KEY_PATH`), and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
   The `.key` in your password manager IS the backup, exactly as the `.p12` is:
-  **losing it means every installed app can never auto-update again** — a new
-  key is a new publisher, and an app pinned to the old pubkey refuses
-  everything signed with it. Two refusals guard the cut, both loud: a shard
-  dies if `TAURI_SIGNING_PRIVATE_KEY` is unset, and `release.ts` refuses
-  outright while the committed pubkey is still the `REPLACE_ME_…` placeholder.
-  Publishing an unsigned updater artifact would be publishing a lie — every
-  installed app refuses it. `apps/server/desktop/AGENTS.md` carries the rest,
+  **losing it means every installed component of all four kinds can never
+  auto-update again** — a new key is a new publisher, and an app pinned to the
+  old pubkey refuses everything signed with it. Two refusals guard the cut, both
+  loud: EVERY shard (desktop and CLI) dies if `TAURI_SIGNING_PRIVATE_KEY` is
+  unset, and `release.ts` refuses outright while the committed pubkey is still
+  the `REPLACE_ME_…` placeholder.
+  Publishing an unsigned updater artifact or an unsigned release manifest would
+  be publishing a lie — every installed product refuses it. `apps/server/desktop/AGENTS.md` carries the rest,
   including the one local cost: with the pubkey configured, `bun run compile`
   in either desktop app needs a private key set (a throwaway is fine);
-  `tauri dev` bundles nothing and is unaffected.
+  `tauri dev` bundles nothing and is unaffected. The CLI path's verifier is
+  pure TypeScript (`@internal/subshell-protocol/release-signature`, node:crypto
+  ed25519 over a BLAKE2b-512 prehash — the tauri CLI's "ED" pre-hashed scheme,
+  pinned against real `tauri signer` fixtures); signing always shells to the
+  real CLI, never a hand-rolled reimplementation.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=all` (or
   `app=server|node|desktop-server|desktop-client`, optional

@@ -4,11 +4,16 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  hostReleaseTarget,
   NODE_RESULT_DIGEST_MISMATCH,
   NODE_RESULT_DOWNLOAD_FAILED,
+  NODE_RESULT_MANIFEST_UNVERIFIED,
   NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_VERSION_MISMATCH,
+  parseReleaseManifest,
+  releaseAssetNames,
 } from "@internal/subshell-protocol";
+import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import {
   applyUpdate,
   completeUpdate,
@@ -21,7 +26,9 @@ import {
   revertAfterRefusal,
   rollbackUpdate,
   type UpdateFailure,
+  type UpdateManifestSource,
   UpdateRefused,
+  updateSeams,
 } from "../update.js";
 
 /**
@@ -60,13 +67,54 @@ function serveArtifact(body: string, status = 200): { url: string; stop: () => v
 
 const sha256 = (text: string): string => new Bun.CryptoHasher("sha256").update(text).digest("hex");
 
+/**
+ * The signed manifest + fake verifier pair (spec 2026-09-17 §5 path 1).
+ *
+ * The CRYPTO half is pinned in the protocol package against real
+ * `tauri signer` fixtures; what lives here is the transaction's response to
+ * the verifier's ANSWER — accept, refuse, absent — because a temp directory
+ * cannot mint a genuine publisher signature and the swap logic must be tested
+ * against all three replies anyway. `assets` names THIS host's artifact,
+ * which is exactly what `verifySignedManifest` requires (the digest a node
+ * checks is the one the signed map names for the file IT fetched).
+ */
+const HOST_ASSET = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch) ?? "linux-x64").binary;
+
+function signedManifest(digest: string, version = "0.9.1"): UpdateManifestSource {
+  return {
+    bytes: JSON.stringify({
+      component: "node",
+      version,
+      nodeProtocol: 12,
+      minAgentVersion: "0.11.0",
+      commit: "0".repeat(40),
+      assets: { [HOST_ASSET]: digest },
+    }),
+    sig: "TEST-ARMOR",
+  };
+}
+
+const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
+  const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+  if (parsed === null || sig !== "TEST-ARMOR") return { ok: false, reason: "test: the fixture signature was refused" };
+  if (parsed.component !== expected.component || parsed.version !== expected.version) {
+    return { ok: false, reason: `test: payload names ${parsed.component} ${parsed.version}` };
+  }
+  return { ok: true, manifest: parsed };
+};
+
 /** Point `selfInvokePrefix` at our fake install: a basename starting `subshell` takes rung 1. */
 let realExecPath: string;
+const realUpdateSeams = { ...updateSeams };
 beforeEach(() => {
   realExecPath = process.execPath;
+  // The crypto is the protocol package's business (fixture-pinned there);
+  // this suite tests the transaction's response to its ANSWERS.
+  updateSeams.verifyManifest = acceptSigned;
 });
 afterEach(() => {
   Object.defineProperty(process, "execPath", { value: realExecPath, configurable: true, writable: true });
+  Object.assign(updateSeams, realUpdateSeams);
 });
 function pretendInstalledAt(binary: string): void {
   Object.defineProperty(process, "execPath", { value: binary, configurable: true, writable: true });
@@ -206,7 +254,7 @@ describe("applyUpdate", () => {
     const artifact = serveArtifact(bytes);
     try {
       const applied = await applyUpdate({
-        source: { kind: "url", url: artifact.url, sha256: sha256(bytes) },
+        source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: signedManifest(sha256(bytes)) },
         version: "0.9.1",
         restart: false,
         origin: "cli",
@@ -235,7 +283,12 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
-          source: { kind: "url", url: artifact.url, sha256: sha256("WHAT WAS PUBLISHED") },
+          source: {
+            kind: "url",
+            url: artifact.url,
+            sha256: sha256("WHAT WAS PUBLISHED"),
+            manifest: signedManifest(sha256("WHAT WAS PUBLISHED")),
+          },
           version: "0.9.1",
           restart: false,
           origin: "cli",
@@ -269,7 +322,12 @@ describe("applyUpdate", () => {
     const withToken = `${artifact.url}?update_token=nut_SECRETVALUE`;
     try {
       const thrown: unknown = await applyUpdate({
-        source: { kind: "url", url: withToken, sha256: sha256("WHAT WAS PUBLISHED") },
+        source: {
+          kind: "url",
+          url: withToken,
+          sha256: sha256("WHAT WAS PUBLISHED"),
+          manifest: signedManifest(sha256("WHAT WAS PUBLISHED")),
+        },
         version: "0.9.1",
         restart: false,
         origin: "plane",
@@ -308,7 +366,12 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
-          source: { kind: "url", url: artifact.url, sha256: sha256("anything") },
+          source: {
+            kind: "url",
+            url: artifact.url,
+            sha256: sha256("anything"),
+            manifest: signedManifest(sha256("anything")),
+          },
           version: "0.9.1",
           restart: false,
           origin: "plane",
@@ -331,7 +394,7 @@ describe("applyUpdate", () => {
     try {
       await expect(
         applyUpdate({
-          source: { kind: "url", url: artifact.url, sha256: sha256(bytes) },
+          source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: signedManifest(sha256(bytes)) },
           version: "0.9.1",
           restart: false,
           origin: "cli",
@@ -339,6 +402,92 @@ describe("applyUpdate", () => {
           probeVersion: async () => "0.8.0",
         }),
       ).rejects.toMatchObject({ detail: NODE_RESULT_VERSION_MISMATCH });
+    } finally {
+      artifact.stop();
+    }
+    expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
+    expect(await readMarker(pendingMarkerPath(dataDir))).toBeNull();
+  });
+
+  it("refuses an update whose release manifest the publisher never signed", async () => {
+    // The plane (or a replay of an old-shape command it once sent) delivers a
+    // manifest whose signature the verifier refuses. The download already
+    // passed its own digest belt — this is the check that catches a release
+    // source and a plane AGREEING on bytes the publisher did not sign.
+    const { binary, binDir, dataDir } = await installedAgent();
+    pretendInstalledAt(binary);
+    const bytes = "NEW BINARY 0.9.1";
+    const artifact = serveArtifact(bytes);
+    try {
+      await expect(
+        applyUpdate({
+          source: {
+            kind: "url",
+            url: artifact.url,
+            sha256: sha256(bytes),
+            manifest: { ...signedManifest(sha256(bytes)), sig: "FORGED-ARMOR" },
+          },
+          version: "0.9.1",
+          restart: false,
+          origin: "plane",
+          dataDir,
+          probeVersion: async () => "0.9.1",
+        }),
+      ).rejects.toMatchObject({ detail: NODE_RESULT_MANIFEST_UNVERIFIED });
+    } finally {
+      artifact.stop();
+    }
+    expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
+    const leftovers = [...new Bun.Glob("*.download-*").scanSync(binDir)];
+    expect(leftovers).toEqual([]);
+  });
+
+  it("refuses a command that carried no manifest at all — no silent pre-signing path", async () => {
+    // The frozen-shape rule lets an OLD agent ignore the new fields; it does
+    // not let a NEW agent accept a command without them. A plane below
+    // protocol 12 is refused before this is ever sent; a replayed or stripped
+    // command must still not install.
+    const { binary, dataDir } = await installedAgent();
+    pretendInstalledAt(binary);
+    const bytes = "NEW BINARY 0.9.1";
+    const artifact = serveArtifact(bytes);
+    try {
+      await expect(
+        applyUpdate({
+          source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: null },
+          version: "0.9.1",
+          restart: false,
+          origin: "plane",
+          dataDir,
+          probeVersion: async () => "0.9.1",
+        }),
+      ).rejects.toMatchObject({ detail: NODE_RESULT_MANIFEST_UNVERIFIED });
+    } finally {
+      artifact.stop();
+    }
+    expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
+  });
+
+  it("refuses when the SIGNED manifest names a different digest than the command did", async () => {
+    // Command and bytes agree with each other; the publisher's signed map
+    // disagrees with both. The manifest outranks the command — that is the
+    // split of powers (§4: node-signing key ⇒ ordering, publisher key ⇒
+    // payload), and the digest constant is the answer the plane maps.
+    const { binary, dataDir } = await installedAgent();
+    pretendInstalledAt(binary);
+    const bytes = "NEW BINARY 0.9.1";
+    const artifact = serveArtifact(bytes);
+    try {
+      await expect(
+        applyUpdate({
+          source: { kind: "url", url: artifact.url, sha256: sha256(bytes), manifest: signedManifest("f".repeat(64)) },
+          version: "0.9.1",
+          restart: false,
+          origin: "plane",
+          dataDir,
+          probeVersion: async () => "0.9.1",
+        }),
+      ).rejects.toMatchObject({ detail: NODE_RESULT_DIGEST_MISMATCH });
     } finally {
       artifact.stop();
     }

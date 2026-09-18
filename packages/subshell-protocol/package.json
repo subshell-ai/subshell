@@ -15,6 +15,10 @@
       "types": "./dist/release-artifacts.d.ts",
       "import": "./dist/release-artifacts.js"
     },
+    "./release-signature": {
+      "types": "./dist/release-signature.d.ts",
+      "import": "./dist/release-signature.js"
+    },
     "./service-test-safety": {
       "types": "./dist/service-test-safety.d.ts",
       "import": "./dist/service-test-safety.js"

@@ -8,7 +8,7 @@ import { updateSeams } from "@/api/admin-server/update.route.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import type { ResolvedRelease } from "@/services/releases.js";
+import type { CliReleaseCheck, ResolvedRelease } from "@/services/releases.js";
 import { setReleaseUrlForTests } from "@/services/releases.js";
 import type { DeploymentView } from "@/services/server-deployment.js";
 import { resetUpdateJobForTests } from "@/services/server-update.js";
@@ -55,9 +55,38 @@ describe("POST /api/admin/server/update", () => {
     };
   }
 
-  /** A release the index would answer with; its assets are never fetched here. */
-  function release(version: string): ResolvedRelease {
-    return { tag: `server-v${version}`, version, assets: new Map(), manifest: null, manifestRead: true };
+  /**
+   * A release the gate would answer with; its assets are never fetched here
+   * (the route reads the gate's decision, and the job's own verification is
+   * covered in `server-update.test.ts`). The `verified` half stands in for
+   * the signature the real gate would have checked before returning ok.
+   */
+  function release(version: string): CliReleaseCheck {
+    const r: ResolvedRelease = {
+      component: "server",
+      tag: `server-v${version}`,
+      version,
+      assets: new Map(),
+      manifest: null,
+      manifestRead: true,
+      manifestOutcome: null,
+    };
+    return {
+      ok: true,
+      release: r,
+      verified: {
+        manifest: {
+          component: "server",
+          version,
+          nodeProtocol: 12,
+          minAgentVersion: "0.11.0",
+          commit: "0".repeat(40),
+          assets: {},
+        },
+        bytes: "{}",
+        sig: "TEST-ARMOR",
+      },
+    };
   }
 
   beforeAll(async () => {
@@ -163,9 +192,10 @@ describe("POST /api/admin/server/update", () => {
   });
 
   it("409 UPDATE_NOT_AVAILABLE, not a 500, when the release source cannot be read", async () => {
-    updateSeams.release = async () => {
-      throw new Error("could not read the releases from http://…");
-    };
+    updateSeams.release = async () => ({
+      ok: false,
+      reason: "could not read the releases from http://…",
+    });
     expect(await code(await app.fetch(post(fx.adminCookie, {})))).toBe("UPDATE_NOT_AVAILABLE");
   });
 

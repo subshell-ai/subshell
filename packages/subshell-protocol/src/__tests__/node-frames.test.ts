@@ -149,6 +149,13 @@ describe("parseNodeCommandBody", () => {
     // 3 is the inversion's (spec 2026-09-10 §7): plugins left the wire —
     // `plugin_install`/`plugin_uninstall` are gone, the inventory event no
     // longer carries a plugin set, and `launch` requires `argv` + `resolve`.
+    // 12 is signed releases (spec 2026-09-17 §6): the `update` command
+    // carries `manifest` + `manifestSig`, and an older agent would silently
+    // ignore them and accept payload-only — the exact silent-downgrade the
+    // bump exists to close. 11 is SKIPPED, deliberately: the concurrent
+    // zero-touch work bumps 10→11 for its `ready` fields, and taking 12 here
+    // makes the two bumps safe in either merge order — see the constant's
+    // own doc.)
     // 4 replaced `ready.mcpLaunch` with `ready.selfInvoke`: the same
     // self-invocation WITHOUT its subcommand, so the plane can append `report`
     // for harness hooks as well as `mcp` for a pane's registration.
@@ -170,7 +177,7 @@ describe("parseNodeCommandBody", () => {
     // 10 is the `update` command: the plane hands an agent a version, a URL
     // and a digest and it replaces its own binary — the one command that
     // crosses a protocol boundary, which is why its shape is frozen.
-    expect(NODE_PROTOCOL_VERSION).toBe(10);
+    expect(NODE_PROTOCOL_VERSION).toBe(12);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

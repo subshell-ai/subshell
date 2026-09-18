@@ -17,9 +17,16 @@
 #   1. install-server.sh against the real GitHub release (its first ever run
 #      with something to download — there were no releases until today);
 #   2. the server it installs boots, hands off, and takes a first admin;
-#   3. the node one-liner it serves installs and enrols a node against it.
+#   3. first admin + a setup key;
+#   4. the node one-liner it serves installs and enrols a node against it;
+#   5. the newest published `node-v*` release's manifest verifies OFFLINE
+#      against the pubkey compiled into the products (spec 2026-09-17) — the
+#      one thing step 4's lazy fetch cannot prove, because THAT server
+#      verifies against its own embedded key, and both would fail
+#      identically if the cut had shipped no signature at all.
 # Temp dirs, a throwaway HOME, port 31997. Never ~/.config/subshell-server or :3080.
 set -uo pipefail
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 PORT=31997
 BASE="http://127.0.0.1:$PORT"
 W=$(mktemp -d /tmp/ss-rel-XXXX)
@@ -88,6 +95,34 @@ grep -q "/nodes" "$W/node.out" || fail "node installer never named the nodes pag
 ok "named the nodes page"
 curl -s -b "$JAR" "$BASE/api/nodes" | grep -q '"kind":"agent"' || fail "node row not created"
 ok "node enrolled on the released server"
+
+echo "== 5. the published node release verifies OFFLINE against RELEASE_PUBKEY"
+# Why this step is not covered by step 4's lazy fetch: that fetch verifies
+# against the key EMBEDDED IN THE RELEASED SERVER — and the released server
+# and the release itself ship from one repo, so if a cut somehow published an
+# unsigned or wrong-key manifest, the released plane's answer and this
+# checkout's answer could drift. This verifies against THIS working tree's
+# compile-time pubkey — the one future installs bake — over the raw published
+# bytes, exactly as an installed product will on its next update.
+NODE_TAG=$(curl -fsSL "https://api.github.com/repos/subshell-ai/subshell/tags?per_page=100" \
+  | grep -o '"name": *"node-v[^"]*"' | sed 's/.*: *"\(.*\)"/\1/' | sort -V | tail -1)
+[ -n "$NODE_TAG" ] || fail "no node-v* tag found on the public repo"
+cat > "$W/verify-manifest.ts" <<EOF
+import { RELEASE_PUBKEY } from "$REPO/packages/subshell-protocol/src/releases.js";
+import { verifyReleaseManifest } from "$REPO/packages/subshell-protocol/src/release-signature.js";
+const [version, tag] = process.argv.slice(2);
+if (!version || !tag) { console.error("usage: verify-manifest.ts <version> <tag>"); process.exit(1); }
+const base = "https://github.com/subshell-ai/subshell/releases/download/" + tag + "/";
+const mf = await fetch(base + "release-manifest.json");
+if (!mf.ok) { console.error("release-manifest.json: HTTP " + mf.status + " — the newest node release carries no manifest (it predates signed releases)"); process.exit(1); }
+const sg = await fetch(base + "release-manifest.json.sig");
+if (!sg.ok) { console.error("release-manifest.json.sig: HTTP " + sg.status + " — an UNSIGNED release: no plane will offer it for update"); process.exit(1); }
+const res = await verifyReleaseManifest(new Uint8Array(await mf.arrayBuffer()), await sg.text(), RELEASE_PUBKEY, { component: "node", version });
+if (!res.ok) { console.error("REFUSED: " + res.reason); process.exit(1); }
+console.log("verified " + res.manifest.component + " " + res.manifest.version + " — " + Object.keys(res.manifest.assets).length + " signed asset(s)");
+EOF
+bun "$W/verify-manifest.ts" "${NODE_TAG#node-v}" "$NODE_TAG" || fail "the published node release does not verify against this build's RELEASE_PUBKEY"
+ok "$NODE_TAG verifies against the compile-time publisher pubkey"
 
 echo
 echo "RELEASE E2E PASSED"

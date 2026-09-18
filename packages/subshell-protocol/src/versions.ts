@@ -78,8 +78,18 @@ export function semverLt(a: string, b: string): boolean {
  * plane HOLDS such a socket instead of closing it (§5.3) and can still send
  * the command, and an agent too old to know it answers `unsupported`, which
  * the route turns into "update this node by hand: `subshell update`".
+ *
+ * Raised to 0.11.0 with protocol 12 (the signed `update`, spec 2026-09-17
+ * §6), the same way — `apps/node/agent/package.json` goes to 0.11.0 in the
+ * same commit, and the release changesets the agent ONE patch above the
+ * floor (0.11.1), not two. An agent below this speaks no signature check:
+ * it would install whatever digest a commanding plane names, which is the
+ * exact silent-downgrade the protocol bump exists to make impossible — so
+ * the floor and {@link NODE_SIGNED_UPDATES_PROTOCOL_VERSION} tell one story,
+ * and until the matching `node-v*` cut publishes, held-node copy is what
+ * explains the gap to the operator.
  */
-export const MIN_AGENT_VERSION = "0.9.0";
+export const MIN_AGENT_VERSION = "0.11.0";
 
 /**
  * Whether an agent reporting `version` may connect.

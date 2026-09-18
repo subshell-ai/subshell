@@ -7,8 +7,11 @@ import {
   NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_NOT_SUPERVISED,
   NODE_RESULT_VERSION_MISMATCH,
+  NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
   type NodeRuntimeReport,
+  parseReleaseManifest,
 } from "@internal/subshell-protocol";
+import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
@@ -29,7 +32,7 @@ import {
 import { failConnPendings, resolveResult } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
-import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -43,8 +46,10 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  * fails differently when the network does.
  *
  * The rest drive the command end to end against a FAKE RELEASE SOURCE served
- * by `Bun.serve`, so the release index, the manifest and the digest are read
- * exactly as they are in production.
+ * by `Bun.serve`, so the release index, the signed manifest and the digest
+ * are read exactly as they are in production. The one thing that stands in is
+ * the minisign crypto itself — pinned once, against real `tauri signer`
+ * fixtures, in the protocol package — via `releaseSeams.verifyManifest`.
  */
 
 const app = new Elysia().use(errorHandlerPlugin).use(nodesRoutes);
@@ -77,6 +82,27 @@ const runtime: NodeRuntimeReport = {
 /** The version the fake release publishes, chosen above any real one. */
 const RELEASE_VERSION = "9.9.9";
 const RELEASE_TAG = `node-v${RELEASE_VERSION}`;
+
+/** The armor the fake verifier accepts; the fake release serves exactly this at `/sig`. */
+const TEST_ARMOR = "TEST-ARMOR";
+/** Restore point for the seam `beforeAll` swaps in — one process shares the module. */
+const realVerify = { ...releaseSeams };
+
+/**
+ * The same fake verifier `releases.test.ts` installs: accepts the TEST-ARMOR
+ * pair only, and still enforces the payload binding (component + version), so
+ * a test that swapped a manifest body without its version would see the
+ * refusal rather than a green wire.
+ */
+const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
+  const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+  if (parsed === null) return { ok: false, reason: "test: the bytes are not a manifest" };
+  if (sig.trim() !== TEST_ARMOR) return { ok: false, reason: "test: signature refused" };
+  if (parsed.component !== expected.component || parsed.version !== expected.version) {
+    return { ok: false, reason: `test: payload names ${parsed.component} ${parsed.version}` };
+  }
+  return { ok: true, manifest: parsed };
+};
 
 describe("POST /api/nodes/:id/update", () => {
   const pw = "node-update-1";
@@ -128,8 +154,10 @@ describe("POST /api/nodes/:id/update", () => {
     await ensureLocalNode(db);
 
     // The fake release source. It answers the LIST endpoint the real service
-    // reads, a manifest declaring THIS server's protocol, and a sidecar — the
-    // three reads `compatibleNodeRelease` + `fetchDigest` make.
+    // reads, a SIGNED manifest declaring THIS server's protocol, and a
+    // sidecar — the reads `compatibleNodeRelease` + `fetchDigest` make, with
+    // the digest the command carries coming from the manifest's `assets` map
+    // (spec 2026-09-17: never the sidecar) rather than a guessed payload.
     release = Bun.serve({
       port: 0,
       fetch(req) {
@@ -143,6 +171,7 @@ describe("POST /api/nodes/:id/update", () => {
               published_at: "2026-09-15T00:00:00Z",
               assets: [
                 { name: "release-manifest.json", browser_download_url: `${base}/manifest` },
+                { name: "release-manifest.json.sig", browser_download_url: `${base}/sig` },
                 { name: "subshell-node-cli-linux-x64", browser_download_url: `${base}/bin` },
                 { name: "subshell-node-cli-linux-x64.sha256", browser_download_url: `${base}/sha` },
               ],
@@ -156,15 +185,23 @@ describe("POST /api/nodes/:id/update", () => {
             nodeProtocol: NODE_PROTOCOL_VERSION,
             minAgentVersion: "0.9.0",
             commit: "deadbeef",
+            assets: { "subshell-node-cli-linux-x64": "a".repeat(64) },
           });
         }
+        if (url.pathname === "/sig") return new Response(TEST_ARMOR);
         if (url.pathname === "/sha") return new Response(`${"a".repeat(64)}\n`);
         return new Response("no", { status: 404 });
       },
     });
+    // The crypto stands in here exactly as `releases.test.ts` does: real
+    // minisign verification is pinned ONCE in the protocol package against
+    // `tauri signer` fixtures, and this suite's subject is what the ROUTE
+    // does with a manifest that verified.
+    releaseSeams.verifyManifest = acceptSigned;
   });
 
   afterAll(async () => {
+    Object.assign(releaseSeams, realVerify);
     resetNodeRegistryForTests();
     setReleaseUrlForTests(null);
     resetReleaseCacheForTests();
@@ -240,13 +277,13 @@ describe("POST /api/nodes/:id/update", () => {
   }
 
   /** Attach a socket and HOLD it, as the ws handler does for a refused agent. */
-  function goHeld(nodeId: string): ReturnType<typeof fakeSocket> {
+  function goHeld(nodeId: string, protocolVersion: number = NODE_PROTOCOL_VERSION): ReturnType<typeof fakeSocket> {
     const sock = fakeSocket();
     const conn = attachConnection(nodeId, sock);
     holdConnection(nodeId, conn, {
       reason: "below-floor",
       agentVersion: "0.8.0",
-      protocolVersion: NODE_PROTOCOL_VERSION,
+      protocolVersion,
       os: "linux",
       arch: "x64",
       onIdle: () => undefined,
@@ -336,6 +373,65 @@ describe("POST /api/nodes/:id/update", () => {
     expect(await codeOf(res)).toBe("NODE_OFFLINE");
   });
 
+  // ── the signed-updates protocol gate (spec 2026-09-17 §6) ───────────────
+  //
+  // It runs BEFORE the release lookup and the token mint, from the held
+  // record's number when there is one: a pre-12 agent parses the `update`
+  // command but IGNORES `manifest`/`manifestSig`, so sending it the signed
+  // release would silently install on the old trust rule — the exact
+  // downgrade this whole change closes. A refusal must therefore arrive even
+  // when the release side is perfectly fine, which is why these use the fake
+  // release rather than the air-gapped one.
+
+  it("refuses an agent on an older protocol, naming both numbers", async () => {
+    useFakeRelease();
+    const id = await mkAgent();
+    await nodes.applyReady(id, {
+      agentVersion: "0.10.0",
+      protocolVersion: NODE_PROTOCOL_VERSION - 1,
+      os: "linux",
+      arch: "x64",
+      hostname: "box",
+      capabilities: [],
+    });
+    goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("NODE_AGENT_TOO_OLD");
+    expect(err.message).toContain("predates signed updates");
+    expect(err.message).toContain(`protocol ${NODE_PROTOCOL_VERSION - 1}`);
+    expect(err.message).toContain(`need ${NODE_SIGNED_UPDATES_PROTOCOL_VERSION}`);
+  });
+
+  it("reads the number off the HELD socket when the row is behind it", async () => {
+    // The held record is what the refused agent reported on the socket being
+    // rescued — the row can hold an older `ready`'s number, and the fresher
+    // answer is the honest one. Here it says "not capable", so that decides.
+    useFakeRelease();
+    const id = await mkAgent();
+    const sock = goHeld(id, NODE_PROTOCOL_VERSION - 1);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("NODE_AGENT_TOO_OLD");
+    expect(sock.sent).toEqual([]);
+  });
+
+  it("refuses a never-ready node too — unknown capability is refused, not assumed", async () => {
+    useFakeRelease();
+    const id = crypto.randomUUID();
+    await nodes.create({ id, ownerUserId: aliceId, name: `nu-${id.slice(0, 8)}`, kind: "agent", status: "offline" });
+    createdNodeIds.push(id);
+    goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("NODE_AGENT_TOO_OLD");
+    // No number in the sentence when nobody reported one.
+    expect(err.message).toContain("predates signed updates");
+    expect(err.message).not.toMatch(/protocol \d/);
+  });
+
   it("no release source → 409 NODE_UPDATE_UNAVAILABLE naming the reason", async () => {
     useNoRelease();
     const id = await mkAgent();
@@ -382,7 +478,16 @@ describe("POST /api/nodes/:id/update", () => {
     // The command the AGENT sees is the frozen shape, with the token baked in.
     expect(cmd.type).toBe("update");
     expect(cmd.version).toBe(RELEASE_VERSION);
+    // The digest now comes from the manifest's own assets map (D2), and the
+    // verified manifest + signature ride with the order (spec 2026-09-17 §6)
+    // so the node re-verifies WHAT will run against its compiled-in pubkey
+    // rather than trusting this server's bytes.
     expect(cmd.sha256).toBe("a".repeat(64));
+    expect(JSON.parse(Buffer.from(String(cmd.manifest), "base64").toString("utf8"))).toMatchObject({
+      component: "node",
+      version: RELEASE_VERSION,
+    });
+    expect(cmd.manifestSig).toBe(TEST_ARMOR);
     expect(String(cmd.url)).toMatch(/[?&]update_token=nut_/);
     // No `force` unless asked: an absent flag must not arrive as `false`,
     // which the agent would read the same but which widens the frozen shape.

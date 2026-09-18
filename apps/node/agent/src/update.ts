@@ -6,13 +6,17 @@ import {
   hostReleaseTarget,
   NODE_RESULT_DIGEST_MISMATCH,
   NODE_RESULT_DOWNLOAD_FAILED,
+  NODE_RESULT_MANIFEST_UNVERIFIED,
   NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_VERSION_MISMATCH,
   newestRelease,
   parseReleaseTag,
-  parseSidecarDigest,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+  RELEASE_PUBKEY,
   releaseAssetNames,
 } from "@internal/subshell-protocol";
+import { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import { log } from "./log.js";
 import { looksLikeEntryScript, selfInvokePrefix } from "./self-invoke.js";
 import { serviceExecArgv } from "./service.js";
@@ -57,6 +61,14 @@ export const UPDATE_PENDING_FILE = "update-pending.json";
 /** File name of the marker a reverted update leaves behind. */
 export const UPDATE_FAILED_FILE = "update-failed.json";
 
+/** The signed manifest traveling with a remote update (spec 2026-09-17 §4). */
+export interface UpdateManifestSource {
+  /** The EXACT published `release-manifest.json` bytes — never a re-serialization. */
+  bytes: Uint8Array | string;
+  /** The published `release-manifest.json.sig` armor, verbatim. */
+  sig: string;
+}
+
 /** Where the new bytes come from — a release URL with its digest, or a local file. */
 export type UpdateSource =
   | {
@@ -65,6 +77,16 @@ export type UpdateSource =
       url: string;
       /** Lowercase-hex sha256 the bytes must hash to. */
       sha256: string;
+      /**
+       * The release's signed manifest (spec 2026-09-17 §5 path 1). REQUIRED
+       * for a URL install: the digest that gates the swap is the one THIS
+       * document names for THIS platform's filename, once its signature
+       * verifies against the compiled-in `RELEASE_PUBKEY`. `null` means no
+       * publisher signed anything — {@link applyUpdate} refuses it. The
+       * `--from` path is the one signature-free route (§4: a local operator
+       * names the file), and it is a different variant of this union.
+       */
+      manifest: UpdateManifestSource | null;
     }
   | {
       kind: "file";
@@ -345,8 +367,13 @@ export function redactUrl(url: string): string {
  *
  * Every refusal names {@link redactUrl}'s answer, never the URL as given: the
  * query string is a single-use credential and these sentences are logged.
+ *
+ * @returns the lowercase-hex digest of what arrived — {@link applyUpdate}
+ *   compares it AGAINST the signed manifest as the deciding check; this
+ *   function's own comparison is against the digest the command named, which
+ *   is the belt, not the anchor (spec 2026-09-17 §4).
  */
-async function download(url: string, expected: string, dest: string): Promise<void> {
+async function download(url: string, expected: string, dest: string): Promise<string> {
   const shown = redactUrl(url);
   let response: Response;
   try {
@@ -389,6 +416,81 @@ async function download(url: string, expected: string, dest: string): Promise<vo
     throw new UpdateRefused(
       NODE_RESULT_DIGEST_MISMATCH,
       `${shown} did not match the published digest (expected ${expected}, got ${actual})`,
+    );
+  }
+  return actual;
+}
+
+/**
+ * Publisher-verification seams. Tests replace these; the protocol package's
+ * fixture trio pins what the real pair does against genuine `tauri signer`
+ * output, and `verifyManifest` is the same function production uses here as
+ * the CLI does in `resolveNodeRelease` — one implementation, two call sites,
+ * per the spec's whole premise.
+ * @internal
+ */
+export const updateSeams = {
+  verifyManifest: verifyReleaseManifest,
+  pubkey: RELEASE_PUBKEY,
+};
+
+/**
+ * The rule of spec 2026-09-17 §4, in one function: bytes are installable iff
+ * they hash to the digest the SIGNED manifest names for this host's exact
+ * published filename, and that manifest's signature verifies against the
+ * compiled-in publisher pubkey with a payload naming component `node` and
+ * exactly the version being installed.
+ *
+ * Runs AFTER the download and BEFORE the swap (and before the first
+ * `chmod +x`'s subject exists as anything but a temp file) — the spec's own
+ * words, and the reason the digest the command carried is only a belt: a
+ * compromised plane can order an update, but it cannot make this agent accept
+ * a manifest the publisher did not sign. Node-signing key ⇒ ordering;
+ * publisher key ⇒ payload; neither implies the other.
+ *
+ * @throws {@link UpdateRefused} — `manifest` absent or unverifiable answers
+ *   {@link NODE_RESULT_MANIFEST_UNVERIFIED}; a digest the manifest does not
+ *   name, or names differently, answers the digest constant. The plane maps
+ *   both by equality; the sentence is logged here, where the node's owner can
+ *   read it.
+ */
+async function verifySignedManifest(
+  source: Extract<UpdateSource, { kind: "url" }>,
+  actualDigest: string,
+  version: string,
+): Promise<void> {
+  if (source.manifest === null) {
+    throw new UpdateRefused(
+      NODE_RESULT_MANIFEST_UNVERIFIED,
+      "the update carried no signed release manifest, so this agent will not install bytes it cannot tie to the publisher",
+    );
+  }
+  const target = hostReleaseTarget(process.platform, process.arch);
+  if (target === null) {
+    throw new UpdateRefused(
+      NODE_RESULT_DIGEST_MISMATCH,
+      `this host (${process.platform}/${process.arch}) has no published artifact name, so a signed digest cannot be checked against it`,
+    );
+  }
+  const checked = await updateSeams.verifyManifest(source.manifest.bytes, source.manifest.sig, updateSeams.pubkey, {
+    component: "node",
+    version,
+  });
+  if (!checked.ok) {
+    throw new UpdateRefused(
+      NODE_RESULT_MANIFEST_UNVERIFIED,
+      `the release manifest did not verify against the compiled-in publisher pubkey: ${checked.reason}`,
+    );
+  }
+  const asset = releaseAssetNames("node", target).binary;
+  const named = checked.manifest.assets[asset];
+  if (named === undefined) {
+    throw new UpdateRefused(NODE_RESULT_DIGEST_MISMATCH, `the signed manifest for ${version} names no ${asset}`);
+  }
+  if (named !== actualDigest) {
+    throw new UpdateRefused(
+      NODE_RESULT_DIGEST_MISMATCH,
+      `the downloaded bytes hash to ${actualDigest}, not the ${named} the signed manifest names for ${asset}`,
     );
   }
 }
@@ -451,7 +553,17 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   const previous = `${binary}.previous`;
 
   if (input.source.kind === "url") {
-    await download(input.source.url, input.source.sha256, temp);
+    const actualDigest = await download(input.source.url, input.source.sha256, temp);
+    // The publisher check the command channel alone could never give this
+    // machine (§4), before the chmod, before the marker, before anything.
+    // A refusal deletes the temp file: the rule is "nothing unverified sits
+    // on disk", and a refusal mid-way is exactly when a stray file would.
+    try {
+      await verifySignedManifest(input.source, actualDigest, input.version);
+    } catch (err) {
+      await rm(temp, { force: true }).catch(() => {});
+      throw err;
+    }
   } else {
     try {
       await copyFile(input.source.path, temp);
@@ -654,8 +766,14 @@ export interface NodeReleaseOffer {
   tag: string;
   /** Download URL of the artifact for THIS host's triple. */
   url: string;
-  /** Lowercase-hex sha256 published beside it. */
+  /**
+   * Lowercase-hex sha256 the bytes must hash to — the digest the VERIFIED
+   * signed manifest names for this host's exact published filename, never the
+   * one the `.sha256` sidecar carries (spec 2026-09-17 §4).
+   */
   sha256: string;
+  /** The manifest + signature that produced `sha256`, to be verified again inside {@link applyUpdate}. */
+  manifest: UpdateManifestSource;
 }
 
 /** A GitHub release entry, narrowed to the two fields this reader uses. */
@@ -722,23 +840,55 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
     throw new Error(want ? `${api} publishes no node release ${want}` : `${api} publishes no node-v* release`);
   }
   const assets = byTag.get(chosen.tag) ?? new Map<string, string>();
-  const { binary, sidecar } = releaseAssetNames("node", target);
+  const { binary } = releaseAssetNames("node", target);
   const url = assets.get(binary);
-  const sidecarUrl = assets.get(sidecar);
   if (!url) throw new Error(`${chosen.tag} publishes no ${binary}`);
-  if (!sidecarUrl) throw new Error(`${chosen.tag} publishes no ${sidecar}, so the download cannot be verified`);
 
-  let sha256: string | null;
-  try {
-    const response = await fetch(sidecarUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) });
-    if (!response.ok) throw new Error(`answered ${response.status}`);
-    sha256 = parseSidecarDigest(await response.text());
-  } catch (err) {
-    throw new Error(`could not read ${sidecar}: ${err instanceof Error ? err.message : String(err)}`);
+  // The signed manifest, not the sidecar, is the trust anchor (spec
+  // 2026-09-17 §4): fetch both tiny assets, verify the publisher signature
+  // against the compiled-in pubkey with the payload bound to THIS component
+  // and version, and take the digest from the signed map. Verifying here —
+  // before ~70 MB is downloaded — means a release the publisher never signed
+  // costs this machine two small reads, and it is the CLI's own answer: a
+  // node holds no REST credential, so it checks the publisher directly rather
+  // than asking its plane (which is precisely the split §4 draws).
+  const manifestUrl = assets.get(RELEASE_MANIFEST_NAME);
+  const sigUrl = assets.get(RELEASE_MANIFEST_SIG_NAME);
+  if (!manifestUrl) {
+    throw new Error(
+      `${chosen.tag} publishes no ${RELEASE_MANIFEST_NAME}, so this release cannot be verified — install a file with --from`,
+    );
   }
-  if (sha256 === null) throw new Error(`${sidecar} is not a sha256 digest`);
+  if (!sigUrl) {
+    throw new Error(
+      `${chosen.tag} publishes no ${RELEASE_MANIFEST_SIG_NAME}, so this release is not signed — install a file with --from`,
+    );
+  }
+  let bytes: string;
+  let sig: string;
+  try {
+    const [manifestRes, sigRes] = await Promise.all([
+      fetch(manifestUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
+      fetch(sigUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
+    ]);
+    if (!manifestRes.ok) throw new Error(`${RELEASE_MANIFEST_NAME} answered ${manifestRes.status}`);
+    if (!sigRes.ok) throw new Error(`${RELEASE_MANIFEST_SIG_NAME} answered ${sigRes.status}`);
+    bytes = await manifestRes.text();
+    sig = await sigRes.text();
+  } catch (err) {
+    throw new Error(
+      `could not read the release manifest from ${chosen.tag}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const checked = await verifyReleaseManifest(bytes, sig, RELEASE_PUBKEY, {
+    component: "node",
+    version: chosen.version,
+  });
+  if (!checked.ok) throw new Error(`${chosen.tag} is not installable: ${checked.reason}`);
+  const sha256 = checked.manifest.assets[binary];
+  if (sha256 === undefined) throw new Error(`${chosen.tag}'s signed manifest names no ${binary}`);
 
-  return { version: chosen.version, tag: chosen.tag, url, sha256 };
+  return { version: chosen.version, tag: chosen.tag, url, sha256, manifest: { bytes, sig } };
 }
 
 /**

@@ -3,13 +3,30 @@ import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  hostReleaseTarget,
   NODE_RESULT_KILLS_PANES,
+  NODE_RESULT_MANIFEST_UNVERIFIED,
   NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_NOT_SUPERVISED,
   type NodeRuntimeReport,
+  parseReleaseManifest,
+  releaseAssetNames,
 } from "@internal/subshell-protocol";
+import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
+import { updateSeams } from "../update.js";
+
+/** The same fake verifier `update.test.ts` uses: accepts the TEST-ARMOR pair only. */
+const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
+  const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+  if (parsed === null || sig !== "TEST-ARMOR") return { ok: false, reason: "test: the fixture signature was refused" };
+  if (parsed.component !== expected.component || parsed.version !== expected.version) {
+    return { ok: false, reason: `test: payload names ${parsed.component} ${parsed.version}` };
+  }
+  return { ok: true, manifest: parsed };
+};
+const realUpdateSeams = { ...updateSeams };
 
 /**
  * The `update` executor: its refusals, and the ordering of its success.
@@ -156,20 +173,34 @@ describe("execUpdate refusals", () => {
 
 describe("execUpdate success", () => {
   it("swaps the binary, answers ok, and ONLY THEN asks the daemon to exit", async () => {
-    // The whole plane-driven path, with nothing stubbed but `process.execPath`:
-    // a real HTTP server serves the artifact, the digest is real, and the
-    // "binary" is a shell script that answers `subshell 0.9.9` — which is what
-    // lets the executor's own version probe run for real rather than through a
-    // seam this command has no way to inject.
+    // The whole plane-driven path, with nothing stubbed but `process.execPath`
+    // and the publisher seam: a real HTTP server serves the artifact, the
+    // digest is real, the manifest+signature ride with the command exactly as
+    // protocol 12 sends them (spec 2026-09-17 §6), and the "binary" is a shell
+    // script that answers `subshell 0.9.9` — which is what lets the
+    // executor's own version probe run for real rather than through a seam
+    // this command has no way to inject.
     const root = await mkdtemp(join(tmpdir(), "subshell-cmd-update-ok-"));
     const binary = join(root, "subshell");
     await writeFile(binary, "#!/bin/sh\necho 'subshell 0.8.0 (node protocol v9)'\n");
     await chmod(binary, 0o755);
-    const next = "#!/bin/sh\necho 'subshell 0.9.9 (node protocol v10)'\n";
+    const next = "#!/bin/sh\necho 'subshell 0.9.9 (node protocol v12)'\n";
     const server = Bun.serve({ port: 0, fetch: () => new Response(next) });
     const digest = new Bun.CryptoHasher("sha256").update(next).digest("hex");
+    const host = hostReleaseTarget(process.platform, process.arch);
+    if (host === null) throw new Error("test host has no published node target");
+    const hostAsset = releaseAssetNames("node", host).binary;
+    const manifestBytes = JSON.stringify({
+      component: "node",
+      version: "0.9.9",
+      nodeProtocol: 12,
+      minAgentVersion: "0.11.0",
+      commit: "0".repeat(40),
+      assets: { [hostAsset]: digest },
+    });
     const execPathBefore = process.execPath;
     Object.defineProperty(process, "execPath", { value: binary, configurable: true, writable: true });
+    updateSeams.verifyManifest = acceptSigned;
 
     let restarts = 0;
     try {
@@ -179,6 +210,8 @@ describe("execUpdate success", () => {
         version: "0.9.9",
         url: `http://127.0.0.1:${server.port}/agent`,
         sha256: digest,
+        manifest: Buffer.from(manifestBytes, "utf8").toString("base64"),
+        manifestSig: "TEST-ARMOR",
       });
       expect(result).toEqual({ ok: true });
       // The daemon is the only sender of `result`, so the executor asks for
@@ -187,9 +220,40 @@ describe("execUpdate success", () => {
       expect(restarts).toBe(1);
     } finally {
       Object.defineProperty(process, "execPath", { value: execPathBefore, configurable: true, writable: true });
+      Object.assign(updateSeams, realUpdateSeams);
       server.stop(true);
     }
     expect(await readFile(binary, "utf8")).toBe(next);
     expect(await readFile(`${binary}.previous`, "utf8")).toContain("0.8.0");
+  });
+
+  it("refuses a command that carried no signed manifest, after every other gate passes", async () => {
+    // The gate-first tests never reach `applyUpdate`; this one does — supervised,
+    // keeps-panes, a REAL artifact whose digest matches — and the refusal is
+    // the MANIFEST constant, because a new agent that accepted an unsigned
+    // command would silently reopen the hole the protocol bump closed.
+    const root = await mkdtemp(join(tmpdir(), "subshell-cmd-update-nosig-"));
+    const binary = join(root, "subshell");
+    await writeFile(binary, "#!/bin/sh\necho 'subshell 0.8.0 (node protocol v11)'\n");
+    await chmod(binary, 0o755);
+    const next = "#!/bin/sh\necho 'subshell 0.9.9 (node protocol v12)'\n";
+    const server = Bun.serve({ port: 0, fetch: () => new Response(next) });
+    const digest = new Bun.CryptoHasher("sha256").update(next).digest("hex");
+    const execPathBefore = process.execPath;
+    Object.defineProperty(process, "execPath", { value: binary, configurable: true, writable: true });
+    try {
+      const ctx = await ctxWith(runtimeReport(), () => undefined);
+      const result = await dispatchCommand(ctx, {
+        type: "update",
+        version: "0.9.9",
+        url: `http://127.0.0.1:${server.port}/agent`,
+        sha256: digest,
+      });
+      expect(result).toEqual({ ok: false, error: NODE_RESULT_MANIFEST_UNVERIFIED });
+    } finally {
+      Object.defineProperty(process, "execPath", { value: execPathBefore, configurable: true, writable: true });
+      server.stop(true);
+    }
+    expect(await readFile(binary, "utf8")).toContain("0.8.0");
   });
 });

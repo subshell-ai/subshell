@@ -12,7 +12,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION, RELEASE_MANIFEST_NAME } from "@internal/subshell-protocol";
+import {
+  MIN_AGENT_VERSION,
+  NODE_PROTOCOL_VERSION,
+  parseReleaseManifest,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+} from "@internal/subshell-protocol";
+import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { downloadsRoutes } from "@/api/downloads.route.js";
@@ -23,7 +30,7 @@ import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repos
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { mintUpdateToken, resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
-import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 // Assembled like createApp(): the GLOBAL error handler is mounted before the
@@ -768,6 +775,21 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
  * exercises the air-gapped behaviour and none of them reaches the network.
  * These opt in, against a fake release server.
  */
+/** The armor the fake verifier accepts; the fake release serves exactly this. */
+const TEST_ARMOR = "TEST-ARMOR";
+/** Restore point for the seam the lazy-fetch `beforeAll` swaps in. */
+const realVerify = { ...releaseSeams };
+/** The same fake verifier `releases.test.ts` installs: TEST-ARMOR only, payload bound. */
+const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
+  const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+  if (parsed === null) return { ok: false, reason: "test: the bytes are not a manifest" };
+  if (sig.trim() !== TEST_ARMOR) return { ok: false, reason: "test: signature refused" };
+  if (parsed.component !== expected.component || parsed.version !== expected.version) {
+    return { ok: false, reason: `test: payload names ${parsed.component} ${parsed.version}` };
+  }
+  return { ok: true, manifest: parsed };
+};
+
 describe("/api/downloads/node/* — the lazy fetch", () => {
   const email = `dlfetch-${crypto.randomUUID()}@subshell.local`;
   const pw = "downloads-2";
@@ -808,14 +830,19 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
                 // The fifth asset (spec 2026-09-15 §3.2). Without it the plane
                 // cannot tell which protocol that agent speaks and refuses to
                 // offer the release at all — so a fake release that omits it
-                // is testing the refusal, not the fetch.
+                // is testing the refusal, not the fetch. Since spec
+                // 2026-09-17 it needs its detached signature too, and the
+                // manifest's `assets` map — the fetch's digest comes from the
+                // SIGNED manifest now (D2), not from the `.sha256` sidecar.
                 { name: RELEASE_MANIFEST_NAME, browser_download_url: `${base}/manifest` },
+                { name: RELEASE_MANIFEST_SIG_NAME, browser_download_url: `${base}/sig` },
               ],
             },
           ]);
         }
         if (url.pathname === "/bin") return new Response(BODY);
         if (url.pathname === "/sha") return new Response(`${release.serveDigest}\n`);
+        if (url.pathname === "/sig") return new Response(TEST_ARMOR);
         if (url.pathname === "/manifest") {
           return Response.json({
             component: "node",
@@ -823,15 +850,22 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
             nodeProtocol: NODE_PROTOCOL_VERSION,
             minAgentVersion: MIN_AGENT_VERSION,
             commit: "0123456789abcdef0123456789abcdef01234567",
+            assets: { [`subshell-node-cli-${TARGET}`]: digest },
           });
         }
         return new Response("no", { status: 404 });
       },
     });
     release = { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true), serveDigest: digest };
+    // The minisign crypto stands in, as in the releases/update-node suites:
+    // it is pinned once against real `tauri signer` fixtures in the protocol
+    // package, and this suite's subject is the download route's caching and
+    // auth behaviour around it.
+    releaseSeams.verifyManifest = acceptSigned;
   });
 
   afterAll(async () => {
+    Object.assign(releaseSeams, realVerify);
     release.stop();
     setReleaseUrlForTests(null);
     resetReleaseCacheForTests();

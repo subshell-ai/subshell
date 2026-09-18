@@ -100,11 +100,22 @@ the network by accident. (It was `SUBSHELL_NODE_RELEASE_URL` until spec
 2026-09-15 §3.3; the same list now answers for the server's own `update` too,
 so the name stopped being the node agent's. No alias — there is no installed
 base to keep compatible.) **The release a node is offered is the newest one
-whose `release-manifest.json` says it speaks THIS server's `NODE_PROTOCOL_VERSION`**
-(`compatibleNodeRelease`), not merely the newest above `MIN_AGENT_VERSION`: the
+whose SIGNED `release-manifest.json` says it speaks THIS server's
+`NODE_PROTOCOL_VERSION`** (`compatibleNodeRelease`), not merely the newest
+above `MIN_AGENT_VERSION`: the
 old rule could install an agent this plane cannot talk to, which enrolls,
 reconnects and is closed 4406 forever. A release carrying no manifest — every
-cut before 2026-09-15 — is refused BY NAME rather than guessed at. A file on disk always wins over a fetch, and only
+cut before 2026-09-15 — is refused BY NAME rather than guessed at, and since
+spec 2026-09-17 so is an UNSIGNED or unverifiable one (every cut before
+2026-09-17): `release-manifest.json.sig` must minisign-verify against
+`RELEASE_PUBKEY`, and the digest an install is told comes from the signed
+`assets` map, never from the release source's `.sha256` sidecar (the sidecars
+stay published for `install.sh` alone). `services/releases.ts`'s
+`checkReleaseManifest`/`signedAssetDigest` are that one gate, shared by the
+lazy fetch, `fetchDigest` (so the `update` command's digest), the server's own
+`update`, and the Updates page — the three-way refusal grammar
+("no manifest" / "unsigned" / "failed verification") is what lets the page
+tell those stories apart. A file on disk always wins over a fetch, and only
 what this instance fetched (recorded in `<node-artifacts>/.fetched.json` with
 its release tag) is ever superseded when a newer tag appears — a hand-published
 binary has no entry and is never touched. Superseded platforms are DELETED

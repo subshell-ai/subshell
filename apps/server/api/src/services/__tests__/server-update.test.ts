@@ -2,10 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hostReleaseTarget, releaseAssetNames } from "@internal/subshell-protocol";
+import {
+  hostReleaseTarget,
+  parseReleaseManifest,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+  releaseAssetNames,
+} from "@internal/subshell-protocol";
 import { backupsDir } from "@/services/db-backup.js";
 import type { ResolvedRelease } from "@/services/releases.js";
-import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import {
   collectServerUpdateView,
   currentUpdateJob,
@@ -73,13 +79,42 @@ function releaseWith(fake: Fake, version: string, body: string, digestOverride?:
   const names = releaseAssetNames("server", HOST_TARGET ?? "linux-x64");
   const bytes = enc(body);
   fake.assets.set(names.binary, bytes);
-  fake.assets.set(names.sidecar, enc(`${digestOverride ?? sha256(bytes)}\n`));
+  // The job's digest comes from the SIGNED MANIFEST (spec 2026-09-17 §5
+  // path 2), so the fixture publishes manifest + signature alongside the
+  // binary; `digestOverride` spoofs the manifest naming a digest the bytes
+  // do not have. `releaseSeams.verifyManifest` (restored in `afterEach`)
+  // stands in for the crypto — the real verifier is pinned by the protocol
+  // package's fixture trio.
+  const manifest = {
+    component: "server",
+    version,
+    nodeProtocol: 12,
+    minAgentVersion: "0.11.0",
+    commit: "0".repeat(40),
+    assets: { [names.binary]: digestOverride ?? sha256(bytes) },
+  };
+  const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
+  fake.assets.set(RELEASE_MANIFEST_NAME, enc(manifestText));
+  fake.assets.set(RELEASE_MANIFEST_SIG_NAME, enc("TEST-ARMOR"));
+  const assetUrl = (name: string) => `${fake.url}/asset/${encodeURIComponent(name)}`;
   const assets = new Map<string, string>([
-    [names.binary, `${fake.url}/asset/${encodeURIComponent(names.binary)}`],
-    [names.sidecar, `${fake.url}/asset/${encodeURIComponent(names.sidecar)}`],
+    [names.binary, assetUrl(names.binary)],
+    [RELEASE_MANIFEST_NAME, assetUrl(RELEASE_MANIFEST_NAME)],
+    [RELEASE_MANIFEST_SIG_NAME, assetUrl(RELEASE_MANIFEST_SIG_NAME)],
   ]);
-  return { tag: `server-v${version}`, version, assets, manifest: null, manifestRead: true };
+  return {
+    component: "server",
+    tag: `server-v${version}`,
+    version,
+    assets,
+    manifest: null,
+    manifestRead: false,
+    manifestOutcome: null,
+  };
 }
+
+/** The seam, replaced in `beforeEach` and handed back in `afterEach`. */
+const realVerify = { ...releaseSeams };
 
 /** Wait for the job to leave the phases that are still doing work. */
 async function settle(): Promise<void> {
@@ -97,6 +132,16 @@ beforeEach(() => {
   writeFileSync(binary, "the old binary", { mode: 0o755 });
   resetUpdateJobForTests();
   clearPending();
+  releaseSeams.verifyManifest = async (bytes, sig, _pub, expected) => {
+    const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+    if (parsed === null || sig.trim() !== "TEST-ARMOR") {
+      return { ok: false, reason: "test: the fixture signature was refused" };
+    }
+    if (parsed.component !== expected.component || parsed.version !== expected.version) {
+      return { ok: false, reason: `test: payload names ${parsed.component} ${parsed.version}` };
+    }
+    return { ok: true, manifest: parsed };
+  };
 });
 
 afterEach(() => {
@@ -106,6 +151,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   setReleaseUrlForTests(null);
   resetReleaseCacheForTests();
+  Object.assign(releaseSeams, realVerify);
 });
 
 describe("startServerUpdate", () => {

@@ -9,6 +9,7 @@ import {
   parseSidecarDigest,
   RELEASE_COMPONENTS,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
   RELEASE_TAG_PREFIX,
   type ReleaseComponent,
   type ReleaseManifest,
@@ -131,6 +132,7 @@ describe("parseReleaseManifest", () => {
     nodeProtocol: NODE_PROTOCOL_VERSION,
     minAgentVersion: MIN_AGENT_VERSION,
     commit: "0123456789abcdef0123456789abcdef01234567",
+    assets: { "subshell-node-cli-linux-x64": "84b7f6ab0d7fc1242440131aa86e26707b187860e94be68b83ef2698e93319e0" },
   };
   /** A manifest with one field spoiled — the shape a hand-edit or a future pipeline could produce. */
   const spoiled = (over: Record<string, unknown>): string => JSON.stringify({ ...good, ...over });
@@ -157,8 +159,42 @@ describe("parseReleaseManifest", () => {
     expect(parseReleaseManifest(spoiled({ commit: "" }))).toBeNull();
   });
 
-  it("names the asset it parses", () => {
+  it("requires the assets map — the trust anchor of spec 2026-09-17 D2", () => {
+    // A pre-change release (no `assets`) must read as UNKNOWN, not as a
+    // manifest whose digests live somewhere else: the sidecar stops being a
+    // trust anchor the day the manifest is, and half a trust is none.
+    expect(parseReleaseManifest(spoiled({ assets: undefined }))).toBeNull();
+    const { assets: _gone, ...preChange } = good;
+    expect(parseReleaseManifest(JSON.stringify(preChange))).toBeNull();
+    // An empty map is a signer that forgot the digests, not a real release.
+    expect(parseReleaseManifest(spoiled({ assets: {} }))).toBeNull();
+    expect(parseReleaseManifest(spoiled({ assets: [] }))).toBeNull();
+    expect(
+      parseReleaseManifest(spoiled({ assets: "84b7f6ab0d7fc1242440131aa86e26707b187860e94be68b83ef2698e93319e0" })),
+    ).toBeNull();
+    // Values are LOWERCASE hex digests — a typo or an uppercase digest is a
+    // digest nothing will ever match, so it is a broken manifest.
+    expect(parseReleaseManifest(spoiled({ assets: { a: "not-a-digest" } }))).toBeNull();
+    expect(
+      parseReleaseManifest(
+        spoiled({ assets: { a: "84B7F6AB0D7FC1242440131AA86E26707B187860E94BE68B83EF2698E93319E0" } }),
+      ),
+    ).toBeNull();
+    expect(
+      parseReleaseManifest(
+        spoiled({ assets: { a: "84b7f6ab0d7fc1242440131aa86e26707b187860e94be68b83ef2698e93319e" } }),
+      ),
+    ).toBeNull();
+    expect(
+      parseReleaseManifest(
+        spoiled({ assets: { "": "84b7f6ab0d7fc1242440131aa86e26707b187860e94be68b83ef2698e93319e0" } }),
+      ),
+    ).toBeNull();
+  });
+
+  it("names the assets it parses", () => {
     expect(RELEASE_MANIFEST_NAME).toBe("release-manifest.json");
+    expect(RELEASE_MANIFEST_SIG_NAME).toBe("release-manifest.json.sig");
   });
 });
 

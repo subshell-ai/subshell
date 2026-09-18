@@ -129,12 +129,22 @@ export async function publishArtifacts(artifacts: Map<string, BuiltArtifact>, de
  * job uploads once the pipeline has finished.
  *
  * @param destDir - the publish directory (created when missing)
- * @param manifest - the component, its version, and the commit it was cut from
+ * @param manifest - the component, its version, the commit it was cut from,
+ *   and `assets`: every published filename mapped to the digest the pipeline
+ *   already computed for its sidecar (spec 2026-09-17 D2 — the map is
+ *   assembled from existing values, never new digesting, and the manifest
+ *   without it is what a pre-change release looks like: unparseable by
+ *   today's strict reader, and therefore never offered)
  * @returns the manifest as written, so a pipeline can print it
  */
 export async function writeReleaseManifest(
   destDir: string,
-  manifest: { component: ReleaseComponent; version: string; commit: string },
+  manifest: {
+    component: ReleaseComponent;
+    version: string;
+    commit: string;
+    assets: Record<string, string>;
+  },
 ): Promise<ReleaseManifest> {
   const full: ReleaseManifest = {
     component: manifest.component,
@@ -142,6 +152,7 @@ export async function writeReleaseManifest(
     nodeProtocol: NODE_PROTOCOL_VERSION,
     minAgentVersion: MIN_AGENT_VERSION,
     commit: manifest.commit,
+    assets: manifest.assets,
   };
   await mkdir(destDir, { recursive: true });
   await Bun.write(join(destDir, RELEASE_MANIFEST_NAME), `${JSON.stringify(full, null, 2)}\n`);

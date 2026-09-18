@@ -1740,28 +1740,48 @@ A headless install was never told a newer server existed, a node was never told
 anything but "die", and nothing ever backed up the database before a migration
 ran over it. What follows is what closing that costs.
 
-**The plane downloads and executes code from the release source.** Both halves
-of that sentence are new. The digest it verifies is the one the SAME source
-publishes beside the binary, so integrity proves "these are the bytes the
-release served", never authorship; authenticity rests on the release host's TLS
-and the repository's access controls. That is exactly the trust
-`install-server.sh` and the node enroll one-liner already place, and it is the
-same sentence the lazy agent-binary fetch and the plugin registry carry. A
-compromised release source — or a `SUBSHELL_RELEASE_URL` pointed somewhere
-else — is code execution on every plane that updates, and through them on every
-node that accepts an update from one. **Empty disables all of it**: no server
-update, no node update, no lazy artifact fetch, and each refusal names `--from`
-or a hand install instead of failing quietly.
+**The plane downloads and executes code from the release source; since spec
+2026-09-17 it does not have to BELIEVE the release source.** Every release now
+carries a `release-manifest.json` and a `release-manifest.json.sig` — a
+detached minisign signature over the manifest's EXACT published bytes, made
+with the same publisher keypair that signs the desktop apps' updater
+manifests (`TAURI_SIGNING_PRIVATE_KEY`; one key, all four components). The
+manifest's `assets` map is the digest source: the sha256 every install
+compares the downloaded bytes against now comes from that SIGNED payload,
+never from the release source's `.sha256` sidecar. So a compromised release
+source — or a `SUBSHELL_RELEASE_URL` pointed at an attacker — can withhold
+updates or replay any release the publisher ever signed, but it can no longer
+put code on a machine merely by being the host that served it. Authenticity is
+the publisher's key now; TLS is only delivery. The check runs at every update
+path: the server's own `update`, the downloads route's lazy agent fetch, the
+Updates page's release selection (a release with no manifest, no signature, or
+a signature that does not verify is refused BY NAME, never offered), and each
+node — which re-verifies the signature itself rather than taking the plane's
+word (below). **Empty still disables all of it**: no server update, no node
+update, no lazy artifact fetch, and each refusal names `--from` or a hand
+install instead of failing quietly. Two honest residues. The INSTALL one-liners
+(`install-server.sh`, the node enroll script) keep the old rule — their digest
+comes from the sidecar the same host serves, so a first install is still
+TLS-plus-repository trust; the first UPDATE any installed product performs is
+verified against the compiled-in key. And a local `release:node` publish into
+one's own instance is legal UNSIGNED — those artifacts are served by digest
+through the authenticated downloads route and never crossed a network nobody
+controls — while every plane's release SELECTION refuses an unsigned release,
+so the closing is done by the selector, not by the publisher's discretion.
 
-**The desktop apps are STRONGER here, and they are the only thing that is.**
-`tauri-plugin-updater` verifies a minisign signature over the bundle against a
-public key compiled into the app (`plugins.updater.pubkey`), so a malicious
-release host cannot hand an installed app a binary of its own — it can only
-withhold updates or serve an old one. The private key lives in two repo secrets
-and a password manager, never in the tree; a release cut is REFUSED while the
-placeholder pubkey is still committed, and a desktop shard fails loudly when
-`TAURI_SIGNING_PRIVATE_KEY` is unset, because an unsigned updater artifact is
-one every installed app refuses and publishing it is publishing a lie.
+**The desktop apps verify one link shorter, on the same key.**
+`tauri-plugin-updater` checks a minisign signature over the BUNDLE bytes
+against a public key compiled into the app (`plugins.updater.pubkey`); the CLI
+paths check a signature over the MANIFEST bytes and then match each downloaded
+file against a digest read from that verified payload. Both rest on the same
+keypair since spec 2026-09-17, which is also what RAISED the stakes on it:
+losing `TAURI_SIGNING_PRIVATE_KEY` now means every installed component of all
+four kinds can never auto-update again, not just the two GUIs. The private key
+lives in two repo secrets and a password manager, never in the tree; a release
+cut is REFUSED while the placeholder pubkey is still committed, and every
+shard — desktop and CLI alike — fails loudly when `TAURI_SIGNING_PRIVATE_KEY`
+is unset, because publishing an unsigned updater artifact, or an unsigned
+manifest, is publishing a release every installed product must refuse.
 
 **An admin can now install code on the control-plane host from a browser**,
 where before they could only restart it. `POST /api/admin/server/update` is
@@ -1788,8 +1808,15 @@ with a file swap in front of it. No new trust — the plane already runs
 arbitrary commands on that machine under that OS user — and the honest note is
 the restart note verbatim: an `edit` grantee may briefly take every subshell on
 a machine they do not own offline, the owner's and other grantees' included.
-The URL and the digest travel INSIDE the signed command, so a node installs
-only what the plane named.
+The URL, the digest, and the VERIFIED MANIFEST with its signature travel
+INSIDE the signed command (protocol 12, spec 2026-09-17 §6) — and the node
+re-verifies that signature against its own compiled-in pubkey before it
+replaces anything, so a node's trust is the publisher's, not merely the
+plane's: even a control plane persuaded (or compromised) after composing the
+command cannot get the node to install bytes the publisher did not sign.
+Agents older than protocol 12 PARSE the command but IGNORE those two fields,
+so this plane refuses to send one an update at all — the refusal says so and
+names the by-hand verb.
 
 **The download token is not a credential in any general sense.** A node key can
 do nothing on REST (§5.5) and that stays true: the agent presents a `nut_…`

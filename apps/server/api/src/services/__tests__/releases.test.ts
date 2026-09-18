@@ -1,7 +1,13 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION, RELEASE_MANIFEST_NAME } from "@internal/subshell-protocol";
+import {
+  MIN_AGENT_VERSION,
+  NODE_PROTOCOL_VERSION,
+  parseReleaseManifest,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+} from "@internal/subshell-protocol";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { artifactPath } from "@/lib/node-artifacts.js";
 import {
@@ -11,6 +17,7 @@ import {
   fetchArtifact,
   fetchDigest,
   refreshReleases,
+  releaseSeams,
   resetReleaseCacheForTests,
   resolveReleases,
   setReleaseUrlForTests,
@@ -88,12 +95,18 @@ async function drain(stream: ReadableStream<Uint8Array>): Promise<number> {
   return total;
 }
 
+/** The bytes the fixture binary serves, and their digest — the manifest names it. */
+const BINARY_PAYLOAD = payload("a convincing binary");
+
 /**
  * A `release-manifest.json` body, as a release script writes it.
  *
  * Every node-release case needs one: without it `compatibleNodeRelease`
  * refuses by design (spec §3.3), because a plane that cannot read which
- * protocol an agent speaks must not install it.
+ * protocol an agent speaks must not install it. And since spec 2026-09-17
+ * it needs a SIGNED one — `assets` carries the digest the bytes are checked
+ * against, and `releaseSeams.verifyManifest` below stands in for the crypto
+ * the protocol package pins against real `tauri signer` fixtures.
  */
 function manifestBody(over: Record<string, unknown> = {}): Uint8Array {
   return enc(
@@ -103,22 +116,38 @@ function manifestBody(over: Record<string, unknown> = {}): Uint8Array {
       nodeProtocol: NODE_PROTOCOL_VERSION,
       minAgentVersion: MIN_AGENT_VERSION,
       commit: "0123456789abcdef0123456789abcdef01234567",
+      assets: { [BINARY]: BINARY_PAYLOAD.digest },
       ...over,
     }),
   );
 }
+
+/** The armor the fake verifier accepts; anything else is a failed signature. */
+const TEST_ARMOR = "TEST-ARMOR";
+const realVerify = { ...releaseSeams };
 
 let fake: Fake;
 
 beforeEach(() => {
   fake = startFakeRelease();
   fake.tags = [{ tag: "node-v9.9.9" }];
-  const { bytes, digest } = payload("a convincing binary");
-  fake.assets.set(BINARY, bytes);
-  fake.assets.set(SIDECAR, enc(`${digest}\n`));
+  fake.assets.set(BINARY, BINARY_PAYLOAD.bytes);
+  fake.assets.set(SIDECAR, enc(`${BINARY_PAYLOAD.digest}\n`));
   fake.assets.set(RELEASE_MANIFEST_NAME, manifestBody());
+  fake.assets.set(RELEASE_MANIFEST_SIG_NAME, enc(TEST_ARMOR));
   mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
   setReleaseUrlForTests(`${fake.url}/releases`);
+  // The crypto half stands in — accepting exactly the fixture pair and
+  // enforcing the payload binding (component + version), like the real one.
+  releaseSeams.verifyManifest = async (bytes, sig, _pub, expected) => {
+    const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+    if (parsed === null) return { ok: false, reason: "test: the bytes are not a manifest" };
+    if (sig.trim() !== TEST_ARMOR) return { ok: false, reason: "test: signature refused" };
+    if (parsed.component !== expected.component || parsed.version !== expected.version) {
+      return { ok: false, reason: `test: payload names ${parsed.component} ${parsed.version}` };
+    }
+    return { ok: true, manifest: parsed };
+  };
 });
 
 afterEach(() => {
@@ -126,6 +155,7 @@ afterEach(() => {
   setReleaseUrlForTests(null);
   resetReleaseCacheForTests();
   rmSync(NODE_ARTIFACTS_DIR, { recursive: true, force: true });
+  Object.assign(releaseSeams, realVerify);
 });
 
 afterAll(() => {
@@ -214,6 +244,26 @@ describe("compatibleNodeRelease", () => {
     expect(reason).toMatch(/carries no release manifest/);
   });
 
+  it("refuses a release whose manifest carries no signature — and names that as the reason", async () => {
+    // Every cut between 2026-09-15 and the signing pipeline landing. The
+    // spec (2026-09-17 §4): a fresh instance pointed at the current, wholly
+    // unsigned release set shows NO available updates, which is correct.
+    fake.assets.delete(RELEASE_MANIFEST_SIG_NAME);
+    const { release, reason } = await compatibleNodeRelease();
+    expect(release).toBeNull();
+    expect(reason).toMatch(/no publisher signature covers/);
+  });
+
+  it("refuses a release whose signature fails to verify — the third distinct sentence", async () => {
+    // The attack-shaped case gets its own wording, not the "no manifest"
+    // one: telling an operator their release carries no manifest when
+    // someone handed them a bad signature is the wrong story.
+    fake.assets.set(RELEASE_MANIFEST_SIG_NAME, enc("NOT-THE-ARMOR"));
+    const { release, reason } = await compatibleNodeRelease();
+    expect(release).toBeNull();
+    expect(reason).toMatch(/signature failed to verify/);
+  });
+
   it("refuses a release that speaks a different protocol, naming both", async () => {
     fake.assets.set(RELEASE_MANIFEST_NAME, manifestBody({ nodeProtocol: NODE_PROTOCOL_VERSION + 1 }));
     const { reason } = await compatibleNodeRelease();
@@ -221,9 +271,9 @@ describe("compatibleNodeRelease", () => {
     expect(reason).toContain("update the server first");
   });
 
-  it("refuses an unparseable manifest the same way as an absent one", async () => {
+  it("refuses an unparseable manifest rather than offering it", async () => {
     fake.assets.set(RELEASE_MANIFEST_NAME, enc("<!doctype html>"));
-    expect((await compatibleNodeRelease()).reason).toMatch(/carries no release manifest/);
+    expect((await compatibleNodeRelease()).reason).toMatch(/failed to verify|not a release manifest/);
   });
 
   it("refuses when the repository publishes no node release", async () => {
@@ -244,17 +294,20 @@ describe("fetchArtifact", () => {
     expect(readFileSync(`${artifactPath(TARGET)}.sha256`, "utf8").trim()).toBe(fetched.digest);
   });
 
-  it("records what it fetched, so the file is known to be ours", async () => {
+  it("records what it fetched — tag and the signed manifest's commit — so the file is known to be ours", async () => {
     await drain((await fetchArtifact(TARGET)).stream);
     const manifest = JSON.parse(readFileSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), "utf8"));
     expect(manifest[TARGET]?.tag).toBe("node-v9.9.9");
     expect(manifest[TARGET]?.digest).toBe((await fetchArtifact(TARGET)).digest);
+    // The commit the VERIFIED manifest named (spec 2026-09-17 §5) — the audit
+    // trail says what was checked, not merely which tag was current.
+    expect(manifest[TARGET]?.commit).toBe("0123456789abcdef0123456789abcdef01234567");
   });
 
   it("errors the stream and caches NOTHING when the digest is wrong", async () => {
-    // The sidecar announces a digest the bytes do not have — a corrupted
-    // transfer, or a release whose two assets disagree.
-    fake.assets.set(SIDECAR, enc(`${"0".repeat(64)}\n`));
+    // The SIGNED manifest announces a digest the bytes do not have — a
+    // corrupted transfer, or a release whose assets disagree.
+    fake.assets.set(RELEASE_MANIFEST_NAME, manifestBody({ assets: { [BINARY]: "0".repeat(64) } }));
     const fetched = await fetchArtifact(TARGET);
     expect(drain(fetched.stream)).rejects.toThrow(/did not match the digest/);
     // The node sees a truncated download and fails its own check; the next
@@ -263,10 +316,21 @@ describe("fetchArtifact", () => {
     expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
   });
 
-  it("refuses a sidecar that is not a digest", async () => {
-    // An HTML error page must never become the thing a binary is checked against.
-    fake.assets.set(SIDECAR, enc("<!doctype html><title>404</title>"));
-    expect(fetchArtifact(TARGET)).rejects.toThrow(/not a sha256 digest/);
+  it("caches NOTHING when the signature fails — the release source alone cannot push bytes here", async () => {
+    // The whole point of path 3 (spec 2026-09-17 §5): a compromised release
+    // source swaps BOTH assets consistently and still gets nothing cached,
+    // because the fake verifier only accepts the fixture armor.
+    fake.assets.set(RELEASE_MANIFEST_SIG_NAME, enc("FORGED"));
+    expect(fetchArtifact(TARGET)).rejects.toThrow(/signature failed to verify|no publisher signature/);
+    expect(existsSync(artifactPath(TARGET))).toBe(false);
+  });
+
+  it("refuses a signed manifest that omits this platform", async () => {
+    fake.assets.set(
+      RELEASE_MANIFEST_NAME,
+      manifestBody({ assets: { "subshell-node-cli-some-other-machine": BINARY_PAYLOAD.digest } }),
+    );
+    expect(fetchArtifact(TARGET)).rejects.toThrow(/signed manifest names no/);
   });
 
   it("refuses a platform the release does not publish", async () => {

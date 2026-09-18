@@ -7,7 +7,7 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { resolveInstalledBinary } from "@/services/installed-binary.js";
-import { type ResolvedRelease, releaseSourceUrl, resolveReleases } from "@/services/releases.js";
+import { type CliReleaseCheck, installableCliRelease, releaseSourceUrl } from "@/services/releases.js";
 import { collectDeployment } from "@/services/server-deployment.js";
 import { describeBinary, startServerUpdate, updateJobRunning } from "@/services/server-update.js";
 import { readPending } from "@/services/update-transaction.js";
@@ -42,10 +42,18 @@ const UpdateStartedSchema = t.Object({
 export const updateSeams = {
   deployment: collectDeployment,
   installed: () => resolveInstalledBinary({ configDir: serverConfigDir() }),
-  /** The newest published `server` release, or a throw naming why there is none. */
-  release: async (): Promise<ResolvedRelease | null> => (await resolveReleases()).byComponent.server,
+  /**
+   * The newest INSTALLABLE `server` release — newest AND signature-verified —
+   * or the one-sentence reason there is none. Never throws: the refusal is a
+   * rendered answer, not an exception (spec 2026-09-17 §5 path 4).
+   */
+  release: installableCliReleaseServer,
   start: startServerUpdate,
 };
+
+async function installableCliReleaseServer(): Promise<CliReleaseCheck> {
+  return installableCliRelease("server");
+}
 
 /**
  * `POST /api/admin/server/update` — replace this server's binary and exit for
@@ -130,28 +138,23 @@ export const updateRoute = new Elysia()
         );
       }
 
-      // 5. What there is to install.
-      let release: ResolvedRelease | null;
-      try {
-        release = await updateSeams.release();
-      } catch (error) {
+      // 5. What there is to install — and the answer is "installable", not
+      //    merely "newest": the release's manifest must carry a signature the
+      //    compiled-in publisher key verifies (spec 2026-09-17 §5 path 2). No
+      //    manifest, unsigned manifest and failed signature each refuse with
+      //    their own sentence, one implementation with the Server row and the
+      //    CLI's `update`.
+      const gate = await updateSeams.release();
+      if (!gate.ok) {
         return status(
           409,
           apiErrorBody({
             code: BackendErrorCodes.UPDATE_NOT_AVAILABLE,
-            message: error instanceof Error ? error.message : String(error),
+            message: gate.reason,
           }),
         );
       }
-      if (release === null) {
-        return status(
-          409,
-          apiErrorBody({
-            code: BackendErrorCodes.UPDATE_NOT_AVAILABLE,
-            message: "The release source publishes no server release.",
-          }),
-        );
-      }
+      const release = gate.release;
       if (body.version !== undefined && body.version !== release.version) {
         // Only the newest release of a component is indexed, so a `version`
         // naming an older one has nothing to resolve. Say which one IS

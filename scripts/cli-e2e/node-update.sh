@@ -22,8 +22,16 @@
 # drives directly. The unit test is the right size for it; this is the part
 # only a real binary can answer.
 #
-# Temp dirs and a throwaway config home — it touches no service manager, no
-# port, and never ~/.config/subshell.
+# The `--from` half is deliberately SIGNATURE-FREE (spec 2026-09-17): a file
+# the operator named beside the command IS their decision, already verified as
+# far as it can be (it must say it is the agent at the version asked for).
+# What step 10 adds is the other side of that line: a release fetched over the
+# network whose manifest signature does not verify must abort with NOTHING
+# replaced — proven here against a LOCAL fake release source, compiled, with
+# no stub anywhere.
+#
+# Temp dirs and a throwaway config home — it touches no service manager, and
+# step 10's throwaway port is the only network anything here opens.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AGENT="$ROOT/apps/node/agent"
@@ -146,6 +154,72 @@ chmod +x "$W/not-an-agent"
 [ -f "$INSTALLED.previous" ] && fail "a refused update left a .previous"
 [ -f "$W/data/update-pending.json" ] && fail "a refused update left a marker"
 ok "refused a file that cannot say what it is"
+
+echo "== 10. a network release whose manifest signature does not verify installs NOTHING"
+# A local fake release source with the REAL structure and a BOGUS signature:
+# the manifest, the digest and the bytes all line up, so the only fact that
+# refuses is the publisher's armor. This is the compiled, end-to-end proof of
+# the spec's whole claim — a release source can no longer get code onto this
+# machine by itself — and it is what no unit test can answer, because the
+# verifier runs against the pubkey COMPILED INTO this binary.
+FAKE_RELEASE_PORT=31994
+cat > "$W/fake-release.ts" <<EOF
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
+const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const bytes = readFileSync(process.argv[2]!);
+const digest = createHash("sha256").update(bytes).digest("hex");
+const port = Number(process.argv[3]!);
+const base = \`http://127.0.0.1:\${port}\`;
+const manifest = JSON.stringify({
+  component: "node",
+  version: process.argv[4]!,
+  nodeProtocol: 12,
+  minAgentVersion: "0.11.0",
+  commit: "0".repeat(40),
+  assets: { [binary]: digest },
+});
+Bun.serve({
+  port,
+  fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === "/releases") {
+      return Response.json([
+        {
+          tag_name: \`node-v\${process.argv[4]}\`,
+          draft: false,
+          assets: [
+            { name: "release-manifest.json", browser_download_url: \`\${base}/manifest\` },
+            { name: "release-manifest.json.sig", browser_download_url: \`\${base}/sig\` },
+            { name: binary, browser_download_url: \`\${base}/bin\` },
+          ],
+        },
+      ]);
+    }
+    if (path === "/manifest") return new Response(manifest);
+    if (path === "/sig") return new Response("not a minisign armor at all");
+    if (path === "/bin") return new Response(bytes);
+    return new Response("no", { status: 404 });
+  },
+});
+console.log("fake release source listening");
+EOF
+bun "$W/fake-release.ts" "$W/next-subshell" "$FAKE_RELEASE_PORT" "$NEXT" > "$W/fake-release.log" 2>&1 &
+FAKE_PID=$!
+trap 'kill "$FAKE_PID" 2>/dev/null; cleanup' EXIT
+for _ in $(seq 1 60); do grep -q "listening" "$W/fake-release.log" && break; sleep 0.25; done
+grep -q "listening" "$W/fake-release.log" || { cat "$W/fake-release.log"; fail "fake release source never started"; }
+SUBSHELL_RELEASE_URL="http://127.0.0.1:$FAKE_RELEASE_PORT/releases" \
+  "$INSTALLED" update --to "$NEXT" --yes --no-restart >"$W/unsigned.out" 2>&1 && \
+  fail "a release with a bogus manifest signature was installed"
+grep -qi "not installable" "$W/unsigned.out" || { cat "$W/unsigned.out"; fail "the refusal did not name the release as un-installable"; }
+"$INSTALLED" version | grep -q "subshell $CURRENT" || fail "the binary was replaced despite the failed signature"
+[ -f "$INSTALLED.previous" ] && fail "the refused signed-release update left a .previous"
+[ -f "$W/data/update-pending.json" ] && fail "the refused signed-release update left a marker"
+ls "$W/bin/"subshell.download-* >/dev/null 2>&1 && fail "the refusal left a download temp behind"
+kill "$FAKE_PID" 2>/dev/null
+ok "refused the unsigned release; nothing downloaded, nothing replaced"
 
 echo
 echo "ALL NODE UPDATE CHECKS PASSED"

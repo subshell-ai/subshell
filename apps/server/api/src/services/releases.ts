@@ -36,6 +36,16 @@
  *   handing a node a build this plane cannot talk to produces an agent that
  *   installs, reconnects and is closed 4406. Unknown is refused, by name, and
  *   the reason travels to the page.
+ * - **A release is installable only if its manifest is SIGNED and the
+ *   signature verifies** (spec 2026-09-17). The digest the bytes are compared
+ *   against comes from the signed manifest's `assets` map, never from a
+ *   `.sha256` sidecar — those stay published for `install.sh` and pre-change
+ *   consumers, but no path in this module consults one. The publisher pubkey
+ *   is compiled in (`RELEASE_PUBKEY`); what the release source says about a
+ *   binary means nothing until the signature over the manifest says it too.
+ *   Every refusal here is a reason string in the same sentence grammar the
+ *   Updates page already renders, because "why is there no update" is the
+ *   question the page exists to answer.
  */
 import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -44,16 +54,17 @@ import {
   NODE_PROTOCOL_VERSION,
   type NodeTarget,
   newestRelease,
-  parseReleaseManifest,
-  parseSidecarDigest,
   RELEASE_COMPONENTS,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+  RELEASE_PUBKEY,
   type ReleaseCandidate,
   type ReleaseComponent,
   type ReleaseManifest,
   releaseAssetNames,
   semverLt,
 } from "@internal/subshell-protocol";
+import { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import { IS_TEST, NODE_ARTIFACTS_DIR, SUBSHELL_RELEASE_URL } from "@/constants.js";
 import { artifactPath } from "@/lib/node-artifacts.js";
 import { getLogger } from "@/utils/logger.js";
@@ -69,10 +80,17 @@ const METADATA_TIMEOUT_MS = 15_000;
  */
 export const MAX_ARTIFACT_BYTES = 300 * 1024 * 1024;
 
-/** What this instance fetched, and from which release. */
+/**
+ * What this instance fetched, and from which release.
+ *
+ * `commit` (spec 2026-09-17 §5) is the commit the SIGNED manifest names —
+ * so the lazy-fetch audit trail says what was verified, not merely what
+ * arrived. Entries predating the field read it as absent, which is honest:
+ * those fetches happened before the digest was a signed fact.
+ */
 interface FetchedManifest {
   /** Keyed by target; absent means "not ours" — an operator-published file. */
-  [target: string]: { tag: string; digest: string; fetchedAt: string } | undefined;
+  [target: string]: { tag: string; digest: string; fetchedAt: string; commit?: string } | undefined;
 }
 
 const MANIFEST_NAME = ".fetched.json";
@@ -119,18 +137,52 @@ export function setReleaseUrlForTests(url: string | null): void {
 
 /** One release's tag, version, assets and (lazily read) manifest. */
 export interface ResolvedRelease extends ReleaseCandidate {
+  /** Which component this release is — the index already knows; verification asserts the manifest agrees (spec 2026-09-17 §3: the payload says what it is). */
+  component: ReleaseComponent;
   /** Download URL by asset name. */
   assets: Map<string, string>;
   /**
-   * The parsed `release-manifest.json`, or null when the release carries none
-   * (every cut before 2026-09-15) or it could not be read. Filled on first use
-   * by {@link releaseManifest} and memoized with the index, so a page that only
-   * asks "is there a newer server" never fetches it.
+   * The parsed `release-manifest.json`, or null when the release carries none,
+   * carries an unsigned or unverifiable one, or it could not be read. Filled
+   * on first use by {@link checkReleaseManifest} and memoized with the index,
+   * so a page that only asks "is there a newer server" never fetches it.
    */
   manifest: ReleaseManifest | null;
   /** Whether {@link manifest} has been looked for yet. */
   manifestRead: boolean;
+  /**
+   * The full outcome behind {@link manifest}, memoized with it — the three
+   * refusals are one `null` to the parser but three DIFFERENT sentences to
+   * the page that has to explain why there is no update.
+   */
+  manifestOutcome: ManifestOutcome | null;
 }
+
+/** The signed manifest of one release, as {@link checkReleaseManifest} verified it. */
+export interface VerifiedReleaseManifest {
+  /** Parsed from the exact verified bytes — never re-serialized before parsing (§3). */
+  manifest: ReleaseManifest;
+  /** The exact published manifest text — what the signature covers. */
+  bytes: string;
+  /** The published `release-manifest.json.sig` armor, verbatim. */
+  sig: string;
+}
+
+/**
+ * The result of reading AND verifying one release's manifest.
+ *
+ * Three refusals, one per distinct sentence the Updates page renders: no
+ * manifest at all (every cut before 2026-09-15), a manifest nobody signed
+ * (every cut between then and the signing pipeline landing), and a signature
+ * that failed (the active-attack-shaped one). One `null` would tell the
+ * operator "no manifest" when the truth is "someone handed you a bad
+ * signature" — the wrong story about an incident.
+ */
+export type ManifestOutcome =
+  | { kind: "ok"; verified: VerifiedReleaseManifest }
+  | { kind: "no-manifest" }
+  | { kind: "unsigned" }
+  | { kind: "failed"; reason: string };
 
 /** Every component's newest published release, as of one read of the list. */
 export interface ReleaseIndex {
@@ -209,7 +261,14 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
     byComponent[component] =
       newest === null
         ? null
-        : { ...newest, assets: byTag.get(newest.tag) ?? new Map(), manifest: null, manifestRead: false };
+        : {
+            ...newest,
+            component,
+            assets: byTag.get(newest.tag) ?? new Map(),
+            manifest: null,
+            manifestRead: false,
+            manifestOutcome: null,
+          };
   }
 
   const index: ReleaseIndex = { byComponent, checkedAt: now };
@@ -227,28 +286,85 @@ export async function refreshReleases(): Promise<ReleaseIndex> {
 }
 
 /**
- * That release's `release-manifest.json`, fetched once and memoized on the
- * index entry.
- *
- * `null` for a release that publishes none (every cut before 2026-09-15), for
- * one whose manifest does not parse, and for one whose manifest could not be
- * fetched. All three have the same consequence for every caller — do not offer
- * this release to a node — so they are one answer rather than three.
+ * Test seam for the publisher verification (spec 2026-09-17). Tests stand in
+ * for the cryptographic half — the verifier's own correctness against real
+ * `tauri signer` output is pinned in the protocol package's fixture tests,
+ * and end-to-end against a live signed cut by `published-release.sh`.
+ * @internal
  */
-export async function releaseManifest(release: ResolvedRelease): Promise<ReleaseManifest | null> {
-  if (release.manifestRead) return release.manifest;
+export const releaseSeams = {
+  verifyManifest: verifyReleaseManifest,
+};
+
+/**
+ * That release's `release-manifest.json` AND its signature: fetched once,
+ * verified once, memoized on the index entry.
+ *
+ * Fetching and verifying live in one function because splitting them is how
+ * a caller ends up parsing a manifest it never checked — the canonical-bytes
+ * rule (§3) only holds if the bytes flow from fetch to `verifyReleaseManifest`
+ * to `parseReleaseManifest` without an intervening re-serialization.
+ *
+ * An unreachable manifest or signature reads `failed` with the transport
+ * reason — "could not read" and "refused to verify" share the consequence
+ * (do not offer) and differ only in the sentence; neither is a page failure.
+ */
+export async function checkReleaseManifest(release: ResolvedRelease): Promise<ManifestOutcome> {
+  if (release.manifestRead && release.manifestOutcome !== null) return release.manifestOutcome;
   release.manifestRead = true;
-  const url = release.assets.get(RELEASE_MANIFEST_NAME);
-  if (url === undefined) return null;
+  const manifestUrl = release.assets.get(RELEASE_MANIFEST_NAME);
+  if (manifestUrl === undefined) return remember(release, { kind: "no-manifest" });
+  const sigUrl = release.assets.get(RELEASE_MANIFEST_SIG_NAME);
+  if (sigUrl === undefined) return remember(release, { kind: "unsigned" });
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) });
-    if (!response.ok) return null;
-    release.manifest = parseReleaseManifest(await response.text());
-  } catch {
+    const [manifestRes, sigRes] = await Promise.all([
+      fetch(manifestUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
+      fetch(sigUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
+    ]);
+    if (!manifestRes.ok)
+      return remember(release, { kind: "failed", reason: `${RELEASE_MANIFEST_NAME} answered ${manifestRes.status}` });
+    if (!sigRes.ok)
+      return remember(release, { kind: "failed", reason: `${RELEASE_MANIFEST_SIG_NAME} answered ${sigRes.status}` });
+    const bytes = await manifestRes.text();
+    const sig = await sigRes.text();
+    const checked = await releaseSeams.verifyManifest(bytes, sig, RELEASE_PUBKEY, {
+      component: release.component,
+      version: release.version,
+    });
+    if (!checked.ok) return remember(release, { kind: "failed", reason: checked.reason });
+    // The manifest the VERIFIER parsed, from the exact bytes it verified —
+    // re-parsing a re-serialization would be the canonical-bytes mistake in
+    // miniature (§3).
+    return remember(release, { kind: "ok", verified: { manifest: checked.manifest, bytes, sig } });
+  } catch (error) {
     // An unreachable manifest is an unknown release, not a failed page.
-    release.manifest = null;
+    return remember(release, { kind: "failed", reason: error instanceof Error ? error.message : String(error) });
   }
-  return release.manifest;
+}
+
+function remember(release: ResolvedRelease, outcome: ManifestOutcome): ManifestOutcome {
+  release.manifestOutcome = outcome;
+  release.manifest = outcome.kind === "ok" ? outcome.verified.manifest : null;
+  return outcome;
+}
+
+/**
+ * The signed digest a release's manifest names for one published filename, or
+ * a throw naming why there is none. The ONLY way to ask "what should these
+ * bytes hash to" anywhere an update is about to happen — every caller used to
+ * read a `.sha256` sidecar, and the sidecar stopped being a trust anchor when
+ * the signed manifest became one (spec 2026-09-17 §4).
+ */
+export async function signedAssetDigest(release: ResolvedRelease, assetName: string): Promise<string> {
+  const outcome = await checkReleaseManifest(release);
+  if (outcome.kind !== "ok") {
+    throw new Error(
+      `release ${release.tag} has no verifiable manifest (${outcome.kind === "failed" ? outcome.reason : `the release carries ${outcome.kind === "unsigned" ? "an unsigned" : "no"} manifest`})`,
+    );
+  }
+  const digest = outcome.verified.manifest.assets[assetName];
+  if (digest === undefined) throw new Error(`${release.tag}'s signed manifest names no ${assetName}`);
+  return digest;
 }
 
 /** The newest node release this server can talk to, or why there is none. */
@@ -256,6 +372,15 @@ export interface CompatibleNodeRelease {
   release: ResolvedRelease | null;
   /** Why `release` is null, in one sentence a page renders verbatim; `null` when it is not. */
   reason: string | null;
+  /**
+   * The VERIFIED manifest + signature for `release` (present exactly when
+   * `release` is not null) — what {@link checkReleaseManifest} already
+   * fetched and confirmed, so the update route can put `manifest` and
+   * `manifestSig` into the wire command without a second fetch (spec
+   * 2026-09-17 §6). Held rather than re-derived: the bytes must be exactly
+   * what was verified.
+   */
+  manifest: VerifiedReleaseManifest | null;
 }
 
 /**
@@ -273,38 +398,125 @@ export interface CompatibleNodeRelease {
  * releases looking for a protocol match would hand a machine a build nobody
  * cut for it, and the honest answer when the newest does not fit is "update the
  * server first".
+ *
+ * Since spec 2026-09-17 the manifest must also CARRY A VALID PUBLISHER
+ * SIGNATURE: an unsigned release, or one whose signature does not verify, is
+ * not offered either, with its own sentence — "no manifest", "no signature"
+ * and "bad signature" are three different stories for the operator, and
+ * guessing which would be the exact failure this whole change removes.
  */
 export async function compatibleNodeRelease(): Promise<CompatibleNodeRelease> {
   const index = await resolveReleases();
   const release = index.byComponent.node;
-  if (release === null) return { release: null, reason: "the release source publishes no node-v* release" };
+  if (release === null)
+    return { release: null, reason: "the release source publishes no node-v* release", manifest: null };
   if (semverLt(release.version, MIN_AGENT_VERSION)) {
     return {
       release: null,
+      manifest: null,
       reason: `the newest node release (${release.tag}) is older than this server's minimum agent version ${MIN_AGENT_VERSION}`,
     };
   }
-  const manifest = await releaseManifest(release);
-  if (manifest === null) {
+  const outcome = await checkReleaseManifest(release);
+  if (outcome.kind === "no-manifest") {
     return {
       release: null,
+      manifest: null,
       reason: `node release ${release.version} carries no release manifest, so this server cannot tell whether it speaks protocol ${NODE_PROTOCOL_VERSION}`,
     };
   }
+  if (outcome.kind === "unsigned") {
+    return {
+      release: null,
+      manifest: null,
+      reason: `node release ${release.version} carries a manifest no publisher signature covers, so this server will not offer it`,
+    };
+  }
+  if (outcome.kind === "failed") {
+    return {
+      release: null,
+      manifest: null,
+      reason: `node release ${release.version}'s manifest signature failed to verify, so this server will not offer it`,
+    };
+  }
+  const manifest = outcome.verified.manifest;
   if (manifest.nodeProtocol !== NODE_PROTOCOL_VERSION) {
     return {
       release: null,
+      manifest: null,
       reason: `newest node release ${release.version} speaks protocol ${manifest.nodeProtocol}; this server speaks ${NODE_PROTOCOL_VERSION} — update the server first`,
     };
   }
-  return { release, reason: null };
+  return { release, reason: null, manifest: outcome.verified };
 }
 
-/** The node release to serve from, or a throw naming why there is none. */
-async function nodeReleaseOrThrow(): Promise<ResolvedRelease> {
-  const { release, reason } = await compatibleNodeRelease();
-  if (release === null) throw new Error(reason ?? "no node release can be offered");
-  return release;
+/** A component's newest release and whether this instance may install it. */
+export type CliReleaseCheck =
+  | { ok: true; release: ResolvedRelease; verified: VerifiedReleaseManifest }
+  | { ok: false; reason: string };
+
+/**
+ * The newest release of a self-updating CLI component that this instance may
+ * actually install: it exists AND its manifest signature verifies (spec
+ * 2026-09-17 §5 path 4). One function so the dashboard's Server row, the
+ * dashboard's update POST and `subshell-server update` answer "what can I
+ * install" with the same sentence rather than three near-identical ones —
+ * the same reason `applyConfig` is the one writer of config.env.
+ *
+ * `node` is here for completeness, but the node question is sharper than this
+ * — a plane must also match protocol and floor — so anything offering a
+ * release TO A NODE uses {@link compatibleNodeRelease} instead.
+ */
+export async function installableCliRelease(component: "server" | "node"): Promise<CliReleaseCheck> {
+  let index: ReleaseIndex;
+  try {
+    index = await resolveReleases();
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+  const release = index.byComponent[component];
+  if (release === null) {
+    return { ok: false, reason: `the release source publishes no ${component}-v* release` };
+  }
+  const outcome = await checkReleaseManifest(release);
+  switch (outcome.kind) {
+    case "ok":
+      return { ok: true, release, verified: outcome.verified };
+    case "no-manifest":
+      return {
+        ok: false,
+        reason: `the newest ${component} release (${release.version}) carries no release manifest, so this server cannot verify it`,
+      };
+    case "unsigned":
+      return {
+        ok: false,
+        reason: `the newest ${component} release (${release.version}) carries a manifest no publisher signature covers, so this server will not install it`,
+      };
+    case "failed":
+      return {
+        ok: false,
+        reason: `the newest ${component} release (${release.version})'s manifest signature failed to verify, so this server will not install it`,
+      };
+  }
+}
+
+/**
+ * The node release to serve from AND its verified manifest, or a throw naming
+ * why there is none.
+ *
+ * The manifest cannot be null when the release is not: a release only becomes
+ * `compatibleNodeRelease`'s answer once its signature verified, so this
+ * asserts the invariant rather than letting every caller re-open the question
+ * "but did we check the signature" — the type says the pair arrives together
+ * or not at all.
+ */
+async function compatibleNodeReleaseOrThrow(): Promise<{
+  release: ResolvedRelease;
+  manifest: VerifiedReleaseManifest;
+}> {
+  const { release, reason, manifest } = await compatibleNodeRelease();
+  if (release === null || manifest === null) throw new Error(reason ?? "no node release can be offered");
+  return { release, manifest };
 }
 
 // ---------------------------------------------------------------------------
@@ -364,10 +576,16 @@ async function supersede(tag: string): Promise<void> {
   if (changed) await writeManifest(manifest);
 }
 
-/** Record a freshly verified artifact as ours. */
-async function record(target: NodeTarget, tag: string, digest: string): Promise<void> {
+/**
+ * Record a freshly verified artifact as ours.
+ *
+ * `commit` names the commit the SIGNED manifest carried (spec 2026-09-17
+ * §5): the audit trail then says what was verified, not merely which tag was
+ * current when bytes arrived.
+ */
+async function record(target: NodeTarget, tag: string, digest: string, commit: string): Promise<void> {
   const manifest = await readManifest();
-  manifest[target] = { tag, digest, fetchedAt: new Date().toISOString() };
+  manifest[target] = { tag, digest, fetchedAt: new Date().toISOString(), commit };
   await writeManifest(manifest);
 }
 
@@ -389,9 +607,14 @@ export interface FetchedArtifact {
 /**
  * Fetch one platform's agent binary, streaming it to the caller as it arrives.
  *
- * The sidecar is fetched FIRST and in full — it is 65 bytes, and having the
- * expected digest before the first byte of the binary is what lets the stream
- * be checked as it passes rather than afterwards.
+ * The expected digest comes from the release's SIGNED manifest (spec
+ * 2026-09-17 §5 path 3) — verified before the first binary byte is fetched,
+ * because the manifest and its signature are two tiny reads and having the
+ * publisher's word before the 80 MB is what lets this stream be cached at all.
+ * A release whose signature does not verify gets NO stream and NO cache entry;
+ * the downloads route's 404 is unchanged from the outside, and `install.sh`'s
+ * own digest check now sits behind a signature check rather than beside a
+ * same-source sidecar.
  */
 export async function fetchArtifact(target: NodeTarget): Promise<FetchedArtifact> {
   const existing = inFlight.get(target);
@@ -402,7 +625,7 @@ export async function fetchArtifact(target: NodeTarget): Promise<FetchedArtifact
 }
 
 async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedArtifact> {
-  const release = await nodeReleaseOrThrow();
+  const { release, manifest } = await compatibleNodeReleaseOrThrow();
   // Resolving told us which tag is current, so this is the moment anything
   // older becomes removable. Before the download, so a plane low on disk
   // reclaims before it spends.
@@ -410,15 +633,17 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
 
   const names = releaseAssetNames("node", target);
   const binaryUrl = release.assets.get(names.binary);
-  const sidecarUrl = release.assets.get(names.sidecar);
-  if (!binaryUrl || !sidecarUrl) {
+  if (!binaryUrl) {
     throw new Error(`${release.tag} publishes no ${names.binary} — this platform is not in that release`);
   }
-
-  const sidecar = await fetch(sidecarUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) });
-  if (!sidecar.ok) throw new Error(`${sidecarUrl} answered ${sidecar.status}`);
-  const expected = parseSidecarDigest(await sidecar.text());
-  if (expected === null) throw new Error(`${sidecarUrl} is not a sha256 digest`);
+  // The digest the PUBLISHER signed for this exact filename. `release` only
+  // came back from `compatibleNodeRelease` because this manifest verified,
+  // so `manifest` is present; asking the signed map rather than re-reading a
+  // sidecar is the whole of D2.
+  const expected = manifest?.manifest.assets[names.binary];
+  if (expected === undefined) {
+    throw new Error(`${release.tag}'s signed manifest names no ${names.binary}`);
+  }
 
   const upstream = await fetch(binaryUrl);
   if (!upstream.ok || upstream.body === null) {
@@ -456,13 +681,16 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
         getLogger().warn(
           `node artifacts: ${names.binary} from ${release.tag} failed its digest check (expected ${expected}, got ${actual})`,
         );
-        controller.error(new Error(`${names.binary} did not match the digest ${release.tag} published`));
+        controller.error(new Error(`${names.binary} did not match the digest the ${release.tag} manifest signed`));
         return;
       }
       await sink.end();
       await rename(tmp, artifactPath(target));
+      // The sidecar is written from the MANIFEST's digest, not the other way
+      // round: `install.sh` keeps reading the file, it just no longer decides
+      // anything (spec 2026-09-17 §4).
       await writeFile(`${artifactPath(target)}.sha256`, `${expected}\n`);
-      await record(target, release.tag, expected);
+      await record(target, release.tag, expected, manifest.manifest.commit);
       getLogger().info(`node artifacts: cached ${names.binary} from ${release.tag} (${seen} bytes)`);
       controller.close();
     },
@@ -491,22 +719,18 @@ async function discard(sink: { end: () => unknown }, tmp: string): Promise<void>
  * The digest for a target this instance does not have, without downloading the
  * binary. `install.sh` asks for the sha AFTER the binary, so this is normally
  * served from the file the streaming fetch just wrote; it exists for the order
- * being the other way round.
+ * being the other way round — and for `POST /api/nodes/:id/update`, which
+ * embeds it in the command.
+ *
+ * It is the digest the SIGNED MANIFEST names (spec 2026-09-17), not the one a
+ * `.sha256` sidecar carries: by the time this answers, the signature has been
+ * checked, and a release the publisher did not sign throws.
  */
 export async function fetchDigest(target: NodeTarget): Promise<string> {
-  const release = await nodeReleaseOrThrow();
-  const { sidecar: name } = releaseAssetNames("node", target);
-  return readDigest(release, name);
-}
-
-/** Fetch and parse one `.sha256` asset of a release. */
-export async function readDigest(release: ResolvedRelease, assetName: string): Promise<string> {
-  const url = release.assets.get(assetName);
-  if (!url) throw new Error(`${release.tag} publishes no ${assetName}`);
-  const response = await fetch(url, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) });
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`);
-  const digest = parseSidecarDigest(await response.text());
-  if (digest === null) throw new Error(`${url} is not a sha256 digest`);
+  const { release, manifest } = await compatibleNodeReleaseOrThrow();
+  const { binary } = releaseAssetNames("node", target);
+  const digest = manifest.manifest.assets[binary];
+  if (digest === undefined) throw new Error(`${release.tag}'s signed manifest names no ${binary}`);
   return digest;
 }
 

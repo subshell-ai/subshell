@@ -226,7 +226,10 @@ equal the `to` the operator asked for, and the downloaded bytes' hash to equal
 *who ordered it*; the publisher signature gates *what runs*. Both are checked;
 neither implies the other, which is the point of D1's note in §4.
 
-`NODE_PROTOCOL_VERSION` bumps to 12: the new command payload is additive, but an
+`NODE_PROTOCOL_VERSION` bumps to 12 (skipping 11 deliberately: the concurrent
+zero-touch branch bumps 10→11 for its `ready` fields, and 12 keeps this bump
+valid in either merge order — no build ever spoke 11 on main): the new command
+payload is additive, but an
 old agent would silently ignore `manifest`/`manifestSig` and accept payload-only
 — which is exactly the silent-downgrade this change exists to close, so the
 plane treats protocol <12 agents as update-incapable (they surface under the
@@ -247,6 +250,18 @@ next node release publishes; until then held-node copy explains it.
 - `publish` job's `files:` globs gain `release-manifest.json.sig` (per-app glob
   already sweeps `dist/$APP-*/*`; the sig lives beside its manifest — verify the
   glob catches it, the desktop `latest.json` precedent says it does).
+  **Amended during build-out (the one real spec deviation):** the `assets` map
+  made per-shard manifests *content-different* (each names only its own
+  triple), so uploading three same-basename files would have let softprops'
+  last-one-win silently publish a three-platform release whose signed manifest
+  offers one — a release every other machine's nodes refuse. The publish job
+  now MERGES the shard manifests (`scripts/merge-release-manifest.ts`: refuses
+  disagreements, duplicate digests, missing expected triples, and a missing
+  signing key), re-signs the merged bytes with the same publisher key, and
+  DELETES the per-shard copies so the asset glob cannot collide; the merged
+  pair is listed explicitly beside `latest.json`, same shape as that existing
+  precedent. §4's verification rule is unchanged; only the manifest's
+  production moved from shard to publish.
 - `published-release.sh` post-cut smoke gains one check: download a release's
   manifest + sig and verify offline against `RELEASE_PUBKEY`.
 - No new secrets, no key ceremony changes. The docs' loss warning

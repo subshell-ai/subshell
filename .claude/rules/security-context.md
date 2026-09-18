@@ -485,22 +485,32 @@ shares and subshell shares are two independent axes:
   pane-side credentials stay in the node's own environment, which the plane
   never sees. Full prose: `docs/security.md` §6, "Plugin installs from the
   registry".
-- **Updating is a new class of act on every surface** (spec 2026-09-15; full
-  accounting in `docs/security.md` §11.12). Three sentences to code by. **The
-  plane downloads and executes code from the release source** — the digest
-  comes from the same source as the bytes, so integrity is "these are the
-  bytes it served", authenticity is that host's TLS plus the repository's
-  access controls, and empty `SUBSHELL_RELEASE_URL` disables every one of
-  these paths; the desktop apps are the one exception, and stronger, because
-  `tauri-plugin-updater` checks a minisign signature against a pubkey compiled
-  into the app. **An admin installs code on the control-plane host from a
+- **Updating is a new class of act on every surface** (specs 2026-09-15 and
+  2026-09-17; full accounting in `docs/security.md` §11.12). Three sentences to
+  code by. **The plane downloads and executes code from the release source, and
+  since spec 2026-09-17 need not believe it**: every release carries a
+  `release-manifest.json` plus a detached minisign signature over its exact
+  bytes (`release-manifest.json.sig`), made with the SAME publisher keypair the
+  desktop updater uses — one key now guards all four components — and every
+  update path verifies it against a pubkey compiled into the product
+  (`RELEASE_PUBKEY`), taking the install digest from the signed `assets` map and
+  never from the release source's `.sha256` sidecar. Authenticity is the
+  publisher's key; TLS is only delivery. A compromised release source can
+  withhold or replay signed releases, not mint new ones; the install one-liners
+  keep the old sidecar rule (their machines hold no key yet). Empty
+  `SUBSHELL_RELEASE_URL` still disables every one of these paths, and an
+  unsigned release publishes but is refused BY NAME by every selector. **An
+  admin installs code on the control-plane host from a
   browser** (`POST /api/admin/server/update`, cookie-admin, bearer refused,
   audited at the start with the actor and again at the completing boot with
   actor null) — the URL comes from the release index and never from the
   request body, and `version` only selects among published tags. **An `edit`
   grantee replaces a node's binary** (`POST /api/nodes/:id/update`, the
-  `service restart` gate, `local` refused, audited `node.update`): the URL and
-  digest ride inside the SIGNED command, and the `nut_…` download token is
+  `service restart` gate, `local` refused, audited `node.update`): the URL,
+  digest, and the verified manifest + signature ride inside the SIGNED command
+  and the NODE re-verifies the signature against its own compiled-in pubkey
+  (agents below protocol 12 ignore those fields, so the plane refuses to send
+  one an update at all), and the `nut_…` download token is
   in-memory, hashed, single-use, ten minutes, bound to one node and one
   target, refused on the `.sha256` routes — so "a node key can do nothing on
   REST" stays true as written. A refused agent is now HELD rather than

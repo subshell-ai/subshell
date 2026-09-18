@@ -33,13 +33,12 @@ import { type BackupFile, backupDatabase, backupsDir, listBackups } from "@/serv
 import { binaryIsReplaceable, type InstalledBinary, resolveInstalledBinary } from "@/services/installed-binary.js";
 import {
   downloadVerified,
-  type ReleaseIndex,
+  installableCliRelease,
   type ResolvedRelease,
-  readDigest,
   refreshReleases,
   releasePublishedAt,
   releaseSourceUrl,
-  resolveReleases,
+  signedAssetDigest,
 } from "@/services/releases.js";
 import { collectDeployment, collectDeploymentCached, type DeploymentView } from "@/services/server-deployment.js";
 import { performRestart } from "@/services/server-restart.js";
@@ -192,9 +191,12 @@ async function runJob(
   }
 
   // 5. Download, hashing on the way past, then prove what arrived.
+  //    The digest is the SIGNED manifest's (spec 2026-09-17 §5 path 2): a
+  //    release whose signature does not verify throws here, before a byte of
+  //    binary is requested, and the job lands in `failed` with that reason.
   let tmp: string;
   try {
-    const expectedDigest = await readDigest(release, names.sidecar);
+    const expectedDigest = await signedAssetDigest(release, names.binary);
     tmp = await downloadVerified({
       url,
       expectedDigest,
@@ -329,14 +331,25 @@ export interface ServerUpdateView {
   backups: { dir: string; keep: number; count: number; latest: BackupFile | null };
 }
 
-/** The release index, or the reason it could not be read. Never throws. */
-async function readIndex(refresh: boolean): Promise<{ index: ReleaseIndex | null; error: string | null }> {
-  if (releaseSourceUrl() === null) return { index: null, error: null };
+/**
+ * The newest INSTALLABLE server release, or the reason there is none. Never
+ * throws.
+ *
+ * "Installable" is the signed-manifest gate (spec 2026-09-17 §5 path 4):
+ * a release whose manifest is missing, unsigned, or whose signature fails to
+ * verify is simply NOT in the list, and its one-sentence reason travels in
+ * `error` the way an unreachable source's did — the page renders either way,
+ * and the sentence is the answer to the question the row exists to ask.
+ */
+async function readServerRelease(refresh: boolean): Promise<{ latest: ReleaseRef | null; error: string | null }> {
+  if (releaseSourceUrl() === null) return { latest: null, error: null };
   try {
-    return { index: refresh ? await refreshReleases() : await resolveReleases(), error: null };
+    if (refresh) await refreshReleases();
+    const gate = await installableCliRelease("server");
+    return gate.ok ? { latest: releaseRef(gate.release), error: null } : { latest: null, error: gate.reason };
   } catch (error) {
     // A page that cannot reach the release source still renders; it says so.
-    return { index: null, error: error instanceof Error ? error.message : String(error) };
+    return { latest: null, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -347,12 +360,12 @@ export function releaseRef(release: ResolvedRelease | null): ReleaseRef | null {
 }
 
 /**
- * Everything the Updates page's Server card needs, in one read.
+ * Everything the Updates page's Server row needs, in one read.
  *
  * `canApply.reasons` holds the HARD blockers — the refusals no press can
  * overcome — and deliberately not every 409 the POST can answer. Two are left
- * out on purpose: `UPDATE_NOT_AVAILABLE` is `updateAvailable: false`, which the
- * card renders as "the newest release" rather than as a failure; and
+ * out on purpose: `UPDATE_NOT_AVAILABLE` is `updateAvailable: false`, which
+ * the row renders as two equal version cells rather than as a failure; and
  * `RESTART_KILLS_PANES` is FORCIBLE, so listing it would disable the very
  * button whose dialog offers the forced path. `paneSafety` travels instead,
  * which is what the restart dialog reads for the same sentence.
@@ -361,8 +374,7 @@ export function releaseRef(release: ResolvedRelease | null): ReleaseRef | null {
  */
 export async function collectServerUpdateView(refresh = false): Promise<ServerUpdateView> {
   const url = releaseSourceUrl();
-  const { index, error: latestError } = await readIndex(refresh);
-  const latest = releaseRef(index?.byComponent.server ?? null);
+  const { latest, error: latestError } = await readServerRelease(refresh);
   // The uncached collector only where someone pressed something: collecting
   // spawns the service manager SYNCHRONOUSLY, and this view is polled at 1 s
   // while a job runs.

@@ -37,13 +37,14 @@ export {
   PRODUCT_NAME,
   PRODUCT_URL,
 } from "./legal.js";
-// NOTE: release-artifacts.ts and service-test-safety.ts (node: builtins) are
-// intentionally NOT re-exported here — this barrel is imported by
-// apps/client/mobile through Metro, which cannot resolve `node:*`. Consumers
-// import "@internal/subshell-protocol/release-artifacts" and
-// ".../service-test-safety". Adding either to this barrel breaks the mobile
-// build and nothing else, so it fails in CI rather than locally; that is how
-// service-test-safety got here in the first place (2026-09-15).
+// NOTE: release-artifacts.ts, release-signature.ts and service-test-safety.ts
+// (node: builtins) are intentionally NOT re-exported here — this barrel is
+// imported by apps/client/mobile through Metro, which cannot resolve
+// `node:*`. Consumers import "@internal/subshell-protocol/release-artifacts",
+// ".../release-signature" and ".../service-test-safety". Adding any of them to
+// this barrel breaks the mobile build and nothing else, so it fails in CI
+// rather than locally; that is how service-test-safety got here in the first
+// place (2026-09-15).
 export {
   type LingerProbeResult,
   lingerFromProbe,
@@ -65,12 +66,14 @@ export {
   NODE_RESULT_DOWNLOAD_FAILED,
   NODE_RESULT_KILLS_PANES,
   NODE_RESULT_MAINTENANCE,
+  NODE_RESULT_MANIFEST_UNVERIFIED,
   NODE_RESULT_NO_SERVICE,
   NODE_RESULT_NOT_COMPILED,
   NODE_RESULT_NOT_SUPERVISED,
   NODE_RESULT_VERSION_MISMATCH,
   NODE_SERVICE_DESTRUCTIVE,
   NODE_SERVICE_VERBS,
+  NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
   type NodeCommandBody,
   type NodeEvent,
   type NodeMaintenanceWire,
@@ -157,6 +160,8 @@ export {
   parseSidecarDigest,
   RELEASE_COMPONENTS,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+  RELEASE_PUBKEY,
   RELEASE_TAG_PREFIX,
   type ReleaseCandidate,
   type ReleaseComponent,

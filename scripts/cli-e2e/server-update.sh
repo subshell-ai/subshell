@@ -9,6 +9,16 @@
 # with a patched version, `update --from` installs it, and the NEW binary's own
 # boot is what has to finish the transaction.
 #
+# Deliberately `--from`-only, and `SUBSHELL_RELEASE_URL=""` enforces that: the
+# file the operator named is verified as far as a local path can be (it must
+# say it is `subshell-server` at the expected version), and the signed-manifest
+# gate of spec 2026-09-17 applies to NETWORK sources, whose refusal IS signature
+# verification — `--from` and `--rollback` are its two named exceptions. The
+# network path's refusal is exercised COMPILED by `node-update.sh` step 10
+# against a fake release source with a bogus armor; the server's own network
+# selection is covered at unit level (`releases.test.ts` — unsigned, forged,
+# digest-mismatched manifests all refuse by name).
+#
 # What is NOT covered here, and why: the migration-failure REVERT. Making a
 # compiled binary fail a migration on demand would mean a test seam inside
 # `db/migrate.ts` — production code that exists only to break — and the plan

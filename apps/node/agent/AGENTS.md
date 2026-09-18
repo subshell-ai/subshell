@@ -362,11 +362,41 @@ without `force`, failing closed on `unknown` AND on no report at all — because
 an update is a restart with a file swap in front of it, and a refusal arriving
 after 70 MB has crossed the wire is worse for having been late.
 
+**No network path installs anything the publisher did not sign (spec
+2026-09-17).** `applyUpdate`'s url source carries `manifest: {bytes, sig} |
+null`; `verifySignedManifest` runs before the swap — `null` (a command with no
+manifest, or a resolve with nothing to verify) is
+`NODE_RESULT_MANIFEST_UNVERIFIED`, and so is a signature that does not verify
+against `RELEASE_PUBKEY` (the protocol package's compiled-in publisher key)
+with the payload bound to component `node` + the version being installed. The
+digest the bytes are compared against comes from the SIGNED `assets` map keyed
+by the exact published filename, never from a `.sha256` sidecar or the
+command's own `sha256` field alone. `resolveNodeRelease` (the CLI's own
+`--check`/`--to`) fetches manifest+sig and verifies BEFORE the 70 MB download,
+so an unsigned release costs two small reads; the plane-commanded path cannot
+pre-verify (the bytes come from the plane's tokened route) and re-verifies
+against the actual digest instead. `--from` and `--rollback` stay
+signature-free: a file the operator named IS their decision, already verified
+as far as it can be (it must say it is the agent at the expected version).
+The CLI refuses, with three differently-worded messages that all end by
+naming `--from`: an empty release source, a release with no manifest asset,
+and a signature that does not verify.
+
 **The `update` command's wire shape is FROZEN across protocol bumps**
 (`node-frames.ts`). It is the one command the plane sends to an agent whose
 protocol it does NOT share — §5.3 holds such a socket precisely so this can
 reach it — so the parser on this side may be any older build. A test pins the
 shape as a literal rather than deriving it from the same source as the code.
+Protocol 12 (spec 2026-09-17 §6) grew it by exactly two fields,
+`manifest` (base64 of the verified manifest bytes) and `manifestSig`,
+OPTIONAL at the frozen parser and enforced in the executor — and,
+deliberately, NOT for everyone: a pre-12 agent would parse such a command and
+IGNORE both fields, installing on the old trust rule, so a 12 PLANE refuses
+to send `update` to a pre-12 agent at all
+(`NODE_SIGNED_UPDATES_PROTOCOL_VERSION`; the route's 409 and the Updates
+page's row say "agent predates signed updates"). A held old-protocol socket
+therefore keeps everything it was held for except this: the machine that most
+needs updating is the one told, in a sentence, to update by hand.
 
 The release source is `SUBSHELL_RELEASE_URL` (unset = the project's API, EMPTY
 = air-gapped and every network read refuses pointing at `--from`), and the CLI
