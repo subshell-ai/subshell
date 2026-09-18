@@ -110,7 +110,7 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   // node is named by the machine that becomes it, so there was never a field.
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("heading", { name: "Install Subshell Client" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Install Subshell client" })).toBeVisible();
   await expect(dialog.locator("#node-name")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Generate setup key" }).click();
 
@@ -224,7 +224,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await page.getByRole("button", { name: "Add node" }).click();
   const dialog = page.getByRole("dialog");
   // One screen now (2026-09-18): the heading is up before the mint is spent.
-  await expect(dialog.getByRole("heading", { name: "Install Subshell Client" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Install Subshell client" })).toBeVisible();
   await dialog.getByRole("button", { name: "Generate setup key" }).click();
   // The key's only carrier is a command now (the standalone box is gone,
   // 2026-09-18) — read it off the one-liner, not from a separate element.

@@ -15,7 +15,7 @@ import type { CreatedSetupKey } from "@/types/node";
  * **The two-step is gone** (operator's call, 2026-09-18): the dialog used to open on
  * a "Add a node" screen whose whole content was one button, and clicking it swapped
  * in the instructions. Now opening the trigger lands directly on the instructions —
- * titled "Install Subshell Client" — and the mint is a **Generate setup key** press
+ * titled "Install Subshell client" — and the mint is a **Generate setup key** press
  * between the address picker and the path switch. Until that press the key does not
  * exist, and the screen says so rather than leaving a hole: the app path's key row
  * reads "Generate setup key first" and the terminal one-liner shows with
@@ -126,7 +126,7 @@ export function AddNodeDialog({
             there is no console warning to route around. The e2e suite keys on this
             heading (12-nodes.spec.ts), so a retitle moves both. */}
         <DialogHeader>
-          <DialogTitle>Install Subshell Client</DialogTitle>
+          <DialogTitle>Install Subshell client</DialogTitle>
         </DialogHeader>
         <NodeKeySetup
           keyText={created?.key ?? null}

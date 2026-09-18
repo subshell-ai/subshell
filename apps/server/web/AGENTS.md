@@ -341,7 +341,7 @@ someone a machine is quiet while panes are still alive on it. The wording is
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 **Add-node dialog is ONE screen** (operator's call, 2026-09-18) titled
-**"Install Subshell Client"** — the trigger button stays "Add node", but opening it
+**"Install Subshell client"** — the trigger button stays "Add node", but opening it
 lands on the instructions; the old first screen, whose whole content was one
 button, is gone. Its address dropdown is labelled **"Select Subshell server
 address"**, and it **names what the node dials forever** (operator's call,

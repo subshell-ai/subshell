@@ -150,7 +150,7 @@ describe("AddNodeDialog", () => {
     const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
     try {
       await renderDialog();
-      expect(screen.getByRole("heading", { name: "Install Subshell Client" })).toBeDefined();
+      expect(screen.getByRole("heading", { name: "Install Subshell client" })).toBeDefined();
       expect(screen.queryByText("Add a node")).toBeNull();
       expect(screen.getByRole("button", { name: "Generate setup key" })).toBeDefined();
       // The command is on screen from the start (an empty tab reads as broken),
