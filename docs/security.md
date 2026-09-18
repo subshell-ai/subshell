@@ -1959,11 +1959,20 @@ happens in phase 1; the act happens after the relaunch. So the answer is
 written to `settings.json` as `pendingBundledInstall.forced` and read by the
 new build. Re-asking would be asking again for something already granted, on a
 screen nobody chose to open — but it IS a destructive consent at rest, so it is
-narrow by construction: one boolean, about one restart, cleared with the marker
-that carries it, and never written by the page (`desktop_install_app_update`
-takes no argument; the answer is read in Rust at the press). Its worst case is
-what the file's owner can already do by hand — that user can stop the service
-themselves — which is why a hand-edited `true` buys nothing.
+narrow by construction: one boolean, about one restart, and cleared with the
+marker that carries it.
+
+**The page ASKS for it and cannot grant it.** `desktop_install_app_update`
+takes two booleans since 2026-09-18 — `forced`, and whether the CLI half was
+ticked (spec § 13) — because a selection made before the relaunch has to reach
+the process that acts after it. `forced` is ANDed in Rust with the machine's
+own `pane_risk_now`, so a page claiming `true` on a definition that spares
+panes still gets `false`: the page can decline a force, never manufacture one.
+The command still names no release and no path — every argument is a boolean,
+which `ipc-acl.test.ts` pins by shape rather than by count.
+
+Its worst case is what the file's owner can already do by hand — that user can
+stop the service themselves — which is why a hand-edited `true` buys nothing.
 
 **The marker never decides that work exists.** Whether phase 2 has anything to
 install is re-derived at boot from the machine (the bundled version against the
