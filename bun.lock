@@ -30,7 +30,7 @@
     },
     "apps/client/desktop": {
       "name": "@internal/desktop-client",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/subshell-protocol": "workspace:*",
@@ -188,7 +188,7 @@
     },
     "apps/server/desktop": {
       "name": "@internal/desktop-server",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "@tauri-apps/api": "2.11.1",
