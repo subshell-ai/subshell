@@ -81,7 +81,15 @@ module, a prompt that hangs without a TTY, or a handoff line nobody prints are
 invisible to both.
 
 It uses temp dirs, a throwaway `HOME` and ports 31998/31999, and never touches
-`~/.config/subshell-server` or `:3080`.
+`~/.config/subshell-server` or `:3080`. One thing is NOT sandboxable: `update`
+replaces the binary the SERVICE DEFINITION names, and the definition lives in
+the real launchd/systemd user domain — so `server-update.sh` **refuses to run
+on a host that has a per-user Subshell Server installed** (measured 2026-09-18:
+unguarded, the scenario swapped a developer's real `~/.local/bin/subshell-server`
+for the test build while still reporting the swap). The same host fact makes
+`cli.test.ts`'s "update refuses when no binary is installed" fail locally on
+such a machine while CI is green: the resolution ladder sees the operator's
+job, and no injected temp-dir can hide it.
 
 **After a release cut**, run the post-cut check by hand:
 

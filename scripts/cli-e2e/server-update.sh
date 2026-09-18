@@ -56,6 +56,27 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 ok()   { echo "  ok: $*"; }
 
+# ── host guard (measured 2026-09-18, the hard way) ──────────────────────────
+# Which file `update` replaces is the one the SERVICE DEFINITION names, and
+# the definition lives in the logged-in user's real launchd/systemd domain —
+# no env override in this script reaches it. On a host whose operator HAS
+# `subshell-server service install`ed, this scenario swaps the operator's
+# real server for the 99.0.0 test build and reports success. The env vars
+# below isolate config, data and ports; they cannot isolate that one question,
+# so a host that answers it refuses to run. (CI runners install nothing,
+# which is why this never fired before a dev box with a real install hit it.)
+if [ "$(uname)" = "Darwin" ]; then
+  if launchctl print "gui/$(id -u)/dev.subshell.server" >/dev/null 2>&1; then
+    rm -rf "$W"; trap - EXIT
+    fail "this host has a per-user Subshell Server launchd job; the service definition (not this sandbox) decides which binary 'update' replaces, so the scenario refuses to run here. Use CI or a machine with no install."
+  fi
+elif command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user cat subshell-server.service >/dev/null 2>&1; then
+  rm -rf "$W"; trap - EXIT
+  fail "this host has a per-user systemd subshell-server unit; the service definition (not this sandbox) decides which binary 'update' replaces, so the scenario refuses to run here. Use CI or a machine with no install."
+fi
+ok "no real per-user service definition on this host"
+
 export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
 export SUBSHELL_RELEASE_URL=""   # `--from` only: this test reaches no network
@@ -112,12 +133,22 @@ ok "server $CURRENT answering on $PORT"
 
 echo "== 4. status knows which binary it would replace"
 "$INSTALLED" status --json > "$W/status-before.json" || fail "status exited non-zero"
-# Compared by SUFFIX, not by the literal `$INSTALLED`: `process.execPath` is
-# realpath'd, so on macOS a `/tmp/…` work dir comes back as `/private/tmp/…`.
-grep -q '"binary": "[^"]*/bin/subshell-server"' "$W/status-before.json" \
-  || { cat "$W/status-before.json"; fail "status did not name the installed binary"; }
+# CONTAINMENT, not suffix: `process.execPath` is realpath'd (macOS `/tmp/…`
+# comes back `/private/tmp/…`), so both sides are realpath'd and the
+# comparison is "INSIDE this work dir". The check used to be a suffix match
+# on `/bin/subshell-server` — which the OPERATOR'S real install also satisfies
+# on a dev host, which is how a run here once swapped the real binary and
+# still printed "status names the installed binary". The host guard above
+# refuses that configuration up front; this line is the belt, because it
+# asks the same question `update` will answer.
+REPORTED=$(bun -e "console.log(JSON.parse(require('fs').readFileSync('$W/status-before.json','utf8')).paths?.binary ?? '')")
+[ -n "$REPORTED" ] || { cat "$W/status-before.json"; fail "status did not name the installed binary"; }
+case "$(realpath "$REPORTED" 2>/dev/null || echo "$REPORTED")" in
+  "$(realpath "$W")"/*) ;;
+  *) fail "status names a binary OUTSIDE the sandbox ($REPORTED) — the swap would replace it" ;;
+esac
 grep -q '"kind": "compiled"' "$W/status-before.json" || fail "status did not call it compiled"
-ok "status names the installed binary"
+ok "status names the sandboxed installed binary"
 
 echo "== 5. update --from, --no-restart (the swap, not the restart)"
 OUT=$("$INSTALLED" update --from "$W/next-subshell-server" --yes --no-restart 2>&1) || {
