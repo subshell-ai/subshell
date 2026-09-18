@@ -293,34 +293,71 @@ fn existing_node() -> ExistingNode {
     }
 }
 
-/// Where this machine's agent writes its own log, per platform.
+/// Where this machine's agent writes its own log.
 ///
-/// macOS gets a file, because the launchd plist names one
-/// (`~/Library/Logs/subshell.log`, `StandardOutPath`). The systemd user unit
-/// redirects nothing, so on Linux the daemon's output is in the journal and
-/// there is no file to reveal — hence a hint instead of a path. Exactly one of
-/// the two is ever `Some`.
+/// **The agent's OWN file comes first, on every platform**, which is the same
+/// order `apps/server/desktop`'s `desktop_logs` reads the server's in and for
+/// the same reason: since 2026-09-12 the agent writes one capped JSON-lines
+/// file (`<config dir>/logs/agent.log`, 0600, 200 KB, replaced when full) and
+/// that is the file the plane's node log view serves. A person revealing the
+/// log here and a person reading it in a browser must not be looking at two
+/// different documents.
+///
+/// **The service manager's redirect is the fallback**, and it is a genuinely
+/// different artifact rather than a copy: launchd's `StandardOutPath`
+/// (`~/Library/Logs/subshell.log`) holds the raw stdout of an agent that died
+/// before it opened its own file, which is exactly the machine someone is
+/// trying to repair. Linux has no such file at all — the systemd user unit
+/// redirects nothing — so there the fallback is the journal, which is a
+/// sentence rather than a path.
+///
+/// Exactly one of the two returns is ever `Some`.
 fn agent_log() -> (Option<String>, Option<String>) {
-    // One `match`, so "exactly one is Some" holds by construction rather than
-    // by every branch remembering to. `filter` rather than an inner `if`
-    // keeps both halves compiled on both platforms, which is what makes a
-    // clippy run on either of them mean something.
-    match home_dir().filter(|_| cfg!(target_os = "macos")) {
-        Some(home) => (Some(format!("{home}/Library/Logs/subshell.log")), None),
-        None => (None, Some(NO_LOG_FILE.to_string())),
+    agent_log_from(config_dir(), home_dir().map(PathBuf::from), |p| {
+        std::fs::metadata(p)
+            .map(|m| m.is_file() && m.len() > 0)
+            .unwrap_or(false)
+    })
+}
+
+/// [`agent_log`]'s body over injected facts, so the ORDER is testable without
+/// a machine in a particular state.
+///
+/// `has_content` rather than a bare existence check, for the reason the server
+/// app's `server_log_tail` returns `None` on an empty file: the capped writer
+/// truncates to zero and starts over, and a zero-byte own-log is an agent that
+/// has said nothing — while the manager's copy may still hold the boot output
+/// that explains why.
+fn agent_log_from(
+    config: Option<PathBuf>,
+    home: Option<PathBuf>,
+    has_content: impl Fn(&Path) -> bool,
+) -> (Option<String>, Option<String>) {
+    let own = config.map(|c| c.join("logs").join("agent.log"));
+    // `filter` rather than an inner `if` on both rungs, so every branch stays
+    // compiled on both platforms — which is what makes a clippy run on either
+    // of them mean something.
+    let managed = home
+        .filter(|_| cfg!(target_os = "macos"))
+        .map(|h| h.join("Library").join("Logs").join("subshell.log"));
+    for candidate in [own, managed].into_iter().flatten() {
+        if has_content(&candidate) {
+            return (Some(candidate.to_string_lossy().into_owned()), None);
+        }
     }
+    (None, Some(NO_LOG_FILE.to_string()))
 }
 
 /// What to say when there is no log FILE to reveal.
 ///
-/// Platform-specific because the reason is: on Linux the systemd user unit
-/// redirects nothing, so the daemon's output is in the journal and no file
-/// will ever appear; on macOS the plist names one and it simply has not been
-/// written yet.
+/// Both platforms name the agent's own file first, because that is the one
+/// that appears as soon as the agent logs anything anywhere. What differs is
+/// the fallback each has: macOS keeps a second file the plist names, Linux has
+/// the journal and will never grow a file at all.
 const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
-    "the agent has not written a log yet — it appears at ~/Library/Logs/subshell.log once the service runs"
+    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
 } else {
-    "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`"
+    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
 };
 
 /// The paths the window may name, and the ones it may ask to reveal.
@@ -334,9 +371,10 @@ pub struct NodePaths {
     /// The identity/state directory, as the config records it; the CLI's
     /// default (`<config dir>/data`) when nothing is enrolled yet.
     pub data_dir: Option<String>,
-    /// The agent's log FILE, where the platform has one.
+    /// The agent's log FILE: its own capped one when it has written anything,
+    /// else the service manager's redirect where the platform keeps one.
     pub agent_log: Option<String>,
-    /// What to do instead, where it does not.
+    /// What to do instead, when neither has content yet.
     pub agent_log_hint: Option<String>,
 }
 
@@ -2716,26 +2754,82 @@ mod path_tests {
         assert_eq!(paths.data_dir.as_deref(), Some("/srv/subshell-data"));
     }
 
-    // Exactly one of the two is ever set: macOS has a plist that names a log
-    // file, and the systemd unit redirects nothing, so Linux has a journal and
-    // no file to reveal.
+    // Exactly one of the two is ever set, whatever this machine happens to
+    // have on disk: a path to reveal, or a sentence saying what to do instead.
     #[test]
     fn the_agent_log_is_a_path_or_a_hint_never_both_and_never_neither() {
         let (path, hint) = agent_log();
         assert_ne!(path.is_some(), hint.is_some());
         match (path, hint) {
-            (Some(p), None) => assert!(p.ends_with("/Library/Logs/subshell.log"), "{p}"),
+            (Some(p), None) => assert!(
+                p.ends_with("/logs/agent.log") || p.ends_with("/Library/Logs/subshell.log"),
+                "{p}"
+            ),
             (None, Some(h)) => assert!(!h.is_empty()),
             other => panic!("neither or both: {other:?}"),
         }
     }
 
-    // The remedy differs because the reason does: a Linux node's daemon output
-    // is in the journal and no file will ever appear, where a macOS one simply
-    // has not been written yet. Telling a Mac user to run `journalctl` — or a
-    // Linux user to wait for a file — is worse than saying nothing.
+    // The agent's OWN capped file wins on every platform: it is the file the
+    // plane's log view serves, so revealing anything else here would put the
+    // desktop and the browser on two different documents.
+    #[test]
+    fn the_agents_own_capped_log_wins_over_the_managers_copy() {
+        let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
+        let (path, hint) = agent_log_from(
+            Some(PathBuf::from("/home/u/.config/subshell")),
+            Some(PathBuf::from("/home/u")),
+            |_| true, // both have content
+        );
+        assert_eq!(path.as_deref(), Some(own.to_str().unwrap()));
+        assert!(hint.is_none());
+    }
+
+    // The manager's redirect is the fallback rather than a duplicate: it holds
+    // the stdout of an agent that died before opening its own file.
+    #[test]
+    fn the_managers_log_is_the_fallback_where_the_platform_keeps_one() {
+        let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
+        let (path, hint) = agent_log_from(
+            Some(PathBuf::from("/home/u/.config/subshell")),
+            Some(PathBuf::from("/home/u")),
+            |p| p != own, // the agent has written nothing of its own
+        );
+        if cfg!(target_os = "macos") {
+            assert_eq!(path.as_deref(), Some("/home/u/Library/Logs/subshell.log"));
+            assert!(hint.is_none());
+        } else {
+            // systemd redirects nothing, so there is no second file to fall to.
+            assert!(path.is_none());
+            assert_eq!(hint.as_deref(), Some(NO_LOG_FILE));
+        }
+    }
+
+    // An empty file is not a log: the capped writer truncates to zero and
+    // starts over, and the manager's copy may still hold what explains the
+    // silence. Same rule as the server app's `server_log_tail`.
+    #[test]
+    fn nothing_with_content_anywhere_is_the_hint() {
+        let (path, hint) = agent_log_from(
+            Some(PathBuf::from("/home/u/.config/subshell")),
+            Some(PathBuf::from("/home/u")),
+            |_| false,
+        );
+        assert!(path.is_none());
+        assert_eq!(hint.as_deref(), Some(NO_LOG_FILE));
+    }
+
+    // Both platforms name the agent's own file, because that is the one that
+    // appears wherever it runs. What differs is the fallback each HAS: a
+    // second file on macOS, the journal on Linux. Telling a Mac user to run
+    // `journalctl` — or a Linux user to look for a file launchd would have
+    // written — is worse than saying nothing.
     #[test]
     fn each_platform_is_told_the_right_reason_for_having_no_log_file() {
+        assert!(
+            NO_LOG_FILE.contains("~/.config/subshell/logs/agent.log"),
+            "{NO_LOG_FILE}"
+        );
         if cfg!(target_os = "macos") {
             assert!(NO_LOG_FILE.contains("~/Library/Logs/subshell.log"), "{NO_LOG_FILE}");
             assert!(!NO_LOG_FILE.contains("journalctl"), "{NO_LOG_FILE}");
@@ -2744,6 +2838,7 @@ mod path_tests {
                 NO_LOG_FILE.contains("journalctl --user -u subshell.service"),
                 "{NO_LOG_FILE}"
             );
+            assert!(!NO_LOG_FILE.contains("Library/Logs"), "{NO_LOG_FILE}");
         }
     }
 

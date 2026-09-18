@@ -1,4 +1,4 @@
-import { access, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
+import { access, chmod, readFile as fsReadFile, writeFile as fsWriteFile, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DESKTOP_CLIENT_BUNDLE_ID, lingerFromProbe, lingerProbeArgv, lingerVerdict } from "@internal/subshell-protocol";
@@ -70,6 +70,16 @@ export interface ServiceDeps {
    * `Bun.sleep`). Injected so the retry costs a test nothing.
    */
   sleep?: (ms: number) => Promise<void> | void;
+  /**
+   * Set a file's mode. Used by {@link tightenServiceLogMode} alone, to repair
+   * the 0644 launchd creates the daemon's log file with.
+   *
+   * OPTIONAL, and that is a safety property rather than convenience: a deps
+   * object assembled by hand in a test carries no seam, so the repair reports
+   * `no-seam` and touches nothing. The production implementation carries the
+   * same under-test refusal as `writeFile`.
+   */
+  chmodFile?(path: string, mode: number): Promise<void>;
 }
 
 /** systemd user-unit name (lives under `~/.config/systemd/user/`). */
@@ -124,7 +134,16 @@ const plistPath = (home: string) => join(home, "Library", "LaunchAgents", `${LAU
  * job, not the file).
  */
 const sessionPlistPath = (configDir: string) => join(configDir, `${LAUNCHD_LABEL}.plist`);
-const launchLogPath = (home: string) => join(home, "Library", "Logs", "subshell.log");
+
+/**
+ * Where launchd redirects the daemon's stdout and stderr (the plist's
+ * `StandardOutPath`).
+ *
+ * Exported because `log-hygiene.ts` repairs that file's mode at daemon start
+ * and must name the same file this module tells launchd to write — a second
+ * spelling of it elsewhere is how the repair comes to chmod nothing.
+ */
+export const launchLogPath = (home: string) => join(home, "Library", "Logs", "subshell.log");
 
 /**
  * The darwin plist path that EXISTS, and what its location means.
@@ -539,6 +558,13 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
     async removeFile(path) {
       assertServiceWriteUnderTest(path);
       await rm(path, { force: true });
+    },
+    // Same guard as the two above: a chmod of a real `~/Library/Logs` file
+    // while a suite runs is the same class of incident as writing a real
+    // plist, and the daemon's own start path reaches this seam.
+    async chmodFile(path, mode) {
+      assertServiceWriteUnderTest(path);
+      await chmod(path, mode);
     },
     async fileExists(path) {
       try {

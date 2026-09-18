@@ -58,6 +58,15 @@ pub struct DeletePlan {
 /// A status with no `paths` key at all is the NOT-ENROLLED case — the CLI
 /// omits the block when no config loaded — and answers `None` for the same
 /// reason: there is nothing to delete, so there is nothing to consent to.
+///
+/// **The block is read key by key, never swept**, which is what lets the CLI
+/// report a path this app does not delete. Two do: `binary` (the installed
+/// CLI, which the containment guard refuses to take) and, since 2026-09-18,
+/// `agentLog` — the agent's own capped log, deliberately left behind. It is
+/// the record of the reset itself, it holds no credential, and it is bounded
+/// at 200 KB and replaced when full, so nothing about it grows. A key added
+/// to that block later joins that list by default rather than becoming a
+/// deletion target by accident.
 pub fn parse_delete_plan(status: &Value) -> Option<DeletePlan> {
     let abs = |v: Option<&Value>| -> Option<PathBuf> {
         let s = v?.as_str()?;
@@ -373,6 +382,26 @@ mod tests {
                 "dataDir": "/home/u/.config/subshell/data",
             }
         })
+    }
+
+    // The CLI's block carries more than the three: `binary` (the installed
+    // CLI) and `agentLog` (the agent's own capped log). Both are reported so a
+    // caller can NAME them; neither is deleted. A reset that swept the block
+    // would take out the log that records the reset, and on a machine where
+    // the binary sat in the data dir, the agent itself.
+    #[test]
+    fn keys_beyond_the_three_are_reported_but_never_deleted() {
+        let mut v = full();
+        v["paths"]["binary"] = json!("/home/u/.local/bin/subshell");
+        v["paths"]["agentLog"] = json!("/home/u/.config/subshell/logs/agent.log");
+        let plan = parse_delete_plan(&v).expect("extra keys do not refuse the plan");
+        assert_eq!(plan, parse_delete_plan(&full()).unwrap());
+        let order = deletion_order(&plan);
+        assert_eq!(order.len(), 3);
+        for path in &order {
+            assert!(!path.ends_with("logs/agent.log"), "the agent log is not deleted");
+            assert!(!path.ends_with("bin/subshell"), "the installed CLI is not deleted");
+        }
     }
 
     #[test]

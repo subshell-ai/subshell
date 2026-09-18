@@ -561,10 +561,24 @@ The rules ported from the Subshell Server console in 2026-09-08 are unchanged
 by any of that:
 
 - **Reveals name an intent, never a path.** `node_open_path` takes the closed
-  `config-dir | data-dir | agent-log` enum; the Linux `agent-log` rejection IS
-  the `journalctl` command, and the facts list also shows the log location (the
-  CLI's `logPath` shape: a file on macOS, the journal sentence on Linux) so it
-  is readable without clicking.
+  `config-dir | data-dir | agent-log` enum; an `agent-log` rejection IS the
+  remedy (the path it will appear at, plus the `journalctl` command on Linux),
+  and the facts list also shows the log location so it is readable without
+  clicking.
+- **`agent-log` resolves the agent's OWN capped file first**, on every
+  platform (2026-09-18) — `~/.config/subshell/logs/agent.log`, the same
+  JSON-lines file the plane's node log view serves, so revealing a log here
+  and reading one in a browser cannot land on two different documents. That is
+  the order `apps/server/desktop`'s `desktop_logs` reads the server's log in,
+  for the same reason. The service manager's redirect is the FALLBACK and a
+  genuinely different artifact: `~/Library/Logs/subshell.log` holds the raw
+  stdout of an agent that died before opening its own file (Linux has no such
+  file — the unit redirects nothing, so the fallback is the journal sentence).
+  A rung counts only when it has CONTENT, not merely when it exists, because
+  the capped writer truncates to zero and starts over — the same rule
+  `server_log_tail` follows. `agent_log_from` takes its two roots and a
+  content predicate so the ORDER is tested without a machine in a particular
+  state.
 - **The plane's second door.** `node_open_plane_url` opens the settled control
   plane in the SYSTEM browser — for what the in-app window is wrong for (a
   different profile, a share, passkeys). The page passes NO URL: the command

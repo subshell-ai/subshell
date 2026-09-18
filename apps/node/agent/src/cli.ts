@@ -5,6 +5,9 @@ import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, lockPath, readLock } from "./lock.js";
+import { logger } from "./log.js";
+import { agentLogPath } from "./log-file.js";
+import { tightenServiceLogMode } from "./log-hygiene.js";
 import {
   defaultMaintenanceDeps,
   isMaintenanceSub,
@@ -430,6 +433,17 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // only through runDaemon's injected exit hook. loadConfig() still
         // throws the enroll-pointing message through this path.
         const cfg = await loadConfig();
+        // AFTER loadConfig and before the daemon: launchd creates its redirect
+        // 0644 and this is the process that can repair it (see
+        // `log-hygiene.ts`). Here rather than inside `runDaemon` because the
+        // daemon's own tests call that function directly with hand-built deps,
+        // and a repair reachable from them would chmod the developer's real
+        // `~/Library/Logs/subshell.log` — which the `DEFAULT_DEPS` guard would
+        // then refuse, silently, in the one place nobody reads.
+        const hygiene = await tightenServiceLogMode(deps.service ?? DEFAULT_DEPS(configExists));
+        if (hygiene.reason === "failed") {
+          logger.withError(hygiene.error).warn(`could not tighten ${hygiene.path} to 0600`);
+        }
         await runDaemon(cfg);
         return { code: 0, out: "", err: "" }; // unreachable: runDaemon never resolves (test seam only)
       }
@@ -860,6 +874,24 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
               dataDir: cfg.dataDir,
               /** The file `update` replaces — see `installed` above. */
               binary: installed?.binary ?? null,
+              /**
+               * The agent's OWN capped log (`log-file.ts`) — the file the
+               * plane's log view shows, so a desktop that reveals a log and a
+               * browser that reads one cannot be looking at two different
+               * ones. It is NOT the service manager's redirect, which
+               * `service status --json` reports as `logPath` and which a
+               * person debugging a service definition wants instead.
+               *
+               * NOT a deletion target, like `binary` beside it: the desktop
+               * reset names `configFile`, `lockFile` and `dataDir`
+               * individually (`apps/client/desktop/src-tauri/src/reset.rs`),
+               * and the log is deliberately left behind — it is the record of
+               * the reset itself, holds no credential, and is bounded at
+               * 200 KB whatever happens to it. That the block is read key by
+               * key rather than swept is what makes this safe to add, and a
+               * test on each side pins it.
+               */
+              agentLog: agentLogPath(),
             },
             update: { pending, lastFailure },
           };
