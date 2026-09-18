@@ -53,6 +53,7 @@ import {
   failureLine,
   handoffView,
   isRequestedScreen,
+  lastLine,
   MIN_AUTOSTART_SERVER_VERSION,
   permissionsAfterSetup,
   prereqState,
@@ -131,6 +132,18 @@ let tmuxResult: ActionResult | null = null;
  * to ask.
  */
 let tmuxOutputOpen = false;
+/**
+ * How far down that output the reader has scrolled.
+ *
+ * Page state for the same reason its openness is, and needed for a sharper
+ * reason: the poll re-renders twice a second and `clear("content")` rebuilds
+ * the `<pre>`, so the offset went back to zero on every tick — and the pane is
+ * capped at 180px, which made anything past the first screenful of a `brew`
+ * log unreadable. The recovery screen's panes get away with the same rebuild
+ * because their CONTENT changes each poll; this text is static, so the reset
+ * is pure loss.
+ */
+let tmuxOutputScroll = 0;
 let installStartedAt = 0;
 /** The last log tail, refreshed on the poll only while the disclosure is open. */
 let lastTail: LogTail | null = null;
@@ -437,13 +450,17 @@ function elapsed(sinceMs: number): string {
 function startTmuxInstall(): void {
   if (busy || running) return;
   void act(async () => {
-    await refresh();
-    if (probe?.tmux != null) {
-      tmuxResult = null;
-      return null;
-    }
+    // Cleared BEFORE the probe, not after it. `act` has already rendered the
+    // busy state, so the progress pane is on screen for the length of the
+    // round trip — and with the old line still under it, a Try again spent
+    // that time showing the PREVIOUS run's last word beneath a fresh spinner.
     tmuxResult = null;
     installLine = "";
+    // A new run's output is a new document — keeping the old offset would open
+    // the next failure's pane part-way down it.
+    tmuxOutputScroll = 0;
+    await refresh();
+    if (probe?.tmux != null) return null;
     installStartedAt = Date.now();
     startInstallClock();
     render();
@@ -515,7 +532,12 @@ function tmuxFailureBlock(failure: TmuxInstallFailure): HTMLElement {
   // this card owe the same rule and a copy of it in each is a copy that can
   // drift — the client app pays for the same rule with a prop, for the same
   // reason.
-  if (tmuxResult !== null && problem === failureLine(tmuxResult)) el("problem").textContent = "";
+  // `lastLine(problem)` rather than `problem`, because the two paths put
+  // different shapes there: a non-ok result gives `failureLine`'s single
+  // trimmed line, while a REJECTION gives `errText(err)` whole — untrimmed and
+  // possibly multi-line. Compared exactly, a multi-line Rust error left the
+  // same failure reported twice, which is the duplication this prevents.
+  if (tmuxResult !== null && lastLine(problem) === failureLine(tmuxResult)) el("problem").textContent = "";
   const box = document.createElement("div");
   box.className = "install-failure";
   box.append(text("p", failure.headline, "label"));
@@ -540,6 +562,15 @@ function tmuxFailureBlock(failure: TmuxInstallFailure): HTMLElement {
     // three ways.
     pre.className = "pane-pre output-bad";
     pre.textContent = failure.output;
+    pre.addEventListener("scroll", () => {
+      tmuxOutputScroll = pre.scrollTop;
+    });
+    // Restored after the element is in the document, which is the only point
+    // at which it has a scroll height to be offset within — assigning before
+    // the append silently does nothing.
+    queueMicrotask(() => {
+      pre.scrollTop = tmuxOutputScroll;
+    });
     details.append(summary, pre);
     box.append(details);
   }
@@ -1143,7 +1174,12 @@ function renderHandoff(p: Probe): void {
         // under the permissions one when the poll next rendered.
         if (permissionsAfterSetup({ platform: p.platform, ranSetupHere, ranFirstRunHere })) {
           permissionsAfterHandoff = true;
-          screen = "permissions";
+          // `go`, not a bare assignment: `replayEnter`'s own contract is that
+          // EVERY screen change runs through it, so the SPA's replay behaviour
+          // has exactly one native counterpart. Set directly, this was the one
+          // transition in the app that arrived with no entrance animation.
+          go("permissions");
+          return;
         }
         render();
       },

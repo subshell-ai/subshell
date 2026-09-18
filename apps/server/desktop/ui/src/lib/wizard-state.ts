@@ -527,8 +527,16 @@ export function canSetup(
   return { ok: true };
 }
 
-/** A program's last word, or `undefined` when it said nothing at all. */
-function lastLine(text: string): string | undefined {
+/**
+ * A program's last word, or `undefined` when it said nothing at all.
+ *
+ * Exported because the page compares a MESSAGE against a RESULT with it. `act`
+ * puts `errText(err)` on the problem line whole and untrimmed, while
+ * `failureLine` reduces the same text to its last non-empty line — so an exact
+ * string comparison between the two misses on any multi-line rejection, and
+ * the duplicate report the suppression exists to prevent comes back.
+ */
+export function lastLine(text: string): string | undefined {
   return text
     .split("\n")
     .map((l) => l.trim())

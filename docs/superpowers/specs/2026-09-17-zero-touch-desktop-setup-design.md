@@ -283,6 +283,13 @@ that press used to. Three conditions, in `permissionsAfterSetup`:
   handoff. Without it a recovery Set Up would re-explain macOS to a machine
   that has been through all of it before.
 
+**One consequence of the ordering, accepted rather than designed around.**
+The dashboard now opens one press later than it did, and the assistant window
+is destroyed on close (only `main`'s close is prevented) — so closing the
+window ON the permissions screen ends a first run with a running server and no
+window. It is recoverable from the tray, and the alternative is a screen that
+cannot be dismissed, which this screen's "nothing here blocks" rule forbids.
+
 **`screensFor` is unchanged**, and that is the point: `permissions` stayed on
 `REQUESTED_SCREENS` when D3 removed it from the journey, so it comes back with
 no routing change at all — the handoff names it exactly the way a dashboard

@@ -200,6 +200,14 @@ export function TmuxScreen(props: {
     // Stamped and cleared HERE rather than in an effect on `busy`: the press is
     // the moment the install begins, and a line from the last run left on
     // screen under a fresh spinner would be a previous install's progress.
+    //
+    // A SECOND named divergence from the server's copy, recorded so it is not
+    // silent (the mirroring convention's whole point): `installTmux` re-probes
+    // before it spawns, and this clock counts that probe where the server's
+    // starts after it. The server can exclude it because its stamp lives in
+    // the same function as the probe; here they are a component and a command,
+    // and threading a callback between them to move a clock by one round trip
+    // would cost more than the difference it corrects.
     setLine("");
     setStartedAt(Date.now());
     setTick(Date.now());
