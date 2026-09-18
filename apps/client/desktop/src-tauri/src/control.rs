@@ -561,17 +561,32 @@ impl Probe {
     /// Recomputed on every probe on purpose: the user may have enrolled from a
     /// terminal, stopped the service or deleted the config while this window
     /// was open, and a remembered step would be wrong.
-    fn decide(&mut self) {
-        // A newer INSTALLED agent is adopted, so the upgrade offer only makes
-        // sense against the copy this app owns. Offering it for an agent the
-        // user installed elsewhere would write ~/.local/bin, change nothing
-        // about what the service runs, and offer again forever.
-        let comparable = if self.managed || self.agent.is_none() {
+    /// The installed agent version to COMPARE the bundle against — which is
+    /// not always the installed version.
+    ///
+    /// A newer INSTALLED agent is adopted, so the upgrade offer only makes
+    /// sense against the copy this app owns. Offering it for an agent the user
+    /// installed elsewhere would write `~/.local/bin`, change nothing about
+    /// what the service runs, and offer again forever — so an unmanaged
+    /// machine answers the BUNDLE's own version, i.e. "nothing to offer".
+    ///
+    /// **Shared with the resume path deliberately** (spec 2026-09-18 § 6).
+    /// `resume_decision` was fed the raw installed version, so a machine whose
+    /// service names a binary elsewhere was refused the CLI half in phase 1 —
+    /// the screen said the agent is left alone — and then had it installed
+    /// anyway at the next boot. One rule, asked in both places, is what makes
+    /// the refusal hold across the relaunch. (Found in review; the server app
+    /// carries the identical fix and the identical comment.)
+    fn comparable_agent_version(&self) -> Option<&str> {
+        if self.managed || self.agent.is_none() {
             self.agent.as_ref().and_then(|a| a.version.as_deref())
         } else {
-            self.bundled_version.as_deref() // nothing to offer: treat as up to date
-        };
-        self.agent_choice = decide_agent(self.bundled_version.as_deref(), comparable);
+            self.bundled_version.as_deref()
+        }
+    }
+
+    fn decide(&mut self) {
+        self.agent_choice = decide_agent(self.bundled_version.as_deref(), self.comparable_agent_version());
 
         self.step = if self.agent.is_none() {
             ProbeStep::NoAgent
@@ -656,7 +671,10 @@ fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingUpdateV
     let decision = resume_decision(
         Some(marker),
         probe.bundled_version.as_deref(),
-        probe.agent.as_ref().and_then(|a| a.version.as_deref()),
+        // The managed-aware version, the same one `decide()` compares — see
+        // `comparable_agent_version`. The raw installed version here let an
+        // unmanaged machine resume an install phase 1 had refused.
+        probe.comparable_agent_version(),
     )?;
     let view = view_of(marker, &decision);
     if view.is_none() {
@@ -2132,6 +2150,62 @@ mod resume_tests {
             attempts,
             forced: true,
         }
+    }
+
+    /// The refusal phase 1 renders must survive the relaunch (spec
+    /// 2026-09-18 § 6; found in review, and fixed identically in the server
+    /// app).
+    ///
+    /// `resume_decision` was fed the RAW installed version while `decide()`
+    /// fed it a managed-aware one, so a machine whose service names an agent
+    /// outside `~/.local/bin` was told the agent is left alone and then had it
+    /// installed anyway at the next boot.
+    #[test]
+    fn an_unmanaged_machine_has_no_second_half_to_resume() {
+        let p = Probe {
+            bundled_version: Some("1.10.0".into()),
+            agent: Some(AgentBinary {
+                argv: vec!["/usr/local/bin/subshell".into()],
+                source: agent_bin::AgentSource::Service,
+                version: Some("1.8.0".into()),
+            }),
+            managed: false,
+            ..Default::default()
+        };
+        // The bundle really IS newer; the raw comparison would say "work".
+        assert_eq!(p.comparable_agent_version(), Some("1.10.0"));
+        assert_eq!(
+            resume_decision(
+                Some(&marker(0)),
+                p.bundled_version.as_deref(),
+                p.comparable_agent_version()
+            ),
+            Some(Resume::Clear)
+        );
+    }
+
+    /// And the managed machine still resumes.
+    #[test]
+    fn a_managed_machine_still_has_its_second_half() {
+        let p = Probe {
+            bundled_version: Some("1.10.0".into()),
+            agent: Some(AgentBinary {
+                argv: vec!["/home/u/.local/bin/subshell".into()],
+                source: agent_bin::AgentSource::LocalBin,
+                version: Some("1.8.0".into()),
+            }),
+            managed: true,
+            ..Default::default()
+        };
+        assert_eq!(p.comparable_agent_version(), Some("1.8.0"));
+        assert_eq!(
+            resume_decision(
+                Some(&marker(0)),
+                p.bundled_version.as_deref(),
+                p.comparable_agent_version()
+            ),
+            Some(Resume::Install { forced: true })
+        );
     }
 
     #[test]

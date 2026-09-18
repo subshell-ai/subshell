@@ -223,17 +223,36 @@ impl Probe {
     /// Recomputed on every probe on purpose: the user may have installed a
     /// server, edited config.env or stopped the service in a terminal while
     /// this window was open, and a remembered step would be wrong.
+    /// The installed server version to COMPARE the bundle against — which is
+    /// not always the installed version.
+    ///
+    /// A newer INSTALLED server is adopted, so the upgrade offer only makes
+    /// sense against the copy this app owns. Offering it for a server the user
+    /// installed elsewhere would write `~/.local/bin`, change nothing about
+    /// what the service runs, and offer again forever — so an unmanaged
+    /// machine answers the BUNDLE's own version, i.e. "nothing to offer".
+    ///
+    /// **Shared with the resume path deliberately** (spec 2026-09-18 § 6).
+    /// `resume_decision` used to be fed the raw installed version, so a
+    /// machine whose service names a binary elsewhere was refused the CLI half
+    /// in phase 1 — the screen said the server "is left alone" — and then had
+    /// it installed anyway at the next boot, with a restart the screen had
+    /// promised would not happen. One rule, asked in both places, is what
+    /// makes the refusal hold across the relaunch.
+    fn comparable_server_version(&self) -> Option<&str> {
+        if self.managed || self.server.is_none() {
+            self.server.as_ref().and_then(|s| s.version.as_deref())
+        } else {
+            self.bundled_version.as_deref()
+        }
+    }
+
     fn decide(&mut self) {
         // A newer INSTALLED server is adopted, so the upgrade offer only makes
         // sense against the copy this app owns. Offering it for a server the
         // user installed elsewhere would write ~/.local/bin, change nothing
         // about what the service runs, and offer again forever.
-        let comparable = if self.managed || self.server.is_none() {
-            self.server.as_ref().and_then(|s| s.version.as_deref())
-        } else {
-            self.bundled_version.as_deref() // nothing to offer: treat as up to date
-        };
-        self.server_choice = decide_server(self.bundled_version.as_deref(), comparable);
+        self.server_choice = decide_server(self.bundled_version.as_deref(), self.comparable_server_version());
 
         self.next = if self.server.is_none() {
             if self.bundled_version.is_some() {
@@ -721,7 +740,7 @@ pub fn wait_for_boot(app: &AppHandle, settings: &SettingsState) -> Probe {
 /// look at it 1500 ms after the fact.
 fn resume_view(settings: &SettingsState, p: &Probe) -> Option<PendingInstall> {
     let marker = settings.get().pending_bundled_install?;
-    let installed = p.server.as_ref().and_then(|s| s.version.as_deref());
+    let installed = p.comparable_server_version();
     let halted = match resume_decision(Some(&marker), p.bundled_version.as_deref(), installed)? {
         Resume::Clear => return None,
         Resume::Install { .. } => false,
@@ -3265,6 +3284,77 @@ mod tests {
         };
         p.decide();
         assert_eq!(p.server_choice, ServerChoice::UpgradeAvailable);
+    }
+
+    /// The refusal phase 1 renders must survive the relaunch that separates
+    /// the two halves (spec 2026-09-18 § 6; found in review).
+    ///
+    /// `resume_decision` used to be fed the RAW installed version, while
+    /// `decide()` fed it a managed-aware one. So on a machine whose service
+    /// names a binary outside `~/.local/bin`, phase 1 said the server "is left
+    /// alone" and phase 2 installed it anyway at the next boot — writing a file
+    /// the service does not run, and on the server side restarting it, which
+    /// the screen had promised would not happen. Both now ask one function.
+    #[test]
+    fn an_unmanaged_machine_has_no_second_half_to_resume() {
+        let p = Probe {
+            bundled_version: Some("2.0.0".into()),
+            server: Some(ServerBinary {
+                argv: vec!["/usr/local/bin/subshell-server".into()],
+                source: server_bin::ServerSource::Service,
+                version: Some("1.8.0".into()),
+            }),
+            managed: false,
+            ..Default::default()
+        };
+        // The bundle really IS newer than what is installed — the raw
+        // comparison would answer "there is work", which is the bug.
+        assert_eq!(p.comparable_server_version(), Some("2.0.0"));
+        let marker = subshell_desktop_core::settings::PendingBundledInstall {
+            from_app_version: "0.8.0".into(),
+            started_at: "2026-09-18T12:00:00Z".into(),
+            attempts: 0,
+            forced: true,
+        };
+        assert_eq!(
+            resume_decision(
+                Some(&marker),
+                p.bundled_version.as_deref(),
+                p.comparable_server_version()
+            ),
+            Some(Resume::Clear)
+        );
+    }
+
+    /// The managed machine still resumes — the guard above must not have
+    /// turned the feature off.
+    #[test]
+    fn a_managed_machine_still_has_its_second_half() {
+        let p = Probe {
+            bundled_version: Some("2.0.0".into()),
+            server: Some(ServerBinary {
+                argv: vec!["/home/u/.local/bin/subshell-server".into()],
+                source: server_bin::ServerSource::LocalBin,
+                version: Some("1.8.0".into()),
+            }),
+            managed: true,
+            ..Default::default()
+        };
+        assert_eq!(p.comparable_server_version(), Some("1.8.0"));
+        let marker = subshell_desktop_core::settings::PendingBundledInstall {
+            from_app_version: "0.8.0".into(),
+            started_at: "2026-09-18T12:00:00Z".into(),
+            attempts: 0,
+            forced: false,
+        };
+        assert_eq!(
+            resume_decision(
+                Some(&marker),
+                p.bundled_version.as_deref(),
+                p.comparable_server_version()
+            ),
+            Some(Resume::Install { forced: false })
+        );
     }
 
     // The replace path hands the STAGED sidecar to the INSTALLED server, and
