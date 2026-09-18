@@ -73,6 +73,7 @@
 pub mod browser;
 pub mod cli_update;
 pub mod legal;
+pub mod pending_install;
 pub mod permissions;
 pub mod proc;
 pub mod release_feed;

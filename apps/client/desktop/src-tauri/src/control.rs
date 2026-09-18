@@ -2910,6 +2910,10 @@ mod path_tests {
             // update is a screen a person asks for, not a fact on the probe.
             last_update_check_at: None,
             last_update_version: None,
+            // The unfinished half of an update (spec 2026-09-18 § 5). Written
+            // before the relaunch, read by the NEW build at boot; nothing
+            // here has one.
+            pending_bundled_install: None,
             // Subshell Server's own: who runs the control plane there. This
             // app has a node agent with its own service and no such mode, so
             // it shares the struct and ignores the field, exactly as the
