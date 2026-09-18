@@ -29,6 +29,24 @@ function hasStarted(row: NetworkRow): boolean {
 }
 
 /**
+ * Whether this network is something the step has to CONTINUE with — the
+ * predicate behind the wizard's primary-button label (operator's call,
+ * 2026-09-18): a joined or published network on a plugin this platform
+ * supports and the instance offers.
+ *
+ * Deliberately NARROWER than {@link hasStarted}, and the two must not be
+ * collapsed: `hasStarted` is the SORT key — a daemon installed but signed out
+ * leads the list because it is a question a person can answer right now —
+ * while it is exactly NOT something to continue with. Nothing has been gained
+ * yet that leaving the wizard would carry; the join is still ahead, and it
+ * waits on `/settings/networking` like everything else here. A row counts
+ * here only once it has addresses that could answer a sign-in.
+ */
+export function isNetworkUsable(row: NetworkRow): boolean {
+  return row.supported && row.enabled && (row.status?.state === "joined" || row.status?.state === "published");
+}
+
+/**
  * The wizard's Network step (optional, second): reaching this server from the
  * devices a person actually uses.
  *

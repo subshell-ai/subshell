@@ -24,7 +24,13 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   // e2e run can do, and the point of the screen is that it can be passed.
   await expect(page.getByText("Step 2 of 5")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Connect a Network" })).toBeVisible();
-  await page.getByRole("button", { name: "Skip for now" }).click();
+  // One primary button since 2026-09-18, and its word is host truth:
+  // "Continue" iff some network is already joined/published ON THIS MACHINE
+  // (a developer laptop running Tailscale can be; CI is not), "Skip for now"
+  // otherwise. Both labels run the same advance, so the spec presses
+  // whichever word the step shows — the flip itself is pinned deterministically
+  // in `setup.test.tsx`, not here (e2e/AGENTS.md: assert wiring, not identity).
+  await page.getByRole("button", { name: /Continue|Skip for now/ }).click();
 
   // Step 3/5 — tmux (spec 2026-09-15 §5.1; its own screen since 2026-09-17,
   // when it left the agent list, where it read as an agent named tmux). It is

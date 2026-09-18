@@ -160,6 +160,14 @@ Continue is never blocked. The launch step refuses honestly on its own, and a
 wizard that traps someone behind a package manager is worse than one that told
 them what is missing.
 
+**(reversed 2026-09-18, operator ruling)**: tmux is REQUIRED, so the step now
+GATES — the primary stays "Continue" and cannot fire until the status read
+reports `runtime.tmuxPath`, and an errored read grows an ErrorBanner + Retry
+rather than dead-ending the gate. Skipping never removed the wall; it only
+moved the refusal to the launch step, later and with less context. The § 5.1
+non-blocking choice above stands as written history; see the dated paragraph
+in `apps/server/web/AGENTS.md`.
+
 ### 5.2 "Finish setting up" on Settings → General
 
 A card composed client-side from facts three existing endpoints already return:

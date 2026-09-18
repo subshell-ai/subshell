@@ -10,7 +10,7 @@ import {
 } from "@/components/account/new-account-fields";
 import { ErrorBanner } from "@/components/error-banner";
 import { AgentRow } from "@/components/setup/agent-row";
-import { NetworkStep } from "@/components/setup/network-step";
+import { isNetworkUsable, NetworkStep } from "@/components/setup/network-step";
 import { SetupAssistant } from "@/components/setup/setup-assistant";
 import { TmuxStep } from "@/components/setup/tmux-step";
 import {
@@ -25,6 +25,7 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { useInstallAgent } from "@/hooks/use-install-agent";
 import { useInstallTmux } from "@/hooks/use-install-tmux";
+import { useNetwork } from "@/hooks/use-network";
 import { useSetSetupProgress, useSetupProgress } from "@/hooks/use-setup-progress";
 import { apiFetch, errMessage } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
@@ -102,6 +103,43 @@ function stepFromBookmark(step: SetupStep | null | undefined, steps: readonly Wi
   // applies a late bookmark only acts from `account`, so the worst case is
   // the screen a first-run visitor is already on.
   return "account";
+}
+
+/**
+ * The ONE label rule the wizard's optional steps share (operator's call,
+ * 2026-09-18): the primary button names what the press actually IS.
+ *
+ * "Continue" only when the step has something to continue with — a joined or
+ * published network, or an agent detected on this machine — and "Skip for
+ * now" otherwise. The Tmux step does not participate: it is not optional,
+ * and its gate is spelled out at its own primary below. Both labels here
+ * have always run the same `goNext`,
+ * and the network step proved where that leads: a ghost "Skip for now" beside
+ * an unconditional "Continue" put two buttons on one press, and the worse
+ * half was the label — "Continue" promised a continuation on a machine with
+ * nothing joined. One button now, and its label is the step's answer to "is
+ * there anything here".
+ *
+ * **Unknown reads as "Skip for now",** opposite to `lib/node-enrollment.ts`,
+ * which defaults an unanswered settings read to ALLOWED. There the risk was
+ * hiding a control that works — a button flickering away for every visitor
+ * until a request landed — and the server stays the real gate either way.
+ * Here the same guess would MISLABEL an action: while the governing read is
+ * loading, errored, or answers empty, nothing on the step has been ANSWERED
+ * to continue with, and a "Continue" that promises one off a failed check is
+ * the worse lie — skipping must stay available exactly when the check
+ * cannot speak. (The press itself needs no certainty: both labels call
+ * `goNext`, so an unknown read never costs a way forward.)
+ *
+ * And "installed but signed out" is deliberately NOT something to continue
+ * with: a daemon at `needs-login` is a setup left to do later on
+ * `/settings/networking`, not a state the wizard hands off from. Counting it
+ * would print "Continue" on the precise machine this change was asked for —
+ * the one from the operator's screenshot, four rows deep in vendor sign-ins
+ * and joined to nothing.
+ */
+function primaryLabel(hasSomething: boolean): "Continue" | "Skip for now" {
+  return hasSomething ? "Continue" : "Skip for now";
 }
 
 function SetupPage() {
@@ -197,7 +235,22 @@ function SetupPage() {
    * Inside Subshell Server the read never runs: the step it feeds is absent
    * there, and its assistant answers the same question from the CLI.
    */
-  const { data: adminStatus } = useAdminStatus(step !== "account" && steps.includes("tmux"));
+  /**
+   * The network rows behind the Network step's button label (2026-09-18).
+   *
+   * The SAME `useNetwork` the step's rows mount — one `NETWORK_QUERY_KEY`,
+   * so TanStack folds the two observers into one cached read. The route needs
+   * the answer because the label sits on the frame's primary button, not
+   * inside the step; the route deliberately adds no interval of its own,
+   * leaving the step's 4 s poll as the single ticker, and the shared cache
+   * write it lands on is what flips the label when a join arrives.
+   */
+  const { data: networkData } = useNetwork(step === "network");
+  const {
+    data: adminStatus,
+    isError: adminStatusError,
+    refetch: refetchAdminStatus,
+  } = useAdminStatus(step !== "account" && steps.includes("tmux"));
   const [tmuxLine, setTmuxLine] = useState<string | undefined>(undefined);
   const installTmux = useInstallTmux((line) => {
     // Blank lines are spacing in an installer's output, not progress; showing
@@ -436,8 +489,11 @@ function SetupPage() {
           </>
         }
         dots={dotsFor(step)}
-        skip={{ label: "Skip for now", onClick: goNext }}
-        primary={{ label: "Continue", onClick: goNext }}
+        // One button, not two (2026-09-18): the ghost skip and the primary ran
+        // the same goNext, so the bar carried two presses for one act — and
+        // "Continue" claimed a continuation on every machine with nothing
+        // joined. The label now says which of the two this press is.
+        primary={{ label: primaryLabel((networkData?.networks ?? []).some(isNetworkUsable)), onClick: goNext }}
       >
         <NetworkStep active={step === "network"} />
       </SetupAssistant>
@@ -451,23 +507,62 @@ function SetupPage() {
         title="Install tmux"
         subtitle={`tmux is what every pane on ${here} runs inside.`}
         dots={dotsFor(step)}
-        // Continue is never blocked on tmux being MISSING (spec 2026-09-15
-        // § 5.1) — the launch step refuses honestly on its own. What DOES
-        // hold the bar is an install in flight: the same rule the agent step
-        // has, so a `brew install` taking a minute is never walked out of and
-        // its progress line and any failure left on a screen nobody is
-        // looking at.
+        // Back is held only by an install in flight: the same rule the agent
+        // step has (operator report, 2026-09-14) — a `brew install` taking a
+        // minute is never walked out of in either direction, or its progress
+        // line and any failure land on a screen nobody is looking at.
         back={{ onClick: goBack, disabled: installTmux.isPending }}
-        primary={{ label: "Continue", onClick: goNext, disabled: installTmux.isPending }}
+        // tmux is REQUIRED (operator's ruling, 2026-09-18): this step GATES
+        // instead of skipping, deliberately reversing spec 2026-09-15 § 5.1's
+        // non-blocking choice. tmux is what every pane on this machine runs
+        // inside, so letting a person walk past a missing one never removed
+        // the wall — it only moved the refusal to the launch step, later and
+        // with less context. The label therefore stays "Continue" and the
+        // press cannot fire until the status read reports a path; an install
+        // landing flips `enabled` on its own, because the write that fills
+        // `tmuxPath` re-renders this bar. Unknown — loading or failed —
+        // counts as NOT-PRESENT here: the opposite polarity from
+        // {@link primaryLabel}'s unknown-labels-as-skip, because the stakes
+        // differ — there a wrong guess mislabeled an action that still
+        // worked, while here the press itself must not fire on an unanswered
+        // read, and the failed case is recoverable from the body's Retry
+        // rather than by walking past a gate that cannot open.
+        primary={{
+          label: "Continue",
+          onClick: goNext,
+          disabled: installTmux.isPending || !adminStatus?.runtime.tmuxPath,
+        }}
       >
-        <TmuxStep
-          tmuxPath={adminStatus?.runtime.tmuxPath}
-          os={adminStatus?.runtime.os}
-          onInstall={() => installTmux.mutate()}
-          installing={installTmux.isPending}
-          progress={tmuxLine}
-          failure={installTmux.isPending ? undefined : tmuxFailure}
-        />
+        {adminStatusError ? (
+          // Without this the gate could never open: an errored read means
+          // `tmuxPath` never arrives, and a step that sat on "Checking…"
+          // under a permanently dead Continue would be the trap § 5.1 was
+          // written to avoid, in its new form. Same shape the agent and
+          // network steps give their failed check.
+          <ErrorBanner
+            message="Couldn't check for tmux on this machine."
+            className="rounded-md border"
+            action={
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-detail text-inherit underline"
+                onClick={() => void refetchAdminStatus()}
+              >
+                Retry
+              </Button>
+            }
+          />
+        ) : (
+          <TmuxStep
+            tmuxPath={adminStatus?.runtime.tmuxPath}
+            os={adminStatus?.runtime.os}
+            onInstall={() => installTmux.mutate()}
+            installing={installTmux.isPending}
+            progress={tmuxLine}
+            failure={installTmux.isPending ? undefined : tmuxFailure}
+          />
+        )}
       </SetupAssistant>
     );
   }
@@ -492,8 +587,15 @@ function SetupPage() {
         // failure on a screen nobody was looking at any more, and the next
         // step's agent list was already stale — so the press waits, and the
         // bar says what for (operator report, 2026-09-14).
+        // The label reads the SAME `installed` the rows chip as "Detected" and
+        // the empty-state hatch below already asks (2026-09-18): a terminal-
+        // only machine — or a check still loading, failed, or answering none —
+        // has nothing to continue with and says "Skip for now"; an install
+        // landing on this screen flips it through the install mutation's
+        // onSettled invalidation — the same refetch the row's own "Detected"
+        // flip rides (the 4 s poll is for installs this screen never watched).
         primary={{
-          label: "Continue",
+          label: primaryLabel(agents.some((h) => h.installed)),
           onClick: goNext,
           disabled: busy || install.isPending,
         }}
