@@ -124,7 +124,11 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   // not). The strict "no element embeds the key outside a command" count
   // lives in the unit suite.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
-  await expect(command).toBeVisible();
+  // The row exists BEFORE the press now (placeholder token, copy disabled), so
+  // `toBeVisible` is satisfied by the un-minted command and no longer syncs on
+  // the mint. Wait on the TOKEN, not the row: `toContainText` retries, while
+  // `textContent()` has no predicate and would read the placeholder mid-flight.
+  await expect(command).toContainText(/setup_key=nsk_/);
   // `mintedKey`, not `key`: Playwright's `page.keyboard` is in scope under the
   // fixture name too, and a shadowed input there is the kind of bug that only
   // shows up when someone later reaches for `keyboard` in this test.
@@ -224,7 +228,11 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await dialog.getByRole("button", { name: "Generate setup key" }).click();
   // The key's only carrier is a command now (the standalone box is gone,
   // 2026-09-18) — read it off the one-liner, not from a separate element.
+  // And sync on the TOKEN: the row itself is on screen before the press with
+  // `<generate setup key first>` in its slot, so `textContent()` unguarded
+  // would race the mint and read the placeholder.
   const command = dialog.locator("code", { hasText: "install.sh?setup_key=" });
+  await expect(command).toContainText(/setup_key=nsk_/);
   const setupKey = (((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "").trim();
   expect(setupKey, "plaintext key rides the command").toMatch(/^nsk_/);
   await expect(command).toContainText(`${BASE_URL}/install.sh?setup_key=${setupKey}`);

@@ -119,11 +119,12 @@ export function AddNodeDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogContent>
-        {/* One header for one screen. Base UI, unlike Radix, warns over the missing
-            description, and the old two descriptions are gone on purpose: the naming
-            fact rides the mint no more (the machine answers), and single-use/24 h is
-            said once on the Setup keys card. The e2e suite keys on this heading
-            (12-nodes.spec.ts), so a retitle moves both. */}
+        {/* One header, intentionally description-less (operator's call, 2026-09-18):
+            the naming fact rides the mint no more (the machine answers) and
+            single-use/24 h is said once on the Setup keys card. Base UI omits
+            `aria-describedby` silently where a description is absent — unlike Radix,
+            there is no console warning to route around. The e2e suite keys on this
+            heading (12-nodes.spec.ts), so a retitle moves both. */}
         <DialogHeader>
           <DialogTitle>Install Subshell Client</DialogTitle>
         </DialogHeader>

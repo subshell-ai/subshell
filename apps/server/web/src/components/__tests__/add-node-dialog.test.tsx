@@ -143,8 +143,8 @@ describe("AddNodeDialog", () => {
     // The two-step is gone (operator's call, 2026-09-18): opening the "Add node"
     // trigger lands on the screen the second step used to be, and the mint is one
     // press IN it. Before that press no key exists, and nothing pretends
-    // otherwise: the app path's key row is a named placeholder, the terminal path
-    // has no command (a one-liner with a fake token is a copy-able lie), and no
+    // otherwise: the app path's key row is a named placeholder, the terminal
+    // one-liner shows only its PLACEHOLDER token with copy disabled, and no
     // `nsk_` string is on screen at all. The address row IS copyable from the
     // start — it needs no key.
     const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
@@ -645,8 +645,10 @@ describe("AddNodeDialog", () => {
         // The address shows TWICE on screen by design: the picker states the choice
         // and the row below is what gets pasted into the app. A raw text count is
         // the wrong instrument now that the reveal mounts at open — the CLOSED
-        // dropdown's items are in the DOM too (Base UI keeps them mounted; the old
-        // count of 2 rode timing, not truth). The paste target is the CODE row, and
+        // dropdown's items are in the DOM too — Base UI force-mounts them once the
+        // trigger has focus, which is where the dialog's initial focus lands (the
+        // old count of 2 rode the two-step never focusing the trigger — timing, not
+        // truth). The paste target is the CODE row, and
         // there is exactly one. The key shows ONCE.
         expect(screen.getAllByText("https://plane.example").filter((el) => el.tagName === "CODE")).toHaveLength(1);
         expect(screen.getAllByText(/nsk_secret/)).toHaveLength(1);

@@ -349,10 +349,12 @@ address"**, and it **names what the node dials forever** (operator's call,
 Terminal / Desktop App switch rather than inside the terminal panel, because both
 paths need the same address: the script bakes it, and the app's Connect step is
 typed this same URL. Between it and the switch sits the **Generate setup key**
-button: until it is pressed NO KEY EXISTS and nothing pretends otherwise — the app
-path's key row reads "Generate setup key first" where the copy row will be, and the
-terminal path shows NO command at all (a one-liner with a fake token is a copy-able
-lie, and the command is the key's only carrier there). The address row IS copyable
+button: until it is pressed NO KEY EXISTS, and the screen says so instead of showing
+a hole — the app path's key row reads "Generate setup key first" where the copy row
+will be, and the terminal one-liner is on screen from the start with
+`<generate setup key first>` in its token slot and COPY DISABLED (the panel being
+never empty is the operator's call; a copied placeholder would run nowhere, so only
+the mint makes the command real). The address row IS copyable
 from the start; it needs no key. Rows come
 from the same `lib/install-addresses.ts` the mobile picker builds — the
 trusted-origin allowlist, loopback dropped when anything else is known,
@@ -421,7 +423,8 @@ because a second surface needs it: the address picker, the `Terminal | Desktop A
 switch and both panels are a function of a key (which may be `null` — the not-yet-
 minted state above) and of public settings, not of a key that was minted thirty
 seconds ago. The mint itself is an OPTIONAL `generate` slot between the picker and the
-switch — the dialog passes the button, its error line and the two verdicts; the card
+switch — the dialog passes the button and its failure line (the two verdicts live
+inside `NodeKeySetup`'s own terminal panel, not the slot); the card
 passes nothing. `AddNodeDialog` therefore keeps only the mint press and the enrollment
 watcher, and `SetupKeysSection` renders the same fields for a key minted earlier.
 
