@@ -581,3 +581,55 @@ fixing a lockout, which is the wrong trade to make twice.
 - **It states the https cost at the base URL field**, exactly as the
   dashboard's Addresses card does — the same sentence, since two surfaces
   disagreeing about a consequence is worse than either wording alone.
+
+## 15. Amendment (2026-09-18): the dashboard window may leave loopback
+
+Operator's decision, taken with the trade stated: **yes, let Subshell Server's
+window load the instance's own address, and keep its abilities.** This section
+is how that is built so the second half is survivable.
+
+### 15.1 What forced the question
+
+A control plane behind an OAuth proxy cannot be shown at all today. The window
+refuses any URL whose origin is not the one it opened with, and a proxied
+sign-in is exactly a bounce to an identity provider on another origin and back.
+Subshell Client had the same blockage and is fixed the same way (`f1c2aa68`).
+
+### 15.2 The boundary moves from the SCOPE to a runtime guard
+
+The capability's `remote.urls` cannot name the instance's address — it is a
+static file and the address is a config value — so the scope becomes a
+wildcard, as Subshell Client's already is. **That means the scope stops being
+the boundary, and something else must become it**, because unlike the client
+this window holds seven commands and one of them switches who runs the server.
+
+So: the window may NAVIGATE anywhere http(s) — that is what makes a proxied
+sign-in work — and the seven commands answer only while it is ON a trusted
+origin. Trusted means this machine's loopback, or the configured
+`APP_BASE_URL`. An identity provider's page can sign you in; it cannot restart
+your server, switch your supervisor, raise the reset screen, or post a
+notification in this app's name.
+
+Three rules, each load-bearing:
+
+- **The trust flag is set by the navigation handler, never by a page.** It is
+  recomputed for every URL the window commits to, so it cannot be left true by
+  a redirect chain that ends somewhere else.
+- **`on_navigation` still refuses non-http(s).** The window must not be
+  steerable into `file:`, a custom handler, or anything the OS would act on —
+  that is unchanged and is why the scheme is checked rather than nothing.
+- **`open_main` accepts exactly two origins**, loopback and the configured base
+  URL, and refuses the rest. The app itself therefore never POINTS the window
+  anywhere untrusted; navigation away can only happen because a page did it,
+  and the guard covers that case.
+
+### 15.3 What this costs, stated plainly
+
+A page on the instance's own address now holds what a loopback page held. That
+is the operator's decision and it is defensible — it is the same server, and a
+page there already holds the admin routes — but it is a real widening, because
+that address may be reachable from a network rather than only from this
+machine. `docs/security.md` §11.11 carries the accounting; this section is the
+mechanism.
+
+The guard is what keeps it from being a widening to the whole web.
