@@ -369,6 +369,20 @@ until then. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-
 published artifact set is visible at once.
+Step 2 is ONE copy target (operator's call, 2026-09-18): the standalone setup-
+key box, its "the setup key below is shown once" subtitle, and the tmux
+paragraph are GONE — the command already carries the key, so the box was a
+second thing to copy for one paste, and tmux is the script's own WARNING
+then `subshell setup`'s refusal — the script deliberately does not exit
+(`install-script.ts`: "a warning rather than a refusal"), `assertTmux` is
+the one that refuses, and neither needs a paragraph in the dialog. The two explanatory sentences
+(~/.local/bin + the per-platform first-run download) merged into the one
+paragraph they always described; the "Single-use, expires in 24 h…" line
+stays, and the key now lives inside commands and NEVER outside one — one
+row in the common shape, TWO (curl + the enroll fallback, alternatives
+that each carry it) on the air-gapped branch, which is why the invariant
+is stated that way rather than as "shown once on screen"; the kept line
+speaks of the only TIME, which is true in both shapes.
 
 ## Subshell for Mobile (the PWA install dialog)
 
