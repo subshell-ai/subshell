@@ -411,6 +411,11 @@ without them, and this section is what they are accountable to on return.
   (`comparable_server_version` / `comparable_agent_version`), fed to every
   `resume_decision` call site, so the not-managed refusal survives the
   relaunch. Found in review; §6 now states it as a property of the act.
+- **`last_error` on the marker: DEFERRED.** A halted screen therefore names
+  versions and the failure, never the CLI's reason. Adding a field to the
+  marker in the same change that fixed the marker's correctness, immediately
+  before a release, buys one sentence at the cost of new surface on the
+  structure this design rests on.
 - §4.3's `bundledCli` manifest field, DEFERRED — it changes the signed
   trust anchor for one number shown one phase early, and the fallback it
   would need runs for every already-published release anyway.
