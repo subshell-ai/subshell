@@ -30,3 +30,13 @@ three. `NODE_NAME_MAX_UNITS` is the unit spelling of the same limit (twice the c
 is the most 64 characters can occupy), and the agent's `--name` preflight and `setup`'s
 prompt count code points like the desktop field and Rust already did, so an emoji name
 measures the same whether it was typed, pasted, prompted for or piped.
+
+And the card now hands back the COMMAND as well as the key. A `Setup` button on each
+usable row opens the same fields the mint dialog shows — address picker, Terminal |
+Desktop App, the one-liner or the two values — because closing the dialog mid-copy still
+lost the command, and re-reading instructions that had never been lost meant minting a
+second single-use key. Rows whose key is spent or expired have no such button; steps for
+an inert credential only end in a 401. The reveal itself moved to
+`node-key-setup.tsx`, shared by both surfaces, and its two explanatory paragraphs are
+gone: the command and the two labelled rows are the instruction. The tabbed group control
+now divides its width between its options instead of leaving the rest of the pill empty.

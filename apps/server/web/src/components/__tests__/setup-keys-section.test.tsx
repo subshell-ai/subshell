@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { setConfirmHandler } from "@/lib/confirm";
 
@@ -120,6 +120,48 @@ describe("SetupKeysSection", () => {
       // The prompt names what is about to stop working by the same text the row
       // shows — there is no label to name it by any more.
       expect(confirmations[0]).toContain("nsk_alpha_alpha_alpha_alpha_1");
+    } finally {
+      restore();
+    }
+  });
+
+  it("offers Setup on the key that still works, and rebuilds the command around THAT key", async () => {
+    // The card lists the key so it is not lost; until this button existed the
+    // COMMAND was still lost with the dialog, and the only way to re-read it was to
+    // mint a second single-use key for instructions that had never actually gone
+    // away. So the assertion is the whole point: the row's own key, not a new one.
+    const { restore } = mockKeys([
+      row(),
+      row({
+        id: "b",
+        key: "nsk_used_used_used_used_used_1x",
+        usedAt: "2026-09-17T11:00:00.000Z",
+        consumedNodeId: "n7",
+      }),
+      row({ id: "c", key: "nsk_stale_stale_stale_stale_sta_1", expiresAt: PAST }),
+    ]);
+    try {
+      renderCard([]);
+      await screen.findByText("nsk_alpha_alpha_alpha_alpha_1");
+      // One button, beside the usable row alone: steps for a redeemed or expired key
+      // would walk someone to a 401 they cannot act on.
+      expect(screen.getAllByRole("button", { name: "Setup" })).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Setup" }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Set up a machine with this key")).toBeDefined();
+      expect(within(dialog).getByText(/setup_key=nsk_alpha_alpha_alpha_alpha_1/)).toBeDefined();
+      expect(within(dialog).queryByText(/nsk_used_used/)).toBeNull();
+
+      // The same key down the other path, where the app is handed values rather than
+      // a command — the address picker above the switch is what both of them need.
+      fireEvent.click(within(dialog).getByRole("button", { name: "Desktop App" }));
+      expect(within(dialog).getByRole("button", { name: "Copy setup key" })).toBeDefined();
+      expect(within(dialog).getByRole("button", { name: "Copy server address" })).toBeDefined();
+      expect(within(dialog).getByText("nsk_alpha_alpha_alpha_alpha_1")).toBeDefined();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     } finally {
       restore();
     }

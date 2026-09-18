@@ -152,6 +152,22 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   await expect(page.getByText("Setup keys", { exact: true })).toBeVisible();
   await expect(page.getByText(mintedKey, { exact: true })).toBeVisible();
   await expect(page.getByText("unused", { exact: true })).toBeVisible();
+
+  // And the card rebuilds the COMMAND, not merely the key text. This is the half that
+  // used to cost a second single-use key: read the key back, but the one-liner was
+  // only ever in the dialog that had closed. The regex is safe unescaped — the mint
+  // shape is `nsk_` plus base64url.
+  // `exact`, or the name matches the card's own "Copy setup key" and the dialog's
+  // "Create setup key" as well — three elements, strict mode, no click.
+  await page.getByRole("button", { name: "Setup", exact: true }).click();
+  const steps = page.getByRole("dialog");
+  await expect(steps.getByText("Set up a machine with this key")).toBeVisible();
+  await expect(steps.getByText(new RegExp(`setup_key=${mintedKey}`)).first()).toBeVisible();
+  // The other path, from the same key: the two VALUES Subshell Client takes.
+  await steps.getByRole("button", { name: "Desktop App" }).click();
+  await expect(steps.getByText(mintedKey, { exact: true })).toBeVisible();
+  await steps.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
 /**

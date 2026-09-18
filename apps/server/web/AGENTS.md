@@ -385,18 +385,31 @@ takes no body, and the name is asked on the machine (`subshell setup`'s first
 question, `--name` for a script, Subshell Client's required Enroll field). So step 1
 is ONE press.
 
-What survives from 2026-09-18 is narrower than it was, because the Desktop App path
-cannot be handed a command line: **on the terminal panel the key lives inside a
-command and never outside one** (one row in the common shape, two — curl and the
+What each panel shows is now the SHORTEST true version of itself, because the
+explanatory prose was cut on 2026-09-18 (operator's call): the terminal panel had a
+paragraph walking through what the script does ("installs the agent to
+`~/.local/bin`, asks what to call this machine, enrolls it, and then asks about the
+background service…") and the app panel had one walking through opening the app
+("In Subshell Client, open Window → This machine…"). **Both are gone** — the command
+and the two labelled value rows ARE the instruction, and the script narrates itself on
+the machine it runs on. `add-node-dialog.test.tsx` asserts each absence, so neither
+regrows as a well-meant restoration. So: **on the terminal panel the key lives inside
+a command and never outside one** (one row in the common shape, two — curl and the
 `setup` fallback, alternatives that each carry it — on the air-gapped branch), while
 the app panel shows the two VALUES its Enroll step takes, address and key, each with
 its own copy button that `label`s what it copies. The standalone key box, its "shown
-once" subtitle and the tmux paragraph stay gone on the terminal path — the command
-already carries the key, tmux is the script's own WARNING then `subshell setup`'s
-refusal, and a paragraph naming a refusal the script already prints is noise. The
-"Single-use, expires in 24 h…" line changed its claim rather than going: it used to
-say this was the only time the key was shown, which stopped being true the day the
-Setup keys card began listing it, so now it says where it stays readable.
+once" subtitle and the tmux paragraph stay gone too. Two sentences of guidance
+survive, and both sit where they can still change what the operator does: the amber
+no-binary note and the first-run-per-platform sentence, beside the MINT and before the
+key exists — after the press the key is minted and the command gets copied either way.
+
+**The reveal is its own component**, `components/nodes/node-key-setup.tsx`
+(`NodeKeySetup`, plus `installCommandFor` / `setupCommandFor` / `useSetupKeyVerdict`),
+because a second surface needs it: the address picker, the `Terminal | Desktop App`
+switch and both panels are a function of a key and of public settings, not of a key
+that was minted thirty seconds ago. `AddNodeDialog` keeps only what belongs to a
+just-minted key — the create press and the enrollment watcher — and `SetupKeysSection`
+renders the same fields for a key minted earlier.
 
 `components/nodes/setup-keys-section.tsx` is that card, and it is the reason the
 server can show a key after the mint: `GET /api/nodes/setup-keys` returns each of the
@@ -406,6 +419,14 @@ cannot enumerate enrollment doors). The row's title is the key, with
 nothing a person could match to a machine. `keyState` still decides
 unused / used / expired from `usedAt` and `expiresAt`, which is what keeps the
 disclosure honest: a spent or stale row's key is inert, and the badge says so.
+
+The row also carries **`Setup`, on the `unused` rows only** — the card hands back the
+COMMAND as well as the key. That was the remaining half of the defect: closing the
+dialog mid-copy lost the one-liner, and the only way to re-read instructions that had
+never actually been lost was to mint a SECOND single-use key. The button opens
+`KeySetupDialog`, which is `NodeKeySetup` in a dialog with a Done button and nothing
+else. A used or expired row gets no such button by design: its key is inert, and
+walking someone to a 401 they cannot act on is not an instruction.
 
 ## Subshell for Mobile (the PWA install dialog)
 

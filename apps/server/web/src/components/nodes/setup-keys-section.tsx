@@ -1,11 +1,51 @@
 import { useState } from "react";
+import { NodeKeySetup } from "@/components/nodes/node-key-setup";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CopyableValue } from "@/components/ui/copyable-value";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useDeleteSetupKey, useSetupKeys } from "@/hooks/use-nodes";
 import { errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
+
+/**
+ * The instructions for ONE key this card already lists.
+ *
+ * Mounted only while open, so the address pick and the path switch start fresh each
+ * time rather than remembering the last machine's choices.
+ */
+function KeySetupDialog({ keyText, onClose }: { keyText: string; onClose: () => void }) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Set up a machine with this key</DialogTitle>
+          <DialogDescription>
+            The key is listed here until it is used, so these steps can be rebuilt at any time before then. The machine
+            names itself when it enrolls.
+          </DialogDescription>
+        </DialogHeader>
+        <NodeKeySetup keyText={keyText} />
+        <DialogFooter>
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /** Display state of a setup key: redeemed, expired unused, or still usable. */
 function keyState(usedAt: string | null, expiresAt: string): "used" | "expired" | "unused" {
@@ -29,6 +69,9 @@ export function SetupKeysSection() {
   const { data, error, isLoading } = useSetupKeys();
   const remove = useDeleteSetupKey();
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  // The key whose setup steps are open, or null. Held as the KEY TEXT rather than the
+  // row id because that is exactly what the dialog needs and nothing else does.
+  const [setupFor, setSetupFor] = useState<string | null>(null);
 
   async function revoke(id: string, key: string) {
     setRowError((prev) => ({ ...prev, [id]: "" }));
@@ -75,6 +118,16 @@ export function SetupKeysSection() {
                 <Badge variant={state === "unused" ? "success" : state === "expired" ? "warning" : "muted"}>
                   {state}
                 </Badge>
+                {/* On the USABLE row only. The card exists because a key the dialog was
+                    closed on was recoverable; this closes the other half of that — the
+                    COMMAND, which until now could only be re-read by minting a second
+                    key. A used or expired row gets no such button: its key is inert, and
+                    walking someone to a 401 they cannot act on is not an instruction. */}
+                {state === "unused" && (
+                  <Button variant="outline" size="sm" onClick={() => setSetupFor(k.key)}>
+                    Setup
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => void revoke(k.id, k.key)} disabled={remove.isPending}>
                   Revoke
                 </Button>
@@ -83,6 +136,8 @@ export function SetupKeysSection() {
             </div>
           );
         })}
+        {/* Portalled, so its place in this tree is only about which card it belongs to. */}
+        {setupFor && <KeySetupDialog keyText={setupFor} onClose={() => setSetupFor(null)} />}
       </CardContent>
     </Card>
   );

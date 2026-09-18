@@ -9,7 +9,8 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { AddNodeDialog, installCommandFor, setupCommandFor } from "@/components/nodes/add-node-dialog";
+import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
+import { installCommandFor, setupCommandFor } from "@/components/nodes/node-key-setup";
 import { NODES_QUERY_KEY } from "@/lib/query-keys";
 
 interface Call {
@@ -464,47 +465,48 @@ describe("AddNodeDialog", () => {
     }
   });
 
-  it("says what the command does to the machine before it is run — and nothing about tmux", async () => {
-    // The dialog is the one place in the product where a headless node
-    // install is described; it used to describe nothing at all (spec
-    // 2026-09-15 §5.4). Every clause here is a clause of install-script.ts.
-    // The tmux paragraph is GONE (operator's call, 2026-09-18): `subshell
-    // setup` preflights tmux and refuses before spending the key, and the
-    // script's own output names the fix at the moment it matters — the
-    // dialog's job is the command. The absence is pinned the way the mobile
-    // dialog pins its removed address-explainer.
+  it("shows the command and says nothing else about the machine", async () => {
+    // Two paragraphs used to sit above this command — one walking through what the
+    // script does ("installs the agent to ~/.local/bin, asks what to call this
+    // machine, enrolls it, and then asks about the background service"), one about
+    // the first run per platform. Both are GONE (operator's call, 2026-09-18): the
+    // command IS the instruction, and the script narrates itself on the machine it
+    // runs on, at the moment each step happens. The absence is pinned the way the
+    // mobile dialog pins its removed address-explainer, so the next reader treats it
+    // as a decision rather than an oversight. What must survive is the command,
+    // carrying the key.
     const { restore } = mockFetch();
     try {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      const what = await screen.findByText(/installs the agent to/i);
-      expect(what.textContent).toContain("~/.local/bin");
-      expect(what.textContent).toMatch(/background service/i);
-      expect(what.textContent).toMatch(/at login/i);
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
+      expect(screen.queryByText(/installs the agent to/i)).toBeNull();
+      expect(screen.queryByText(/background service that starts it at login/i)).toBeNull();
       expect(screen.queryByText(/setup refuses without it/i)).toBeNull();
     } finally {
       restore();
     }
   });
 
-  it("folds the first-run sentence INTO the what-it-does paragraph on the terminal panel", async () => {
-    // The two sentences that described one command now share one paragraph
-    // (2026-09-18), gated on the one shared predicate (`autoFetch` + partial
-    // published targets — the only combination where the sentence is TRUE-
-    // AND-SPOKEN: a server that fetches really does delay a platform's first
-    // machine). Step 1 keeps its standalone note on the same predicate; an
-    // installed-but-not-fetching server never shows the sentence in either
-    // home — pinned by the nulls in the air-gapped test below, since that
-    // server's amber refusal owns the screen instead.
+  it("says the first-run sentence once, beside the mint — before the key exists", async () => {
+    // The sentence has exactly one home now: step 1, gated on `autoFetch` plus
+    // partial published targets (the only combination where it is TRUE-AND-SPOKEN:
+    // a server that fetches really does delay a platform's first machine, and an
+    // installed-but-not-fetching one owns the screen with its amber refusal
+    // instead — pinned by the nulls in the air-gapped test below). One home because
+    // one moment can act on it: after the press the key is minted and the command
+    // gets copied whatever the answer was. So it is on screen here, and GONE from
+    // the reveal.
     const { restore } = mockFetch({
       nodeArtifactTargets: ["linux-x64"],
       nodeArtifactsAutoFetch: true,
     });
     try {
       await renderDialog();
+      expect(await screen.findByText(/downloaded from the project's release the first time/i)).toBeDefined();
       fireEvent.click(screen.getByRole("button", { name: "Create setup key" }));
-      const what = await screen.findByText(/installs the agent to/i);
-      expect(what.textContent).toMatch(/downloaded from the project's release the first time/i);
+      await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
+      expect(screen.queryByText(/downloaded from the project's release the first time/i)).toBeNull();
     } finally {
       restore();
     }
@@ -591,7 +593,10 @@ describe("AddNodeDialog", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
         expect(screen.queryByText(/install\.sh\?setup_key=/)).toBeNull();
-        expect(screen.getByText(/Window → This machine/i)).toBeDefined();
+        // The sentence that used to walk someone through opening the app is GONE
+        // (operator's call, 2026-09-18): the two labelled rows ARE the instruction.
+        // Asserted as an absence so the panel does not quietly regrow it.
+        expect(screen.queryByText(/Window → This machine/i)).toBeNull();
         // The address shows TWICE by design: the picker states the choice and the
         // row below is what gets pasted into the app. The key shows ONCE.
         expect(screen.getAllByText("https://plane.example")).toHaveLength(2);
