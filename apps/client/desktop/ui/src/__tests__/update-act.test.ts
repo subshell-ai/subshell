@@ -146,16 +146,48 @@ describe("the refusals (§ 6)", () => {
 });
 
 describe("the second phase (§§ 4.2, 5)", () => {
-  const resuming = (exhausted: boolean) =>
-    agentBehind({ pendingUpdate: { fromAppVersion: "0.8.0", attempts: exhausted ? 2 : 0, exhausted } });
+  const resuming = (halted: boolean) =>
+    agentBehind({ pendingInstall: { fromAppVersion: "0.8.0", attempts: halted ? 2 : 0, halted } });
 
   it("is finishing while a marker is outstanding, and offers no button over it", () => {
     const a = act({ probe: resuming(false) });
     expect(a.phase).toBe("finishing");
+    expect(a.autoFinish).toBe(true);
     // A disabled control lettered with the thing already happening beside it
     // says less than no control at all.
     expect(a.pressLabel).toBeNull();
     expect(a.canPress).toBe(false);
+  });
+
+  /**
+   * A marker on a machine whose agent this app must not replace.
+   *
+   * Rust resolves that to `Resume::Clear` now (`comparable_agent_version` is
+   * what `decide()` always compared), so the only way here is a marker an
+   * OLDER build left on disk. This layer is nonetheless the only one that can
+   * SAY anything, and the worst possible reading is the one it used to
+   * produce: the § 6 refusal on screen while the act fires the install it
+   * names in the same breath.
+   */
+  it("neither fires nor presses a marker on a machine running somebody else's agent", () => {
+    const a = act({
+      probe: makeProbe({
+        managed: false,
+        agentChoice: "upgrade-available",
+        bundledVersion: "1.10.0",
+        agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
+        pendingInstall: { fromAppVersion: "0.8.0", attempts: 0, halted: false },
+      }),
+    });
+    expect(a.resume).toBeNull();
+    expect(a.autoFinish).toBe(false);
+    expect(a.phase).not.toBe("finishing");
+    expect(a.press).toBeNull();
+    expect(a.canPress).toBe(false);
+    // And it says why, in the same sentence the idle offer renders.
+    expect(a.refusals.join(" ")).toContain("/opt/subshell/bin/subshell");
+    // Never "up to date": nothing was installed, and something is behind.
+    expect(a.upToDate).toBe(false);
   });
 
   /**
@@ -167,6 +199,12 @@ describe("the second phase (§§ 4.2, 5)", () => {
     expect(a.pressLabel).toBe("Retry");
     expect(a.press).toBe("agent");
     expect(a.canPress).toBe(true);
+    // Offered, never fired: this is the one place the design refuses to keep
+    // trying on someone's behalf.
+    expect(a.autoFinish).toBe(false);
+    // Still consented, though — the press goes through the install that asks
+    // nothing, because phase 1's press covered both halves.
+    expect(a.resume).not.toBeNull();
   });
 
   it("is downloading while the app bundle is coming down", () => {
@@ -186,6 +224,8 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
     const a = act({ installedAgentHere: true });
     expect(a.offerRestart).toBe(true);
     expect(a.phase).toBe("done");
+    // The offer IS what the screen says here, so there is nothing to settle.
+    expect(a.settled).toBe(false);
   });
 
   it("stops offering it once the restart has happened", () => {
@@ -195,6 +235,22 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
   it("offers nothing to restart on a machine with no service", () => {
     const a = act({ installedAgentHere: true, probe: makeProbe({ service: { installed: false } }) });
     expect(a.offerRestart).toBe(false);
+  });
+
+  /**
+   * The two states where the screen used to go BLANK: the act is done, so
+   * there are no rows and no offer, and `upToDate` is false precisely BECAUSE
+   * this window installed something. A screen that says nothing at the end of
+   * a successful act reads as one that lost the thread.
+   */
+  it("says the act is finished once there is nothing left to offer", () => {
+    expect(act({ installedAgentHere: true, restartedHere: true }).settled).toBe(true);
+    expect(act({ installedAgentHere: true, probe: makeProbe({ service: { installed: false } }) }).settled).toBe(true);
+    // Not while a half is still named on screen — an app update that landed
+    // after the agent one must not be covered by "both up to date".
+    expect(act({ installedAgentHere: true, restartedHere: true, check: check({ latest: "0.9.0" }) }).settled).toBe(
+      false,
+    );
   });
 
   it("warns about panes only where the definition does not spare them", () => {

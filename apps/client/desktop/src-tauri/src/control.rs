@@ -489,7 +489,7 @@ pub struct Probe {
     /// [`install_agent_now`] reads the machine with, and a marker on that
     /// answer would be a fact nobody asked for. See [`resume_view`] for why
     /// this rides the probe rather than `node_settings`.
-    pub pending_update: Option<PendingUpdateView>,
+    pub pending_install: Option<PendingInstall>,
 }
 
 /// What a page is told about an unfinished update (spec 2026-09-18 § 5).
@@ -499,15 +499,24 @@ pub struct Probe {
 /// built, so a marker whose work turned out to be done never reaches the page
 /// at all. `forced` is deliberately absent — it carries a pane-safety consent
 /// for a service RESTART, and this app's phase 2 restarts nothing (spec § 7.1).
+///
+/// **The name and every field name are Subshell Server's**, deliberately: the
+/// two apps run the same act over different second halves, and one is read
+/// beside the other whenever either is changed. This app carried
+/// `PendingUpdateView`/`pendingUpdate`/`exhausted` until 2026-09-18, which
+/// made a straight diff of the two screens read as a difference in design
+/// where there was only a difference in spelling. `attempts` is the one field
+/// this app had first (it counts at the FIRE — see [`node_install_agent`] —
+/// which is the rule both apps now follow).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct PendingUpdateView {
+pub struct PendingInstall {
     /// The app version that was running when the person pressed.
     pub from_app_version: String,
     /// How many attempts have already been made and failed.
     pub attempts: u32,
     /// Whether it has failed often enough to stop firing on its own.
-    pub exhausted: bool,
+    pub halted: bool,
 }
 
 impl Default for Probe {
@@ -528,7 +537,7 @@ impl Default for Probe {
             // for `probe_now` to fill, and `machine_hostname` spawns.
             hostname: String::new(),
             rewrite_tears_down: cfg!(target_os = "macos"),
-            pending_update: None,
+            pending_install: None,
         }
     }
 }
@@ -640,7 +649,7 @@ fn bundled_version() -> Option<String> {
 #[tauri::command(async)]
 pub fn node_probe(settings: State<'_, SettingsState>) -> Probe {
     let mut probe = probe_now(settings.get().binary_path.as_deref());
-    probe.pending_update = resume_view(&settings, &probe);
+    probe.pending_install = resume_view(&settings, &probe);
     probe
 }
 
@@ -664,10 +673,24 @@ pub fn node_probe(settings: State<'_, SettingsState>) -> Probe {
 ///
 /// A marker whose work is DONE is cleared here, on the read that noticed. That
 /// is the one write this function makes, and it is idempotent: the next probe
-/// finds no marker and decides nothing.
-fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingUpdateView> {
+/// finds no marker and decides nothing. **This is where this app differs from
+/// Subshell Server's twin**, which is read-only and leaves the clearing to its
+/// boot path: nothing here runs at boot, because the process that finishes the
+/// act learns about it from the poll the page already makes.
+///
+/// A marker with an EMPTY `from_app_version` is no marker.
+/// `PendingBundledInstall` derives `Default` under `#[serde(default)]`, so a
+/// truncated or hand-edited `{"pendingBundledInstall":{}}` deserializes into a
+/// marker that names no act — and what a marker IS is the record of one app
+/// version having handed off to the next. The server app's twin renders that
+/// string into a sentence ("… was updated from , but …"); this app does not
+/// today, which is a rendering choice rather than a reason to trust the field.
+fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingInstall> {
     let current = settings.get();
     let marker = current.pending_bundled_install.as_ref()?;
+    if !names_an_act(marker) {
+        return None;
+    }
     let decision = resume_decision(
         Some(marker),
         probe.bundled_version.as_deref(),
@@ -686,13 +709,28 @@ fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingUpdateV
     view
 }
 
+/// Whether a marker records an act at all.
+///
+/// `PendingBundledInstall` derives `Default` under `#[serde(default)]`, so a
+/// truncated or hand-edited `{"pendingBundledInstall":{}}` deserializes
+/// happily into a marker whose `from_app_version` is empty — and that field is
+/// the whole record of WHICH update this is (the server app's twin renders it
+/// into a sentence, which an empty string turns into "… was updated from ,
+/// but …"). Nothing else in the struct can say the file was garbage, so this
+/// is the one field worth refusing on: an act with no version handing off is
+/// not one of ours, and running an install off it would be acting on a file
+/// nobody wrote.
+fn names_an_act(marker: &PendingBundledInstall) -> bool {
+    !marker.from_app_version.trim().is_empty()
+}
+
 /// What a decided marker looks like to the page, or `None` where it is spent.
 ///
 /// Split from [`resume_view`] so the mapping is testable without a settings
 /// file: everything above it is I/O, and everything below it is already
 /// covered by `desktop-core`'s own tests.
-fn view_of(marker: &PendingBundledInstall, decision: &Resume) -> Option<PendingUpdateView> {
-    let exhausted = match decision {
+fn view_of(marker: &PendingBundledInstall, decision: &Resume) -> Option<PendingInstall> {
+    let halted = match decision {
         Resume::Clear => return None,
         // `forced` is ignored on purpose: it consents to a service RESTART,
         // and this app's phase 2 offers that rather than performing it
@@ -700,10 +738,10 @@ fn view_of(marker: &PendingBundledInstall, decision: &Resume) -> Option<PendingU
         Resume::Install { .. } => false,
         Resume::Halt => true,
     };
-    Some(PendingUpdateView {
+    Some(PendingInstall {
         from_app_version: marker.from_app_version.clone(),
         attempts: marker.attempts,
-        exhausted,
+        halted,
     })
 }
 
@@ -867,7 +905,10 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// started.** The CLI's swap is a `rename(2)` a running daemon does not
 /// notice, so the stop that `install_bundled` needed (and the pane warning it
 /// carried) has nothing left to protect. `--no-restart` keeps the deliberate
-/// no-restart this command has always had: the screen says to start it.
+/// no-restart this command has always had, and since spec 2026-09-18 § 7.1 the
+/// screen OFFERS that restart rather than telling anyone to start something.
+/// Nothing here was ever stopped: the daemon is running, on the previous
+/// binary's inode, which is exactly the fact the offer exists to state.
 fn install_agent_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
@@ -2137,7 +2178,7 @@ mod command_set_tests {
 /// here is the mapping onto what the page is told, because the two halves
 /// this app leaves out of it are decisions in their own right: `forced` never
 /// crosses, since phase 2 restarts nothing here, and a spent marker is
-/// reported as `exhausted` rather than withheld, so the screen can still
+/// reported as `halted` rather than withheld, so the screen can still
 /// offer Retry.
 #[cfg(test)]
 mod resume_tests {
@@ -2214,7 +2255,7 @@ mod resume_tests {
         let view = view_of(&m, &Resume::Install { forced: true }).expect("a view");
         assert_eq!(view.from_app_version, "0.6.0");
         assert_eq!(view.attempts, 0);
-        assert!(!view.exhausted);
+        assert!(!view.halted);
     }
 
     /// Halting must still REPORT: the marker stays so the screen can name the
@@ -2224,7 +2265,20 @@ mod resume_tests {
         let m = marker(2);
         let view = view_of(&m, &Resume::Halt).expect("a view");
         assert_eq!(view.attempts, 2);
-        assert!(view.exhausted);
+        assert!(view.halted);
+    }
+
+    /// A marker that names no app version is a corrupt file, not an act.
+    #[test]
+    fn a_marker_naming_no_version_is_no_marker() {
+        assert!(names_an_act(&marker(0)));
+        let mut blank = marker(0);
+        blank.from_app_version = String::new();
+        assert!(!names_an_act(&blank));
+        // Whitespace too: `serde(default)` is one way to get here and a hand
+        // edit is the other, and a space is what a hand edit leaves.
+        blank.from_app_version = "  ".into();
+        assert!(!names_an_act(&blank));
     }
 
     #[test]

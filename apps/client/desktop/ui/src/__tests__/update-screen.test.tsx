@@ -76,7 +76,7 @@ describe("the second phase finishes an act this build did not start (§ 4.2)", (
     const fake = await boot({
       probe: makeProbe({
         ...BEHIND,
-        pendingUpdate: { fromAppVersion: "0.6.0", attempts: 0, exhausted: false },
+        pendingInstall: { fromAppVersion: "0.6.0", attempts: 0, halted: false },
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
@@ -93,7 +93,7 @@ describe("the second phase finishes an act this build did not start (§ 4.2)", (
   });
 
   /**
-   * Bounded at the marker's attempt limit, which Rust reports as `exhausted`.
+   * Bounded at the marker's attempt limit, which Rust reports as `halted`.
    * An install that fails on every boot would otherwise take this window to a
    * failure screen on every launch, forever.
    */
@@ -101,7 +101,7 @@ describe("the second phase finishes an act this build did not start (§ 4.2)", (
     const fake = await boot({
       probe: makeProbe({
         ...BEHIND,
-        pendingUpdate: { fromAppVersion: "0.6.0", attempts: 2, exhausted: true },
+        pendingInstall: { fromAppVersion: "0.6.0", attempts: 2, halted: true },
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
@@ -129,7 +129,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
     const fake = await boot({
       probe: makeProbe({
         ...BEHIND,
-        pendingUpdate: { fromAppVersion: "0.6.0", attempts: 0, exhausted: false },
+        pendingInstall: { fromAppVersion: "0.6.0", attempts: 0, halted: false },
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
@@ -152,8 +152,12 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
     // refusal and offers `--force` behind it. Never a forced restart here.
     expect(fake.callsTo("node_service")[0]).toEqual({ verb: "restart", force: false });
 
-    // And the offer goes once it has been taken.
+    // And the offer goes once it has been taken — replaced by the sentence
+    // that says the act is over. Until 2026-09-18 nothing took its place and
+    // the body rendered EMPTY: the rows are gone (nothing is behind), and
+    // `upToDate` is false because this window installed something.
     await waitFor(() => expect(buttonOrNull("Restart the agent")).toBeNull());
+    expect(screen.getByText(/both up to date/)).toBeTruthy();
   });
 
   /**
@@ -175,7 +179,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       probe: makeProbe({
         ...BEHIND,
         service: risky,
-        pendingUpdate: { fromAppVersion: "0.6.0", attempts: 0, exhausted: false },
+        pendingInstall: { fromAppVersion: "0.6.0", attempts: 0, halted: false },
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
@@ -199,7 +203,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
     const fake = await boot({
       probe: makeProbe({
         ...BEHIND,
-        pendingUpdate: { fromAppVersion: "0.6.0", attempts: 0, exhausted: false },
+        pendingInstall: { fromAppVersion: "0.6.0", attempts: 0, halted: false },
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,

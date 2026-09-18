@@ -163,13 +163,18 @@ export function UpdateScreen(props: {
    * nothing left to ask; what there is instead is a bound, because an install
    * that fails every time would otherwise re-run on every render. The ref
    * bounds this launch and the marker's own `attempts` bounds the launches —
-   * `exhausted` is Rust saying the second bound was reached, and the screen
+   * `halted` is Rust saying the second bound was reached, and the screen
    * then offers Retry rather than firing.
+   *
+   * Whether to fire at all is {@link updateAct}'s answer and not this
+   * component's: a marker on a machine whose agent this app must not replace
+   * is refused in words, and firing it here would perform the act the same
+   * screen is refusing.
    */
   const resumed = useRef(false);
   const installAgent = useRef(commands.installAgent);
   installAgent.current = commands.installAgent;
-  const resuming = probe?.pendingUpdate != null && !probe.pendingUpdate.exhausted;
+  const resuming = act.autoFinish;
   useEffect(() => {
     if (resumed.current || !resuming || runner.busy) return;
     resumed.current = true;
@@ -191,7 +196,7 @@ export function UpdateScreen(props: {
     // A resumed or retried act was already consented to in phase 1; a direct
     // press on an agent that is merely behind has had no such moment, so it
     // goes through the command that asks first.
-    if (probe?.pendingUpdate) installAgent.current();
+    if (act.resume) installAgent.current();
     else commands.updateAgent();
   };
 
@@ -252,6 +257,17 @@ export function UpdateScreen(props: {
         <p className="text-center text-sm">
           Subshell Client {data.current} is the newest release, and its agent is installed.
         </p>
+      )}
+
+      {/*
+       * The END of a successful act, which said nothing at all until
+       * 2026-09-18: the rows are gone (nothing is behind any more) and
+       * `upToDate` is false by design (something WAS behind, this window fixed
+       * it), so the body rendered empty the moment the restart offer was taken
+       * — and immediately, on a machine with no service to restart.
+       */}
+      {act.settled && (
+        <p className="text-center text-sm">Subshell Client and the agent it ships are both up to date.</p>
       )}
 
       {act.refusals.length > 0 && (

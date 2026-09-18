@@ -149,9 +149,12 @@ export function useNodeCommands(args: {
     installAgent: () => runner.run(async () => finished(await nodeInstallAgent())),
 
     /**
-     * Replacing the installed agent stops the service that runs it — and does
-     * not start it again. On a stale definition, stopping is also what ends
-     * every live subshell. Neither is something to do on a single click.
+     * Replacing the installed agent is worth a confirmation even though it
+     * interrupts nothing: it overwrites the binary this machine runs, from a
+     * copy that ships inside this app, and the daemon goes on running the
+     * previous version afterwards. That last fact is the one a single click
+     * would hide — see the messages below, which state it rather than the
+     * stop-and-start this path has not done since spec 2026-09-15 § 7.1.
      */
     updateAgent: () =>
       runner.run(async () => {

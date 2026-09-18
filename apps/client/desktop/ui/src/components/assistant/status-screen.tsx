@@ -670,15 +670,23 @@ export function StatusScreen(props: {
             )}
             {/*
              * The same screen, for the case where nothing on this machine says
-             * anything is behind. Always offered rather than gated on a known
-             * update: whether one exists is a network read, and a row that
-             * appeared only after an answer would mean asking on the probe's
-             * clock — which is the background update check this design
-             * explicitly does not have.
+             * anything is behind — and ONLY that case. Offered whenever the
+             * machine is silent rather than gated on a known update: whether
+             * one exists is a network read, and a row that appeared only after
+             * an answer would mean asking on the probe's clock, which is the
+             * background update check this design explicitly does not have.
+             *
+             * It is hidden while the button above is showing, because that one
+             * is this same door under a more specific name, and two adjacent
+             * buttons opening one screen is the "one act, one name" defect
+             * spec 2026-09-18 § 1 exists to remove — read side by side they
+             * look like two different acts with two different costs.
              */}
-            <Button variant="outline" size="sm" disabled={busy} onClick={onUpdate}>
-              Check for updates…
-            </Button>
+            {probe?.agentChoice !== "upgrade-available" && (
+              <Button variant="outline" size="sm" disabled={busy} onClick={onUpdate}>
+                Check for updates…
+              </Button>
+            )}
             {/*
              * Re-enrolling is a thing you do to a machine that IS enrolled —
              * it overwrites `config.json` and mints a second node row. On a

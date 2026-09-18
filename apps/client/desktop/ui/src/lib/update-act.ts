@@ -15,7 +15,7 @@
  * 1. show what is behind, confirm, download and install the app bundle, write
  *    the marker, relaunch;
  * 2. the new build boots, Rust's `resume_decision` reads the marker against
- *    this machine, the probe reports it as {@link Probe.pendingUpdate}, and
+ *    this machine, the probe reports it as {@link Probe.pendingInstall}, and
  *    this screen finishes the act by installing the bundled agent.
  *
  * **The order is forced, not chosen.** The new app carries a newer bundled
@@ -27,7 +27,7 @@
  * `components/assistant/update-screen.tsx` draws exactly what
  * {@link updateAct} returns.
  */
-import type { AppUpdateCheck, Probe } from "@/lib/ipc";
+import type { AppUpdateCheck, PendingInstall, Probe } from "@/lib/ipc";
 import { paneRisk } from "@/lib/steps";
 
 /** Which half of the act a row is about. */
@@ -116,6 +116,34 @@ export interface UpdateAct {
   /** Whether the act is finished and nothing was behind to start with. */
   upToDate: boolean;
   /**
+   * The marker AS DECIDED, or null when there is nothing left of it here.
+   *
+   * Null on a machine whose agent half cannot run at all (see `unmanaged`
+   * below), which is what keeps a marker an older build wrote from firing
+   * phase 2 on a machine phase 1 would have refused. It is also what the
+   * screen reads to know a press was already consented to in phase 1.
+   */
+  resume: PendingInstall | null;
+  /**
+   * Whether phase 2 should fire ITSELF, now, without asking.
+   *
+   * The press that consented happened in a process that no longer exists, so
+   * there is nothing to ask — but a machine that cannot take the install must
+   * never be one of these, or the screen auto-fires an act it is at the same
+   * time refusing in words.
+   */
+  autoFinish: boolean;
+  /**
+   * Whether the act finished HERE and has nothing left to say about it.
+   *
+   * Its own flag rather than a corner of {@link upToDate}, which means
+   * "nothing was behind to start with" and is deliberately false once this
+   * window has installed something. Without it the screen went BLANK at the
+   * end of a successful act — no rows, no offer, no sentence — the moment the
+   * restart offer was taken or on a machine with no service to restart.
+   */
+  settled: boolean;
+  /**
    * Phase 2's own offer (§ 7.1): the agent file was replaced and the daemon is
    * still running the previous version.
    *
@@ -157,7 +185,6 @@ const NOT_INSTALLED = "not installed";
 export function updateAct(input: UpdateActInput): UpdateAct {
   const { check, probe, checking, installingApp, installingAgent, installedAgentHere, restartedHere, busy } = input;
 
-  const resume = probe?.pendingUpdate ?? null;
   const bundled = probe?.bundledVersion ?? null;
   const installedAgent = probe?.agent?.version ?? null;
 
@@ -174,6 +201,19 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    */
   const unmanaged = probe !== undefined && probe.agent !== null && !probe.managed;
   const agentHalfRuns = bundled !== null && !unmanaged;
+
+  /**
+   * The marker, weighed once more against the half that would finish it.
+   *
+   * Rust now resolves an unmanaged machine's marker to `Resume::Clear`, so
+   * this is defence in depth — but it is also the only layer that can SAY
+   * anything: a marker written by a build that predates that fix still exists
+   * on disk, and without this the act would report `finishing`, fire the
+   * install by itself, and refuse it in the same breath (the § 6 sentence
+   * below renders either way). Refusing it HERE means the screen shows that
+   * refusal and nothing else — no press, no automatic second phase.
+   */
+  const resume = agentHalfRuns ? (probe?.pendingInstall ?? null) : null;
 
   const refusals: string[] = [];
   if (unmanaged) {
@@ -228,12 +268,13 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // A marker halted at the attempt limit is the one state where the press is
   // a RETRY: the boot stopped firing on the person's behalf (spec § 5), so the
   // screen has to offer it rather than wait.
-  const retrying = resume?.exhausted === true;
+  const retrying = resume?.halted === true;
   // An act that is finishing itself offers NO button. A disabled control
   // lettered with the thing already happening beside it says less than no
   // control at all, and the one state where the second phase does need a press
   // is the one it has stopped making on its own.
   const silent = phase === "finishing" && !retrying;
+  const offerRestart = installedAgentHere && !restartedHere && probe?.service?.installed === true;
 
   return {
     phase,
@@ -242,8 +283,15 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     press: silent ? null : retrying ? "agent" : press,
     pressLabel: silent ? null : retrying ? "Retry" : pressLabel,
     canPress: !silent && !busy && !installingApp && !installingAgent && (retrying || press !== null),
-    upToDate: rows.length === 0 && resume === null && !installedAgentHere && check !== undefined && !check.reason,
-    offerRestart: installedAgentHere && !restartedHere && probe?.service?.installed === true,
+    // A refusal is enough to make this false on its own: a machine running
+    // somebody else's agent is not one this app may call up to date, and the
+    // air-gapped `reason` it used to name explicitly is one of those refusals.
+    upToDate:
+      rows.length === 0 && resume === null && !installedAgentHere && check !== undefined && refusals.length === 0,
+    resume,
+    autoFinish: resume !== null && !retrying,
+    settled: phase === "done" && rows.length === 0 && !offerRestart,
+    offerRestart,
     // The same fact every other teardown action on this machine reads, never
     // a second reading of it.
     restartCostsPanes: paneRisk(probe),

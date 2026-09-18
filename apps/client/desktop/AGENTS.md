@@ -463,7 +463,11 @@ rather than aliased — this product has no installed base to keep compatible �
 so the tray emits `"update"` and an id this build does not know is ignored, as
 it always was. The status screen's **"Update the agent to X"** stays where it
 is, because that is the natural place to notice the agent is behind, but it is
-a DOOR to this screen rather than a standalone install (§ 7.4).
+a DOOR to this screen rather than a standalone install (§ 7.4). Beside it sits
+**"Check for updates…"**, the same door for a machine that knows of nothing
+behind — and it is HIDDEN while the first one shows, because two adjacent
+buttons opening one screen under two names is the defect § 1 exists to
+remove.
 
 **The two phases are separated by the relaunch, and the marker is what crosses
 it.** `node_install_app_update` writes `pending_bundled_install` into this
@@ -479,7 +483,7 @@ holding:
   continuation and nothing more — whether work EXISTS is still the machine's
   answer, so a marker whose work was done by a hand `subshell update` in
   between is cleared without acting.
-- **It rides the PROBE** (`Probe.pendingUpdate`, built by `control::resume_view`),
+- **It rides the PROBE** (`Probe.pendingInstall`, built by `control::resume_view`),
   which is what let the whole thing ship with **no new Tauri command and no
   capability change**. `node_probe` already computes the bundled version
   against the installed one, which is exactly the pair the decision weighs, and
@@ -494,6 +498,30 @@ holding:
 - **`forced` never crosses into this app.** It is the marker's pane-safety
   consent for a service RESTART, and phase 2 here restarts nothing. A test
   pins that it is absent from what the page is told.
+
+**The wire names are Subshell Server's, and the two divergences that remain are
+STRUCTURAL.** `PendingInstall`, `pendingInstall` and `halted` are that app's
+spellings, adopted here on 2026-09-18 (this app said `PendingUpdateView`,
+`pendingUpdate` and `exhausted`) so a diff of the two update screens shows a
+difference in design rather than in vocabulary — they are read side by side
+whenever either changes. `attempts` is the field this app had first, and its
+rule is now the shared one: **an attempt is counted at the FIRE**, in
+`node_install_agent`, because an attempt is an attempt whoever asked for it.
+`forced` stays the server's alone, per the bullet above. What genuinely differs:
+
+- **Who raises the screen.** This app does it IN THE WEBVIEW (`app.tsx`, the
+  `raisedUpdate` effect: the first probe carrying a marker sets the `update`
+  override, once per launch); Subshell Server raises its own in Rust at boot.
+  Ours is sound only because **`windows.rs`'s `open_at_startup` opens the node
+  window unconditionally** — the webview that reads the probe is guaranteed to
+  exist on every launch. That dependency is load-bearing and it is the whole
+  reason no Rust-side raise was needed: make the node window conditional again
+  and a relaunched update would sit unfinished behind a window nobody opened.
+- **Who clears a done marker.** `resume_view` clears it HERE, on the poll that
+  noticed — the one write that function makes. The server app's `resume_view`
+  is read-only and its boot path does the clearing, which it can be because it
+  has a boot path that runs. Nothing of ours runs at boot, so the read the page
+  already makes is the only place that can notice.
 
 **Phase 2 ends by OFFERING the restart** (§ 7.1), through the existing
 `commands.restart()` — which already surfaces the CLI's verbatim refusal,

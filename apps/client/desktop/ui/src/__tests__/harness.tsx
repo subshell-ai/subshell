@@ -64,7 +64,7 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
     // No interrupted app update. Every case that wants one passes a marker,
     // because it is the one probe field written by a process that no longer
     // exists.
-    pendingUpdate: null,
+    pendingInstall: null,
     ...overrides,
   };
 }

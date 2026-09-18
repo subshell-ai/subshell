@@ -141,7 +141,7 @@ export function App() {
    */
   const raisedUpdate = useRef(false);
   useEffect(() => {
-    if (raisedUpdate.current || probe?.pendingUpdate == null) return;
+    if (raisedUpdate.current || probe?.pendingInstall == null) return;
     raisedUpdate.current = true;
     setOverride("update");
   }, [probe]);
