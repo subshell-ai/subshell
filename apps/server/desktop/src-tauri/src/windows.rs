@@ -339,6 +339,14 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
             // last COMMITTED page, never against `w.url()`, which is the
             // ACTIVE url and may be one a page merely asked for (see
             // `trust::MainTrust::page`).
+            //
+            // **This arm also covers a window that will not report its URL**,
+            // which used to `clear()` on the reasoning that an unreadable URL
+            // is not evidence of a trusted one. That reasoning belonged to the
+            // model where the flag was decided from what the window said; now
+            // the committed page is the authority, the flag can only be true
+            // because a commit made it so, and asking the window nothing is the
+            // correct response to it telling us nothing (review, 2026-09-18).
             trust.revalidate();
         }
         raise(&w);
@@ -402,6 +410,17 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // raised from `didCommitNavigation:` (macOS) and `LoadEvent::Committed`
         // (GTK), both main-frame-only and both after the document is really
         // this window's.
+        //
+        // **One property holds this, and it is worth naming because no wry API
+        // asserts it**: the URL wry reads inside `didCommitNavigation:` is the
+        // same `WKWebView.URL` that prefers a PENDING load over the committed
+        // one, so a second main-frame load already in flight at that instant
+        // would be what gets recorded. WebKit keeps one provisional main-frame
+        // load per frame and the committing document's scripts have not run
+        // yet, so a page cannot arrange it — and the only load this app starts
+        // itself is `open_main`'s `navigate()`, which CLEARS before it
+        // navigates. Keep it that way: an app-initiated load that did not clear
+        // first would be the one way to record a URL the window is not on.
         .on_page_load(|_webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                 crate::trust::window_state().committed(payload.url());
