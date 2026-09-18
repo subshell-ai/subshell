@@ -1,5 +1,13 @@
 # @internal/desktop-server
 
+## 0.8.0
+
+### Minor Changes
+
+- [#77](https://github.com/subshell-ai/subshell/pull/77) [`ffca436`](https://github.com/subshell-ai/subshell/commit/ffca43632642776c7ccdc6a6ef3e4278367910cf) Thanks [@theogravity](https://github.com/theogravity)! - The Subshell Server assistant greets you again: first run — and every first run after a Reset — opens on the Welcome screen (wordmark, one sentence, Continue) before the zero-touch setup chain fires itself. The intro is inert by design; nothing is installed, configured, or written until you press Continue, and the automatic setup after it is unchanged.
+
+- [#74](https://github.com/subshell-ai/subshell/pull/74) [`a2ebcc3`](https://github.com/subshell-ai/subshell/commit/a2ebcc34e7444ee78fbec9efd0f60d181c3ed232) Thanks [@theogravity](https://github.com/theogravity)! - First run now provisions itself: opening the app on a clean machine installs the bundled server, service and start with no button press — the only stops are tmux when it is missing, and a final **Continue** over the ticked checklist, so the finished run is read rather than watched out of the corner of an eye as the dashboard takes the screen. An available app update is now visible where it wasn't: the tray item names it and opens the update screen, and the update screen gains **Later**. The About facts move to the standard app-menu panel. (spec 2026-09-17-zero-touch-desktop-setup)
+
 ## 0.7.2
 
 ### Patch Changes

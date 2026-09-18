@@ -1,5 +1,21 @@
 # @internal/docs
 
+## 0.2.0
+
+### Minor Changes
+
+- [`380517c`](https://github.com/subshell-ai/subshell/commit/380517cdebe6f72a05937a5b3c39ab839b18b5a6) Thanks [@theogravity](https://github.com/theogravity)! - The updating pages now teach the signed-releases trust model instead of the retired one: every release carries a signed `release-manifest.json`, every update path verifies the publisher's minisign signature against a key compiled into the product, and install digests come from the signed manifest's `assets` map — never the release host's `.sha256` sidecar. The desktop apps are no longer the lone stronger case; the accounted exceptions (the install one-liners, `--from`, an empty `SUBSHELL_RELEASE_URL`) stay stated.
+
+- [#80](https://github.com/subshell-ai/subshell/pull/80) [`d959af5`](https://github.com/subshell-ai/subshell/commit/d959af54fb17a953f2aed3f48efe9c54e77e27e2) Thanks [@theogravity](https://github.com/theogravity)! - The node pages follow the revamped setup: adding a node asks for nothing on the
+  control plane, the machine supplies its own name, and the reveal has two paths — a
+  terminal one-liner or the two values the Subshell Client app pastes. The setup-key
+  claims that were true under the old design are corrected where they were true no
+  longer: a key is not shown once and is not stored as a digest — it is listed in full to
+  whoever minted it, for as long as it can still enroll a machine, and the docs say why
+  that trade is bounded rather than skipping it. The scripted spelling of the node's name
+  (`SUBSHELL_NODE_NAME`, because `curl | bash` has no argv) is documented beside the
+  knobs that already worked that way.
+
 ## 0.1.0
 
 ### Minor Changes
