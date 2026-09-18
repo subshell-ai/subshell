@@ -230,7 +230,18 @@ export function App() {
           // The credentials are collected here and nothing is spent yet: the
           // start-up question is the last thing asked, because its answer
           // parameterizes the chain's own `service install`.
-          onRegister={() => setStep("startup")}
+          //
+          // Validated HERE as well as inside the chain, because this is the
+          // screen that OWNS the fields. The button is gated only on them
+          // being non-empty, so `https//typo` and a truncated key both reach
+          // this press; `validateEnroll`'s per-field refusals are written to
+          // the form, and if the page had already moved on nobody would ever
+          // see them.
+          onRegister={() => {
+            if (runner.busy) return;
+            if (form.validate() === null) return;
+            setStep("startup");
+          }}
         />
       );
     case "startup":
@@ -257,6 +268,10 @@ export function App() {
           // jarring thing the sibling app was reported for.
           onContinue={() => setStep(null)}
           onRetry={runRegister}
+          // Back to the details, unless the machine is already registered —
+          // only the service act fails after enrolment has landed, and by then
+          // changing the details would mean enrolling a second time.
+          onEdit={failedAct === null || failedAct === "start" ? undefined : () => setStep("node")}
         />
       );
     case "connect":

@@ -1,13 +1,26 @@
 /**
  * Register This Machine — the first run's one press (spec 2026-09-18 §§ 5.2, 6).
  *
- * The same three answers `EnrollScreen` collects, asked once and spent by a
- * button that reads **Register** rather than **Enroll**: what follows the press
- * is a chain (install the agent if it is missing → enroll → start the service),
- * and the person is registering this machine, not performing the middle step of
- * it. The fields and their rules are `EnrollFields` + `useEnrollForm`
- * unchanged — a second spelling of "is this a setup key" is how two screens come
- * to disagree about one.
+ * The same three answers `EnrollScreen` collects, asked once. The fields and
+ * their rules are `EnrollFields` + `useEnrollForm` unchanged — a second
+ * spelling of "is this a setup key" is how two screens come to disagree about
+ * one.
+ *
+ * **The button says Continue, because this press does not register** (operator,
+ * 2026-09-18). It collects the answers and asks the start-up question, and the
+ * press on THAT screen is the one that installs, enrols and starts the service
+ * — so that is the one labelled Register. A button that named an act happening
+ * one screen later is the kind of lie this flow was rebuilt to remove.
+ *
+ * It is not for want of trying to register here: nothing can check a setup key
+ * without CONSUMING it (a key is single-use, and `enroll` is the only operation
+ * that tests one), and adding an endpoint that answers "is this key good?"
+ * would be an oracle for guessing them — refused on those grounds, 2026-09-18.
+ * What this press CAN do is check the answers' shape, and it does:
+ * `validateEnroll` runs here, so a URL that does not parse or a truncated key
+ * is refused on the screen that owns the fields rather than three screens
+ * later. Everything that needs the network is reported by the checklist, which
+ * offers a way back here when it fails.
  *
  * Two deliberate differences from `EnrollScreen`, both from § 6.2:
  *
@@ -101,7 +114,7 @@ export function RegisterScreen(props: {
       icon={<KeyRound />}
       barRight={
         <Button className="min-w-[120px]" type="submit" form={FORM_ID} disabled={busy || blocked || !filled}>
-          Register
+          Continue
         </Button>
       }
     >

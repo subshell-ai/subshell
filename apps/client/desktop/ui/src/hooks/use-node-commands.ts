@@ -379,37 +379,10 @@ export function useNodeCommands(args: {
      */
     register: ({ startAtLogin, onPhase, onFailed }) =>
       runner.run(async () => {
-        // BEFORE any spawn: the Register button stays live for a malformed
-        // field on purpose, so this press is where `validateEnroll`'s per-field
-        // refusals are rendered. Refused here means nothing ran and no key was
-        // spent.
-        const args = form.validate();
-        if (args === null) return finished(null);
         onFailed(null);
 
-        // A no-op where an agent is already installed, which is what makes a
-        // resumed run converge rather than refuse.
-        if (probe?.step === "no-agent") {
-          onPhase("installing");
-          const installed = await nodeInstallAgent();
-          if (!installed.ok) {
-            onFailed("install");
-            return finished(installed);
-          }
-        }
-
-        /** Everything after a decided enrolment: the key, the row, the service. */
-        const afterEnroll = async (enrolled: EnrollOutcome) => {
-          // Spent whatever happened — a consumed credential has no business
-          // sitting in a field the next click could re-send. The NAME survives:
-          // a taken name is the common retry and is what gets retyped anyway.
-          form.clearSpentKey();
-          if (!enrolled.ok) {
-            onFailed("enroll");
-            return finished(enrolled);
-          }
-          onEnrolled(enrolled.node);
-
+        /** Install and start the service — the chain's last act. */
+        const startService = async () => {
           onPhase("starting");
           const started = await nodeService({ verb: "install", force: false, autostart: startAtLogin });
           if (!started.ok) {
@@ -423,6 +396,53 @@ export function useNodeCommands(args: {
           onPhase("done");
           return finished(started);
         };
+
+        /** Everything after a decided enrolment: the key, the row, the service. */
+        const afterEnroll = async (enrolled: EnrollOutcome) => {
+          // Spent whatever happened — a consumed credential has no business
+          // sitting in a field the next click could re-send. The NAME survives:
+          // a taken name is the common retry and is what gets retyped anyway.
+          form.clearSpentKey();
+          if (!enrolled.ok) {
+            onFailed("enroll");
+            return finished(enrolled);
+          }
+          onEnrolled(enrolled.node);
+          return startService();
+        };
+
+        // A RETRY after the SERVICE act failed arrives here with this machine
+        // already registered. Enrolling again would mint a second node row and
+        // discard the node key the previous attempt just stored — so the act
+        // is skipped rather than repeated, which is what makes the chain
+        // resumable instead of destructive on its second press.
+        //
+        // It is answered FIRST, ahead of the form, and that order is the whole
+        // of it: `afterEnroll` clears the spent key, so on this very press
+        // `form.validate()` refuses an empty one — and refusing for an act
+        // that is not going to run is how a Retry becomes a button that does
+        // nothing at all, which is the dead end the checklist exists to avoid.
+        // Nothing below this line is needed to start a service.
+        if (probe?.status?.nodeId) return startService();
+
+        // BEFORE any spawn: the Register button stays live for a malformed
+        // field on purpose, so this press is where `validateEnroll`'s per-field
+        // refusals are rendered. Refused here means nothing ran and no key was
+        // spent. (The Register screen validates too, so on a first run these
+        // have already been seen; this is the guard for every other caller.)
+        const args = form.validate();
+        if (args === null) return finished(null);
+
+        // A no-op where an agent is already installed, which is what makes a
+        // resumed run converge rather than refuse.
+        if (probe?.step === "no-agent") {
+          onPhase("installing");
+          const installed = await nodeInstallAgent();
+          if (!installed.ok) {
+            onFailed("install");
+            return finished(installed);
+          }
+        }
 
         onPhase("enrolling");
         // `confirm: false` FIRST, always.

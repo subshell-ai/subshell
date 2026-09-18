@@ -79,18 +79,40 @@ export function ProgressScreen(props: {
   done: boolean;
   /** Step on to the Connected screen. Never fired by this screen itself. */
   onContinue: () => void;
+  /**
+   * Go back to the registration details, when editing them is still safe.
+   *
+   * `undefined` once the machine IS registered (the service act is the only
+   * one that fails after enrolment landed): the details are spent by then, and
+   * offering to change them would invite a second enrolment that mints another
+   * node row and discards this machine's key.
+   */
+  onEdit?: () => void;
   /** Re-run the chain from the top; done acts are no-ops. */
   onRetry: () => void;
   /** An act is in flight, so neither press is available. */
   busy: boolean;
 }) {
-  const { shell, rows, failureOutput, done, onContinue, onRetry, busy } = props;
+  const { shell, rows, failureOutput, done, onContinue, onRetry, onEdit, busy } = props;
   const failed = rows.some((row) => row.state === "failed");
   const failure = failureOutput.trim();
 
   return (
     <Frame
       {...shell}
+      barLeft={
+        // The way BACK, and the reason it is not just Retry: an enrolment that
+        // reached the control plane spends the setup key whatever it answered,
+        // so `clearSpentKey` empties that field — and a Retry with an empty key
+        // is refused before it spawns, which would leave this screen with
+        // nothing moving and nothing to press. Editing the details is the only
+        // remedy that can actually converge.
+        failed && onEdit ? (
+          <Button variant="ghost" disabled={busy} onClick={onEdit}>
+            Edit details
+          </Button>
+        ) : undefined
+      }
       barRight={
         /*
          * Three bars, and the middle one is the point: while the chain runs

@@ -43,8 +43,15 @@ export function StartupScreen(props: {
       {...shell}
       icon={<Power />}
       barRight={
+        /*
+         * **Register**, not Continue: this is the press that acts. It installs
+         * the agent if there is none, enrols this machine — spending the setup
+         * key — and installs the service with the answer above. The screen
+         * before it collects the details and says Continue, because it spends
+         * nothing (operator, 2026-09-18).
+         */
         <Button className="min-w-[120px]" disabled={busy} onClick={onContinue}>
-          Continue
+          Register
         </Button>
       }
     >

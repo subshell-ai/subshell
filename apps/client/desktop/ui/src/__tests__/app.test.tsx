@@ -865,8 +865,8 @@ describe("the first run", () => {
     });
     chooseNode();
     await waitFor(() => expect(screen.getByRole("heading", { name: "Install tmux" })).toBeTruthy());
-    // The press that spends a key is not merely disabled here — it is not on
-    // screen, and neither is a skip.
+    // Neither press exists here — not the one that leaves the details screen,
+    // not the one that spends the key, and no skip either.
     expect(buttonOrNull("Register")).toBeNull();
     expect(buttonOrNull("Continue")).toBeNull();
     // The command a person can paste instead, because a package manager may
@@ -889,16 +889,23 @@ describe("the first run", () => {
     confirmations: [],
   };
 
-  /** Walk to Register, fill it, and press through the start-up question. */
+  /**
+   * Walk to Register, fill it, and press through the start-up question.
+   *
+   * The two labels are the way round they are on purpose (2026-09-18): the
+   * details screen COLLECTS and spends nothing, so it says **Continue**; the
+   * start-up screen is where the press ACTS — install, enrol, service — so it
+   * says **Register**. A button is named for what pressing it does.
+   */
   const registerAs = async (server: string) => {
     chooseNode();
     await screen.findByRole("heading", { name: "Register This Machine" });
     typeInto("Server URL", server);
     typeInto("Setup key", GOOD_KEY);
     typeInto("Node name", "workstation");
-    fireEvent.click(button("Register"));
-    await screen.findByRole("heading", { name: "How This Node Runs" });
     fireEvent.click(button("Continue"));
+    await screen.findByRole("heading", { name: "How This Node Runs" });
+    fireEvent.click(button("Register"));
     await screen.findByRole("heading", { name: "Setting Up…" });
   };
 
@@ -1054,6 +1061,152 @@ describe("the first run", () => {
     // from the `already-enrolled` case above, where it waits for a press.
     expect(chainOrder(fake)).toEqual(["node_install_agent", "node_enroll", "node_enroll", "node_service"]);
     expect(fake.callsTo("node_enroll").map((a) => a.confirm)).toEqual([false, true]);
+  });
+
+  // 1. The press that goes nowhere, and why it was worse than a refusal.
+  //
+  // The Register button is gated only on the three fields being NON-EMPTY, so
+  // `https//typo` and a truncated key both reach the press — but
+  // `validateEnroll` wants a parseable http(s) URL with a host and `nsk_` plus
+  // 32 characters. The chain used to be the only validator, which meant the
+  // page had already stepped to start-up and then to the checklist by the time
+  // the refusals were written to the form: the per-field errors rendered on a
+  // screen nobody was looking at, and what the person saw was a checklist with
+  // no row moving and NO button at all, since `barRight` appears only on
+  // `failed` or `done`. The screen that owns the fields validates them.
+  it("refuses a malformed URL or key on the screen that owns the fields", async () => {
+    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    chooseNode();
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    typeInto("Server URL", "https//typo");
+    typeInto("Setup key", "nsk_short");
+    typeInto("Node name", "workstation");
+    fireEvent.click(button("Continue"));
+
+    // Still here, with the refusals beside the fields they are about.
+    expect(screen.getByRole("heading", { name: "Register This Machine" })).toBeTruthy();
+    expect(screen.getByText(/Include the scheme/)).toBeTruthy();
+    expect(screen.getByText(/partial paste/)).toBeTruthy();
+    // Not one screen further on, which is where those sentences used to land.
+    expect(screen.queryByRole("heading", { name: "How This Node Runs" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Setting Up…" })).toBeNull();
+    // And nothing ran: no agent installed, no key spent, no service written.
+    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_enroll")).toEqual([]);
+    expect(fake.callsTo("node_service")).toEqual([]);
+  });
+
+  // 2. The way back, and the reason Retry alone could never be it.
+  //
+  // An enrolment that reached the control plane spends the setup key WHATEVER
+  // it answered, so `clearSpentKey` empties that field — and a Retry with an
+  // empty key is refused by `validateEnroll` before it spawns anything. Retry
+  // was therefore a button that could not converge: press it forever and the
+  // checklist never moves. Editing the details is the only remedy, which is
+  // what the operator asked for.
+  it("offers a way back to the details after a failed enrolment, key cleared", async () => {
+    const TAKEN = "subshell: that node name is already taken on this server — mint a new key and try again";
+    await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: () => ({
+          ok: false,
+          stdout: "",
+          stderr: TAKEN,
+          node: null,
+          requiresConfirmation: false,
+          confirmations: [],
+        }),
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(buttonOrNull("Edit details")).not.toBeNull());
+    // Beside Retry, not instead of it: a fresh key in the same fields is the
+    // other half of the answer, and the CLI's own words say which it is.
+    expect(buttonOrNull("Retry")).not.toBeNull();
+    expect(screen.getByText(TAKEN)).toBeTruthy();
+
+    fireEvent.click(button("Edit details"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    // What the operator typed survives; only the credential that was spent is
+    // gone, because that is the one field a retry has to change.
+    expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
+    expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toBe("workstation");
+    expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe("");
+  });
+
+  // 3. …and the way back is WITHHELD once the machine is a node.
+  //
+  // Only the service act can fail after enrolment landed, and the details are
+  // spent by then: going back to them would invite a second enrolment, which
+  // mints another node row and discards the key this run just stored. Retry is
+  // the whole remedy here, and it is enough — the service act is repeatable.
+  it("offers no way back to the details once the enrolment has landed", async () => {
+    await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: () => enrolledOk,
+        node_service: () => ({ ok: false, stdout: "", stderr: "Failed to start subshell.service" }),
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(buttonOrNull("Retry")).not.toBeNull());
+    expect(screen.getByText(/Failed to start subshell.service/)).toBeTruthy();
+    expect(buttonOrNull("Edit details")).toBeNull();
+  });
+
+  // 4. The Retry that must not re-enrol.
+  //
+  // A Retry after the SERVICE act failed arrives with the machine ALREADY
+  // registered — enrol succeeded, the row exists, the node key is on disk. The
+  // chain used to start from the top, so that second press enrolled again:
+  // another node row on the control plane, the first left behind permanently
+  // offline, and the only copy of the node key this run had just stored
+  // discarded. `register()` returns straight to the service act when the probe
+  // reports a `nodeId`, which is what makes the chain resumable rather than
+  // destructive on its second press.
+  it("resumes at the service act on retry, rather than enrolling a second time", async () => {
+    let fake!: FakeIpc;
+    let starts = 0;
+    fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_enroll: () => {
+          // The machine really is a node from here on, so the probe says so —
+          // which is the fact the resume reads, and the reason this is not a
+          // contrivance: the run's own re-probe is what delivers it.
+          fake.setProbe(makeProbe());
+          return enrolledOk;
+        },
+        node_service: () => {
+          starts += 1;
+          return starts === 1
+            ? { ok: false, stdout: "", stderr: "Failed to start subshell.service" }
+            : { ok: true, stdout: "installed the service", stderr: "" };
+        },
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(buttonOrNull("Retry")?.disabled).toBe(false), { timeout: 5_000 });
+    expect(fake.callsTo("node_enroll").length).toBe(1);
+
+    fireEvent.click(button("Retry"));
+    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(2), { timeout: 5_000 });
+    // The act that spends a key and rewrites `config.json` ran ONCE across
+    // both presses. Not "once more with confirm" — not at all.
+    expect(fake.callsTo("node_enroll").length).toBe(1);
+    // And the resumed run finishes, so the checklist reaches its handoff
+    // rather than stranding a machine that is one act from working.
+    await waitFor(() => expect(buttonOrNull("Continue")?.disabled).toBe(false), { timeout: 8_000 });
   });
 
   // The other answer, and the rule the whole flow exists for: the watch path
@@ -1263,7 +1416,7 @@ describe("tmux is a hard stop, not a hint", () => {
       }),
     });
     expect(screen.getByRole("heading", { name: "Register This Machine" })).toBeTruthy();
-    expect(button("Register").disabled).toBe(true);
+    expect(button("Continue").disabled).toBe(true);
     expect(screen.getByText(/so enrolling is disabled/)).toBeTruthy();
     cleanup();
     ipc?.restore();

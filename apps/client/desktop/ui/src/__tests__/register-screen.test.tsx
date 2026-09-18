@@ -42,7 +42,11 @@ function Host(props: { probe: Probe | undefined; onRegister?: () => void; busy?:
   );
 }
 
-const button = () => screen.getByRole("button", { name: "Register" }) as HTMLButtonElement;
+// "Continue", not "Register": this screen COLLECTS the three answers and
+// spends nothing, so the press that acts is the start-up screen's
+// (2026-09-18). The prop is still `onRegister` — it names what the walk is
+// for, not what this button does.
+const button = () => screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
 
 /** Fill the form through its own inputs, which is how `filled` is ever true. */
 function fill(values: { server?: string; key?: string; name?: string } = {}) {
@@ -181,7 +185,7 @@ describe("the Register screen", () => {
     fireEvent.click(button());
     expect(presses).toBe(1);
     // One button on the screen, and it is the one that was just pressed.
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Register"]);
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Continue"]);
     expect(screen.queryByText(/Confirm/)).toBeNull();
   });
 });

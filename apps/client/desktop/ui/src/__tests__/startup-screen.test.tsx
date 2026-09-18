@@ -55,7 +55,7 @@ describe("the start-up screen", () => {
 
   it("continues on the one primary", () => {
     const { continues } = renderStartup();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
     expect(continues).toEqual([1]);
   });
 
@@ -85,12 +85,16 @@ describe("the start-up screen", () => {
     expect(screen.getAllByRole("switch").length).toBe(1);
     expect(screen.queryByRole("radiogroup")).toBeNull();
     expect(screen.queryAllByRole("radio").length).toBe(0);
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Continue"]);
+    // "Register", not "Continue": this is the press that ACTS — it installs the
+    // agent, spends the setup key and writes the service with the answer
+    // above. The details screen before it collects and spends nothing, so
+    // that one says Continue (operator, 2026-09-18).
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Register"]);
   });
 
   it("changes nothing while an action is in flight", () => {
     const { changes, continues } = renderStartup({ busy: true });
-    const button = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    const button = screen.getByRole("button", { name: "Register" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     fireEvent.click(screen.getByRole("switch"));
